@@ -5,17 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
-- No active development work. Governance was bootstrapped onto an existing,
-  working module.
+- All 11 adversarial review findings fixed and merged to master (2026-06-26).
+- 27/27 Pester tests passing at HEAD (c3ca8d6).
+- Final Opus whole-branch review: Ready to merge, no critical or important issues remaining.
 
 ## Next
 
-- Open review findings recorded 2026-06-26 await a decision to act; see the Open
-  Decisions queue in `.agents/decisions.md`.
+- No active development work. Module is in a clean, reviewed state.
+- Open decisions queue is empty; see `docs/history/decisions-archive.md` for history.
 
 ## Blockers
 
-- None recorded.
+- None.
 
 ## Verification
 

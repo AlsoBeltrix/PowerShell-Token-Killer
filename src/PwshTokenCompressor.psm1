@@ -299,7 +299,11 @@ function Compress-PtcMinimalText {
     if ($Language -eq 'PowerShell') {
         return Remove-PtcPowerShellComments $Text
     }
-    Remove-PtcGenericComments -Text $Text -Language $Language
+    # At minimal level, skip generic comment stripping to avoid false-positive drops
+    # of lines that start with // or # inside multi-line strings. The aggressive level
+    # calls Remove-PtcGenericComments via Compress-PtcCodeAggressive where the trade-off
+    # is accepted. Minimal is near-lossless: only normalize blank lines.
+    Normalize-PtcBlankLines $Text
 }
 
 function Get-PtcPowerShellAst {

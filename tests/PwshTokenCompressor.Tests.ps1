@@ -184,6 +184,25 @@ Describe 'smart read modes' {
         $result | Should -Match 'IWidget'
     }
 
+    It 'preserves lines starting with # inside multi-line strings at minimal level' {
+        # A Python triple-quoted string containing a # line — must not be stripped at minimal level
+        $text = @"
+x = """
+# comment inside string
+some value
+"""
+y = 1
+"@
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) 'ptk-test-multiline.py'
+        Set-Content -LiteralPath $tmp -Value $text -NoNewline
+        try {
+            $result = Invoke-PtcRead -Path $tmp -Level minimal
+        } finally {
+            Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
+        $result | Should -Match '# comment inside string'
+    }
+
     It 'reports savings for smart modes' {
         $file = Join-Path $PSScriptRoot 'fixtures/SampleModule.psm1'
         $result = Measure-PtcSavings -Path $file

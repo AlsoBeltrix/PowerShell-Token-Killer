@@ -35,7 +35,11 @@ Or use the launcher:
 
 - `none`: preserve the requested text window.
 - `minimal`: strip comments and repeated blank lines where safe.
-- `aggressive`: keep structure, signatures, imports, exports, and drop most bodies.
+- `aggressive`: keep imports, exports, and structural declarations (`class`, `interface`,
+  `namespace`, `function`/`def`/`fn`, etc.) and drop most bodies. For PowerShell, uses
+  the AST for accurate detection. For other languages (C#, Java, …), uses regex
+  heuristics that match `class`/`interface`/`namespace` and keyword-prefixed declarations
+  but do not capture bare method signatures without a function keyword.
 - `summary`: emit a compact technical summary.
 
 PowerShell files use the PowerShell parser/AST for function, class, alias, import,

@@ -157,6 +157,20 @@ Describe 'smart read modes' {
         $result | Should -Not -Match 'This body should be dropped'
     }
 
+    It 'aggressively keeps C# class/namespace/using declarations but not method signatures' {
+        # C# method signatures (e.g. "public void Run()") use no function keyword and
+        # are not captured by aggressive mode; this is documented behaviour, not a gap.
+        $file = Join-Path $PSScriptRoot 'fixtures/Sample.cs'
+        $result = ptk read $file -Level aggressive
+
+        $result | Should -Match 'using System'
+        $result | Should -Match 'namespace Demo'
+        $result | Should -Match 'public class WidgetService'
+        $result | Should -Match 'public interface IWidget'
+        # Method bodies and bare method signatures are not retained in aggressive mode for C#
+        $result | Should -Not -Match 'Console\.WriteLine'
+    }
+
     It 'summarizes Markdown outline and code blocks' {
         $file = Join-Path $PSScriptRoot 'fixtures/Sample.md'
         $result = ptk smart $file

@@ -32,12 +32,17 @@ function Invoke-PtcTextFilterScoped {
 
 $script:PtcRouterModel   = 'qwen3.6:35b-mlx'
 $script:PtcOllamaUrl     = 'http://localhost:11434/api/generate'
-$script:PtcModelMaxTok   = 250000   # below ollama's ~256k ceiling, with headroom
+# qwen3.6:35b-mlx native context is 262144 (256k). ollama would default to 256k
+# on a >=48GiB machine, but an explicit num_ctx in the request OVERRIDES that — so
+# we must request a window large enough to hold what we send, or ollama silently
+# truncates the input to num_ctx (Codex review #1). Keep the request window and the
+# skip-gate as ONE number so "we sent it" and "the model can hold it" never diverge.
+$script:PtcModelCtx      = 262144   # request the model's full native context
+$script:PtcModelMaxTok   = 250000   # skip-gate: below the 256k window, with headroom
 $script:PtcLongTextTok   = 1500     # only bother with the model above this
 $script:PtcSmallTextTok  = 400      # below this, pass text through raw — already cheap,
                                     # and digesting already-compact output (e.g.
                                     # `git log --oneline`) destroys it. Found in testing.
-$script:PtcModelCtx      = 32768
 
 # Rough token estimate (chars/4) — good enough for routing + labeling, no tiktoken dep.
 function Get-PtcApproxTokens {
@@ -97,6 +102,11 @@ Output only the optimized document, no preamble.
         return "[ptk:model ERROR — $($_.Exception.Message). Returning raw text.]`n$Text"
     }
     $out = $resp.response
+    if ([string]::IsNullOrEmpty($out)) {
+        # HTTP 200 but no usable response field — don't crash on $null.Trim();
+        # fall back to labeled raw (Codex review #6).
+        return "[ptk:model ERROR — empty/malformed response from $Model. Returning raw text.]`n$Text"
+    }
     if ($out -match '(?s)<think>.*?</think>') { $out = $out -replace '(?s)<think>.*?</think>', '' }
     $out = $out.Trim()
     $outTok = Get-PtcApproxTokens $out

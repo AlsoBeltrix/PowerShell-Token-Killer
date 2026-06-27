@@ -34,6 +34,9 @@ $script:PtcRouterModel   = 'qwen3.6:35b-mlx'
 $script:PtcOllamaUrl     = 'http://localhost:11434/api/generate'
 $script:PtcModelMaxTok   = 250000   # below ollama's ~256k ceiling, with headroom
 $script:PtcLongTextTok   = 1500     # only bother with the model above this
+$script:PtcSmallTextTok  = 400      # below this, pass text through raw — already cheap,
+                                    # and digesting already-compact output (e.g.
+                                    # `git log --oneline`) destroys it. Found in testing.
 $script:PtcModelCtx      = 32768
 
 # Rough token estimate (chars/4) — good enough for routing + labeling, no tiktoken dep.
@@ -154,6 +157,7 @@ function Invoke-PtcRoute {
         'model' { return Invoke-PtcModel -Text $text -Model $Model }
         'auto'  {
             if (Test-PtcLogShaped $text)          { return Invoke-PtcRtkLog -Text $text }
+            if ($tok -lt $script:PtcSmallTextTok) { return $text }  # already cheap; don't digest
             if ($tok -ge $script:PtcLongTextTok)  { return Invoke-PtcModel -Text $text -Model $Model }
             return Invoke-PtcTextFilterScoped -Text $text -Path 'out.txt'
         }

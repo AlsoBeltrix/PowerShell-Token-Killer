@@ -94,14 +94,14 @@ Describe 'ptk dispatcher' {
         # path does NOT appear in the generated script. If the fix were reverted (i.e.,
         # the path were interpolated into the script string), the decoded script would
         # contain the literal path and this test would fail.
-        $capturedScript = $null
+        $script:capturedScript = $null
         Mock -ModuleName PwshTokenCompressor Start-Process {
             # Find the encoded command argument (the element after '-EncodedCommand')
-            $idx = $ArgumentList.IndexOf('-EncodedCommand')
-            if ($idx -ge 0 -and $idx + 1 -lt $ArgumentList.Count) {
-                $encoded = $ArgumentList[$idx + 1]
-                $decoded = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
-                Set-Variable -Name capturedScript -Value $decoded -Scope 1
+            $argArr = @($ArgumentList)
+            $idx = [Array]::IndexOf($argArr, '-EncodedCommand')
+            if ($idx -ge 0 -and $idx + 1 -lt $argArr.Count) {
+                $encoded = $argArr[$idx + 1]
+                $script:capturedScript = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($encoded))
             }
             # Return a fake process object with ExitCode 0
             [pscustomobject]@{ ExitCode = 0 }
@@ -110,13 +110,12 @@ Describe 'ptk dispatcher' {
         # Also mock Test-Path and Import-Clixml so we don't need a real temp file
         Mock -ModuleName PwshTokenCompressor Test-Path { $false } -Verifiable
 
-        $env:PTC_TEMP = [System.IO.Path]::GetTempPath()  # SABOTAGE
         Invoke-PtcRun -Command 'Write-Output "injection-guard"'
 
         # The generated script must not contain the literal temp path; it should only
         # reference $env:PTC_TEMP (the safe env-var indirection).
         $tempBase = [System.IO.Path]::GetTempPath().TrimEnd([System.IO.Path]::DirectorySeparatorChar, '/')
-        $capturedScript | Should -Not -Match ([regex]::Escape($tempBase))
+        $script:capturedScript | Should -Not -Match ([regex]::Escape($tempBase))
     }
 
     It 'does not emit [exit] for a pure-PowerShell ScriptBlock when stale LASTEXITCODE is set' {

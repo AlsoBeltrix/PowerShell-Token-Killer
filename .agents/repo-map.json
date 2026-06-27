@@ -1,0 +1,46 @@
+{
+  "validated_against": {
+    "commit": "2c6d4452d2eb4cf4977eb03421c076cb89bc0c67",
+    "date": "2026-06-26"
+  },
+  "projects": [
+    {
+      "name": "PwshTokenCompressor",
+      "type": "PowerShell module",
+      "language": "PowerShell 7.2+",
+      "entry_points": [
+        "src/PwshTokenCompressor.psd1",
+        "src/PwshTokenCompressor.psm1",
+        "ptk.ps1"
+      ],
+      "tests": "tests/PwshTokenCompressor.Tests.ps1"
+    }
+  ],
+  "verification": {
+    "status": "confirmed",
+    "commands": [
+      "pwsh -NoProfile -Command \"Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal\""
+    ],
+    "policy": {
+      "code_changes": "Run current automated verification before claiming completion.",
+      "docs_only": "Code verification is not required unless docs affect setup, commands, runtime behavior, generated files, or user-visible behavior.",
+      "manual_behavior": "Run the relevant manual check, smoke test, or playtest for behavior not covered by automation, or state clearly that it was not run."
+    }
+  },
+  "fact_bearing_paths": [
+    "src/PwshTokenCompressor.psm1",
+    "src/PwshTokenCompressor.psd1",
+    "tests/PwshTokenCompressor.Tests.ps1"
+  ],
+  "guidance_paths": [
+    "AGENTS.md",
+    ".agents/state.md",
+    ".agents/decisions.md",
+    ".agents/repo-map.json",
+    ".agents/artifact-manifest.json"
+  ],
+  "notes": [
+    "Verification command run during bootstrap: 19 tests passed, 0 failed.",
+    "No CI configured in this repo (no provider-executable workflow files found); verification is local-only."
+  ]
+}

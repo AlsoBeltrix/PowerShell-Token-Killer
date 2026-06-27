@@ -412,8 +412,12 @@ function Compress-PtcMarkdownSummary {
     $lines = @($Text -split "`r?`n")
     $headings = @($lines | Where-Object { $_ -match '^\s{0,3}#{1,6}\s+\S' } | Select-Object -First 12)
     $bullets = @($lines | Where-Object { $_ -match '^\s{0,4}[-*+]\s+\S' } | Select-Object -First 8)
-    $codeLangs = @([regex]::Matches($Text, '```([A-Za-z0-9_+-]*)') | ForEach-Object {
-        if ($_.Groups[1].Value) { $_.Groups[1].Value } else { 'plain' }
+    # Collect only opening fences (even-indexed matches: 0, 2, 4, …).
+    # Closing fences (``` with no language tag) are odd-indexed and must not be counted.
+    $allFenceMatches = @([regex]::Matches($Text, '```([A-Za-z0-9_+-]*)'))
+    $codeLangs = @(for ($fi = 0; $fi -lt $allFenceMatches.Count; $fi += 2) {
+        $lang = $allFenceMatches[$fi].Groups[1].Value
+        if ($lang) { $lang } else { 'plain' }
     })
     $title = @($headings | Select-Object -First 1)
 
@@ -541,6 +545,9 @@ function Invoke-PtcTextFilter {
         $filtered = Limit-PtcText -Text $filtered -MaxLines $MaxLines -Width $Width
     }
 
+    # For summary level the output is a structured digest, not a compression —
+    # never-worse length comparison does not apply; always return the summary.
+    if ($Level -eq 'summary') { return $filtered }
     Use-PtcNeverWorse -Raw $rawWindow -Compressed $filtered
 }
 

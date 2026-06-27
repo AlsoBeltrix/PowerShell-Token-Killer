@@ -12,7 +12,10 @@ short and update it when important repo facts change.
 ## Next
 
 - No active development work. Module is in a clean, reviewed state.
-- Open decisions queue is empty; see `docs/history/decisions-archive.md` for history.
+- One open decision deferred by owner (2026-06-27): whether/how to build a "universal
+  PowerShell wrapper" rearchitecture. Full question, verified evidence, settled
+  sub-decisions, and standing recommendation are in `.agents/decisions.md` (Open
+  Decisions). Resume there; do not re-derive.
 
 ## Blockers
 

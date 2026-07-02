@@ -120,8 +120,10 @@ its own go.
 
 ### OPEN (2026-06-27): Whether to give ptk a session-persistent warm-runspace backend
 
-**Status:** Open - deferred, recording the design exploration. No code change
-authorized. This is the **substrate** counterpart to the universal-wrapper decision
+**Status:** Open - selected as active work by owner 2026-07-02 (build the MCP server
+with persistent runspace first; object compression via ptk comes after). A durable
+plan is still required before code. This is the **substrate** counterpart to the
+universal-wrapper decision
 above: that entry settled that the universal path MUST run in-process to preserve a
 warm host; this entry asks where that warm host should come from when the harness does
 not happen to provide one.
@@ -177,9 +179,14 @@ depending on an ambient one.
 - **Implementation = .NET stdio server hosting `System.Management.Automation`**, owning a
   single `Runspace` in-process. The `PwshTokenCompressor` module loads once in that same
   runspace.
-- **EXO/Graph auth = app registration + certificate (app-only) is a HARD REQUIREMENT.**
-  No interactive `Connect-*` in the server. A tenant/box that cannot meet this is out of
-  scope rather than a reason to add an interactive fallback.
+- **Core requirement = modules load once with no reload tax across calls.** Heavy
+  modules (`ActiveDirectory`, `ExchangeOnlineManagement`, etc.) import into the warm
+  runspace on first use and stay loaded. For connection-bearing modules, unattended
+  auth (e.g. app-registration + certificate for EXO) is the supported pattern — no
+  interactive `Connect-*` in the server. EXO is an example, not the defining case.
+  (Corrected 2026-07-02: an earlier version of this entry recorded cert-based EXO
+  auth itself as the hard requirement; owner clarified the requirement is warm module
+  load generally.)
 - **One serial runspace, not a pool.** Cmdlets and implicit-remoting PSSessions are not
   thread-safe; serialize calls. A per-call timeout recycles the runspace on a wedge
   rather than hanging the session. Reach for a `RunspacePool` only if real parallelism is

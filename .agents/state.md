@@ -5,9 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-- Module is in a clean, reviewed state. HEAD is 5e7d117, and `origin/master` matches it
-  (`git rev-parse HEAD origin/master`, both `5e7d117`) — nothing is committed-but-unpushed.
-  31/31 Pester tests passing.
+- Module is in a clean, reviewed state. HEAD is 9ae82a3 and `origin/master` matches it
+  — nothing is committed-but-unpushed. 31/31 Pester tests passing (last run 2026-07-02).
 - A 2026-06-27 design session explored a "universal PowerShell wrapper" rearchitecture
   (triggered by `ptk Get-ChildItem` printing help instead of running). No product code
   was written; the owner deferred the build decision. Recorded as an Open decision
@@ -15,8 +14,12 @@ short and update it when important repo facts change.
 - A follow-on 2026-06-27 exploration looked at giving ptk a session-persistent
   warm-runspace backend (a stdio MCP server owning a `Runspace` that loads heavy
   modules / authenticated connections once). Recorded as a second Open decision in
-  `.agents/decisions.md`; app-reg + certificate EXO auth is a settled hard requirement.
-  No code authorized.
+  `.agents/decisions.md`. The core requirement is warm module load with no reload
+  tax; unattended (cert-based) auth is the pattern for connection-bearing modules
+  like EXO, not itself the requirement (owner correction 2026-07-02).
+- 2026-07-02: owner selected the warm-runspace MCP server as the active work item:
+  get the server with a persistent runspace working first, then object compression
+  via ptk on top. A durable plan is still required before code.
 - Owner intent that frames future work: ptk is a personal/team tool complementing the
   owner's `headroom` PoC on Windows/PowerShell work, not an org-wide tool. The build
   trigger is measured benefit on real daily Windows usage, not faith. See
@@ -27,11 +30,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-- Two open decisions deferred by owner (both 2026-06-27), in `.agents/decisions.md`
-  (Open Decisions) - resume there, do not re-derive:
-  1. whether/how to build a "universal PowerShell wrapper" rearchitecture (the surface);
-  2. whether to give ptk a session-persistent warm-runspace backend via a stdio MCP
-     server (the substrate). The two are complementary, not alternatives.
+- Draft the durable plan for the warm-runspace stdio MCP server (owner's chosen work
+  item, 2026-07-02) and get it approved before any code. Settled sub-decisions live
+  in `.agents/decisions.md` under that Open Decision - resume there, do not re-derive.
+- The "universal PowerShell wrapper" decision (the surface) stays open/deferred; its
+  run-anything surface largely falls out of the server's `ptk_invoke` tool anyway.
 
 ## Blockers
 

@@ -14,12 +14,24 @@
         "ptk.ps1"
       ],
       "tests": "tests/PwshTokenCompressor.Tests.ps1"
+    },
+    {
+      "name": "PtkMcpServer",
+      "type": ".NET stdio MCP server (warm-runspace substrate)",
+      "language": "C# / net10.0",
+      "entry_points": [
+        "server/PtkMcpServer/Program.cs"
+      ],
+      "tests": "server/PtkMcpServer.Tests/",
+      "plan": ".agents/plans/warm-runspace-mcp-server.md"
     }
   ],
   "verification": {
     "status": "confirmed",
     "commands": [
-      "pwsh -NoProfile -Command \"Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal\""
+      "pwsh -NoProfile -Command \"Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal\"",
+      "dotnet test server/PtkMcpServer.slnx",
+      "pwsh -NoProfile -File server/test-handshake.ps1"
     ],
     "policy": {
       "code_changes": "Run current automated verification before claiming completion.",

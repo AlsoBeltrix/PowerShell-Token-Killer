@@ -81,8 +81,10 @@ try {
     Send-Rpc @{ jsonrpc = '2.0'; id = 2; method = 'tools/list' }
     $tools = Read-RpcResponse -Id 2
     $names = @($tools.result.tools.name)
-    if ($names -notcontains 'ptk_ping') {
-        throw "ptk_ping missing from tools/list; got: $($names -join ', ')"
+    foreach ($required in @('ptk_ping', 'ptk_invoke')) {
+        if ($names -notcontains $required) {
+            throw "$required missing from tools/list; got: $($names -join ', ')"
+        }
     }
     Write-Host "tools/list ok: $($names -join ', ')"
 
@@ -94,6 +96,23 @@ try {
     $text = $call.result.content[0].text
     if ($text -ne 'pong') { throw "ptk_ping returned '$text', expected 'pong'." }
     Write-Host 'ptk_ping ok: pong'
+
+    # Two ptk_invoke calls sharing state prove the warm runspace end to end.
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 4; method = 'tools/call'
+        params = @{ name = 'ptk_invoke'; arguments = @{ script = '$warm = 41' } }
+    }
+    [void](Read-RpcResponse -Id 4)
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 5; method = 'tools/call'
+        params = @{ name = 'ptk_invoke'; arguments = @{ script = '$warm + 1' } }
+    }
+    $warmText = (Read-RpcResponse -Id 5).result.content[0].text
+    if ($warmText -notmatch '\b42\b') {
+        throw "ptk_invoke cross-call state failed; second call returned '$warmText'."
+    }
+    Write-Host 'ptk_invoke cross-call state ok: 42'
 
     Write-Host 'HANDSHAKE PASSED'
 }

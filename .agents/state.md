@@ -41,7 +41,10 @@ short and update it when important repo facts change.
   Code session start (project MCP servers need one-time approval). Confirm the four
   tools appear and ptk_invoke shares state across calls.
 - Slice 7 (owner-run, on the real Windows box): AD/EMS/EXO module load-once behavior
-  and the unattended-auth pattern; findings feed Phase 2 scope.
+  and the unattended-auth pattern. BLOCKED until ~2026-07-16: owner is away from
+  work with no Exchange access. Not a blocker for Phase 2 planning — deserialized
+  objects can be synthesized locally via PSSerializer round-trip for routing tests;
+  the Windows pass becomes confirmation, not a prerequisite.
 - Phase 2 (separate go): route ptk_invoke output through Compress-PtcObject.
 - The "universal PowerShell wrapper" decision (the surface) stays open/deferred; its
   run-anything surface largely falls out of the server's `ptk_invoke` tool anyway.

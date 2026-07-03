@@ -44,6 +44,13 @@ short and update it when important repo facts change.
   Full reasoning and the test definition live in `.agents/decisions.md` ("Whether ptk
   continues at all"). Phase 2 compression, the universal wrapper, and the
   destructive-cmdlet gate are all behind that gate. No new plans until the test runs.
+- 2026-07-03: owner UNPAUSED Phase 2 compression (amendment recorded in the
+  continuation decision entry): build compression on ptk_invoke before the go/no-go
+  so the test evaluates the full product. Scope: objects → Compress-PtcObject;
+  log-shaped text → rtk when an rtk binary is present; all other text full
+  passthrough; ollama leg dropped. ACTIVE plan (approved 2026-07-03):
+  `.agents/plans/phase2-compression.md`. The universal wrapper and the
+  destructive-cmdlet gate stay paused. Owner back at work ~2026-07-20 (was ~07-16).
 
 - 2026-07-03 session findings (recorded here so they survive without chat):
   - PowerShell 5.1 compatibility, measured on this box: the module BODY imports and
@@ -143,7 +150,7 @@ short and update it when important repo facts change.
   interactive Connect-*). Server knobs for these tests (Program.cs): per-call
   timeout default 300s (`PTK_CALL_TIMEOUT_SECONDS`), idle self-exit default 4h
   orphan backstop (`PTK_IDLE_EXIT_SECONDS`).
-- (~2026-07-16, owner back at work) Run the go/no-go test on the real Windows box:
+- (~2026-07-20, owner back at work) Run the go/no-go test on the real Windows box:
   does the model use ptk_invoke unprompted for Exchange/AD work, and does it save
   real time? Both yes → Phase 2 earns a second look. Ignored like rtk → archive the
   project with the finding. Definition in `.agents/decisions.md`.

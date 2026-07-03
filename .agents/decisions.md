@@ -240,10 +240,21 @@ requiring its own go.
 
 ### OPEN (2026-07-02): Whether ptk continues at all — substrate go/no-go after owner vacation
 
-**Status:** Open - all further building is PAUSED by owner decision until the test
-below runs. This gates Phase 2 (compression), the universal wrapper, and the
-destructive-cmdlet gate. The warm-runspace server itself (slices 1-6) is built,
-verified, and stays registered.
+**Status:** Open, AMENDED 2026-07-03 (owner): Phase 2 compression is UNPAUSED —
+the owner chose to build it ahead of the go/no-go so the test evaluates the full
+product (warm runspace + compression together). Scope set by owner the same day:
+`ptk_invoke` output routes objects → `Compress-PtcObject`, log-shaped text → rtk
+when an rtk binary is present, all other text → full passthrough; the ollama /
+local-model leg of the router experiment is dropped. Plan:
+`.agents/plans/phase2-compression.md`. The universal wrapper and the
+destructive-cmdlet gate REMAIN paused behind the test. Owner return date is now
+~2026-07-20 (was ~2026-07-16). The go/no-go itself is unchanged: unprompted
+adoption + experienced benefit on the real Windows box remain the criteria.
+
+**Original status (2026-07-02):** Open - all further building is PAUSED by owner
+decision until the test below runs. This gates Phase 2 (compression), the
+universal wrapper, and the destructive-cmdlet gate. The warm-runspace server
+itself (slices 1-6) is built, verified, and stays registered.
 
 **What triggered it:** the owner stepped back and asked whether ptk is worth it,
 citing two pieces of evidence from sibling tools:

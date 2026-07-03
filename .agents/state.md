@@ -48,9 +48,13 @@ short and update it when important repo facts change.
   does the model use ptk_invoke unprompted for Exchange/AD work, and does it save
   real time? Both yes → Phase 2 earns a second look. Ignored like rtk → archive the
   project with the finding. Definition in `.agents/decisions.md`.
-- Live-session check whenever convenient: the `.mcp.json` `ptk` server is picked up
-  at the next Claude Code session start (one-time approval). Confirm the four tools
-  appear and ptk_invoke shares state across calls.
+- ~~Live-session check~~ DONE 2026-07-02: all four tools appeared in a live Claude
+  Code session on this Mac. Verified: ptk_ping → pong; ptk_invoke shares state across
+  calls (same PID, variable set in call 1 read back in call 2); module warmth matches
+  the recorded reload tax (Pester cold import 448 ms, warm re-import 6.9 ms);
+  ptk_modules lists loaded modules; script errors surface in an `[errors]` block;
+  ptk_reset clears variables and modules without restarting the process. The go/no-go
+  test on the real Windows box (below) is still the open item.
 - Interim security posture: keep ptk_invoke on ask-per-call in the harness; the
   policy-file gate design is recorded in the continuation decision, build only if
   real usage creates blanket-allow pressure.

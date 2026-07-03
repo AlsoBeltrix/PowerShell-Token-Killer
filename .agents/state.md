@@ -111,15 +111,22 @@ short and update it when important repo facts change.
   has 12 entries (a machine-local `.claude/` dir among them), so README.md falls
   past the cap. The fixture is the live repo root — environment-sensitive by design,
   pre-existing, not a Windows defect. Proposed fix (needs a go): deterministic
-  temp-dir fixture for those two tests. Remaining to go live on this box: restart
-  the Claude Code session so `.mcp.json` spawns the server (it could not start
-  pre-SDK); expect the per-machine approval prompt for the project MCP server.
+  temp-dir fixture for those two tests.
+- 2026-07-03 (later): owner enabled the MCP server on this box and the live-session
+  check PASSED in Claude Code on Windows — full parity with the Mac check:
+  ptk_ping → pong; ptk_invoke shares state across calls (same PID, variable set in
+  call 1 read back in call 2, engine PS 7.6.3); warm module load confirmed (Pester
+  cold import 545.7 ms, warm re-import 2 ms); ptk_modules lists loaded modules;
+  script errors surface in an `[errors]` block; ptk_reset clears variables and
+  modules without restarting the process. This box is now a fully working ptk
+  environment; the remaining pre-07-16 items are the AWAITING OWNER GO list above.
 - AWAITING OWNER GO, proposed 2026-07-03 (none started): (a) push the local
   commits; (b) deterministic temp-dir fixture for the two repo-root-sensitive
   Pester tests; (c) fold the slice-7 test matrix below into the continuation
-  decision entry; (d) pre-07-16 tests on this box: live-session bring-up plus a
-  Windows warm-load measurement; ToolSearch discoverability probe (do the ptk tool
-  descriptions rank for "powershell"-shaped queries?); failure-mode drills (kill
+  decision entry; (d) pre-07-16 tests on this box (bring-up + warm-load
+  measurement DONE 2026-07-03 — see the live-check bullet below): ToolSearch
+  discoverability probe (do the ptk tool descriptions rank for
+  "powershell"-shaped queries?); failure-mode drills (kill
   the server mid-session — do the tools respawn or brick? wedge a call past a
   short `PTK_CALL_TIMEOUT_SECONDS` — does the recycle keep the session usable?);
   and a headless "nudge ladder" adoption experiment (bare registration →

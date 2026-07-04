@@ -1,6 +1,8 @@
 # Plan: Unified shell routing — one tool, hook-enforced
 
-**Status:** Draft — awaiting owner approval. No code until approved.
+**Status:** Approved by owner 2026-07-04 (in-session go on the five-slice scope
+after all open questions were resolved; codex review loop per slice, matching
+the round-2 review-fix precedent).
 **Decision basis:** 2026-07-04 owner amendment to the continuation decision in
 `.agents/decisions.md`: ptk becomes the single tool surface for all shell work,
 enforced by a harness redirect hook, ahead of the ~2026-07-20 go/no-go (which now

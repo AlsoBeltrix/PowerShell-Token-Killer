@@ -21,7 +21,7 @@ public static class InvokeTool
         "aborted and the runspace is recycled, losing all warm state.")]
     public static async Task<string> Invoke(
         RunspaceHost host,
-        [Description("The PowerShell script to execute.")] string script,
+        [Description("The command to execute: a PowerShell script or a native command line (git, npm, ...).")] string script,
         CancellationToken cancellationToken,
         [Description("Skip output compression and return plain formatted text.")] bool raw = false,
         [Description(

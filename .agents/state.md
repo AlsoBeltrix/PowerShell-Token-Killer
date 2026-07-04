@@ -5,6 +5,30 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **HANDOFF 2026-07-04 (end of day): owner moving to the WINDOWS box for
+  testing; master pushed through the handoff commit (explicit owner go).**
+  Everything below in this entry's sibling bullets is the day's context;
+  the Windows session starts with `git pull`, then:
+  1. **Battery:** Pester suite (70 tests; the 1 Unix skip — the .cmd/.bat
+     shim test — RUNS on Windows, and the new ls platform test takes its
+     `$IsWindows` branch: `ls` must stay unrouted there), `dotnet test`
+     (36/36 expected), handshake default + `-UseRegistrationCommand`.
+  2. **dev-install on Windows (the paths this Mac could not verify):**
+     `pwsh -File scripts/dev-install.ps1` → check the Add/Remove Programs
+     entry appears (HKCU uninstall key; `winget list` should surface it),
+     user-scope registration works, handshake `-ServerCommand
+     "$HOME\.ptk\bin\PtkMcpServer.exe"` passes from a neutral cwd, then
+     `-Uninstall` removes payload+registration+ARP and leaves user files.
+     The install refuses elevated shells and refuses while a `~/.ptk`
+     server is running (clear message with the PID) — both by design.
+  3. **Owner items for the go/no-go window:** install the hook
+     (`scripts/ptk_init.ps1 -Global` or `dev-install.ps1 -Hook`), run the
+     live hooked check in a fresh session (Bash + PowerShell tool calls
+     should come back denied with ptk guidance), start the friction log.
+  4. **Next build item:** slice 2 (`.github/workflows/ci.yml`, three-OS
+     matrix; iterate on a `ci/*` branch — granted scope, delete after —
+     master push per-go). Slice 3 after. Hook-default decision still open,
+     needed before slice 4.
 - **2026-07-04 (latest): release-plan SLICE 1 DONE and codex-closed; slice
   0 fully closed (CI probe ran — see the plan's probe results).** Slice 1:
   module discovery flipped to binary-dir-first (35fd472 + dc26c30, guard

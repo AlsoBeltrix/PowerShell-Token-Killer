@@ -913,8 +913,11 @@ function Resolve-PtcInvokeScript {
     if ($Route -ne 'rtk') {
         # Resolve in this runspace: aliases, cmdlets, and functions shadow
         # native binaries here exactly as they would at execution time (on
-        # Windows, ls is an alias and `rtk ls` fails - slice-0 probe).
-        $resolved = Get-Command -Name $name -ErrorAction SilentlyContinue | Select-Object -First 1
+        # Windows, ls is an alias and `rtk ls` fails - slice-0 probe). The
+        # intrinsics API resolves without polluting $Error the way
+        # Get-Command -ErrorAction SilentlyContinue does on a miss.
+        $resolved = $ExecutionContext.InvokeCommand.GetCommand(
+            $name, [System.Management.Automation.CommandTypes]::All)
         if ($null -eq $resolved -or $resolved.CommandType -ne [System.Management.Automation.CommandTypes]::Application) { return $Script }
     }
 

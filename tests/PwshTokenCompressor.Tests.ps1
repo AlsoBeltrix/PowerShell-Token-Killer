@@ -462,6 +462,16 @@ Describe 'Resolve-PtcInvokeScript routing' {
         Resolve-PtcInvokeScript -Script 'git status' | Should -BeExactly 'git status'
     }
 
+    It 'does not pollute $Error when the command name does not resolve' {
+        # Codex finding: Get-Command -ErrorAction SilentlyContinue records a
+        # hidden CommandNotFoundException on every typo, skewing $Error for
+        # the user script that runs next.
+        $Error.Clear()
+        Resolve-PtcInvokeScript -Script 'gti status' | Should -BeExactly 'gti status'
+
+        $Error.Count | Should -Be 0
+    }
+
     It 'honors the route overrides' {
         Resolve-PtcInvokeScript -Script 'git status' -Route pwsh | Should -BeExactly 'git status'
         # force-rtk skips Application resolution but still needs the

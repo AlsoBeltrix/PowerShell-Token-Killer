@@ -1,7 +1,7 @@
 {
   "validated_against": {
-    "commit": "5e7d1173d5777e34701b50c79e06250ea52cf241",
-    "date": "2026-07-02"
+    "commit": "dec5231dbf77a659c30d7108108d0bab6c18d123",
+    "date": "2026-07-03"
   },
   "artifacts": [
     {
@@ -42,6 +42,11 @@
     {
       "path": ".agents/artifact-manifest.json",
       "purpose": "Inventory of governance artifacts and their custody",
+      "custody": "tracked"
+    },
+    {
+      "path": ".agents/playbooks/reviewloop.md",
+      "purpose": "Synchronous cross-harness review playbook, invoked via the playbook operator",
       "custody": "tracked"
     },
     {

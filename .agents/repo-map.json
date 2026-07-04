@@ -1,7 +1,7 @@
 {
   "validated_against": {
-    "commit": "5e7d1173d5777e34701b50c79e06250ea52cf241",
-    "date": "2026-07-02"
+    "commit": "dec5231dbf77a659c30d7108108d0bab6c18d123",
+    "date": "2026-07-03"
   },
   "projects": [
     {
@@ -42,7 +42,9 @@
   "fact_bearing_paths": [
     "src/PwshTokenCompressor.psm1",
     "src/PwshTokenCompressor.psd1",
-    "tests/PwshTokenCompressor.Tests.ps1"
+    "tests/PwshTokenCompressor.Tests.ps1",
+    "server/PtkMcpServer/Program.cs",
+    "server/PtkMcpServer.Tests/"
   ],
   "guidance_paths": [
     "AGENTS.md",
@@ -54,7 +56,7 @@
     ".agents/artifact-manifest.json"
   ],
   "notes": [
-    "Verification command re-confirmed 2026-07-02 during governance refresh: 31 tests passed, 0 failed.",
+    "Verification commands re-confirmed 2026-07-03 during governance refresh: Pester 43/43, dotnet test 29/29, both passing on commit dec5231.",
     "No CI configured in this repo (no provider-executable workflow files found); verification is local-only."
   ]
 }

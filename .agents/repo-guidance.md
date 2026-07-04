@@ -27,29 +27,45 @@ Decisions in `.agents/decisions.md` rather than re-deriving this framing.
 4. `.agents/decisions.md`
 5. `README.md`
 6. `src/PwshTokenCompressor.psm1` and `tests/PwshTokenCompressor.Tests.ps1`
+7. `server/README.md` and `server/PtkMcpServer/Program.cs` (warm-runspace MCP
+   server; see `.agents/plans/warm-runspace-mcp-server.md`)
 
 ## Verification
 
-Confirmed automated verification command (re-run 2026-07-02, 31/31 passed):
+Confirmed automated verification commands (re-run 2026-07-03, all passing):
 
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
+— 43/43 passed (PowerShell module suite; requires the Pester module, 5.8.0
+confirmed present in this environment).
 
-Requires the Pester module (5.8.0 confirmed present in this environment). No
-CI is configured in this repo (no provider-executable workflow files found);
-verification is local-only. See `.agents/repo-map.json` for the machine-
-readable record.
+```
+dotnet test server/PtkMcpServer.slnx
+```
+— 29/29 passed (C# warm-runspace MCP server suite).
+
+```
+pwsh -NoProfile -File server/test-handshake.ps1
+```
+— stdio handshake check for the MCP server; run manually when server-facing
+code changes (not re-run by this governance refresh).
+
+No CI is configured in this repo (no provider-executable workflow files
+found); verification is local-only. See `.agents/repo-map.json` for the
+machine-readable record.
 
 ## Remotes & Sync
 
-Two remotes are configured (`git remote -v`):
+One remote is configured (`git remote -v`, confirmed 2026-07-03):
 
 - `origin` — `https://github.com/AlsoBeltrix/PowerShell-Token-Killer.git`
-- `personal` — `https://github.com/roethlar/-PowerShell-Token-Killer.git`
 
-`master` tracks `origin/master`. Push policy stays in `.agents/push-policy.md`,
-not here.
+`master` tracks `origin/master`. A `personal` remote
+(`https://github.com/roethlar/-PowerShell-Token-Killer.git`) was recorded
+here previously but no longer exists in this repo's git config as of
+2026-07-03 — flagged in this refresh's approval summary rather than silently
+dropped. Push policy stays in `.agents/push-policy.md`, not here.
 
 ## Earned Practices
 

@@ -241,9 +241,11 @@ function Show-PtkCodexSnippet {
     Write-Host ''
     Write-Host 'Codex (~/.codex/config.toml):'
     Write-Host '  [mcp_servers.ptk]'
-    # TOML literal string (single quotes): a basic string would treat the
-    # backslashes in a Windows path as (illegal) escape sequences.
-    Write-Host ("  command = '{0}'" -f $BinaryPath)
+    # TOML basic string with explicit escaping: literal (single-quoted)
+    # strings cannot hold an apostrophe at all, and unescaped Windows
+    # backslashes are illegal escape sequences in a basic string.
+    $escaped = $BinaryPath.Replace('\', '\\').Replace('"', '\"')
+    Write-Host ('  command = "{0}"' -f $escaped)
 }
 
 $mode = $PSCmdlet.ParameterSetName

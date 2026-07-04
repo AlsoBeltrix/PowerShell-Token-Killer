@@ -14,7 +14,8 @@ Two things make that worth doing:
   established connections survive across calls for the whole session. Heavy
   imports like `ActiveDirectory` or a cloud SDK happen once, not per command.
 - **Token compression.** Output is shaped by what it is, not blindly
-  truncated: single native commands route through `rtk`'s per-command filters,
+  truncated: single native commands route through
+  [rtk](https://github.com/rtk-ai/rtk)'s per-command filters,
   PowerShell objects become compact typed summaries, log-shaped text is
   deduplicated, and plain text passes through untouched.
 
@@ -27,9 +28,9 @@ Each call is classified and shaped through one of four legs:
 
 1. **Native command routing (rtk).** A script that is exactly one bare native
    command with constant arguments — `git status --short`, `npm ls`,
-   `docker ps` — is rewritten to run through [rtk](https://github.com/rtk-ai/rtk),
-   an external CLI whose per-command filters compress the output of common
-   tools at the source. Commands rtk does not know pass through it unchanged.
+   `docker ps` — is rewritten to run through `rtk`, an external CLI whose
+   per-command filters compress the output of common tools at the source.
+   Commands rtk does not know pass through it unchanged.
 2. **Object compression.** PowerShell commands that emit objects
    (`Get-ChildItem`, `Get-Process`, `Get-Service`, custom objects) are
    compressed into typed summaries before they are ever formatted to text.
@@ -44,11 +45,13 @@ runspace, and only its *output* is shaped (legs 2–4). Routing and shaping can
 never fail a call: any internal failure falls back to labeled, unshaped
 output.
 
-`rtk` is optional. Without it, native commands run unchanged and log-shaped
-text is returned raw; object compression still applies. With it installed (on
-`PATH`, or pinned via `PTK_RTK_PATH`), you get the native-command filters —
-that is where the largest savings on tools like `git`, `npm`, and `docker`
-come from.
+Install `rtk` — the largest savings live there. Its native-command filters
+are where tools like `git`, `npm`, and `docker` get compressed, and it powers
+the log-shaping leg too; ptk without it only gets you object compression.
+Put it on `PATH` (or pin an exact binary via `PTK_RTK_PATH`) and routing picks
+it up automatically. ptk degrades gracefully if it is missing — native
+commands run unchanged and log-shaped text comes back raw — but that is a
+fallback, not the intended setup.
 
 Per-call escape hatches: `raw=true` returns full uncompressed output executed
 exactly as written; `route=pwsh` forces plain PowerShell execution;

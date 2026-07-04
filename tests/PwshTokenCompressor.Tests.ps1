@@ -323,6 +323,29 @@ Describe 'object routing robustness' {
         $result | Should -Match 'Name'
     }
 
+    It 'routes an fs projection lacking display properties to the generic path' {
+        # Round-2 review repro: Select-Object keeps the FileInfo type name and
+        # PSIsContainer but drops Name/LastWriteTime, which the fs compressor
+        # dereferences under strict mode.
+        $projected = Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md') |
+            Select-Object PSIsContainer
+
+        $result = $projected | Compress-PtcObject
+
+        $result | Should -Not -Match '^fs:'
+        $result | Should -Not -Match 'cannot be found'
+    }
+
+    It 'routes a MatchInfo projection lacking Line to the generic path' {
+        $projected = Select-String -Path (Join-Path $PSScriptRoot '..' 'README.md') -Pattern 'PowerShell' |
+            Select-Object LineNumber, Path
+
+        $result = $projected | Compress-PtcObject
+
+        $result | Should -Not -Match 'matches in'
+        $result | Should -Not -Match 'cannot be found'
+    }
+
     It 'compresses a mixed FileInfo + string stream via the generic path without throwing' {
         $mixed = @((Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md')), 'done')
 

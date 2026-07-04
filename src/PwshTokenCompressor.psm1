@@ -602,7 +602,7 @@ function Compress-PtcFileSystem {
         [pscustomobject]@{
             Type = 'file'
             Name = $_.Name
-            Size = Format-PtcSize $_.Length
+            Size = Format-PtcSize (Get-PtcPropertyValue -Object $_ -Name 'Length')
             Modified = $_.LastWriteTime
         }
     })
@@ -734,7 +734,10 @@ function Compress-PtcObject {
         # and a mixed stream (e.g. FileInfo + string) must not reach a
         # specialized compressor whose direct property access would throw under
         # strict mode. Heterogeneous streams fall through to the generic path,
-        # whose property access is null-safe.
+        # whose property access is null-safe. Each guard must list every
+        # property its compressor dereferences directly; a property that is
+        # legitimately absent on real objects (DirectoryInfo has no Length) is
+        # accessed null-safely in the compressor instead of being guarded.
         $typeNames = @($array | ForEach-Object { $_.PSObject.TypeNames[0] } | Select-Object -Unique)
         $matchesType = {
             param([string]$Pattern)
@@ -749,22 +752,22 @@ function Compress-PtcObject {
         }
 
         if (((& $matchesType '*System.IO.DirectoryInfo*') -or (& $matchesType '*System.IO.FileInfo*')) -and
-            (& $allHaveProperties 'PSIsContainer')) {
+            (& $allHaveProperties 'PSIsContainer', 'Name', 'LastWriteTime')) {
             Compress-PtcFileSystem -InputObject $array -MaxItems $MaxItems
             return
         }
         if ((& $matchesType '*Microsoft.PowerShell.Commands.MatchInfo*') -and
-            (& $allHaveProperties 'LineNumber', 'Path')) {
+            (& $allHaveProperties 'LineNumber', 'Path', 'Line')) {
             Compress-PtcMatchInfo -InputObject $array -MaxItems $MaxItems
             return
         }
         if ((& $matchesType '*System.Diagnostics.Process*') -and
-            (& $allHaveProperties 'Id', 'ProcessName')) {
+            (& $allHaveProperties 'Id', 'ProcessName', 'CPU', 'WorkingSet64')) {
             Compress-PtcProcess -InputObject $array -MaxItems $MaxItems
             return
         }
         if ((& $matchesType '*ServiceController*') -and
-            (& $allHaveProperties 'Status', 'Name')) {
+            (& $allHaveProperties 'Status', 'Name', 'DisplayName')) {
             Compress-PtcService -InputObject $array -MaxItems $MaxItems
             return
         }

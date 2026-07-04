@@ -28,9 +28,10 @@ for everything that supports it:
   cancellation, exit-code reporting ($LASTEXITCODE snapshot/restore), and
   shaping machinery apply unchanged.
 - **No maintained command list.** The owner rejected "maintained debt list"
-  designs in the universal-wrapper exploration. Which commands rtk can filter
-  must come from rtk itself (probed at startup or per call) or from a
-  try-with-fallback contract — never a hand-curated table in this repo.
+  designs in the universal-wrapper exploration. rtk passes through commands it
+  does not support (owner, 2026-07-04), so the routing rule is unconditional:
+  **any non-PowerShell command line goes to rtk** — filtered where rtk has a
+  filter, passed through where it doesn't. No support detection anywhere.
 - ptk is **not a security boundary** (recorded threat model); the hook is an
   adoption device, not a guard. The destructive-cmdlet gate stays paused.
 
@@ -38,11 +39,11 @@ for everything that supports it:
 
 0. **Probe, then freeze the design.** Evidence-gathering only, results recorded
    in this plan before any implementation:
-   - rtk interface: how to enumerate/detect supported commands without a list
-     (`rtk --help`, config, or unknown-command behavior); whether an
-     unsupported command passes through or errors; whether rtk propagates the
-     wrapped command's exit code and stderr faithfully; cwd semantics;
-     `rtk proxy` as the raw escape hatch.
+   - rtk fidelity: verify the owner-attested unsupported-command passthrough
+     behaves as expected on this box, and that rtk propagates the wrapped
+     command's exit code and stderr faithfully (filtered and passthrough
+     paths); cwd semantics; `rtk proxy` as the raw escape hatch. No
+     supported-command enumeration needed — routing is unconditional.
    - Hook mechanics on this harness/box: PreToolUse matcher for Bash and the
      PowerShell tool; deny-with-guidance vs command-rewrite capability; where
      it lives (user-level `~/.claude/settings.json` vs per-project); how the
@@ -50,10 +51,11 @@ for everything that supports it:
    - Loop/friction cases: agent sessions in THIS repo (hook would fire on our
      own verification commands); interactive one-liners; commands ptk cannot
      run (true bash-isms on Windows).
-1. **Routing leg (module/server).** Detect a simple native command line via
-   PowerShell AST (single pipeline, single command element, name resolves to a
-   native application), rewrite to the probe-chosen rtk form, execute in the
-   warm runspace; anything else runs as today. Route override argument on the
+1. **Routing leg (module/server).** Detect whether the input is PowerShell
+   (AST: cmdlets, pipelines, variables, script syntax) — if so it runs in the
+   warm runspace as today; any other command line routes to rtk unconditionally
+   (rtk filters what it knows, passes through what it doesn't), rewritten to
+   the probe-chosen rtk form and executed in the warm runspace. Route override argument on the
    tool (`route=auto|pwsh|rtk|raw`) for explicit control; `raw=true` keeps its
    current meaning (no shaping). Guard: routed and non-routed calls covered by
    Pester + dotnet tests incl. exit-code fidelity through the rtk leg.
@@ -76,9 +78,10 @@ for everything that supports it:
   global hook fires in this repo's own dev sessions too — including agent
   verification commands like `dotnet test`; the escape-hatch semantics decide
   whether that is friction or fine.
-- **True bash syntax** (heredocs, `&&` chains with bash-isms) on Windows: out
-  of ptk's scope (stays on the native Bash tool via the escape hatch), or
-  routed to rtk anyway since rtk itself shells out?
+- ~~True bash syntax~~ RESOLVED by owner 2026-07-04: any non-PowerShell input
+  routes to rtk, bash-isms included — rtk shells out itself and passes through
+  what it does not filter. The slice-0 probe still verifies this works through
+  the warm runspace on Windows (what shell rtk uses for bash-isms here).
 - **Naming:** keep `ptk_invoke` (continuity with recorded live checks) or
   rename (`ptk_run`/`ptk_shell`) for the one-tool story? Renaming invalidates
   recorded harness allow-decisions.

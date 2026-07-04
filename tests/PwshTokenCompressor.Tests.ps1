@@ -336,6 +336,19 @@ Describe 'object routing robustness' {
         $result | Should -Not -Match 'cannot be found'
     }
 
+    It 'routes a file projection lacking Length to the generic path instead of reporting 0B' {
+        # Codex review of the guard-completion commit: a file (not a directory)
+        # without Length is a projection whose size is unknown, not zero — the
+        # fs compressor would render a misleading "0B" total for it.
+        $projected = Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md') |
+            Select-Object PSIsContainer, Name, LastWriteTime
+
+        $result = $projected | Compress-PtcObject
+
+        $result | Should -Not -Match '^fs:'
+        $result | Should -Not -Match 'cannot be found'
+    }
+
     It 'routes a MatchInfo projection lacking Line to the generic path' {
         $projected = Select-String -Path (Join-Path $PSScriptRoot '..' 'README.md') -Pattern 'PowerShell' |
             Select-Object LineNumber, Path

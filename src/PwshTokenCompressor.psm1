@@ -736,8 +736,9 @@ function Compress-PtcObject {
         # strict mode. Heterogeneous streams fall through to the generic path,
         # whose property access is null-safe. Each guard must list every
         # property its compressor dereferences directly; a property that is
-        # legitimately absent on real objects (DirectoryInfo has no Length) is
-        # accessed null-safely in the compressor instead of being guarded.
+        # legitimately absent on real objects is guarded conditionally instead:
+        # DirectoryInfo has no Length, but a *file* without Length is a
+        # projection whose size is unknown, not zero, so it goes generic.
         $typeNames = @($array | ForEach-Object { $_.PSObject.TypeNames[0] } | Select-Object -Unique)
         $matchesType = {
             param([string]$Pattern)
@@ -751,8 +752,17 @@ function Compress-PtcObject {
             $true
         }
 
+        $allFileSystemShaped = {
+            foreach ($item in $array) {
+                if (-not (Test-PtcHasProperty -Object $item -Name 'PSIsContainer', 'Name', 'LastWriteTime')) { return $false }
+                if (-not [bool](Get-PtcPropertyValue -Object $item -Name 'PSIsContainer') -and
+                    -not (Test-PtcHasProperty -Object $item -Name 'Length')) { return $false }
+            }
+            $true
+        }
+
         if (((& $matchesType '*System.IO.DirectoryInfo*') -or (& $matchesType '*System.IO.FileInfo*')) -and
-            (& $allHaveProperties 'PSIsContainer', 'Name', 'LastWriteTime')) {
+            (& $allFileSystemShaped)) {
             Compress-PtcFileSystem -InputObject $array -MaxItems $MaxItems
             return
         }

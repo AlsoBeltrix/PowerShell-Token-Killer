@@ -727,34 +727,44 @@ function Compress-PtcObject {
             return
         }
 
-        # Route by type name, but only when the first item actually carries the
+        # Route by type name, but only when every item actually carries the
         # properties the specialized compressor needs. Projections and Clixml
         # round-trips (e.g. Select-Object) keep the source type name while
-        # dropping properties, so type name alone is not enough to dispatch on.
-        $first = $array | Select-Object -First 1
+        # dropping properties, so type name alone is not enough to dispatch on;
+        # and a mixed stream (e.g. FileInfo + string) must not reach a
+        # specialized compressor whose direct property access would throw under
+        # strict mode. Heterogeneous streams fall through to the generic path,
+        # whose property access is null-safe.
         $typeNames = @($array | ForEach-Object { $_.PSObject.TypeNames[0] } | Select-Object -Unique)
         $matchesType = {
             param([string]$Pattern)
             @($typeNames | Where-Object { $_ -like $Pattern }).Count -gt 0
         }
+        $allHaveProperties = {
+            param([string[]]$Name)
+            foreach ($item in $array) {
+                if (-not (Test-PtcHasProperty -Object $item -Name $Name)) { return $false }
+            }
+            $true
+        }
 
         if (((& $matchesType '*System.IO.DirectoryInfo*') -or (& $matchesType '*System.IO.FileInfo*')) -and
-            (Test-PtcHasProperty -Object $first -Name 'PSIsContainer')) {
+            (& $allHaveProperties 'PSIsContainer')) {
             Compress-PtcFileSystem -InputObject $array -MaxItems $MaxItems
             return
         }
         if ((& $matchesType '*Microsoft.PowerShell.Commands.MatchInfo*') -and
-            (Test-PtcHasProperty -Object $first -Name 'LineNumber', 'Path')) {
+            (& $allHaveProperties 'LineNumber', 'Path')) {
             Compress-PtcMatchInfo -InputObject $array -MaxItems $MaxItems
             return
         }
         if ((& $matchesType '*System.Diagnostics.Process*') -and
-            (Test-PtcHasProperty -Object $first -Name 'Id', 'ProcessName')) {
+            (& $allHaveProperties 'Id', 'ProcessName')) {
             Compress-PtcProcess -InputObject $array -MaxItems $MaxItems
             return
         }
         if ((& $matchesType '*ServiceController*') -and
-            (Test-PtcHasProperty -Object $first -Name 'Status', 'Name')) {
+            (& $allHaveProperties 'Status', 'Name')) {
             Compress-PtcService -InputObject $array -MaxItems $MaxItems
             return
         }

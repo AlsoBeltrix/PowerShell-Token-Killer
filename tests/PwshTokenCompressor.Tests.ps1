@@ -306,6 +306,24 @@ Describe 'object routing robustness' {
         $result | Should -Not -Match 'cannot be found'
         $result | Should -Match 'Name'
     }
+
+    It 'compresses a mixed FileInfo + string stream via the generic path without throwing' {
+        $mixed = @((Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md')), 'done')
+
+        $result = $mixed | Compress-PtcObject
+
+        $result | Should -Match '^objects: 2'
+        $result | Should -Not -Match 'cannot be found'
+    }
+
+    It 'keeps a mixed stream compressed through Compress-PtcOutput (no shape-error fallback)' {
+        $mixed = @((Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md')), 'done')
+
+        $result = $mixed | Compress-PtcOutput
+
+        $result | Should -Not -Match '\[ptk:shape ERROR'
+        $result | Should -Match '^objects: 2'
+    }
 }
 
 Describe 'minimal mode comment stripping' {

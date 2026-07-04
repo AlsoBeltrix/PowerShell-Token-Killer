@@ -442,6 +442,31 @@ Describe 'Compress-PtcOutput' {
             $result | Should -Match 'RTKSTUB verb=log exists=True'
         }
 
+        It 'preserves the caller''s $LASTEXITCODE across the native rtk leg' {
+            # The stub must be a native command (.cmd/.sh), not a .ps1: only a
+            # native invocation overwrites $LASTEXITCODE, which is the bug under
+            # test — a .ps1 stub would make this test pass without the fix.
+            if ($IsWindows) {
+                $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-native-stub-{0}.cmd" -f ([guid]::NewGuid()))
+                Set-Content -LiteralPath $stub -Value "@echo off`r`necho RTKSTUB native`r`nexit /b 0"
+            } else {
+                $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-native-stub-{0}.sh" -f ([guid]::NewGuid()))
+                Set-Content -LiteralPath $stub -Value "#!/bin/sh`necho 'RTKSTUB native'`nexit 0"
+                chmod +x $stub
+            }
+            try {
+                $env:PTK_RTK_PATH = $stub
+                $global:LASTEXITCODE = 7
+                $result = $script:logText | Compress-PtcOutput
+            } finally {
+                Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+            }
+
+            $result | Should -Match '\[ptk:log via rtk\]'
+            $result | Should -Match 'RTKSTUB native'
+            $global:LASTEXITCODE | Should -Be 7
+        }
+
         It 'leaves non-log multi-line text alone even when rtk is configured' {
             $env:PTK_RTK_PATH = 'anything'
             $prose = 1..6 | ForEach-Object { "paragraph $_ of plain prose without timestamps" }

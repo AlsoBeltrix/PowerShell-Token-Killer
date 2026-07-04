@@ -78,6 +78,45 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Native_exit_code_survives_rtk_log_shaping()
+    {
+        // Round-2 review repro: log-shaped output routes through the module's
+        // native rtk leg, whose own exit code must not replace the script's.
+        var stubDir = Directory.CreateTempSubdirectory("ptk-rtk-stub-");
+        string stubPath;
+        if (OperatingSystem.IsWindows())
+        {
+            stubPath = Path.Combine(stubDir.FullName, "rtk-stub.cmd");
+            File.WriteAllText(stubPath, "@echo off\r\necho RTKSTUB shaped\r\nexit /b 0\r\n");
+        }
+        else
+        {
+            stubPath = Path.Combine(stubDir.FullName, "rtk-stub.sh");
+            File.WriteAllText(stubPath, "#!/bin/sh\necho 'RTKSTUB shaped'\nexit 0\n");
+            File.SetUnixFileMode(stubPath,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        var saved = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", stubPath);
+            var script =
+                "1..8 | ForEach-Object { \"2026-07-03 10:00:0$_ ERROR worker: step $_ failed\" }; "
+                + NativeExit(7);
+            var text = await InvokeTool.Invoke(_host, script, CancellationToken.None);
+
+            Assert.Contains("[ptk:log via rtk]", text);
+            Assert.Contains("[exit] 7", text);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", saved);
+            stubDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Timeout_is_reported_with_the_state_loss_warning()
     {
         using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));

@@ -806,6 +806,14 @@ function Invoke-PtcRtkLog {
     if (-not $rtk) {
         return "[ptk:log rtk not found - returning raw text.]`n$Text"
     }
+    # rtk is a native command, so invoking it overwrites the caller's
+    # $LASTEXITCODE in this runspace. Shaping must not affect the call
+    # (Compress-PtcOutput's contract), so restore the snapshot on the way out.
+    # Snapshot the value, not the PSVariable: Get-Variable returns the live
+    # variable object, whose .Value would mutate when rtk overwrites it.
+    $exitCodeVariable = Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+    $hadExitCode = $null -ne $exitCodeVariable
+    $savedExitCode = if ($hadExitCode) { $exitCodeVariable.Value } else { $null }
     $tmp = [System.IO.Path]::GetTempFileName()
     try {
         Set-Content -LiteralPath $tmp -Value $Text -NoNewline
@@ -817,6 +825,11 @@ function Invoke-PtcRtkLog {
         "[ptk:log via rtk]`n" + (@($result) -join [Environment]::NewLine)
     } finally {
         Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        if ($hadExitCode) {
+            Set-Variable -Name LASTEXITCODE -Scope Global -Value $savedExitCode
+        } else {
+            Remove-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
+        }
     }
 }
 

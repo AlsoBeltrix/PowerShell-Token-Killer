@@ -267,6 +267,19 @@ plus a harness hook that enforces it. Scope set by owner the same day:
   dry-run (0/13 unprompted MCP usage; MCP tools hidden behind ToolSearch) and
   the rtk instruction-decay evidence.
 
+**AMENDED 2026-07-04 (owner, later the same day):** a release/distribution
+track is authorized ahead of the go/no-go. The owner judged the current
+install story (running the MCP server out of a repo checkout via `dotnet run`)
+unacceptable for anyone else to use, and set a **first public release target
+of 2026-07-25**: prebuilt self-contained per-platform binaries on GitHub
+Releases plus a one-line installer. A publish-and-register script and .NET
+tool packaging are dev-only paths, explicitly not the public install story.
+Plan (requires its own approval before code):
+`.agents/plans/release-distribution.md`. Interaction with the go/no-go is
+deliberate: CI produces only **draft** releases; the `v0.1.0` tag and the
+publish click are owner actions after the ~2026-07-20 test window, so a
+no-go can still end the project with nothing public shipped.
+
 Consequence for the test: the ~2026-07-20 go/no-go now evaluates the routed
 one-tool product with the hook installed; the criteria shift accordingly —
 "unprompted adoption" is satisfied by construction on hooked sessions, so the

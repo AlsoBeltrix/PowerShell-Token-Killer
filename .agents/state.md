@@ -243,6 +243,18 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **NEW (2026-07-04): release-distribution plan DRAFTED, awaiting owner
+  approval** — `.agents/plans/release-distribution.md`. Owner set a first
+  public release target of 2026-07-25: prebuilt per-platform binaries on
+  GitHub Releases + one-line installers; publish-script and .NET-tool paths
+  are dev-only (decision amendment recorded in `.agents/decisions.md`). Four
+  open questions (RID set, version, hook default, install roots) carry
+  recommendations in the plan; execution also needs the owner's scoped push
+  go for CI iteration (`ci/*` branch + rc pre-release tags). First action on
+  approval: slice 0 (publish probe + handshake `-ServerCommand` mode + CI
+  runner probe). Docs pass earlier the same day: README now leads with the
+  MCP server and rtk routing; app name corrected to PowerShell Token Killer
+  (all pushed through a43897a).
 - ~~Execute unified-shell-routing slices~~ DONE 2026-07-04 (see Now). Next
   actions are the OWNER items in the routing entry: install the hook
   (`scripts/ptk_init.ps1 -Global`), run the live hooked check in a fresh

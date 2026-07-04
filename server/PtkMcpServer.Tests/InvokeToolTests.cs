@@ -128,7 +128,8 @@ public sealed class InvokeToolTests : IDisposable
         else
         {
             path = Path.Combine(dir.FullName, "rtk-stub.sh");
-            File.WriteAllText(path, "#!/bin/sh\n" + body.Replace("%*", "\"$@\"") + "\n");
+            File.WriteAllText(path,
+                "#!/bin/sh\n" + body.Replace("%*", "\"$@\"").Replace("exit /b ", "exit ") + "\n");
             File.SetUnixFileMode(path,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
         }

@@ -74,8 +74,18 @@ if ($Show) {
     return
 }
 
-# Drop any existing ptk entries (uninstall, and the replace half of install).
-$preToolUse = @($preToolUse | Where-Object { -not (Test-PtkEntry $_) })
+# Remove OUR hook surgically: strip it from each entry's hooks array and drop
+# an entry only when nothing remains, so a foreign hook sharing an entry with
+# ours (one matcher, several hooks) survives install and uninstall.
+$preToolUse = @(foreach ($entry in $preToolUse) {
+    $kept = @(@($entry['hooks']) | Where-Object {
+        $null -ne $_ -and [string]$_['command'] -notlike "*$hookMarker*"
+    })
+    if ($kept.Count -gt 0) {
+        $entry['hooks'] = $kept
+        $entry
+    }
+})
 
 if (-not $Uninstall) {
     $preToolUse += @{

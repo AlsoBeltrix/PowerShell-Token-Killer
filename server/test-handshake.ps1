@@ -2,50 +2,89 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-Smoke-tests the PtkMcpServer stdio transport end to end: builds the server,
-starts it as a child process, and performs an MCP initialize / tools/list /
-tools/call(ptk_ping) handshake over real stdin/stdout.
+Smoke-tests the PtkMcpServer stdio transport end to end: starts the server as
+a child process and performs an MCP initialize / tools/list /
+tools/call(ptk_ping) handshake over real stdin/stdout. Three launch modes:
+default builds this checkout and drives the built dll; -UseRegistrationCommand
+drives the exact `dotnet run` command the .mcp.json registration spawns;
+-ServerCommand drives an arbitrary server binary (e.g. a published
+self-contained build, for release-artifact smoke tests).
 
 Exits 0 on success, 1 on failure. Used as part of slice verification alongside
 `dotnet test`.
 #>
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'BuiltDll')]
 param(
     [int]$TimeoutSec = 30,
     # Drive the server with `dotnet run` — the exact command the .mcp.json
     # registration spawns (build-on-launch, quiet stdout) — instead of
     # dotnet exec against a prebuilt dll.
-    [switch]$UseRegistrationCommand
+    [Parameter(ParameterSetName = 'Registration', Mandatory)]
+    [switch]$UseRegistrationCommand,
+    # Drive an arbitrary server binary instead of building this checkout:
+    # first element is the executable, remaining elements are its arguments.
+    # The child runs in this script's current PowerShell location (pinned
+    # below), so relative paths resolve where the caller expects.
+    [Parameter(ParameterSetName = 'ServerCommand', Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string[]]$ServerCommand
 )
 
 $ErrorActionPreference = 'Stop'
 $serverDir = Split-Path -Parent $PSCommandPath
 
+$mode = $PSCmdlet.ParameterSetName
+# An explicit -UseRegistrationCommand:$false means the default built-dll mode,
+# as it did before parameter sets were introduced (set membership alone would
+# select the Registration branch regardless of the switch's value).
+if ($mode -eq 'Registration' -and -not $UseRegistrationCommand) { $mode = 'BuiltDll' }
+
 $psi = [System.Diagnostics.ProcessStartInfo]::new()
-if ($UseRegistrationCommand) {
-    Write-Host 'Starting via dotnet run (registration command; builds on launch)...'
-    $psi.FileName = 'dotnet'
-    foreach ($a in @('run', '-v', 'q', '--project', (Join-Path $serverDir 'PtkMcpServer'))) {
-        $psi.ArgumentList.Add($a)
+switch ($mode) {
+    'ServerCommand' {
+        Write-Host "Starting via server command: $($ServerCommand -join ' ')"
+        $exe = $ServerCommand[0]
+        # Resolve path-shaped executables against this script's PowerShell
+        # location: Process.Start resolves a relative FileName against the
+        # process-wide cwd (not $PWD), even when WorkingDirectory is set.
+        # A bare command name (no separator) passes through to PATH lookup.
+        if ($exe -match '[\\/]') {
+            $exe = (Resolve-Path -LiteralPath $exe).ProviderPath
+        }
+        $psi.FileName = $exe
+        foreach ($a in ($ServerCommand | Select-Object -Skip 1)) {
+            $psi.ArgumentList.Add($a)
+        }
     }
-}
-else {
-    $proj = Join-Path $serverDir 'PtkMcpServer'
-    Write-Host 'Building server...'
-    dotnet build $proj -v q --nologo | Out-Host
-    if ($LASTEXITCODE -ne 0) { Write-Error 'Build failed.'; exit 1 }
+    'Registration' {
+        Write-Host 'Starting via dotnet run (registration command; builds on launch)...'
+        $psi.FileName = 'dotnet'
+        foreach ($a in @('run', '-v', 'q', '--project', (Join-Path $serverDir 'PtkMcpServer'))) {
+            $psi.ArgumentList.Add($a)
+        }
+    }
+    default {
+        $proj = Join-Path $serverDir 'PtkMcpServer'
+        Write-Host 'Building server...'
+        dotnet build $proj -v q --nologo | Out-Host
+        if ($LASTEXITCODE -ne 0) { Write-Error 'Build failed.'; exit 1 }
 
-    $dll = Join-Path $proj 'bin/Debug/net10.0/PtkMcpServer.dll'
-    if (-not (Test-Path $dll)) { Write-Error "Built assembly not found at $dll"; exit 1 }
+        $dll = Join-Path $proj 'bin/Debug/net10.0/PtkMcpServer.dll'
+        if (-not (Test-Path $dll)) { Write-Error "Built assembly not found at $dll"; exit 1 }
 
-    $psi.FileName = 'dotnet'
-    $psi.ArgumentList.Add('exec')
-    $psi.ArgumentList.Add($dll)
+        $psi.FileName = 'dotnet'
+        $psi.ArgumentList.Add('exec')
+        $psi.ArgumentList.Add($dll)
+    }
 }
 $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
 $psi.UseShellExecute = $false
+# Pin the child to this script's PowerShell location: Process.Start would
+# otherwise resolve against the process-wide cwd, which an interactive
+# session's Set-Location does not change.
+$psi.WorkingDirectory = (Get-Location).ProviderPath
 $proc = [System.Diagnostics.Process]::Start($psi)
 
 function Send-Rpc {

@@ -70,20 +70,26 @@ public class ModulePathProbeTests
     [Fact]
     public void CwdProbeStillFindsCheckoutWhenNothingShipsBesideBinary()
     {
+        // Goes through ResolveModulePath (not the probe helper directly) so a
+        // refactor that drops the cwd start from the real composition fails
+        // this test rather than passing vacuously.
         var isolatedBase = Directory.CreateDirectory(
             Path.Combine(Path.GetTempPath(), $"ptk-probe-base-{Guid.NewGuid():N}", "bin")).FullName;
         var cwdRoot = Directory.CreateDirectory(
             Path.Combine(Path.GetTempPath(), $"ptk-probe-cwd-{Guid.NewGuid():N}")).FullName;
+        var savedEnv = Environment.GetEnvironmentVariable("PTK_MODULE_PATH");
         try
         {
+            Environment.SetEnvironmentVariable("PTK_MODULE_PATH", null);
             var cwdModule = PlantModule(cwdRoot);
 
-            var resolved = RunspaceHost.ProbeForModule(isolatedBase, cwdRoot);
+            var resolved = RunspaceHost.ResolveModulePath(baseDirStart: isolatedBase, cwdStart: cwdRoot);
 
             Assert.Equal(cwdModule, resolved);
         }
         finally
         {
+            Environment.SetEnvironmentVariable("PTK_MODULE_PATH", savedEnv);
             Directory.Delete(Directory.GetParent(isolatedBase)!.FullName, recursive: true);
             Directory.Delete(cwdRoot, recursive: true);
         }

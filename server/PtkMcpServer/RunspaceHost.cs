@@ -77,7 +77,9 @@ public sealed class RunspaceHost : IDisposable
     // An explicitly set PTK_MODULE_PATH wins outright: if it points at nothing,
     // shaping is disabled rather than silently falling back to a probed copy, so a
     // misconfiguration stays visible (same semantics as the module's PTK_RTK_PATH).
-    internal static string? ResolveModulePath()
+    // The start parameters exist for the tests; production callers pass
+    // nothing and get the real binary dir and cwd.
+    internal static string? ResolveModulePath(string? baseDirStart = null, string? cwdStart = null)
     {
         var env = Environment.GetEnvironmentVariable("PTK_MODULE_PATH");
         if (!string.IsNullOrWhiteSpace(env))
@@ -89,10 +91,12 @@ public sealed class RunspaceHost : IDisposable
         // must win over a repo checkout the session happens to sit in; cwd
         // stays the fallback so a checkout run with no installed layout
         // still resolves its own module.
-        return ProbeForModule(AppContext.BaseDirectory, Directory.GetCurrentDirectory());
+        return ProbeForModule(
+            baseDirStart ?? AppContext.BaseDirectory,
+            cwdStart ?? Directory.GetCurrentDirectory());
     }
 
-    internal static string? ProbeForModule(params string[] starts)
+    private static string? ProbeForModule(params string[] starts)
     {
         foreach (var start in starts)
         {

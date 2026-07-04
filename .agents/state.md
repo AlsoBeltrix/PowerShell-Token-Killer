@@ -5,6 +5,34 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-04 (later): release-plan slice 0 is DONE except the CI probe.**
+  `-ServerCommand` mode landed in `server/test-handshake.ps1` (a8553dc,
+  pre-commit multi-lens review fixes folded in) and the osx-arm64 probe
+  results are frozen into the plan (8161af2): 45 MB tar.gz asset (129 MB
+  unpacked), apphost ad-hoc signed, curl download quarantine-free and runs
+  clean, quarantined-fresh-copy contrast SIGKILLed + `spctl` rejected
+  (this box), published binary removes the dotnet-run build check from
+  session start, module loads position-independently from the canonical
+  layout via the BaseDirectory upward probe, `claude mcp add`/`remove`
+  syntax confirmed on Claude Code CLI 2.1.201. Codex review loop on the
+  slice: see `.agents/review/index.md`. The CI runner probe AWAITS the
+  owner's scoped push go for `ci/*` (asked 2026-07-04); slice 1 can start
+  meanwhile if the owner prefers.
+- **2026-07-04 (later): master's Pester battery is RED on this Mac —
+  pre-existing, NOT slice 0.** Clean master (changes stashed): 65 passed /
+  3 failed / 1 skipped. (1)+(2) the two "read README" assertions expect
+  `pwsh_token_compressor` in the LIVE README; the a43897a docs-pass
+  rewrite removed that string — content-sensitive fixtures broken by a
+  pushed commit, fails on every platform. (3) "leaves aliases and cmdlets
+  on the PowerShell path" asserts `ls` stays unrouted, but on macOS/Linux
+  `ls` resolves to the native Application (verified in pwsh -NoProfile:
+  Application /bin/ls, no alias), so `Resolve-PtcInvokeScript` routes it
+  BY DESIGN — the assertion holds only on Windows and will also fail in
+  slice 2's ubuntu/macos CI. The earlier "Pester 69/69" battery record
+  did not reproduce today on identical module/test code — treat suite
+  greenness as machine-dependent until fixed. FIX PROPOSED (test-only
+  code, needs owner go): deterministic content fixture for the README
+  tests; platform-aware `ls` assertion (`$IsWindows`). One commit each.
 - **2026-07-04 (late): RELEASE-DISTRIBUTION PLAN APPROVED — next action is
   slice 0.** `.agents/plans/release-distribution.md`, approved by owner
   in-session 2026-07-04 after question resolution and a codex review loop on
@@ -280,11 +308,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-- Release-distribution plan APPROVED — run slice 0 (see the top Now entry).
-  Still needed along the way: the explicit push go for `ci/*` + rc tags
-  (ask at first use), and the hook-default decision before slice 4. The
-  other questions (RIDs, version, install root, winget posture) are RESOLVED
-  — do not re-raise them.
+- Slice 0 DONE except the CI runner probe (see the top Now entry) — that
+  probe needs the explicit push go for `ci/*` + rc tags (asked
+  2026-07-04). Then slice 1 (discovery flip + dev install script). Still
+  needed along the way: the hook-default decision before slice 4, and an
+  owner go on the two test fixes for the red master battery (Now entry).
+  The other questions (RIDs, version, install root, winget posture) are
+  RESOLVED — do not re-raise them.
 - ~~Execute unified-shell-routing slices~~ DONE 2026-07-04 (see Now). Next
   actions are the OWNER items in the routing entry: install the hook
   (`scripts/ptk_init.ps1 -Global`), run the live hooked check in a fresh

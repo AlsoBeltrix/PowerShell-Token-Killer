@@ -83,7 +83,10 @@ section).
   (the owner has machines for every v0.2.0 RID except osx-x64, which is not
   shipped). No untested asset ships; an unverifiable RID is dropped, not
   shipped blind — and the drop is logged, never silent.
-- **One ptk home: `~/.ptk`, on every platform, for every install method.**
+- **One ptk home: `~/.ptk`, on every platform, for every end-user install
+  method.** (The dev-only tier-2 packaging rehearsal is the sole, explicit
+  exemption on payload location — see slice 5; config resolution is
+  install-method-independent and stays at `~/.ptk` even there.)
   Payload and config live together; no `--dir` override in v0.2.0 (an
   override is variance by another name — added later only on real demand,
   with whole-home-moves-together semantics). Inside it:
@@ -202,9 +205,13 @@ section).
 5. **.NET tool packaging (tier 2, dev-only, CUTTABLE).** `PackAsTool` with the
    module shipped inside the package so the binary-relative probe finds it;
    installable only from a local source (`dotnet tool install -g
-   --add-source`); explicitly NOT published to NuGet.org for v0.2.0. Guard:
-   local tool install passes the handshake via the tool command. First thing
-   dropped if 2026-07-25 is at risk — it is off the release critical path.
+   --add-source`); explicitly NOT published to NuGet.org for v0.2.0. This is
+   a packaging rehearsal for developers: its payload lives in the .NET tool
+   store (that is how `dotnet tool` works), which is the one recorded
+   exemption from the `~/.ptk` payload rule — it is never distributed to
+   users, and config still resolves to `~/.ptk`. Guard: local tool install
+   passes the handshake via the tool command. First thing dropped if
+   2026-07-25 is at risk — it is off the release critical path.
 6. **Docs + release prep.** README "Setup" becomes the one-liner install
    (repo-checkout and dev paths move to a dev/contributor doc);
    `server/README.md` documents the `~/.ptk` layout, binary-relative

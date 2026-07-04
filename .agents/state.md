@@ -44,8 +44,10 @@ short and update it when important repo facts change.
     start), then run the live hooked check: a Bash and a PowerShell tool
     call should come back denied with ptk guidance and the model should
     re-issue via ptk_invoke; start the friction log the amended go/no-go
-    needs. (b) ~25 local commits are unpushed; push needs owner go.
-    (c) `/mcp` restart to respawn the live server on the final build.
+    needs. (b) 28 local commits are unpushed (origin/master..HEAD, through
+    this handoff commit); push needs owner go. (c) `/mcp` restart to respawn
+    the live server on the final build (the last live instance was killed
+    for the final rebuild).
   - Process notes for the record: two review-fix tests rode along in
     earlier commits instead of their own (5202756 carried the shim-test
     skip; 58990b1 carried the shared-entry test) — content correct, history

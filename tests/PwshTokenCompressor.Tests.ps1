@@ -544,6 +544,14 @@ Describe 'redirect hook and installer' {
         $reason | Should -Match ([regex]::Escape("Set-Location 'C:\repo\server'"))
     }
 
+    It 'escapes apostrophes in the cwd so the suggested prefix stays valid PowerShell' {
+        $out = '{"tool_name":"Bash","tool_input":{"command":"git status"},"cwd":"C:\\Users\\O''Brien\\repo"}' |
+            pwsh -NoProfile -File $script:hookScript
+
+        $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
+        $reason | Should -Match ([regex]::Escape("Set-Location 'C:\Users\O''Brien\repo'"))
+    }
+
     It 'allows a command carrying the PTK_DIRECT escape hatch' {
         $out = '{"tool_name":"PowerShell","tool_input":{"command":"gcloud auth login # PTK_DIRECT"}}' |
             pwsh -NoProfile -File $script:hookScript

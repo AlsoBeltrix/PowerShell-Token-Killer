@@ -33,8 +33,10 @@ if ([string]::IsNullOrWhiteSpace($command) -or $command -match 'PTK_DIRECT') {
 
 # The warm runspace keeps its own current directory across calls, so a
 # replayed command with relative paths must re-anchor to this call's cwd.
+# Single-quote escaping: an apostrophe in the path must not break (or, if
+# crafted, inject into) the suggested prefix the model will run verbatim.
 $cwdAdvice = if ($cwd) {
-    " The warm runspace keeps its own current directory, so anchor the command: prefix it with: Set-Location '$cwd'; "
+    " The warm runspace keeps its own current directory, so anchor the command: prefix it with: Set-Location '{0}'; " -f $cwd.Replace("'", "''")
 } else {
     ' '
 }

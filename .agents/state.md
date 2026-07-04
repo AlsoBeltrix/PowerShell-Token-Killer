@@ -5,6 +5,49 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ACTIVE WORK ITEM (next session starts here): unified shell routing.**
+  Owner-approved plan `.agents/plans/unified-shell-routing.md` (2026-07-04):
+  ptk becomes the single shell tool — PowerShell → warm runspace, ANY
+  non-PowerShell command line → rtk unconditionally (rtk passes through what
+  it doesn't filter), log-shaped output → rtk log (exists) — plus a PreToolUse
+  redirect hook on the harness Bash AND PowerShell tools, shipped via a
+  `ptk_init.ps1` installer mirroring `rtk init` semantics. Decision basis: the
+  2026-07-04 amendment in `.agents/decisions.md` (go/no-go now evaluates this
+  product with the hook installed; operative criterion is experienced benefit
+  + owner not disabling the hook). All plan open questions are resolved; the
+  next action is slice 0 (rtk fidelity + hook mechanics probe, which freezes
+  the design). Process: codex review loop after each slice (owner-set,
+  2026-07-04): `codex exec --sandbox read-only` reviews each commit, real
+  findings get fixed one-commit-each with guard proofs, iterate to NO
+  FINDINGS or convergence (contrived-only Lows). Verified rtk facts for slice
+  0: rtk's own global hook is installed on this box (`~/.claude/settings.json`
+  PreToolUse, matcher `Bash` only — the PowerShell tool is uncovered),
+  `rtk hook claude` is a native binary reading tool-call JSON from stdin,
+  `rtk init --show` / `--dry-run` are safe read-only probes.
+- 2026-07-04: the round-2 review (two findings on a8d3d02..HEAD) was FIXED
+  under the approved plan `.agents/plans/review-fixes-2026-07-round2.md` with
+  the codex-review loop per slice: (1) High — `Invoke-PtcRtkLog` snapshots and
+  restores the caller's `$LASTEXITCODE` around the native rtk leg (the rtk
+  invocation was clobbering the user script's exit code before the server read
+  it; snapshot the VALUE, not the live PSVariable) — commit a798094, codex:
+  NO FINDINGS; (2) Medium — dispatch guards completed in three codex rounds:
+  every route guards all properties its compressor dereferences (ae1b9d6),
+  files must have a KNOWN Length (null value or missing → generic; only
+  directories legitimately lack it) (f86da5a), and every item must match the
+  route's type name — one genuine FileInfo can no longer drag look-alike
+  shapes of other types onto the fs route (ccc9686). All fixes guard-proven
+  (revert → predicted failure → restore). Verified 2026-07-04: Pester 49/49,
+  dotnet 30/30, both handshake variants pass, and a live stdio spot-check
+  against the real winget rtk shows a log-shaped `exit 7` script rendering
+  BOTH `[ptk:log via rtk]` and `[exit] 7`. One loose end: a final codex pass
+  on ccc9686 was still running at handoff — its verdict was not read; re-run
+  or re-check before treating the loop as closed (convergence rule on record:
+  contrived-only Lows = converged).
+- NOTE (2026-07-04): the live ptk MCP server was killed again this session to
+  unblock `dotnet test` (PID 7696 held the exe lock — same precedented
+  recovery); the owner needs an `/mcp` restart to respawn it on the current
+  build. Local commits through efe94c1 are UNPUSHED; push needs owner go per
+  `.agents/push-policy.md`.
 - Owner pushed the day's work (a0a4819..4f943ea, including Phase 2) to origin on
   2026-07-03; only docs commits after 4f943ea may be local. On the push, the remote
   reported the repo MOVED to `AlsoBeltrix/PowerShell-Token-Killer` (capital S — the
@@ -142,6 +185,12 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Execute `.agents/plans/unified-shell-routing.md` slice 0** (probe: rtk
+  exit-code/stderr/cwd fidelity through the warm runspace incl. bash-isms on
+  Windows; hook rewrite-vs-deny capability, PowerShell-tool matcher name,
+  per-call hook latency, supersede-vs-coexist with rtk's Bash matcher), record
+  results in the plan, freeze the design, then slices 1-4 with the codex loop.
+- Read or re-run the pending codex verdict on ccc9686 (see Now).
 - 2026-07-02 headless adoption dry-run on this Mac (Sonnet, 19 trials, neutral cwd,
   ptk pre-approved via --allowedTools, tasks PowerShell-shaped but never mentioning
   ptk): **0/13 unprompted ptk usage**. The model used the harness's native PowerShell

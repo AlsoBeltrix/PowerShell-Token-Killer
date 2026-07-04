@@ -1,4 +1,4 @@
-# ptk (PwshTokenCompressor)
+# PowerShell Token Killer (`ptk`)
 
 A warm PowerShell shell for coding agents, with token-compressed output.
 
@@ -149,7 +149,8 @@ pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -Timeout
 
 ## Credits
 
-ptk is heavily inspired by [rtk](https://github.com/rtk-ai/rtk), which proved
+PowerShell Token Killer is named after, and heavily inspired by,
+[rtk](https://github.com/rtk-ai/rtk) — the Rust Token Killer — which proved
 the idea that agent shell output should be compressed at the source. rtk owns
 the native-command side of that idea; ptk extends it to PowerShell — object
 pipelines, warm runspace state — and routes back through rtk wherever rtk

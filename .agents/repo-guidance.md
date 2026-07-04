@@ -4,8 +4,9 @@
 
 ## Mission Detail
 
-PwshTokenCompressor (invoked as `ptk`) is a PowerShell-first token-compression
-tool for agent workflows: it captures PowerShell objects before they are
+PowerShell Token Killer (invoked as `ptk`; the module on disk is named
+`PwshTokenCompressor`, and the name credits rtk, the Rust Token Killer) is a
+PowerShell-first token-compression tool for agent workflows: it captures PowerShell objects before they are
 formatted to text, summarizes them by type and selected properties, and
 renders compact output for LLM tool use. It is a structured-output compressor,
 not a Unix-command wrapper (see `README.md`).

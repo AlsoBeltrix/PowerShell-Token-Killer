@@ -2,7 +2,7 @@
 
 **Severity**: LOW — the mode's primary consumers (release-artifact smokes) pass a
 single binary path, but the documented multi-arg contract was unusable as written.
-**Status**: Verified
+**Status**: Verified (re-grade accepted 2026-07-04T20:33Z)
 **Branch**: master (direct, per this repo's recorded codex-loop precedent)
 **Commit**: `c80dfbf`
 
@@ -57,5 +57,6 @@ future consumer needs it, revisit with full awareness of the VFRA hazard.
 
 ## Reviewer comments
 codex (codex-cli 0.142.5), reviewed 26fd66f against base baef818,
-2026-07-04 (UTC): 1 finding (this one), no_findings=false. Re-grade at
-c80dfbf: pending.
+2026-07-04 (UTC): 1 finding (this one), no_findings=false.
+Re-grade at head 4591c9e against base baef818, 2026-07-04T20:33Z: resolution
+ACCEPTED, zero new findings (no_findings=true, reviewed_head_sha=4591c9e).

@@ -44,4 +44,8 @@ guard run did happen — agent's method summary was incomplete).
 
 | ID     | Severity | Impact (one line)                                                   | Status | Branch |
 |--------|----------|----------------------------------------------------------------------|--------|--------|
-| rel0-1 | LOW      | Documented `-ServerCommand <exe> [args...]` form fails binding for space-separated tokens | `[~]`  | master (direct, c80dfbf) |
+| rel0-1 | LOW      | Documented `-ServerCommand <exe> [args...]` form fails binding for space-separated tokens | `[x]`  | master (direct, c80dfbf) |
+
+**Loop CLOSED 2026-07-04T20:33Z:** re-grade at head 4591c9e — rel0-1
+resolution accepted, zero new findings (codex, codex-cli 0.142.5). Commits
+remain unpushed pending the owner's push go.

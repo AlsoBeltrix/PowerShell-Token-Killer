@@ -39,10 +39,16 @@ short and update it when important repo facts change.
   (revert → predicted failure → restore). Verified 2026-07-04: Pester 49/49,
   dotnet 30/30, both handshake variants pass, and a live stdio spot-check
   against the real winget rtk shows a log-shaped `exit 7` script rendering
-  BOTH `[ptk:log via rtk]` and `[exit] 7`. One loose end: a final codex pass
-  on ccc9686 was still running at handoff — its verdict was not read; re-run
-  or re-check before treating the loop as closed (convergence rule on record:
-  contrived-only Lows = converged).
+  BOTH `[ptk:log via rtk]` and `[exit] 7`. The final codex pass on ccc9686
+  landed after the handoff commit: one Low, self-labeled adversarial
+  (calculated property returning a non-numeric `Length`/`WorkingSet64` value
+  passes the guards, and direct `Compress-PtcObject` throws on the numeric
+  conversion; the server path is already contained by `Compress-PtcOutput`'s
+  never-throw shape-error fallback). Per the convergence rule the loop is
+  CONVERGED and closed with this finding consciously not fixed — value-TYPE
+  validation of every guarded property is out of proportion for a display
+  heuristic with a raw escape hatch. Reopen only if a real (non-crafted)
+  stream ever hits it.
 - NOTE (2026-07-04): the live ptk MCP server was killed again this session to
   unblock `dotnet test` (PID 7696 held the exe lock — same precedented
   recovery); the owner needs an `/mcp` restart to respawn it on the current

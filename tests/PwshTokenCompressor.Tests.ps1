@@ -534,6 +534,16 @@ Describe 'redirect hook and installer' {
         $decision.permissionDecisionReason | Should -Match 'PTK_DIRECT'
     }
 
+    It 'carries the denied call''s cwd into the guidance' {
+        # The warm runspace keeps its own current directory; without the cwd
+        # a replayed relative-path command can run in the wrong place.
+        $out = '{"tool_name":"Bash","tool_input":{"command":"dotnet test"},"cwd":"C:\\repo\\server"}' |
+            pwsh -NoProfile -File $script:hookScript
+
+        $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
+        $reason | Should -Match ([regex]::Escape("Set-Location 'C:\repo\server'"))
+    }
+
     It 'allows a command carrying the PTK_DIRECT escape hatch' {
         $out = '{"tool_name":"PowerShell","tool_input":{"command":"gcloud auth login # PTK_DIRECT"}}' |
             pwsh -NoProfile -File $script:hookScript
@@ -587,6 +597,32 @@ Describe 'redirect hook and installer' {
             $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
             $config.model | Should -BeExactly 'sonnet'
             @($config.hooks.PreToolUse).Count | Should -Be 1
+            $config.hooks.PreToolUse[0].hooks[0].command | Should -BeExactly 'rtk hook claude'
+        }
+
+        It 'keeps a foreign hook that shares one matcher entry with ours' {
+            # One entry, two hooks: uninstall must strip only ours, not drop
+            # the whole entry.
+            $ourCommand = 'pwsh -NoProfile -File "{0}"' -f (Join-Path $PSScriptRoot '..' 'scripts' 'ptk-hook.ps1')
+            Set-Content -LiteralPath $script:settings -Value (@{
+                hooks = @{
+                    PreToolUse = @(
+                        @{
+                            matcher = 'Bash'
+                            hooks   = @(
+                                @{ type = 'command'; command = 'rtk hook claude' },
+                                @{ type = 'command'; command = $ourCommand }
+                            )
+                        }
+                    )
+                }
+            } | ConvertTo-Json -Depth 8)
+
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -Uninstall | Out-Null
+
+            $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
+            @($config.hooks.PreToolUse).Count | Should -Be 1
+            @($config.hooks.PreToolUse[0].hooks).Count | Should -Be 1
             $config.hooks.PreToolUse[0].hooks[0].command | Should -BeExactly 'rtk hook claude'
         }
 

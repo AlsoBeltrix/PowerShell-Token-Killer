@@ -517,6 +517,86 @@ Describe 'Resolve-PtcInvokeScript routing' {
     }
 }
 
+Describe 'redirect hook and installer' {
+    BeforeAll {
+        $script:hookScript = Join-Path $PSScriptRoot '..' 'scripts' 'ptk-hook.ps1'
+        $script:initScript = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_init.ps1'
+    }
+
+    It 'denies a shell tool call with guidance naming ptk_invoke' {
+        $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
+            pwsh -NoProfile -File $script:hookScript
+        $LASTEXITCODE | Should -Be 0
+
+        $decision = ($out | ConvertFrom-Json).hookSpecificOutput
+        $decision.permissionDecision | Should -BeExactly 'deny'
+        $decision.permissionDecisionReason | Should -Match 'mcp__ptk__ptk_invoke'
+        $decision.permissionDecisionReason | Should -Match 'PTK_DIRECT'
+    }
+
+    It 'allows a command carrying the PTK_DIRECT escape hatch' {
+        $out = '{"tool_name":"PowerShell","tool_input":{"command":"gcloud auth login # PTK_DIRECT"}}' |
+            pwsh -NoProfile -File $script:hookScript
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -BeNullOrEmpty
+    }
+
+    It 'allows the call when its own input is unparseable (never blocks on self-failure)' {
+        $out = 'not json at all' | pwsh -NoProfile -File $script:hookScript
+        $LASTEXITCODE | Should -Be 0
+        $out | Should -BeNullOrEmpty
+    }
+
+    Context 'ptk_init settings patching' {
+        BeforeEach {
+            $script:settings = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-init-{0}.json" -f ([guid]::NewGuid()))
+        }
+        AfterEach {
+            Remove-Item -LiteralPath $script:settings -Force -ErrorAction SilentlyContinue
+        }
+
+        It 'installs one Bash|PowerShell entry into fresh settings, idempotently' {
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings | Out-Null
+
+            $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
+            $entries = @($config.hooks.PreToolUse)
+            $entries.Count | Should -Be 1
+            $entries[0].matcher | Should -BeExactly 'Bash|PowerShell'
+            $entries[0].hooks[0].command | Should -Match 'ptk-hook\.ps1'
+        }
+
+        It 'preserves foreign hooks and settings on install and uninstall' {
+            # The shape rtk init leaves behind, plus an unrelated setting.
+            Set-Content -LiteralPath $script:settings -Value (@{
+                model = 'sonnet'
+                hooks = @{
+                    PreToolUse = @(
+                        @{ matcher = 'Bash'; hooks = @(@{ type = 'command'; command = 'rtk hook claude' }) }
+                    )
+                }
+            } | ConvertTo-Json -Depth 8)
+
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings | Out-Null
+            $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
+            $config.model | Should -BeExactly 'sonnet'
+            @($config.hooks.PreToolUse).Count | Should -Be 2
+            @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -eq 'rtk hook claude' }).Count | Should -Be 1
+
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -Uninstall | Out-Null
+            $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
+            $config.model | Should -BeExactly 'sonnet'
+            @($config.hooks.PreToolUse).Count | Should -Be 1
+            $config.hooks.PreToolUse[0].hooks[0].command | Should -BeExactly 'rtk hook claude'
+        }
+
+        It 'writes nothing under -DryRun' {
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -DryRun | Out-Null
+            Test-Path -LiteralPath $script:settings | Should -BeFalse
+        }
+    }
+}
+
 Describe 'minimal mode comment stripping' {
     It 'preserves #requires directives and here-string content while stripping PowerShell comments' {
         $src = @'

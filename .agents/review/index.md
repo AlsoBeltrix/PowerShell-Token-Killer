@@ -58,3 +58,26 @@ Pester tests: 849081d deterministic temp fixtures for the two read-wrapper
 tests; d0e34d6 platform-aware ls routing assertion). **CLOSED first pass:
 NO FINDINGS** (no_findings=true, reviewed_head_sha=d0e34d6). Suite on this
 Mac: 69 passed / 0 failed / 1 skipped.
+
+---
+
+Loop run 2026-07-04 (slice 1) — reviewer: codex (codex-cli 0.142.5), scope:
+release-plan slice 1, `d0e34d6..719fd85` (discovery flip 35fd472 +
+composition-guard fix dc26c30 + dev-install 10d4a1a + fixes), direct to
+`master` per precedent. A three-lens pre-commit review (this harness's
+subagents) ran first: 10 unique findings, ALL admitted and fixed in-tree
+before commit (running-server refusal, settings.json non-touch contract,
+Unix hidden-dir Remove-Item -Force, git-absent fallback, explicit-false
+switch dispatch, TOML snippet, ~/.ptk-as-file error, add-failure guidance,
+partial-home hook fallback, cwd-fallback test vacuity).
+
+## Findings (slice-1 loop)
+
+| ID     | Severity | Impact (one line)                                              | Status | Branch |
+|--------|----------|-----------------------------------------------------------------|--------|--------|
+| rel1-1 | MEDIUM   | v* tag passed raw to -p:Version fails MSBuild on first rc build | `[x]`  | master (direct, b11eb66) |
+| rel1-2 | LOW      | TOML literal string cannot hold an apostrophe path              | `[x]`  | master (direct, 719fd85) |
+
+**Loop CLOSED 2026-07-04:** re-grade at head 719fd85 — both resolutions
+accepted, zero new findings (codex, codex-cli 0.142.5). Commits remain
+unpushed pending the owner's master push go.

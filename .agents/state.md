@@ -5,6 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-04 (latest): release-plan SLICE 1 DONE and codex-closed; slice
+  0 fully closed (CI probe ran — see the plan's probe results).** Slice 1:
+  module discovery flipped to binary-dir-first (35fd472 + dc26c30, guard
+  tests prove both the order and the cwd-fallback through the real
+  composition) and `scripts/dev-install.ps1` landed (10d4a1a + b11eb66 +
+  719fd85): publish→`~/.ptk` install, user-scope registration
+  (remove-then-add), Codex snippet, Windows ARP entry, `-Hook`,
+  `-Uninstall`, `-LayoutOnly -OutputDir` for release CI. Process: 3-lens
+  pre-commit subagent review (10 findings fixed in-tree) + codex loop
+  (rel1-1 tag-version normalization, rel1-2 TOML escaping — both fixed,
+  re-grade NO FINDINGS; `.agents/review/index.md`). Full battery green on
+  this Mac: Pester 69/0/1, dotnet 36/36, handshake all modes, install/
+  uninstall round-trip leaves the machine in its pre-test state
+  (`~/.ptk` removed, no user-scope registration, settings.json md5
+  unchanged). NOT verified here: Windows ARP paths and a live `-Hook`
+  install (slice 7 / owner's Windows box). Next slice: 2 (CI workflow) —
+  iterate on `ci/*` (granted scope), the workflow file itself lands on
+  master locally; the master push stays owner-gated.
 - **2026-07-04 (later): release-plan slice 0 is DONE except the CI probe.**
   `-ServerCommand` mode landed in `server/test-handshake.ps1` (a8553dc,
   pre-commit multi-lens review fixes folded in) and the osx-arm64 probe
@@ -316,13 +334,14 @@ short and update it when important repo facts change.
 
 ## Next
 
-- Slice 0 DONE except the CI runner probe (see the top Now entry) — that
-  probe needs the explicit push go for `ci/*` + rc tags (asked
-  2026-07-04). Then slice 1 (discovery flip + dev install script). Still
-  needed along the way: the hook-default decision before slice 4, and an
-  owner go on the two test fixes for the red master battery (Now entry).
-  The other questions (RIDs, version, install root, winget posture) are
-  RESOLVED — do not re-raise them.
+- Slices 0 and 1 DONE and codex-closed (top Now entry); the CI probe ran
+  on `ci/probe` (branch deleted after — owner condition) and its runner
+  facts are in the plan. Next: slice 2 (`.github/workflows/ci.yml`,
+  three-OS test matrix; iterate on `ci/*`, master push owner-gated), then
+  slice 3 (release workflow). Still needed along the way: the
+  hook-default decision before slice 4. ~~test fixes~~ DONE 2026-07-04
+  (owner go; battery green). The other questions (RIDs, version, install
+  root, winget posture) are RESOLVED — do not re-raise them.
 - ~~Execute unified-shell-routing slices~~ DONE 2026-07-04 (see Now). Next
   actions are the OWNER items in the routing entry: install the hook
   (`scripts/ptk_init.ps1 -Global`), run the live hooked check in a fresh

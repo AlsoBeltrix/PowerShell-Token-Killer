@@ -812,7 +812,10 @@ function Get-PtcRtkCommand {
         if ($env:PTK_RTK_PATH -and (Test-Path -LiteralPath $env:PTK_RTK_PATH)) { return $env:PTK_RTK_PATH }
         return $null
     }
-    $cmd = Get-Command rtk -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    # Intrinsics resolver: a PATH miss must not leave a hidden entry in the
+    # caller's $Error (routing probes this on every shaped call).
+    $cmd = $ExecutionContext.InvokeCommand.GetCommand(
+        'rtk', [System.Management.Automation.CommandTypes]::Application)
     if ($cmd) { return $cmd.Source }
     return $null
 }

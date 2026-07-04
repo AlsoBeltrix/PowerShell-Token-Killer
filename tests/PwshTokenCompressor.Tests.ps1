@@ -462,7 +462,9 @@ Describe 'Resolve-PtcInvokeScript routing' {
         Resolve-PtcInvokeScript -Script 'git status' | Should -BeExactly 'git status'
     }
 
-    It 'keeps batch-shim applications (.cmd/.bat) on the PowerShell path' {
+    It 'keeps batch-shim applications (.cmd/.bat) on the PowerShell path' -Skip:(-not $IsWindows) {
+        # Windows-only: extensionless resolution of a .cmd needs PATHEXT, so
+        # off-Windows this test would pass vacuously via the command-miss path.
         # Codex finding: PowerShell special-cases argument quoting for
         # .cmd/.bat shims (npm, npx); re-invoking them through rtk.exe can
         # change the argv the shim sees.
@@ -477,6 +479,20 @@ Describe 'Resolve-PtcInvokeScript routing' {
         } finally {
             $env:PATH = $savedPath
             Remove-Item -LiteralPath $shimDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'does not pollute $Error when rtk is absent from PATH' {
+        Remove-Item env:PTK_RTK_PATH -ErrorAction SilentlyContinue
+        $savedPath = $env:PATH
+        try {
+            $env:PATH = [System.IO.Path]::GetTempPath()
+            $Error.Clear()
+            Resolve-PtcInvokeScript -Script 'git status' | Should -BeExactly 'git status'
+
+            $Error.Count | Should -Be 0
+        } finally {
+            $env:PATH = $savedPath
         }
     }
 

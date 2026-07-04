@@ -76,6 +76,25 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     [Fact]
+    public async Task Caller_cancellation_is_not_a_timeout_and_preserves_warm_state()
+    {
+        await _host.InvokeAsync("$keep = 'still-warm'");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var canceled = await _host.InvokeAsync("Start-Sleep -Seconds 60", cancellationToken: cts.Token);
+
+        Assert.False(canceled.Success);
+        Assert.False(canceled.TimedOut);
+        Assert.Contains(canceled.Errors, e => e.Contains("cancel", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(canceled.Errors, e => e.Contains("timeout", StringComparison.OrdinalIgnoreCase));
+
+        // The runspace survived the cancel: pre-cancel state is still readable.
+        var after = await _host.InvokeAsync("$keep");
+        Assert.True(after.Success);
+        Assert.Equal("still-warm", after.Output.Trim());
+    }
+
+    [Fact]
     public async Task Timeout_recycles_the_runspace_and_host_survives()
     {
         using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));

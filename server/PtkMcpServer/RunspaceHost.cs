@@ -163,10 +163,37 @@ public sealed class RunspaceHost : IDisposable
               .AddCommand(ModuleLoaded && !raw ? "Compress-PtcOutput" : "Out-String");
 
             var invokeTask = ps.InvokeAsync();
-            var finished = await Task.WhenAny(invokeTask, Task.Delay(_callTimeout, cancellationToken));
+            var delayTask = Task.Delay(_callTimeout, cancellationToken);
+            var finished = await Task.WhenAny(invokeTask, delayTask);
 
             if (finished != invokeTask)
             {
+                // The delay task ends two ways: canceled (caller aborted the call,
+                // e.g. user Esc) or ran to completion (real timeout). A cancel is
+                // not a wedge — stop the pipeline and keep the warm runspace; only
+                // recycle if the pipeline refuses to stop within the grace period.
+                if (delayTask.IsCanceled)
+                {
+                    if (await TryStopPipelineAsync(ps, invokeTask))
+                    {
+                        return new InvokeResult(
+                            Success: false,
+                            Output: string.Empty,
+                            Errors: ["Call canceled by the caller; the pipeline was stopped and warm state was preserved."],
+                            Warnings: [],
+                            TimedOut: false);
+                    }
+
+                    handedOff = true;
+                    AbandonAndRecycle(ps, invokeTask);
+                    return new InvokeResult(
+                        Success: false,
+                        Output: string.Empty,
+                        Errors: [$"Call canceled by the caller, but the pipeline did not stop within {StopGrace.TotalSeconds:0}s; the runspace was recycled and all warm state was lost."],
+                        Warnings: [],
+                        TimedOut: false);
+                }
+
                 handedOff = true;
                 AbandonAndRecycle(ps, invokeTask);
                 return new InvokeResult(
@@ -225,6 +252,28 @@ public sealed class RunspaceHost : IDisposable
         finally
         {
             _gate.Release();
+        }
+    }
+
+    // How long a canceled pipeline gets to stop before it is treated as wedged
+    // and the runspace is recycled anyway.
+    private static readonly TimeSpan StopGrace = TimeSpan.FromSeconds(5);
+
+    /// <summary>Stops a canceled pipeline in place. True = it stopped within the
+    /// grace period and the runspace is safe to keep using; false = treat as wedged.</summary>
+    private static async Task<bool> TryStopPipelineAsync(PowerShell ps, Task invokeTask)
+    {
+        try
+        {
+            var stopTask = Task.Factory.FromAsync(ps.BeginStop, ps.EndStop, null);
+            if (await Task.WhenAny(stopTask, Task.Delay(StopGrace)) != stopTask) return false;
+            await stopTask;
+            try { await invokeTask; } catch { /* PipelineStoppedException is the expected outcome */ }
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 

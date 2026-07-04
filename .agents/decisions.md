@@ -251,6 +251,34 @@ destructive-cmdlet gate REMAIN paused behind the test. Owner return date is now
 ~2026-07-20 (was ~2026-07-16). The go/no-go itself is unchanged: unprompted
 adoption + experienced benefit on the real Windows box remain the criteria.
 
+**AMENDED 2026-07-04 (owner):** unified shell routing is UNPAUSED — the owner
+chose to make ptk the single tool surface for all shell work before the go/no-go,
+plus a harness hook that enforces it. Scope set by owner the same day:
+
+- **One tool for everything shell-shaped.** PowerShell scripts run in the warm
+  runspace (the existing `ptk_invoke` path); log-shaped output routes to rtk
+  (the existing `Compress-PtcOutput` leg); simple native command lines (git,
+  npm, docker, ...) route to rtk so its per-command filters apply — compression
+  happens for everything that supports it and the model has one tool to reach
+  for.
+- **A harness hook forces the redirect.** A PreToolUse hook on the harness's
+  Bash and PowerShell tools redirects shell work to ptk, so adoption does not
+  depend on model discipline — the direct answer to the 2026-07-02 headless
+  dry-run (0/13 unprompted MCP usage; MCP tools hidden behind ToolSearch) and
+  the rtk instruction-decay evidence.
+
+Consequence for the test: the ~2026-07-20 go/no-go now evaluates the routed
+one-tool product with the hook installed; the criteria shift accordingly —
+"unprompted adoption" is satisfied by construction on hooked sessions, so the
+operative criterion becomes experienced benefit (real time/aggravation saved,
+never a tool-reported metric) plus absence of friction that makes the owner
+disable the hook. The universal PowerShell wrapper CLI face and the
+destructive-cmdlet gate REMAIN paused. Plan (requires its own approval before
+code): `.agents/plans/unified-shell-routing.md`. The zero-code alternative
+(installing rtk's own Bash-rewrite hook and leaving ptk as-is) was considered
+and declined in favor of the routed tool; rtk's hook may still complement the
+bash leg if the probe slice finds it cheaper.
+
 **Original status (2026-07-02):** Open - all further building is PAUSED by owner
 decision until the test below runs. This gates Phase 2 (compression), the
 universal wrapper, and the destructive-cmdlet gate. The warm-runspace server

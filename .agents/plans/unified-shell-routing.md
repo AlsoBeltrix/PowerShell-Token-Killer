@@ -44,10 +44,17 @@ for everything that supports it:
      command's exit code and stderr faithfully (filtered and passthrough
      paths); cwd semantics; `rtk proxy` as the raw escape hatch. No
      supported-command enumeration needed — routing is unconditional.
-   - Hook mechanics on this harness/box: PreToolUse matcher for Bash and the
-     PowerShell tool; deny-with-guidance vs command-rewrite capability; where
-     it lives (user-level `~/.claude/settings.json` vs per-project); how the
-     model behaves after a deny (does it reliably switch to ptk_invoke).
+   - Hook mechanics (partly verified 2026-07-04 by inspecting the installed
+     rtk hook): rtk ships a global PreToolUse hook, matcher `Bash`, command
+     `rtk hook claude` (native binary, reads tool-call JSON from stdin,
+     rewrites in place) — installed on this box via `rtk init -g`. Remaining
+     probes: matcher name for the PowerShell tool; whether a hook can rewrite
+     a Bash/PowerShell call or only deny-with-guidance toward ptk_invoke; how
+     reliably the model switches to ptk_invoke after a deny; per-call hook
+     LATENCY (fires on every shell call — native rtk pays ~0, a `pwsh -File`
+     hook pays interpreter startup; candidate: a `hook` mode on the existing
+     C# server binary); and whether ptk's Bash matcher supersedes or coexists
+     with rtk's zero-token in-place rewrite.
    - Loop/friction cases: agent sessions in THIS repo (hook would fire on our
      own verification commands); interactive one-liners; commands ptk cannot
      run (true bash-isms on Windows).
@@ -62,29 +69,32 @@ for everything that supports it:
 2. **Tool surface.** Reposition `ptk_invoke`'s name/description as the single
    shell tool ("run any shell command; output comes back compressed") so the
    surface matches the hook's redirect text. Guard: handshake + live check.
-3. **Redirect hook.** PreToolUse hook on Bash/PowerShell tool use that blocks
-   with guidance to use ptk (or rewrites, if the probe shows the harness
-   supports it), with an explicit off switch and an escape hatch for commands
-   ptk cannot serve. Deliverable includes install location + uninstall note.
-   Guard: live-session check (hooked Bash call lands in ptk_invoke); friction
-   log started for the go/no-go.
+3. **Redirect hook + installer.** PreToolUse hook on Bash/PowerShell tool use
+   that redirects to ptk (rewrite if the harness supports it, else
+   deny-with-guidance), shipped with a `ptk_init.ps1` installer mirroring
+   `rtk init` semantics (owner decision 2026-07-04): global `-g` vs local
+   default, `-Show`, `-Uninstall`, `-DryRun`, settings.json auto-patch. Scope
+   is an install-time flag, not a design decision. Includes an escape hatch
+   for calls ptk cannot serve. Guard: live-session check (hooked Bash and
+   PowerShell calls land in ptk_invoke); friction log started for the
+   go/no-go.
 4. **Docs + battery.** Full suites, handshake, live spot-checks; update
    `.agents/state.md`, the decision entry (probe results + any scope
    corrections), `README.md`/`server/README.md` surface description.
 
-## Open questions (owner input at approval)
+## Open questions — all resolved 2026-07-04 (owner)
 
-- **Hook scope:** user-global (all projects on this box) or per-project? A
-  global hook fires in this repo's own dev sessions too — including agent
-  verification commands like `dotnet test`; the escape-hatch semantics decide
-  whether that is friction or fine.
-- ~~True bash syntax~~ RESOLVED by owner 2026-07-04: any non-PowerShell input
-  routes to rtk, bash-isms included — rtk shells out itself and passes through
-  what it does not filter. The slice-0 probe still verifies this works through
-  the warm runspace on Windows (what shell rtk uses for bash-isms here).
-- **Naming:** keep `ptk_invoke` (continuity with recorded live checks) or
-  rename (`ptk_run`/`ptk_shell`) for the one-tool story? Renaming invalidates
-  recorded harness allow-decisions.
+- ~~Hook scope~~ RESOLVED: not a decision — `ptk_init.ps1` mirrors `rtk init`
+  (global `-g` vs local default), so scope is an install-time flag. rtk's own
+  hook is already installed globally on this box (matcher `Bash` only; the
+  PowerShell tool is uncovered — that gap is ptk's to close).
+- ~~True bash syntax~~ RESOLVED: any non-PowerShell input routes to rtk,
+  bash-isms included — rtk shells out itself and passes through what it does
+  not filter. The slice-0 probe still verifies this works through the warm
+  runspace on Windows (what shell rtk uses for bash-isms here).
+- ~~Naming~~ RESOLVED: keep `ptk_invoke` — owner indifferent, and renaming
+  would reset harness allow-decisions and orphan recorded live checks for no
+  benefit.
 
 ## Risks
 

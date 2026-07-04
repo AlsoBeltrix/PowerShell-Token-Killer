@@ -1,6 +1,6 @@
 # Plan: Fix the verified findings from the 2026-07-03 external review
 
-**Status:** DRAFT — awaiting owner approval. No code change until approved.
+**Status:** Approved by owner 2026-07-03 (in-session go on the six-slice scope).
 **Decision basis:** An external (GPT-5.5) review of the Phase 2 build surfaced five
 findings; a 2026-07-03 verification session confirmed all five against the code,
 with live repros for the two module findings. Four are unrecorded defects in

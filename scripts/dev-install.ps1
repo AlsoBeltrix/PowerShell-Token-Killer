@@ -92,7 +92,11 @@ function Assert-NotElevated {
 }
 
 function Get-PtkVersion {
-    if ($Version) { return $Version }
+    if ($Version) {
+        # Accept tag-shaped values (v0.2.0-rc.1): release CI passes the git
+        # tag verbatim and MSBuild rejects a leading v as an invalid version.
+        return $Version -replace '^[vV]', ''
+    }
     # Get-Command first: a missing native command is a terminating
     # CommandNotFoundException that 2>$null does not suppress.
     $git = Get-Command git -ErrorAction SilentlyContinue

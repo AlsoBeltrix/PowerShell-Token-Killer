@@ -84,6 +84,51 @@ for everything that supports it:
    `.agents/state.md`, the decision entry (probe results + any scope
    corrections), `README.md`/`server/README.md` surface description.
 
+## Slice 0 results (2026-07-04) — design FROZEN
+
+All probes run on this box (live rtk 0.43.x, warm server, Claude Code docs via
+research agent citing code.claude.com/docs/en/hooks.md):
+
+- **rtk fidelity: PASS.** Unsupported commands pass through with output and
+  exit code intact (`whoami` → 0); failing passthrough propagates the code
+  (`cmd /c exit 7` → 7); failing filtered commands propagate code + stderr
+  (`git status --bogus-flag` → 129, usage text visible); `rtk git status`
+  filters to 2 lines; `rtk summary "<a && b>"` executes chains on Windows.
+- **cwd: PASS.** The warm runspace's `Set-Location` propagates to rtk's child
+  processes (verified via `rtk cmd /c cd` after `Set-Location $env:TEMP`).
+- **Windows gap:** `rtk ls` FAILS (no native `ls` binary on PATH; PowerShell's
+  `ls` is an alias). Consequence: classification must resolve the first token
+  IN THE RUNSPACE — Alias/Cmdlet/Function/ExternalScript → PowerShell path;
+  only `Application` → rtk.
+- **Hook mechanics:** PreToolUse matchers are exactly `"Bash"` and
+  `"PowerShell"`; stdin JSON carries `tool_name`, `tool_input.command`, `cwd`.
+  `updatedInput` can rewrite input for the SAME tool only (rtk's own hook does
+  this: `git status` → `rtk git status`); a cross-tool redirect is impossible,
+  so ptk's hook is **deny-with-guidance**: `permissionDecision: "deny"` +
+  `permissionDecisionReason` (shown to the model verbatim) naming
+  `mcp__ptk__ptk_invoke` and echoing the original command. MCP tools are
+  matchable (`mcp__ptk__.*`), so the loop check is testable; hooks run
+  concurrently and a deny wins over rtk's rewrite, so ptk's hook COEXISTS with
+  rtk's Bash hook (no uninstall needed).
+- **Latency:** `rtk hook claude` ~24 ms; `pwsh -NoProfile` ~104 ms. A pwsh
+  hook script is acceptable: it fires only on the tools being redirected away
+  from, so steady-state frequency is low. No C# hook mode needed.
+
+**Frozen routing rule (slice 1):** classify in the module, execute in the warm
+runspace. A script routes to rtk only when it is a single statement, single
+pipeline, single command whose name resolves to a native `Application` in the
+runspace and whose arguments are constants — rewritten to `rtk <cmd> <args>`.
+Everything else (pipelines, chains, variables, cmdlets, aliases, parse errors)
+runs as PowerShell exactly as today — natives inside chains still execute
+correctly there and their text output still gets the log-shaped rtk leg.
+Rationale: PowerShell executes mixed chains with correct semantics; forcing
+them through `rtk summary`'s `cmd /C` would change semantics. `raw=true`
+skips routing as well as shaping (raw means the uncompressed truth); a new
+optional `route` argument (`auto`|`pwsh`|`rtk`) gives explicit override.
+Escape hatch for the hook (slice 3): a command containing the marker
+`PTK_DIRECT` is allowed through (for genuinely interactive/TTY commands),
+and the deny reason documents it.
+
 ## Open questions — all resolved 2026-07-04 (owner)
 
 - ~~Hook scope~~ RESOLVED: not a decision — `ptk_init.ps1` mirrors `rtk init`

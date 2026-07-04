@@ -10,8 +10,31 @@ short and update it when important repo facts change.
   reported the repo MOVED to `AlsoBeltrix/PowerShell-Token-Killer` (capital S — the
   URL already recorded in `.agents/repo-guidance.md`); owner updated the local
   `origin` URL to match the same day. Pester: 31/31 on the Mac (2026-07-02); 29/31
-  on the Windows box (2026-07-03) — the 2 failures are a pre-existing test-fixture
-  sensitivity, not a module defect (see the Windows bring-up bullet under Next).
+  on the Windows box (2026-07-03) — the 2 failures were a pre-existing test-fixture
+  sensitivity, FIXED later the same day (see the review-fixes bullet below).
+- 2026-07-03 (night): five findings from an external (GPT-5.5) review of the Phase 2
+  build were verified and FIXED under the approved plan
+  `.agents/plans/review-fixes-2026-07.md`, one commit per finding: (1) ptk_invoke
+  now surfaces nonzero native exit codes as an `[exit] N` block (with the CLI
+  path's stale-guard, reset-before/read-after, mirrored into the server);
+  (2) `Compress-PtcObject` dispatches to a specialized compressor only when EVERY
+  item passes its property check, so mixed streams (FileInfo + string) compress
+  via the generic path instead of degrading to `[ptk:shape ERROR]` raw fallback;
+  (3) caller cancellation (user Esc) is now distinguished from timeout — the
+  pipeline is stopped with a 5s grace and the warm runspace SURVIVES a clean
+  stop (only a truly wedged pipeline still recycles), and the error says
+  "canceled", not "timeout"; (4) `-MaxItems` + `+N more` now apply to
+  property-less rows (scalar streams); (5) the two repo-root-sensitive Pester
+  tests use deterministic temp-dir fixtures. Verified: Pester 43/43 (first fully
+  clean run on this box), dotnet test 29/29, both handshake variants pass, plus
+  an end-to-end stdio check of `[exit] 7` + stale-guard; guard proofs done for
+  every behavior fix. Warm round-trip re-measured with the exit-code
+  bookkeeping: avg 1.7 ms / max 3.5 ms over 20 stdio calls — no regression vs
+  the ~3 ms baseline. Note: the live ptk servers were killed to unblock the
+  rebuild (the exe was file-locked), so the session's MCP tools are down until
+  an `/mcp` restart, which will respawn on the fixed build; a live Esc-abort
+  spot-check in a real session is the one check not run headlessly (the
+  mechanism is unit-tested).
 - A 2026-06-27 design session explored a "universal PowerShell wrapper" rearchitecture
   (triggered by `ptk Get-ChildItem` printing help instead of running). No product code
   was written; the owner deferred the build decision. Recorded as an Open decision
@@ -157,8 +180,8 @@ short and update it when important repo facts change.
   `Get-ChildItem <repo root> | Compress-PtcObject -MaxItems 10`, but this box's root
   has 12 entries (a machine-local `.claude/` dir among them), so README.md falls
   past the cap. The fixture is the live repo root — environment-sensitive by design,
-  pre-existing, not a Windows defect. Proposed fix (needs a go): deterministic
-  temp-dir fixture for those two tests.
+  pre-existing, not a Windows defect. FIXED 2026-07-03 (review-fixes plan, slice
+  5): both tests now use deterministic temp-dir fixtures; suite 43/43 on this box.
 - 2026-07-03 (later): owner enabled the MCP server on this box and the live-session
   check PASSED in Claude Code on Windows — full parity with the Mac check:
   ptk_ping → pong; ptk_invoke shares state across calls (same PID, variable set in
@@ -167,10 +190,10 @@ short and update it when important repo facts change.
   script errors surface in an `[errors]` block; ptk_reset clears variables and
   modules without restarting the process. This box is now a fully working ptk
   environment; the remaining pre-07-16 items are the AWAITING OWNER GO list above.
-- AWAITING OWNER GO, proposed 2026-07-03 (none started): (a) push the local
-  commits; (b) deterministic temp-dir fixture for the two repo-root-sensitive
-  Pester tests; (c) fold the slice-7 test matrix below into the continuation
-  decision entry; (d) pre-07-16 tests on this box (bring-up + warm-load
+- AWAITING OWNER GO, proposed 2026-07-03: (a) push the local
+  commits; ~~(b) deterministic temp-dir fixture~~ DONE 2026-07-03 via the
+  review-fixes plan (slice 5); (c) fold the slice-7 test matrix below into the
+  continuation decision entry; (d) pre-07-16 tests on this box (bring-up + warm-load
   measurement DONE 2026-07-03 — see the live-check bullet below): ToolSearch
   discoverability probe (do the ptk tool descriptions rank for
   "powershell"-shaped queries?); failure-mode drills (kill

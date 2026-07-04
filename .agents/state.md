@@ -190,8 +190,9 @@ short and update it when important repo facts change.
   script errors surface in an `[errors]` block; ptk_reset clears variables and
   modules without restarting the process. This box is now a fully working ptk
   environment; the remaining pre-07-16 items are the AWAITING OWNER GO list above.
-- AWAITING OWNER GO, proposed 2026-07-03: (a) push the local
-  commits; ~~(b) deterministic temp-dir fixture~~ DONE 2026-07-03 via the
+- AWAITING OWNER GO, proposed 2026-07-03: ~~(a) push the local commits~~ DONE —
+  owner pushed a8d3d02..9804eed (the review fixes and docs) to origin
+  2026-07-03; ~~(b) deterministic temp-dir fixture~~ DONE 2026-07-03 via the
   review-fixes plan (slice 5); (c) fold the slice-7 test matrix below into the
   continuation decision entry; (d) pre-07-16 tests on this box (bring-up + warm-load
   measurement DONE 2026-07-03 — see the live-check bullet below): ToolSearch

@@ -57,6 +57,6 @@
   ],
   "notes": [
     "Verification commands re-confirmed 2026-07-03 during governance refresh: Pester 43/43, dotnet test 29/29, both passing on commit dec5231.",
-    "No CI configured in this repo (no provider-executable workflow files found); verification is local-only."
+    "CI added 2026-07-08 (release-plan slice 2): .github/workflows/ci.yml runs the three verification commands on an ubuntu/windows/macos matrix for pushes to master/ci/** and PRs to master."
   ]
 }

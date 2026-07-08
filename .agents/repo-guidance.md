@@ -52,9 +52,11 @@ pwsh -NoProfile -File server/test-handshake.ps1
 — stdio handshake check for the MCP server; run manually when server-facing
 code changes (not re-run by this governance refresh).
 
-No CI is configured in this repo (no provider-executable workflow files
-found); verification is local-only. See `.agents/repo-map.json` for the
-machine-readable record.
+CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
+runs the same battery (Pester, dotnet test, handshake) on an
+ubuntu/windows/macos matrix for pushes to `master`/`ci/**` and PRs to
+`master`. Local verification before claiming completion still applies. See
+`.agents/repo-map.json` for the machine-readable record.
 
 ## Remotes & Sync
 

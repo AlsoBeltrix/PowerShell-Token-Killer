@@ -81,3 +81,16 @@ partial-home hook fallback, cwd-fallback test vacuity).
 **Loop CLOSED 2026-07-04:** re-grade at head 719fd85 — both resolutions
 accepted, zero new findings (codex, codex-cli 0.142.5). Commits remain
 unpushed pending the owner's master push go.
+
+---
+
+Loop run 2026-07-08 (slice 2) — reviewer: codex (codex-cli 0.142.5), scope:
+release-plan slice 2, reviewed at the `ci/slice-2` branch SHAs `831bcc3`
+(ci.yml, three-OS matrix) and `30f283d` (Windows execution-policy fix +
+regression test), each in its own read-only codex run. **Both CLOSED first
+pass: NO FINDINGS.** The commits landed on `master` by cherry-pick as
+`74a2604`/`dddbb6b` (identical content; the branch was deleted per the
+owner's no-lingering-branches condition), so the master SHAs differ from
+the reviewed SHAs. CI matrix green on all three OSes at `30f283d`
+(run 28971482704). Commits remain unpushed pending the owner's master
+push go.

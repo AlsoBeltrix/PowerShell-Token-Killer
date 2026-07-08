@@ -175,11 +175,16 @@ across a reset is a process the caller should have started as one.
      alone or name alone never routes.
    - **Text** → **normalize first: strip ANSI/control sequences before
      anything else.** Terminal color codes are pure token waste to a
-     model, and they defeat downstream classification — the log-shape
-     regexes anchor on line start, so a `\e[32m`-prefixed log line dodges
-     the dedup leg entirely (observed live: vite, 2026-07-08). Then
-     classify: log-shaped → rtk dedup (labeled fallback to raw if rtk is
-     absent or fails); otherwise bounded passthrough.
+     model (observed live: vite noise, 2026-07-08), and they degrade
+     downstream classification: of the three log-shape heuristics, the
+     timestamp pattern anchors on line start, so an ANSI-prefixed
+     timestamped line dodges it, and codes breaking the literal `[LEVEL]`
+     adjacency defeat the bracketed-level pattern — the bare-level
+     pattern may still match. The D1 guard test must therefore use
+     timestamp-prefixed ANSI lines (or the recorded vite passthrough
+     case), not ANSI-wrapped `INFO:` lines that classify correctly
+     anyway. Then classify: log-shaped → rtk dedup (labeled fallback to
+     raw if rtk is absent or fails); otherwise bounded passthrough.
 3. **Bound (P3).** Every text leg ends in the bounder: a generous
    head+tail window with an explicit `[N lines elided — raw=true for
    everything]` marker. Object legs are already bounded (`MaxItems` /
@@ -264,7 +269,7 @@ not artifacts of the codebase. The deltas:
 
 | # | Delta | Principle | Evidence |
 |---|-------|-----------|----------|
-| D1 | Strip ANSI/control sequences at text ingest, before classification and return | P3 | 2026-07-08 live feedback (vite noise); `Test-PtcLogShaped` misclassifies colored logs — `Remove-PtcAnsi` exists but the passthrough leg never applies it |
+| D1 | Strip ANSI/control sequences at text ingest, before classification and return | P3 | 2026-07-08 live feedback (vite noise); `Test-PtcLogShaped`'s timestamp anchor misses ANSI-prefixed lines — `Remove-PtcAnsi` exists but the passthrough leg never applies it |
 | D2 | Bound every output leg: labeled head+tail cap on the passthrough (amends the Phase 2 never-truncate contract) | P3 | design hole: unbounded worst case in a compression tool |
 | D3 | First-class background jobs (`background=true` + `ptk_job`), teach-at-timeout error text, per-call `timeoutSeconds` | P1, P4 | 2026-07-08 live feedback: the background+poll pattern works but lives only in `.agents/state.md` |
 | D4 | `ptk_state` with drift report (subsumes `ptk_modules` + `ptk_ping`) | P1, P4 | 2026-07-08 live feedback: PATH/shim pollution is the recorded hazard of the standout feature |

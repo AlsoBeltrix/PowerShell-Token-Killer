@@ -92,7 +92,8 @@ Routing rules:
 Output shaping:
 
 - Object output compresses with `Compress-PtcObject`.
-- Plain strings and primitive scalars pass through without truncation.
+- Plain strings and primitive scalars pass through with ANSI/control
+  sequences stripped, otherwise without truncation.
 - Log-shaped text routes through `rtk log` when possible.
 - Log-shaped text falls back to labeled raw text if `rtk` is absent or fails.
 - Nonzero native exit codes are reported as `[exit] N`.

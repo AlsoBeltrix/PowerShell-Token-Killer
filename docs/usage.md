@@ -100,9 +100,9 @@ runspace. It is also useful for local experiments:
 ```
 
 Its contract is conservative: object output compresses, plain text and
-primitive scalars pass through exactly, log-shaped text tries `rtk log`, and
-internal shaping failures return labeled unshaped output instead of failing the
-call.
+primitive scalars pass through with ANSI/control sequences stripped but
+otherwise unaltered, log-shaped text tries `rtk log`, and internal shaping
+failures return labeled unshaped output instead of failing the call.
 
 ## Routing Helper
 

@@ -5,6 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-08: ptk MCP server live-use feedback recorded; no fixes authorized.**
+  After ~10 calls in a real session, the owner reported the MCP server was the
+  right tool and that warm runspace/state persistence is the standout feature,
+  but also the main isolation hazard: variables and `$env:PATH` persist across
+  calls, including test shims such as a fake `npm` prepended to PATH. Long work
+  should use the background process + redirected output + polling pattern so
+  each MCP call stays under timeout and preserves the live server. Output shaping
+  preserved useful signal, including compile warnings, final artifact lines, and
+  stderr as `[errors]`; minor polish gap: raw ANSI color sequences from tools
+  such as vite surfaced unfiltered. Native command routing through rtk was
+  transparent. Treat this as adoption evidence and an open feedback item only;
+  the owner explicitly asked to document the feedback and not fix anything.
 - **HANDOFF 2026-07-04 (end of day): owner moving to the WINDOWS box for
   testing; master pushed through the handoff commit (explicit owner go).**
   Everything below in this entry's sibling bullets is the day's context;

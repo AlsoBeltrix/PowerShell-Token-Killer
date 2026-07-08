@@ -101,6 +101,12 @@ also been self-caught before the verdict arrived).
 | gfd-3 | MEDIUM   | 5.1 exclusion leaned on the untested PS7 implicit-remoting route as settled | `[x]`  | master (direct, 8963439) |
 | gfd-4 | LOW      | ANSI/log-shape mechanism overstated (only the timestamp regex is anchored) | `[x]`  | master (direct, f4f6c3c) |
 
+**Loop CLOSED 2026-07-08:** re-grade at the plan-file state of `f4f6c3c`
+(dispatched from the index commit one ahead; the plan file is byte-identical
+at both) — all four resolutions RESOLVED, NO NEW FINDINGS (codex, Codex
+v0.143.0, gpt-5.5). The plan remains a DRAFT awaiting owner review; commits
+unpushed pending the owner's master push go.
+
 ---
 
 Loop run 2026-07-08 (slice 2) — reviewer: codex (codex-cli 0.142.5), scope:

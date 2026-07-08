@@ -5,19 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **2026-07-08 (latest): GREENFIELD DESIGN drafted, codex-closed, AWAITING
-  OWNER REVIEW.** Owner asked (in-session): distill the goal and design the
-  product greenfield, plan only, codex-reviewed, then present. Result:
-  `.agents/plans/greenfield-design.md` (DRAFT — authorizes no code). Core
-  conclusion: the built architecture re-derives from the goal; five deltas
-  (D1 ANSI strip at text ingest, D2 bound every output leg — amends the
-  Phase 2 never-truncate contract, flagged; D3 first-class background jobs
-  + teach-at-timeout; D4 ptk_state drift report subsuming modules+ping;
-  D5 retire the CLI face — would close the universal-wrapper open decision
-  by dissolution). Codex loop: 4 findings (gfd-1..4), all fixed one commit
-  each, re-grade RESOLVED x4 / NO NEW FINDINGS (`.agents/review/index.md`).
-  Next: owner reads the plan and approves/amends/declines; no code until
-  then. Release-plan slice 3 is unaffected and still queued.
+- **2026-07-08 (latest): GREENFIELD DESIGN APPROVED (owner go in-session)
+  — EXECUTING.** `.agents/plans/greenfield-design.md`, approved with its
+  three decision-point calls standing (D2 bounds 400 lines/40KB with raw
+  unbounded; D3 jobs = child pwsh processes; D5 after the go/no-go
+  window). Adoption entry recorded in `.agents/decisions.md`: amends the
+  Phase 2 never-truncate passthrough contract; closes the
+  universal-wrapper open decision by dissolution (entry archived to
+  `docs/history/decisions-archive.md`). Plan codex loop: gfd-1..4 fixed,
+  re-grade RESOLVED x4 / NO NEW FINDINGS (`.agents/review/index.md`).
+  Execution order D1 → D2 → D4 → D3, one commit + codex loop per slice;
+  D5 deferred post-window. Release-plan slice 3 unaffected, still queued.
 - **2026-07-08 (later): release-plan SLICE 2 DONE and codex-closed.**
   `.github/workflows/ci.yml` landed on master (74a2604): ubuntu/windows/
   macos matrix, current action majors (checkout@v7, setup-dotnet@v5),

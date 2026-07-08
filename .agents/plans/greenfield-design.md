@@ -1,11 +1,17 @@
 # Plan: ptk greenfield design — the agent shell, derived from the goal
 
-**Status:** DRAFT for owner review. Owner-requested design exercise
-(2026-07-08): distill the goal, design the product greenfield — the way the
-designing agent would build it from scratch — plan only, codex-reviewed
-before presentation. NOT approved; authorizes no code. Where this design
-contradicts a recorded decision, the contradiction is flagged inline and
-would be recorded in `.agents/decisions.md` at adoption, never silently.
+**Status:** APPROVED by owner 2026-07-08 (in-session go after the codex
+loop closed: gfd-1..gfd-4 fixed, re-grade RESOLVED x4 / NO NEW FINDINGS —
+`.agents/review/index.md`). The three decision-point calls at the end
+stand unoverridden. Execution order: D1 → D2 → D4 → D3, each slice
+committed and codex-looped; D5 deferred until after the go/no-go window
+per its call. The contract amendment and the universal-wrapper closure
+are recorded in `.agents/decisions.md` (2026-07-08 adoption entry).
+
+Origin: owner-requested design exercise (2026-07-08) — distill the goal,
+design the product greenfield, plan only, codex-reviewed before
+presentation. Where this design contradicts a recorded decision, the
+contradiction is flagged inline.
 
 ## The goal
 

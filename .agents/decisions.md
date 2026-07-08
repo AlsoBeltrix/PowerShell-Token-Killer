@@ -34,99 +34,40 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
-No durable decisions recorded yet.
+### ACTIVE (2026-07-08): Greenfield design adopted — `.agents/plans/greenfield-design.md`
+
+**Status:** Active — approved by owner in-session 2026-07-08 after the codex
+review loop on the plan text closed (gfd-1..gfd-4 fixed, re-grade RESOLVED
+x4 / NO NEW FINDINGS; `.agents/review/index.md`). The plan's three
+decision-point calls stand unoverridden: passthrough bounds 400 lines /
+40 KB with `raw=true` unbounded; background jobs are child `pwsh` processes
+(no warm session state); D5 (CLI-face retirement) executes after the
+go/no-go window.
+
+**What it changes, durably:**
+
+- **Amends the Phase 2 passthrough contract** (2026-07-03 amendment in the
+  continuation entry below): plain-text output of `ptk_invoke` is no longer
+  "full passthrough, never truncated" — every text leg is bounded by a
+  generous labeled head+tail window; completeness moves to the explicit
+  `raw=true` escape hatch. Rationale: boundedness outranks
+  completeness-by-default in a tool whose one job is protecting context
+  (plan, principle P3).
+- **Closes the universal-wrapper open decision by dissolution** —
+  `ptk_invoke` is the universal surface, so "should the CLI dispatch any
+  cmdlet" no longer has an object. The CLI face itself is retired by D5
+  (deferred post-window). The entry moved verbatim to
+  `docs/history/decisions-archive.md` in this change.
+- **Execution scope:** D1 (ANSI strip at text ingest), D2 (bounded
+  passthrough), D4 (`ptk_state` drift report subsuming
+  `ptk_modules`/`ptk_ping`), D3 (background jobs), in that order, each
+  slice committed and codex-looped; D5 deferred.
+
+**Unchanged:** the go/no-go gate itself ("Whether ptk continues at all",
+below), the release-distribution plan (slice 3 still queued), the
+destructive-cmdlet pause, and the not-a-security-boundary threat model.
 
 ## Open Decisions (deferred - not yet adopted)
-
-### OPEN (2026-06-27): Whether to build the "universal PowerShell wrapper" rearchitecture
-
-**Status:** Open - deferred by owner to decide later. No code change authorized. This
-entry records the design exploration so a future session can resume without
-re-deriving it.
-
-**Question:** Should ptk grow a universal pass-through path - `ptk <any cmdlet ...>`
-runs the command and compresses whatever it returns - replacing the current
-fixed-verb dispatch? And if so, in what form?
-
-**What triggered it:** `ptk Get-ChildItem` prints the help screen instead of running,
-because the dispatch is a `switch -Regex` (`Invoke-Ptc`, src/PwshTokenCompressor.psm1)
-whose arms match only short aliases (`ls|dir|gci|list`), with a `default` arm that
-prints usage. Owner rejected three narrower fixes in turn (add cmdlet names to the
-regex; a hashtable dispatch + alias table; an AST allowlist) as variations on a
-"maintained debt list."
-
-**Verified evidence gathered this session (keep - expensive to re-establish):**
-
-- **RTK is text/stream-first and cannot compress PowerShell objects.** RTK (`../rtk`,
-  upstream `rtk-ai/rtk`) has ~100 hand-written per-command proxies plus a universal
-  `rtk summary <cmd>` that runs any command via `sh -c` / `cmd /C` and filters the
-  **text** output. By the time RTK sees PowerShell output it is already
-  `Format-Table` text; the objects are gone. ptk's reason to exist is the README's
-  claim: compress objects *before* formatting. (Confirmed by reading RTK source:
-  `src/main.rs`, `src/cmds/system/summary.rs` `detect_output_type`,
-  `src/core/runner.rs` `run_passthrough`.)
-- **Both agent harnesses run a fresh, cold PowerShell process per tool call by
-  default.** Confirmed directly: Codex (`codex exec`, self-report) =
-  `pwsh -Command "<string>"` per call, no persistence except an explicitly retained
-  PTY (`write_stdin`/`session_id`). Claude Code (claude-code-guide agent, citing
-  code.claude.com/docs) = fresh process per call; dedicated PowerShell tool
-  auto-detects `pwsh.exe`/`powershell.exe`, `-ExecutionPolicy Bypass`, profiles not
-  loaded; no REPL. Neither persists env/modules/sessions between default calls.
-- **Owner's real Exchange workflow works because of a warm HOST process, not harness
-  state.** Hybrid Exchange; `Get-Queue` is on-prem only; on-prem EMS takes 30s+ to
-  connect to the CAS server; owner's `$PROFILE` auto-connects only EXO, nothing
-  on-prem. Yet the agent returns on-prem queue data in ~2s, repeatedly. Deduction:
-  the agent is running inside an already-open EMS host whose implicit-remoting
-  PSSession persists in that process. **Consequence:** if ptk's universal path
-  spawned a child `pwsh` (today's `Invoke-PtcRun` string path does), `ptk Get-Queue`
-  would launch a cold process with no on-prem session and either fail or eat the 30s
-  reconnect - breaking a workflow that currently works. Therefore the universal path,
-  if built, MUST run in-process (in ptk's own host session), never a grandchild. The
-  README design goal "use `pwsh -NoProfile -NonInteractive` for command-string
-  execution" is wrong for this case.
-- **Threat model: ptk is not a security boundary.** `ptk <cmd>` would run the same
-  string in the same process the harness already spawns for raw PowerShell - identical
-  blast radius. Prompt-injection defense belongs at the harness sandbox, not in a
-  token compressor. (Matches RTK's stance: `rtk summary` runs arbitrary strings.) So
-  no AST allowlist / injection guard on the universal path is warranted; the previous
-  session's injection-guard tests on the string path would need deliberate
-  reconciliation, not silent deletion, if that path is retired.
-
-**Settled sub-decisions (conditional on building it at all):**
-
-- Drop the `ls`/`ps`/`service`/`grep` verbs - redundant `<cmdlet> | Compress-PtcObject`
-  bash-crutch wrappers, subsumed by a universal path. Keep `read`/`smart`/`savings`
-  (text/file work, the RTK-derived path), `run`, `compress`.
-- Fix `Compress-PtcObject` so a homogeneous `string[]` (e.g. `Get-Content` output)
-  routes to the text filter at `minimal` (gentlest, never-worse-guarded) instead of
-  being truncated as an object list. Escape hatch = reuse `read`'s
-  `-Level`/`-MaxLines`/`-Tail`. This also fixes the standalone
-  `ptk run { Get-Content }` truncation bug.
-
-**Why deferred (owner's framing):** ptk is a personal/team tool complementing the
-owner's `headroom` PoC on Windows/PowerShell work - not an org-wide tool. headroom
-already saved ~39.5M tokens in one day without ptk or RTK. The universal path is the
-large, risky piece (in-session execution; retiring hardened code). The owner's
-build trigger is "if it shows real benefit," i.e. a measurement condition. Bar to
-clear is "real savings on my daily Windows work," not org scale.
-
-**Correction (2026-07-02, owner):** the headroom claim above is superseded. The
-~39.5M/day figure was headroom's own metric, not net benefit: its compression
-rewrote existing context, causing prompt-cache rewrites whose re-billing made it
-NET NEGATIVE, and the owner has stopped headroom. Note the mechanism does not
-transfer 1:1 to ptk - ptk compresses fresh tool output before it enters context,
-which does not invalidate cached prompt prefixes - but the adoption evidence
-against instruction-driven tools does transfer (see the 2026-07-02 continuation
-decision below). This entry's premise ("complementing headroom") is stale;
-deprioritized accordingly.
-
-**Standing recommendation (for whoever picks this up):** Stage it. (1) Fix the
-`string[]` truncation bug and (2) drop the bash-crutch verbs - both small and
-clearly worth it on their own. Then (3) measure object-first savings on a week of
-real Windows usage (the `savings`/`Measure-PtcSavings` primitive exists). Only build
-(4) the universal in-process wrapper if the data justifies it. Sequences the cost
-behind the proven benefit. Each of (1)-(4) is a separate authorized change requiring
-its own go.
 
 ### OPEN (2026-06-27): Whether to give ptk a session-persistent warm-runspace backend
 

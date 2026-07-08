@@ -748,6 +748,13 @@ Describe 'Compress-PtcOutput' {
         $result | Should -Match '-C$'
     }
 
+    It 'keeps line elision explicit when the char bound cuts the line marker' {
+        $lines = 1..1000 | ForEach-Object { "line $_ " + ('y' * 400) }
+        $result = $lines | Compress-PtcOutput
+
+        $result | Should -Match '\[\d+ lines and \d+ chars elided - use raw=true for everything\]'
+    }
+
     It 'bounds the labeled log-leg fallback too' {
         $env:PTK_RTK_PATH = Join-Path ([System.IO.Path]::GetTempPath()) 'no-such-rtk-binary.exe'
         $lines = 1..500 | ForEach-Object { "2026-07-08 10:00:0$($_ % 10) INFO worker: step $_" }

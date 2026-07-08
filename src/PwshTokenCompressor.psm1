@@ -951,10 +951,12 @@ function Limit-PtcPassthrough {
     if ($null -eq $Text) { return '' }
 
     $lines = @($Text -split "`r?`n")
+    $elidedLineCount = 0
     if ($lines.Count -gt $MaxLines) {
         $headCount = [int][Math]::Ceiling($MaxLines * 0.75)
         $tailCount = $MaxLines - $headCount
-        $marker = '[{0} lines elided - use raw=true for everything]' -f ($lines.Count - $MaxLines)
+        $elidedLineCount = $lines.Count - $MaxLines
+        $marker = '[{0} lines elided - use raw=true for everything]' -f $elidedLineCount
         $Text = (@($lines | Select-Object -First $headCount) + $marker +
             @($lines | Select-Object -Last $tailCount)) -join [Environment]::NewLine
     }
@@ -962,8 +964,16 @@ function Limit-PtcPassthrough {
     if ($Text.Length -gt $MaxChars) {
         $head = [int][Math]::Ceiling($MaxChars * 0.75)
         $tail = $MaxChars - $head
-        $marker = '{0}[{1} chars elided - use raw=true for everything]{0}' -f
-            [Environment]::NewLine, ($Text.Length - $MaxChars)
+        # The char window can cut the line marker out of the elided middle, so
+        # when both bounds fired this marker must carry both facts - every
+        # elision stays explicit.
+        $elided = if ($elidedLineCount -gt 0) {
+            '[{0} lines and {1} chars elided - use raw=true for everything]' -f
+                $elidedLineCount, ($Text.Length - $MaxChars)
+        } else {
+            '[{0} chars elided - use raw=true for everything]' -f ($Text.Length - $MaxChars)
+        }
+        $marker = '{0}{1}{0}' -f [Environment]::NewLine, $elided
         $Text = $Text.Substring(0, $head) + $marker + $Text.Substring($Text.Length - $tail)
     }
 

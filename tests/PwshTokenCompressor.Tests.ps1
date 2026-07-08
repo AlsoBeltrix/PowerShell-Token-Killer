@@ -740,6 +740,33 @@ Describe 'Compress-PtcOutput' {
         $result | Should -Match '^objects: 2'
     }
 
+    It 'strips ANSI sequences from plain text output' {
+        $esc = [char]27
+        $lines = @(
+            "$esc[32mVITE v5.0.0$esc[0m  ready in 300 ms",
+            "$esc[36m  -> Local: http://localhost:5173/$esc[0m"
+        )
+        $result = $lines | Compress-PtcOutput
+
+        $result | Should -Not -Match ([regex]::Escape([string]$esc))
+        $result | Should -Match 'VITE v5\.0\.0  ready in 300 ms'
+    }
+
+    It 'classifies ANSI-colored timestamped logs as log-shaped after stripping' {
+        # Without the ingest strip, the ANSI prefix defeats the line-start
+        # timestamp anchor and no other heuristic applies to these lines (no
+        # [LEVEL] brackets, no colon after the level word), so the text would
+        # pass through unshaped instead of reaching the labeled log leg.
+        $esc = [char]27
+        $logLines = @(1..8 | ForEach-Object {
+            "$esc[32m2026-07-08 12:00:0$($_ % 10) INFO worker started step $_$esc[0m"
+        })
+        $env:PTK_RTK_PATH = Join-Path ([System.IO.Path]::GetTempPath()) 'no-such-rtk-binary.exe'
+        $result = $logLines | Compress-PtcOutput
+
+        $result | Should -Match '^\[ptk:log'
+    }
+
     It 'returns nothing for empty output' {
         @() | Compress-PtcOutput | Should -BeNullOrEmpty
     }

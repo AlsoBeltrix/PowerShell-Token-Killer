@@ -967,7 +967,12 @@ function Compress-PtcOutput {
             }
 
             if ($textual) {
-                $text = @($array | ForEach-Object { "$_" }) -join [Environment]::NewLine
+                # Strip ANSI/control sequences at ingest, BEFORE classification:
+                # they are pure token waste to a model, and a color prefix
+                # defeats Test-PtcLogShaped's line-start timestamp anchor, so a
+                # colored log would dodge the rtk dedup leg. raw=true calls
+                # never reach shaping and keep exact bytes.
+                $text = Remove-PtcAnsi (@($array | ForEach-Object { "$_" }) -join [Environment]::NewLine)
                 if (Test-PtcLogShaped -Text $text) { return (Invoke-PtcRtkLog -Text $text) }
                 return $text
             }

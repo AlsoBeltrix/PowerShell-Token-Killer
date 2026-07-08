@@ -5,6 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-08: Windows battery GREEN; dev-install verified on this box
+  (handoff items 1-2).** Pester 70/70 (0 skipped — the shim test runs here,
+  ls stays unrouted), dotnet test 36/36, handshake passes in all three modes
+  (default, `-UseRegistrationCommand`, and `-ServerCommand` against
+  `~\.ptk\bin\PtkMcpServer.exe` from a neutral cwd; installed binary reports
+  0.2.0.0). dev-install had already been run on this box (VERSION
+  `0.2.0-dev.g9ec73fe`): ARP entry present and `winget list` surfaces it
+  (`ARP\User\X64\ptk`), user-scope registration live. NOT verified:
+  `-Uninstall` round-trip and the elevated/running-server refusals.
+  Notes: `claude mcp list` flags ptk defined in BOTH user scope (installed
+  exe) and project scope (`.mcp.json` dotnet run) with different endpoints —
+  both servers were live; owner call whether to drop one. Both instances were
+  killed to unblock `dotnet test` (precedented exe lock); `/mcp` respawns.
 - **2026-07-08: ptk MCP server live-use feedback recorded.**
   After ~10 calls in a real session, the owner reported the MCP server was the
   right tool and that warm runspace/state persistence is the standout feature,

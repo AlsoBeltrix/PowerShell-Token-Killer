@@ -59,7 +59,20 @@ public sealed class RunspaceHost : IDisposable
     {
         lock (CreationLock)
         {
-            var runspace = RunspaceFactory.CreateRunspace(InitialSessionState.CreateDefault());
+            var iss = InitialSessionState.CreateDefault();
+            if (OperatingSystem.IsWindows())
+            {
+                // A hosted runspace resolves Windows execution policy like pwsh does,
+                // and on a machine with no policy configured the hosted default
+                // (Restricted) blocks the module import, silently degrading shaping
+                // and routing. ptk_invoke replaces a harness tool that runs
+                // `pwsh -ExecutionPolicy Bypass`, and ptk is not a security boundary
+                // (recorded threat model), so pin Bypass rather than inherit
+                // machine-to-machine policy variance. Off Windows the engine is
+                // always Unrestricted and the property is not applicable.
+                iss.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
+            }
+            var runspace = RunspaceFactory.CreateRunspace(iss);
             runspace.Open();
             return runspace;
         }

@@ -58,6 +58,28 @@ public sealed class OutputShapingTests : IDisposable
     }
 
     [Fact]
+    public void Module_loads_under_restrictive_windows_execution_policy()
+    {
+        // Regression: hosted runspaces resolve Windows execution policy, and a
+        // machine with none configured (CI runners, fresh installs) defaults to
+        // Restricted, which blocked the module import until the runspace pinned
+        // its own policy. Process scope outranks user/machine config, so this
+        // simulates the unconfigured-machine default on any Windows box.
+        var saved = Environment.GetEnvironmentVariable("PSExecutionPolicyPreference");
+        try
+        {
+            Environment.SetEnvironmentVariable("PSExecutionPolicyPreference", "Restricted");
+            using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+
+            Assert.True(host.ModuleLoaded);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PSExecutionPolicyPreference", saved);
+        }
+    }
+
+    [Fact]
     public async Task Reset_reimports_the_module_so_shaping_survives_recycles()
     {
         await _host.ResetAsync();

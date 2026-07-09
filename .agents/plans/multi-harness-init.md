@@ -78,7 +78,11 @@ and a fresh `codex exec` session quoted the block verbatim — the
 `~/.codex/AGENTS.md` nudge home self-report is now **VERIFIED**
 (docs/harness-support.md updated). Pester 65 (3 new tests, guard-proven;
 live registration paths deliberately untested — `-DryRun` snapshots per
-the slice plan). Codex loop: see `.agents/review/index.md`.
+the slice plan). **Codex loop CLOSED 2026-07-09**: mhi-8 (MEDIUM — the get
+probe now runs before the payload gate, so existing/custom registrations
+keep the leave-as-is path; behavioral guard via a fake codex shim, Pester
+canonical count now 66) fixed and re-graded RESOLVED, no new findings
+(`.agents/review/index.md`).
 
 ## Goal
 

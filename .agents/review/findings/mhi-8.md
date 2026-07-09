@@ -4,7 +4,7 @@
 (including custom) registrations; no config corruption.
 **Status**: Verified
 **Branch**: master (direct, per the recorded codex-loop precedent)
-**Commit**: (filled in at commit)
+**Commit**: `3caa78f`
 
 ## Evidence
 `scripts/ptk_init.ps1` (Invoke-PtkCodexLeg, as committed in 7a068b9): the
@@ -47,4 +47,5 @@ None.
 
 ## Reviewer comments
 Raised by codex (Codex v0.143.0, gpt-5.5, read-only) reviewing 7a068b9,
-2026-07-09. Re-grade: see index.
+2026-07-09. Re-grade 2026-07-09 at head 3caa78f: RESOLVED — cited the
+probe-before-gate order and the leave-as-is path. No new findings.

@@ -227,4 +227,10 @@ Per-finding detail: `.agents/review/findings/mhi-8.md`.
 
 | ID    | Severity | Impact (one line)                                                        | Status | Branch |
 |-------|----------|---------------------------------------------------------------------------|--------|--------|
-| mhi-8 | MEDIUM   | Payload gate before the get probe broke leave-as-is for existing registrations | `[~]`  | master (direct) |
+| mhi-8 | MEDIUM   | Payload gate before the get probe broke leave-as-is for existing registrations | `[x]`  | master (direct, 3caa78f) |
+
+**Loop CLOSED 2026-07-09:** re-grade at head 3caa78f — mhi-8 RESOLVED, NO
+NEW FINDINGS (codex, Codex v0.143.0, gpt-5.5, read-only; static pass —
+Pester run coder-side: 66/66 at 3caa78f, the new canonical count; dotnet
+59/59, server untouched). Commits remain unpushed pending the owner's
+master push go.

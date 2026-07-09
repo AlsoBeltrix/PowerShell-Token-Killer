@@ -13,9 +13,12 @@ short and update it when important repo facts change.
   real run hit the already-registered short-circuit, nudge installed
   after the owner's `@RTK.md` include, and a fresh `codex exec` quoted
   the block verbatim — codex nudge home VERIFIED
-  (`docs/harness-support.md`). **Canonical counts: Pester 65, dotnet
-  59.** Details in the plan. NEXT: codex loop on the slice-2 commit,
-  then slice 3 (grok leg).
+  (`docs/harness-support.md`). Codex loop on 7a068b9 CLOSED 2026-07-09:
+  mhi-8 (MEDIUM — registration probe now runs before the payload gate,
+  preserving leave-as-is for existing/custom entries; guard test uses a
+  fake codex shim, 3caa78f) fixed and re-graded RESOLVED, no new
+  findings. **Canonical counts: Pester 66, dotnet 59.** Details in the
+  plan. NEXT: slice 3 (grok leg).
 - **2026-07-08 (later night): MULTI-HARNESS SLICE 1 EXECUTED — installer
   framework + Claude leg.** `ptk_init.ps1` is the per-agent framework
   (`-Agent claude|codex|grok|agy|all`, detected-set default, stub legs for

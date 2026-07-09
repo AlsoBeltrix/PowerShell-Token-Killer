@@ -307,12 +307,12 @@ public sealed class RunspaceHost : IDisposable
         catch { return 0; }
     }
 
-    // rtk prints an install nag to stderr on every routed invocation
-    // ("[rtk] /!\ No hook installed - ..."); it is pure noise in agent context
-    // (v2-feedback slice 3). Only that banner prefix is filtered - a command's
-    // real stderr always survives.
+    // rtk prints an install nag to stderr on every routed invocation; it is
+    // pure noise in agent context (v2-feedback slice 3). Match the specific
+    // banner, not the bare "[rtk] /!\" prefix: anything else on stderr - even
+    // rtk-prefixed - is a real diagnostic and must survive (codex v2fb-1).
     private static string[] CollectErrors(IEnumerable<string> errors) =>
-        [.. errors.Where(e => !e.StartsWith(@"[rtk] /!\", StringComparison.Ordinal))];
+        [.. errors.Where(e => !e.StartsWith(@"[rtk] /!\ No hook installed", StringComparison.Ordinal))];
 
     // Asks the module to classify/rewrite the script (single native commands
     // route through rtk — unified-shell-routing plan). Any failure returns the

@@ -245,6 +245,7 @@ public sealed class InvokeToolTests : IDisposable
             File.WriteAllText(stub,
                 "@echo off\r\n" +
                 "echo [rtk] /!\\ No hook installed - run rtk init 1>&2\r\n" +
+                "echo [rtk] /!\\ unexpected-real-diagnostic 1>&2\r\n" +
                 "echo real-stderr-detail 1>&2\r\n" +
                 "echo RTKROUTE %*\r\n" +
                 "exit /b 0\r\n");
@@ -255,6 +256,7 @@ public sealed class InvokeToolTests : IDisposable
             File.WriteAllText(stub,
                 "#!/bin/sh\n" +
                 "printf '%s\\n' '[rtk] /!\\ No hook installed - run rtk init' 1>&2\n" +
+                "printf '%s\\n' '[rtk] /!\\ unexpected-real-diagnostic' 1>&2\n" +
                 "echo real-stderr-detail 1>&2\n" +
                 "echo \"RTKROUTE $@\"\n" +
                 "exit 0\n");
@@ -270,6 +272,9 @@ public sealed class InvokeToolTests : IDisposable
             Assert.Contains("RTKROUTE git status", text);
             Assert.DoesNotContain("No hook installed", text);
             Assert.Contains("real-stderr-detail", text);
+            // Only the specific banner is filtered - an rtk-prefixed line that
+            // is NOT the nag is a real diagnostic and must survive (v2fb-1).
+            Assert.Contains("unexpected-real-diagnostic", text);
         }
         finally
         {

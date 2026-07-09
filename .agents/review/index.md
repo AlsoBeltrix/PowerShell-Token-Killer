@@ -84,6 +84,28 @@ unpushed pending the owner's master push go.
 
 ---
 
+Loop run 2026-07-08 (setup-findings docs + multi-harness-init plan) —
+reviewer: codex (Codex v0.143.0, gpt-5.5, read-only), docs-only scope
+(5f3d69b README findings, 96e8979 plan draft), fixes one per commit.
+
+## Findings (multi-harness-init loop)
+
+| ID     | Severity | Impact (one line)                                                     | Status | Branch |
+|--------|----------|-------------------------------------------------------------------------|--------|--------|
+| mhi-1  | HIGH     | server/README still claimed the empty .mcp.json registers the server    | `[x]`  | master (direct, 4ccd916) |
+| mhi-2  | HIGH     | Docs claimed the hook fails open on a down server (it denies; PTK_DIRECT is the escape) | `[x]`  | master (direct, c4461f9) |
+| mhi-3  | MEDIUM   | Lifecycle examples omitted -Global, targeting the wrong settings file    | `[x]`  | master (direct, d39b534) |
+| mhi-4  | MEDIUM   | Plan lacked the migration story for the global-by-default flip           | `[x]`  | master (direct, 81b8ace) |
+| mhi-5  | MEDIUM   | Grok nudge-home self-report treated as fact (re-grade caught a dangling slice-3 sentence) | `[x]`  | master (direct, 274d4c1 + 08078ee) |
+
+**Loop CLOSED 2026-07-08 (converged):** re-grade RESOLVED x4, NO NEW
+FINDINGS; mhi-5's reopen was the one dangling sentence, fixed verbatim
+(08078ee) — closed on the trivial-docs-fix convergence precedent. The
+multi-harness-init plan remains a DRAFT awaiting owner approval and the
+owner's manual agy interview.
+
+---
+
 Loop run 2026-07-08 (v2-feedback fixes + D5 retirement, post-GO) —
 reviewer: codex (Codex v0.143.0, gpt-5.5, read-only), fixes committed
 directly to `master` one finding per commit per precedent. Scope: the

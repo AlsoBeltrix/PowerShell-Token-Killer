@@ -5,7 +5,21 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **2026-07-08 (decision): GO/NO-GO DECIDED — 100% GO (owner,
+- **2026-07-08 (evening): SETUP DOCS UPDATED; MULTI-HARNESS INIT PLAN
+  DRAFTED, codex-closed, AWAITING owner approval + the manual agy
+  interview.** `.agents/plans/multi-harness-init.md`: per-harness
+  registration/enforcement/nudge legs modeled on rtk init; evidence
+  frozen (codex/grok CLI surfaces verified, self-reports marked as
+  probe targets; agy headless interview failed — owner is asking it
+  interactively with a prompt that demands VERIFIED vs RECALLED
+  labeling). Slice 0 = live probes, headlined by the STANDING GATE both
+  repos want: the live Claude hooked deny-and-reissue check. README/
+  server-README now carry the cross-repo findings (global-first hook,
+  content-tracking warning, truthful hook failure semantics — a down
+  server still denies, PTK_DIRECT escapes; liveness-aware hook is a
+  recorded slice-1 candidate). Review loop mhi-1..5 closed
+  (`.agents/review/index.md`; two HIGH docs claims corrected). Commits
+  local from 419503c onward; push owner-gated as always.
   in-session).** ptk continues as an active product; the continuation-gate
   entry is archived (`docs/history/decisions-archive.md`), the
   destructive-cmdlet parking survives as its own Open entry, and

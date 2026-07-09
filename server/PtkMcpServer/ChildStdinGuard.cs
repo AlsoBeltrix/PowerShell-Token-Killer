@@ -24,6 +24,12 @@ internal static class ChildStdinGuard
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetStdHandle(int nStdHandle, nint handle);
 
+    private const uint HandleFlagInherit = 1;
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetHandleInformation(nint hObject, uint dwMask, uint dwFlags);
+
     [DllImport("libc", SetLastError = true)]
     private static extern int open([MarshalAs(UnmanagedType.LPStr)] string path, int flags);
 
@@ -37,6 +43,14 @@ internal static class ChildStdinGuard
             if (OperatingSystem.IsWindows())
             {
                 _nulHandle = File.OpenHandle("NUL", FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                // The handle must be INHERITABLE: SetStdHandle stores its VALUE,
+                // and children receive that value - without the inherit flag the
+                // handle does not exist in the child's table, so anything that
+                // touches stdin (rustup shims duplicate it at startup) fails with
+                // "The handle is invalid (os error 6)" instead of reading EOF
+                // (v2-feedback plan, slice 0 probe). File.OpenHandle has no
+                // inheritable option, so set the flag explicitly.
+                SetHandleInformation(_nulHandle.DangerousGetHandle(), HandleFlagInherit, HandleFlagInherit);
                 SetStdHandle(StdInputHandle, _nulHandle.DangerousGetHandle());
             }
             else

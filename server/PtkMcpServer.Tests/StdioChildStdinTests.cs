@@ -6,12 +6,19 @@ namespace PtkMcpServer.Tests;
 public sealed class StdioChildStdinTests
 {
     // Spawns the built server exactly as a real harness does - stdio pipes,
-    // stdin kept open and idle - and runs a native command that reads stdin.
-    // Without ChildStdinGuard the child inherits the live JSON-RPC stdin pipe
-    // and blocks until the session dies (the bare-git hang found live during
-    // the routing slice); with the guard it reads EOF and returns at once.
+    // stdin kept open and idle, no console - and runs a native command that
+    // reads stdin. Two failure modes are guarded, and BOTH assertions are
+    // load-bearing:
+    // - hang: without ChildStdinGuard the child inherits the live JSON-RPC
+    //   stdin pipe and blocks until the session dies (the bare-git hang);
+    // - invalid handle: a NON-INHERITABLE NUL handle returns promptly but
+    //   gives children a stdin value absent from their handle table - programs
+    //   that touch stdin fail with "The handle is invalid (os error 6)" (the
+    //   rustup-shim failure from live use; v2-feedback plan, slice 0 probe).
+    //   Asserting only "returns promptly" hid that bug: the call must SUCCEED
+    //   with clean EOF semantics, not merely return.
     [Fact]
-    public async Task Stdin_reading_native_returns_immediately_under_idle_stdio()
+    public async Task Stdin_reading_native_reads_clean_EOF_under_idle_stdio()
     {
         var serverDll = Path.Combine(AppContext.BaseDirectory, "PtkMcpServer.dll");
         Assert.True(File.Exists(serverDll), $"server dll not found at {serverDll}");
@@ -23,6 +30,7 @@ public sealed class StdioChildStdinTests
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
+            CreateNoWindow = true, // console-less, like the harness spawn
             WorkingDirectory = AppContext.BaseDirectory,
         };
         psi.ArgumentList.Add("exec");
@@ -48,7 +56,15 @@ public sealed class StdioChildStdinTests
                 @params = new { name = "ptk_invoke", arguments = new { script, route = "pwsh" } },
             });
             await SendAsync(proc, call);
-            await ReadResponseAsync(proc, 2);
+            var response = await ReadResponseAsync(proc, 2);
+
+            // sort/cat on a valid NUL stdin reads EOF: no output, exit 0. An
+            // invalid inherited handle instead yields an error and exit 1.
+            var text = response.GetProperty("result").GetProperty("content")[0]
+                .GetProperty("text").GetString() ?? string.Empty;
+            Assert.Contains("(no output)", text);
+            Assert.DoesNotContain("invalid", text, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("[exit]", text);
         }
         finally
         {

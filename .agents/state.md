@@ -5,6 +5,21 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-09 (latest): GITHUB ISSUE #2 FIXED and codex-closed** (plan:
+  `.agents/plans/issue-2-stale-hook-registration.md`; owner mid-session
+  go). ptk_init's claude leg registers the INSTALLED hook copy
+  (`~/.ptk/scripts/ptk-hook.ps1`) so checkout moves cannot strand
+  registrations; `-Show` flags STALE entries (missing file OR directory);
+  installs name what they replaced; dev-install refreshes an existing
+  hook entry when it also registered the server. Loop: i2-1 (MEDIUM,
+  consent via parsed PreToolUse entry, 665d99a), i2-2 (LOW docs,
+  ea95d48), i2-3 (LOW -PathType Leaf, 69a2b13) — all re-graded RESOLVED.
+  **This box's live stale entry (src\ path — fail-open since unknown) was
+  HEALED; hook effective next Claude Code session.** NOTE: ~/.ptk's
+  payload is the owner's 2026-07-08 install — a dev-install re-run picks
+  up the new hook text (neutral naming + liveness) and installer.
+  **Canonical counts: Pester 75, dotnet 59.** Comment/close issues #1+#2
+  after the owner pushes. NEXT: multi-harness slice 3 (grok leg).
 - **2026-07-09 (later): GITHUB ISSUE #1 FIXED and codex-closed** (plan:
   `.agents/plans/issue-1-mixed-stream-shaping.md`, owner-approved "go";
   taken ahead of multi-harness slice 3 by the same go). Shipped, one

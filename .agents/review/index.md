@@ -284,3 +284,11 @@ end-to-end check. Per-finding detail: `.agents/review/findings/i2-*.md`.
 | i2-1 | MEDIUM   | Raw text match as hook consent could install an unconsented hook  | `[x]`  | master (direct, 665d99a) |
 | i2-2 | LOW      | README overclaimed the dev-install heal (registration-gated)      | `[x]`  | master (direct, ea95d48) |
 | i2-3 | LOW      | Directory at the hook path passed existence checks (fail-open)    | `[x]`  | master (direct, 69a2b13) |
+
+**Loop CLOSED 2026-07-09:** re-grade at head 71878c6 — i2-1/i2-2/i2-3 all
+RESOLVED, NO NEW FINDINGS (codex, Codex v0.143.0, gpt-5.5, read-only;
+static pass — coder-side: Pester 75/75, the new canonical count; dotnet/
+handshake unaffected since 1e1ab99). This box's live stale entry healed
+(src\ path → `~/.ptk/scripts/ptk-hook.ps1`, effective next session).
+Commits unpushed pending the owner's master push go; GitHub issue #2 gets
+the fix reference after push.

@@ -215,3 +215,16 @@ RESOLVED, NO NEW FINDINGS (codex, Codex v0.143.0, gpt-5.5, read-only;
 static pass — Pester was run coder-side: 62/62 at ec6e094, the new
 canonical count; dotnet 59/59 at 057a5ee, server untouched since).
 Commits remain unpushed pending the owner's master push go.
+
+---
+
+Loop run 2026-07-09 (multi-harness slice 2) — reviewer: codex (Codex
+v0.143.0, gpt-5.5, read-only), scope: commit `7a068b9` (the codex leg).
+One finding, ADMITTED at triage; fixed direct to `master` per precedent.
+Per-finding detail: `.agents/review/findings/mhi-8.md`.
+
+## Findings (multi-harness slice-2 loop)
+
+| ID    | Severity | Impact (one line)                                                        | Status | Branch |
+|-------|----------|---------------------------------------------------------------------------|--------|--------|
+| mhi-8 | MEDIUM   | Payload gate before the get probe broke leave-as-is for existing registrations | `[~]`  | master (direct) |

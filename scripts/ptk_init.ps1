@@ -343,21 +343,25 @@ function Invoke-PtkCodexLeg {
         Write-Host ("DRY RUN - would ensure registration (skipped when codex mcp get ptk " +
             "already answers): codex mcp add ptk -- `"{0}`"" -f $binary)
     }
-    elseif (-not (Test-Path -LiteralPath $binary)) {
-        # Registering a missing exe writes a broken config.toml entry.
-        Write-Warning (('[codex] no installed ptk server at {0}. Run scripts/dev-install.ps1 ' +
-            'first, then re-run this script.') -f $binary)
-        $ok = $false
-    }
     elseif (-not $cli) {
         Write-Warning (('[codex] codex CLI not found on PATH - register manually: ' +
             'codex mcp add ptk -- "{0}"') -f $binary)
         $ok = $false
     }
     else {
+        # Probe FIRST: an existing registration - including a custom one
+        # pointing somewhere other than ~/.ptk - is left as-is, so the
+        # payload gate below only guards the add it would actually perform
+        # (mhi-8).
         codex mcp get ptk *> $null
         if ($LASTEXITCODE -eq 0) {
             Write-Host '[codex] already registered - left as is (codex mcp get ptk answers).'
+        }
+        elseif (-not (Test-Path -LiteralPath $binary)) {
+            # Registering a missing exe writes a broken config.toml entry.
+            Write-Warning (('[codex] no installed ptk server at {0}. Run scripts/dev-install.ps1 ' +
+                'first, then re-run this script.') -f $binary)
+            $ok = $false
         }
         else {
             codex mcp add ptk '--' $binary | Out-Host

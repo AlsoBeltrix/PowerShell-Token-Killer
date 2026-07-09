@@ -553,6 +553,32 @@ Describe 'redirect hook and installer' {
             $out | Should -Match 'codex mcp remove ptk'
         }
 
+        It 'leaves an existing codex registration as-is even without an installed payload' {
+            # mhi-8: the payload gate guards only the add the leg would
+            # perform; a machine whose codex already has a (possibly custom)
+            # ptk entry must take the leave-as-is path, not fail. Fake codex
+            # shim: answers `mcp get ptk` with exit 0.
+            $fakeBin = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-fakecodex-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $fakeBin 'codex.ps1') -Value @'
+if (($args -join ' ') -eq 'mcp get ptk') { exit 0 }
+exit 1
+'@
+            $emptyHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-nohome-{0}" -f ([guid]::NewGuid()))
+            $oldPath = $env:PATH
+            try {
+                $env:PATH = $fakeBin + [System.IO.Path]::PathSeparator + $env:PATH
+                $out = pwsh -NoProfile -File $script:initScript -Agent codex -NudgePath $script:nudgeFile -PtkHome $emptyHome 2>&1 | Out-String
+            }
+            finally {
+                $env:PATH = $oldPath
+                Remove-Item -LiteralPath $fakeBin -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
+            $LASTEXITCODE | Should -Be 0
+            $out | Should -Match 'already registered - left as is'
+        }
+
         It 'rejects -SettingsPath with a non-claude leg' {
             $out = pwsh -NoProfile -File $script:initScript -Agent codex -SettingsPath $script:settings -PtkHome $script:fakeHome 2>&1 | Out-String
             $LASTEXITCODE | Should -Not -Be 0

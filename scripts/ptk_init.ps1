@@ -68,6 +68,7 @@ param(
     [string]$SettingsPath,
     [string]$NudgePath,
     # Per-leg config targets (test seams).
+    [string]$CodexConfigPath,
     [string]$GrokConfigPath,
     [string]$AgyPluginRoot,
     [string]$AgyConfigPath,
@@ -352,6 +353,40 @@ function Invoke-PtkClaudeLeg {
     (-not $skipHook)
 }
 
+# mhi-12: `codex mcp remove ptk` strips only the base [mcp_servers.ptk]
+# table. Tool-approval subtables codex itself writes when the user approves
+# ptk tools ([mcp_servers.ptk.tools.*]) stay behind, and codex then refuses
+# to load its own config ("invalid transport" - a server table with no
+# command): the CLI is bricked and cannot self-repair, because every codex
+# command starts by loading the config. These helpers are the ONE place the
+# leg touches ~/.codex/config.toml directly - they act only on ptk.-scoped
+# subtables (never the base table), the exact orphans left by removing our
+# registration. The sweep runs after the CLI remove (and when the CLI is
+# absent), healing both fresh uninstalls and machines an earlier uninstall
+# already bricked.
+function Test-PtkCodexOrphanTable {
+    param([Parameter(Mandatory)][string]$Path)
+    (Test-Path -LiteralPath $Path -PathType Leaf) -and
+        ((Get-Content -LiteralPath $Path -Raw) -match '(?m)^\s*\[mcp_servers\.ptk\.')
+}
+
+function Remove-PtkCodexOrphanTable {
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-PtkCodexOrphanTable -Path $Path)) { return $false }
+    $kept = [System.Collections.Generic.List[string]]::new()
+    $inPtk = $false
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        if ($line -match '^\s*\[mcp_servers\.ptk\.') { $inPtk = $true; continue }
+        if ($inPtk) {
+            if ($line -match '^\s*\[') { $inPtk = $false }
+            else { continue }
+        }
+        $kept.Add($line)
+    }
+    Set-Content -LiteralPath $Path -Value ($kept -join "`n")
+    return $true
+}
+
 # codex leg: registration (idempotent - an existing entry is left as-is so
 # user customizations like env blocks survive) + nudge in ~/.codex/AGENTS.md.
 # No hook: codex hooks are trust-gated and unresolved (plan: Evidence table).
@@ -378,16 +413,29 @@ function Invoke-PtkCodexLeg {
     }
 
     if ($Uninstall) {
+        $codexConfig = $CodexConfigPath ? $CodexConfigPath : (Join-Path $HOME '.codex' 'config.toml')
         if ($DryRun) {
             Write-Host 'DRY RUN - would run: codex mcp remove ptk'
-        }
-        elseif ($cli) {
-            codex mcp remove ptk *> $null
-            Write-Host (($LASTEXITCODE -eq 0) ?
-                '[codex] registration removed.' : '[codex] no registration to remove.')
+            if (Test-PtkCodexOrphanTable -Path $codexConfig) {
+                Write-Host ('DRY RUN - would sweep orphaned [mcp_servers.ptk.*] tables from {0}' -f $codexConfig)
+            }
         }
         else {
-            Write-Host '[codex] codex CLI not found - no registration to remove.'
+            if ($cli) {
+                codex mcp remove ptk *> $null
+                Write-Host (($LASTEXITCODE -eq 0) ?
+                    '[codex] registration removed.' : '[codex] no registration to remove.')
+            }
+            else {
+                Write-Host '[codex] codex CLI not found - no registration to remove.'
+            }
+            # mhi-12: sweep the tool-approval subtables `codex mcp remove`
+            # leaves behind - orphaned, they make the whole config
+            # unloadable and brick the codex CLI.
+            if (Remove-PtkCodexOrphanTable -Path $codexConfig) {
+                Write-Host (('[codex] swept orphaned [mcp_servers.ptk.*] tables from {0} ' +
+                    '(codex mcp remove leaves them; orphaned they make the config unloadable).') -f $codexConfig)
+            }
         }
         Uninstall-PtkNudgeBlock -Path $nudgeTarget
         return $true

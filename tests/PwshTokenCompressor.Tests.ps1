@@ -900,6 +900,64 @@ exit 1
             $out | Should -Match 'already registered - left as is'
         }
 
+        It 'codex leg uninstall sweeps orphaned tool-approval subtables (mhi-12)' {
+            # mhi-12 guard: codex writes [mcp_servers.ptk.tools.*] approval
+            # subtables when the user approves ptk tools; `codex mcp remove
+            # ptk` strips only the base table. Orphaned, those subtables make
+            # the whole config unloadable ("invalid transport") - the codex
+            # CLI bricks itself and cannot self-repair, since every command
+            # starts by loading the config. The leg must sweep them, and
+            # only them. Fake codex shim keeps the real ~/.codex out of the
+            # run (precedent: the mhi-8 leave-as-is test).
+            $fakeBin = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-fakecodex-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $fakeBin 'codex.ps1') -Value @'
+if (($args -join ' ') -eq 'mcp remove ptk') { exit 0 }
+exit 1
+'@
+            $toml = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-codexcfg-{0}.toml" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $toml -Value @'
+model = "keep-me"
+
+[mcp_servers.other]
+command = "/bin/echo"
+
+[mcp_servers.ptk.tools.ptk_ping]
+approval_mode = "approve"
+
+[mcp_servers.ptk.tools.ptk_invoke]
+approval_mode = "approve"
+
+[hooks.state]
+'@
+            $oldPath = $env:PATH
+            try {
+                # Dry run: discloses the pending sweep, writes nothing.
+                $out = pwsh -NoProfile -File $script:initScript -Agent codex -Uninstall -DryRun -CodexConfigPath $toml -NudgePath $script:nudgeFile -PtkHome $script:fakeHome 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match ([regex]::Escape('would sweep orphaned [mcp_servers.ptk.*] tables'))
+                Get-Content -LiteralPath $toml -Raw | Should -Match 'mcp_servers\.ptk\.tools'
+
+                # Real uninstall: CLI remove runs (shim), then the sweep
+                # removes exactly the ptk-scoped subtables.
+                $env:PATH = $fakeBin + [System.IO.Path]::PathSeparator + $env:PATH
+                $out = pwsh -NoProfile -File $script:initScript -Agent codex -Uninstall -CodexConfigPath $toml -NudgePath $script:nudgeFile -PtkHome $script:fakeHome 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match 'registration removed'
+                $out | Should -Match ([regex]::Escape('swept orphaned [mcp_servers.ptk.*] tables'))
+                $raw = Get-Content -LiteralPath $toml -Raw
+                $raw | Should -Not -Match 'mcp_servers\.ptk'
+                $raw | Should -Match '\[mcp_servers\.other\]'
+                $raw | Should -Match 'model = "keep-me"'
+                $raw | Should -Match '\[hooks\.state\]'
+            }
+            finally {
+                $env:PATH = $oldPath
+                Remove-Item -LiteralPath $fakeBin -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $toml -Force -ErrorAction SilentlyContinue
+            }
+        }
+
         It 'rejects -SettingsPath without -NudgePath (seam runs stay sandboxed)' {
             # The nudge is a standard layer; a redirected settings target
             # with a defaulted nudge target would leak writes onto the real

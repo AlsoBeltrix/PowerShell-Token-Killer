@@ -1326,6 +1326,14 @@ Describe 'Get-PtcShellDialectFinding' {
             # after the error must not associate either.
             Get-PtcShellDialectFinding -Script 'if $true; Write-Output then' | Should -BeNullOrEmpty
         }
+
+        It 'a script-defined command named then is not bash evidence (sd1-7 round 4)' {
+            # A function literally named then, defined before its call, is a
+            # real command - invoking it after an unrelated malformed if
+            # must not read as bash if/then/fi (re-grade round 3).
+            Get-PtcShellDialectFinding -Script 'function then { ''ok'' }; if $true; Get-Date; then' |
+                Should -BeNullOrEmpty
+        }
     }
 
     Context 'blanking never synthesizes shapes (sd1-6)' {

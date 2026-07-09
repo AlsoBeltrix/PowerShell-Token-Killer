@@ -731,6 +731,20 @@ function Get-PtcShellDialectFinding {
                     if ($first -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
                         $first.StringConstantType -ne [System.Management.Automation.Language.StringConstantType]::BareWord -or
                         $first.Value -notin $Keywords) { continue }
+                    # sd1-7 (round 4): a keyword that is a REAL command here
+                    # is not bash evidence - locally defined before this use
+                    # (function then { ... }) or resolving in the session
+                    # (re-grade round 3).
+                    $keywordDefined = $false
+                    foreach ($definition in $localDefs) {
+                        if ($definition.Name -eq $first.Value -and
+                            $definition.End -le $commandAst.Extent.StartOffset) {
+                            $keywordDefined = $true
+                            break
+                        }
+                    }
+                    if ($keywordDefined -or $null -ne $ExecutionContext.InvokeCommand.GetCommand(
+                            $first.Value, [System.Management.Automation.CommandTypes]::All)) { continue }
                     $start = $commandAst.Extent.StartOffset
                     if ($start -ge $parseError.Extent.StartOffset) { return $true }
                     if ($start -le $parseError.Extent.EndOffset -and

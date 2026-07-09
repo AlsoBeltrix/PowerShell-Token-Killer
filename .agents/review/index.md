@@ -265,3 +265,22 @@ new canonical count), dotnet 59/59, handshake PASSED). Two review rounds
 total on the issue-1 slices (i1-1 → i1-2/i1-3 → clean). Commits unpushed
 pending the owner's master push go; GitHub issue #1 gets the fix
 reference after push.
+
+---
+
+Loop run 2026-07-09 (issue-2 stale hook registration) — reviewer: codex
+(Codex v0.143.0, gpt-5.5, read-only), scope: commits `bcb24c1` (stable
+hook target + stale flagging/healing in ptk_init) + `67fe442`
+(dev-install refresh + docs), the slices of
+`.agents/plans/issue-2-stale-hook-registration.md` (GitHub issue #2).
+Three findings, all ADMITTED, fixed one commit each. Live heal executed
+on this box's real stale entry (src\ path → installed copy) as the
+end-to-end check. Per-finding detail: `.agents/review/findings/i2-*.md`.
+
+## Findings (issue-2 loop)
+
+| ID   | Severity | Impact (one line)                                                | Status | Branch |
+|------|----------|-------------------------------------------------------------------|--------|--------|
+| i2-1 | MEDIUM   | Raw text match as hook consent could install an unconsented hook  | `[x]`  | master (direct, 665d99a) |
+| i2-2 | LOW      | README overclaimed the dev-install heal (registration-gated)      | `[x]`  | master (direct, ea95d48) |
+| i2-3 | LOW      | Directory at the hook path passed existence checks (fail-open)    | `[x]`  | master (direct, 69a2b13) |

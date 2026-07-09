@@ -158,6 +158,14 @@ exists the deny guidance says so and points at `PTK_DIRECT` up front
 (liveness shapes the wording only, never the decision). `PTK_DIRECT` is the
 way through until the server is back (`/mcp` reconnect respawns it).
 
+The missing-script fail-open is exactly what a **stale registration**
+produces: an entry written from a checkout that later moved fails open
+silently on every shell call. The installer registers the installed copy
+(`~/.ptk/scripts/ptk-hook.ps1`) to make that class structurally rare,
+`ptk_init.ps1 -Show` flags a registered target that no longer exists, and
+both a re-run of `ptk_init.ps1` and any `dev-install.ps1` install (when a
+hook entry already exists) heal the registration in place.
+
 A command containing `PTK_DIRECT` bypasses the hook. Use that for work that
 genuinely needs the harness shell, such as interactive or TTY-dependent tools,
 or when the ptk MCP server is unavailable.

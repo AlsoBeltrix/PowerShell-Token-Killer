@@ -135,7 +135,11 @@ modification forever after; the installer warns about exactly this.
 
 The installer refuses to install the hook while no server is installed at
 `~/.ptk` (run `scripts/dev-install.ps1` first): a redirect hook without a
-server would steer every shell call at a tool that cannot answer.
+server would steer every shell call at a tool that cannot answer. It
+registers the **installed** hook copy (`~/.ptk/scripts/ptk-hook.ps1`), so
+moving or renaming a checkout cannot strand the registration; a stale
+entry (registered file gone — it fails open silently) is flagged by
+`-Show` and healed by re-running the installer.
 
 When a command genuinely needs the harness shell — interactive or
 TTY-dependent tools, or the ptk server being down — include `PTK_DIRECT` in a

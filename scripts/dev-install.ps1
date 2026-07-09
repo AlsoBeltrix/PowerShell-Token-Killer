@@ -337,6 +337,18 @@ switch ($mode) {
                     'pwsh -File "{0}" -Agent claude') -f (Join-Path $ptkHome 'scripts' 'ptk_init.ps1'))
             }
         }
+        else {
+            # No -Hook, but an existing hook registration is prior consent:
+            # refresh it against this install so it targets the fresh payload
+            # - a registration left pointing at a moved/removed path fails
+            # open silently on every shell call (issue #2).
+            $globalSettings = Join-Path $HOME '.claude' 'settings.json'
+            if ($registered -and (Test-Path -LiteralPath $globalSettings) -and
+                ((Get-Content -LiteralPath $globalSettings -Raw) -like '*ptk-hook.ps1*')) {
+                Write-Host 'Existing ptk hook registration found - refreshing it against this install.'
+                & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') -Agent claude | Out-Host
+            }
+        }
         Show-PtkCodexSnippet -BinaryPath $binaryPath
         Write-Host ''
         Write-Host "Installed ptk $payloadVersion to $ptkHome ($targetRid)."

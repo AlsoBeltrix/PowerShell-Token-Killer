@@ -602,23 +602,46 @@ function Get-PtcShellDialectFinding {
         # errors misdirect (slice-0 probe table), so the id alone is not
         # enough: an unrelated script hitting the same id must stay
         # unflagged, hence the paired text-shape checks.
+        # sd1-3: shape evidence must come from code, not comments or string
+        # literals, so those token extents are blanked (offsets preserved)
+        # before matching. Token streams beside parse errors can be
+        # partial; blanking only ever removes evidence, so degradation is
+        # toward a miss (the pre-detector behavior), never an over-match.
         $errorIds = @($parseErrors | ForEach-Object { $_.ErrorId })
-        if ($errorIds -contains 'MissingFileSpecification' -and $Script -match '<<-?\s*[''"]?\w') {
+        $blankKinds = @(
+            [System.Management.Automation.Language.TokenKind]::Comment,
+            [System.Management.Automation.Language.TokenKind]::StringLiteral,
+            [System.Management.Automation.Language.TokenKind]::StringExpandable,
+            [System.Management.Automation.Language.TokenKind]::HereStringLiteral,
+            [System.Management.Automation.Language.TokenKind]::HereStringExpandable
+        )
+        $chars = $Script.ToCharArray()
+        foreach ($token in @($tokens)) {
+            if ($blankKinds -notcontains $token.Kind) { continue }
+            $end = [Math]::Min($token.Extent.EndOffset, $chars.Length)
+            for ($i = $token.Extent.StartOffset; $i -lt $end; $i++) { $chars[$i] = ' ' }
+        }
+        $scanText = [string]::new($chars)
+        if ($errorIds -contains 'MissingFileSpecification' -and $scanText -match '<<') {
+            # Bare << - the quoted-terminator form (<<'EOF') lexes its
+            # terminator as a string literal, which blanking removes. <<
+            # outside strings/comments is itself never valid pwsh, and the
+            # error-id pairing still gates it.
             return 'a bash heredoc (<<WORD ... WORD)'
         }
-        if ($errorIds -contains 'MissingOpenParenthesisInIfStatement' -and $Script -match '\bthen\b') {
+        if ($errorIds -contains 'MissingOpenParenthesisInIfStatement' -and $scanText -match '\bthen\b') {
             return 'a bash if/then/fi statement'
         }
-        if ($errorIds -contains 'MissingOpenParenthesisAfterKeyword' -and $Script -match '\b(do|done)\b') {
+        if ($errorIds -contains 'MissingOpenParenthesisAfterKeyword' -and $scanText -match '\b(do|done)\b') {
             return 'a bash do/done loop'
         }
-        if ($errorIds -contains 'MissingTypename' -and $Script -match '(^|[\s;&|(])\[{1,2}\s') {
+        if ($errorIds -contains 'MissingTypename' -and $scanText -match '(^|[\s;&|(])\[{1,2}\s') {
             return 'a bash test expression ([ ... ] or [[ ... ]])'
         }
-        if ($errorIds -contains 'ExpectedExpression' -and $Script -match '\w+\s*\(\s*\)\s*\{') {
+        if ($errorIds -contains 'ExpectedExpression' -and $scanText -match '\w+\s*\(\s*\)\s*\{') {
             return 'a bash function definition (name() { ... })'
         }
-        if ($errorIds -contains 'RedirectionNotSupported' -and $Script -match '<\(') {
+        if ($errorIds -contains 'RedirectionNotSupported' -and $scanText -match '<\(') {
             return 'bash process substitution (<(...))'
         }
         return $null

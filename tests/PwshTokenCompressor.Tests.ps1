@@ -1246,6 +1246,15 @@ Describe 'Get-PtcShellDialectFinding' {
         }
     }
 
+    Context 'parse-fatal evidence is comment/string-aware (sd1-3)' {
+        It 'takes no bash evidence from comments' {
+            # Fails with an unrelated pwsh MissingFileSpecification (missing
+            # redirect target); the comment text must not turn that into the
+            # heredoc finding.
+            Get-PtcShellDialectFinding -Script 'Write-Output > # cat <<EOF' | Should -BeNullOrEmpty
+        }
+    }
+
     Context 'token-aware backtick handling (legitimate escapes never trip)' {
         It 'ignores a lone escape backtick' {
             Get-PtcShellDialectFinding -Script 'Write-Host `n' | Should -BeNullOrEmpty

@@ -5,7 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **2026-07-09 (night, latest): shell-dialect plan APPROVED — owner,
+- **2026-07-09 (night, latest): shell-dialect slice-1 codex re-grade
+  round 1 RECORDED.** At head `acb0f39` (codex, Codex v0.144.0,
+  gpt-5.6-sol, read-only): sd1-2 RESOLVED; sd1-1 and sd1-3 held NOT
+  RESOLVED — each fix covered one half of its finding (ambient-only
+  resolution; comment-only blanking). 4 new findings, every claim
+  independently verified in-session before triage (repros re-run at
+  head): sd1-6 (MEDIUM, space-filler blanking SYNTHESIZES bash shapes —
+  new FP class, disproves sd1-3's "never an over-match" claim) and
+  sd1-7 (LOW, error IDs pair with shape evidence globally) ADMITTED;
+  sd1-5 DECLINED (miss inside sd1-3's recorded known gap); sd1-4
+  CONTESTED (alias-shadowed `set` — contests the frozen slice-0 `set`
+  exemption, OWNER CALL). Reviewer battery at head: Pester 119/1
+  skipped, clean tree. NEXT: fix round 2 (sd1-1 inline-definition
+  guard, sd1-3 Generic-fragment blanking, sd1-6 filler over-match,
+  sd1-7 local association), one commit each + guards, then re-grade
+  round 2. Records: `.agents/review/index.md`,
+  `.agents/review/findings/sd1-{1..7}.md`.
+- **2026-07-09 (night): shell-dialect plan APPROVED — owner,
   in-session.** D1 = (a) refuse-fast with platform-aware guidance; D2 =
   non-breaking raw-posture subset; D3 = dialect line. The #4 comment's 4
   acceptance suggestions reconciled into D2 at approval (adopted:
@@ -715,7 +732,8 @@ short and update it when important repo facts change.
   detector.** The plan is APPROVED; slice 0 probe results are frozen in
   the plan file. Slices 1-4 land one commit + battery + codex loop each.
 - Active review loop: see `.agents/review/index.md` (shell-dialect
-  slice-1 loop, sd1-1..sd1-3).
+  slice-1 loop, sd1-1..sd1-7 — re-grade round 1 recorded; fix round 2
+  open for sd1-1/sd1-3/sd1-6/sd1-7; sd1-4 awaits owner adjudication).
   Owner decisions still open: (a) prioritize new issues **#5**
   (`[errors]` mislabels exit-0 native stderr) and **#6** (queue-wait
   excluded from `timeoutSeconds`; `ptk_state` blocks behind a busy
@@ -843,8 +861,9 @@ short and update it when important repo facts change.
 
 - None known.
 
-Active review loop: none on code — multi-harness slices 3-6 (mhi-9..12)
-CLOSED 2026-07-09T17:33Z, converged (`.agents/review/index.md`).
-Shell-dialect plan-text loop: three rounds of fixes landed in the plan
-commits (sd-1..sd-10 → `1d7f38b`; sd2-1..sd2-5 → `13599a6`; sd3-1 →
-`809e0d0`); plan remains DRAFT pending owner approval.
+Active review loop: shell-dialect slice-1 CODE loop OPEN
+(`.agents/review/index.md`, sd1-1..sd1-7). Re-grade round 1 recorded at
+head `acb0f39`: sd1-2 closed; fix round 2 open (sd1-1, sd1-3, sd1-6,
+sd1-7); sd1-4 contested (owner adjudication); sd1-5 declined at intake.
+The earlier plan-TEXT loop (sd-1..sd-10 → `1d7f38b`; sd2-1..sd2-5 →
+`13599a6`; sd3-1 → `809e0d0`) closed with the plan's approval.

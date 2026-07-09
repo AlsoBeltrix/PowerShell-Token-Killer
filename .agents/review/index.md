@@ -341,6 +341,24 @@ detail: `.agents/review/findings/sd1-{1,2,3}.md`.
 
 | ID    | Severity | Impact (one line)                                                      | Status | Branch |
 |-------|----------|--------------------------------------------------------------------------|--------|--------|
-| sd1-1 | MEDIUM   | Session-shadowed export/local/source would be refused once wired         | `[~]`  | master (direct) |
-| sd1-2 | MEDIUM   | A later escape or comment can close the backtick pair (FP on valid pwsh) | `[~]`  | master (direct) |
-| sd1-3 | LOW      | Parse-fatal keys take bash evidence from comments/strings                | `[~]`  | master (direct) |
+| sd1-1 | MEDIUM   | Session-shadowed export/local/source would be refused once wired         | `[~]`  | master (direct, ca0a7e2 — held NOT RESOLVED round 1; inline-definition half open) |
+| sd1-2 | MEDIUM   | A later escape or comment can close the backtick pair (FP on valid pwsh) | `[x]`  | master (direct, 8c1c77f; re-grade RESOLVED) |
+| sd1-3 | LOW      | Parse-fatal keys take bash evidence from comments/strings                | `[~]`  | master (direct, ceae832 — held NOT RESOLVED round 1; string-literal half open) |
+| sd1-4 | LOW      | Alias-shadowed `set` refused once wired; contests the frozen slice-0 `set` exemption | `[!]`  | n/a — owner adjudication |
+| sd1-5 | LOW      | Expandable-string blanking erases `$()` evidence (miss, inside sd1-3's recorded known gap) | `[-]`  | n/a — declined at intake |
+| sd1-6 | MEDIUM   | Space-filler blanking SYNTHESIZES bash shapes (new FP; disproves the "never an over-match" claim) | `[ ]`  | master (direct) |
+| sd1-7 | LOW      | Parse-fatal error IDs pair with shape evidence globally, not locally      | `[ ]`  | master (direct) |
+
+**Re-grade round 1 (codex, Codex v0.144.0, gpt-5.6-sol, read-only) at head
+`acb0f39`:** sd1-2 RESOLVED; sd1-1 and sd1-3 NOT RESOLVED (each fix covered
+one half of its finding — ambient-only resolution, comment-only blanking);
+4 new findings reported, every claim independently verified by the master
+in-session before triage (repros re-run at head, including the alias-shadowed
+`set` execution proof). Triage: sd1-6/sd1-7 ADMITTED, sd1-5 DECLINED
+(recorded known-gap miss), sd1-4 CONTESTED (frozen slice-0 decision — owner
+call). Reviewer's read-only battery at head: named guards pass, Pester
+119 passed / 1 skipped, worktree clean. Per-finding detail:
+`.agents/review/findings/sd1-{1..7}.md`. NEXT: fix round 2 (sd1-1
+inline-definition guard, sd1-3 Generic-fragment blanking, sd1-6 filler
+over-match, sd1-7 local association), one commit each, then re-grade
+round 2.

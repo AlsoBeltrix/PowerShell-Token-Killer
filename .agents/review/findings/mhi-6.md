@@ -55,4 +55,6 @@ runtime unavailability.
 
 ## Reviewer comments
 Raised by codex (Codex v0.143.0, gpt-5.5, read-only) reviewing 057a5ee,
-2026-07-09. Re-grade: see index.
+2026-07-09. Re-grade 2026-07-09 at head ec6e094: RESOLVED — cited the
+return contract (dev-install.ps1:194,198-210) and the gated -Hook block
+(dev-install.ps1:323-337). No new findings.

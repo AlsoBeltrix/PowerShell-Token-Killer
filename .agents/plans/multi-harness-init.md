@@ -56,7 +56,11 @@ behaviors (liveness wording, neutral naming, payload gate, nudge
 install/remove, no-op-uninstall skip) — each sabotaged revert failed
 exactly its test; dotnet suite unchanged; handshake not run (no
 server-facing change). README + server/README hook sections updated to the
-flipped semantics (full install matrix stays slice 6).
+flipped semantics (full install matrix stays slice 6). **Codex loop on the
+slice CLOSED 2026-07-09**: mhi-6 (MEDIUM — dev-install `-Hook` now gated on
+actual Claude registration) and mhi-7 (LOW — surgical byte-exact nudge
+strip, +1 guard test; Pester canonical count now 62) both fixed one commit
+each and re-graded RESOLVED, no new findings (`.agents/review/index.md`).
 
 ## Goal
 

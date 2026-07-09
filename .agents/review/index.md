@@ -208,4 +208,10 @@ Per-finding detail: `.agents/review/findings/mhi-6.md`, `mhi-7.md`.
 | ID    | Severity | Impact (one line)                                                        | Status | Branch |
 |-------|----------|---------------------------------------------------------------------------|--------|--------|
 | mhi-6 | MEDIUM   | dev-install -Hook ships the blocking hook even when registration was skipped | `[x]`  | master (direct, 1e06351) |
-| mhi-7 | LOW      | Nudge writer trims user-owned whitespace outside the marker block          | `[x]`  | master (direct, see log) |
+| mhi-7 | LOW      | Nudge writer trims user-owned whitespace outside the marker block          | `[x]`  | master (direct, ec6e094) |
+
+**Loop CLOSED 2026-07-09:** re-grade at head ec6e094 — mhi-6 and mhi-7 both
+RESOLVED, NO NEW FINDINGS (codex, Codex v0.143.0, gpt-5.5, read-only;
+static pass — Pester was run coder-side: 62/62 at ec6e094, the new
+canonical count; dotnet 59/59 at 057a5ee, server untouched since).
+Commits remain unpushed pending the owner's master push go.

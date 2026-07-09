@@ -14,11 +14,14 @@ short and update it when important repo facts change.
   mhi-2 liveness check (down-server wording in the deny; wording only).
   Details + in-slice decisions in the plan
   (`.agents/plans/multi-harness-init.md`). **Canonical counts now: Pester
-  61, dotnet 59** (10 new Pester tests, all guard-proven). README +
+  62, dotnet 59** (11 new Pester tests, all guard-proven). README +
   server/README hook sections updated. OWNER NOTE: the flip means a bare
   `ptk_init.ps1` run now patches `~/.claude/settings.json`, and
-  `dev-install.ps1 -Hook` prints a Claude-leg-only note. NEXT: codex loop
-  on the slice-1 commit, then slice 2 (codex leg).
+  `dev-install.ps1 -Hook` prints a Claude-leg-only note. Codex loop on
+  057a5ee CLOSED 2026-07-09: mhi-6 (MEDIUM, dev-install -Hook now gated
+  on actual registration, 1e06351) and mhi-7 (LOW, surgical byte-exact
+  nudge strip, ec6e094) both fixed and re-graded RESOLVED, no new
+  findings (`.agents/review/index.md`). NEXT: slice 2 (codex leg).
 - **2026-07-08 (night): v2 LIVE ON THIS BOX; MULTI-HARNESS PLAN APPROVED;
   SLICE 0 EXECUTED — ALL PROBES GREEN.** Owner completed dev-install +
   global hook + push; the session's own tool calls then hit the redirect

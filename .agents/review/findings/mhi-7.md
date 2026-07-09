@@ -4,7 +4,7 @@
 no effect on hook execution.
 **Status**: Verified
 **Branch**: master (direct, per the recorded codex-loop precedent)
-**Commit**: (filled in at commit)
+**Commit**: `ec6e094`
 
 ## Evidence
 `scripts/ptk_init.ps1` — `Get-PtkNudgeStripped` called `.Trim()` on the
@@ -52,4 +52,6 @@ out of contract — the installer never writes that shape.
 
 ## Reviewer comments
 Raised by codex (Codex v0.143.0, gpt-5.5, read-only) reviewing 057a5ee,
-2026-07-09. Re-grade: see index.
+2026-07-09. Re-grade 2026-07-09 at head ec6e094: RESOLVED — cited the
+targeted regex, the -NoNewline uninstall write, and the byte-exact
+round-trip guard test. No new findings.

@@ -5,6 +5,21 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-09 (later): GITHUB ISSUE #1 FIXED and codex-closed** (plan:
+  `.agents/plans/issue-1-mixed-stream-shaping.md`, owner-approved "go";
+  taken ahead of multi-harness slice 3 by the same go). Shipped, one
+  commit each: caa7714 (string-bearing mixed streams render as text —
+  the repro class), 66a53df (heterogeneous header + ToString samples),
+  c2d8a4a (i1-1: header type-list bounded), 86f990e (Select-Object
+  -First stamps Selected.* into live TypeNames — generic path de-mutated,
+  self-caught), d3f4569 (i1-3: MaxItems 0 wraparound), 1e1ab99 (i1-2:
+  Select-PtcFirst helper, no object-row Select-Object anywhere — the
+  deserialized/remoting exposure). Loop record: `.agents/review/index.md`
+  (two rounds, final NO NEW FINDINGS). **Canonical counts: Pester 71,
+  dotnet 59; handshake PASSED.** Comment/close issue #1 after the owner
+  pushes. NEXT (owner instruction mid-session): GitHub issue #2 — stale
+  global hook registration fails open silently — then multi-harness
+  slice 3 (grok leg).
 - **2026-07-09: CONCURRENT GOVERNANCE REFRESH interleaved with the
   slice-2 build session** (602ee45/03d9162/719c200/bd6ff02, toolkit
   ce0db15, owner identity, ~00:17-00:18): AGENTS.md + skills + CLAUDE.md

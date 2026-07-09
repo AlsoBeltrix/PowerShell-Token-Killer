@@ -251,9 +251,17 @@ detail: `.agents/review/findings/i1-1.md`.
 | ID   | Severity | Impact (one line)                                             | Status | Branch |
 |------|----------|----------------------------------------------------------------|--------|--------|
 | i1-1 | MEDIUM   | mixed-type header grows unbounded with unique type names       | `[x]`  | master (direct, c2d8a4a) |
-| i1-2 | MEDIUM   | specialized routes still stamp Selected.* onto deserialized PSObjects | `[x]`  | master (direct, see log) |
+| i1-2 | MEDIUM   | specialized routes still stamp Selected.* onto deserialized PSObjects | `[x]`  | master (direct, 1e1ab99) |
 | i1-3 | LOW      | Format-PtcTable -MaxItems 0 regressed to a first+last wraparound slice | `[x]`  | master (direct, d3f4569) |
 
 Companion fix outside the findings table: 86f990e (Selected.* mutation in
 the GENERIC path, self-caught by i1-1's guard before codex saw it; codex
 then found the specialized-route remainder as i1-2).
+
+**Loop CLOSED 2026-07-09:** final re-grade at head 1e1ab99 — i1-2 and
+i1-3 both RESOLVED, NO NEW FINDINGS (codex, Codex v0.143.0, gpt-5.5,
+read-only; static pass — coder-side battery at 1e1ab99: Pester 71/71 (the
+new canonical count), dotnet 59/59, handshake PASSED). Two review rounds
+total on the issue-1 slices (i1-1 → i1-2/i1-3 → clean). Commits unpushed
+pending the owner's master push go; GitHub issue #1 gets the fix
+reference after push.

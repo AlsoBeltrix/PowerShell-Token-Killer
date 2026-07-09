@@ -11,8 +11,9 @@ Default (install): publish for this machine's RID -> replace the
 installer-owned payload in ~/.ptk (bin/, src/, scripts/, VERSION) wholesale,
 leaving every other file (user config) untouched -> register the server with
 Claude Code at user scope (remove-then-add) -> write the Add/Remove Programs
-entry on Windows -> optionally install the redirect hook (-Hook). -Uninstall
-reverses all of it and keeps user files. -LayoutOnly -OutputDir <dir> only
+entry on Windows -> run the full per-agent init (ptk_init.ps1: hooks,
+registrations, guidance for every detected harness). One command per
+machine. -Uninstall reverses all of it and keeps user files. -LayoutOnly -OutputDir <dir> only
 builds the layout (release CI reuses this so dev and release artifacts are
 the same layout by construction); -Rid and -Version parameterize it.
 
@@ -27,11 +28,9 @@ pwsh -File scripts/dev-install.ps1 -LayoutOnly -OutputDir out/ptk-layout
 #>
 [CmdletBinding(DefaultParameterSetName = 'Install')]
 param(
-    # Install the Claude Code redirect hook (user level) after installing -
-    # invokes the INSTALLED copy of ptk_init.ps1, so the hook points at the
-    # installed payload, not the checkout. Claude leg only; the multi-harness
-    # path is ptk_init.ps1 itself, and a future -InitAgents will chain the
-    # full per-agent init here (multi-harness-init plan, slice 5).
+    # Deprecated, accepted for compatibility: the full per-agent init
+    # (hooks, registrations, guidance - every detected harness) runs by
+    # DEFAULT after a successful registration; -Hook adds nothing.
     [Parameter(ParameterSetName = 'Install')]
     [switch]$Hook,
 
@@ -299,26 +298,19 @@ switch ($mode) {
     'Uninstall' {
         Assert-NotElevated
         Assert-PtkServerNotRunning
-        # Hook first (needs a ptk_init.ps1), then registration, ARP, payload.
-        # Only touch the global settings file when a ptk hook entry actually
-        # exists in it: ptk_init -Uninstall rewrites the file even with
-        # nothing to remove (and creates it when missing), which would
-        # violate the leave-non-payload-files-alone contract.
-        $settingsPath = Join-Path $HOME '.claude' 'settings.json'
-        $hookPresent = Test-PtkHookEntryPresent -SettingsPath $settingsPath
-        if ($hookPresent) {
-            # Prefer the installed copy; fall back to this script's sibling so
-            # a partially deleted home still gets its hook entry removed.
-            $init = Join-Path $ptkHome 'scripts' 'ptk_init.ps1'
-            if (-not (Test-Path -LiteralPath $init)) { $init = Join-Path $PSScriptRoot 'ptk_init.ps1' }
-            if (Test-Path -LiteralPath $init) {
-                try { & $init -Global -Uninstall | Out-Host }
-                catch { Write-Warning "Hook uninstall failed (continuing): $_" }
-            }
-            else {
-                Write-Warning ("A ptk hook entry exists in {0} but no ptk_init.ps1 was found; " +
-                    "run ptk_init.ps1 -Global -Uninstall from a checkout to remove it.") -f $settingsPath
-            }
+        # Per-agent init reversal first (needs a ptk_init.ps1), then Claude
+        # registration, ARP, payload. ptk_init -Uninstall reverses every
+        # detected leg (hook + guidance blocks, codex/grok registrations,
+        # agy plugin) and no-ops safely where nothing is installed.
+        $init = Join-Path $ptkHome 'scripts' 'ptk_init.ps1'
+        if (-not (Test-Path -LiteralPath $init)) { $init = Join-Path $PSScriptRoot 'ptk_init.ps1' }
+        if (Test-Path -LiteralPath $init) {
+            try { & $init -Uninstall | Out-Host }
+            catch { Write-Warning "Per-agent uninstall failed (continuing): $_" }
+        }
+        elseif (Test-PtkHookEntryPresent -SettingsPath (Join-Path $HOME '.claude' 'settings.json')) {
+            Write-Warning ('A ptk hook entry exists in the user settings but no ptk_init.ps1 was ' +
+                'found; run ptk_init.ps1 -Uninstall from a checkout to remove it.')
         }
         Unregister-PtkServer
         Remove-PtkArpEntry
@@ -343,30 +335,22 @@ switch ($mode) {
         $registered = Register-PtkServer -BinaryPath $binaryPath
         Write-PtkArpEntry -PayloadVersion $payloadVersion
         if ($Hook) {
-            if ($registered) {
-                Write-Host ('NOTE: -Hook covers the Claude Code leg only; for other harnesses run ' +
-                    'scripts/ptk_init.ps1 (multi-harness init).')
-                & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') -Agent claude | Out-Host
-            }
-            else {
-                # A payload exists but ptk_invoke is not registered: installing
-                # the redirect hook now would deny every shell call toward a
-                # tool the harness cannot see.
-                Write-Warning (('Skipping the hook install: the server is not registered with ' +
-                    'Claude Code (claude CLI not found). Register manually, then run: ' +
-                    'pwsh -File "{0}" -Agent claude') -f (Join-Path $ptkHome 'scripts' 'ptk_init.ps1'))
-            }
+            Write-Host 'NOTE: -Hook is deprecated - the full per-agent init runs by default.'
+        }
+        if ($registered) {
+            # The end-state process: one command produces the complete
+            # per-harness state (hooks, registrations, guidance) for every
+            # detected harness, and re-targets any stale registration at the
+            # fresh payload (issue #2).
+            & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') | Out-Host
         }
         else {
-            # No -Hook, but an existing hook registration is prior consent:
-            # refresh it against this install so it targets the fresh payload
-            # - a registration left pointing at a moved/removed path fails
-            # open silently on every shell call (issue #2).
-            $globalSettings = Join-Path $HOME '.claude' 'settings.json'
-            if ($registered -and (Test-PtkHookEntryPresent -SettingsPath $globalSettings)) {
-                Write-Host 'Existing ptk hook registration found - refreshing it against this install.'
-                & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') -Agent claude | Out-Host
-            }
+            # No verified Claude registration -> installing the blocking hook
+            # would deny every shell call toward a tool the harness cannot
+            # see (mhi-6), so the init is skipped as a whole.
+            Write-Warning (('Skipping per-agent init: the server is not registered with ' +
+                'Claude Code (claude CLI not found). Register manually, then run: ' +
+                'pwsh -File "{0}"') -f (Join-Path $ptkHome 'scripts' 'ptk_init.ps1'))
         }
         Show-PtkCodexSnippet -BinaryPath $binaryPath
         Write-Host ''

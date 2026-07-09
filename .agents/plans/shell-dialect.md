@@ -9,7 +9,9 @@ approval; slice 0 runs first and freezes its results into this file.
 Verified against the code, not just the issue text:
 
 1. **Bash-shaped scripts fail late and confusingly.** The hook redirect
-   echoes the agent's command verbatim and agents compose bash by habit, so
+   tells the model to re-issue "this same command" through `ptk_invoke`
+   (`scripts/ptk-hook.ps1:57-64` — the deny reason never interpolates the
+   literal command text), and agents compose bash by habit, so
    bash-shaped strings arrive at the router by design. The router is
    deliberately infallible — a script with parse errors returns unchanged
    into the pwsh runspace (`src/PwshTokenCompressor.psm1:523`) — so
@@ -43,15 +45,20 @@ unverified version.
 
 ## Goal
 
-A bash-only script through `ptk_invoke` never fails silently-late or with
-a mystery error: it is either detected and refused fast — with guidance
-naming the offending construct and both recovery paths — or it runs
-correctly (explicit `bash -lc '...'` is already a first-class, compressed
-path today: bash is a native Application, so the string executes via the
-rtk leg when constant or the pwsh leg otherwise, and output flows through
-the compressor either way). `raw=true` reads and logs as a recovery
-hatch, not a preference. The redirect and nudge texts stop inviting the
-dialect mismatch at the source.
+Every construct on the probed detection list, arriving by any
+non-consenting execution path (foreground or `background=true`, rtk
+present or absent), is detected and refused fast — with guidance naming
+the offending construct and the platform-appropriate recovery paths —
+instead of failing silently-late with a mystery error. Undetected bash
+shapes keep today's behavior *by design*: recall is bounded by the
+slice-0 inventory (precision principle below), and the D3 texts carry
+the dialect lesson for the misses. Explicit `bash -lc '...'` already
+runs correctly as a first-class, compressed path (bash is a native
+Application, so the string executes via the rtk leg when constant or the
+pwsh leg otherwise, and output flows through the compressor either way).
+`raw=true` reads and logs as a recovery hatch, not a preference. The
+redirect and nudge texts stop inviting the dialect mismatch at the
+source.
 
 ## Design principles
 
@@ -81,24 +88,45 @@ dialect mismatch at the source.
 
 - **D1 — remedy for detected bash-only shapes.**
   - (a) **RECOMMENDED:** refuse fast with guidance naming the construct
-    and both recovery paths — rewrite in PowerShell, or wrap the whole
-    script in `bash -lc '...'` (with the apostrophe-escaping note). An
-    explicit `route=pwsh` bypasses detection (an explicit route choice is
-    consent). Smallest change, no semantic surprises, platform-uniform.
+    and the recovery paths — rewrite in PowerShell, or wrap the whole
+    script in `bash -lc '...'` (with the apostrophe-escaping note). The
+    recovery advice is **platform-aware, not uniform**: the `bash -lc`
+    wrap is offered only when `bash` resolves as an Application in the
+    runspace; on a box without bash (true bashisms on Windows are
+    commands ptk cannot run — `unified-shell-routing.md:60-62`) the
+    guidance names rewrite-in-PowerShell plus the already-settled
+    `PTK_DIRECT` harness-shell escape (`unified-shell-routing.md:128-130`
+    — the refusal text references the existing marker; its semantics stay
+    out of scope). Explicit `route=pwsh` **and** `raw=true` both bypass
+    detection: each is consent, and raw already skips routing entirely
+    ("executed exactly as written", `RunspaceHost.cs:349-354`), so the
+    detector never sees a raw call by construction — this is a documented
+    property, not a leak. Smallest change, no semantic surprises.
   - (b) Issue #3's ask: auto-wrap detected scripts in `$SHELL -lc` on
     POSIX. Executes "as intended" but silently switches dialect
     per-platform, inherits bash quoting/env surprises into a tool whose
     contract is PowerShell, and Windows still needs (a).
   - Recommendation: (a); revisit (b) only if real use shows agents do not
     act on the refusal guidance.
-- **D2 — raw posture scope.** Adopt the non-breaking subset: reword the
-  `raw` description to recovery-only ("for recovering detail the
-  compressed form lost — not a default; compressed output already
-  preserves errors, exit codes, and structure") and make raw usage
-  visible (server log line per raw call; candidate: a counter in
-  `ptk_state`). Decline for now: first-use gating, justification strings,
-  deny semantics — friction on a deliberate escape hatch; revisit only
-  with evidence that rewording fails.
+- **D2 — raw posture scope.** Adopt the non-breaking subset: reword
+  **every model-visible raw surface** to recovery-only ("for recovering
+  detail the compressed form lost — not a default; compressed output
+  already preserves errors, exit codes, and structure") — the `raw`
+  parameter description (`InvokeTool.cs:28`), the tool description's "Set
+  raw=true for full uncompressed output" (`InvokeTool.cs:20-21`), the
+  ptk_init nudge block (`scripts/ptk_init.ps1:127-128`), and the README
+  (`:43-44`, `:60-62`, plus the suggested harness note `:165-171`);
+  rewording only the parameter line while louder surfaces still invite
+  raw changes nothing the model acts on. Make raw usage visible (server
+  log line per raw call; candidate: a counter in `ptk_state`), **counted
+  at the user-call boundary only** — the tool's `raw` parameter in
+  `InvokeTool`, never inside `RunspaceHost`: internal probes pass
+  `raw:true` (`StateTool.cs:38-41`, `:92-96`; the cwd probe before every
+  background job, `RunspaceHost.cs:496-502`) and must not inflate the
+  signal (guard test: `ptk_state` and `background=true` leave the
+  counter unchanged). Decline for now: first-use gating, justification
+  strings, deny semantics — friction on a deliberate escape hatch;
+  revisit only with evidence that rewording fails.
 - **D3 — where the dialect line lands.** One added line in the hook deny
   text and the ptk_init nudge block (plus the README routing section):
   the runspace is PowerShell 7 — translate bash-only syntax or wrap it in
@@ -113,23 +141,60 @@ dialect mismatch at the source.
    `route=auto|pwsh|rtk`: pin which leg fails with what error, plus the
    resolver's actual classification of the exact string. (b) Bash-only
    construct inventory from live probes — heredoc `<<`, `export X=`,
-   leading `VAR=x cmd`, `[ -f x ]` tests, backtick substitution, `local`,
-   `set -e`, `if/fi` — for each: pwsh parse error, runtime
-   CommandNotFound, or silent semantic change? Only fatal-or-treacherous
-   constructs enter the detection list; probe the false-positive set too
-   (`&&`, pipes, redirects, subexpressions). (c) The `bash -lc` recovery
+   leading `VAR=x cmd`, `[ -f x ]` and `[[ ... ]]` tests, backtick
+   substitution, `local`, `set -e`, `if/fi`, `source file`, shell
+   function definitions (`f() {`), `for/do/done` loops, process
+   substitution `<(...)`, trailing-backslash line continuation — for
+   each: pwsh parse error, runtime CommandNotFound, or silent semantic
+   change? Only fatal-or-treacherous constructs enter the detection
+   list; the list is finite and its misses are accepted (see Goal) — the
+   probe's job is to make the high-frequency forms members, not to
+   promise recall. Probe the false-positive set too (`&&`, pipes,
+   redirects, subexpressions). (c) The `bash -lc` recovery
    path end to end: compression applied, exit code surfaces, cwd
    anchoring, both legs. (d) Snapshot current hook/nudge/README wording.
 1. **Detector in the module** (`Test-PtcBashOnlyScript`, or folded into
    `Resolve-PtcInvokeScript`): anchored per-construct patterns from slice
-   0. Pester tests per construct plus false-positive guards.
+   0, under four structural requirements. (i) *Ordering:* detection runs
+   for every non-raw, non-`route=pwsh` script **regardless of rtk
+   availability** — `Resolve-PtcInvokeScript` returns before parsing when
+   rtk is absent (`src/PwshTokenCompressor.psm1:517-518`), so folding the
+   detector in means placing it ahead of that early return (test via the
+   no-rtk seam). (ii) *Token-aware matching:* patterns evaluate parser
+   tokens/AST, never raw text, so comments and string literals (including
+   here-strings carrying bash text) cannot trip it. (iii) *Shadowing
+   guard:* a leading word that resolves live to a function/alias/cmdlet
+   is not classified — the same resolution discipline as `:552-566`; a
+   user-defined `export` function is legitimate pwsh. (iv) *Recovery
+   exemption:* the `bash -lc '...'` wrap itself must never be classified.
+   Pester tests per construct plus false-positive guards covering exactly
+   these: the recovery wrapper, here-strings/comments containing bash
+   text, shadowed names, multiline scripts mixing pwsh with a bash-ish
+   line, and the shared-dialect set.
 2. **Server wiring per D1**: detection flows to a labeled refusal result
-   naming the construct and both recovery paths; `route=pwsh` bypasses.
-   Guard tests; handshake (server-facing).
-3. **raw posture per D2**: description reword + raw-usage visibility.
-   dotnet tests where testable.
-4. **Texts per D3**: the dialect line in hook deny + nudge block + README;
-   docs slice; owner-action note for installed boxes.
+   naming the construct and the platform-aware recovery paths;
+   `route=pwsh` and `raw=true` bypass. Covers **both** execution paths:
+   the background branch returns before any route handling today
+   (`InvokeTool.cs:47-61`) and compiles the text in a cold pwsh
+   (`JobManager.cs:73-79`), so detection must run before `jobs.Start` — a
+   detected script is refused fast, never started as a job that dies in
+   its log. Guard tests on both paths; handshake (server-facing).
+3. **raw posture per D2**: reword all four model-visible surfaces
+   (tool description, `raw` parameter description, ptk_init nudge block,
+   README including the harness note) in one pass — partial rewording
+   leaves the louder surface winning. Raw-usage visibility: server log
+   line + `ptk_state` counter at the user-call boundary only. dotnet
+   tests where testable, including the guard that `ptk_state` and
+   `background=true` internal probes leave the counter unchanged.
+4. **Texts per D3**: the dialect line in hook deny + nudge block + README
+   routing section, phrased consistently with D1's platform-aware recovery
+   (the hook deny is a static string rendered per-box, so the line either
+   stays platform-neutral — "translate bash-only syntax or wrap it in
+   `bash -lc '...'` where bash exists" — or branches at install time;
+   pick during implementation, never advise `bash -lc` unconditionally on
+   a box that cannot run it). Docs slice; owner-action note for installed
+   boxes (text changes reach a machine only after a dev-install re-run —
+   issue-2 lesson, already flagged under D3).
 
 Each slice: one commit, battery, codex loop per repo precedent.
 
@@ -148,5 +213,11 @@ Each slice: one commit, battery, codex loop per repo precedent.
 Battery per slice (Pester; dotnet test and handshake when server-facing).
 Live end-to-end at close: the #3 repro and one representative bash-only
 construct through a real session — refusal text observed verbatim, then
-the `bash -lc` recovery works with compression. After landing + owner
-push, issues #3 (item 1) and #4 get fix references.
+the `bash -lc` recovery works with compression. The live pass must also
+cover the two paths that dodge the foreground/rtk-present happy path:
+the same construct via `background=true` (refused fast, no job started,
+nothing dies in a job log) and via the rtk-absent seam (detection still
+fires before the `Resolve-PtcInvokeScript` early return). Raw-counter
+guard observed live: one `ptk_state` call and one background job leave
+the raw counter unchanged. After landing + owner push, issues #3 (item
+1) and #4 get fix references.

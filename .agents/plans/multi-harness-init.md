@@ -62,6 +62,24 @@ actual Claude registration) and mhi-7 (LOW — surgical byte-exact nudge
 strip, +1 guard test; Pester canonical count now 62) both fixed one commit
 each and re-graded RESOLVED, no new findings (`.agents/review/index.md`).
 
+**Slice 2 EXECUTED 2026-07-09 (codex leg).** `Invoke-PtkCodexLeg` replaces
+the stub: idempotent registration (`codex mcp get ptk` answers → the
+existing entry is left AS-IS so user customizations survive; otherwise
+`codex mcp add ptk -- <installed binary>`), payload-gated on the installed
+exe (registering a missing binary would write a broken config entry), and
+the nudge block in `~/.codex/AGENTS.md`. The nudge is written even when
+registration fails (conditional wording, safe on ptk-less machines). No
+hook, per the Evidence table. Framework change: `-NudgePath` now binds to
+whichever SINGLE leg is selected (`-SettingsPath` stays claude-only).
+Live-verified on this box: `-Show` read the real state, a real install run
+hit the already-registered short-circuit without touching the owner's
+entry, the nudge appended surgically after the owner's `@RTK.md` include,
+and a fresh `codex exec` session quoted the block verbatim — the
+`~/.codex/AGENTS.md` nudge home self-report is now **VERIFIED**
+(docs/harness-support.md updated). Pester 65 (3 new tests, guard-proven;
+live registration paths deliberately untested — `-DryRun` snapshots per
+the slice plan). Codex loop: see `.agents/review/index.md`.
+
 ## Goal
 
 One installer surface that makes ptk available and preferred on a machine,

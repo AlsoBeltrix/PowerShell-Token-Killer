@@ -529,11 +529,36 @@ Describe 'redirect hook and installer' {
 
         It 'reports unimplemented legs without touching anything' {
             # One comma-joined string: pwsh -File hands arrays over this way.
-            $out = pwsh -NoProfile -File $script:initScript -Agent 'codex,grok,agy' | Out-String
+            $out = pwsh -NoProfile -File $script:initScript -Agent 'grok,agy' | Out-String
             $LASTEXITCODE | Should -Be 0
-            $out | Should -Match '\[codex\] leg not implemented'
             $out | Should -Match '\[grok\] leg not implemented'
             $out | Should -Match '\[agy\] leg not implemented'
+        }
+
+        It 'codex leg -DryRun snapshots the registration command and nudge, writing nothing' {
+            # The codex leg is a thin CLI wrapper; live registration paths are
+            # deliberately untested (they would mutate the real ~/.codex
+            # config on a dev box). -DryRun is fully offline.
+            $out = pwsh -NoProfile -File $script:initScript -Agent codex -DryRun -Nudge -NudgePath $script:nudgeFile -PtkHome $script:fakeHome | Out-String
+            $LASTEXITCODE | Should -Be 0
+            $out | Should -Match 'codex mcp add ptk -- '
+            $out | Should -Match ([regex]::Escape($script:fakeHome))
+            $out | Should -Match 'ptk-guidance'
+            Test-Path -LiteralPath $script:nudgeFile | Should -BeFalse
+        }
+
+        It 'codex leg -Uninstall -DryRun names the removal without running it' {
+            $out = pwsh -NoProfile -File $script:initScript -Agent codex -Uninstall -DryRun -NudgePath $script:nudgeFile -PtkHome $script:fakeHome | Out-String
+            $LASTEXITCODE | Should -Be 0
+            $out | Should -Match 'codex mcp remove ptk'
+        }
+
+        It 'rejects -SettingsPath with a non-claude leg' {
+            $out = pwsh -NoProfile -File $script:initScript -Agent codex -SettingsPath $script:settings -PtkHome $script:fakeHome 2>&1 | Out-String
+            $LASTEXITCODE | Should -Not -Be 0
+            # Specifically the resolution-rule rejection, not a downstream
+            # leg failure that happens to exit nonzero.
+            $out | Should -Match 'claude-leg targets'
         }
     }
 }

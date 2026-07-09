@@ -147,14 +147,15 @@ options and details are in
 ## Nudging Other Harnesses
 
 The hook covers Claude Code today. `scripts/ptk_init.ps1` is growing
-per-harness legs (`-Agent claude|codex|grok|agy`); the claude leg is
-implemented — `-Nudge` maintains the guidance block in `~/.claude/CLAUDE.md`
-automatically, which also covers grok (it session-loads that file — see
-[docs/harness-support.md](docs/harness-support.md)) — and the other legs
-announce themselves as planned. For any other harness, a short note in its
-**user-level** guidance file — not a repo file — teaches the preference
-wherever ptk is registered and stays silent where it is not. Suggested
-text, adapt freely:
+per-harness legs (`-Agent claude|codex|grok|agy`); the claude and codex
+legs are implemented — `-Nudge` maintains the guidance block in
+`~/.claude/CLAUDE.md` (which also covers grok: it session-loads that file)
+and `~/.codex/AGENTS.md` (codex leg; registration is `codex mcp add`,
+idempotent) — see [docs/harness-support.md](docs/harness-support.md); the
+grok/agy legs announce themselves as planned. For any other harness, a
+short note in its **user-level** guidance file — not a repo file — teaches
+the preference wherever ptk is registered and stays silent where it is
+not. Suggested text, adapt freely:
 
 > When the ptk MCP server is available, use `ptk_invoke` for shell
 > commands instead of the built-in shell: one warm PowerShell session

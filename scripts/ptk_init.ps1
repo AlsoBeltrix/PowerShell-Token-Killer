@@ -10,9 +10,14 @@ marker-owned entries.
 Multi-harness init (.agents/plans/multi-harness-init.md): three independent
 layers per harness - registration (the MCP server), enforcement (a blocking
 pre-tool hook, only where live-verified), nudge (a marker-delimited guidance
-block in the harness's user-level instructions file). This script ships the
-framework plus the claude leg; the codex/grok/agy legs are planned (slices
-2-4) and currently report themselves as not implemented.
+block in the harness's user-level instructions file). Implemented legs:
+claude, codex; the grok/agy legs are planned (slices 3-4) and currently
+report themselves as not implemented.
+
+codex leg: idempotent registration (`codex mcp get ptk` answers -> the
+existing entry is left as-is; otherwise `codex mcp add ptk -- <installed
+binary>`), and with -Nudge the guidance block in ~/.codex/AGENTS.md. No
+hook: codex hooks are trust-gated (plan: Evidence).
 
 claude leg: checks the installed payload (~/.ptk) and refuses the hook when
 it is missing - a redirect hook without a server steers every shell call at
@@ -165,7 +170,7 @@ function Install-PtkNudgeBlock {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
     Set-Content -LiteralPath $Path -Value $content -NoNewline
-    Write-Host "[claude] ptk guidance block installed in $Path"
+    Write-Host "ptk guidance block installed in $Path"
 }
 
 function Uninstall-PtkNudgeBlock {
@@ -178,7 +183,7 @@ function Uninstall-PtkNudgeBlock {
         return
     }
     Set-Content -LiteralPath $Path -Value (Get-PtkNudgeStripped $existing) -NoNewline
-    Write-Host "[claude] ptk guidance block removed from $Path"
+    Write-Host "ptk guidance block removed from $Path"
 }
 
 function Invoke-PtkClaudeLeg {
@@ -292,6 +297,85 @@ function Invoke-PtkClaudeLeg {
     $true
 }
 
+# codex leg: registration (idempotent - an existing entry is left as-is so
+# user customizations like env blocks survive) + nudge in ~/.codex/AGENTS.md.
+# No hook: codex hooks are trust-gated and unresolved (plan: Evidence table).
+# The nudge is written even when registration fails - its wording is
+# conditional ("when available"), safe on machines where ptk never arrives.
+function Invoke-PtkCodexLeg {
+    $nudgeTarget = $NudgePath ? $NudgePath : (Join-Path $HOME '.codex' 'AGENTS.md')
+    $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
+    $cli = Get-Command codex -ErrorAction SilentlyContinue
+    $nudgePresent = (Test-Path -LiteralPath $nudgeTarget) -and
+        ((Get-Content -LiteralPath $nudgeTarget -Raw) -like "*$nudgeBegin*")
+
+    if ($Show) {
+        Write-Host ("[codex] cli: {0}" -f ($cli ? $cli.Source : 'NOT FOUND'))
+        $registration = 'unknown (codex CLI not found)'
+        if ($cli) {
+            codex mcp get ptk *> $null
+            $registration = ($LASTEXITCODE -eq 0) ? 'REGISTERED' : 'not registered'
+        }
+        Write-Host "[codex] registration: $registration"
+        Write-Host ("[codex] nudge block: {0} in {1}" -f
+            ($nudgePresent ? 'INSTALLED' : 'not installed'), $nudgeTarget)
+        return $true
+    }
+
+    if ($Uninstall) {
+        if ($DryRun) {
+            Write-Host 'DRY RUN - would run: codex mcp remove ptk'
+        }
+        elseif ($cli) {
+            codex mcp remove ptk *> $null
+            Write-Host (($LASTEXITCODE -eq 0) ?
+                '[codex] registration removed.' : '[codex] no registration to remove.')
+        }
+        else {
+            Write-Host '[codex] codex CLI not found - no registration to remove.'
+        }
+        Uninstall-PtkNudgeBlock -Path $nudgeTarget
+        return $true
+    }
+
+    $ok = $true
+    if ($DryRun) {
+        Write-Host ("DRY RUN - would ensure registration (skipped when codex mcp get ptk " +
+            "already answers): codex mcp add ptk -- `"{0}`"" -f $binary)
+    }
+    elseif (-not (Test-Path -LiteralPath $binary)) {
+        # Registering a missing exe writes a broken config.toml entry.
+        Write-Warning (('[codex] no installed ptk server at {0}. Run scripts/dev-install.ps1 ' +
+            'first, then re-run this script.') -f $binary)
+        $ok = $false
+    }
+    elseif (-not $cli) {
+        Write-Warning (('[codex] codex CLI not found on PATH - register manually: ' +
+            'codex mcp add ptk -- "{0}"') -f $binary)
+        $ok = $false
+    }
+    else {
+        codex mcp get ptk *> $null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host '[codex] already registered - left as is (codex mcp get ptk answers).'
+        }
+        else {
+            codex mcp add ptk '--' $binary | Out-Host
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warning (('[codex] codex mcp add failed - register manually: ' +
+                    'codex mcp add ptk -- "{0}"') -f $binary)
+                $ok = $false
+            }
+            else {
+                Write-Host '[codex] registered (user-level ~/.codex/config.toml).'
+            }
+        }
+    }
+
+    if ($Nudge) { Install-PtkNudgeBlock -Path $nudgeTarget }
+    $ok
+}
+
 function Invoke-PtkStubLeg {
     param(
         [Parameter(Mandatory)][string]$Name,
@@ -307,12 +391,14 @@ function Invoke-PtkStubLeg {
 $explicitTargets = [bool]$SettingsPath -or [bool]$NudgePath
 $resolvedAgents =
     if ($explicitTargets -or $Local) {
-        $foreign = @($Agent | Where-Object { $_ -and $_ -ne 'claude' })
-        if ($foreign.Count -gt 0) {
-            throw (('-Local/-SettingsPath/-NudgePath are claude-leg targets; drop them or use ' +
-                '-Agent claude (got: {0}).') -f ($foreign -join ', '))
+        if (-not $Agent) { $Agent = @('claude') }
+        if (@($Agent).Count -ne 1 -or $Agent[0] -eq 'all') {
+            throw '-Local/-SettingsPath/-NudgePath target a single leg; pass exactly one -Agent.'
         }
-        @('claude')
+        if (($Local -or $SettingsPath) -and $Agent[0] -ne 'claude') {
+            throw (('-Local/-SettingsPath are claude-leg targets (got -Agent {0}).') -f $Agent[0])
+        }
+        @($Agent)
     }
     elseif (-not $Agent) {
         $detected = @($supportedAgents | Where-Object { Test-PtkAgentPresent -Name $_ })
@@ -330,7 +416,7 @@ $failedLegs = @()
 foreach ($name in $resolvedAgents) {
     $ok = switch ($name) {
         'claude' { Invoke-PtkClaudeLeg }
-        'codex' { Invoke-PtkStubLeg -Name 'codex' -PlannedSlice 2 }
+        'codex' { Invoke-PtkCodexLeg }
         'grok' { Invoke-PtkStubLeg -Name 'grok' -PlannedSlice 3 }
         'agy' { Invoke-PtkStubLeg -Name 'agy' -PlannedSlice 4 }
     }

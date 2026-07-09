@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-09: MULTI-HARNESS SLICE 2 EXECUTED — codex leg.**
+  `ptk_init.ps1 -Agent codex`: idempotent registration (existing entry
+  left as-is via `codex mcp get`; else `codex mcp add ptk -- <installed
+  exe>`, payload-gated), nudge block in `~/.codex/AGENTS.md`
+  (`-NudgePath` now binds to the single selected leg). LIVE ON THIS BOX:
+  real run hit the already-registered short-circuit, nudge installed
+  after the owner's `@RTK.md` include, and a fresh `codex exec` quoted
+  the block verbatim — codex nudge home VERIFIED
+  (`docs/harness-support.md`). **Canonical counts: Pester 65, dotnet
+  59.** Details in the plan. NEXT: codex loop on the slice-2 commit,
+  then slice 3 (grok leg).
 - **2026-07-08 (later night): MULTI-HARNESS SLICE 1 EXECUTED — installer
   framework + Claude leg.** `ptk_init.ps1` is the per-agent framework
   (`-Agent claude|codex|grok|agy|all`, detected-set default, stub legs for

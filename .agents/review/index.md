@@ -84,6 +84,32 @@ unpushed pending the owner's master push go.
 
 ---
 
+Loop run 2026-07-08 (v2-feedback fixes + D5 retirement, post-GO) —
+reviewer: codex (Codex v0.143.0, gpt-5.5, read-only), fixes committed
+directly to `master` one finding per commit per precedent. Scope: the
+v2-feedback-fixes plan (42e3480) and slices 1-3 (56b1af3 inheritable NUL
+stdin, 9cc74de UTF-8 decoding, 4f957ab teach/nag/probe-null) in one pass;
+slice 4 / greenfield D5 retirement (bfc6323) with the re-grades in a
+second pass.
+
+## Findings (v2-feedback loop)
+
+| ID     | Severity | Impact (one line)                                                    | Status | Branch |
+|--------|----------|------------------------------------------------------------------------|--------|--------|
+| v2fb-1 | LOW      | Nag filter's bare "[rtk] /!\" prefix could hide real diagnostics       | `[x]`  | master (direct, 799e421; re-grade RESOLVED) |
+| v2fb-2 | LOW      | Plan overstated raw=true as an encoding escape hatch                    | `[x]`  | master (direct, 15c5927; re-grade RESOLVED) |
+| d5-1   | LOW      | README claimed the checkout is project-registered (.mcp.json is empty)  | `[x]`  | master (direct, 427f05f) |
+
+**Loop CLOSED 2026-07-08 (converged):** v2fb-1/v2fb-2 re-graded RESOLVED;
+d5-1 was the retirement pass's only finding and its fix is a factual
+wording correction verified directly against repo records (`.mcp.json`
+empty; dev-install the recorded path) — closed on the trivial-docs-fix
+convergence precedent rather than a further re-grade pass. Battery at
+head: Pester 51/51, dotnet 59/59, handshake PASSED (canonical counts).
+Commits unpushed pending the owner's master push go.
+
+---
+
 Loop run 2026-07-08 (greenfield implementation, slices D1/D2/D4/D3) —
 reviewer: codex (Codex v0.143.0, gpt-5.5, read-only), one fresh session per
 slice commit, fixes committed directly to `master` one finding per commit

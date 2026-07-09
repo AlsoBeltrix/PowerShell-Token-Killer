@@ -10,11 +10,40 @@ short and update it when important repo facts change.
   entry is archived (`docs/history/decisions-archive.md`), the
   destructive-cmdlet parking survives as its own Open entry, and
   warm-runspace slice 7 (AD/EMS/EXO validation) plus greenfield D5
-  (CLI-face retirement) are unblocked by the gate's closure. Owner also
-  approved in the same message: the invalid-handle PROBE, and revising
-  the plan to cover the v1-feedback fixes with the codex loop per slice.
-  The shared multi-client host stays parked on its own measured-pain
-  criterion (not part of this go).
+  (CLI-face retirement) are unblocked by the gate's closure. The shared
+  multi-client host stays parked on its own measured-pain criterion (not
+  part of this go).
+- **2026-07-08 (post-GO build): v2-FEEDBACK FIXES + D5 RETIREMENT BUILT
+  and codex-closed** (`.agents/plans/v2-feedback-fixes.md`; loop record
+  in `.agents/review/index.md`). What shipped:
+  - **Slice 1 (56b1af3): the os-error-6 class is FIXED.** Probe-diagnosed
+    root cause: ChildStdinGuard's NUL handle was NON-INHERITABLE
+    (File.OpenHandle default), so children got a stdin handle value
+    absent from their handle table — rustup shims (cargo/rustc/codex)
+    died duplicating it. SetHandleInformation(HANDLE_FLAG_INHERIT) fixes
+    it; live-verified: cargo/rustc work on route=pwsh, auto, raw, jobs.
+    The e2e now asserts stdin-reading natives SUCCEED (the missing
+    assertion that hid the bug) and spawns CreateNoWindow.
+  - **Slice 2 (9cc74de): UTF-8 native output decoding** — Console
+    OutputEncoding pinned BOM-less UTF-8 in RunspaceHost (mojibake class
+    dead; OEM-emitting tools now mojibake instead, escape hatch = job
+    logs, NOT raw=true).
+  - **Slice 3 (4f957ab): timeout message warns resolution can differ
+    after recycle and points at ptk_state; rtk install nag filtered at
+    error collection (specific banner only); stderr-swallow report
+    probed NULL** (both routes return identical real stderr — details
+    frozen in the plan).
+  - **Slice 4 / greenfield D5 (bfc6323): CLI face RETIRED.** Module =
+    server shaping library (exports: Compress-PtcObject,
+    Compress-PtcOutput, Resolve-PtcInvokeScript; 1374→622 lines);
+    ptk.ps1, docs/usage.md, CLI tests and fixtures removed; README
+    single-surface story + setup corrected (d5-1: .mcp.json is empty,
+    dev-install or explicit registration are the paths).
+  - Codex loops: v2fb-1, v2fb-2, d5-1 (all LOW) fixed one commit each;
+    v2fb re-grades RESOLVED; loop closed converged.
+  - **Canonical counts now: Pester 51, dotnet 59.** All commits local;
+    master push owner-gated. The installed 0.2.0 binary still serves the
+    OLD surface — rerun scripts/dev-install.ps1 to go live on v2.
 - **2026-07-08 (after the build): SECOND LIVE-USE FEEDBACK BATCH recorded
   (owner-shared notes from heavy real use of the CURRENT installed v1,
   `F:\notes\PTK\vela_session_notes.md` — machine-local, essentials

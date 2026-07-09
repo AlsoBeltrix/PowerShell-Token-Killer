@@ -123,14 +123,17 @@ function Format-PtcTable {
     # PSCustomObject) through Select-Object -First stamps 'Selected.*' into
     # their LIVE TypeNames, and the mutation persists on the caller's
     # objects across warm-session calls.
+    # A non-positive take must yield ZERO rows ($Rows[0..-1] wraps around to
+    # first+last), matching Select-Object -First 0 semantics (i1-3).
     $take = [Math]::Min($MaxItems, $Rows.Count)
+    $sliced = ($take -gt 0) ? @($Rows[0..($take - 1)]) : @()
     if ($Properties.Count -eq 0) {
-        $lines = @($Rows[0..($take - 1)] | ForEach-Object { [string]$_ })
+        $lines = @($sliced | ForEach-Object { [string]$_ })
         if ($Rows.Count -gt $MaxItems) { $lines += '+{0} more' -f ($Rows.Count - $MaxItems) }
         return $lines
     }
 
-    $visible = @($Rows[0..($take - 1)])
+    $visible = $sliced
     $widths = @{}
     foreach ($prop in $Properties) {
         $max = $prop.Length

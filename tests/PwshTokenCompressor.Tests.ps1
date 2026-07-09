@@ -192,6 +192,18 @@ Describe 'object routing robustness' {
         $result | Should -Match 'A=1'
     }
 
+    It 'emits no rows when MaxItems is zero (bound, not wraparound)' {
+        # i1-3: an index slice of [0..-1] wraps to first+last in PowerShell;
+        # -MaxItems 0 must keep Select-Object -First 0 semantics.
+        $result = 1..5 | Compress-PtcObject -MaxItems 0
+
+        $result | Should -Match '\+5 more'
+        # \r? because the joined lines are CRLF on Windows and (?m)$ does
+        # not match before \r - without it these asserts are vacuous.
+        $result | Should -Not -Match '(?m)^1\r?$'
+        $result | Should -Not -Match '(?m)^5\r?$'
+    }
+
     It 'bounds the mixed-type header to a few names' {
         # i1-1: unique type names are unbounded input; the header must not
         # grow with them.

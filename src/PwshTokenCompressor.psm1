@@ -693,12 +693,45 @@ function Get-PtcShellDialectFinding {
     # CommandAst nodes are walked, so anything inside a quoted string
     # (bash -lc 'local x=1') never enters.
     $commands = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))
-    # sd1-1 (round 2): the ambient GetCommand guard below cannot see
+    # sd1-1 (rounds 2+3): the ambient GetCommand guard below cannot see
     # definitions carried by the submitted script itself (function export
     # { ... }; export X=1 executes fine - re-grade round 1), so
-    # script-local function names count as resolved too.
-    $localNames = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true) |
-        ForEach-Object { $_.Name })
+    # script-local definitions count as resolved too: function definitions
+    # AND Set-Alias/New-Alias (round 3, plan slice 1(iii)) - but only for
+    # uses they lexically PRECEDE, since execution is sequential. Alias
+    # spellings beyond the positional and -Name forms are accepted
+    # residuals, recorded in the finding.
+    $localDefs = [System.Collections.Generic.List[object]]::new()
+    foreach ($definition in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+        $localDefs.Add(@{ Name = $definition.Name; End = $definition.Extent.EndOffset })
+    }
+    foreach ($aliasCommand in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+        $aliasElements = @($aliasCommand.CommandElements)
+        if ($aliasElements[0] -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
+            $aliasElements[0].Value -notin @('Set-Alias', 'New-Alias')) { continue }
+        $aliasName = $null
+        for ($j = 1; $j -lt $aliasElements.Count; $j++) {
+            $element = $aliasElements[$j]
+            if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+                if ($element.ParameterName -eq 'Name') {
+                    if ($element.Argument -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                        $aliasName = $element.Argument.Value
+                    } elseif ($j + 1 -lt $aliasElements.Count -and
+                        $aliasElements[$j + 1] -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                        $aliasName = $aliasElements[$j + 1].Value
+                    }
+                }
+                # Any other leading named parameter: bail rather than guess
+                # which later element is the name.
+                break
+            }
+            if ($element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                $aliasName = $element.Value
+                break
+            }
+        }
+        if ($aliasName) { $localDefs.Add(@{ Name = $aliasName; End = $aliasCommand.Extent.EndOffset }) }
+    }
     foreach ($command in $commands) {
         $elements = @($command.CommandElements)
         $name = $null
@@ -725,10 +758,19 @@ function Get-PtcShellDialectFinding {
             $elements[1] -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
             $label = "the bash 'source' builtin"
         }
-        if ($label -and $localNames -notcontains $name -and
-            $null -eq $ExecutionContext.InvokeCommand.GetCommand(
-                $name, [System.Management.Automation.CommandTypes]::All)) {
-            return $label
+        if ($label) {
+            $isLocallyDefined = $false
+            foreach ($definition in $localDefs) {
+                if ($definition.Name -eq $name -and $definition.End -le $command.Extent.StartOffset) {
+                    $isLocallyDefined = $true
+                    break
+                }
+            }
+            if (-not $isLocallyDefined -and
+                $null -eq $ExecutionContext.InvokeCommand.GetCommand(
+                    $name, [System.Management.Automation.CommandTypes]::All)) {
+                return $label
+            }
         }
         if ($name -eq 'set' -and $elements.Count -ge 2 -and
             $elements[1] -is [System.Management.Automation.Language.CommandParameterAst]) {

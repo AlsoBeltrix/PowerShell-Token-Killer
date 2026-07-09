@@ -1254,6 +1254,24 @@ Describe 'Get-PtcShellDialectFinding' {
             # Guard sanity: the same call without the inline definition flags.
             Get-PtcShellDialectFinding -Script 'export X=1' | Should -Match 'export'
         }
+
+        It 'honors a preceding Set-Alias definition, in both spellings (sd1-1 round 3)' {
+            # Set-Alias export Write-Output; export X=1 executes and prints
+            # X=1 (probed), so the alias definition must exempt the use.
+            Get-PtcShellDialectFinding -Script 'Set-Alias export Write-Output; export X=1' |
+                Should -BeNullOrEmpty
+            Get-PtcShellDialectFinding -Script 'Set-Alias -Name export -Value Write-Output; export X=1' |
+                Should -BeNullOrEmpty
+        }
+
+        It 'only definitions that lexically PRECEDE the use exempt it (sd1-1 round 3)' {
+            # Execution is sequential (plan slice 1(iii)): a definition
+            # after the use site cannot save the earlier CommandNotFound.
+            Get-PtcShellDialectFinding -Script 'export X=1; Set-Alias export Write-Output' |
+                Should -Match 'export'
+            Get-PtcShellDialectFinding -Script 'export X=1; function export { param($a) $a }' |
+                Should -Match 'export'
+        }
     }
 
     Context 'parse-fatal evidence is comment/string-aware (sd1-3)' {

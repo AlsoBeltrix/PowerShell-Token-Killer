@@ -1,7 +1,7 @@
 # mhi-11: agy leg leaves a pre-existing hooks.json active
 
 **Severity**: MEDIUM — a stale, unverified *blocking* hook can survive install and deny agy command use while the leg reports "no hook shipped"; narrow trigger (requires a prior manual/earlier hooks.json), severe consequence.
-**Status**: Fixed (awaiting reviewer re-review)
+**Status**: RESOLVED (re-grade round 1, codex read-only, head 3ec608b) — loop closed
 **Branch**: master (direct; repo precedent)
 **Commit**: `6c1d025`
 Reviewer intake id: `mhi-agy-stale-hook-survives` (codex, codex-cli 0.142.5).
@@ -32,4 +32,8 @@ None — admitted as graded.
 When a future slice ships a verified hooks.json, the removal must become marker/ownership-aware; out of scope here.
 
 ## Reviewer comments
-(pending re-review)
+**Re-grade round 1 (2026-07-09T17:33Z): RESOLVED**
+
+- Reviewer: codex (codex-cli 0.142.5, read-only sandbox); log: ~/.ptk/jobs/job-81273-3.log
+- Reviewed head: 3ec608beaeabb11f94b842ff585d75a83ad6cb27
+- Verdict line: `mhi-11: RESOLVED` (one-line round-1 format), with `NO NEW FINDINGS` at that head

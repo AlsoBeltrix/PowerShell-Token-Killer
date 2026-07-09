@@ -1,7 +1,7 @@
 # mhi-9: dev-install still Claude-gates the entire per-agent init
 
 **Severity**: MEDIUM — on a codex/grok/agy machine without the Claude CLI, the advertised one-command install silently produces none of the non-Claude harness state.
-**Status**: Fixed (pending reviewer re-check)
+**Status**: RESOLVED (re-grade round 1, codex read-only, head 3ec608b) — loop closed
 **Branch**: master (direct; repo precedent)
 **Commit**: `ce0caf2`
 Reviewer intake id: `mhi-dev-install-claude-gate` (codex, codex-cli 0.142.5).
@@ -63,4 +63,8 @@ dev-install itself registers before chaining). Candidate follow-up: probe
 live-verified per docs/harness-support.md discipline.
 
 ## Reviewer comments
-(pending re-review)
+**Re-grade round 1 (2026-07-09T17:33Z): RESOLVED**
+
+- Reviewer: codex (codex-cli 0.142.5, read-only sandbox); log: ~/.ptk/jobs/job-81273-3.log
+- Reviewed head: 3ec608beaeabb11f94b842ff585d75a83ad6cb27
+- Verdict line: `mhi-9: RESOLVED` (one-line round-1 format), with `NO NEW FINDINGS` at that head

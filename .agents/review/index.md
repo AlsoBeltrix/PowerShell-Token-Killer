@@ -318,5 +318,11 @@ without reading the config; completion landed at `e8363f3` (grok-leg
 parity warning + guard; battery 85/84/0/1). mhi-12 (HIGH, self-found
 live: `codex mcp remove ptk` orphans `[mcp_servers.ptk.tools.*]`
 subtables and bricks the codex CLI; this box repaired in-session) fixed
-at `9d00c6e` — detail: `.agents/review/findings/mhi-12.md`. Next:
-re-grade round 2 over the full set at head `e8363f3`.
+at `9d00c6e` — detail: `.agents/review/findings/mhi-12.md`. Round 2 was then dispatched over the mhi-10 completion + mhi-12 at head `d58be68`.
+
+**Loop CLOSED 2026-07-09T17:33Z (converged):** re-grade round 1 (codex, read-only) at
+head `3ec608b` cleared mhi-9 and mhi-11; round 2 at head `d58be68` (base
+`3ec608b`) graded the mhi-10 completion and mhi-12 RESOLVED with
+guard_confirmed=true and NO NEW FINDINGS (codex-cli 0.142.5). All four
+mhi-9..mhi-12 findings closed. Commits remain unpushed pending the
+owner's master push go.

@@ -1,7 +1,7 @@
 # mhi-10: dev-install uninstall reverses only currently-detected legs
 
 **Severity**: MEDIUM — uninstall is asymmetric with install: a harness CLI removed from PATH after install leaves stale ptk state (nudge blocks, config entries pointing at a deleted binary) behind forever.
-**Status**: Fixed; re-grade round 1 NOT RESOLVED; completion landed (awaiting re-grade round 2)
+**Status**: RESOLVED (re-grade round 2, codex read-only, head d58be68, guard confirmed) — loop closed
 **Branch**: master (direct; repo precedent)
 **Commit**: `fa3620a` (fix); `e8363f3` (re-grade completion)
 Reviewer intake id: `mhi-dev-uninstall-detected-only` (codex, codex-cli 0.142.5).
@@ -60,4 +60,11 @@ codex CLI not found - no registration to remove.' — exactly the
 predicted false report. Popped; passes. Full battery at `e8363f3`: 85
 tests, 84 passed, 0 failed, 1 skipped (pre-existing), ~14.7s.
 
-(awaiting re-grade round 2)
+**Re-grade round 2 (2026-07-09T17:33Z): RESOLVED, guard_confirmed=true**
+
+- Reviewer: codex (codex-cli 0.142.5, read-only sandbox); log: ~/.ptk/jobs/job-81273-4.log; verdict JSON saved to session scratchpad
+- Reviewed head: d58be6893b5914c37ca285fe32a59b08f4818425 (base 3ec608beaeabb11f94b842ff585d75a83ad6cb27); NO NEW FINDINGS
+- scripts/ptk_init.ps1:435 — No-CLI codex uninstall now reads the selected config file and checks for a base [mcp_servers.ptk] entry before reporting no registration.
+- scripts/ptk_init.ps1:437 — When the base entry exists, the branch warns with the manual removal instruction instead of falsely reporting no registration; the base table is intentionally left for manual/CLI removal.
+- tests/PwshTokenCompressor.Tests.ps1:961 — Guard creates a temp config with [mcp_servers.ptk], guts PATH so codex is absent, runs -Agent codex -Uninstall -CodexConfigPath, and asserts both the manual warning and that the base entry remains.
+- tests/PwshTokenCompressor.Tests.ps1:984 — Static guard confirmation: at e8363f3^ the same branch emitted only '[codex] codex CLI not found - no registration to remove.', so this warning assertion would fail without the completion fix.

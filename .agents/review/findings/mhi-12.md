@@ -1,7 +1,7 @@
 # mhi-12: uninstall orphans codex tool-approval subtables, bricking the codex CLI
 
 **Severity**: HIGH — after an uninstall, every codex command fails at config load ("invalid transport"); the CLI cannot self-repair because each command begins by loading the config.
-**Status**: Fixed (awaiting reviewer re-review)
+**Status**: RESOLVED (re-grade round 2, codex read-only, head d58be68, guard confirmed) — loop closed
 **Branch**: master (direct; repo precedent)
 **Commit**: `9d00c6e`
 Reviewer intake id: none — self-discovered live on this box mid review-loop (the codex CLI bricked), not a reviewer intake.
@@ -35,4 +35,13 @@ None — self-found; admitted directly.
 The sweep is header-scoped line surgery: a ptk subtable expressed as an inline table on some other line would not be caught — not a shape codex writes. Other harnesses: grok stores the registration flat (no observed subtables); agy is file-scoped (plugin dir), nothing shared to orphan.
 
 ## Reviewer comments
-(pending re-review — queued for re-grade round 2 alongside the mhi-10 completion)
+**Re-grade round 2 (2026-07-09T17:33Z): RESOLVED, guard_confirmed=true**
+
+- Reviewer: codex (codex-cli 0.142.5, read-only sandbox); log: ~/.ptk/jobs/job-81273-4.log; verdict JSON saved to session scratchpad
+- Reviewed head: d58be6893b5914c37ca285fe32a59b08f4818425 (base 3ec608beaeabb11f94b842ff585d75a83ad6cb27); NO NEW FINDINGS
+- scripts/ptk_init.ps1:367 — Test-PtkCodexOrphanTable detects only ptk-scoped codex subtables using [mcp_servers.ptk.] headers, not the base [mcp_servers.ptk] table or non-ptk tables.
+- scripts/ptk_init.ps1:373 — Remove-PtkCodexOrphanTable removes each matched ptk subtable body until the next TOML table header, preserving unrelated tables such as [mcp_servers.other] and [hooks.state].
+- scripts/ptk_init.ps1:417 — -DryRun discloses the orphan sweep when the selected codex config contains ptk subtables.
+- scripts/ptk_init.ps1:447 — Real uninstall runs the sweep after codex mcp remove and also reaches it when the codex CLI is absent or unusable, covering the orphaned-subtable brick case.
+- tests/PwshTokenCompressor.Tests.ps1:903 — Guard uses a fake codex shim plus a temp config containing two [mcp_servers.ptk.tools.*] subtables and unrelated tables; it verifies dry-run no-write disclosure and real removal of only ptk-scoped subtables.
+- tests/PwshTokenCompressor.Tests.ps1:949 — Static guard confirmation: at 9d00c6e^ there was no sweep, so the temp config would still contain mcp_servers.ptk.tools after the fake CLI remove and this assertion would fail.

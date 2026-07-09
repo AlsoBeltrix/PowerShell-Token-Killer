@@ -5,8 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **2026-07-09 (latest): slices 3-6 review loop — fixes landed, re-grade
-  round 2 pending.** Codex loop over `86b51ae..6134a2f` produced
+- **2026-07-09 (latest): slices 3-6 review loop CLOSED (converged).**
+  Re-grade round 1 (codex read-only, head `3ec608b`) cleared mhi-9 and
+  mhi-11 and held mhi-10; round 2 (head `d58be68`, base `3ec608b`)
+  graded the mhi-10 completion and mhi-12 RESOLVED, guard_confirmed,
+  NO NEW FINDINGS (codex-cli 0.142.5). Verdicts recorded in
+  `.agents/review/findings/mhi-{9,10,11,12}.md`; index updated. All
+  slice 3-6 + review-loop commits remain unpushed pending the owner's
+  master push go.
+- **2026-07-09: slices 3-6 review loop — fixes landed; re-grade closed
+  (see latest bullet).** Codex loop over `86b51ae..6134a2f` produced
   mhi-9/10/11 (fixed: `ce0caf2`, `fa3620a`, `6c1d025`); re-grade round 1
   held mhi-10 NOT RESOLVED — completion `e8363f3` (no-CLI codex uninstall
   now reads the config and names the manual removal). mhi-12 self-found

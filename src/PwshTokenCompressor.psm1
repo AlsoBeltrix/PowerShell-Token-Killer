@@ -637,16 +637,27 @@ function Get-PtcShellDialectFinding {
             $name = $elements[0].Value
         }
 
+        # sd1-1: these classifiers predict a CommandNotFound failure. When
+        # the name actually resolves in this session (a user-defined
+        # function or alias shadowing the bash builtin), that failure
+        # cannot happen and flagging it would refuse legitimate PowerShell
+        # - so the same intrinsic guard Resolve-PtcInvokeScript uses gates
+        # the return. set stays unguarded below BY DESIGN: it resolves
+        # (Set-Variable alias) in every pwsh, which is exactly why it is
+        # keyed to its argument shape instead.
+        $label = $null
         if ($name -match '^[A-Za-z_][A-Za-z0-9_]*=') {
-            return "a bash environment-variable prefix ($name ...)"
-        }
-        if ($name -in @('export', 'local') -and $elements.Count -ge 2 -and
+            $label = "a bash environment-variable prefix ($name ...)"
+        } elseif ($name -in @('export', 'local') -and $elements.Count -ge 2 -and
             $elements[1].Extent.Text -match '^[A-Za-z_][A-Za-z0-9_]*(=|$)') {
-            return "the bash '$name' builtin"
-        }
-        if ($name -eq 'source' -and $elements.Count -eq 2 -and
+            $label = "the bash '$name' builtin"
+        } elseif ($name -eq 'source' -and $elements.Count -eq 2 -and
             $elements[1] -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
-            return "the bash 'source' builtin"
+            $label = "the bash 'source' builtin"
+        }
+        if ($label -and $null -eq $ExecutionContext.InvokeCommand.GetCommand(
+                $name, [System.Management.Automation.CommandTypes]::All)) {
+            return $label
         }
         if ($name -eq 'set' -and $elements.Count -ge 2 -and
             $elements[1] -is [System.Management.Automation.Language.CommandParameterAst]) {

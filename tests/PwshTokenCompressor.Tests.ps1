@@ -1230,6 +1230,22 @@ Describe 'Get-PtcShellDialectFinding' {
         }
     }
 
+    Context 'session-shadowed names never trip (sd1-1)' {
+        It 'stays silent when the bash name is shadowed by a real session command' {
+            function global:export { param($Assignment) "ran:$Assignment" }
+            try {
+                Get-PtcShellDialectFinding -Script 'export X=1' | Should -BeNullOrEmpty
+            } finally {
+                # NOT function:global:export - the scope-qualified provider
+                # path does not remove the item (probed); the unqualified
+                # path resolves to the global function and does.
+                Remove-Item function:export -Force
+            }
+            # Guard sanity: with the shadow gone the finding returns.
+            Get-PtcShellDialectFinding -Script 'export X=1' | Should -Match 'export'
+        }
+    }
+
     Context 'token-aware backtick handling (legitimate escapes never trip)' {
         It 'ignores a lone escape backtick' {
             Get-PtcShellDialectFinding -Script 'Write-Host `n' | Should -BeNullOrEmpty

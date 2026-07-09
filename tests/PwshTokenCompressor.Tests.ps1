@@ -1304,6 +1304,13 @@ Describe 'Get-PtcShellDialectFinding' {
             # turn that error into bash if/then/fi guidance.
             Get-PtcShellDialectFinding -Script 'Write-Output then; if $true' | Should -BeNullOrEmpty
         }
+
+        It 'ignores a keyword in argument position even after the error (sd1-7 round 3)' {
+            # Genuine bash leaves then/do/done in COMMAND position under
+            # pwsh error recovery (probed); an argument-position keyword
+            # after the error must not associate either.
+            Get-PtcShellDialectFinding -Script 'if $true; Write-Output then' | Should -BeNullOrEmpty
+        }
     }
 
     Context 'blanking never synthesizes shapes (sd1-6)' {

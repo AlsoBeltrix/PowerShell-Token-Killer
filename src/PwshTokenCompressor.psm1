@@ -673,10 +673,34 @@ function Get-PtcShellDialectFinding {
             # error-id pairing still gates it.
             return 'a bash heredoc (<<WORD ... WORD)'
         }
-        if (& $shapeNearError 'MissingOpenParenthesisInIfStatement' '\bthen\b') {
+        # sd1-7 (round 3): bash then/do/done arrive in COMMAND position when
+        # pwsh error-recovers the genuine constructs (probed: then@17 and
+        # fi@31 parse as commands in if/then/fi; done@28 in for/do/done),
+        # while a keyword in argument position (if $true; Write-Output
+        # then) never does. Keyword evidence is therefore a command NAME,
+        # still paired with its error id and the same locality predicate.
+        $parseCommands = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))
+        $keywordCommandNearError = {
+            param([string]$ErrorId, [string[]]$Keywords)
+            foreach ($parseError in $parseErrors) {
+                if ($parseError.ErrorId -ne $ErrorId) { continue }
+                foreach ($commandAst in $parseCommands) {
+                    $first = @($commandAst.CommandElements)[0]
+                    if ($first -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
+                        $first.StringConstantType -ne [System.Management.Automation.Language.StringConstantType]::BareWord -or
+                        $first.Value -notin $Keywords) { continue }
+                    $start = $commandAst.Extent.StartOffset
+                    if ($start -ge $parseError.Extent.StartOffset) { return $true }
+                    if ($start -le $parseError.Extent.EndOffset -and
+                        $parseError.Extent.StartOffset -le $commandAst.Extent.EndOffset) { return $true }
+                }
+            }
+            return $false
+        }
+        if (& $keywordCommandNearError 'MissingOpenParenthesisInIfStatement' @('then')) {
             return 'a bash if/then/fi statement'
         }
-        if (& $shapeNearError 'MissingOpenParenthesisAfterKeyword' '\b(do|done)\b') {
+        if (& $keywordCommandNearError 'MissingOpenParenthesisAfterKeyword' @('do', 'done')) {
             return 'a bash do/done loop'
         }
         if (& $shapeNearError 'MissingTypename' '(^|[\s;&|(])\[{1,2}\s') {

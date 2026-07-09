@@ -307,6 +307,13 @@ public sealed class RunspaceHost : IDisposable
         catch { return 0; }
     }
 
+    // rtk prints an install nag to stderr on every routed invocation
+    // ("[rtk] /!\ No hook installed - ..."); it is pure noise in agent context
+    // (v2-feedback slice 3). Only that banner prefix is filtered - a command's
+    // real stderr always survives.
+    private static string[] CollectErrors(IEnumerable<string> errors) =>
+        [.. errors.Where(e => !e.StartsWith(@"[rtk] /!\", StringComparison.Ordinal))];
+
     // Asks the module to classify/rewrite the script (single native commands
     // route through rtk — unified-shell-routing plan). Any failure returns the
     // script unchanged: routing must never be able to fail a call.
@@ -397,6 +404,7 @@ public sealed class RunspaceHost : IDisposable
                     Success: false,
                     Output: string.Empty,
                     Errors: [$"Call exceeded the {callTimeout.TotalSeconds:0}s timeout; the runspace was recycled and all warm state was lost. " +
+                        "Command and PATH resolution can differ in the fresh runspace - ptk_state shows what drifted. " +
                         "For stateless long work (builds, watchers), rerun with background=true and poll with ptk_job. " +
                         "For work that needs the warm session (live connections, imported modules), rerun with a larger timeoutSeconds."],
                     Warnings: [],
@@ -411,7 +419,7 @@ public sealed class RunspaceHost : IDisposable
                 return new InvokeResult(
                     Success: true,
                     Output: output,
-                    Errors: [.. ps.Streams.Error.Select(e => e.ToString())],
+                    Errors: CollectErrors(ps.Streams.Error.Select(e => e.ToString())),
                     Warnings: [.. ps.Streams.Warning.Select(w => w.ToString())],
                     TimedOut: false,
                     ExitCode: exitCode == 0 ? null : exitCode);
@@ -423,7 +431,7 @@ public sealed class RunspaceHost : IDisposable
                 return new InvokeResult(
                     Success: false,
                     Output: string.Empty,
-                    Errors: [.. errors],
+                    Errors: CollectErrors(errors),
                     Warnings: [.. ps.Streams.Warning.Select(w => w.ToString())],
                     TimedOut: false);
             }

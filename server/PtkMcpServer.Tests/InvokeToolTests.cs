@@ -226,6 +226,56 @@ public sealed class InvokeToolTests : IDisposable
 
         Assert.Contains("background=true", text);
         Assert.Contains("timeoutSeconds", text);
+        // Live use lost a debugging detour to changed resolution after a
+        // recycle (v2-feedback slice 3): the message must point at ptk_state.
+        Assert.Contains("ptk_state", text);
+    }
+
+    [Fact]
+    public async Task Rtk_install_nag_is_filtered_but_real_stderr_survives()
+    {
+        // Per-OS stubs built explicitly: sh's echo may process the backslash
+        // in the nag's /!\ marker, so the Unix leg uses printf with a quoted
+        // literal (same pattern as the log-shaping stub above).
+        var dir = Directory.CreateTempSubdirectory("ptk-rtk-nag-");
+        string stub;
+        if (OperatingSystem.IsWindows())
+        {
+            stub = Path.Combine(dir.FullName, "rtk-stub.cmd");
+            File.WriteAllText(stub,
+                "@echo off\r\n" +
+                "echo [rtk] /!\\ No hook installed - run rtk init 1>&2\r\n" +
+                "echo real-stderr-detail 1>&2\r\n" +
+                "echo RTKROUTE %*\r\n" +
+                "exit /b 0\r\n");
+        }
+        else
+        {
+            stub = Path.Combine(dir.FullName, "rtk-stub.sh");
+            File.WriteAllText(stub,
+                "#!/bin/sh\n" +
+                "printf '%s\\n' '[rtk] /!\\ No hook installed - run rtk init' 1>&2\n" +
+                "echo real-stderr-detail 1>&2\n" +
+                "echo \"RTKROUTE $@\"\n" +
+                "exit 0\n");
+            File.SetUnixFileMode(stub,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+        var saved = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
+            var text = await InvokeTool.Invoke(_host, _jobs, "git status", CancellationToken.None);
+
+            Assert.Contains("RTKROUTE git status", text);
+            Assert.DoesNotContain("No hook installed", text);
+            Assert.Contains("real-stderr-detail", text);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", saved);
+            dir.Delete(recursive: true);
+        }
     }
 
     [Fact]

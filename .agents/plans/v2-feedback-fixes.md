@@ -83,9 +83,17 @@ red under OEM decoding, green with the pin.
   sight).
 - **stderr-swallow probe (timeboxed):** live use reported route=auto
   sometimes losing a failed native's stderr where route=pwsh showed it.
-  The slice-0 probe saw rtk SURFACE the error (`[rtk: The handle is
-  invalid...]`), so this may be shape-dependent; probe, fix only if a
-  concrete repro emerges, otherwise record the null result here.
+  **Probed 2026-07-08 — NULL RESULT:** `git clone /nonexistent` through
+  the console-less server returned the identical real stderr (`fatal:
+  repository ... does not exist`) and `[exit] 128` on BOTH routes; the
+  only route=auto difference was the rtk nag line riding in `[errors]`
+  (fixed by the nag strip in this slice — the probe also showed the nag
+  travels stderr→[errors], not stdout, which moved the strip from the
+  module's textual leg to RunspaceHost error collection). No repro of
+  actual stderr loss; reopen only on a concrete live case. Plausible
+  explanation for the live report: the pre-slice-1 invalid-handle
+  failures produced rtk-labeled errors that looked like swallowed
+  stderr.
 
 Guards: message-text test (red with the old string), nag-strip test with
 a banner-emitting rtk stub; probe results recorded in this plan.

@@ -161,10 +161,12 @@ way through until the server is back (`/mcp` reconnect respawns it).
 The missing-script fail-open is exactly what a **stale registration**
 produces: an entry written from a checkout that later moved fails open
 silently on every shell call. The installer registers the installed copy
-(`~/.ptk/scripts/ptk-hook.ps1`) to make that class structurally rare,
-`ptk_init.ps1 -Show` flags a registered target that no longer exists, and
-both a re-run of `ptk_init.ps1` and any `dev-install.ps1` install (when a
-hook entry already exists) heal the registration in place.
+(`~/.ptk/scripts/ptk-hook.ps1`) to make that class structurally rare, and
+`ptk_init.ps1 -Show` flags a registered target that no longer exists. Two
+heal paths: re-running `ptk_init.ps1`, or a `dev-install.ps1` install —
+the latter refreshes an existing hook entry only when it also registered
+the server with Claude Code (no claude CLI → no refresh; run
+`ptk_init.ps1 -Agent claude` yourself after registering manually).
 
 A command containing `PTK_DIRECT` bypasses the hook. Use that for work that
 genuinely needs the harness shell, such as interactive or TTY-dependent tools,

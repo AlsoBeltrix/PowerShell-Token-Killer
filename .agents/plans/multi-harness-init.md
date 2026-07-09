@@ -1,0 +1,119 @@
+# Plan: multi-harness init — registration, hook, and nudge per harness
+
+**Status:** DRAFT for owner approval (requested 2026-07-08 with the README
+findings update). No code authorized until approved. Codex loop per slice
+once execution starts.
+
+## Goal
+
+One installer surface that makes ptk available and preferred on a machine,
+per harness: **register** the MCP server everywhere it can run, **enforce**
+the redirect only where a blocking pre-tool hook is verified, and **nudge**
+via user-level guidance everywhere else. Modeled on `rtk init`'s per-agent
+legs (`--agent <name>`, global default, show/dry-run/uninstall, patch
+consent), adapted for the axis rtk does not have: MCP registration.
+
+## Design principles
+
+- **Three independent layers.** Registration (required for anything),
+  enforcement (hook — only where verified to fire AND block), nudge
+  (user-level guidance note, conditional wording, safe on ptk-less
+  machines). A harness leg ships whichever layers its verified surface
+  supports; missing layers degrade to the next one down.
+- **Probe live; encode nothing volatile.** The 2026-07-08 lesson in
+  miniature: a model id recorded in another repo's ops notes (`grok-build`)
+  was already stale when used the same week. The installer verifies each
+  harness at run time (CLI present, `mcp add` surface answers) and fails
+  per-leg with guidance — never all-or-nothing, never trusting recorded
+  flag spellings. The durable record keeps *capabilities with dates*, not
+  invocation syntax.
+- **User-level only by default.** The cross-repo review's core finding:
+  repo-file writes collide with content-tracking tooling (a governance
+  refresh flags a patched `.claude/settings.json` forever). Every leg
+  writes user-level config only; Claude's local mode survives as an
+  explicit opt-in that prints the tracking warning.
+- **Self-reports are hypotheses.** Harness self-interviews (2026-07-08,
+  below) scope the design; every leg still gets a live verification on
+  that harness before it ships — mirroring the governance toolkit's
+  verify-once gate. Results land in `docs/harness-support.md` (new), the
+  durable per-harness facts table.
+- **Idempotent everywhere.** Marker-delimited nudge blocks
+  (`<!-- ptk-guidance --> ... <!-- /ptk-guidance -->`, rtk's mechanism),
+  remove-then-add registration, `-Show`/`-DryRun`/`-Uninstall` parity for
+  every leg.
+
+## Evidence (frozen 2026-07-08)
+
+Machine CLIs: codex, agy, grok present; gemini CLI and cursor absent
+(their legs are designed but stay dormant until a machine with the CLI
+verifies them).
+
+| Harness | MCP registration | Hook (enforcement) | Nudge home |
+| --- | --- | --- | --- |
+| Claude Code | `claude mcp add --scope user` (in use today) | PreToolUse deny-with-guidance — mechanism verified, ptk's own live deny-and-reissue check STILL PENDING (the standing gate) | `~/.claude/CLAUDE.md` |
+| codex | `codex mcp add ptk -- <exe>` → `~/.codex/config.toml [mcp_servers.ptk]`; loads in `codex exec` (self-report + this machine's live config) | repo-level `.codex/hooks.json` pre_tool_use verified firing elsewhere (2026-06-29), but hooks are TRUST-GATED (`--dangerously-bypass-hook-trust` exists; persistence mechanism unknown) and repo-level writes violate user-level-only → **no hook in v1; probe later** | `~/.codex/AGENTS.md` (self-report, confident) |
+| grok | `grok mcp add -s user ptk <exe>` → `~/.grok/config.toml` (CLI-verified surface) | Self-report: all unsure. Third-party ledger: global `~/.grok/hooks/*.json` + auto-scan of `~/.claude/settings.json` — meaning ptk's GLOBAL CLAUDE HOOK may already fire in grok. Probe. | Evidenced from its own instruction block: grok session-loads `~/.claude/Claude.md` — the Claude user nudge covers grok for free. MCP tools named `{server}__{tool}` (self-report) |
+| agy (Antigravity) | UNKNOWN — headless self-interview produced no output (known lapsed-OAuth failure mode); probe interactively. Likely `~/.gemini/settings.json` mcpServers | Third-party ledger: Claude-style hook events in GLOBAL `~/.gemini/settings.json` (docs-verified 2026-06-29); repo-level unverified | `~/.gemini/GEMINI.md` |
+| gemini CLI / cursor | absent on this machine | cursor: `.cursor` `BeforeTool` hooks.json per rtk's constants | dormant legs |
+
+Cross-cutting finding from grok's tool naming: ptk's hook guidance text
+names the Claude tool id (`mcp__ptk__ptk_invoke`); on any harness with a
+different prefix scheme the deny message would name a tool that does not
+exist there. The hook text needs harness-neutral naming ("the ptk_invoke
+MCP tool") or per-harness wording.
+
+## Slices
+
+0. **Probes (results frozen into this plan before implementation).**
+   (a) Claude Code live hooked check — install `-Global`, fresh session, a
+   Bash and a PowerShell call come back denied with guidance, model
+   re-issues via ptk_invoke. This is the standing verify-once gate both
+   repos want closed. (b) grok: register via `grok mcp add -s user`,
+   confirm tool naming and a live `ptk_invoke` call headless; observe
+   whether the global Claude hook fires there and whether its deny JSON
+   is honored. (c) codex: confirm the registered tools fire in
+   `codex exec` (registration is already live on this machine). (d) agy:
+   interactive session (OAuth), find the MCP surface, register, verify a
+   call. Each probe's outcome goes in `docs/harness-support.md` with a
+   date.
+1. **Installer framework + Claude leg.** Refactor `scripts/ptk_init.ps1`
+   to per-agent legs: `-Agent claude|codex|grok|agy|all` (default: the
+   detected set), global-by-default (`-Local` becomes the explicit
+   Claude-only opt-in and prints the tracking warning), `-Show`/`-DryRun`/
+   `-Uninstall` per leg. Claude leg = registration check (offers
+   dev-install if `~/.ptk` is missing) + hook + optional nudge block in
+   `~/.claude/CLAUDE.md`. Hook guidance text goes harness-neutral.
+2. **codex leg.** `codex mcp add` (idempotent via `codex mcp get`) +
+   marker-delimited nudge block in `~/.codex/AGENTS.md`. No hook.
+3. **grok leg.** `grok mcp add -s user` + whatever slice-0 said about the
+   Claude-hook spillover (if it fires and blocks correctly, document it;
+   if it fires and misbehaves, scope the Claude hook's matcher or text).
+   Nudge rides the Claude user file per the evidenced load.
+4. **agy leg.** Per slice-0 probe; expected: settings.json registration +
+   `~/.gemini/GEMINI.md` nudge block; hook only if the global
+   Claude-style events verify live.
+5. **dev-install integration + uninstall symmetry.** `dev-install.ps1`
+   offers `-InitAgents` chaining; `-Uninstall` reverses every leg it
+   installed (mcp remove per harness, nudge blocks out, hook out).
+6. **Docs.** README install matrix; `docs/harness-support.md` as the
+   dated capabilities table (capabilities only — no volatile invocation
+   syntax beyond what the installer itself probes).
+
+Each slice: one commit, guard tests where the logic is testable (nudge
+block writer/remover and leg detection are pure and Pester-friendly;
+registration legs are thin CLI wrappers covered by `-DryRun` snapshot
+tests), battery, codex loop.
+
+## Out of scope
+
+- Hooks on harnesses without a live-verified blocking pre-tool surface.
+- rtk's long tail (windsurf, cline, kilocode, pi, hermes) — until demand.
+- The shared multi-client host (its own open decision).
+- The governance toolkit's template line (the toolkit's own change, gated
+  on slice-0(a) provenance per the cross-repo settlement).
+
+## Verification
+
+Battery per slice (Pester, dotnet test, handshake when server-facing) plus
+per-leg `-DryRun`/`-Show` snapshots; slice-0 probe outcomes recorded with
+dates in `docs/harness-support.md` and this plan.

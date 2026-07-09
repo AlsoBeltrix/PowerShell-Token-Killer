@@ -5,7 +5,7 @@ install path (hook denies toward an unregistered tool); PTK_DIRECT remains
 the escape hatch.
 **Status**: Verified
 **Branch**: master (direct, per the recorded codex-loop precedent)
-**Commit**: (filled in at commit)
+**Commit**: `1e06351`
 
 ## Evidence
 `scripts/dev-install.ps1` — `Register-PtkServer` returns without failing

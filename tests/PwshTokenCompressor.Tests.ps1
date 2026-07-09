@@ -485,6 +485,18 @@ Describe 'redirect hook and installer' {
             $text | Should -Match 'keep me'
         }
 
+        It 'round-trips the nudge file byte-exactly, preserving user whitespace' {
+            # mhi-7: leading whitespace is user content (e.g. an indented
+            # Markdown code block at the top of the file) and the file may
+            # lack a trailing newline; install/uninstall must not eat either.
+            $original = "    indented code`r`n`r`nkeep me"
+            Set-Content -LiteralPath $script:nudgeFile -Value $original -NoNewline
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Nudge | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Uninstall | Out-Null
+
+            Get-Content -LiteralPath $script:nudgeFile -Raw | Should -BeExactly $original
+        }
+
         It 'leaves the nudge file untouched without -Nudge' {
             pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome | Out-Null
             Test-Path -LiteralPath $script:nudgeFile | Should -BeFalse

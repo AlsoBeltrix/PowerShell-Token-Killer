@@ -207,5 +207,5 @@ Per-finding detail: `.agents/review/findings/mhi-6.md`, `mhi-7.md`.
 
 | ID    | Severity | Impact (one line)                                                        | Status | Branch |
 |-------|----------|---------------------------------------------------------------------------|--------|--------|
-| mhi-6 | MEDIUM   | dev-install -Hook ships the blocking hook even when registration was skipped | `[~]`  | master (direct) |
-| mhi-7 | LOW      | Nudge writer trims user-owned whitespace outside the marker block          | `[ ]`  | master (direct) |
+| mhi-6 | MEDIUM   | dev-install -Hook ships the blocking hook even when registration was skipped | `[x]`  | master (direct, 1e06351) |
+| mhi-7 | LOW      | Nudge writer trims user-owned whitespace outside the marker block          | `[x]`  | master (direct, see log) |

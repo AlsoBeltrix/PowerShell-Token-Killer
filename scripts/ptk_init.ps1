@@ -134,13 +134,17 @@ function Test-PtkEntry {
     $false
 }
 
-# Text with the ptk-owned block removed. Trims the seams so repeated
-# install/remove cycles do not accrete blank lines (cosmetic-only for
-# surrounding user content).
+# Text with the ptk-owned block removed. Surgical (mhi-7): strips exactly
+# the shape the installer writes - an optional blank-line separator pair,
+# the marker block, one trailing newline - so user content and its
+# whitespace stay byte-identical and install/uninstall round-trips. Repeated
+# cycles are stable: each install's strip removes exactly what the previous
+# install added.
 function Get-PtkNudgeStripped {
     param([string]$Text)
-    $pattern = '(?s){0}.*?{1}' -f [regex]::Escape($nudgeBegin), [regex]::Escape($nudgeEnd)
-    ([regex]::Replace([string]$Text, $pattern, '')).Trim()
+    $pattern = '(?s)(?:\r?\n\r?\n)?{0}.*?{1}(?:\r?\n)?' -f
+        [regex]::Escape($nudgeBegin), [regex]::Escape($nudgeEnd)
+    [regex]::Replace([string]$Text, $pattern, '')
 }
 
 function Install-PtkNudgeBlock {
@@ -171,8 +175,7 @@ function Uninstall-PtkNudgeBlock {
         Write-Host "DRY RUN - would remove the ptk guidance block from $Path"
         return
     }
-    $kept = Get-PtkNudgeStripped $existing
-    Set-Content -LiteralPath $Path -Value ($kept ? $kept + [Environment]::NewLine : '') -NoNewline
+    Set-Content -LiteralPath $Path -Value (Get-PtkNudgeStripped $existing) -NoNewline
     Write-Host "[claude] ptk guidance block removed from $Path"
 }
 

@@ -5,7 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **2026-07-09 (latest, evening refresh): OWNER PUSHED master through
+- **2026-07-09 (night, latest): shell-dialect plan APPROVED — owner,
+  in-session.** D1 = (a) refuse-fast with platform-aware guidance; D2 =
+  non-breaking raw-posture subset; D3 = dialect line. The #4 comment's 4
+  acceptance suggestions reconciled into D2 at approval (adopted:
+  no-preemptive-raw rewording, `route=pwsh`+`raw=false` taught as "exact
+  execution, shaped output", `ptk_state` raw telemetry; declined:
+  reason/cost gate — attribution recorded in the plan). Decision entry
+  in `.agents/decisions.md`. NEXT: slice 0 probes (results freeze into
+  the plan), then slices 1-4 — one commit + battery + codex loop each.
+  #5/#6 remain UNTRIAGED (owner call).
+- **2026-07-09 (evening refresh): OWNER PUSHED master through
   `5e3cd70`; GitHub issues #1 and #2 CLOSED (~15:35Z). THREE NEW GitHub
   items since (all `roethlar`, ~19:28-19:33Z):** issue **#5** (ptk_invoke
   labels successful exit-0 native stderr as `[errors]` — medium; asks
@@ -695,16 +705,15 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **NEXT ACTION (owner decisions, 2026-07-09 evening):** (a)
-  approve/amend the shell-dialect plan
-  (`.agents/plans/shell-dialect.md`, DRAFT — reconcile the #4
-  cross-model comment's 4 acceptance suggestions into its raw-posture
-  leg first), (b) prioritize new issues **#5** (`[errors]` mislabels
-  exit-0 native stderr) and **#6** (queue-wait excluded from
-  `timeoutSeconds`; `ptk_state` blocks behind a busy runspace) — both
-  medium, untriaged, adjacent to but outside the shell-dialect plan's
-  scope, (c) push go for the 4 local plan commits
-  (`3227607..809e0d0`). No code before plan approval.
+- **NEXT ACTION (2026-07-09 night): shell-dialect slice 0 probes.**
+  The plan is APPROVED (see `## Now`); slice 0 results freeze into the
+  plan file, then slices 1-4 — one commit + battery + codex loop each.
+  Owner decisions still open: (a) prioritize new issues **#5**
+  (`[errors]` mislabels exit-0 native stderr) and **#6** (queue-wait
+  excluded from `timeoutSeconds`; `ptk_state` blocks behind a busy
+  runspace) — both medium, untriaged, adjacent to but outside the
+  shell-dialect plan's scope, (b) push go for the local commits
+  (`3227607..809e0d0` plus the approval-recording commit).
 - Slice 2 DONE (top Now entry). Next: slice 3 (release workflow,
   `.github/workflows/release.yml` on `v*` tags — per-RID publish on native
   runners, draft release; iterate on `ci/*`, granted scope). Still needed

@@ -1,8 +1,11 @@
 # Plan: shell dialect — bash-shaped input, honest fast failures, raw posture
 
-**Status:** DRAFT awaiting owner approval. Sources: GitHub issue #3 (item 1
-only) and issue #4 (problems 1-3), triaged 2026-07-09. No code before
-approval; slice 0 runs first and freezes its results into this file.
+**Status:** APPROVED — owner, in-session 2026-07-09. D1 = option (a) as
+recommended; D2 = non-breaking subset as written; D3 as written; the #4
+comment's four acceptance suggestions are reconciled under D2. Sources:
+GitHub issue #3 (item 1 only) and issue #4 (problems 1-3), triaged
+2026-07-09. Slice 0 runs first and freezes its results into this file
+before any implementation.
 
 ## Problem
 
@@ -138,6 +141,18 @@ source.
   counter unchanged). Decline for now: first-use gating, justification
   strings, deny semantics — friction on a deliberate escape hatch;
   revisit only with evidence that rewording fails.
+  **#4-comment reconciliation (cross-model audit; reconciled at approval,
+  2026-07-09):** the comment's four acceptance suggestions map here as
+  follows. (1) "No preemptive raw" *is* the recovery-only rewording
+  above. (2) "Teach `route=pwsh` + `raw=false` as 'exact execution,
+  shaped output'" is ADOPTED into the reword inventory: every reworded
+  surface that describes `raw` also names that pairing as the fidelity
+  path that keeps shaping (slice-3 assertions cover the pairing phrase
+  alongside the marker wording). (3) "Reason/cost gate on unjustified
+  raw" is DECLINED — it is exactly the gating/justification friction
+  declined above; revisit trigger unchanged. (4) "Raw-usage telemetry in
+  `ptk_state`" *is* the visibility counter above, counted at the
+  user-call boundary only.
 - **D3 — where the dialect line lands.** One added line in the hook deny
   text and the ptk_init nudge block (plus the README routing section):
   the runspace is PowerShell 7 — translate bash-only syntax or wrap it in

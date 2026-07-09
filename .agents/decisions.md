@@ -34,6 +34,28 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-07-09): shell-dialect plan approved — `.agents/plans/shell-dialect.md`
+
+**Status:** Active — approved by owner in-session 2026-07-09. The plan's
+decision points stand as recommended: D1 = (a) detected bash-only shapes get
+a fast labeled refusal naming the construct and the platform-aware recovery
+paths (no auto-translation; `route=pwsh` and `raw=true` bypass as consent);
+D2 = non-breaking raw posture (reword every model-visible raw surface to
+recovery-only, raw-usage visibility via server log line + `ptk_state`
+counter at the user-call boundary only; gating/justification declined);
+D3 = one dialect line in hook deny + ptk_init nudge + README routing
+section.
+
+**#4 reconciliation at approval:** the cross-model comment's four
+acceptance suggestions were folded into D2 — adopted: no-preemptive-raw
+(the recovery-only rewording), teaching `route=pwsh` + `raw=false` as
+"exact execution, shaped output" (joins the reword inventory with slice-3
+assertions), raw telemetry in `ptk_state`; declined: reason/cost gate on
+unjustified raw (friction on a deliberate escape hatch; revisit only with
+evidence that rewording fails). Slice 0 probe results freeze into the plan
+before implementation; slices 1-4 land one commit + battery + codex loop
+each.
+
 ### ACTIVE (2026-07-08): Greenfield design adopted — `.agents/plans/greenfield-design.md`
 
 **Status:** Active — approved by owner in-session 2026-07-08 after the codex

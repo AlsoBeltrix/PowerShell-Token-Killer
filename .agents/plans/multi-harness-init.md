@@ -103,7 +103,9 @@ MCP tool") or per-harness wording.
 3. **grok leg.** `grok mcp add -s user` + whatever slice-0 said about the
    Claude-hook spillover (if it fires and blocks correctly, document it;
    if it fires and misbehaves, scope the Claude hook's matcher or text).
-   Nudge rides the Claude user file per the evidenced load.
+   Nudge home per the slice-0 probe outcome: the Claude user file if the
+   session-load claim verified, otherwise whatever guidance surface the
+   probe established for grok.
 4. **agy leg.** Per slice-0 probe; expected: settings.json registration +
    `~/.gemini/GEMINI.md` nudge block; hook only if the global
    Claude-style events verify live.

@@ -1,9 +1,11 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-Claude Code PreToolUse hook: redirects Bash/PowerShell tool calls to the ptk
-MCP tool (mcp__ptk__ptk_invoke), where output is token-compressed and the
-warm runspace persists state across calls (unified-shell-routing plan).
+Claude Code PreToolUse hook: redirects Bash/PowerShell tool calls to the
+ptk_invoke MCP tool, where output is token-compressed and the warm runspace
+persists state across calls (unified-shell-routing plan). The guidance names
+the tool WITHOUT a harness prefix: the same tool carries a different id per
+harness (docs/harness-support.md).
 
 Cross-tool rewrite is impossible in the hook protocol (updatedInput is
 same-tool only - slice-0 probe), so the redirect is deny-with-guidance: the
@@ -12,7 +14,9 @@ permissionDecisionReason is shown to the model verbatim.
 Escape hatch: a command containing PTK_DIRECT (e.g. in a comment) is allowed
 through for work that genuinely needs the harness shell - interactive
 prompts, TTY-dependent tools, or commands that must run even when the ptk
-server is down.
+server is down. When no ptk server process is running on the machine, the
+deny guidance says so and points at PTK_DIRECT up front (the deny itself
+always stands; liveness shapes wording only).
 
 Installed by scripts/ptk_init.ps1; exits 0 with no output to allow a call.
 #>
@@ -40,12 +44,24 @@ $cwdAdvice = if ($cwd) {
 } else {
     ' '
 }
+# Liveness shapes the WORDING only - the deny always stands. With no ptk
+# server process on the machine, the model is told up front to take the
+# escape hatch instead of discovering an unanswerable tool.
+# PTK_HOOK_LIVENESS ('up'/'down') overrides detection - test seam.
+$serverUp = switch ($env:PTK_HOOK_LIVENESS) {
+    'up' { $true }
+    'down' { $false }
+    default { [bool](Get-Process -Name PtkMcpServer -ErrorAction SilentlyContinue) }
+}
+
 $reason =
-    'Shell commands run through ptk: call mcp__ptk__ptk_invoke with "script" set to this same command.' +
+    'Shell commands run through ptk: call the ptk_invoke MCP tool with "script" set to this same command.' +
     $cwdAdvice +
     'It runs in a persistent warm PowerShell runspace (state and imported modules survive across calls) ' +
     'and output comes back token-compressed. Only if the command genuinely needs this harness shell ' +
-    '(interactive/TTY, or ptk is unavailable), re-run it here with PTK_DIRECT in a comment.'
+    '(interactive/TTY, or ptk is unavailable), re-run it here with PTK_DIRECT in a comment.' +
+    ($serverUp ? '' : (' NOTE: no ptk server process is running on this machine right now - if the ' +
+        'ptk tools are not available in this session, re-run this command here with PTK_DIRECT now.'))
 
 @{
     hookSpecificOutput = @{

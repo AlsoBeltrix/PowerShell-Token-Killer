@@ -24,6 +24,40 @@ Probes were run THROUGH ptk itself (background jobs + polling) — the D3
 machinery carried its own verification. Codex loop per implementation
 slice from here.
 
+**Slice 1 EXECUTED 2026-07-08 (installer framework + Claude leg).**
+`ptk_init.ps1` is now the per-agent framework: `-Agent
+claude|codex|grok|agy|all` (default: detected set; codex/grok/agy legs are
+announced stubs until slices 2-4), user-level install by default with the
+loud flip note, `-Local` as the warned Claude-only opt-in, `-Nudge`
+maintaining the marker-delimited guidance block in `~/.claude/CLAUDE.md`
+(uninstall always removes it), `-Show`/`-DryRun`/`-Uninstall` per leg, and
+test seams (`-SettingsPath`/`-NudgePath`/`-PtkHome`). In-slice decisions:
+
+- **mhi-2 candidate → the cheap liveness check shipped** (not just static
+  wording): the hook runs `Get-Process PtkMcpServer` and, when no server
+  process exists, appends explicit use-PTK_DIRECT-now guidance to the deny.
+  Liveness shapes wording only — the deny always stands. Test seam:
+  `PTK_HOOK_LIVENESS=up|down`.
+- **Registration gate:** the Claude leg REFUSES the hook install (exit 1,
+  dev-install guidance) when no `~/.ptk` payload exists — enforce only
+  where the steered-to tool can answer. `-DryRun` warns and continues;
+  uninstall is never gated.
+- **Hook text is harness-neutral** ("the ptk_invoke MCP tool"), per the
+  cross-cutting naming finding below.
+- `-Agent` is validated manually, not via `ValidateSet`: `pwsh -File`
+  passes `codex,grok` as one literal string, so the script splits commas.
+- Uninstall with nothing installed no longer creates/rewrites the settings
+  file (the wart dev-install worked around).
+- `dev-install.ps1 -Hook` now invokes `-Agent claude` explicitly and prints
+  the Claude-leg-only note pointing at multi-harness init.
+
+Verified: Pester 61/61 (10 new tests), guard proofs for the five new
+behaviors (liveness wording, neutral naming, payload gate, nudge
+install/remove, no-op-uninstall skip) — each sabotaged revert failed
+exactly its test; dotnet suite unchanged; handshake not run (no
+server-facing change). README + server/README hook sections updated to the
+flipped semantics (full install matrix stays slice 6).
+
 ## Goal
 
 One installer surface that makes ptk available and preferred on a machine,

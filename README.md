@@ -122,27 +122,39 @@ discovery, and instruction-only nudges decay — the hook is the mechanism
 that actually holds.
 
 ```powershell
-pwsh -File scripts/ptk_init.ps1 -Global
+pwsh -File scripts/ptk_init.ps1              # user-level install (default)
+pwsh -File scripts/ptk_init.ps1 -Nudge       # ... plus a guidance block in ~/.claude/CLAUDE.md
 ```
 
-**Prefer `-Global`** (one install per machine, covers every repo). Local
-mode edits the repo's `.claude/settings.json` — if anything in that repo
-tracks the file by content (governance tooling, dotfile managers, a
-hash-checking refresh), the edit reads as an owner modification forever
-after. Global mode patches only `~/.claude/settings.json`, which
-repo-level tooling never sees.
+Installs **user-level by default** (`~/.claude/settings.json`): one install
+per machine, covers every repo, invisible to repo-level tooling. `-Local` is
+the explicit per-repo opt-in and edits the repo's `.claude/settings.json` —
+if anything in that repo tracks the file by content (governance tooling,
+dotfile managers, a hash-checking refresh), the edit reads as an owner
+modification forever after; the installer warns about exactly this.
+
+The installer refuses to install the hook while no server is installed at
+`~/.ptk` (run `scripts/dev-install.ps1` first): a redirect hook without a
+server would steer every shell call at a tool that cannot answer.
 
 When a command genuinely needs the harness shell — interactive or
 TTY-dependent tools, or the ptk server being down — include `PTK_DIRECT` in a
-command comment to bypass the hook. Install options and details are in
+command comment to bypass the hook. When no ptk server process is running,
+the deny guidance says so and points at `PTK_DIRECT` up front. Install
+options and details are in
 [server/README.md](server/README.md#claude-code-hook).
 
 ## Nudging Other Harnesses
 
-The hook covers Claude Code today (multi-harness install is planned). For
-any harness, a short note in its **user-level** guidance file — not a repo
-file — teaches the preference wherever ptk is registered and stays silent
-where it is not. Suggested text, adapt freely:
+The hook covers Claude Code today. `scripts/ptk_init.ps1` is growing
+per-harness legs (`-Agent claude|codex|grok|agy`); the claude leg is
+implemented — `-Nudge` maintains the guidance block in `~/.claude/CLAUDE.md`
+automatically, which also covers grok (it session-loads that file — see
+[docs/harness-support.md](docs/harness-support.md)) — and the other legs
+announce themselves as planned. For any other harness, a short note in its
+**user-level** guidance file — not a repo file — teaches the preference
+wherever ptk is registered and stays silent where it is not. Suggested
+text, adapt freely:
 
 > When the ptk MCP server is available, use `ptk_invoke` for shell
 > commands instead of the built-in shell: one warm PowerShell session

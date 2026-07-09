@@ -5,6 +5,20 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **2026-07-08 (later night): MULTI-HARNESS SLICE 1 EXECUTED — installer
+  framework + Claude leg.** `ptk_init.ps1` is the per-agent framework
+  (`-Agent claude|codex|grok|agy|all`, detected-set default, stub legs for
+  2-4), user-level by default with loud flip note, `-Local` warned opt-in,
+  `-Nudge` block in `~/.claude/CLAUDE.md`, registration gate (refuses the
+  hook without a `~/.ptk` payload), harness-neutral hook text, and the
+  mhi-2 liveness check (down-server wording in the deny; wording only).
+  Details + in-slice decisions in the plan
+  (`.agents/plans/multi-harness-init.md`). **Canonical counts now: Pester
+  61, dotnet 59** (10 new Pester tests, all guard-proven). README +
+  server/README hook sections updated. OWNER NOTE: the flip means a bare
+  `ptk_init.ps1` run now patches `~/.claude/settings.json`, and
+  `dev-install.ps1 -Hook` prints a Claude-leg-only note. NEXT: codex loop
+  on the slice-1 commit, then slice 2 (codex leg).
 - **2026-07-08 (night): v2 LIVE ON THIS BOX; MULTI-HARNESS PLAN APPROVED;
   SLICE 0 EXECUTED — ALL PROBES GREEN.** Owner completed dev-install +
   global hook + push; the session's own tool calls then hit the redirect

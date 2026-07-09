@@ -116,38 +116,45 @@ Long-running work (two paths, by workload):
 ## Claude Code Hook
 
 `scripts/ptk_init.ps1` installs a Claude Code `PreToolUse` hook that redirects
-ordinary Bash and PowerShell tool calls toward `mcp__ptk__ptk_invoke` using a
-deny-with-guidance response.
+ordinary Bash and PowerShell tool calls toward the `ptk_invoke` MCP tool using
+a deny-with-guidance response. The guidance names the tool without a harness
+prefix — the same tool carries a different id per harness
+([docs/harness-support.md](../docs/harness-support.md)).
+
+The script is the multi-harness init surface (`-Agent claude|codex|grok|agy|all`,
+defaulting to the agents detected on the machine); the claude leg is
+implemented today and the other legs announce themselves as planned.
 
 ```powershell
-pwsh -File scripts/ptk_init.ps1 -Global     # ~/.claude/settings.json (preferred)
-pwsh -File scripts/ptk_init.ps1             # local .claude/settings.json
-pwsh -File scripts/ptk_init.ps1 -Global -Show       # inspect the global hook
-pwsh -File scripts/ptk_init.ps1 -Global -DryRun
-pwsh -File scripts/ptk_init.ps1 -Global -Uninstall  # bare -Uninstall targets LOCAL
+pwsh -File scripts/ptk_init.ps1              # user-level install (default)
+pwsh -File scripts/ptk_init.ps1 -Nudge       # ... plus the ~/.claude/CLAUDE.md guidance block
+pwsh -File scripts/ptk_init.ps1 -Show        # inspect per-leg status
+pwsh -File scripts/ptk_init.ps1 -DryRun
+pwsh -File scripts/ptk_init.ps1 -Uninstall   # hook out, nudge block out
+pwsh -File scripts/ptk_init.ps1 -Local       # per-repo opt-in (warns, see below)
 ```
 
-`-Show`/`-DryRun`/`-Uninstall` operate on whichever settings file the
-`-Global` switch selects — a global install needs `-Global -Uninstall`; a
-bare `-Uninstall` would only touch the repo-local file.
-
-**Prefer `-Global`.** Local mode edits the repo's `.claude/settings.json`;
+Installs are **user-level by default** (`~/.claude/settings.json`; the old
+`-Global` switch is accepted and means the same thing). `-Local` is the
+explicit per-repo opt-in: it edits the repo's `.claude/settings.json`, and
 any tooling that tracks that file by content — governance refresh
 mechanisms, dotfile managers — will treat the repo as owner-modified from
-then on. The global install patches only `~/.claude/settings.json`, covers
-every repo on the machine, and is invisible to repo-level tooling. Use
-local mode only for a deliberate per-repo opt-in where nothing tracks the
-settings file.
+then on; the installer warns about this. `-Show`/`-DryRun`/`-Uninstall`
+operate on the same target the install form would.
 
-The installer preserves unrelated hooks and replaces only the ptk-owned entry
+The installer refuses to install the hook while no installed payload exists
+at `~/.ptk` (run `scripts/dev-install.ps1` first): a redirect hook without a
+server would deny every shell call while steering at a tool that cannot
+answer. It preserves unrelated hooks and replaces only the ptk-owned entry
 when re-run. The hook takes effect at the next Claude Code session start.
 
 Failure semantics, precisely: the hook fails open only against its OWN
 failure — if the hook script is missing or errors, harness shell calls
-proceed normally. It does NOT check whether the ptk server is alive: with
-the server down, shell calls are still denied and steered toward an
-unavailable tool, and `PTK_DIRECT` is the way through until the server is
-back (`/mcp` reconnect respawns it).
+proceed normally. A down server does not fail open: shell calls are still
+denied — but the hook checks for a running server process, and when none
+exists the deny guidance says so and points at `PTK_DIRECT` up front
+(liveness shapes the wording only, never the decision). `PTK_DIRECT` is the
+way through until the server is back (`/mcp` reconnect respawns it).
 
 A command containing `PTK_DIRECT` bypasses the hook. Use that for work that
 genuinely needs the harness shell, such as interactive or TTY-dependent tools,

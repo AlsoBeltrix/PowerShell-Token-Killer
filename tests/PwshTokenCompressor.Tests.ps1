@@ -303,15 +303,43 @@ Describe 'redirect hook and installer' {
         $script:initScript = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_init.ps1'
     }
 
-    It 'denies a shell tool call with guidance naming ptk_invoke' {
+    It 'denies a shell tool call with harness-neutral guidance naming ptk_invoke' {
         $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
             pwsh -NoProfile -File $script:hookScript
         $LASTEXITCODE | Should -Be 0
 
         $decision = ($out | ConvertFrom-Json).hookSpecificOutput
         $decision.permissionDecision | Should -BeExactly 'deny'
-        $decision.permissionDecisionReason | Should -Match 'mcp__ptk__ptk_invoke'
+        $decision.permissionDecisionReason | Should -Match 'ptk_invoke MCP tool'
+        # Three prefix schemes exist for the same tool across harnesses
+        # (docs/harness-support.md); the guidance must not pin Claude's.
+        $decision.permissionDecisionReason | Should -Not -Match 'mcp__ptk'
         $decision.permissionDecisionReason | Should -Match 'PTK_DIRECT'
+    }
+
+    It 'appends down-server guidance when no ptk server process is running' {
+        $env:PTK_HOOK_LIVENESS = 'down'
+        try {
+            $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
+                pwsh -NoProfile -File $script:hookScript
+        }
+        finally { Remove-Item env:PTK_HOOK_LIVENESS -ErrorAction SilentlyContinue }
+
+        $decision = ($out | ConvertFrom-Json).hookSpecificOutput
+        $decision.permissionDecision | Should -BeExactly 'deny'
+        $decision.permissionDecisionReason | Should -Match 'no ptk server process'
+    }
+
+    It 'omits the down-server note when a server process is running' {
+        $env:PTK_HOOK_LIVENESS = 'up'
+        try {
+            $out = '{"tool_name":"Bash","tool_input":{"command":"git status"}}' |
+                pwsh -NoProfile -File $script:hookScript
+        }
+        finally { Remove-Item env:PTK_HOOK_LIVENESS -ErrorAction SilentlyContinue }
+
+        $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
+        $reason | Should -Not -Match 'no ptk server process'
     }
 
     It 'carries the denied call''s cwd into the guidance' {
@@ -346,16 +374,27 @@ Describe 'redirect hook and installer' {
     }
 
     Context 'ptk_init settings patching' {
+        BeforeAll {
+            # Payload-gate seam: a home dir containing bin/ counts as an
+            # installed payload regardless of this machine's real ~/.ptk.
+            $script:fakeHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-home-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path (Join-Path $script:fakeHome 'bin') -Force | Out-Null
+        }
+        AfterAll {
+            Remove-Item -LiteralPath $script:fakeHome -Recurse -Force -ErrorAction SilentlyContinue
+        }
         BeforeEach {
             $script:settings = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-init-{0}.json" -f ([guid]::NewGuid()))
+            $script:nudgeFile = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-nudge-{0}.md" -f ([guid]::NewGuid()))
         }
         AfterEach {
             Remove-Item -LiteralPath $script:settings -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $script:nudgeFile -Force -ErrorAction SilentlyContinue
         }
 
         It 'installs one Bash|PowerShell entry into fresh settings, idempotently' {
-            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings | Out-Null
-            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $script:fakeHome | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $script:fakeHome | Out-Null
 
             $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
             $entries = @($config.hooks.PreToolUse)
@@ -375,13 +414,13 @@ Describe 'redirect hook and installer' {
                 }
             } | ConvertTo-Json -Depth 8)
 
-            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $script:fakeHome | Out-Null
             $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
             $config.model | Should -BeExactly 'sonnet'
             @($config.hooks.PreToolUse).Count | Should -Be 2
             @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -eq 'rtk hook claude' }).Count | Should -Be 1
 
-            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -Uninstall | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $script:fakeHome -Uninstall | Out-Null
             $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
             $config.model | Should -BeExactly 'sonnet'
             @($config.hooks.PreToolUse).Count | Should -Be 1
@@ -406,7 +445,7 @@ Describe 'redirect hook and installer' {
                 }
             } | ConvertTo-Json -Depth 8)
 
-            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -Uninstall | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $script:fakeHome -Uninstall | Out-Null
 
             $config = Get-Content -LiteralPath $script:settings -Raw | ConvertFrom-Json
             @($config.hooks.PreToolUse).Count | Should -Be 1
@@ -415,8 +454,74 @@ Describe 'redirect hook and installer' {
         }
 
         It 'writes nothing under -DryRun' {
-            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -DryRun | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $script:fakeHome -DryRun | Out-Null
             Test-Path -LiteralPath $script:settings | Should -BeFalse
+        }
+
+        It 'refuses the hook install when no installed payload exists' {
+            # Enforce only where the steered-to tool can answer: without
+            # ~/.ptk the hook would deny every shell call toward nothing.
+            $emptyHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-nohome-{0}" -f ([guid]::NewGuid()))
+            $out = pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -PtkHome $emptyHome 2>&1 | Out-String
+
+            $LASTEXITCODE | Should -Be 1
+            $out | Should -Match 'dev-install'
+            Test-Path -LiteralPath $script:settings | Should -BeFalse
+        }
+
+        It 'installs and removes the nudge block, preserving user content' {
+            Set-Content -LiteralPath $script:nudgeFile -Value "# my file`n`nkeep me"
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Nudge | Out-Null
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Nudge | Out-Null
+
+            $text = Get-Content -LiteralPath $script:nudgeFile -Raw
+            ([regex]::Matches($text, [regex]::Escape('<!-- ptk-guidance -->'))).Count | Should -Be 1
+            $text | Should -Match 'keep me'
+            $text | Should -Match 'ptk_invoke'
+
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Uninstall | Out-Null
+            $text = Get-Content -LiteralPath $script:nudgeFile -Raw
+            $text | Should -Not -Match 'ptk-guidance'
+            $text | Should -Match 'keep me'
+        }
+
+        It 'leaves the nudge file untouched without -Nudge' {
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome | Out-Null
+            Test-Path -LiteralPath $script:nudgeFile | Should -BeFalse
+        }
+
+        It 'does not create the settings file when uninstalling with nothing installed' {
+            pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Uninstall | Out-Null
+            $LASTEXITCODE | Should -Be 0
+            Test-Path -LiteralPath $script:settings | Should -BeFalse
+        }
+
+        It 'reports per-leg status under -Show without writing' {
+            $out = pwsh -NoProfile -File $script:initScript -Show -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome | Out-String
+            $out | Should -Match '\[claude\] ptk hook: not installed'
+            $out | Should -Match 'nudge block: not installed'
+            Test-Path -LiteralPath $script:settings | Should -BeFalse
+        }
+
+        It 'announces the user-level default flip on a global install' {
+            # -DryRun writes nothing, so exercising the default (no
+            # -SettingsPath) target is safe on any machine.
+            $out = pwsh -NoProfile -File $script:initScript -Agent claude -DryRun -PtkHome $script:fakeHome | Out-String
+            $out | Should -Match 'USER-LEVEL by default'
+        }
+
+        It 'warns about content tracking under -Local' {
+            $out = pwsh -NoProfile -File $script:initScript -Local -DryRun -PtkHome $script:fakeHome 2>&1 | Out-String
+            $out | Should -Match 'by content'
+        }
+
+        It 'reports unimplemented legs without touching anything' {
+            # One comma-joined string: pwsh -File hands arrays over this way.
+            $out = pwsh -NoProfile -File $script:initScript -Agent 'codex,grok,agy' | Out-String
+            $LASTEXITCODE | Should -Be 0
+            $out | Should -Match '\[codex\] leg not implemented'
+            $out | Should -Match '\[grok\] leg not implemented'
+            $out | Should -Match '\[agy\] leg not implemented'
         }
     }
 }

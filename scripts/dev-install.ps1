@@ -27,9 +27,11 @@ pwsh -File scripts/dev-install.ps1 -LayoutOnly -OutputDir out/ptk-layout
 #>
 [CmdletBinding(DefaultParameterSetName = 'Install')]
 param(
-    # Install the Claude Code redirect hook globally after installing
-    # (invokes the INSTALLED copy of ptk_init.ps1, so the hook points at the
-    # installed payload, not the checkout).
+    # Install the Claude Code redirect hook (user level) after installing -
+    # invokes the INSTALLED copy of ptk_init.ps1, so the hook points at the
+    # installed payload, not the checkout. Claude leg only; the multi-harness
+    # path is ptk_init.ps1 itself, and a future -InitAgents will chain the
+    # full per-agent init here (multi-harness-init plan, slice 5).
     [Parameter(ParameterSetName = 'Install')]
     [switch]$Hook,
 
@@ -317,7 +319,9 @@ switch ($mode) {
         Register-PtkServer -BinaryPath $binaryPath
         Write-PtkArpEntry -PayloadVersion $payloadVersion
         if ($Hook) {
-            & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') -Global | Out-Host
+            Write-Host ('NOTE: -Hook covers the Claude Code leg only; for other harnesses run ' +
+                'scripts/ptk_init.ps1 (multi-harness init).')
+            & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') -Agent claude | Out-Host
         }
         Show-PtkCodexSnippet -BinaryPath $binaryPath
         Write-Host ''

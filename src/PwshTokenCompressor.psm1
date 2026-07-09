@@ -276,8 +276,16 @@ function Compress-PtcGenericObject {
         return Limit-PtcText -Text $items[0] -MaxLines $MaxItems
     }
 
-    if (@($items | Where-Object { $_ -is [string] }).Count -eq $items.Count) {
+    $stringCount = @($items | Where-Object { $_ -is [string] }).Count
+    if ($stringCount -eq $items.Count) {
         return Limit-PtcText -Text ($items -join [Environment]::NewLine) -MaxLines $MaxItems
+    }
+    if ($stringCount -gt 0) {
+        # Mixed stream containing strings: the text is the medium (issue #1 —
+        # a String+MatchInfo repro rendered a Length-only table and lost the
+        # payload). Render every item by its string form: strings are
+        # themselves, MatchInfo.ToString() is path:line:content.
+        return Limit-PtcText -Text (@($items | ForEach-Object { [string]$_ }) -join [Environment]::NewLine) -MaxLines $MaxItems
     }
 
     $first = $items | Select-Object -First 1

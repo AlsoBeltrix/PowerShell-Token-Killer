@@ -151,22 +151,43 @@ Describe 'object routing robustness' {
         $result | Should -Not -Match 'cannot be found'
     }
 
-    It 'compresses a mixed FileInfo + string stream via the generic path without throwing' {
+    # Contract reconciled 2026-07-09 under the issue-1 plan
+    # (.agents/plans/issue-1-mixed-stream-shaping.md): string-bearing mixed
+    # streams render as text (the string form of every item) instead of a
+    # first-item property table that loses the payload. The original purpose
+    # of these tests — never throw, never hit the shape-error fallback —
+    # stands unchanged.
+    It 'renders a mixed FileInfo + string stream as text without throwing' {
         $mixed = @((Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md')), 'done')
 
         $result = $mixed | Compress-PtcObject
 
-        $result | Should -Match '^objects: 2'
+        $result | Should -Match 'README\.md'
+        $result | Should -Match 'done'
+        $result | Should -Not -Match '^objects:'
         $result | Should -Not -Match 'cannot be found'
     }
 
-    It 'keeps a mixed stream compressed through Compress-PtcOutput (no shape-error fallback)' {
+    It 'keeps a mixed stream''s payload through Compress-PtcOutput (no shape-error fallback)' {
         $mixed = @((Get-Item -LiteralPath (Join-Path $PSScriptRoot '..' 'README.md')), 'done')
 
         $result = $mixed | Compress-PtcOutput
 
         $result | Should -Not -Match '\[ptk:shape ERROR'
-        $result | Should -Match '^objects: 2'
+        $result | Should -Match 'done'
+    }
+
+    It 'keeps the payload of a mixed string/MatchInfo stream (issue #1 repro shape)' {
+        # The live repro: separator strings mixed with Select-String output
+        # rendered a Length-only table; the string form of a MatchInfo is
+        # path:line:content, so text rendering keeps the answer.
+        $match = 'needle in line two' | Select-String -Pattern 'needle'
+        $result = @('---marker---', $match) | Compress-PtcOutput
+
+        $result | Should -Match '---marker---'
+        $result | Should -Match 'needle in line two'
+        $result | Should -Not -Match '^objects:'
+        $result | Should -Not -Match 'Length'
     }
 }
 
@@ -663,10 +684,15 @@ Describe 'Compress-PtcOutput' {
         $result | Should -BeExactly (@('1', '2', '3') -join [Environment]::NewLine)
     }
 
-    It 'routes mixed string/object output down the object path' {
+    It 'routes mixed string/object output down the object path, keeping the string payload' {
+        # Reconciled 2026-07-09 (issue-1 plan): string-bearing mixes render
+        # as text - the string line survives, the object contributes its
+        # string form.
         $result = 'text', [pscustomobject]@{ A = 1 } | Compress-PtcOutput
 
-        $result | Should -Match '^objects: 2'
+        $result | Should -Match 'text'
+        $result | Should -Match 'A=1'
+        $result | Should -Not -Match '^objects:'
     }
 
     It 'strips ANSI sequences from plain text output' {

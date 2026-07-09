@@ -111,6 +111,21 @@ function Test-PtcHasProperty {
     $true
 }
 
+# Index-based head slice. Never use Select-Object -First on object rows in
+# shaping code: it stamps 'Selected.*' into the live TypeNames of
+# PSObject-wrapped items (PSCustomObject, any Deserialized.* from remoting
+# or Import-Clixml), and the mutation persists on the caller's objects
+# across warm-session calls (i1-2).
+function Select-PtcFirst {
+    param(
+        [object[]]$Items,
+        [int]$Count
+    )
+    $all = @($Items)
+    if ($all.Count -eq 0 -or $Count -le 0) { return @() }
+    @($all[0..([Math]::Min($Count, $all.Count) - 1)])
+}
+
 function Format-PtcTable {
     param(
         [object[]]$Rows,
@@ -179,7 +194,7 @@ function Compress-PtcFileSystem {
 
     $lines = @("fs: {0} dirs, {1} files, {2}" -f $dirs.Count, $files.Count, (Format-PtcSize $totalBytes))
 
-    $dirRows = @($dirs | Sort-Object Name | Select-Object -First $MaxItems | ForEach-Object {
+    $dirRows = @((Select-PtcFirst @($dirs | Sort-Object Name) $MaxItems) | ForEach-Object {
         [pscustomobject]@{
             Type = 'dir'
             Name = $_.Name + '\'
@@ -187,7 +202,7 @@ function Compress-PtcFileSystem {
         }
     })
 
-    $fileRows = @($files | Sort-Object Name | Select-Object -First $MaxItems | ForEach-Object {
+    $fileRows = @((Select-PtcFirst @($files | Sort-Object Name) $MaxItems) | ForEach-Object {
         [pscustomobject]@{
             Type = 'file'
             Name = $_.Name
@@ -216,10 +231,10 @@ function Compress-PtcMatchInfo {
     $groups = @($matches | Group-Object Path | Sort-Object Name)
     $lines = @('{0} matches in {1} files' -f $matches.Count, $groups.Count)
 
-    foreach ($group in $groups | Select-Object -First $MaxItems) {
+    foreach ($group in (Select-PtcFirst $groups $MaxItems)) {
         $lines += ''
         $lines += '[file] {0} ({1})' -f $group.Name, $group.Count
-        foreach ($match in $group.Group | Select-Object -First 8) {
+        foreach ($match in (Select-PtcFirst @($group.Group) 8)) {
             $text = Limit-PtcText -Text ([string]$match.Line).Trim() -MaxLines 1 -Width 110
             $lines += '  {0,5}: {1}' -f $match.LineNumber, $text
         }
@@ -241,7 +256,7 @@ function Compress-PtcProcess {
     )
 
     $items = @($InputObject)
-    $rows = @($items | Sort-Object CPU -Descending | Select-Object -First $MaxItems | ForEach-Object {
+    $rows = @((Select-PtcFirst @($items | Sort-Object CPU -Descending) $MaxItems) | ForEach-Object {
         [pscustomobject]@{
             ProcessName = $_.ProcessName
             Id = $_.Id
@@ -261,7 +276,7 @@ function Compress-PtcService {
 
     $items = @($InputObject)
     $status = @($items | Group-Object Status | Sort-Object Name | ForEach-Object { '{0}={1}' -f $_.Name, $_.Count })
-    $rows = @($items | Sort-Object Status, Name | Select-Object -First $MaxItems | ForEach-Object {
+    $rows = @((Select-PtcFirst @($items | Sort-Object Status, Name) $MaxItems) | ForEach-Object {
         [pscustomobject]@{
             Status = $_.Status
             Name = $_.Name

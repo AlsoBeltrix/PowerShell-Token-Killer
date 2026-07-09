@@ -250,4 +250,10 @@ detail: `.agents/review/findings/i1-1.md`.
 
 | ID   | Severity | Impact (one line)                                             | Status | Branch |
 |------|----------|----------------------------------------------------------------|--------|--------|
-| i1-1 | MEDIUM   | mixed-type header grows unbounded with unique type names       | `[~]`  | master (direct) |
+| i1-1 | MEDIUM   | mixed-type header grows unbounded with unique type names       | `[x]`  | master (direct, c2d8a4a) |
+| i1-2 | MEDIUM   | specialized routes still stamp Selected.* onto deserialized PSObjects | `[x]`  | master (direct, see log) |
+| i1-3 | LOW      | Format-PtcTable -MaxItems 0 regressed to a first+last wraparound slice | `[x]`  | master (direct, d3f4569) |
+
+Companion fix outside the findings table: 86f990e (Selected.* mutation in
+the GENERIC path, self-caught by i1-1's guard before codex saw it; codex
+then found the specialized-route remainder as i1-2).

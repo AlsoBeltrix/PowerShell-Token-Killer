@@ -192,6 +192,38 @@ Describe 'object routing robustness' {
         $result | Should -Match 'A=1'
     }
 
+    It 'does not mutate deserialized PSObjects routed to specialized compressors' {
+        # i1-2: deserialized objects (remoting, Import-Clixml) are
+        # persistently PSObject-wrapped, so a Select-Object -First anywhere
+        # in the specialized routes stamps Selected.* into the caller's
+        # live TypeNames. One probe per route.
+        $probes = @(
+            [pscustomobject]@{
+                PSTypeName = 'Deserialized.System.IO.FileInfo'
+                PSIsContainer = $false; Name = 'a.txt'; Length = 5
+                LastWriteTime = Get-Date; FullName = 'C:\a.txt'
+            }
+            [pscustomobject]@{
+                PSTypeName = 'Deserialized.Microsoft.PowerShell.Commands.MatchInfo'
+                LineNumber = 3; Path = 'C:\x.txt'; Line = 'hit'
+            }
+            [pscustomobject]@{
+                PSTypeName = 'Deserialized.System.Diagnostics.Process'
+                Id = 1; ProcessName = 'x'; CPU = 1.0; WorkingSet64 = 1024
+            }
+            [pscustomobject]@{
+                PSTypeName = 'Deserialized.System.ServiceProcess.ServiceController'
+                Status = 'Running'; Name = 'svc'; DisplayName = 'A Service'
+            }
+        )
+
+        foreach ($probe in $probes) {
+            $expected = $probe.PSObject.TypeNames[0]
+            $null = @($probe) | Compress-PtcObject
+            $probe.PSObject.TypeNames[0] | Should -BeExactly $expected
+        }
+    }
+
     It 'emits no rows when MaxItems is zero (bound, not wraparound)' {
         # i1-3: an index slice of [0..-1] wraps to first+last in PowerShell;
         # -MaxItems 0 must keep Select-Object -First 0 semantics.

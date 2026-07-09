@@ -72,6 +72,61 @@ public sealed class StdioChildStdinTests
         }
     }
 
+    // Same console-less spawn, different defect class: a hosted server with no
+    // console decodes native stdout with the OEM codepage on Windows, so UTF-8
+    // output (em-dashes, any non-ASCII) came back as mojibake in live use
+    // (v2-feedback plan, slice 2). A pwsh child emits a UTF-8 em-dash; it must
+    // round-trip intact through ptk_invoke.
+    [Fact]
+    public async Task Native_utf8_output_roundtrips_without_mojibake()
+    {
+        var serverDll = Path.Combine(AppContext.BaseDirectory, "PtkMcpServer.dll");
+        Assert.True(File.Exists(serverDll), $"server dll not found at {serverDll}");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = AppContext.BaseDirectory,
+        };
+        psi.ArgumentList.Add("exec");
+        psi.ArgumentList.Add(serverDll);
+
+        using var proc = Process.Start(psi)!;
+        _ = proc.StandardError.ReadToEndAsync();
+        try
+        {
+            await SendAsync(proc,
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"utf8-test","version":"0.0.0"}}}""");
+            await ReadResponseAsync(proc, 1);
+            await SendAsync(proc, """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+
+            var script =
+                "pwsh -NoProfile -Command \"[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new(); 'em' + [char]0x2014 + 'dash'\"";
+            var call = JsonSerializer.Serialize(new
+            {
+                jsonrpc = "2.0",
+                id = 2,
+                method = "tools/call",
+                @params = new { name = "ptk_invoke", arguments = new { script, route = "pwsh" } },
+            });
+            await SendAsync(proc, call);
+            var response = await ReadResponseAsync(proc, 2);
+
+            var text = response.GetProperty("result").GetProperty("content")[0]
+                .GetProperty("text").GetString() ?? string.Empty;
+            Assert.Contains("em—dash", text);
+        }
+        finally
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { /* already gone */ }
+        }
+    }
+
     private static async Task SendAsync(Process proc, string json)
     {
         await proc.StandardInput.WriteLineAsync(json);

@@ -59,6 +59,20 @@ public sealed class RunspaceHost : IDisposable
     /// warm runspace; false disables output shaping (calls fall back to Out-String).</summary>
     public bool ModuleLoaded { get; private set; }
 
+    // PowerShell decodes native stdout with Console.OutputEncoding, which in a
+    // hosted console-less process defaults to the OEM codepage on Windows —
+    // modern tools emit UTF-8, so non-ASCII came back as mojibake in live use
+    // (ΓÇö for em-dash; v2-feedback plan, slice 2). Pin BOM-less UTF-8 once for
+    // the process. The MCP transport is unaffected: it writes bytes on the raw
+    // captured streams, not through Console.Out. Trade-off accepted: genuinely
+    // OEM-emitting tools now mojibake instead — modern toolchains emit UTF-8,
+    // and raw job logs keep original bytes.
+    static RunspaceHost()
+    {
+        try { Console.OutputEncoding = new System.Text.UTF8Encoding(false); }
+        catch { /* best effort — a console host that refuses keeps its default */ }
+    }
+
     public RunspaceHost(TimeSpan? callTimeout = null, string? modulePathOverride = null, TimeSpan? maxCallTimeout = null)
     {
         _callTimeout = callTimeout ?? TimeSpan.FromSeconds(300);

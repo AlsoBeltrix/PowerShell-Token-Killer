@@ -5,22 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **2026-07-09 (latest): OWNER CLARIFICATION resolved a revert
-  miscommunication; NEW STANDING RULE recorded.** The owner's "revert"
-  meant the HARNESS-FILE changes (done: the `~/.claude/CLAUDE.md`
-  guidance block was removed, owner content kept; `~/.codex/AGENTS.md`
-  keeps its slice-2 block), NOT the script rewrite — so the
-  nudge-standard-layer change (60cd9f3, codex NO FINDINGS) is RESTORED
-  by reverting 82b8c51. **Standing owner rule (also in
-  repo-guidance Earned Practices): no piecemeal machine changes —
-  agents change nothing outside the end-state installation process; the
-  owner runs that process.** Owner directive: FINISH the end state —
-  slices 3 (grok), 4 (agy), 5 (dev-install chains ptk_init by default,
-  one command per machine, uninstall symmetry), 6 (docs). Live
-  verification of legs happens at the owner's install run, not during
-  development (tests use seams/DryRun/fake shims). Owner pushed through
-  a0dceb8; everything after is local. **Canonical counts: Pester 75,
-  dotnet 59.**
+- **2026-07-09 (latest): revert miscommunication resolved; end-state
+  build resumed.** The harness-file writes stay undone; the
+  nudge-standard-layer script change (60cd9f3) is RESTORED by reverting
+  82b8c51. Operative decisions live in the plan's two 2026-07-09
+  amendments (`.agents/plans/multi-harness-init.md`): nudge is a
+  standard layer, machine changes only through the complete owner-run
+  install process, slice 5 = default dev-install chaining, agy hook
+  deferred, no live installer runs during development. Building slices
+  3-6 to completion. Owner pushed through a0dceb8; everything after is
+  local. **Canonical counts: Pester 75, dotnet 59.**
 - **2026-07-09 (latest): GITHUB ISSUE #2 FIXED and codex-closed** (plan:
   `.agents/plans/issue-2-stale-hook-registration.md`; owner mid-session
   go). ptk_init's claude leg registers the INSTALLED hook copy

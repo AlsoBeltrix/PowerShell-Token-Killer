@@ -84,27 +84,25 @@ keep the leave-as-is path; behavioral guard via a fake codex shim, Pester
 canonical count now 66) fixed and re-graded RESOLVED, no new findings
 (`.agents/review/index.md`).
 
-**AMENDMENT 2026-07-09 (owner):** the `-Nudge` opt-in is retired — "that
-line is arcane and I will literally never run it." The nudge block is a
-STANDARD layer: every implemented leg installs it on a bare run (it is
-idempotent, marker-owned, conditionally worded, and uninstall removes
-it); no flag to remember. A bare `ptk_init.ps1` — or dev-install's
-chaining — must produce the full correct state for every detected
-harness.
+**AMENDMENT 2026-07-09 (owner decision):** the `-Nudge` opt-in is retired.
+The nudge block is a STANDARD layer: every implemented leg installs it on
+a bare run (it is idempotent, marker-owned, conditionally worded, and
+uninstall removes it); no opt-in flags gate layers. A bare `ptk_init.ps1`
+— or dev-install's chaining — must produce the full correct state for
+every detected harness.
 
-**AMENDMENT 2026-07-09 (owner, second):** "I don't want to run things
-piecemeal anymore. nothing gets changed outside of the end-state
-installation process. finish that." Consequences:
+**AMENDMENT 2026-07-09 (owner decision, second):** machine state changes
+happen only through the complete, owner-run installation process — never
+piecemeal during development. Consequences:
 
 - **Slice 5 changes from `-InitAgents` opt-in to DEFAULT chaining**: a
   bare `dev-install.ps1` runs the full per-agent init after a successful
   registration (one command per machine); `-Hook` becomes a redundant
   accepted alias. `-Uninstall` reverses every leg via `ptk_init
   -Uninstall` before removing the payload.
-- **No live installer runs or harness-file writes during development**
-  (repo-guidance Earned Practices). Tests use seams, `-DryRun` snapshots,
-  and fake CLI shims; live verification happens at the owner's install
-  run.
+- **No live installer runs or harness-file writes during development.**
+  Tests use seams, `-DryRun` snapshots, and fake CLI shims; live
+  verification happens at the owner's install run.
 - **agy hook DEFERRED**: the verify-once bar (live deny-and-reissue)
   cannot be met without a live run, so slice 4 ships the agy plugin
   WITHOUT `hooks.json` (registration + rules nudge only); the hook lands

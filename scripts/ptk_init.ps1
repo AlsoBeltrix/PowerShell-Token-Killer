@@ -427,7 +427,19 @@ function Invoke-PtkCodexLeg {
                     '[codex] registration removed.' : '[codex] no registration to remove.')
             }
             else {
-                Write-Host '[codex] codex CLI not found - no registration to remove.'
+                # mhi-10 re-grade: the CLI left PATH, so the config is read
+                # directly - a stale [mcp_servers.ptk] entry gets a manual-
+                # removal warning (grok-leg parity), not a false "no
+                # registration" report. Warn, not edit: the base entry is
+                # valid config a reinstalled CLI can manage.
+                if ((Test-Path -LiteralPath $codexConfig -PathType Leaf) -and
+                    ((Get-Content -LiteralPath $codexConfig -Raw) -match '(?m)^\s*\[mcp_servers\.ptk\]')) {
+                    Write-Warning (('[codex] codex CLI not found - remove the [mcp_servers.ptk] ' +
+                        'entry from {0} manually.') -f $codexConfig)
+                }
+                else {
+                    Write-Host '[codex] codex CLI not found - no registration to remove.'
+                }
             }
             # mhi-12: sweep the tool-approval subtables `codex mcp remove`
             # leaves behind - orphaned, they make the whole config

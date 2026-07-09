@@ -958,6 +958,35 @@ approval_mode = "approve"
             }
         }
 
+        It 'codex leg uninstall warns about a stale registration when the CLI left PATH (mhi-10)' {
+            # mhi-10 re-grade completion: with the codex CLI gone, the leg
+            # printed "no registration to remove" without reading the config
+            # - a stale [mcp_servers.ptk] entry survived behind a false
+            # report. Grok-leg parity: detect it and name the manual removal.
+            # Warn, not edit: the base entry is valid config a reinstalled
+            # CLI can manage; only orphaned subtables get swept (mhi-12).
+            $toml = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-codexcfg-{0}.toml" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $toml -Value @'
+[mcp_servers.ptk]
+command = "/Users/nobody/.ptk/bin/PtkMcpServer"
+'@
+            $pwshExe = (Get-Command pwsh).Source
+            $oldPath = $env:PATH
+            try {
+                $env:PATH = [System.IO.Path]::GetTempPath()
+                $out = & $pwshExe -NoProfile -File $script:initScript -Agent codex -Uninstall -CodexConfigPath $toml -NudgePath $script:nudgeFile -PtkHome $script:fakeHome 2>&1 | Out-String
+            }
+            finally {
+                $env:PATH = $oldPath
+            }
+
+            $LASTEXITCODE | Should -Be 0
+            $out | Should -Match 'remove the \[mcp_servers\.ptk\] entry'
+            $out | Should -Match 'manually'
+            Get-Content -LiteralPath $toml -Raw | Should -Match '\[mcp_servers\.ptk\]'
+            Remove-Item -LiteralPath $toml -Force -ErrorAction SilentlyContinue
+        }
+
         It 'rejects -SettingsPath without -NudgePath (seam runs stay sandboxed)' {
             # The nudge is a standard layer; a redirected settings target
             # with a defaulted nudge target would leak writes onto the real

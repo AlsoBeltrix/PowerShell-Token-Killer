@@ -597,6 +597,48 @@ function Get-PtcShellDialectFinding {
     $parseErrors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseInput($Script, [ref]$tokens, [ref]$parseErrors)
 
+    # sd1-1 (rounds 2-4): the ambient GetCommand guard cannot see
+    # definitions carried by the submitted script itself (function export
+    # { ... }; export X=1 executes fine - re-grade round 1), so
+    # script-local definitions count as resolved too: function definitions
+    # AND Set-Alias/New-Alias (round 3, plan slice 1(iii)) - but only for
+    # uses they lexically PRECEDE (execution is sequential) or that sit
+    # INSIDE their own definition's body (recursion, round 4). Alias
+    # spellings beyond the positional and -Name forms are accepted
+    # residuals, recorded in the finding. Collected before the parse-fatal
+    # branch because keyword evidence consults it too (sd1-7 round 4).
+    $localDefs = [System.Collections.Generic.List[object]]::new()
+    foreach ($definition in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
+        $localDefs.Add(@{ Name = $definition.Name; Start = $definition.Extent.StartOffset; End = $definition.Extent.EndOffset })
+    }
+    foreach ($aliasCommand in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
+        $aliasElements = @($aliasCommand.CommandElements)
+        if ($aliasElements[0] -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
+            $aliasElements[0].Value -notin @('Set-Alias', 'New-Alias')) { continue }
+        $aliasName = $null
+        for ($j = 1; $j -lt $aliasElements.Count; $j++) {
+            $element = $aliasElements[$j]
+            if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
+                if ($element.ParameterName -eq 'Name') {
+                    if ($element.Argument -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                        $aliasName = $element.Argument.Value
+                    } elseif ($j + 1 -lt $aliasElements.Count -and
+                        $aliasElements[$j + 1] -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                        $aliasName = $aliasElements[$j + 1].Value
+                    }
+                }
+                # Any other leading named parameter: bail rather than guess
+                # which later element is the name.
+                break
+            }
+            if ($element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
+                $aliasName = $element.Value
+                break
+            }
+        }
+        if ($aliasName) { $localDefs.Add(@{ Name = $aliasName; Start = $aliasCommand.Extent.StartOffset; End = $aliasCommand.Extent.EndOffset }) }
+    }
+
     if (@($parseErrors).Count -gt 0) {
         # Parse-fatal bash shapes. PowerShell already refuses these, but the
         # errors misdirect (slice-0 probe table), so the id alone is not
@@ -720,45 +762,6 @@ function Get-PtcShellDialectFinding {
     # CommandAst nodes are walked, so anything inside a quoted string
     # (bash -lc 'local x=1') never enters.
     $commands = @($ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true))
-    # sd1-1 (rounds 2+3): the ambient GetCommand guard below cannot see
-    # definitions carried by the submitted script itself (function export
-    # { ... }; export X=1 executes fine - re-grade round 1), so
-    # script-local definitions count as resolved too: function definitions
-    # AND Set-Alias/New-Alias (round 3, plan slice 1(iii)) - but only for
-    # uses they lexically PRECEDE, since execution is sequential. Alias
-    # spellings beyond the positional and -Name forms are accepted
-    # residuals, recorded in the finding.
-    $localDefs = [System.Collections.Generic.List[object]]::new()
-    foreach ($definition in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $true)) {
-        $localDefs.Add(@{ Name = $definition.Name; End = $definition.Extent.EndOffset })
-    }
-    foreach ($aliasCommand in $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)) {
-        $aliasElements = @($aliasCommand.CommandElements)
-        if ($aliasElements[0] -isnot [System.Management.Automation.Language.StringConstantExpressionAst] -or
-            $aliasElements[0].Value -notin @('Set-Alias', 'New-Alias')) { continue }
-        $aliasName = $null
-        for ($j = 1; $j -lt $aliasElements.Count; $j++) {
-            $element = $aliasElements[$j]
-            if ($element -is [System.Management.Automation.Language.CommandParameterAst]) {
-                if ($element.ParameterName -eq 'Name') {
-                    if ($element.Argument -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
-                        $aliasName = $element.Argument.Value
-                    } elseif ($j + 1 -lt $aliasElements.Count -and
-                        $aliasElements[$j + 1] -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
-                        $aliasName = $aliasElements[$j + 1].Value
-                    }
-                }
-                # Any other leading named parameter: bail rather than guess
-                # which later element is the name.
-                break
-            }
-            if ($element -is [System.Management.Automation.Language.StringConstantExpressionAst]) {
-                $aliasName = $element.Value
-                break
-            }
-        }
-        if ($aliasName) { $localDefs.Add(@{ Name = $aliasName; End = $aliasCommand.Extent.EndOffset }) }
-    }
     foreach ($command in $commands) {
         $elements = @($command.CommandElements)
         $name = $null
@@ -788,7 +791,16 @@ function Get-PtcShellDialectFinding {
         if ($label) {
             $isLocallyDefined = $false
             foreach ($definition in $localDefs) {
-                if ($definition.Name -eq $name -and $definition.End -le $command.Extent.StartOffset) {
+                if ($definition.Name -ne $name) { continue }
+                if ($definition.End -le $command.Extent.StartOffset) {
+                    $isLocallyDefined = $true
+                    break
+                }
+                # sd1-1 (round 4): recursion - a use INSIDE its own
+                # definition's body only ever executes after the definition
+                # exists (re-grade round 3), so it is defined too.
+                if ($definition.Start -le $command.Extent.StartOffset -and
+                    $command.Extent.EndOffset -le $definition.End) {
                     $isLocallyDefined = $true
                     break
                 }

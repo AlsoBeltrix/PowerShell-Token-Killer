@@ -1272,6 +1272,14 @@ Describe 'Get-PtcShellDialectFinding' {
             Get-PtcShellDialectFinding -Script 'export X=1; function export { param($a) $a }' |
                 Should -Match 'export'
         }
+
+        It 'honors recursion - a use inside its own definition body (sd1-1 round 4)' {
+            # The recursive call sits lexically BEFORE the definition''s end,
+            # but it only ever executes after the definition exists (probed:
+            # the script runs and prints ran:X=1).
+            Get-PtcShellDialectFinding -Script 'function export { param($Assignment) if ($Assignment -eq ''again'') { export X=1 } else { "ran:$Assignment" } }; export again' |
+                Should -BeNullOrEmpty
+        }
     }
 
     Context 'parse-fatal evidence is comment/string-aware (sd1-3)' {

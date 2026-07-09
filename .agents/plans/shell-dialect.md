@@ -94,10 +94,14 @@ source.
     wrap is offered only when `bash` resolves as an Application in the
     runspace; on a box without bash (true bashisms on Windows are
     commands ptk cannot run — `unified-shell-routing.md:60-62`) the
-    guidance names rewrite-in-PowerShell plus the already-settled
-    `PTK_DIRECT` harness-shell escape (`unified-shell-routing.md:128-130`
-    — the refusal text references the existing marker; its semantics stay
-    out of scope). Explicit `route=pwsh` **and** `raw=true` both bypass
+    guidance leads with rewrite-in-PowerShell. The already-settled
+    `PTK_DIRECT` marker (`unified-shell-routing.md:128-130`; semantics
+    stay out of scope) is named only as what it is — a hook bypass
+    (`scripts/ptk-hook.ps1:34-35` just exits 0; it changes no dialect) —
+    useful solely when the harness shell itself can run the construct.
+    The refusal must never present it as making a bashism run: on a
+    PowerShell-shell harness the same script re-issued under
+    `PTK_DIRECT` fails identically. Explicit `route=pwsh` **and** `raw=true` both bypass
     detection: each is consent, and raw already skips routing entirely
     ("executed exactly as written", `RunspaceHost.cs:349-354`), so the
     detector never sees a raw call by construction — this is a documented
@@ -114,10 +118,17 @@ source.
   already preserves errors, exit codes, and structure") — the `raw`
   parameter description (`InvokeTool.cs:28`), the tool description's "Set
   raw=true for full uncompressed output" (`InvokeTool.cs:20-21`), the
-  ptk_init nudge block (`scripts/ptk_init.ps1:127-128`), and the README
-  (`:43-44`, `:60-62`, plus the suggested harness note `:165-171`);
-  rewording only the parameter line while louder surfaces still invite
-  raw changes nothing the model acts on. Make raw usage visible (server
+  ptk_init nudge block (`scripts/ptk_init.ps1:127-128`), the README
+  (`:43-44`, `:60-62`, plus the suggested harness note `:165-171`),
+  server/README (`:86`, `:93`), **and the compressor's own elision
+  markers** — "[N lines elided - use raw=true for everything]"
+  (`src/PwshTokenCompressor.psm1:593`, `:605`, `:608`) — the loudest
+  in-band invitation, delivered mid-output at the exact moment raw is
+  tempting; four Pester assertions pin that marker wording
+  (`tests/PwshTokenCompressor.Tests.ps1:1039-1069`) and are updated in
+  the same slice, so a half-applied reword fails the battery. Rewording
+  only the parameter line while louder surfaces still invite raw changes
+  nothing the model acts on. Make raw usage visible (server
   log line per raw call; candidate: a counter in `ptk_state`), **counted
   at the user-call boundary only** — the tool's `raw` parameter in
   `InvokeTool`, never inside `RunspaceHost`: internal probes pass
@@ -163,9 +174,21 @@ source.
    no-rtk seam). (ii) *Token-aware matching:* patterns evaluate parser
    tokens/AST, never raw text, so comments and string literals (including
    here-strings carrying bash text) cannot trip it. (iii) *Shadowing
-   guard:* a leading word that resolves live to a function/alias/cmdlet
-   is not classified — the same resolution discipline as `:552-566`; a
-   user-defined `export` function is legitimate pwsh. (iv) *Recovery
+   guard, scoped to session-defined commands:* a leading word that
+   resolves to a **user/session-defined** function or alias is not
+   classified — a user-defined `export` function is legitimate pwsh
+   (same resolution discipline as `:552-566`). The exemption does NOT
+   extend to default built-in aliases: `set` resolves to `Set-Variable`
+   in every pwsh (verified: `set -e` dies with "Missing an argument for
+   parameter 'Exclude'"), so a blanket resolves-therefore-exempt rule
+   would strike `set -e` off its own detection list — for collision
+   names like `set`, classification keys on the probed full argument
+   shape, never the leading word alone. Resolution context must also
+   match execution context: a `background=true` script runs in a cold
+   `pwsh -NoProfile` child (`JobManager.cs:82-91`), so its shadow check
+   resolves against the cold default command table, never warm session
+   state — a warm-defined `export` function must not exempt a background
+   script that will die without it. (iv) *Recovery
    exemption:* the `bash -lc '...'` wrap itself must never be classified.
    Pester tests per construct plus false-positive guards covering exactly
    these: the recovery wrapper, here-strings/comments containing bash
@@ -179,13 +202,17 @@ source.
    (`JobManager.cs:73-79`), so detection must run before `jobs.Start` — a
    detected script is refused fast, never started as a job that dies in
    its log. Guard tests on both paths; handshake (server-facing).
-3. **raw posture per D2**: reword all four model-visible surfaces
-   (tool description, `raw` parameter description, ptk_init nudge block,
-   README including the harness note) in one pass — partial rewording
-   leaves the louder surface winning. Raw-usage visibility: server log
-   line + `ptk_state` counter at the user-call boundary only. dotnet
-   tests where testable, including the guard that `ptk_state` and
-   `background=true` internal probes leave the counter unchanged.
+3. **raw posture per D2**: reword every surface in the D2 inventory
+   (tool + parameter descriptions, ptk_init nudge block, both READMEs,
+   and the compressor's elision markers with their four Pester
+   assertions) in one pass — partial rewording leaves the louder surface
+   winning. Raw-usage visibility: server log line + `ptk_state` counter
+   at the user-call boundary only. Verification is positive as well as
+   negative: one user `raw=true` call increments the counter exactly
+   once, surfaces in `ptk_state`, and emits the log line (a permanently
+   zero counter must fail the battery, not satisfy it); the negative
+   guard — `ptk_state` and `background=true` internal probes leave the
+   counter unchanged — rides alongside. dotnet tests where testable.
 4. **Texts per D3**: the dialect line in hook deny + nudge block + README
    routing section, phrased consistently with D1's platform-aware recovery
    (the hook deny is a static string rendered per-box, so the line either
@@ -218,6 +245,9 @@ cover the two paths that dodge the foreground/rtk-present happy path:
 the same construct via `background=true` (refused fast, no job started,
 nothing dies in a job log) and via the rtk-absent seam (detection still
 fires before the `Resolve-PtcInvokeScript` early return). Raw-counter
-guard observed live: one `ptk_state` call and one background job leave
-the raw counter unchanged. After landing + owner push, issues #3 (item
-1) and #4 get fix references.
+checks observed live, positive then negative: one deliberate user
+`raw=true` call increments the counter exactly once, surfaces in
+`ptk_state`, and emits the server log line (a counter that never moves
+fails verification rather than passing it); then one `ptk_state` call
+and one background job leave the raw counter unchanged. After landing +
+owner push, issues #3 (item 1) and #4 get fix references.

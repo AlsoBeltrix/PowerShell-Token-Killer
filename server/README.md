@@ -33,21 +33,10 @@ The handshake starts the server through the same `dotnet run` command used by
 the MCP registration and must end with `HANDSHAKE PASSED`. The explicit
 `-TimeoutSec 90` gives cold build/startup work room to finish.
 
-Sessions started inside this repo use the committed `.mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "ptk": {
-      "command": "dotnet",
-      "args": ["run", "-v", "q", "--project", "server/PtkMcpServer"]
-    }
-  }
-}
-```
-
-For sessions started from other project directories, register the same command
-user-wide and point it at this clone:
+A checkout has no project-scope registration (the committed `.mcp.json` is
+deliberately empty). Install and register user-wide with
+`pwsh -File scripts/dev-install.ps1` (builds a self-contained binary into
+`~/.ptk` and registers it), or register the checkout directly:
 
 ```powershell
 claude mcp add ptk --scope user -- dotnet run -v q --project <path-to-repo>/server/PtkMcpServer

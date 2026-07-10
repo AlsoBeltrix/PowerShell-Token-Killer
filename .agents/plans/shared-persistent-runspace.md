@@ -70,19 +70,29 @@ decision to make at approval time, not a default this file gets to set.
    would clobber another's env. Needs per-runspace env virtualization,
    or a documented shared-env contract, or process-per-key instead of
    runspace-per-key.
-2. **Security.** A standing daemon executing arbitrary shell is a
+2. **Module and authentication state can be process-global, not
+   per-runspace.** Distinct keyed runspaces are NOT a generic isolation
+   boundary: e.g. Microsoft.Graph's `Connect-MgGraph -ContextScope
+   Process` scopes the auth context to the PROCESS, so key B
+   reconnecting or disconnecting can switch or kill key A's tenant
+   context despite "isolated" runspaces — admin-state bleed no amount
+   of env virtualization fixes. Each connection-bearing module needs an
+   isolation/concurrency probe; **process-per-key is the generic
+   strong-isolation option** unless in-process safety is proven per
+   module.
+3. **Security.** A standing daemon executing arbitrary shell is a
    standing exec service, and a GUID becomes a bearer token to an
    authenticated (possibly Exchange-admin) session. This amplifies the
    issue-#3 permission-bypass concern and likely lands behind the
    policy-file gate design recorded in `.agents/decisions.md`. Socket
    permissions, key handling, and audit logging are design inputs, not
    afterthoughts.
-3. **Lifecycle.** Per-key idle expiry (an abandoned GUID must not hold
+4. **Lifecycle.** Per-key idle expiry (an abandoned GUID must not hold
    an authenticated session forever), daemon start/stop ergonomics,
    crash recovery semantics ("your key survived but its runspace did
    not" needs an honest, machine-readable answer — the issue-6
    `Recovering`/`WarmStateLost` plumbing is the precedent).
-4. **Transport.** MCP stdio-proxy vs. streamable HTTP; what each harness
+5. **Transport.** MCP stdio-proxy vs. streamable HTTP; what each harness
    on the owner's machines can actually register.
 
 ## Trigger

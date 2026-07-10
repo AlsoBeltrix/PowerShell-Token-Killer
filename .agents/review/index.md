@@ -575,3 +575,18 @@ on the trivial-fix convergence precedent (strictly diminishing rounds:
 8 → 2 LOW → 1 LOW test-case addition). The owner may reopen or order a
 further re-grade. The plan remains a DRAFT awaiting owner approval;
 commits unpushed pending the owner's master push go.
+
+---
+
+Loop run 2026-07-10 (issue-5/6 implementation, slices 1-3) — reviewer:
+codex (codex-cli 0.144.1, gpt-5.6-sol, read-only), scope: commits
+`cf167ce` (slice 1, neutral [stderr]), `04214fc` (slice 2, total
+wall-clock budget), `1841e46` (slice 3, never-queueing ptk_state), base
+`d16c644`, one pass over the batch per the v2fb precedent. Owner APPROVED
+the plan in-session 2026-07-10 (50-words-or-less summary form; slice 0
+root cause: system sleep vs monotonic timers — no code defect). Coder-side
+verification at head: dotnet 94/94 (all three slices guard-proven by
+revert/sabotage: 4+3+3 red legs), Pester 133 passed / 1 skipped, handshake
+PASSED, live MCP-stdio issue-repro checks 11/11 (ptk_state 306ms during a
+3s call; 1s-budget queue expiry at 1305ms, never executed). **Status:
+review dispatched, verdict pending.**

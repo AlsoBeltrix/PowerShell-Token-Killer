@@ -5,18 +5,26 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **issue-5/6 batch plan DRAFT awaiting owner approval (2026-07-10)**
-  (`.agents/plans/issue-5-6-invoke-semantics.md`): the owner-triaged
-  next batch — #5 neutral `[stderr]` channel, #6 total wall-clock
-  timeout budget + never-queueing busy-aware ptk_state. Codex plan loop
-  CLOSED CONVERGED (rounds: 8 findings → 2 LOW → 1 LOW test-case tail;
-  i56p-1..11 all fixed, one commit each; record in
-  `.agents/review/index.md`). NO CODE CHANGED — implementation starts
-  only on owner approval. Two live data points banked during the loop:
-  the warm ptk server wedged and died under a codex-dispatch call
-  (ptk_state blocked 1817s behind it — a #6 datum), and codex called
-  ptk_invoke from inside a read-only review sandbox (an issue-3
-  permission-surface datum).
+- **issue-5/6 batch IMPLEMENTED, codex review pending (2026-07-10)**
+  (`.agents/plans/issue-5-6-invoke-semantics.md`, APPROVED in-session):
+  slice 0 root cause — the "900s call never answered" incident was
+  system sleep vs monotonic timers (evidence: harness MCP log + pmset;
+  recorded in the plan), no code defect; slice 1 `cf167ce` neutral
+  `[stderr]` by invocation provenance; slice 2 `04214fc` total
+  wall-clock budget (queue + preflight + execution, sleep-safe 60s-chunk
+  deadline re-checks, fast queue expiry without executing); slice 3
+  `1841e46` never-queueing ptk_state (zero-wait try-acquire, busy line
+  with active-call age + waiters, idle-clock stamp). Battery at
+  `1841e46`: dotnet 94/94 (new canonical count; per-slice guard proofs
+  4+3+3 red legs), Pester 133 passed / 1 skipped, handshake PASSED, live
+  MCP-stdio issue-repro checks 11/11. Codex implementation review
+  DISPATCHED (verdict pending — see `.agents/review/index.md`). Plan
+  loop i56p-1..11 CLOSED CONVERGED earlier the same day. Also banked:
+  codex calls ptk_invoke from inside its read-only sandbox (issue-3
+  permission-surface datum). Process note (owner, in-session): approval
+  requests now go to the owner as ≤50-word plain-English summaries; the
+  broader plan-length fix will come via the governance toolkit, not this
+  repo.
 - **shell-dialect plan COMPLETE 2026-07-10**
   (`.agents/plans/shell-dialect.md`; decision entry + the sd1-4 and
   sd3-1 amendments in `.agents/decisions.md`). All slices done and

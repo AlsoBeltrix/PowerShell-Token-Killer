@@ -218,8 +218,9 @@ Set these in the MCP registration `env` block when defaults do not fit:
   of silently extending it.
 - `useLocalScope: false` is intentional, so assignments and imported modules
   persist into later calls.
-- `ptk_reset` and call timeouts create a fresh primed runspace. Warm state is
-  lost, but later calls continue working.
+- `ptk_reset` and execution/preflight timeouts create a fresh primed
+  runspace: warm state is lost, but later calls continue working. A queue
+  expiry is neither — the call never ran and warm state survives.
 - Caller cancellation tries to stop the pipeline and preserve the runspace. If
   the pipeline does not stop within the grace period, the runspace is recycled.
 - Child native processes inherit EOF for stdin instead of the MCP JSON-RPC pipe,

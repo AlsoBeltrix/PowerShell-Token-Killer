@@ -147,6 +147,21 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
+    public async Task Background_route_pwsh_bypasses_detection_and_starts_the_job()
+    {
+        // sd2-5: the second background consent path. Mixed case on purpose:
+        // this also pins that route normalization sits ABOVE the background
+        // branch — its pre-slice-2 position would leave "PWSH" unnormalized
+        // here and refuse a consented call.
+        var text = await InvokeTool.Invoke(
+            _host, _jobs, "export X=1", CancellationToken.None, route: "PWSH", background: true);
+
+        Assert.DoesNotContain("[ptk:dialect]", text);
+        Assert.Contains("[job 1 started]", text);
+        Assert.Single(_jobs.List());
+    }
+
+    [Fact]
     public async Task Detection_fires_with_rtk_absent()
     {
         // Plan slice 1(i)/Verification: detection cannot depend on the rtk

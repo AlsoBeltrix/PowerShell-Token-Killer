@@ -602,13 +602,13 @@ plan letter, recorded here).
 
 | ID     | Severity | Impact (one line)                                                        | Status | Branch |
 |--------|----------|---------------------------------------------------------------------------|--------|--------|
-| i56-1  | HIGH     | Sleep race: gate acquired past the wall deadline still executes the expired call | `[ ]`  |        |
-| i56-2  | MEDIUM   | Synchronous runspace rebuild on the timeout path can block the response (slice-0 class) | `[ ]`  |        |
-| i56-3  | MEDIUM   | Exit-code bookkeeping ignores the deadline and hides its own recycle      | `[ ]`  |        |
-| i56-4  | MEDIUM   | Cold pre-start (gate wait, import, detection) escapes the request deadline | `[ ]`  |        |
-| i56-5  | HIGH     | Canceled/failed cwd probe still starts the job in the server directory    | `[ ]`  |        |
-| i56-6  | MEDIUM   | A cwd execution timeout is misreported as queue expiry (warm state claim false) | `[ ]`  |        |
-| i56-7  | MEDIUM   | Second listAvailable ptk_state blocks on the cache gate for minutes       | `[ ]`  |        |
-| i56-8  | LOW      | Busy on the listAvailable leg omits the promised age/waiter line          | `[ ]`  |        |
-| i56-9  | LOW      | Queued ptk_reset invisible to waiter accounting                           | `[ ]`  |        |
-| i56-10 | LOW      | README operational note still equates every timeout with state loss       | `[ ]`  |        |
+| i56-1  | HIGH     | Sleep race: gate acquired past the wall deadline still executes the expired call | `[x]`  | master (direct, 3bbe389; guard by-inspection - no clock seam) |
+| i56-2  | MEDIUM   | Synchronous runspace rebuild on the timeout path can block the response (slice-0 class) | `[x]`  | master (direct, 6f79b70) |
+| i56-3  | MEDIUM   | Exit-code bookkeeping ignores the deadline and hides its own recycle      | `[x]`  | master (direct, 6410a06; adds InvokeResult.WarmStateLost) |
+| i56-4  | MEDIUM   | Cold pre-start (gate wait, import, detection) escapes the request deadline | `[x]`  | master (direct, 34bf4e6; cold-import delay leg stated untested) |
+| i56-5  | HIGH     | Canceled/failed cwd probe still starts the job in the server directory    | `[x]`  | master (direct, 4cd9cdf joint with i56-6 - shared lines) |
+| i56-6  | MEDIUM   | A cwd execution timeout is misreported as queue expiry (warm state claim false) | `[x]`  | master (direct, 4cd9cdf joint with i56-5) |
+| i56-7  | MEDIUM   | Second listAvailable ptk_state blocks on the cache gate for minutes       | `[x]`  | master (direct, d7fbaac + dd97e12 - first guard draft vacuous, replaced with red-leg proof) |
+| i56-8  | LOW      | Busy on the listAvailable leg omits the promised age/waiter line          | `[x]`  | master (direct, 27dcbca; race interleave stated untested) |
+| i56-9  | LOW      | Queued ptk_reset invisible to waiter accounting                           | `[x]`  | master (direct, 0be93a3) |
+| i56-10 | LOW      | README operational note still equates every timeout with state loss       | `[x]`  | master (direct, 188d421) |

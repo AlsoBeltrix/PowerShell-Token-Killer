@@ -203,7 +203,7 @@ Set these in the MCP registration `env` block when defaults do not fit:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PTK_CALL_TIMEOUT_SECONDS` | `300` | Default per-call limit. On timeout, the call fails and the runspace is recycled. |
+| `PTK_CALL_TIMEOUT_SECONDS` | `300` | Default per-call limit: a total wall-clock budget covering queue wait plus execution. A call whose budget expires while still queued behind another call fails fast without executing (warm state intact); a call that overruns while executing fails with the runspace recycled. |
 | `PTK_MAX_CALL_TIMEOUT_SECONDS` | `3600` | Cap on the per-call `timeoutSeconds` override. |
 | `PTK_IDLE_EXIT_SECONDS` | `14400` | Idle self-exit backstop for orphaned servers, in seconds. |
 | `PTK_MODULE_PATH` | auto-discovered `src/PwshTokenCompressor.psd1` | Explicit module manifest to import into the runspace. If set to a missing file, shaping is disabled. |
@@ -211,7 +211,11 @@ Set these in the MCP registration `env` block when defaults do not fit:
 
 ## Operational Notes
 
-- Calls are serialized; one runspace runs one pipeline at a time.
+- Calls are serialized; one runspace runs one pipeline at a time. The
+  per-call timeout is a wall-clock budget over the whole request — queue
+  wait included — and deadlines are re-checked when timers fire, so a
+  machine that sleeps mid-call times the call out promptly on wake instead
+  of silently extending it.
 - `useLocalScope: false` is intentional, so assignments and imported modules
   persist into later calls.
 - `ptk_reset` and call timeouts create a fresh primed runspace. Warm state is

@@ -297,30 +297,46 @@ public sealed class RunspaceHost : IDisposable
     }
 
     // Exit-code bookkeeping runs as tiny extra pipelines on the warm runspace
-    // (sub-ms each). Both must hold the gate and must never fail a call.
-    private void ResetExitCode()
+    // (sub-ms each). Both must hold the gate and must never fail a call. They
+    // take the runspace explicitly so an abandoned preflight/bookkeeping task
+    // can never touch the replacement runspace after a recycle.
+    private static void ResetExitCode(Runspace runspace)
     {
         try
         {
             using var ps = PowerShell.Create();
-            ps.Runspace = _runspace;
+            ps.Runspace = runspace;
             ps.AddScript("$global:LASTEXITCODE = 0", useLocalScope: false);
             ps.Invoke();
         }
         catch { /* bookkeeping only */ }
     }
 
-    private int ReadExitCode()
+    private static int ReadExitCode(Runspace runspace)
     {
         try
         {
             using var ps = PowerShell.Create();
-            ps.Runspace = _runspace;
+            ps.Runspace = runspace;
             ps.AddScript("if ($global:LASTEXITCODE -is [int]) { $global:LASTEXITCODE } else { 0 }", useLocalScope: false);
             var results = ps.Invoke();
             return results.Count > 0 && results[0]?.BaseObject is int code ? code : 0;
         }
         catch { return 0; }
+    }
+
+    // Post-success bookkeeping gets a short fixed grace, not the call deadline
+    // (which a long execution may have nearly spent): if the read wedges, the
+    // response still goes out - with the runspace recycled and no exit code -
+    // rather than never (the slice-0 lesson generalized).
+    private static readonly TimeSpan BookkeepingGrace = TimeSpan.FromSeconds(10);
+
+    private async Task<int> ReadExitCodeBoundedAsync(Runspace runspace)
+    {
+        var read = Task.Run(() => ReadExitCode(runspace));
+        if (await Task.WhenAny(read, Task.Delay(BookkeepingGrace)) == read) return await read;
+        RecycleAbandoning(read);
+        return 0;
     }
 
     // rtk prints an install nag to stderr on every routed invocation; it is
@@ -360,12 +376,12 @@ public sealed class RunspaceHost : IDisposable
     // Asks the module to classify/rewrite the script (single native commands
     // route through rtk — unified-shell-routing plan). Any failure returns the
     // script unchanged: routing must never be able to fail a call.
-    private string ResolveScript(string script, string route)
+    private static string ResolveScript(Runspace runspace, string script, string route)
     {
         try
         {
             using var ps = PowerShell.Create();
-            ps.Runspace = _runspace;
+            ps.Runspace = runspace;
             ps.AddCommand("Resolve-PtcInvokeScript")
               .AddParameter("Script", script)
               .AddParameter("Route", route);
@@ -449,7 +465,7 @@ public sealed class RunspaceHost : IDisposable
     /// against a cold command table because that is where the job will run.
     /// Null means no finding — or no way to check, which falls back to
     /// today's behavior rather than blocking the job.</summary>
-    public async Task<string?> TryGetBackgroundDialectRefusalAsync(string script, CancellationToken cancellationToken = default)
+    public async Task<string?> TryGetBackgroundDialectRefusalAsync(string script, CancellationToken cancellationToken = default, DateTimeOffset? deadline = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         // A served refusal is user activity (sd2-3): this is a user-call
@@ -458,7 +474,19 @@ public sealed class RunspaceHost : IDisposable
         // watchdog must not stop a server right after it answered.
         LastActivityUtc = DateTimeOffset.UtcNow;
         if (_modulePath is null) return null;
-        await _coldDetectionGate.WaitAsync(cancellationToken);
+        // Deadline expiry here degrades to a miss (null), the pre-detector
+        // behavior: the check must never block a job. The request's budget is
+        // still enforced by the cwd probe that follows (plan finding i56p-3).
+        if (deadline is not null)
+        {
+            var remaining = deadline.Value - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return null;
+            if (!await _coldDetectionGate.WaitAsync(remaining, cancellationToken)) return null;
+        }
+        else
+        {
+            await _coldDetectionGate.WaitAsync(cancellationToken);
+        }
         try
         {
             if (_coldDetectionRunspace is null)
@@ -495,106 +523,200 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
-    public async Task<InvokeResult> InvokeAsync(string script, bool raw = false, CancellationToken cancellationToken = default, string route = "auto", int timeoutSeconds = 0)
+    internal enum WaitOutcome { Completed, TimedOut, Canceled }
+
+    // Deadline checks are wall-clock and re-evaluated in bounded chunks, never
+    // a single monotonic Task.Delay: monotonic timers stop during system
+    // sleep, so a call dispatched into a DarkWake sliver silently outlived its
+    // budget by hours while the caller counted wall time (slice-0 incident,
+    // 2026-07-10). After any sleep, the next chunk expiry re-reads the wall
+    // clock and an overdue deadline fires promptly — the IdleWatchdog model.
+    private static readonly TimeSpan DeadlineCheckChunk = TimeSpan.FromSeconds(60);
+
+    /// <summary>Waits for <paramref name="work"/> under a wall-clock deadline,
+    /// sleep-safe (see <see cref="DeadlineCheckChunk"/>). A deadline already in
+    /// the past reports <see cref="WaitOutcome.TimedOut"/> without waiting.</summary>
+    internal static async Task<WaitOutcome> WaitForDeadlineAsync(
+        Task work, DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            if (work.IsCompleted) return WaitOutcome.Completed;
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return WaitOutcome.TimedOut;
+            var chunk = remaining < DeadlineCheckChunk ? remaining : DeadlineCheckChunk;
+            var delay = Task.Delay(chunk, cancellationToken);
+            var finished = await Task.WhenAny(work, delay);
+            if (finished == work) return WaitOutcome.Completed;
+            if (delay.IsCanceled) return WaitOutcome.Canceled;
+        }
+    }
+
+    // The serialization gate wait is part of the same wall-clock budget as
+    // execution (issue #6): a queued call must not overshoot its budget just
+    // because another call holds the runspace. Chunked for sleep safety.
+    private async Task<bool> TryEnterGateAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var remaining = deadline - DateTimeOffset.UtcNow;
+            if (remaining <= TimeSpan.Zero) return false;
+            var chunk = remaining < DeadlineCheckChunk ? remaining : DeadlineCheckChunk;
+            if (await _gate.WaitAsync(chunk, cancellationToken)) return true;
+        }
+    }
+
+    internal TimeSpan EffectiveBudget(int timeoutSeconds) => timeoutSeconds > 0
+        ? TimeSpan.FromSeconds(Math.Min(timeoutSeconds, _maxCallTimeout.TotalSeconds))
+        : _callTimeout;
+
+    /// <summary>The request's wall-clock deadline. Computed at the tool boundary
+    /// for background calls so every pre-start step shares one budget.</summary>
+    internal DateTimeOffset ComputeDeadline(int timeoutSeconds) =>
+        DateTimeOffset.UtcNow + EffectiveBudget(timeoutSeconds);
+
+    // Queue expiry is NOT the execution timeout: nothing ran, nothing was
+    // recycled, and saying otherwise sends the model rebuilding warm state it
+    // never lost (plan finding i56p-8).
+    private static InvokeResult QueueExpiryResult(TimeSpan budget) => new(
+        Success: false,
+        Output: string.Empty,
+        Errors: [$"Runspace busy: this call's {budget.TotalSeconds:0}s wall-clock budget expired while waiting for another call to finish. " +
+            "The script was NOT executed and warm state is untouched. " +
+            "Retry when the active call finishes, raise timeoutSeconds, or use background=true for stateless work."],
+        Warnings: [],
+        TimedOut: true);
+
+    private InvokeResult ExecutionTimeoutResult(TimeSpan budget) => new(
+        Success: false,
+        Output: string.Empty,
+        Errors: [$"Call timed out: it exceeded its {budget.TotalSeconds:0}s wall-clock budget (queue wait + execution); the runspace was recycled and all warm state was lost. " +
+            "Command and PATH resolution can differ in the fresh runspace - ptk_state shows what drifted. " +
+            "For stateless long work (builds, watchers), rerun with background=true and poll with ptk_job. " +
+            "For work that needs the warm session (live connections, imported modules), rerun with a larger timeoutSeconds."],
+        Warnings: [],
+        TimedOut: true);
+
+    public async Task<InvokeResult> InvokeAsync(string script, bool raw = false, CancellationToken cancellationToken = default, string route = "auto", int timeoutSeconds = 0, DateTimeOffset? deadline = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        var callTimeout = timeoutSeconds > 0
-            ? TimeSpan.FromSeconds(Math.Min(timeoutSeconds, _maxCallTimeout.TotalSeconds))
-            : _callTimeout;
+        var budget = EffectiveBudget(timeoutSeconds);
+        // A caller-supplied deadline (the background pre-start path) is the
+        // request's budget; this call inherits whatever remains of it.
+        var callDeadline = deadline ?? DateTimeOffset.UtcNow + budget;
         LastActivityUtc = DateTimeOffset.UtcNow;
-        await _gate.WaitAsync(cancellationToken);
+        if (!await TryEnterGateAsync(callDeadline, cancellationToken))
+        {
+            return QueueExpiryResult(budget);
+        }
         var ps = PowerShell.Create();
         var handedOff = false;
         try
         {
-            // raw skips routing as well as shaping: raw means the uncompressed
-            // truth, executed exactly as written.
-            if (ModuleLoaded && !raw && route != "pwsh")
+            // Preflight runs pipelines on the warm runspace (dialect check,
+            // routing, exit-code bookkeeping) BEFORE the timed main pipeline,
+            // so it sits inside the same deadline: a session-shadowed helper
+            // or wedged rtk child hanging preflight is the d3-1 wedge class
+            // (plan finding i56p-1). raw skips routing as well as shaping:
+            // raw means the uncompressed truth, executed exactly as written;
+            // route=pwsh bypasses by the same consent (shell-dialect plan).
+            var runspace = _runspace;
+            var checkDialect = ModuleLoaded && !raw && route != "pwsh";
+            var preflight = Task.Run(() =>
             {
-                // Dialect check first (shell-dialect plan D1, slice 2): a
-                // probed bash-only construct gets a fast labeled refusal with
-                // recovery guidance instead of dying later as a misdirected
-                // pwsh error — or worse, running with silently changed
-                // meaning. raw=true and route=pwsh bypass by consent (each
-                // says "run exactly this"), and the check runs regardless of
-                // rtk availability — it precedes routing entirely.
-                var refusal = TryGetDialectRefusal(_runspace, script, background: false);
-                if (refusal is not null)
+                var resolved = script;
+                if (checkDialect)
                 {
-                    return new InvokeResult(
+                    // Dialect check first (shell-dialect plan D1, slice 2): a
+                    // probed bash-only construct gets a fast labeled refusal
+                    // with recovery guidance instead of dying later as a
+                    // misdirected pwsh error.
+                    var refusal = TryGetDialectRefusal(runspace, script, background: false);
+                    if (refusal is not null) return (Refusal: refusal, Script: script);
+                    resolved = ResolveScript(runspace, script, route);
+                }
+                // Reset before each call so a previous call's native exit code
+                // is never reported against a script that ran no native
+                // command (the stale-LASTEXITCODE bug).
+                ResetExitCode(runspace);
+                return (Refusal: (string?)null, Script: resolved);
+            }, CancellationToken.None);
+
+            var preflightOutcome = await WaitForDeadlineAsync(preflight, callDeadline, cancellationToken);
+            if (preflightOutcome != WaitOutcome.Completed)
+            {
+                // A stuck preflight pipeline is a wedged warm runspace; there
+                // is no PowerShell handle to stop here, so recycle either way.
+                RecycleAbandoning(preflight);
+                return preflightOutcome == WaitOutcome.TimedOut
+                    ? ExecutionTimeoutResult(budget)
+                    : new InvokeResult(
                         Success: false,
-                        Output: refusal,
-                        Errors: [],
+                        Output: string.Empty,
+                        Errors: ["Call canceled by the caller during preflight; the runspace was recycled and all warm state was lost."],
                         Warnings: [],
                         TimedOut: false);
-                }
-
-                script = ResolveScript(script, route);
             }
 
-            // Reset before each call so a previous call's native exit code is never
-            // reported against a script that ran no native command (the stale-
-            // LASTEXITCODE bug first found and fixed on the since-retired CLI path).
-            ResetExitCode();
+            var (preflightRefusal, resolvedScript) = await preflight;
+            if (preflightRefusal is not null)
+            {
+                return new InvokeResult(
+                    Success: false,
+                    Output: preflightRefusal,
+                    Errors: [],
+                    Warnings: [],
+                    TimedOut: false);
+            }
+
             ps.Runspace = _runspace;
             // useLocalScope: false — assignments land in the runspace's session
             // state and survive into the next call; that persistence is the point.
-            ps.AddScript(script, useLocalScope: false)
+            ps.AddScript(resolvedScript, useLocalScope: false)
               .AddCommand(ModuleLoaded && !raw ? "Compress-PtcOutput" : "Out-String");
 
             var invokeTask = ps.InvokeAsync();
-            var delayTask = Task.Delay(callTimeout, cancellationToken);
-            var finished = await Task.WhenAny(invokeTask, delayTask);
+            var outcome = await WaitForDeadlineAsync(invokeTask, callDeadline, cancellationToken);
 
-            if (finished != invokeTask)
+            if (outcome == WaitOutcome.Canceled)
             {
-                // The delay task ends two ways: canceled (caller aborted the call,
-                // e.g. user Esc) or ran to completion (real timeout). A cancel is
-                // not a wedge — stop the pipeline and keep the warm runspace; only
-                // recycle if the pipeline refuses to stop within the grace period.
-                if (delayTask.IsCanceled)
+                // A cancel (caller aborted, e.g. user Esc) is not a wedge —
+                // stop the pipeline and keep the warm runspace; only recycle
+                // if the pipeline refuses to stop within the grace period.
+                if (await TryStopPipelineAsync(ps, invokeTask))
                 {
-                    if (await TryStopPipelineAsync(ps, invokeTask))
-                    {
-                        return new InvokeResult(
-                            Success: false,
-                            Output: string.Empty,
-                            Errors: ["Call canceled by the caller; the pipeline was stopped and warm state was preserved."],
-                            Warnings: [],
-                            TimedOut: false);
-                    }
-
-                    handedOff = true;
-                    AbandonAndRecycle(ps, invokeTask);
                     return new InvokeResult(
                         Success: false,
                         Output: string.Empty,
-                        Errors: [$"Call canceled by the caller, but the pipeline did not stop within {StopGrace.TotalSeconds:0}s; the runspace was recycled and all warm state was lost."],
+                        Errors: ["Call canceled by the caller; the pipeline was stopped and warm state was preserved."],
                         Warnings: [],
                         TimedOut: false);
                 }
 
                 handedOff = true;
                 AbandonAndRecycle(ps, invokeTask);
-                // Teach the recovery paths at the moment of failure — the one
-                // place a model reliably reads documentation (design P4). The
-                // two paths differ by workload, so name both.
                 return new InvokeResult(
                     Success: false,
                     Output: string.Empty,
-                    Errors: [$"Call exceeded the {callTimeout.TotalSeconds:0}s timeout; the runspace was recycled and all warm state was lost. " +
-                        "Command and PATH resolution can differ in the fresh runspace - ptk_state shows what drifted. " +
-                        "For stateless long work (builds, watchers), rerun with background=true and poll with ptk_job. " +
-                        "For work that needs the warm session (live connections, imported modules), rerun with a larger timeoutSeconds."],
+                    Errors: [$"Call canceled by the caller, but the pipeline did not stop within {StopGrace.TotalSeconds:0}s; the runspace was recycled and all warm state was lost."],
                     Warnings: [],
-                    TimedOut: true);
+                    TimedOut: false);
+            }
+
+            if (outcome == WaitOutcome.TimedOut)
+            {
+                handedOff = true;
+                AbandonAndRecycle(ps, invokeTask);
+                // Teach the recovery paths at the moment of failure — the one
+                // place a model reliably reads documentation (design P4).
+                return ExecutionTimeoutResult(budget);
             }
 
             try
             {
                 var results = await invokeTask;
                 var output = string.Concat(results.Select(r => r?.ToString()));
-                var exitCode = ReadExitCode();
+                var exitCode = await ReadExitCodeBoundedAsync(_runspace);
                 var (stderr, errors) = PartitionErrorStream(ps.Streams.Error);
                 return new InvokeResult(
                     Success: true,
@@ -613,7 +735,7 @@ public sealed class RunspaceHost : IDisposable
                 // ($PSNativeCommandUseErrorActionPreference) lands nonzero-exit
                 // commands here; without the read their [exit] N silently
                 // dropped beside the preserved stderr (plan finding i56p-6).
-                var exitCode = ReadExitCode();
+                var exitCode = await ReadExitCodeBoundedAsync(_runspace);
                 return new InvokeResult(
                     Success: false,
                     Output: string.Empty,
@@ -643,7 +765,14 @@ public sealed class RunspaceHost : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         if (!ModuleLoaded || text.Length == 0) return text;
         LastActivityUtc = DateTimeOffset.UtcNow;
-        await _gate.WaitAsync(cancellationToken);
+        var deadline = DateTimeOffset.UtcNow + _callTimeout;
+        // A poll must never block behind a long foreground call either: on a
+        // gate that stays busy past the budget, return the text unshaped —
+        // shaping must never fail (or stall) a poll.
+        if (!await TryEnterGateAsync(deadline, cancellationToken))
+        {
+            return text;
+        }
         var ps = PowerShell.Create();
         var handedOff = false;
         try
@@ -659,11 +788,10 @@ public sealed class RunspaceHost : IDisposable
             input.Complete();
 
             var invokeTask = ps.InvokeAsync(input);
-            var delayTask = Task.Delay(_callTimeout, cancellationToken);
-            var finished = await Task.WhenAny(invokeTask, delayTask);
-            if (finished != invokeTask)
+            var outcome = await WaitForDeadlineAsync(invokeTask, deadline, cancellationToken);
+            if (outcome != WaitOutcome.Completed)
             {
-                if (delayTask.IsCanceled && await TryStopPipelineAsync(ps, invokeTask))
+                if (outcome == WaitOutcome.Canceled && await TryStopPipelineAsync(ps, invokeTask))
                 {
                     return text;
                 }
@@ -685,16 +813,20 @@ public sealed class RunspaceHost : IDisposable
     }
 
     /// <summary>Current directory of the warm session (background jobs start
-    /// there); null when the probe fails.</summary>
-    public async Task<string?> TryGetCurrentLocationAsync(CancellationToken cancellationToken = default)
+    /// there); a null path means the probe failed. TimedOut is reported
+    /// separately because the caller must FAIL the job start on a busy-expired
+    /// probe rather than silently start the job in the server process cwd —
+    /// the wrong project (plan finding i56p-4).</summary>
+    public async Task<(string? Path, bool TimedOut)> TryGetCurrentLocationAsync(CancellationToken cancellationToken = default, DateTimeOffset? deadline = null)
     {
         try
         {
-            var result = await InvokeAsync("(Get-Location).Path", raw: true, cancellationToken: cancellationToken);
+            var result = await InvokeAsync("(Get-Location).Path", raw: true, cancellationToken: cancellationToken, deadline: deadline);
+            if (result.TimedOut) return (null, true);
             var path = result.Output.Trim();
-            return result.Success && path.Length > 0 && Directory.Exists(path) ? path : null;
+            return (result.Success && path.Length > 0 && Directory.Exists(path) ? path : null, false);
         }
-        catch { return null; }
+        catch { return (null, false); }
     }
 
     /// <summary>Discard all warm state and start a fresh runspace. Caller-facing
@@ -749,6 +881,21 @@ public sealed class RunspaceHost : IDisposable
             try { await abandonedInvoke; } catch { /* observe, else unobserved-task noise */ }
             try { wedged.Dispose(); } catch { /* best effort */ }
             try { old.Dispose(); } catch { /* wedged runspace */ }
+        });
+    }
+
+    // Recycle when there is no PowerShell handle to stop (a wedged preflight
+    // or bookkeeping task): disposing the old runspace tears down whatever
+    // pipeline the abandoned task is stuck in; the task is awaited only to
+    // observe its eventual exception.
+    private void RecycleAbandoning(Task abandonedWork)
+    {
+        var old = _runspace;
+        _runspace = CreatePrimedRunspace();
+        _ = Task.Run(async () =>
+        {
+            try { old.Dispose(); } catch { /* wedged runspace */ }
+            try { await abandonedWork; } catch { /* observe, else unobserved-task noise */ }
         });
     }
 

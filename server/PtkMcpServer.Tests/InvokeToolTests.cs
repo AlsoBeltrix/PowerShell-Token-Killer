@@ -430,6 +430,93 @@ public sealed class InvokeToolTests : IDisposable
         Assert.Contains("[errors]", text); // the terminating record itself is a genuine error
     }
 
+    // Issue #6 matrix: timeoutSeconds is a total wall-clock budget covering
+    // queue wait, preflight, and execution.
+
+    [Fact]
+    public async Task Queued_call_whose_budget_expires_never_executes()
+    {
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        var slow = host.InvokeAsync("Start-Sleep -Seconds 6; 'slow-done'");
+        await Task.Delay(500); // let the slow call own the gate
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var queued = await host.InvokeAsync("$global:queuedRan = 1", timeoutSeconds: 1);
+        sw.Stop();
+
+        Assert.False(queued.Success);
+        Assert.True(queued.TimedOut);
+        Assert.Contains("NOT executed", queued.Errors[0]);
+        // Fails fast at budget expiry, not after the active call finishes.
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), $"queued call took {sw.Elapsed}");
+
+        // The active call and its warm state are untouched.
+        var slowResult = await slow;
+        Assert.True(slowResult.Success);
+        Assert.Contains("slow-done", slowResult.Output);
+        var check = await host.InvokeAsync("if ($null -eq $global:queuedRan) { 'never-ran' } else { 'RAN' }");
+        Assert.Contains("never-ran", check.Output);
+    }
+
+    [Fact]
+    public async Task Preflight_cannot_outlive_the_budget()
+    {
+        // A session-shadowed detector hangs preflight before the main
+        // pipeline's timer used to start (plan finding i56p-1, d3-1 class).
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        var define = await host.InvokeAsync(
+            "function global:Get-PtcShellDialectFinding { param($Script) Start-Sleep -Seconds 60 }",
+            route: "pwsh");
+        Assert.True(define.Success);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var result = await host.InvokeAsync("'hello'", timeoutSeconds: 2);
+        sw.Stop();
+
+        Assert.False(result.Success);
+        Assert.True(result.TimedOut);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(20), $"preflight-stuck call took {sw.Elapsed}");
+
+        // The wedged runspace was recycled; the next call works.
+        var after = await host.InvokeAsync("1 + 1");
+        Assert.True(after.Success);
+        Assert.Contains("2", after.Output);
+    }
+
+    [Fact]
+    public async Task Background_prestart_respects_the_budget_and_starts_no_job()
+    {
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        var slow = host.InvokeAsync("Start-Sleep -Seconds 6");
+        await Task.Delay(500);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var text = await InvokeTool.Invoke(
+            host, _jobs, _rawUsage, "'x'", CancellationToken.None, background: true, timeoutSeconds: 1);
+        sw.Stop();
+
+        // Busy expiry fails the start; no job may run in the server process
+        // cwd (plan findings i56p-3, i56p-4).
+        Assert.Contains("[job not started]", text);
+        Assert.Contains("busy", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(_jobs.List());
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(4), $"background pre-start took {sw.Elapsed}");
+        await slow;
+    }
+
+    [Fact]
+    public async Task A_deadline_already_in_the_past_times_out_immediately()
+    {
+        // The post-sleep wake case (slice 0): deadlines are wall-clock, so a
+        // call whose budget elapsed while the machine slept answers promptly
+        // on the next check instead of running a monotonic timer to the end.
+        var never = new TaskCompletionSource().Task;
+        var outcome = await RunspaceHost.WaitForDeadlineAsync(
+            never, DateTimeOffset.UtcNow.AddSeconds(-1), CancellationToken.None);
+
+        Assert.Equal(RunspaceHost.WaitOutcome.TimedOut, outcome);
+    }
+
     [Fact]
     public async Task Background_starts_a_job_and_its_output_is_pollable()
     {

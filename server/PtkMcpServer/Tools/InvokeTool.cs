@@ -20,9 +20,12 @@ public static class InvokeTool
         "import once instead of on every call. Compressed output preserves errors, " +
         "exit codes, and structure; raw=true exists for recovering detail the " +
         "compressed form lost, not as a default - for exact execution with shaped " +
-        "output use route=pwsh with raw=false. Calls run serially; a call that " +
-        "exceeds the server timeout is aborted and the runspace is recycled, " +
-        "losing all warm state.")]
+        "output use route=pwsh with raw=false. Calls run serially, and the timeout " +
+        "is a total wall-clock budget covering queue wait plus execution: a call " +
+        "still waiting when its budget expires fails fast WITHOUT executing (warm " +
+        "state intact - just retry or go background); only a call that overruns " +
+        "while executing is aborted with the runspace recycled, losing all warm " +
+        "state.")]
     public static async Task<string> Invoke(
         RunspaceHost host,
         JobManager jobs,
@@ -48,9 +51,12 @@ public static class InvokeTool
             "ptk_job.")]
         bool background = false,
         [Description(
-            "Per-call timeout override in seconds, capped by the server maximum. Use " +
-            "for long work that NEEDS the warm session (live connections, imported " +
-            "modules); stateless long work should use background=true instead.")]
+            "Per-call timeout override in seconds, capped by the server maximum. A " +
+            "total wall-clock budget: queue wait behind another call counts against " +
+            "it, and a call whose budget expires while still queued fails fast " +
+            "without executing (warm state intact). Use for long work that NEEDS " +
+            "the warm session (live connections, imported modules); stateless long " +
+            "work should use background=true instead.")]
         int timeoutSeconds = 0)
     {
         // Raw-usage visibility (shell-dialect plan D2): counted here at the
@@ -74,6 +80,14 @@ public static class InvokeTool
         {
             try
             {
+                // One wall-clock budget for the whole request, established
+                // BEFORE any pre-start step: the dialect check and the cwd
+                // probe used to run under the server default regardless of
+                // the caller's timeoutSeconds, so a 1s-budget background
+                // retry could still block for minutes behind a busy runspace
+                // (plan finding i56p-3).
+                var deadline = host.ComputeDeadline(timeoutSeconds);
+
                 // Dialect check BEFORE the job starts (shell-dialect plan,
                 // slice 2): a detected bash-only script is refused fast, never
                 // started as a job that dies in its log. Same consent bypasses
@@ -82,11 +96,21 @@ public static class InvokeTool
                 // the job will run.
                 if (!raw && route != "pwsh")
                 {
-                    var refusal = await host.TryGetBackgroundDialectRefusalAsync(script, cancellationToken);
+                    var refusal = await host.TryGetBackgroundDialectRefusalAsync(script, cancellationToken, deadline);
                     if (refusal is not null) return refusal;
                 }
 
-                var cwd = await host.TryGetCurrentLocationAsync(cancellationToken);
+                var (cwd, cwdTimedOut) = await host.TryGetCurrentLocationAsync(cancellationToken, deadline);
+                if (cwdTimedOut)
+                {
+                    // Fail the start rather than degrade to the server process
+                    // cwd: a build silently running in the wrong project is
+                    // unrecoverable; a failed start with guidance is not
+                    // (plan finding i56p-4).
+                    return "[job not started] Runspace busy: the wall-clock budget expired while probing the " +
+                           "session's current directory behind another call. Nothing was executed and warm state " +
+                           "is untouched. Retry when the active call finishes, or raise timeoutSeconds.";
+                }
                 var job = jobs.Start(script, cwd);
                 return $"[job {job.Id} started] pid {job.Pid}, cold process (no warm session state), log: {job.OutputPath}\n" +
                        $"Poll with ptk_job action=output id={job.Id} (then pass the returned next offset); " +

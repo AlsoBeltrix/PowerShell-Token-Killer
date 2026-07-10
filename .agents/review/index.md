@@ -693,3 +693,14 @@ findings, handled coder-side: a stale issue-5/6 "gates all
 implementation" Next bullet in state.md (fixed with this close) and a
 process note that the spr loop used index rows without per-finding docs
 (accepted — the trivial-docs-fix convergence precedent covers it).
+
+---
+
+Loop run 2026-07-10 (agy third pass, unpushed docs batch) — reviewer:
+agy (Antigravity 1.1.1, sandboxed print mode; incantation probed fresh
+per the playbook and cached in `harnesses.local.json` — no JSON mode, so
+the verdict contract was prompt-enforced and parsed fail-closed), scope:
+`5c0c2cc..09a83dc` (the grok-reviewed batch plus that loop''s own
+record). **CLOSED first pass: NO FINDINGS** (valid single-object JSON,
+reviewed_sha matches head). Three harnesses (codex, grok, agy) are now
+probed, cached, and have each run at least one real loop.

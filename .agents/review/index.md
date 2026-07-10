@@ -646,3 +646,26 @@ proof discarded uncommitted i56-12 work, which was re-applied and
 verified before commit — history unaffected. Commits unpushed pending
 the owner's master push go; issues #5 and #6 get fix references and
 closure after push.
+---
+
+Loop run 2026-07-10 (shared-persistent-runspace idea plan) — reviewer:
+codex (codex-cli 0.144.1, gpt-5.6-sol, read-only), docs-only scope:
+commit `903cfb8` (base `5c0c2cc`), the IDEA-stage plan
+`.agents/plans/shared-persistent-runspace.md`. Four findings, ALL
+ADMITTED after master verification against `.agents/decisions.md` and
+the archive (the draft was written without re-reading decisions.md — a
+coder process miss the loop caught). Fixes one per commit. The review
+also surfaced repo drift fixed separately at `35ebf35`: the go/no-go was
+decided GO 2026-07-08 while state.md/repo-guidance still framed it as
+pending.
+
+## Findings (shared-runspace idea loop)
+
+| ID    | Severity | Impact (one line)                                                        | Status | Branch |
+|-------|----------|---------------------------------------------------------------------------|--------|--------|
+| spr-1 | MEDIUM   | Plan reopens the already-decided GO as its gate                           | `[x]`  | master (direct, db88989) |
+| spr-2 | MEDIUM   | N-key sketch conflicts with the recorded attach-only-first staging        | `[x]`  | master (direct, 0ed7bcb) |
+| spr-3 | HIGH     | Keyed runspaces presented as an auth isolation boundary (ContextScope Process disproves) | `[x]`  | master (direct, 94f9a3e) |
+| spr-4 | MEDIUM   | Busy telemetry presented as making shared state safe between calls        | `[x]`  | master (direct, 550986b) |
+
+**Re-grade dispatched at head `550986b`; verdict pending.**

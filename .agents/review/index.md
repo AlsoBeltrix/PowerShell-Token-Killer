@@ -668,4 +668,11 @@ pending.
 | spr-3 | HIGH     | Keyed runspaces presented as an auth isolation boundary (ContextScope Process disproves) | `[x]`  | master (direct, 94f9a3e) |
 | spr-4 | MEDIUM   | Busy telemetry presented as making shared state safe between calls        | `[x]`  | master (direct, 550986b) |
 
-**Re-grade dispatched at head `550986b`; verdict pending.**
+**Loop CLOSED 2026-07-10 (converged):** re-grade at head `a91d2a1`
+(codex, codex-cli 0.144.1, gpt-5.6-sol, read-only) — spr-1/2/4 RESOLVED,
+NO NEW FINDINGS; spr-3's residual was one dangling sketch sentence still
+claiming "isolated warm sessions," fixed verbatim per the reviewer's own
+identification — closed on the trivial-docs-fix convergence precedent
+(the mhi-5 disposition). The plan remains an IDEA record, NOT approved;
+the keys-vs-attach-only staging call is the owner's. Commits unpushed
+pending the owner's push go.

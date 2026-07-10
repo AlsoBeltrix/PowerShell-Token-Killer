@@ -59,7 +59,10 @@ decision to make at approval time, not a default this file gets to set.
   multiplies the warm-runspace value prop: import Exchange once per
   day, not once per session.
 - Same key shared by several agents = the shared runspace (serialized,
-  busy-reported); distinct keys = isolated warm sessions in one daemon.
+  busy-reported); distinct keys = SEPARATE warm sessions — separate, not
+  isolated: keyed runspaces in one process share env vars and
+  process-global module/auth state (hard problems 1-2), so real
+  isolation likely means process-per-key.
 
 ## Hard problems to solve before any build
 

@@ -436,3 +436,19 @@ codex-cli 0.144.0, read-only). Every fix carried a live red-leg proof
 (sd2-5/sd2-6 by injecting the exact predicted regression). Battery at
 head: dotnet 74/74 (new canonical count), Pester 132 passed / 1 skipped,
 handshake PASSED. Commits unpushed pending the owner's master push go.
+
+---
+
+Loop run 2026-07-10 (shell-dialect slice 3) — reviewer: codex (codex-cli
+0.144.0, read-only), scope: commit `fa1b23c` (base `d72adcb`) — raw
+posture per D2 (recovery-only rewording + raw visibility). One finding,
+ADMITTED IN PART: the raw-parameter half fixed; the elision-marker half
+DECLINED on coder-verified evidence (elision applies on every shaped
+route, so the pairing cannot recover an elided middle — teaching it there
+would be misadvice). Detail: `.agents/review/findings/sd3-1.md`.
+
+## Findings (shell-dialect slice-3 loop)
+
+| ID    | Severity | Impact (one line)                                                      | Status | Branch |
+|-------|----------|--------------------------------------------------------------------------|--------|--------|
+| sd3-1 | MEDIUM   | raw surfaces omit the route=pwsh+raw=false pairing (admitted: raw param; declined: marker surfaces) | `[~]`  | master (direct) |

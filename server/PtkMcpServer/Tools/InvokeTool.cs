@@ -33,7 +33,7 @@ public static class InvokeTool
             "Recovery hatch, not a default: skip output compression only to recover " +
             "detail the compressed form lost (errors, exit codes, and structure are " +
             "already preserved compressed). For exact execution with shaped output " +
-            "use route=pwsh instead.")]
+            "use route=pwsh with raw=false instead.")]
         bool raw = false,
         [Description(
             "Routing override: 'auto' (default) runs a single native command " +

@@ -93,7 +93,10 @@ public sealed class RawUsageTests : IDisposable
         var rawParam = invoke.GetParameters().Single(p => p.Name == "raw");
         var raw = ((DescriptionAttribute)rawParam.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
         Assert.Contains("Recovery hatch, not a default", raw);
-        Assert.Contains("route=pwsh", raw);
+        // sd3-1: the FULL pairing, both halves — "route=pwsh" alone leaves
+        // the raw=false half untaught on the one surface aimed squarely at
+        // the fidelity habit.
+        Assert.Contains("route=pwsh with raw=false", raw);
         Assert.DoesNotContain("full uncompressed output", raw);
     }
 }

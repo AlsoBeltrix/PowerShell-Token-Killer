@@ -103,6 +103,17 @@ public static class StateTool
 
         if (listAvailable)
         {
+            // A populated cache renders without touching the gate: a caller
+            // merely reading the cache must not make a concurrent call claim
+            // an enumeration is running (codex finding i56-15). The cache is
+            // written once per session; a stale null read just falls through
+            // to the gate path.
+            if (_availableCache is string cachedFast)
+            {
+                sb.AppendLine("modules available:");
+                sb.AppendLine(cachedFast.Length > 0 ? cachedFast : "  (none)");
+                return sb.ToString().TrimEnd();
+            }
             // Zero-wait like every other status probe (codex finding i56-7):
             // a second state call must not block for minutes behind another
             // caller's slow first enumeration - that would withhold even the

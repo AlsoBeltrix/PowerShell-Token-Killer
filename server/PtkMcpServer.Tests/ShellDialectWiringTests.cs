@@ -168,6 +168,21 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
+    public async Task Warm_bash_shadow_withdraws_the_wrap_advice()
+    {
+        // sd2-2: with a warm function named bash, the advertised wrap would
+        // run the shadow, not bash — the advice must fall back to
+        // rewrite-only. On a box without bash the advice is already
+        // rewrite-only, so this holds everywhere.
+        await _host.InvokeAsync("function bash { param($a, $b) \"SHADOWED:$b\" }");
+        var result = await _host.InvokeAsync("export X=1");
+
+        Assert.Contains("[ptk:dialect]", result.Output);
+        Assert.Contains("Rewrite it in PowerShell", result.Output);
+        Assert.DoesNotContain("bash -lc", result.Output);
+    }
+
+    [Fact]
     public async Task Refusal_recovery_guidance_is_platform_aware()
     {
         var result = await _host.InvokeAsync("export X=1");

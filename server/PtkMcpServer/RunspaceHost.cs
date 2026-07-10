@@ -373,6 +373,10 @@ public sealed class RunspaceHost : IDisposable
     // The bash -lc recovery wrap is offered only when bash actually resolves
     // as an Application in the resolution context (plan D1): advising it on a
     // box that cannot run it would send the model into a second dead end.
+    // Normal command precedence, not an Application-filtered lookup (sd2-2):
+    // a warm function or alias named bash shadows the binary, and following
+    // the advice would run the shadow — the wrap is offered only when
+    // re-issuing it would actually execute bash.
     private static bool ProbeBashAvailable(Runspace runspace)
     {
         try
@@ -380,7 +384,8 @@ public sealed class RunspaceHost : IDisposable
             using var ps = PowerShell.Create();
             ps.Runspace = runspace;
             ps.AddScript(
-                "$null -ne $ExecutionContext.InvokeCommand.GetCommand('bash', [System.Management.Automation.CommandTypes]::Application)");
+                "[System.Management.Automation.CommandTypes]::Application -eq " +
+                "($ExecutionContext.InvokeCommand.GetCommand('bash', [System.Management.Automation.CommandTypes]::All)).CommandType");
             var results = ps.Invoke();
             return results.Count > 0 && results[0]?.BaseObject is bool available && available;
         }

@@ -156,7 +156,8 @@ public static class StateTool
     // queue-expiry failure on ptk_invoke carries the wait it spent.
     private static string FormatBusyLine(RunspaceHost host)
     {
-        var (_, age, waiters) = host.GetGateStatus();
+        var (_, age, waiters, recovering) = host.GetGateStatus();
+        if (recovering) return $"runspace: busy (rebuilding after a recycle, {waiters} waiting)";
         return age is not null
             ? $"runspace: busy (active call running {age.Value.TotalSeconds:0}s, {waiters} waiting)"
             : $"runspace: busy ({waiters} waiting)";

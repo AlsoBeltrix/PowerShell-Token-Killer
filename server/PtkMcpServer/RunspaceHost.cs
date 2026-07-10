@@ -47,7 +47,14 @@ public sealed class RunspaceHost : IDisposable
     private readonly TimeSpan _callTimeout;
     private readonly TimeSpan _maxCallTimeout;
     private readonly string? _modulePath;
-    private Runspace _runspace;
+    // The warm runspace, as a task: recycle paths swap in a REBUILD that runs
+    // off the response's critical path. The slice-0 incident class — a stalled
+    // Runspace.Open or module import silently withholding the labeled timeout
+    // response while holding the gate — dies here: the timeout answer goes out
+    // first, and the next gate holder awaits the rebuild under ITS own
+    // deadline (codex finding i56-2). Swapped only while holding the gate;
+    // read lock-free by GetGateStatus.
+    private Task<Runspace> _runspaceReady;
     private bool _disposed;
 
     // Background jobs execute in a cold `pwsh -NoProfile` child, so their
@@ -101,7 +108,7 @@ public sealed class RunspaceHost : IDisposable
             Console.Error.WriteLine(
                 "ptk: PwshTokenCompressor module not found (set PTK_MODULE_PATH); output shaping disabled, calls return plain Out-String text.");
         }
-        _runspace = CreatePrimedRunspace();
+        _runspaceReady = Task.FromResult(CreatePrimedRunspace());
         // Environment variables are process-wide, not runspace state, and engine
         // startup/priming legitimately touches some (e.g. PSModulePath) — so the
         // drift baseline is captured AFTER the first primed runspace exists;
@@ -216,10 +223,16 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
+    /// <summary>Test hook: replacement-runspace construction is synchronous and
+    /// can stall in the wild (a hung mount under Runspace.Open); tests inject a
+    /// delay here to prove the timeout response does not wait for it.</summary>
+    internal TimeSpan CreationDelayForTests { get; set; }
+
     /// <summary>Creates a runspace and imports the compressor module into it, so
     /// recycle/reset paths get shaping back automatically.</summary>
     private Runspace CreatePrimedRunspace()
     {
+        if (CreationDelayForTests > TimeSpan.Zero) Thread.Sleep(CreationDelayForTests);
         var runspace = CreateRunspace();
         ModuleLoaded = _modulePath is not null && TryImportModule(runspace, _modulePath);
         BaselineVariableCount = TryCountVariables(runspace);
@@ -335,7 +348,7 @@ public sealed class RunspaceHost : IDisposable
     {
         var read = Task.Run(() => ReadExitCode(runspace));
         if (await Task.WhenAny(read, Task.Delay(BookkeepingGrace)) == read) return await read;
-        RecycleAbandoning(read);
+        RecycleAbandoning(read, runspace);
         return 0;
     }
 
@@ -559,16 +572,18 @@ public sealed class RunspaceHost : IDisposable
     private int _gateWaiters;
 
     /// <summary>Lock-free view of the serialization gate for diagnostics:
-    /// busy/idle, how long the active call has held the runspace, and how many
-    /// callers are queued behind it.</summary>
-    public (bool Busy, TimeSpan? ActiveCallAge, int Waiters) GetGateStatus()
+    /// busy/idle, how long the active call has held the runspace, how many
+    /// callers are queued behind it, and whether a post-recycle rebuild is
+    /// still in flight (recovering counts as busy for callers).</summary>
+    public (bool Busy, TimeSpan? ActiveCallAge, int Waiters, bool Recovering) GetGateStatus()
     {
         var startTicks = Interlocked.Read(ref _activeCallStartTicks);
-        var busy = _gate.CurrentCount == 0;
+        var recovering = !_runspaceReady.IsCompleted;
+        var busy = _gate.CurrentCount == 0 || recovering;
         TimeSpan? age = busy && startTicks != 0
             ? DateTimeOffset.UtcNow - new DateTimeOffset(startTicks, TimeSpan.Zero)
             : null;
-        return (busy, age, Volatile.Read(ref _gateWaiters));
+        return (busy, age, Volatile.Read(ref _gateWaiters), recovering);
     }
 
     private void MarkGateAcquired() =>
@@ -621,7 +636,7 @@ public sealed class RunspaceHost : IDisposable
     // the active call's age independently observable (issue #6).
     private InvokeResult QueueExpiryResult(TimeSpan budget)
     {
-        var (_, age, waiters) = GetGateStatus();
+        var (_, age, waiters, _) = GetGateStatus();
         var busyDetail = age is not null
             ? $"the active call has held the runspace for {age.Value.TotalSeconds:0}s and {waiters} caller(s) are waiting"
             : "another call holds the runspace";
@@ -674,10 +689,42 @@ public sealed class RunspaceHost : IDisposable
         // after it answered.
         LastActivityUtc = DateTimeOffset.UtcNow;
         if (!_gate.Wait(0)) return null;
+        // A pending rebuild counts as busy for a zero-wait probe: waiting for
+        // it would reintroduce the queueing this API exists to avoid.
+        if (!_runspaceReady.IsCompletedSuccessfully)
+        {
+            ReleaseGate();
+            return null;
+        }
         MarkGateAcquired();
         var budget = _callTimeout;
         return await InvokeGateHeldAsync(script, raw, "auto", DateTimeOffset.UtcNow + budget, budget, cancellationToken);
     }
+
+    // After a recycle, the replacement runspace is built off the response's
+    // critical path; the next call picks it up here, under its own deadline.
+    // A faulted rebuild fails THIS call and kicks off a fresh attempt so one
+    // bad build cannot brick the server permanently.
+    private async Task<Runspace?> AwaitRunspaceReadyAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
+    {
+        var ready = _runspaceReady;
+        if (await WaitForDeadlineAsync(ready, deadline, cancellationToken) != WaitOutcome.Completed)
+        {
+            return null;
+        }
+        if (ready.IsCompletedSuccessfully) return ready.Result;
+        Console.Error.WriteLine($"ptk: runspace rebuild failed ({ready.Exception?.GetBaseException().Message}); retrying in the background.");
+        _runspaceReady = Task.Run(CreatePrimedRunspace);
+        return null;
+    }
+
+    private InvokeResult RecoveringResult(TimeSpan budget) => new(
+        Success: false,
+        Output: string.Empty,
+        Errors: [$"Runspace recovering: a previous call timed out and the replacement runspace was not ready within this call's {budget.TotalSeconds:0}s wall-clock budget. " +
+            "The script was NOT executed. Retry shortly, or raise timeoutSeconds."],
+        Warnings: [],
+        TimedOut: true);
 
     private async Task<InvokeResult> InvokeGateHeldAsync(string script, bool raw, string route, DateTimeOffset callDeadline, TimeSpan budget, CancellationToken cancellationToken)
     {
@@ -685,6 +732,12 @@ public sealed class RunspaceHost : IDisposable
         var handedOff = false;
         try
         {
+            var runspace = await AwaitRunspaceReadyAsync(callDeadline, cancellationToken);
+            if (runspace is null)
+            {
+                return RecoveringResult(budget);
+            }
+
             // Preflight runs pipelines on the warm runspace (dialect check,
             // routing, exit-code bookkeeping) BEFORE the timed main pipeline,
             // so it sits inside the same deadline: a session-shadowed helper
@@ -692,7 +745,6 @@ public sealed class RunspaceHost : IDisposable
             // (plan finding i56p-1). raw skips routing as well as shaping:
             // raw means the uncompressed truth, executed exactly as written;
             // route=pwsh bypasses by the same consent (shell-dialect plan).
-            var runspace = _runspace;
             var checkDialect = ModuleLoaded && !raw && route != "pwsh";
             var preflight = Task.Run(() =>
             {
@@ -719,7 +771,7 @@ public sealed class RunspaceHost : IDisposable
             {
                 // A stuck preflight pipeline is a wedged warm runspace; there
                 // is no PowerShell handle to stop here, so recycle either way.
-                RecycleAbandoning(preflight);
+                RecycleAbandoning(preflight, runspace);
                 return preflightOutcome == WaitOutcome.TimedOut
                     ? ExecutionTimeoutResult(budget)
                     : new InvokeResult(
@@ -741,7 +793,7 @@ public sealed class RunspaceHost : IDisposable
                     TimedOut: false);
             }
 
-            ps.Runspace = _runspace;
+            ps.Runspace = runspace;
             // useLocalScope: false — assignments land in the runspace's session
             // state and survive into the next call; that persistence is the point.
             ps.AddScript(resolvedScript, useLocalScope: false)
@@ -766,7 +818,7 @@ public sealed class RunspaceHost : IDisposable
                 }
 
                 handedOff = true;
-                AbandonAndRecycle(ps, invokeTask);
+                AbandonAndRecycle(ps, invokeTask, runspace);
                 return new InvokeResult(
                     Success: false,
                     Output: string.Empty,
@@ -778,7 +830,7 @@ public sealed class RunspaceHost : IDisposable
             if (outcome == WaitOutcome.TimedOut)
             {
                 handedOff = true;
-                AbandonAndRecycle(ps, invokeTask);
+                AbandonAndRecycle(ps, invokeTask, runspace);
                 // Teach the recovery paths at the moment of failure — the one
                 // place a model reliably reads documentation (design P4).
                 return ExecutionTimeoutResult(budget);
@@ -788,7 +840,7 @@ public sealed class RunspaceHost : IDisposable
             {
                 var results = await invokeTask;
                 var output = string.Concat(results.Select(r => r?.ToString()));
-                var exitCode = await ReadExitCodeBoundedAsync(_runspace);
+                var exitCode = await ReadExitCodeBoundedAsync(runspace);
                 var (stderr, errors) = PartitionErrorStream(ps.Streams.Error);
                 return new InvokeResult(
                     Success: true,
@@ -807,7 +859,7 @@ public sealed class RunspaceHost : IDisposable
                 // ($PSNativeCommandUseErrorActionPreference) lands nonzero-exit
                 // commands here; without the read their [exit] N silently
                 // dropped beside the preserved stderr (plan finding i56p-6).
-                var exitCode = await ReadExitCodeBoundedAsync(_runspace);
+                var exitCode = await ReadExitCodeBoundedAsync(runspace);
                 return new InvokeResult(
                     Success: false,
                     Output: string.Empty,
@@ -849,7 +901,9 @@ public sealed class RunspaceHost : IDisposable
         var handedOff = false;
         try
         {
-            ps.Runspace = _runspace;
+            var runspace = await AwaitRunspaceReadyAsync(deadline, cancellationToken);
+            if (runspace is null) return text;
+            ps.Runspace = runspace;
             ps.AddCommand("Compress-PtcOutput");
             // Context-correct elision advice, composed BY the elision itself
             // (sd3-2..sd3-4): the caller knows its recovery path; inferring
@@ -868,7 +922,7 @@ public sealed class RunspaceHost : IDisposable
                     return text;
                 }
                 handedOff = true;
-                AbandonAndRecycle(ps, invokeTask);
+                AbandonAndRecycle(ps, invokeTask, runspace);
                 return text + Environment.NewLine +
                     "[ptk: shaping timed out; the runspace was recycled; raw text returned]";
             }
@@ -911,10 +965,17 @@ public sealed class RunspaceHost : IDisposable
         MarkGateAcquired();
         try
         {
-            var old = _runspace;
-            _runspace = CreatePrimedRunspace();
+            // Unlike the timeout recycles, reset rebuilds SYNCHRONOUSLY: the
+            // caller explicitly asked for a fresh world, and returning before
+            // the env baseline is restored would let a reset "complete" with
+            // drift still visible. The never-returned hazard (i56-2) belongs
+            // to the timeout paths, where the response is the priority.
+            var oldReady = _runspaceReady;
+            _runspaceReady = Task.FromResult(CreatePrimedRunspace());
             RestoreEnvironmentBaseline();
-            _ = Task.Run(() => { try { old.Dispose(); } catch { /* wedged runspace */ } });
+            _ = oldReady.ContinueWith(
+                t => { try { t.Result.Dispose(); } catch { /* wedged runspace */ } },
+                TaskContinuationOptions.OnlyOnRanToCompletion);
         }
         finally
         {
@@ -944,10 +1005,15 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
-    private void AbandonAndRecycle(PowerShell wedged, Task abandonedInvoke)
+    // Both recycle helpers swap in a BACKGROUND rebuild and return
+    // immediately: replacement construction (Runspace.Open, module import) is
+    // synchronous and unbounded, and running it on the response path would
+    // withhold the labeled timeout answer — the exact never-returned class
+    // the wall-clock work exists to close (codex finding i56-2, slice-0
+    // class). The caller still holds the gate here; the swap is safe.
+    private void AbandonAndRecycle(PowerShell wedged, Task abandonedInvoke, Runspace old)
     {
-        var old = _runspace;
-        _runspace = CreatePrimedRunspace();
+        _runspaceReady = Task.Run(CreatePrimedRunspace);
         _ = Task.Run(async () =>
         {
             try { wedged.Stop(); } catch { /* best effort */ }
@@ -961,10 +1027,9 @@ public sealed class RunspaceHost : IDisposable
     // or bookkeeping task): disposing the old runspace tears down whatever
     // pipeline the abandoned task is stuck in; the task is awaited only to
     // observe its eventual exception.
-    private void RecycleAbandoning(Task abandonedWork)
+    private void RecycleAbandoning(Task abandonedWork, Runspace old)
     {
-        var old = _runspace;
-        _runspace = CreatePrimedRunspace();
+        _runspaceReady = Task.Run(CreatePrimedRunspace);
         _ = Task.Run(async () =>
         {
             try { old.Dispose(); } catch { /* wedged runspace */ }
@@ -976,7 +1041,19 @@ public sealed class RunspaceHost : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        try { _runspace.Dispose(); } catch { /* best effort on teardown */ }
+        var ready = _runspaceReady;
+        if (ready.IsCompletedSuccessfully)
+        {
+            try { ready.Result.Dispose(); } catch { /* best effort on teardown */ }
+        }
+        else
+        {
+            // A pending rebuild is disposed when it materializes; a faulted
+            // one has nothing to dispose.
+            _ = ready.ContinueWith(
+                t => { try { t.Result.Dispose(); } catch { /* best effort */ } },
+                TaskContinuationOptions.OnlyOnRanToCompletion);
+        }
         try { _coldDetectionRunspace?.Dispose(); } catch { /* best effort on teardown */ }
         _gate.Dispose();
         _coldDetectionGate.Dispose();

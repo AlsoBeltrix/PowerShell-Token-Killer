@@ -505,6 +505,33 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Timeout_response_does_not_wait_for_the_replacement_runspace()
+    {
+        // The slice-0 class, closed for good (codex finding i56-2): a stalled
+        // replacement build must not withhold the labeled timeout answer.
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));
+        host.CreationDelayForTests = TimeSpan.FromSeconds(8);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var timedOut = await host.InvokeAsync("Start-Sleep -Seconds 60");
+        sw.Stop();
+
+        Assert.True(timedOut.TimedOut);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(6), $"timeout response took {sw.Elapsed}");
+
+        // While the rebuild is in flight, a small-budget call reports
+        // recovering instead of hanging; once it lands, calls work again.
+        var during = await host.InvokeAsync("'probe'", timeoutSeconds: 1);
+        Assert.True(during.TimedOut);
+        Assert.Contains("NOT executed", during.Errors[0]);
+
+        host.CreationDelayForTests = TimeSpan.Zero;
+        var after = await host.InvokeAsync("1 + 1", timeoutSeconds: 30);
+        Assert.True(after.Success);
+        Assert.Contains("2", after.Output);
+    }
+
+    [Fact]
     public async Task A_deadline_already_in_the_past_times_out_immediately()
     {
         // The post-sleep wake case (slice 0): deadlines are wall-clock, so a

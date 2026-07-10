@@ -827,8 +827,8 @@ function Get-PtcShellDialectFinding {
         }
         if ($name -eq 'set' -and $elements.Count -ge 2 -and
             $elements[1] -is [System.Management.Automation.Language.CommandParameterAst]) {
-            # Keyed to the probed full argument shape (set alone resolves as
-            # the Set-Variable alias in every pwsh and stays out of reach).
+            # Keyed to the probed full argument shape: set always resolves
+            # (stock alias -> Set-Variable), so shape is the discriminator.
             $flagsOnly = $true
             foreach ($element in ($elements | Select-Object -Skip 1)) {
                 $isFlag = $element -is [System.Management.Automation.Language.CommandParameterAst] -and
@@ -838,7 +838,33 @@ function Get-PtcShellDialectFinding {
                     $element.Value -eq 'pipefail'
                 if (-not ($isFlag -or $isPipefail)) { $flagsOnly = $false; break }
             }
-            if ($flagsOnly) { return "bash 'set' shell options (set -e/-u/-x/-o pipefail)" }
+            if ($flagsOnly) {
+                # sd1-4 (owner unparked 2026-07-09, amending the slice-0
+                # exemption): flag only while set still MEANS the stock
+                # Set-Variable alias. A session or preceding script-local
+                # re-pointing makes set -e the user's own working command -
+                # the uniform rule applies: a name that works here is never
+                # bash evidence. An unresolvable set is treated as stock
+                # (the runtime failure the finding predicts still happens).
+                $setOverridden = $false
+                foreach ($definition in $localDefs) {
+                    if ($definition.Name -ne 'set') { continue }
+                    if ($definition.End -le $command.Extent.StartOffset -or
+                        ($definition.Start -le $command.Extent.StartOffset -and
+                         $command.Extent.EndOffset -le $definition.End)) {
+                        $setOverridden = $true
+                        break
+                    }
+                }
+                if (-not $setOverridden) {
+                    $resolvedSet = $ExecutionContext.InvokeCommand.GetCommand(
+                        'set', [System.Management.Automation.CommandTypes]::All)
+                    $setOverridden = $null -ne $resolvedSet -and
+                        -not ($resolvedSet.CommandType -eq [System.Management.Automation.CommandTypes]::Alias -and
+                              $resolvedSet.Definition -eq 'Set-Variable')
+                }
+                if (-not $setOverridden) { return "bash 'set' shell options (set -e/-u/-x/-o pipefail)" }
+            }
         }
 
         # Paired backticks = bash command substitution: parses clean, prints

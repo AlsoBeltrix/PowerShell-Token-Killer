@@ -1282,6 +1282,25 @@ Describe 'Get-PtcShellDialectFinding' {
         }
     }
 
+    Context 'set flags only while it still means Set-Variable (sd1-4, owner-unparked)' {
+        It 'stays silent when the session re-pointed the set alias' {
+            function global:__sd14shadow { param([switch]$e) 'shadow-ok' }
+            Set-Alias -Name set -Value __sd14shadow -Scope Global -Force
+            try {
+                Get-PtcShellDialectFinding -Script 'set -e' | Should -BeNullOrEmpty
+            } finally {
+                Set-Alias -Name set -Value Set-Variable -Scope Global -Force
+                Remove-Item function:__sd14shadow -Force -ErrorAction SilentlyContinue
+            }
+            # Guard sanity: stock alias restored, the finding returns.
+            Get-PtcShellDialectFinding -Script 'set -e' | Should -Match 'shell options'
+        }
+
+        It 'honors a preceding script-local re-pointing of set' {
+            Get-PtcShellDialectFinding -Script 'Set-Alias set __mySet; set -e' | Should -BeNullOrEmpty
+        }
+    }
+
     Context 'parse-fatal evidence is comment/string-aware (sd1-3)' {
         It 'takes no bash evidence from comments' {
             # Fails with an unrelated pwsh MissingFileSpecification (missing

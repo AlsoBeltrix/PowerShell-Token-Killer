@@ -127,6 +127,17 @@ budgets) at approval time.
    the wrong project — contradicting the documented session-cwd contract
    in `server/README.md`. A failed start with retry guidance is
    recoverable; a wrong-directory build is not.
+   The model-visible texts move with the semantics, or they become
+   false: the ptk_invoke tool description currently states that a call
+   exceeding the timeout "is aborted and the runspace recycled"
+   (`InvokeTool.cs:23-25`) — after this slice that is true only of
+   execution overrun, and an agent reading it after a queue expiry would
+   wrongly rebuild warm connections it never lost. The tool description,
+   the `timeoutSeconds` parameter description (`InvokeTool.cs:50-53`),
+   and the `server/README.md` timeout section all state the total
+   wall-clock semantics and distinguish the two outcomes: queue expiry =
+   never executed, warm state intact; execution timeout = the owning
+   call's runspace recycled.
    Regression coverage (from the issue): a queued call whose budget
    expires never executes later (observable side effect asserted absent);
    execution timeout still recycles only the call that owns the runspace;

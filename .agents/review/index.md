@@ -538,4 +538,4 @@ direct to `master`, one per commit, per the recorded precedent.
 | i56p-5 | LOW      | FQID-only partition mislabels forged Write-Error records as [stderr]      | `[x]`  | master (direct) |
 | i56p-6 | LOW      | RuntimeException path never captures [exit] N beside preserved stderr     | `[x]`  | master (direct) |
 | i56p-7 | LOW      | server/README output contract omits the new [stderr] section              | `[x]`  | master (direct) |
-| i56p-8 | MEDIUM   | Model-visible timeout texts become false (queue expiry ≠ recycle)         | `[ ]`  |        |
+| i56p-8 | MEDIUM   | Model-visible timeout texts become false (queue expiry ≠ recycle)         | `[x]`  | master (direct) |

@@ -99,15 +99,24 @@ budgets) at approval time.
    its deadline (i56p-1).
 
 3. **#6b — prompt `ptk_state` under load.** `RunspaceHost` maintains a
-   lock-free busy snapshot around the gate (busy flag, active-call start
-   time, waiter count). `StateTool` consults it first: when busy, it
-   reports the host-level facts that need no runspace (pid, uptime,
-   shaping, raw count, jobs, env drift) plus a
+   busy snapshot around the gate (active-call start time, waiter count)
+   and exposes a zero-wait try-acquire path for state probes. `StateTool`
+   never queues: each of its runspace probes — the main probe and the
+   uncached `listAvailable` probe (`StateTool.cs:39,95`) — runs only if
+   the try-acquire wins the gate atomically; a failed try-acquire IS the
+   busy signal, not a separate check racing a separate wait (a
+   snapshot-read-then-queue design would let a long call slip in between
+   and block ptk_state for the default budget). On busy it reports the
+   host-level facts that need no runspace (pid, uptime, shaping, raw
+   count, jobs, env drift) plus a
    `runspace: busy (active call running Xs, N waiting)` line and marks
-   runspace-dependent details unavailable — it does not queue. When idle,
+   runspace-dependent details unavailable. When the try-acquire wins,
    current behavior. Queue-wait and execution time become independently
    observable: the busy line carries the active call's age, and slice 2's
-   fast-fail message carries the queue wait it spent.
+   fast-fail message carries the queue wait it spent. Regression: state
+   returns promptly with the busy indicator both when dispatched during
+   an established long call and when the long call wins the gate between
+   two state probes (the listAvailable leg).
 
 Out of scope: `JobManager` internals (background jobs are already the
 escape hatch for long stateless work; job-log stderr handling is a

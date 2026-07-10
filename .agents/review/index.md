@@ -612,3 +612,21 @@ plan letter, recorded here).
 | i56-8  | LOW      | Busy on the listAvailable leg omits the promised age/waiter line          | `[x]`  | master (direct, 27dcbca; race interleave stated untested) |
 | i56-9  | LOW      | Queued ptk_reset invisible to waiter accounting                           | `[x]`  | master (direct, 0be93a3) |
 | i56-10 | LOW      | README operational note still equates every timeout with state loss       | `[x]`  | master (direct, 188d421) |
+
+**Re-grade round 1 (codex, codex-cli 0.144.1, gpt-5.6-sol, read-only) at
+head `8dffa25`:** i56-2/4/6/7/8/9/10 **RESOLVED**; i56-1, i56-3, i56-5
+NOT RESOLVED on sharper legs (late-completing preflight still STARTS the
+user pipeline past deadline — the contested decline narrowed to
+starting-new-work, which the coder accepts; the bookkeeping floor can
+overshoot the advertised budget by 2s; cancellation during bookkeeping
+converts to success and still starts a job). Five new findings, ALL
+ADMITTED after code verification (i56-11..15 below). Fixes one per
+commit follow.
+
+| ID     | Severity | Impact (one line)                                                        | Status | Branch |
+|--------|----------|---------------------------------------------------------------------------|--------|--------|
+| i56-11 | MEDIUM   | Readiness outcomes collapse: cancel→false timeout; recovery→false queue-expiry text | `[ ]`  |        |
+| i56-12 | MEDIUM   | Superseded rebuild overwrites ModuleLoaded/baseline for the post-reset runspace | `[ ]`  |        |
+| i56-13 | MEDIUM   | Expired cold checks accumulate uncancelable queued workers; disposal races | `[ ]`  |        |
+| i56-14 | LOW      | Canceled-preflight recycle leaves WarmStateLost false                     | `[ ]`  |        |
+| i56-15 | LOW      | Cached listAvailable falsely reports enumeration-in-progress              | `[ ]`  |        |

@@ -5,26 +5,23 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **ACTIVE WORK: shell-dialect plan** (`.agents/plans/shell-dialect.md`,
-  owner-approved 2026-07-09; decision entry + the sd1-4 amendment in
-  `.agents/decisions.md`). Slice 0 (probes, results frozen in the plan)
-  and slice 1 (the token-aware detector `Get-PtcShellDialectFinding` in
-  the module) are DONE. Slice-1 loop CLOSED CONVERGED + owner-ratified
-  2026-07-09 (sd1-1..sd1-7). **Slice 2 (server wiring) DONE, loop CLOSED
-  2026-07-10** (`8c234e8` + sd2-1..sd2-6 all RESOLVED). **Slice 3 (raw
-  posture per D2) DONE, loop CLOSED 2026-07-10 round 4**: reword +
-  raw-visibility landed at `fa1b23c`; findings sd3-1 (CONTESTED →
-  owner-delegated adjudication, D2 amendment in `.agents/decisions.md`,
-  agent-experience principle recorded as an Earned Practice in
-  `.agents/repo-guidance.md`), sd3-2, sd3-3, sd3-4 (the elision-hint
-  redesign `0840d13` — marker advice is composed by the elision itself)
-  all closed (`.agents/review/index.md`;
-  `.agents/review/findings/sd3-*.md`). Battery as of `0840d13`: dotnet
-  80/80, Pester 133 passed / 1 skipped (canonical counts), handshake
-  PASSED. NEXT BUILD: slice 4 (D3 texts — dialect line in hook deny +
-  ptk_init nudge + README routing section; docs slice), then the plan's
-  live end-to-end Verification pass, then fix references on issues #3
-  (item 1) and #4 after the owner's next push.
+- **shell-dialect plan COMPLETE 2026-07-10**
+  (`.agents/plans/shell-dialect.md`; decision entry + the sd1-4 and
+  sd3-1 amendments in `.agents/decisions.md`). All slices done and
+  codex-loop-closed: slice 0 (probes frozen), slice 1 (detector;
+  sd1-1..7, owner-ratified), slice 2 (server wiring `8c234e8`;
+  sd2-1..6), slice 3 (raw posture `fa1b23c` + elision-hint redesign
+  `0840d13`; sd3-1 owner-adjudicated, sd3-2..4 RESOLVED), slice 4 (D3
+  texts `8bb96b1`; sd4-1..2). The plan's live end-to-end Verification
+  pass ran over real MCP stdio against the built server: **11/11**
+  (refusals verbatim on both paths, bash -lc recovery with compression,
+  raw counter + log line positive and negative, rtk-absent seam).
+  Battery as of `e576962`: dotnet 80/80, Pester 133 passed / 1 skipped
+  (canonical counts), handshake PASSED. Loop records:
+  `.agents/review/index.md`; findings: `.agents/review/findings/sd*-*.md`.
+  Remaining plan tail (owner-gated): after the owner's next push, post
+  the approved fix references on issue #3 (item 1) and issue #4 and
+  close #4.
 - **Owner decisions recorded 2026-07-09 (in-session, post-handoff):**
   (a) slice-1 convergence close RATIFIED (above); (b) the push
   happened — `master` == `origin/master` == remote HEAD at `c71ea70`,
@@ -45,25 +42,24 @@ short and update it when important repo facts change.
   after slices 3-4 land + push, per the deferred-execution decision
   above); #5/#6 open, triaged after-current-work.
 - Standing flags carried forward: the release-distribution plan's
-  slice 3 (`release.yml`) is queued behind the shell-dialect work, and
+  slice 3 (`release.yml`) is now unblocked (shell-dialect complete), and
   its hook-default decision must close before its slice 4
   (`.agents/plans/release-distribution.md`); the remote `ci/slice-2`
-  branch was DELETED 2026-07-09 (owner go in-session;
-  `git push origin --delete ci/slice-2` confirmed `[deleted]`) — flag
-  retired; machine-local (owner's Mac + Windows box): the installed
-  `~/.ptk` payload predates the detector work — a dev-install re-run is
-  needed for live sessions to pick up slices 1-4 once they land.
+  branch was DELETED 2026-07-09 (owner go in-session) — flag retired;
+  the machine-local dev-install note lives in `## Next`.
 
 ## Next
 
-- Shell-dialect slice 4 (dialect line in hook deny + nudge + README
-  routing section — docs slice per D3), then the plan's live end-to-end
-  Verification pass. Battery baseline: see the counts `as of 0840d13` in
-  `## Now`.
-- After slices 2-4 land + push: post the approved fix references
-  (issue #3 item 1, issue #4) and close #4; then the #5/#6 batch.
+- Owner push go (master is local-ahead; ask-first policy). After the
+  push: post the approved fix references (issue #3 item 1, issue #4) and
+  close #4; then the #5/#6 batch (triaged after-current-work
+  2026-07-09).
 - Remaining owner decision: hook-default (blocks release slice 4 only;
   owner chose "decide later" 2026-07-09 — re-present before that slice).
+- Machine-local (owner's Mac + Windows box): the installed `~/.ptk`
+  payload and the ptk_init-written nudges/hook predate the whole
+  shell-dialect plan — a dev-install re-run (+ ptk_init) is needed for
+  live sessions to pick up slices 1-4 and the new texts.
 - Slice-7 test matrix (proposed, not yet in the decision entry): (1) AD module
   native import inside ptk_invoke + warm reuse across calls; (2) build and HOLD an
   Exchange implicit-remoting session in the warm runspace, Get-Queue latency call

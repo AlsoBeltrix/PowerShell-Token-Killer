@@ -484,3 +484,30 @@ sd3-3 and sd3-4 both **RESOLVED, NO NEW FINDINGS** (codex, codex-cli
 0.144.0, read-only). All four sd3 findings closed. Battery at head:
 dotnet 80/80, Pester 133 passed / 1 skipped (new canonical counts),
 handshake PASSED. Commits unpushed pending the owner's master push go.
+
+---
+
+Loop run 2026-07-10 (shell-dialect slice 4, final slice) — reviewer:
+codex (codex-cli 0.144.0, read-only), scope: commit `8bb96b1` (base
+`f0f3238`) — the D3 dialect texts (hook deny, ptk_init nudge, README
+routing section + suggested-note mirror, server/README refusal bullet).
+Two findings, both ADMITTED at intake and fixed one commit each.
+Per-finding detail: `.agents/review/findings/sd4-{1,2}.md`.
+
+## Findings (shell-dialect slice-4 loop)
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|-------------------------------------------------------------------|--------|--------|
+| sd4-1 | LOW      | server/README read as whole-class refusal coverage (recall bound absent) | `[x]`  | master (direct, 428ac82) |
+| sd4-2 | LOW      | Nudge guard passed without the concrete bash -lc wrapper phrase   | `[x]`  | master (direct, e576962; red leg 132/1→133/0) |
+
+**Loop CLOSED 2026-07-10:** re-grade at head `e576962` (base `8bb96b1`) —
+both **RESOLVED, NO NEW FINDINGS** (codex, codex-cli 0.144.0, read-only).
+Battery at head: Pester 133 passed / 1 skipped, dotnet 80/80. **The
+shell-dialect plan's live end-to-end Verification pass ran against the
+built server over real MCP stdio and passed 11/11** (the #3 repro
+un-refused; verbatim export refusal; bash -lc recovery with compression;
+background refusal with no job started; raw counter exactly-once +
+stderr log line + negative legs; rtk-absent seam). With this close, all
+four shell-dialect slice loops (sd1..sd4) are closed and the plan is
+COMPLETE. Commits unpushed pending the owner's master push go.

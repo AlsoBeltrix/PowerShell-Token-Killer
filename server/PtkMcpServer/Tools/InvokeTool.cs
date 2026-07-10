@@ -100,16 +100,28 @@ public static class InvokeTool
                     if (refusal is not null) return refusal;
                 }
 
-                var (cwd, cwdTimedOut) = await host.TryGetCurrentLocationAsync(cancellationToken, deadline);
-                if (cwdTimedOut)
+                // Anything but Ok fails the start rather than degrading to the
+                // server process cwd: a build silently running in the wrong
+                // project is unrecoverable; a failed start with guidance is
+                // not (plan finding i56p-4; codex findings i56-5, i56-6). The
+                // messages differ because only an executing-probe timeout
+                // costs warm state.
+                var (cwd, cwdOutcome) = await host.TryGetCurrentLocationAsync(cancellationToken, deadline);
+                switch (cwdOutcome)
                 {
-                    // Fail the start rather than degrade to the server process
-                    // cwd: a build silently running in the wrong project is
-                    // unrecoverable; a failed start with guidance is not
-                    // (plan finding i56p-4).
-                    return "[job not started] Runspace busy: the wall-clock budget expired while probing the " +
-                           "session's current directory behind another call. Nothing was executed and warm state " +
-                           "is untouched. Retry when the active call finishes, or raise timeoutSeconds.";
+                    case RunspaceHost.CwdProbeOutcome.QueueExpired:
+                        return "[job not started] Runspace busy: the wall-clock budget expired while probing the " +
+                               "session's current directory behind another call. Nothing was executed and warm state " +
+                               "is untouched. Retry when the active call finishes, or raise timeoutSeconds.";
+                    case RunspaceHost.CwdProbeOutcome.TimedOutExecuting:
+                        return "[job not started] The session-directory probe timed out while executing; the " +
+                               "runspace was recycled and all warm state was lost (ptk_state shows what drifted). " +
+                               "Retry to start the job in the fresh session's directory.";
+                    case RunspaceHost.CwdProbeOutcome.Failed:
+                        return "[job not started] Could not determine the session's current directory, and jobs " +
+                               "run in the session's directory by contract - starting elsewhere could run in the " +
+                               "wrong project. Run a foreground ptk_invoke (e.g. Get-Location) to diagnose, or " +
+                               "Set-Location explicitly and retry.";
                 }
                 var job = jobs.Start(script, cwd);
                 return $"[job {job.Id} started] pid {job.Pid}, cold process (no warm session state), log: {job.OutputPath}\n" +

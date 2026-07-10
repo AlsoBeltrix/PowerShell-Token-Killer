@@ -983,21 +983,42 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
+    public enum CwdProbeOutcome
+    {
+        /// <summary>Path resolved; the job may start there.</summary>
+        Ok,
+        /// <summary>The probe ran but produced no usable path.</summary>
+        Failed,
+        /// <summary>Budget expired before the probe ran; warm state untouched.</summary>
+        QueueExpired,
+        /// <summary>The probe itself timed out EXECUTING; the runspace was
+        /// recycled and warm state is gone — reporting this as a mere queue
+        /// expiry would tell the model its connections survived when they did
+        /// not (codex finding i56-6).</summary>
+        TimedOutExecuting,
+    }
+
     /// <summary>Current directory of the warm session (background jobs start
-    /// there); a null path means the probe failed. TimedOut is reported
-    /// separately because the caller must FAIL the job start on a busy-expired
-    /// probe rather than silently start the job in the server process cwd —
-    /// the wrong project (plan finding i56p-4).</summary>
-    public async Task<(string? Path, bool TimedOut)> TryGetCurrentLocationAsync(CancellationToken cancellationToken = default, DateTimeOffset? deadline = null)
+    /// there). The caller must FAIL the job start on anything but Ok rather
+    /// than silently start the job in the server process cwd — the wrong
+    /// project (plan finding i56p-4; codex finding i56-5). Cancellation
+    /// propagates.</summary>
+    public async Task<(string? Path, CwdProbeOutcome Outcome)> TryGetCurrentLocationAsync(CancellationToken cancellationToken = default, DateTimeOffset? deadline = null)
     {
         try
         {
             var result = await InvokeAsync("(Get-Location).Path", raw: true, cancellationToken: cancellationToken, deadline: deadline);
-            if (result.TimedOut) return (null, true);
+            if (result.TimedOut)
+            {
+                return (null, result.WarmStateLost ? CwdProbeOutcome.TimedOutExecuting : CwdProbeOutcome.QueueExpired);
+            }
             var path = result.Output.Trim();
-            return (result.Success && path.Length > 0 && Directory.Exists(path) ? path : null, false);
+            return result.Success && path.Length > 0 && Directory.Exists(path)
+                ? (path, CwdProbeOutcome.Ok)
+                : (null, CwdProbeOutcome.Failed);
         }
-        catch { return (null, false); }
+        catch (OperationCanceledException) { throw; }
+        catch { return (null, CwdProbeOutcome.Failed); }
     }
 
     /// <summary>Discard all warm state and start a fresh runspace. Caller-facing

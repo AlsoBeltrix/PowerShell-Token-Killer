@@ -556,6 +556,41 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Cwd_probe_execution_timeout_reports_state_loss_not_queue_expiry()
+    {
+        // A shadowed Get-Location makes the probe time out EXECUTING: the
+        // recycle must be reported - claiming "warm state untouched" here
+        // sends the model on with dead connections (i56-6).
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        await host.InvokeAsync("function global:Get-Location { Start-Sleep -Seconds 60 }", route: "pwsh");
+
+        var text = await InvokeTool.Invoke(
+            host, _jobs, _rawUsage, "'x'", CancellationToken.None, background: true, timeoutSeconds: 3);
+
+        Assert.Contains("[job not started]", text);
+        Assert.Contains("recycled", text);
+        Assert.DoesNotContain("untouched", text);
+        Assert.Empty(_jobs.List());
+    }
+
+    [Fact]
+    public async Task Failed_cwd_probe_never_starts_the_job_in_the_server_directory()
+    {
+        // A probe that yields no usable path fails the start (i56-5): jobs
+        // run in the session directory by contract, and the server process
+        // cwd is the wrong project.
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        await host.InvokeAsync("function global:Get-Location { 'not-a-real-path' }", route: "pwsh");
+
+        var text = await InvokeTool.Invoke(
+            host, _jobs, _rawUsage, "'x'", CancellationToken.None, background: true);
+
+        Assert.Contains("[job not started]", text);
+        Assert.Contains("current directory", text);
+        Assert.Empty(_jobs.List());
+    }
+
+    [Fact]
     public async Task A_deadline_already_in_the_past_times_out_immediately()
     {
         // The post-sleep wake case (slice 0): deadlines are wall-clock, so a

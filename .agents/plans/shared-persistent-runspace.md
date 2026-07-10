@@ -14,6 +14,26 @@ pools / parallel foreground calls"
 (`.agents/plans/greenfield-design.md`), which stands until the owner
 says otherwise.
 
+## Canonical decision record (read it first)
+
+This idea is NOT the first durable record of shared warm hosting: the
+**OPEN (2026-07-08) entry in `.agents/decisions.md` — "Whether to build a
+shared multi-client warm host (+ shared signals)"** — already captures
+the owner's design notes, the dominant gotchas, and a standing
+recommendation: private mode stays the default; if built, an
+**attach-only hard share ships first** (one host, ONE serialized
+runspace, full shared state, loud shared timeout/reset messages, client
+identity in ptk_state), and **named sessions / private multi-tenancy
+come only if the narrow form earns it**. That entry owns the decision;
+this file only adds the owner's 2026-07-10 gist.
+
+What this gist adds beyond that record: **persistence across harness
+restarts via a key the model saves and checks back out** (GUID
+checkout). The N-keyed-runspaces sketch below is the "named sessions"
+stage of the recorded staging — building it FIRST would override the
+standing attach-only-first recommendation, which is an explicit owner
+decision to make at approval time, not a default this file gets to set.
+
 ## What exists today (for contrast)
 
 - One stdio server per harness session, spawned and killed by the

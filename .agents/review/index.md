@@ -630,3 +630,19 @@ commit follow.
 | i56-13 | MEDIUM   | Expired cold checks accumulate uncancelable queued workers; disposal races | `[x]`  | master (direct, 6d33a94; race legs stated untested) |
 | i56-14 | LOW      | Canceled-preflight recycle leaves WarmStateLost false                     | `[x]`  | master (direct, 5476b57 joint with i56-5 reopen - one line) |
 | i56-15 | LOW      | Cached listAvailable falsely reports enumeration-in-progress              | `[x]`  | master (direct, 6f6fdca) |
+
+**Loop CLOSED 2026-07-10 (round 3, NO FINDINGS):** re-grade at head
+`9a894e1` — all eight round-2 items (the three reopened legs + i56-11..15)
+**RESOLVED, NO NEW FINDINGS** (codex, codex-cli 0.144.1, gpt-5.6-sol,
+read-only; no_new_findings=true — a clean pass, not a convergence call).
+The i56-1 completed-work decline stands as narrowed (work already done
+returns its results; nothing STARTS past deadline). All 25 implementation
+findings across two rounds are closed. Battery at head: dotnet 100/100,
+Pester 133 passed / 1 skipped, handshake PASSED, live MCP-stdio
+issue-repro checks 11/11 (canonical counts). Process notes for the
+record: one guard was caught vacuous by running its red leg post-commit
+and replaced (dd97e12); one careless `git checkout` during a sabotage
+proof discarded uncommitted i56-12 work, which was re-applied and
+verified before commit — history unaffected. Commits unpushed pending
+the owner's master push go; issues #5 and #6 get fix references and
+closure after push.

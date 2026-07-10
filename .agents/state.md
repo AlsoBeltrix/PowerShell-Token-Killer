@@ -5,21 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **issue-5/6 batch IMPLEMENTED, codex review pending (2026-07-10)**
-  (`.agents/plans/issue-5-6-invoke-semantics.md`, APPROVED in-session):
-  slice 0 root cause — the "900s call never answered" incident was
-  system sleep vs monotonic timers (evidence: harness MCP log + pmset;
-  recorded in the plan), no code defect; slice 1 `cf167ce` neutral
-  `[stderr]` by invocation provenance; slice 2 `04214fc` total
-  wall-clock budget (queue + preflight + execution, sleep-safe 60s-chunk
-  deadline re-checks, fast queue expiry without executing); slice 3
-  `1841e46` never-queueing ptk_state (zero-wait try-acquire, busy line
-  with active-call age + waiters, idle-clock stamp). Battery at
-  `1841e46`: dotnet 94/94 (new canonical count; per-slice guard proofs
-  4+3+3 red legs), Pester 133 passed / 1 skipped, handshake PASSED, live
-  MCP-stdio issue-repro checks 11/11. Codex implementation review
-  DISPATCHED (verdict pending — see `.agents/review/index.md`). Plan
-  loop i56p-1..11 CLOSED CONVERGED earlier the same day. Also banked:
+- **issue-5/6 batch COMPLETE, loop CLOSED (2026-07-10)**: the
+  implementation review ran three rounds (10 findings → 3 reopened + 5
+  new → clean NO-FINDINGS close at `9a894e1`); all 25 findings fixed one
+  per commit, record in `.agents/review/index.md`. Battery at head:
+  dotnet 100/100, Pester 133/1 skipped, handshake PASSED, live stdio
+  issue-repro checks 11/11 (canonical counts). Awaiting the owner's push
+  go; after push, issues #5 and #6 get fix references and closure.
+  Machine-local note: this session's ptk server died during the slice-0
+  incident and the installed payload predates the whole batch — a
+  dev-install re-run is needed for live sessions to pick it up.
+- Batch details (`.agents/plans/issue-5-6-invoke-semantics.md`, APPROVED
+  in-session): slice 0 root cause — the "900s call never answered"
+  incident was system sleep vs monotonic timers (harness MCP log +
+  pmset evidence, recorded in the plan), no code defect; slice 1 neutral
+  `[stderr]` by invocation provenance; slice 2 total wall-clock budget
+  (queue + preflight + execution, sleep-safe deadline re-checks, fast
+  queue expiry without executing); slice 3 never-queueing ptk_state.
+  Plan loop i56p-1..11 CLOSED CONVERGED the same day. Also banked:
   codex calls ptk_invoke from inside its read-only sandbox (issue-3
   permission-surface datum). Process note (owner, in-session): approval
   requests now go to the owner as ≤50-word plain-English summaries; the

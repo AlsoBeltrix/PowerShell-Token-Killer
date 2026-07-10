@@ -513,53 +513,56 @@ public sealed class RunspaceHost : IDisposable
         // watchdog must not stop a server right after it answered.
         LastActivityUtc = DateTimeOffset.UtcNow;
         if (_modulePath is null) return null;
-        // Deadline expiry here degrades to a miss (null), the pre-detector
-        // behavior: the check must never block a job. The request's budget is
-        // still enforced by the cwd probe that follows (plan finding i56p-3).
-        if (deadline is not null)
+        // The WHOLE cold-side check — gate wait, first-use runspace creation
+        // and import, detection — runs as one unit raced against the request's
+        // wall-clock deadline (codex finding i56-4): a single monotonic gate
+        // wait was sleep-unsafe, and the synchronous creation/import after it
+        // escaped the budget entirely. Deadline expiry degrades to a miss
+        // (null), the pre-detector behavior — the check must never block a
+        // job — and the abandoned task finishes its work and releases the
+        // cold gate on its own.
+        var work = Task.Run(async () =>
         {
-            var remaining = deadline.Value - DateTimeOffset.UtcNow;
-            if (remaining <= TimeSpan.Zero) return null;
-            if (!await _coldDetectionGate.WaitAsync(remaining, cancellationToken)) return null;
-        }
-        else
-        {
-            await _coldDetectionGate.WaitAsync(cancellationToken);
-        }
-        try
-        {
-            if (_coldDetectionRunspace is null)
+            await _coldDetectionGate.WaitAsync(CancellationToken.None);
+            try
             {
-                if (_coldDetectionUnavailable) return null;
-                var runspace = CreateRunspace();
-                try
+                if (_coldDetectionRunspace is null)
                 {
-                    using var ps = PowerShell.Create();
-                    ps.Runspace = runspace;
-                    ps.AddCommand("Import-Module")
-                      .AddParameter("Name", _modulePath)
-                      .AddParameter("ErrorAction", "Stop");
-                    ps.Invoke();
-                    _coldDetectionRunspace = runspace;
+                    if (_coldDetectionUnavailable) return null;
+                    var runspace = CreateRunspace();
+                    try
+                    {
+                        using var ps = PowerShell.Create();
+                        ps.Runspace = runspace;
+                        ps.AddCommand("Import-Module")
+                          .AddParameter("Name", _modulePath)
+                          .AddParameter("ErrorAction", "Stop");
+                        ps.Invoke();
+                        _coldDetectionRunspace = runspace;
+                    }
+                    catch
+                    {
+                        // Same module, same path as the warm import, so this is
+                        // near-unreachable when the warm import succeeded; a
+                        // permanent skip beats re-paying runspace creation on
+                        // every background job just to fail again.
+                        try { runspace.Dispose(); } catch { /* best effort */ }
+                        _coldDetectionUnavailable = true;
+                        return null;
+                    }
                 }
-                catch
-                {
-                    // Same module, same path as the warm import, so this is
-                    // near-unreachable when the warm import succeeded; a
-                    // permanent skip beats re-paying runspace creation on
-                    // every background job just to fail again.
-                    try { runspace.Dispose(); } catch { /* best effort */ }
-                    _coldDetectionUnavailable = true;
-                    return null;
-                }
+                return TryGetDialectRefusal(_coldDetectionRunspace, script, background: true);
             }
-            return TryGetDialectRefusal(_coldDetectionRunspace, script, background: true);
-        }
-        catch { return null; }
-        finally
-        {
-            _coldDetectionGate.Release();
-        }
+            catch { return null; }
+            finally
+            {
+                _coldDetectionGate.Release();
+            }
+        });
+        if (deadline is null) return await work;
+        return await WaitForDeadlineAsync(work, deadline.Value, cancellationToken) == WaitOutcome.Completed
+            ? await work
+            : null;
     }
 
     internal enum WaitOutcome { Completed, TimedOut, Canceled }

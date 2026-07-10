@@ -123,6 +123,15 @@ public static class InvokeTool
                                "wrong project. Run a foreground ptk_invoke (e.g. Get-Location) to diagnose, or " +
                                "Set-Location explicitly and retry.";
                 }
+                // Last look at the clock before the point of no return: the
+                // cwd continuation can resume after a sleep pushed the wall
+                // clock past the budget, and an expired request must not
+                // start work (codex finding i56-4).
+                if (DateTimeOffset.UtcNow >= deadline)
+                {
+                    return "[job not started] The wall-clock budget expired during pre-start checks. " +
+                           "Nothing was executed. Retry, or raise timeoutSeconds.";
+                }
                 var job = jobs.Start(script, cwd);
                 return $"[job {job.Id} started] pid {job.Pid}, cold process (no warm session state), log: {job.OutputPath}\n" +
                        $"Poll with ptk_job action=output id={job.Id} (then pass the returned next offset); " +

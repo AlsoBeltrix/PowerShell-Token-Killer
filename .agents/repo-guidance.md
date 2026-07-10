@@ -16,9 +16,11 @@ earlier framing said it complements the owner's `headroom` PoC; headroom was
 stopped in 2026 as net negative — see the corrections in `.agents/decisions.md`.)
 The build trigger for larger architectural changes is measured benefit on real
 daily usage, not anticipated need — and specifically *experienced* benefit, not
-a tool's self-reported savings metric. All further building is currently gated
-on a go/no-go adoption test of the warm-runspace MCP server; see the Open
-Decisions in `.agents/decisions.md` rather than re-deriving this framing.
+a tool's self-reported savings metric. The product go/no-go gate was decided
+**GO 2026-07-08** (unqualified; archived in `docs/history/decisions-archive.md`)
+— ptk continues as an active product; individual larger features still sit
+behind their own criteria in the Open Decisions of `.agents/decisions.md`
+rather than any blanket gate.
 
 ## Reading Order
 

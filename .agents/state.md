@@ -95,10 +95,12 @@ short and update it when important repo facts change.
   interactive Connect-*). Server knobs for these tests (Program.cs): per-call
   timeout default 300s (`PTK_CALL_TIMEOUT_SECONDS`), idle self-exit default 4h
   orphan backstop (`PTK_IDLE_EXIT_SECONDS`).
-- (~2026-07-20, owner back at work) Run the go/no-go test on the real Windows box:
-  does the model use ptk_invoke unprompted for Exchange/AD work, and does it save
-  real time? Both yes → Phase 2 earns a second look. Ignored like rtk → archive the
-  project with the finding. Definition in `.agents/decisions.md`.
+- ~~go/no-go test (~2026-07-20)~~ — DECIDED: unqualified GO 2026-07-08,
+  ahead of the window (`docs/history/decisions-archive.md`); this bullet
+  was stale (caught by the shared-runspace plan review, spr-1). The
+  Windows-box real-usage evaluation intent lives on only as the slice-7
+  test matrix above and the shared-host measured-pain criterion in
+  `.agents/decisions.md`.
 - Interim security posture: keep ptk_invoke on ask-per-call in the harness; the
   policy-file gate design is recorded in the continuation decision, build only if
   real usage creates blanket-allow pressure.

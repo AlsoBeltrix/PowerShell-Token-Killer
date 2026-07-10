@@ -97,6 +97,15 @@ Humans must be able to see and control sessions without asking an agent:
 - **Does not reopen D5:** the retired CLI face was a shell-dispatch
   surface the MCP tools replaced; this is an admin/observability face
   for a daemon, a different job.
+- **Web interface — recorded as an option (owner musing 2026-07-10),
+  NOT v1.** Glanceable sessions + browsable audit log is real value,
+  but a listening web port adds an auth/attack surface on exactly the
+  security-sensitive component; the CLI is required for control either
+  way and inherits OS permissions via the local socket. If built:
+  read-only first, localhost-only, served by the daemon, no control
+  actions without a real auth story; control stays in the CLI.
+  `ptk sessions list --json` ships in v1 regardless, making any later
+  dashboard a bolt-on rather than a daemon change.
 
 ## Hard problems to solve before any build
 

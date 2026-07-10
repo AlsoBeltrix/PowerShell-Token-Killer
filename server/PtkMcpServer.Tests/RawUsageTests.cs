@@ -102,6 +102,33 @@ public sealed class RawUsageTests : IDisposable
         Assert.Contains("job-", poll); // the raw log path is named
     }
 
+    [Fact]
+    public async Task Job_printed_marker_text_gets_no_false_recovery_note()
+    {
+        // sd3-3: a job whose OWN output contains the marker line (a grep
+        // over this repo's source, a cat of previously elided output) must
+        // not trigger the recovery note on an under-limit poll — shaping
+        // passed the text through unchanged, so nothing was elided.
+        var started = await InvokeTool.Invoke(
+            _host, _jobs, _rawUsage,
+            "Write-Output '[5 lines elided - rerun with raw=true only if the elided middle matters]'",
+            CancellationToken.None, background: true);
+        Assert.Contains("[job 1 started]", started);
+
+        var deadline = DateTime.UtcNow.AddSeconds(60);
+        string status;
+        do
+        {
+            await Task.Delay(250);
+            status = await JobTool.Job(_host, _jobs, "status", CancellationToken.None, id: 1);
+        } while (status.Contains("running") && DateTime.UtcNow < deadline);
+
+        var poll = await JobTool.Job(_host, _jobs, "output", CancellationToken.None, id: 1, offset: 0);
+
+        Assert.Contains("elided", poll); // the job's own text came through
+        Assert.DoesNotContain("raw=true does not apply here", poll);
+    }
+
     private static string DescriptionOf(ICustomAttributeProvider member) =>
         ((DescriptionAttribute)member.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
 

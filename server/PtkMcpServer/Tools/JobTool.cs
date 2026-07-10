@@ -57,7 +57,20 @@ public static class JobTool
                 // JOB to recover elided output duplicates side-effecting
                 // work, and the offset has already moved past the middle.
                 // Name the honest recovery in-band, next to the marker.
-                if (shaped.Contains("elided - rerun with raw=true"))
+                // sd3-3: key on "shaping elided THIS poll", not on marker-
+                // shaped text the job itself printed: a genuine marker is
+                // always its own line (anchored regex — quoted or prefixed
+                // source copies never match), and elision always shortens
+                // the text, while under-limit passthrough returns it
+                // unchanged (so even an exact marker-line copy cannot
+                // qualify; trailing whitespace normalized because shaping
+                // may trim a final newline without eliding anything).
+                var elided = System.Text.RegularExpressions.Regex.IsMatch(
+                        shaped,
+                        @"^\[\d+ (lines|chars|lines and \d+ chars) elided - rerun with raw=true only if the elided middle matters\]\r?$",
+                        System.Text.RegularExpressions.RegexOptions.Multiline)
+                    && shaped.TrimEnd().Length < text.TrimEnd().Length;
+                if (elided)
                 {
                     shaped += $"\n[ptk_job note: raw=true does not apply here - the complete raw log is {snapshot.OutputPath}]";
                 }

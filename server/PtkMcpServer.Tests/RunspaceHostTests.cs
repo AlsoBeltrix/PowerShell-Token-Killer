@@ -95,6 +95,32 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     [Fact]
+    public async Task Cancel_during_slow_preflight_preserves_warm_state()
+    {
+        // The ubuntu CI runner caught this live: a cancel landing while the
+        // dialect/routing preflight is still running (slow loaded machine)
+        // recycled the warm session. Preflight is not user code and finishes
+        // on its own - the cancel must wait it out, not destroy state. The
+        // shadow makes the race deterministic.
+        await _host.InvokeAsync("$keep = 'still-warm'");
+        await _host.InvokeAsync(
+            "function global:Get-PtcShellDialectFinding { param($Script) Start-Sleep -Seconds 2 }",
+            route: "pwsh");
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(200));
+        var canceled = await _host.InvokeAsync("'never-runs'", cancellationToken: cts.Token);
+
+        Assert.False(canceled.Success);
+        Assert.False(canceled.TimedOut);
+        Assert.False(canceled.WarmStateLost);
+        Assert.Contains(canceled.Errors, e => e.Contains("cancel", StringComparison.OrdinalIgnoreCase));
+
+        var after = await _host.InvokeAsync("$keep", route: "pwsh");
+        Assert.True(after.Success);
+        Assert.Equal("still-warm", after.Output.Trim());
+    }
+
+    [Fact]
     public async Task Timeout_recycles_the_runspace_and_host_survives()
     {
         using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));

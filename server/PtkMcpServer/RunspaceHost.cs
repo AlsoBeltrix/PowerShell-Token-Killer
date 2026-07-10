@@ -877,17 +877,36 @@ public sealed class RunspaceHost : IDisposable
             }, CancellationToken.None);
 
             var preflightOutcome = await WaitForDeadlineAsync(preflight, callDeadline, cancellationToken);
+            if (preflightOutcome == WaitOutcome.Canceled)
+            {
+                // Preflight is NOT user code and normally finishes in
+                // milliseconds; a cancel that happens to land inside it (a
+                // slow first call on a loaded machine — the ubuntu CI runner
+                // found this live) must not cost the warm session. Give it
+                // the same grace a canceled main pipeline gets to stop: if it
+                // finishes, warm state is untouched; only a genuinely wedged
+                // preflight recycles.
+                if (await Task.WhenAny(preflight, Task.Delay(StopGrace)) == preflight)
+                {
+                    return new InvokeResult(
+                        Success: false,
+                        Output: string.Empty,
+                        Errors: ["Call canceled by the caller during pre-execution checks; the script was not started and warm state was preserved."],
+                        Warnings: [],
+                        TimedOut: false);
+                }
+            }
             if (preflightOutcome != WaitOutcome.Completed)
             {
                 // A stuck preflight pipeline is a wedged warm runspace; there
-                // is no PowerShell handle to stop here, so recycle either way.
+                // is no PowerShell handle to stop here, so recycle.
                 RecycleAbandoning(preflight, runspace);
                 return preflightOutcome == WaitOutcome.TimedOut
                     ? ExecutionTimeoutResult(budget)
                     : new InvokeResult(
                         Success: false,
                         Output: string.Empty,
-                        Errors: ["Call canceled by the caller during preflight; the runspace was recycled and all warm state was lost."],
+                        Errors: [$"Call canceled by the caller, and preflight did not finish within {StopGrace.TotalSeconds:0}s; the runspace was recycled and all warm state was lost."],
                         Warnings: [],
                         TimedOut: false,
                         WarmStateLost: true); // the flag must match the text (i56-14)

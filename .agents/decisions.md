@@ -167,6 +167,17 @@ ptk_state), signals in that same first version, private mode unchanged as
 default. Named sessions and any private-variable multi-tenancy only if the
 narrow form earns it.
 
+**AMENDED 2026-07-10 (owner adjudication, in-session): the staging above
+is superseded.** The owner explicitly set the notes' attach-only-first
+preference aside: the enabler (standing host + attach-by-key) is the same
+for both features, so persistence ships FIRST — GUID-keyed sessions,
+process-per-key, ONE client per key — and sharing (a second client on an
+existing key, opt-in) ships second as the increment that adds the
+between-calls contract. Staged sketch and hard-problem mapping live in
+`.agents/plans/shared-persistent-runspace.md`. Unchanged: private mode
+stays the default, the measured-pain criterion still gates any build, and
+no build is approved yet.
+
 **Gate interaction:** behind the go/no-go like everything else, and behind
 its own measured-pain criterion even after a go. The v2 greenfield design
 (2026-07-08 adoption entry above) is the private-session product this

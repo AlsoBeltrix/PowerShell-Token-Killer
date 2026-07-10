@@ -550,3 +550,10 @@ native record's true discriminator (InvocationInfo.MyCommand.CommandType
 `Write-Error -Exception`) master-verified live in a hosted runspace
 before admission; i56p-10 is the fixed sd2-3 class recurring on the new
 busy fast path.
+
+**Round-3 status:** i56p-9 (`e242a8b`) and i56p-10 (`62d25b8`) fixed by
+applying the reviewer's own suggestions with the live master
+verification above. The round-3 re-grade dispatch at head `62d25b8` was
+blocked by the codex account usage limit (resets 02:52 local,
+2026-07-10); re-dispatch is scheduled for after the reset — the loop
+stays OPEN until that pass returns.

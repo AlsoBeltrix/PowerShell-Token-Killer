@@ -99,9 +99,13 @@ budgets) at approval time.
    no `[errors]`; nonzero exit → `[stderr]` alongside `[exit] N` —
    including via the terminating-native-preference catch path (i56p-6);
    `Write-Error` → `[errors]`, including with a forged
-   `-ErrorId NativeCommandError` and with a forged
-   `-Exception RemoteException` (i56p-5, i56p-9); consistency across raw
-   and route values.
+   `-ErrorId NativeCommandError`, with a forged
+   `-Exception RemoteException`, and with BOTH forged in one call —
+   `Write-Error -ErrorId NativeCommandError -Exception
+   ([System.Management.Automation.RemoteException]::new('boom'))` must
+   render `[errors]` and no `[stderr]`, or an FQID+exception classifier
+   passes the isolated cases while missing the combined forgery (i56p-5,
+   i56p-9, i56p-11); consistency across raw and route values.
 
 2. **#6a — queue wait inside the budget.** `InvokeAsync` starts the budget
    clock at entry: the gate wait becomes a bounded

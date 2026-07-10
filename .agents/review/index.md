@@ -553,7 +553,25 @@ busy fast path.
 
 **Round-3 status:** i56p-9 (`e242a8b`) and i56p-10 (`62d25b8`) fixed by
 applying the reviewer's own suggestions with the live master
-verification above. The round-3 re-grade dispatch at head `62d25b8` was
-blocked by the codex account usage limit (resets 02:52 local,
-2026-07-10); re-dispatch is scheduled for after the reset — the loop
-stays OPEN until that pass returns.
+verification above. The first round-3 dispatch was blocked by the codex
+account usage limit and a retry through the warm runspace wedged and
+killed the ptk server mid-review (itself a live #6 datum: ptk_state
+blocked 1817s behind the wedged call; also observed: codex called
+ptk_invoke from inside its read-only review — an issue-3
+permission-surface datum). Fail-closed: no verdict was accepted from the
+dead dispatch; round 3 was re-dispatched directly.
+
+| ID      | Severity | Impact (one line)                                                       | Status | Branch |
+|---------|----------|--------------------------------------------------------------------------|--------|--------|
+| i56p-11 | LOW      | Matrix tests each forgery in isolation; a combined -ErrorId + -Exception forgery passes | `[x]`  | master (direct) |
+
+**Loop CLOSED 2026-07-10 (round 3, CONVERGED):** re-grade at head
+`62d25b8` — i56p-9 and i56p-10 both **RESOLVED** (codex, codex-cli
+0.144.1, gpt-5.6-sol, read-only, MCP disabled for the re-dispatch; the
+reviewer independently re-probed the Application/Script provenance split
+on PowerShell 7.6.3). One new LOW tail, i56p-11, is a single
+reviewer-specified regression case added verbatim to the matrix — closed
+on the trivial-fix convergence precedent (strictly diminishing rounds:
+8 → 2 LOW → 1 LOW test-case addition). The owner may reopen or order a
+further re-grade. The plan remains a DRAFT awaiting owner approval;
+commits unpushed pending the owner's master push go.

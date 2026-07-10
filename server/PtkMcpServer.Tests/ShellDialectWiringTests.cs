@@ -13,6 +13,7 @@ public sealed class ShellDialectWiringTests : IDisposable
     private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-dialect-jobs-" + Guid.NewGuid().ToString("N")));
+    private readonly RawUsageCounter _rawUsage = new();
 
     public void Dispose()
     {
@@ -32,7 +33,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         try
         {
             var text = await InvokeTool.Invoke(
-                _host, _jobs, $"export X=1; New-Item -ItemType File -Path '{probe.Replace("'", "''")}'", CancellationToken.None);
+                _host, _jobs, _rawUsage, $"export X=1; New-Item -ItemType File -Path '{probe.Replace("'", "''")}'", CancellationToken.None);
 
             Assert.Contains("[ptk:dialect] not executed", text);
             Assert.Contains("the bash 'export' builtin", text);
@@ -50,7 +51,7 @@ public sealed class ShellDialectWiringTests : IDisposable
     public async Task Parse_fatal_bash_shape_is_refused_with_its_construct_named()
     {
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "cat <<EOF\nhello\nEOF", CancellationToken.None);
+            _host, _jobs, _rawUsage, "cat <<EOF\nhello\nEOF", CancellationToken.None);
 
         Assert.Contains("[ptk:dialect] not executed", text);
         Assert.Contains("heredoc", text);
@@ -62,7 +63,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         // The plan's false-positive principle at the wiring level: shapes both
         // dialects own must run exactly as before.
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "echo hi && echo there", CancellationToken.None);
+            _host, _jobs, _rawUsage, "echo hi && echo there", CancellationToken.None);
 
         Assert.DoesNotContain("[ptk:dialect]", text);
         Assert.Contains("hi", text);
@@ -84,7 +85,7 @@ public sealed class ShellDialectWiringTests : IDisposable
     public async Task Route_pwsh_bypasses_detection_as_consent()
     {
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "export X=1", CancellationToken.None, route: "pwsh");
+            _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, route: "pwsh");
 
         Assert.DoesNotContain("[ptk:dialect]", text);
         Assert.Contains("[errors]", text);
@@ -104,7 +105,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         // The same script as a background job runs in a cold child where the
         // warm function does not exist — it must still be refused.
         var backgroundText = await InvokeTool.Invoke(
-            _host, _jobs, "export X=1", CancellationToken.None, background: true);
+            _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, background: true);
         Assert.Contains("[ptk:dialect] job not started", backgroundText);
         Assert.Empty(_jobs.List());
     }
@@ -113,7 +114,7 @@ public sealed class ShellDialectWiringTests : IDisposable
     public async Task Background_detected_script_is_refused_before_any_job_starts()
     {
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "export X=1", CancellationToken.None, background: true);
+            _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, background: true);
 
         Assert.Contains("[ptk:dialect] job not started", text);
         Assert.DoesNotContain("[job", text);
@@ -139,7 +140,7 @@ public sealed class ShellDialectWiringTests : IDisposable
     public async Task Background_raw_bypasses_detection_and_starts_the_job()
     {
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "export X=1", CancellationToken.None, raw: true, background: true);
+            _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, raw: true, background: true);
 
         Assert.DoesNotContain("[ptk:dialect]", text);
         Assert.Contains("[job 1 started]", text);
@@ -154,7 +155,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         // branch — its pre-slice-2 position would leave "PWSH" unnormalized
         // here and refuse a consented call.
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "export X=1", CancellationToken.None, route: "PWSH", background: true);
+            _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, route: "PWSH", background: true);
 
         Assert.DoesNotContain("[ptk:dialect]", text);
         Assert.Contains("[job 1 started]", text);
@@ -172,7 +173,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         {
             Environment.SetEnvironmentVariable(
                 "PTK_RTK_PATH", Path.Combine(Path.GetTempPath(), "no-such-rtk-" + Guid.NewGuid().ToString("N")));
-            var text = await InvokeTool.Invoke(_host, _jobs, "export X=1", CancellationToken.None);
+            var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "export X=1", CancellationToken.None);
 
             Assert.Contains("[ptk:dialect] not executed", text);
         }
@@ -209,7 +210,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
             var text = await InvokeTool.Invoke(
-                _host, _jobs, "export X=1", CancellationToken.None, route: "rtk");
+                _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, route: "rtk");
 
             Assert.Contains("[ptk:dialect] not executed", text);
             Assert.DoesNotContain("RTKROUTE", text);
@@ -234,7 +235,7 @@ public sealed class ShellDialectWiringTests : IDisposable
         Assert.DoesNotContain("[ptk:dialect]", foreground.Output);
 
         var backgroundText = await InvokeTool.Invoke(
-            host, _jobs, "export X=1", CancellationToken.None, background: true);
+            host, _jobs, _rawUsage, "export X=1", CancellationToken.None, background: true);
         Assert.Contains("[job 1 started]", backgroundText);
         Assert.Single(_jobs.List());
     }

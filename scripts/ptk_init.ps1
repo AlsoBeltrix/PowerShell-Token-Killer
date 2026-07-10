@@ -124,9 +124,11 @@ instead of the built-in shell tools: one warm PowerShell session (imports,
 connections, variables persist across calls), compressed output. Long
 stateless work: background=true, then poll ptk_job; long work that needs
 the warm session: raise timeoutSeconds. ptk_state diagnoses session drift;
-ptk_reset restores factory state; raw=true returns full uncompressed
-output. When the ptk tools are not available in this session, use the
-normal shell tools.
+ptk_reset restores factory state. Compressed output preserves errors, exit
+codes, and structure - raw=true is a recovery hatch for detail the
+compressed form lost, not a default; route=pwsh with raw=false gives exact
+execution with shaped output. When the ptk tools are not available in this
+session, use the normal shell tools.
 $nudgeEnd
 "@
 

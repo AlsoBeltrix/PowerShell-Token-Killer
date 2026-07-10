@@ -83,15 +83,19 @@ Output shaping:
 - Object output compresses with `Compress-PtcObject`.
 - Plain strings and primitive scalars pass through with ANSI/control
   sequences stripped, otherwise unaltered; pathologically large text is
-  elided to a labeled head+tail window (`raw=true` returns everything).
+  elided to a labeled head+tail window (the marker names `raw=true`, the
+  recovery hatch if the elided middle matters).
 - Log-shaped text routes through `rtk log` when possible.
 - Log-shaped text falls back to labeled raw text if `rtk` is absent or fails.
 - Nonzero native exit codes are reported as `[exit] N`.
 
 Overrides:
 
-- `raw=true` skips routing and shaping and returns plain formatted text.
-- `route=pwsh` forces execution exactly as PowerShell.
+- `raw=true` skips routing and shaping — a recovery hatch for detail the
+  compressed form lost, not a default; compressed output already preserves
+  errors, exit codes, and structure.
+- `route=pwsh` forces execution exactly as PowerShell; with `raw=false`
+  that pairing is exact execution with shaped output.
 - `route=rtk` forces the `rtk` rewrite when the script has the safe
   single-command shape.
 

@@ -901,7 +901,9 @@ function Get-PtcShellDialectFinding {
 # head+tail window sized so real command output virtually never hits it —
 # the cap exists for the pathological case, a whole-file Get-Content landing
 # in context through a compression tool. Elision is always labeled and names
-# raw=true, the deliberate unbounded escape hatch.
+# raw=true as what it is (shell-dialect plan D2): the recovery hatch for the
+# rare case the elided middle matters, never a standing invitation - the
+# marker lands mid-output at the exact moment raw is tempting.
 function Limit-PtcPassthrough {
     param(
         [AllowNull()][string]$Text,
@@ -917,7 +919,7 @@ function Limit-PtcPassthrough {
         $headCount = [int][Math]::Ceiling($MaxLines * 0.75)
         $tailCount = $MaxLines - $headCount
         $elidedLineCount = $lines.Count - $MaxLines
-        $marker = '[{0} lines elided - use raw=true for everything]' -f $elidedLineCount
+        $marker = '[{0} lines elided - rerun with raw=true only if the elided middle matters]' -f $elidedLineCount
         $Text = (@($lines | Select-Object -First $headCount) + $marker +
             @($lines | Select-Object -Last $tailCount)) -join [Environment]::NewLine
     }
@@ -929,10 +931,10 @@ function Limit-PtcPassthrough {
         # when both bounds fired this marker must carry both facts - every
         # elision stays explicit.
         $elided = if ($elidedLineCount -gt 0) {
-            '[{0} lines and {1} chars elided - use raw=true for everything]' -f
+            '[{0} lines and {1} chars elided - rerun with raw=true only if the elided middle matters]' -f
                 $elidedLineCount, ($Text.Length - $MaxChars)
         } else {
-            '[{0} chars elided - use raw=true for everything]' -f ($Text.Length - $MaxChars)
+            '[{0} chars elided - rerun with raw=true only if the elided middle matters]' -f ($Text.Length - $MaxChars)
         }
         $marker = '{0}{1}{0}' -f [Environment]::NewLine, $elided
         $Text = $Text.Substring(0, $head) + $marker + $Text.Substring($Text.Length - $tail)

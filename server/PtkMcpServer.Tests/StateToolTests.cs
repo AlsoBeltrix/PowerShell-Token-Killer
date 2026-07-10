@@ -11,6 +11,7 @@ public sealed class StateToolTests : IDisposable
     private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-state-jobs-" + Guid.NewGuid().ToString("N")));
+    private readonly RawUsageCounter _rawUsage = new();
 
     public void Dispose()
     {
@@ -21,7 +22,7 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task State_reports_server_and_session_basics()
     {
-        var state = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
 
         Assert.Contains($"pid {Environment.ProcessId}", state);
         Assert.Contains("engine: 7", state);
@@ -34,20 +35,20 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Loaded_module_list_grows_after_an_import()
     {
-        var before = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+        var before = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
         Assert.DoesNotContain("PtkWarmTest", before);
 
         await _host.InvokeAsync(
             "New-Module -Name PtkWarmTest -ScriptBlock { function Get-Warm { 'warm' } } | Import-Module");
 
-        var after = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+        var after = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
         Assert.Contains("PtkWarmTest", after);
     }
 
     [Fact]
     public async Task Available_list_contains_shipped_modules()
     {
-        var state = await StateTool.State(_host, _jobs, listAvailable: true, CancellationToken.None);
+        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
 
         Assert.Contains("Microsoft.PowerShell.Utility", state);
     }
@@ -55,8 +56,8 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Probing_state_does_not_perturb_the_variable_count()
     {
-        var first = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
-        var second = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+        var first = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var second = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
 
         static string VariablesLine(string state) =>
             state.Split('\n').First(l => l.StartsWith("variables: ")).Trim();
@@ -66,13 +67,13 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Running_jobs_appear_in_the_state_report()
     {
-        var before = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+        var before = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
         Assert.Contains("jobs: (none)", before);
 
         var job = _jobs.Start("Start-Sleep -Seconds 300");
         try
         {
-            var during = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+            var during = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
             Assert.Contains($"job {job.Id}: running", during);
         }
         finally
@@ -91,14 +92,14 @@ public sealed class StateToolTests : IDisposable
             // report must say so rather than present partial output as truth.
             await _host.InvokeAsync("function global:Get-Module { throw 'poisoned by session' }");
 
-            var poisoned = await StateTool.State(_host, _jobs, listAvailable: true, CancellationToken.None);
+            var poisoned = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
             Assert.Contains("[state probe errors]", poisoned);
             Assert.Contains("poisoned by session", poisoned);
             Assert.Contains("probe reported errors (not cached)", poisoned);
 
             await _host.InvokeAsync("Remove-Item function:Get-Module");
 
-            var healthy = await StateTool.State(_host, _jobs, listAvailable: true, CancellationToken.None);
+            var healthy = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
             Assert.DoesNotContain("[state probe errors]", healthy);
             Assert.Contains("Microsoft.PowerShell.Utility", healthy);
         }
@@ -119,12 +120,12 @@ public sealed class StateToolTests : IDisposable
             await _host.InvokeAsync(
                 "function global:Get-Module { Write-Error 'poison'; [pscustomobject]@{ Name = 'FakeModule'; Version = '0.0' } }");
 
-            var poisoned = await StateTool.State(_host, _jobs, listAvailable: true, CancellationToken.None);
+            var poisoned = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
             Assert.Contains("not cached", poisoned);
 
             await _host.InvokeAsync("Remove-Item function:Get-Module");
 
-            var healthy = await StateTool.State(_host, _jobs, listAvailable: true, CancellationToken.None);
+            var healthy = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
             Assert.DoesNotContain("FakeModule", healthy);
             Assert.Contains("Microsoft.PowerShell.Utility", healthy);
         }
@@ -139,11 +140,11 @@ public sealed class StateToolTests : IDisposable
     {
         try
         {
-            var before = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+            var before = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
             Assert.DoesNotContain("PTK_STATE_DRIFT_PROBE", before);
 
             await _host.InvokeAsync("$env:PTK_STATE_DRIFT_PROBE = 'polluted'");
-            var after = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+            var after = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
 
             Assert.Contains("added: ", after);
             Assert.Contains("PTK_STATE_DRIFT_PROBE", after);
@@ -163,7 +164,7 @@ public sealed class StateToolTests : IDisposable
             await _host.InvokeAsync(
                 "$env:PATH = 'ptk-fake-shim-dir' + [System.IO.Path]::PathSeparator + $env:PATH");
 
-            var state = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+            var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
 
             Assert.Contains("PATH entries added: ptk-fake-shim-dir", state);
             Assert.DoesNotContain("PATH entries removed:", state);

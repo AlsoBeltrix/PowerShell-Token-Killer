@@ -10,6 +10,7 @@ public sealed class ResetToolTests : IDisposable
     private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-reset-jobs-" + Guid.NewGuid().ToString("N")));
+    private readonly RawUsageCounter _rawUsage = new();
 
     public void Dispose()
     {
@@ -30,7 +31,7 @@ public sealed class ResetToolTests : IDisposable
         var variable = await _host.InvokeAsync("if ($null -eq $x) { 'gone' } else { $x }");
         Assert.Equal("gone", variable.Output.Trim());
 
-        var state = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
         Assert.DoesNotContain("PtkWarmTest", state);
     }
 
@@ -67,7 +68,7 @@ public sealed class ResetToolTests : IDisposable
             Assert.Null(Environment.GetEnvironmentVariable("PTK_RESET_DRIFT_PROBE"));
             Assert.Equal(savedPath, Environment.GetEnvironmentVariable("PATH"));
 
-            var state = await StateTool.State(_host, _jobs, listAvailable: false, CancellationToken.None);
+            var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
             Assert.DoesNotContain("PTK_RESET_DRIFT_PROBE", state);
         }
         finally

@@ -21,6 +21,7 @@ var maxCallTimeout = TimeSpan.FromSeconds(
         : 3600); // caps the per-call timeoutSeconds override on ptk_invoke
 
 builder.Services.AddSingleton(new PtkMcpServer.RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout));
+builder.Services.AddSingleton(new PtkMcpServer.RawUsageCounter());
 // Factory registration so the container disposes it on graceful shutdown,
 // killing running jobs. A hard-killed server can leave jobs orphaned - the
 // trade-off of process-based jobs, documented in server/README.md.

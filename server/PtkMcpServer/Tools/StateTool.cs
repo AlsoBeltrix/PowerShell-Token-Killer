@@ -23,6 +23,7 @@ public static class StateTool
     public static async Task<string> State(
         RunspaceHost host,
         JobManager jobs,
+        RawUsageCounter rawUsage,
         [Description("Also enumerate every installed module instead of only loaded ones.")]
         bool listAvailable = false,
         CancellationToken cancellationToken = default)
@@ -41,9 +42,11 @@ public static class StateTool
             cancellationToken: cancellationToken);
 
         var sb = new StringBuilder();
+        // raw count: user-level raw=true calls only (shell-dialect plan D2) —
+        // this tool's own raw:true probes are plumbing and never counted.
         sb.AppendLine(
             $"ptk server: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
-            $"shaping {(host.ModuleLoaded ? "on" : "off")}");
+            $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
         if (result.Output.TrimEnd().Length > 0) sb.AppendLine(result.Output.TrimEnd());
         // A session can break the probe itself (e.g. a shadowing Get-Module):
         // surface that instead of silently reporting partial state as the truth.

@@ -17,15 +17,24 @@ public static class InvokeTool
         "passes through with terminal color codes stripped (oversized text is elided " +
         "with a labeled marker). Variables, imported modules, and established " +
         "connections persist across calls for the whole session, so heavy modules " +
-        "import once instead of on every call. Set raw=true for full uncompressed " +
-        "output. Calls run serially; a call that exceeds the server timeout is " +
-        "aborted and the runspace is recycled, losing all warm state.")]
+        "import once instead of on every call. Compressed output preserves errors, " +
+        "exit codes, and structure; raw=true exists for recovering detail the " +
+        "compressed form lost, not as a default - for exact execution with shaped " +
+        "output use route=pwsh with raw=false. Calls run serially; a call that " +
+        "exceeds the server timeout is aborted and the runspace is recycled, " +
+        "losing all warm state.")]
     public static async Task<string> Invoke(
         RunspaceHost host,
         JobManager jobs,
+        RawUsageCounter rawUsage,
         [Description("The command to execute: a PowerShell script or a native command line (git, npm, ...).")] string script,
         CancellationToken cancellationToken,
-        [Description("Skip output compression and return plain formatted text.")] bool raw = false,
+        [Description(
+            "Recovery hatch, not a default: skip output compression only to recover " +
+            "detail the compressed form lost (errors, exit codes, and structure are " +
+            "already preserved compressed). For exact execution with shaped output " +
+            "use route=pwsh instead.")]
+        bool raw = false,
         [Description(
             "Routing override: 'auto' (default) runs a single native command " +
             "through rtk's filters; 'pwsh' forces plain execution in the warm " +
@@ -44,6 +53,16 @@ public static class InvokeTool
             "modules); stateless long work should use background=true instead.")]
         int timeoutSeconds = 0)
     {
+        // Raw-usage visibility (shell-dialect plan D2): counted here at the
+        // user-call boundary only — internal raw:true probes below this
+        // layer (ptk_state, the background cwd probe) must not inflate the
+        // signal. The log line gives the owner per-call visibility on
+        // stderr; the counter surfaces in ptk_state.
+        if (raw)
+        {
+            Console.Error.WriteLine($"ptk: raw=true call #{rawUsage.Increment()} this session");
+        }
+
         route = route?.ToLowerInvariant() switch
         {
             "pwsh" => "pwsh",

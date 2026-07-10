@@ -1,0 +1,99 @@
+using System.ComponentModel;
+using System.Reflection;
+using PtkMcpServer.Tools;
+
+namespace PtkMcpServer.Tests;
+
+// Raw-usage visibility and posture (shell-dialect plan D2, slice 3): raw=true
+// is counted at the ptk_invoke user-call boundary only, surfaces in
+// ptk_state, and every model-visible description reads as recovery-only.
+public sealed class RawUsageTests : IDisposable
+{
+    private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
+    private readonly JobManager _jobs = new(
+        Path.Combine(Path.GetTempPath(), "ptk-rawusage-jobs-" + Guid.NewGuid().ToString("N")));
+    private readonly RawUsageCounter _rawUsage = new();
+
+    public void Dispose()
+    {
+        _host.Dispose();
+        _jobs.Dispose();
+    }
+
+    [Fact]
+    public async Task User_raw_call_increments_exactly_once_and_surfaces_in_state()
+    {
+        // A permanently zero counter must fail this battery, not satisfy it
+        // (plan Verification): the positive leg is exact — once per call.
+        await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'first'", CancellationToken.None, raw: true);
+        Assert.Equal(1, _rawUsage.Count);
+
+        await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'second'", CancellationToken.None, raw: true);
+        Assert.Equal(2, _rawUsage.Count);
+
+        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        Assert.Contains("raw calls this session: 2", state);
+    }
+
+    [Fact]
+    public async Task Raw_call_emits_the_server_log_line()
+    {
+        // Console.Error is process-global; the setter wraps the writer in a
+        // synchronized TextWriter, and the assertion is Contains, so
+        // unrelated concurrent stderr lines cannot break it.
+        var original = Console.Error;
+        var capture = new StringWriter();
+        Console.SetError(capture);
+        try
+        {
+            await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'logged'", CancellationToken.None, raw: true);
+        }
+        finally
+        {
+            Console.SetError(original);
+        }
+
+        Assert.Contains("ptk: raw=true call #1 this session", capture.ToString());
+    }
+
+    [Fact]
+    public async Task Internal_probes_never_inflate_the_raw_counter()
+    {
+        // ptk_state's own probes and the cwd probe before a background job
+        // pass raw:true to the host — plumbing, not a user raw call (plan
+        // D2: counted at the user-call boundary only).
+        await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        Assert.Equal(0, _rawUsage.Count);
+
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'bg work'", CancellationToken.None, background: true);
+        Assert.Contains("[job 1 started]", text);
+        Assert.Equal(0, _rawUsage.Count);
+
+        var nonRaw = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'plain'", CancellationToken.None);
+        Assert.Contains("plain", nonRaw);
+        Assert.Equal(0, _rawUsage.Count);
+    }
+
+    private static string DescriptionOf(ICustomAttributeProvider member) =>
+        ((DescriptionAttribute)member.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
+
+    [Fact]
+    public void Invoke_descriptions_teach_recovery_only_raw_and_the_pwsh_pairing()
+    {
+        // The D2 reword is all-or-nothing: a surface drifting back to
+        // "returns full uncompressed output" wins over the quieter ones
+        // (plan D2 — partial rewording leaves the louder surface winning).
+        var invoke = typeof(InvokeTool).GetMethod(nameof(InvokeTool.Invoke))!;
+        var tool = DescriptionOf(invoke);
+        Assert.Contains("recovering detail the compressed form lost", tool);
+        Assert.Contains("not as a default", tool);
+        Assert.Contains("route=pwsh with raw=false", tool);
+        Assert.DoesNotContain("full uncompressed output", tool);
+
+        var rawParam = invoke.GetParameters().Single(p => p.Name == "raw");
+        var raw = ((DescriptionAttribute)rawParam.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
+        Assert.Contains("Recovery hatch, not a default", raw);
+        Assert.Contains("route=pwsh", raw);
+        Assert.DoesNotContain("full uncompressed output", raw);
+    }
+}

@@ -682,6 +682,12 @@ Describe 'redirect hook and installer' {
             ([regex]::Matches($text, [regex]::Escape('<!-- ptk-guidance -->'))).Count | Should -Be 1
             $text | Should -Match 'keep me'
             $text | Should -Match 'ptk_invoke'
+            # D2 raw posture (shell-dialect slice 3): the nudge teaches raw
+            # as a recovery hatch plus the route=pwsh + raw=false pairing; a
+            # drift back to inviting wording must fail the battery here.
+            $text | Should -Match 'recovery hatch'
+            $text | Should -Match 'route=pwsh with raw=false'
+            $text | Should -Not -Match 'returns full uncompressed'
 
             pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Uninstall | Out-Null
             $text = Get-Content -LiteralPath $script:nudgeFile -Raw
@@ -1036,7 +1042,7 @@ Describe 'Compress-PtcOutput' {
         $lines = 1..1000 | ForEach-Object { "line $_" }
         $result = $lines | Compress-PtcOutput
 
-        $result | Should -Match '\[600 lines elided - use raw=true for everything\]'
+        $result | Should -Match '\[600 lines elided - rerun with raw=true only if the elided middle matters\]'
         $result | Should -Match 'line 1\b'
         $result | Should -Match 'line 1000'
         $result | Should -Not -Match 'line 500\b'
@@ -1047,7 +1053,7 @@ Describe 'Compress-PtcOutput' {
         $big = ('x' * 20000)
         $result = "$big-A", "$big-B", "$big-C" | Compress-PtcOutput
 
-        $result | Should -Match '\[\d+ chars elided - use raw=true for everything\]'
+        $result | Should -Match '\[\d+ chars elided - rerun with raw=true only if the elided middle matters\]'
         $result.Length | Should -BeLessThan 42000
         $result | Should -Match '^x'
         $result | Should -Match '-C$'
@@ -1057,7 +1063,7 @@ Describe 'Compress-PtcOutput' {
         $lines = 1..1000 | ForEach-Object { "line $_ " + ('y' * 400) }
         $result = $lines | Compress-PtcOutput
 
-        $result | Should -Match '\[\d+ lines and \d+ chars elided - use raw=true for everything\]'
+        $result | Should -Match '\[\d+ lines and \d+ chars elided - rerun with raw=true only if the elided middle matters\]'
     }
 
     It 'bounds the labeled log-leg fallback too' {
@@ -1066,7 +1072,7 @@ Describe 'Compress-PtcOutput' {
         $result = $lines | Compress-PtcOutput
 
         $result | Should -Match '\[ptk:log rtk not found'
-        $result | Should -Match 'lines elided - use raw=true for everything'
+        $result | Should -Match 'lines elided - rerun with raw=true only if the elided middle matters'
     }
 
     It 'passes a single string through exactly' {

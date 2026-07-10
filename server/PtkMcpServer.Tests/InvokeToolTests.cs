@@ -10,6 +10,7 @@ public sealed class InvokeToolTests : IDisposable
     private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-invoke-jobs-" + Guid.NewGuid().ToString("N")));
+    private readonly RawUsageCounter _rawUsage = new();
 
     public void Dispose()
     {
@@ -20,7 +21,7 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Returns_plain_output_for_a_clean_call()
     {
-        var text = await InvokeTool.Invoke(_host, _jobs, "'hello from warm runspace'", CancellationToken.None);
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'hello from warm runspace'", CancellationToken.None);
 
         Assert.Contains("hello from warm runspace", text);
         Assert.DoesNotContain("[errors]", text);
@@ -30,8 +31,8 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task State_persists_across_tool_calls()
     {
-        await InvokeTool.Invoke(_host, _jobs, "$warm = 41", CancellationToken.None);
-        var text = await InvokeTool.Invoke(_host, _jobs, "$warm + 1", CancellationToken.None);
+        await InvokeTool.Invoke(_host, _jobs, _rawUsage, "$warm = 41", CancellationToken.None);
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "$warm + 1", CancellationToken.None);
 
         Assert.Contains("42", text);
     }
@@ -40,7 +41,7 @@ public sealed class InvokeToolTests : IDisposable
     public async Task Errors_and_warnings_are_reported_in_labelled_sections()
     {
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "Write-Warning 'careful'; Write-Error 'boom'; 'partial'", CancellationToken.None);
+            _host, _jobs, _rawUsage, "Write-Warning 'careful'; Write-Error 'boom'; 'partial'", CancellationToken.None);
 
         Assert.Contains("partial", text);
         Assert.Contains("[errors]", text);
@@ -52,7 +53,7 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Empty_output_says_so_instead_of_returning_nothing()
     {
-        var text = await InvokeTool.Invoke(_host, _jobs, "$null", CancellationToken.None);
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "$null", CancellationToken.None);
 
         Assert.Contains("(no output)", text);
     }
@@ -63,7 +64,7 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Native_nonzero_exit_code_is_reported()
     {
-        var text = await InvokeTool.Invoke(_host, _jobs, NativeExit(7), CancellationToken.None);
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, NativeExit(7), CancellationToken.None);
 
         Assert.Contains("[exit] 7", text);
     }
@@ -71,7 +72,7 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Native_zero_exit_code_is_not_reported()
     {
-        var text = await InvokeTool.Invoke(_host, _jobs, NativeExit(0), CancellationToken.None);
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, NativeExit(0), CancellationToken.None);
 
         Assert.DoesNotContain("[exit]", text);
     }
@@ -79,8 +80,8 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Stale_exit_code_is_not_reported_against_a_later_pure_PowerShell_call()
     {
-        await InvokeTool.Invoke(_host, _jobs, NativeExit(7), CancellationToken.None);
-        var text = await InvokeTool.Invoke(_host, _jobs, "'clean call'", CancellationToken.None);
+        await InvokeTool.Invoke(_host, _jobs, _rawUsage, NativeExit(7), CancellationToken.None);
+        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'clean call'", CancellationToken.None);
 
         Assert.Contains("clean call", text);
         Assert.DoesNotContain("[exit]", text);
@@ -113,7 +114,7 @@ public sealed class InvokeToolTests : IDisposable
             var script =
                 "1..8 | ForEach-Object { \"2026-07-03 10:00:0$_ ERROR worker: step $_ failed\" }; "
                 + NativeExit(7);
-            var text = await InvokeTool.Invoke(_host, _jobs, script, CancellationToken.None);
+            var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, script, CancellationToken.None);
 
             Assert.Contains("[ptk:log via rtk]", text);
             Assert.Contains("[exit] 7", text);
@@ -153,7 +154,7 @@ public sealed class InvokeToolTests : IDisposable
         try
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
-            var text = await InvokeTool.Invoke(_host, _jobs, "git status", CancellationToken.None);
+            var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "git status", CancellationToken.None);
 
             Assert.Contains("RTKROUTE git status", text);
         }
@@ -173,7 +174,7 @@ public sealed class InvokeToolTests : IDisposable
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
             var text = await InvokeTool.Invoke(
-                _host, _jobs, "git --version", CancellationToken.None, route: "pwsh");
+                _host, _jobs, _rawUsage, "git --version", CancellationToken.None, route: "pwsh");
 
             Assert.DoesNotContain("RTKROUTE", text);
             Assert.Contains("git version", text);
@@ -193,7 +194,7 @@ public sealed class InvokeToolTests : IDisposable
         try
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
-            var text = await InvokeTool.Invoke(_host, _jobs, "git status", CancellationToken.None);
+            var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "git status", CancellationToken.None);
 
             Assert.Contains("RTKROUTE git status", text);
             Assert.Contains("[exit] 5", text);
@@ -210,7 +211,7 @@ public sealed class InvokeToolTests : IDisposable
     {
         using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));
 
-        var text = await InvokeTool.Invoke(host, _jobs, "Start-Sleep -Seconds 60", CancellationToken.None);
+        var text = await InvokeTool.Invoke(host, _jobs, _rawUsage, "Start-Sleep -Seconds 60", CancellationToken.None);
 
         Assert.Contains("[errors]", text);
         Assert.Contains("timeout", text, StringComparison.OrdinalIgnoreCase);
@@ -222,7 +223,7 @@ public sealed class InvokeToolTests : IDisposable
     {
         using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));
 
-        var text = await InvokeTool.Invoke(host, _jobs, "Start-Sleep -Seconds 60", CancellationToken.None);
+        var text = await InvokeTool.Invoke(host, _jobs, _rawUsage, "Start-Sleep -Seconds 60", CancellationToken.None);
 
         Assert.Contains("background=true", text);
         Assert.Contains("timeoutSeconds", text);
@@ -267,7 +268,7 @@ public sealed class InvokeToolTests : IDisposable
         try
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
-            var text = await InvokeTool.Invoke(_host, _jobs, "git status", CancellationToken.None);
+            var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "git status", CancellationToken.None);
 
             Assert.Contains("RTKROUTE git status", text);
             Assert.DoesNotContain("No hook installed", text);
@@ -330,7 +331,7 @@ public sealed class InvokeToolTests : IDisposable
     public async Task Background_starts_a_job_and_its_output_is_pollable()
     {
         var text = await InvokeTool.Invoke(
-            _host, _jobs, "'hello from a ptk job'", CancellationToken.None, background: true);
+            _host, _jobs, _rawUsage, "'hello from a ptk job'", CancellationToken.None, background: true);
 
         Assert.Contains("[job 1 started]", text);
         Assert.Contains("ptk_job", text);

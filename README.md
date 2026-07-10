@@ -40,8 +40,8 @@ Each call is classified and shaped through one of four legs:
 4. **Passthrough.** Plain strings and scalars are returned with
    ANSI/terminal escape sequences stripped, otherwise unaltered.
    Pathologically large text is elided to a labeled head+tail window;
-   `raw=true` returns the complete, uncompressed output (as plain
-   formatted text — nothing elided or stripped).
+   the marker names `raw=true`, the recovery hatch for the rare case
+   the elided middle matters.
 
 Anything that is not a safe single native command — pipelines, chains,
 cmdlets, variables, redirections — runs as ordinary PowerShell in the warm
@@ -57,9 +57,12 @@ it up automatically. ptk degrades gracefully if it is missing — native
 commands run unchanged and log-shaped text comes back raw — but that is a
 fallback, not the intended setup.
 
-Per-call escape hatches: `raw=true` returns full uncompressed output executed
-exactly as written; `route=pwsh` forces plain PowerShell execution;
-`route=rtk` forces the rtk rewrite when the script shape allows it.
+Per-call overrides: compressed output already preserves errors, exit codes,
+and structure, so `raw=true` — which skips routing and shaping and executes
+exactly as written — is a recovery hatch for detail the compressed form
+lost, not a default. `route=pwsh` forces plain PowerShell execution; with
+`raw=false` that pairing is the fidelity path — exact execution, shaped
+output. `route=rtk` forces the rtk rewrite when the script shape allows it.
 
 Long work has two paths, by workload: `background=true` runs the script as a
 cold background job polled through `ptk_job` (builds, watchers — anything
@@ -168,7 +171,10 @@ and stays silent where it is not. Suggested text, adapt freely:
 > output. Long stateless work: `background=true`, then poll `ptk_job`;
 > long work that needs the warm session: raise `timeoutSeconds`.
 > `ptk_state` diagnoses session drift; `ptk_reset` restores factory
-> state; `raw=true` returns full uncompressed output.
+> state. Compressed output preserves errors, exit codes, and structure —
+> `raw=true` is a recovery hatch for detail the compressed form lost,
+> not a default; `route=pwsh` with `raw=false` gives exact execution
+> with shaped output.
 
 Known user-level homes: `~/.claude/CLAUDE.md` (Claude Code),
 `~/.codex/AGENTS.md` (codex), `~/.gemini/GEMINI.md` (agy/gemini). Keep

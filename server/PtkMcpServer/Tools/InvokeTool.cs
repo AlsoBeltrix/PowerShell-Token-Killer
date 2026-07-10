@@ -130,6 +130,7 @@ public static class InvokeTool
                 // cwd continuation can resume after a sleep pushed the wall
                 // clock past the budget, and an expired request must not
                 // start work (codex finding i56-4).
+                cancellationToken.ThrowIfCancellationRequested();
                 if (DateTimeOffset.UtcNow >= deadline)
                 {
                     return "[job not started] The wall-clock budget expired during pre-start checks. " +

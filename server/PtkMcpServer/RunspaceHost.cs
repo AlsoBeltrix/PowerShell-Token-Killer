@@ -872,7 +872,8 @@ public sealed class RunspaceHost : IDisposable
                         Output: string.Empty,
                         Errors: ["Call canceled by the caller during preflight; the runspace was recycled and all warm state was lost."],
                         Warnings: [],
-                        TimedOut: false);
+                        TimedOut: false,
+                        WarmStateLost: true); // the flag must match the text (i56-14)
             }
 
             var (preflightRefusal, resolvedScript) = await preflight;
@@ -1081,6 +1082,11 @@ public sealed class RunspaceHost : IDisposable
         try
         {
             var result = await InvokeAsync("(Get-Location).Path", raw: true, cancellationToken: cancellationToken, deadline: deadline);
+            // The inner call classifies some cancellations as results (a
+            // wedged stop, a canceled bookkeeping read); a canceled REQUEST
+            // must never look like a usable probe, or the job starts for a
+            // caller who aborted (i56-5, reopened leg).
+            cancellationToken.ThrowIfCancellationRequested();
             if (result.Recovering) return (null, CwdProbeOutcome.Recovering);
             if (result.TimedOut)
             {

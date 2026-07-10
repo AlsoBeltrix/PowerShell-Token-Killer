@@ -693,9 +693,12 @@ Describe 'redirect hook and installer' {
             $text | Should -Match 'recovery hatch'
             $text | Should -Match 'route=pwsh with raw=false'
             $text | Should -Not -Match 'returns full uncompressed'
-            # D3 dialect line (shell-dialect slice 4).
+            # D3 dialect line (shell-dialect slice 4). sd4-2: pin the FULL
+            # qualified phrase, mirroring the hook-deny guard - dropping the
+            # concrete wrapper while keeping the surrounding words must fail.
             $text | Should -Match 'PowerShell 7, not bash'
-            $text | Should -Match 'where bash exists'
+            $text | Should -Match 'translate bash-only'
+            $text | Should -Match ([regex]::Escape("bash -lc '...' where bash exists"))
 
             pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -Uninstall | Out-Null
             $text = Get-Content -LiteralPath $script:nudgeFile -Raw

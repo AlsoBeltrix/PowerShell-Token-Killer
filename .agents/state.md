@@ -12,11 +12,14 @@ short and update it when important repo facts change.
   the module) are DONE. The slice-1 codex review loop CLOSED CONVERGED
   2026-07-09 (four rounds, all seven findings sd1-1..sd1-7 closed) and
   the owner **RATIFIED the close** in-session later the same day — no
-  re-grade round 4. Loop record: `.agents/review/index.md`; per-finding
-  detail: `.agents/review/findings/sd1-*.md`. NEXT BUILD: slice 2
-  (server wiring — detection becomes a labeled refusal result on BOTH
-  execution paths, foreground and `background=true` before
-  `jobs.Start`), then slice 3 (raw posture per D2) and slice 4 (D3
+  re-grade round 4. **Slice 2 (server wiring) is DONE and its codex loop
+  CLOSED 2026-07-10T01:38Z**: refusal on both execution paths landed at
+  `8c234e8`; six review findings sd2-1..sd2-6 all fixed one commit each
+  and re-graded RESOLVED with no new findings (`.agents/review/index.md`;
+  `.agents/review/findings/sd2-*.md`). Battery as of `79b63fb`: dotnet
+  74/74 (new canonical count), Pester 132 passed / 1 skipped, handshake
+  PASSED. NEXT BUILD: slice 3 (raw posture per D2 — reword inventory +
+  `ptk_state` raw counter at the user-call boundary), then slice 4 (D3
   texts); one commit + battery + codex loop each.
 - **Owner decisions recorded 2026-07-09 (in-session, post-handoff):**
   (a) slice-1 convergence close RATIFIED (above); (b) the push
@@ -49,11 +52,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-- Shell-dialect slice 2 (server wiring), then 3 (raw posture reword +
-  `ptk_state` raw counter at the user-call boundary), then 4 (dialect
-  line in hook deny + nudge + README) — spec and frozen slice-0
-  evidence live in the plan. Battery baseline as of `d352e66`: Pester
-  132 passed / 1 skipped, dotnet 59/59.
+- Shell-dialect slice 3 (raw posture reword + `ptk_state` raw counter at
+  the user-call boundary), then 4 (dialect line in hook deny + nudge +
+  README) — spec and frozen slice-0 evidence live in the plan. Battery
+  baseline: see the counts `as of 79b63fb` in `## Now`.
 - After slices 2-4 land + push: post the approved fix references
   (issue #3 item 1, issue #4) and close #4; then the #5/#6 batch.
 - Remaining owner decision: hook-default (blocks release slice 4 only;

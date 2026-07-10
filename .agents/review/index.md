@@ -423,9 +423,16 @@ detail: `.agents/review/findings/sd2-{1..6}.md`.
 
 | ID    | Severity | Impact (one line)                                                      | Status | Branch |
 |-------|----------|--------------------------------------------------------------------------|--------|--------|
-| sd2-1 | MEDIUM   | Refusal's apostrophe note is POSIX-layer; following it parse-fails in pwsh | `[ ]`  | master (direct) |
-| sd2-2 | LOW      | bash probe ignores warm shadowing; advice can run the shadow, not bash    | `[ ]`  | master (direct) |
-| sd2-3 | LOW      | Background refusal skips LastActivityUtc; idle watchdog can kill mid-use  | `[ ]`  | master (direct) |
-| sd2-4 | LOW      | Non-execution guard breaks on apostrophes in the temp path                | `[ ]`  | master (direct) |
-| sd2-5 | LOW      | route=pwsh consent unguarded on the background branch                     | `[ ]`  | master (direct) |
-| sd2-6 | LOW      | Detection-precedes-routing unguarded on the forced-rtk leg                | `[ ]`  | master (direct) |
+| sd2-1 | MEDIUM   | Refusal's apostrophe note is POSIX-layer; following it parse-fails in pwsh | `[x]`  | master (direct, d5dbb48) |
+| sd2-2 | LOW      | bash probe ignores warm shadowing; advice can run the shadow, not bash    | `[x]`  | master (direct, 168d027) |
+| sd2-3 | LOW      | Background refusal skips LastActivityUtc; idle watchdog can kill mid-use  | `[x]`  | master (direct, c5a3d21) |
+| sd2-4 | LOW      | Non-execution guard breaks on apostrophes in the temp path                | `[x]`  | master (direct, fc7a38e) |
+| sd2-5 | LOW      | route=pwsh consent unguarded on the background branch                     | `[x]`  | master (direct, 32f181b) |
+| sd2-6 | LOW      | Detection-precedes-routing unguarded on the forced-rtk leg                | `[x]`  | master (direct, 79b63fb) |
+
+**Loop CLOSED 2026-07-10T01:38Z:** re-grade at head `79b63fb` (base
+`712939b`) — all six resolutions **RESOLVED, NO NEW FINDINGS** (codex,
+codex-cli 0.144.0, read-only). Every fix carried a live red-leg proof
+(sd2-5/sd2-6 by injecting the exact predicted regression). Battery at
+head: dotnet 74/74 (new canonical count), Pester 132 passed / 1 skipped,
+handshake PASSED. Commits unpushed pending the owner's master push go.

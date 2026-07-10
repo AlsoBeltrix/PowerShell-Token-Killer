@@ -1,9 +1,28 @@
 # Plan: issues #5/#6 — stderr labeling + timeout/queue semantics
 
-**Status:** DRAFT awaiting owner approval. Owner triage 2026-07-09 (recorded
-in `.agents/state.md`): #5/#6 are the next batch after shell-dialect. The
-issue texts are the spec; both were verified against current source before
-drafting.
+**Status:** APPROVED by owner 2026-07-10 (in-session). The approved scope,
+in the owner's terms: (1) stop marking successful commands' side-messages
+as errors; (2) make timeouts real — a call always comes back within its
+limit, and the 2026-07-10 incident (a `timeoutSeconds=900` call that never
+responded at all; server found dead) is root-caused FIRST, as slice 0,
+before the semantics work; (3) the status check always answers, even
+mid-call; (4) one total timeout number, not separate queue/execution
+knobs. Owner triage 2026-07-09 (recorded in `.agents/state.md`): #5/#6 are
+the next batch after shell-dialect. The issue texts are the spec; both
+were verified against current source before drafting.
+
+## Slice 0 (added at approval) — root-cause the never-returned call
+
+Live incident, this box, 2026-07-10 ~03:05-03:39: a foreground
+`ptk_invoke` running a long native child (`codex exec`) with
+`timeoutSeconds=900` produced no response for 2018s, at which point the
+MCP client aborted; a subsequent `ptk_state` also never responded; the
+server process was later absent from the process table. The execution
+timeout should have answered at 900s and did not — a broken-timer,
+lost-response, or server-crash failure that the queue-budget work cannot
+explain or fix. Investigate first (harness MCP logs, reproduction with a
+long native child over real stdio), fix, and guard. The slice-2 semantics
+land on top of a timer that provably fires.
 
 ## Problem
 

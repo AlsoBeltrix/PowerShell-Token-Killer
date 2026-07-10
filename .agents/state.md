@@ -10,8 +10,13 @@ short and update it when important repo facts change.
   new → clean NO-FINDINGS close at `9a894e1`); all 25 findings fixed one
   per commit, record in `.agents/review/index.md`. Battery at head:
   dotnet 100/100, Pester 133/1 skipped, handshake PASSED, live stdio
-  issue-repro checks 11/11 (canonical counts). Awaiting the owner's push
-  go; after push, issues #5 and #6 get fix references and closure.
+  issue-repro checks 11/11 (canonical counts). Owner PUSHED 2026-07-10
+  (`master` == `origin/master` at `f12dd46`); issues #5 and #6 got fix
+  references and were CLOSED the same day. GitHub reports the remote
+  renamed to `PowerShell-Token-Killer` (capital W) — the configured URL
+  still works via redirect. Owner grant (2026-07-10, in-session):
+  persistent approval to handle GitHub issues on this repo as
+  appropriate (comment/close/triage without per-action asks).
   Machine-local note: this session's ptk server died during the slice-0
   incident and the installed payload predates the whole batch — a
   dev-install re-run is needed for live sessions to pick it up.

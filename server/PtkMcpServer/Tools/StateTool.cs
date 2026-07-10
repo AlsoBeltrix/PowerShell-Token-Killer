@@ -19,7 +19,10 @@ public static class StateTool
         "count). Use it to diagnose a polluted session (e.g. a test shim left on " +
         "PATH) before it corrupts results; ptk_reset restores factory state. Set " +
         "listAvailable to also enumerate installed modules - slow the first time, " +
-        "cached for the rest of the session.")]
+        "cached for the rest of the session. Always answers promptly: while " +
+        "another call holds the runspace it reports host-level facts plus a " +
+        "busy line (active-call age, waiter count) instead of queueing, and " +
+        "marks runspace-dependent details unavailable.")]
     public static async Task<string> State(
         RunspaceHost host,
         JobManager jobs,
@@ -36,7 +39,10 @@ public static class StateTool
             $"\"variables: $(@(Get-Variable).Count) (baseline {host.BaselineVariableCount})\"",
             "$(if (@(Get-Module).Count -eq 0) { 'modules loaded: (none)' } else { 'modules loaded:' })",
             "Get-Module | Sort-Object Name | ForEach-Object { '  ' + $_.Name + ' ' + $_.Version }");
-        var result = await host.InvokeAsync(
+        // Zero-wait acquire: the health check must never queue behind the
+        // workload it exists to diagnose (issue #6). Null = busy; the failed
+        // acquire IS the busy signal — no snapshot-then-queue race window.
+        var result = await host.TryInvokeIfIdleAsync(
             script,
             raw: true, // this tool formats its own lines; never shape them
             cancellationToken: cancellationToken);
@@ -47,13 +53,21 @@ public static class StateTool
         sb.AppendLine(
             $"ptk server: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
             $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
-        if (result.Output.TrimEnd().Length > 0) sb.AppendLine(result.Output.TrimEnd());
-        // A session can break the probe itself (e.g. a shadowing Get-Module):
-        // surface that instead of silently reporting partial state as the truth.
-        if (!result.Success || result.Errors.Length > 0)
+        if (result is null)
         {
-            sb.AppendLine("[state probe errors]");
-            foreach (var error in result.Errors) sb.AppendLine(error);
+            sb.AppendLine(FormatBusyLine(host));
+            sb.AppendLine("runspace-dependent details (engine, cwd, variables, loaded modules) unavailable while busy.");
+        }
+        else
+        {
+            if (result.Output.TrimEnd().Length > 0) sb.AppendLine(result.Output.TrimEnd());
+            // A session can break the probe itself (e.g. a shadowing Get-Module):
+            // surface that instead of silently reporting partial state as the truth.
+            if (!result.Success || result.Errors.Length > 0)
+            {
+                sb.AppendLine("[state probe errors]");
+                foreach (var error in result.Errors) sb.AppendLine(error);
+            }
         }
 
         var allJobs = jobs.List();
@@ -92,7 +106,10 @@ public static class StateTool
             {
                 if (_availableCache is null)
                 {
-                    var available = await host.InvokeAsync(
+                    // Independently zero-wait: a long call can win the runspace
+                    // between the first probe and this one, and queueing here
+                    // would reintroduce the blocked health check (issue #6).
+                    var available = await host.TryInvokeIfIdleAsync(
                         "Get-Module -ListAvailable | Sort-Object Name -Unique | " +
                         "ForEach-Object { '  {0} {1}' -f $_.Name, $_.Version }",
                         raw: true, // this tool formats its own lines; never shape them
@@ -101,7 +118,11 @@ public static class StateTool
                     // not masquerade as "(none)", and Success=true still carries
                     // non-terminating errors (a poisoned Get-Module can Write-Error
                     // and emit fake data), so both must be clear before caching.
-                    if (available.Success && available.Errors.Length == 0)
+                    if (available is null)
+                    {
+                        sb.AppendLine("modules available: unavailable while the runspace is busy (not cached)");
+                    }
+                    else if (available.Success && available.Errors.Length == 0)
                     {
                         _availableCache = available.Output.TrimEnd();
                     }
@@ -129,6 +150,17 @@ public static class StateTool
     /// <summary>Test hook: the available-module cache is process-static, so cache
     /// semantics are untestable without clearing it between cases.</summary>
     internal static void ClearAvailableCacheForTests() => _availableCache = null;
+
+    // Queue-wait and execution age are independently observable (issue #6):
+    // this line carries the active call's age and the waiter count; the
+    // queue-expiry failure on ptk_invoke carries the wait it spent.
+    private static string FormatBusyLine(RunspaceHost host)
+    {
+        var (_, age, waiters) = host.GetGateStatus();
+        return age is not null
+            ? $"runspace: busy (active call running {age.Value.TotalSeconds:0}s, {waiters} waiting)"
+            : $"runspace: busy ({waiters} waiting)";
+    }
 
     private static string FormatUptime(TimeSpan up) =>
         up.TotalHours >= 1 ? $"{(int)up.TotalHours}h{up.Minutes:00}m"

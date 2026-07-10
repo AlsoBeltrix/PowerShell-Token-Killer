@@ -552,17 +552,57 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
+    // Busy snapshot for the never-queueing ptk_state (issue #6): the active
+    // call's start (0 ticks = idle) and how many callers are waiting. Updated
+    // lock-free around the gate so reading it never touches the gate itself.
+    private long _activeCallStartTicks;
+    private int _gateWaiters;
+
+    /// <summary>Lock-free view of the serialization gate for diagnostics:
+    /// busy/idle, how long the active call has held the runspace, and how many
+    /// callers are queued behind it.</summary>
+    public (bool Busy, TimeSpan? ActiveCallAge, int Waiters) GetGateStatus()
+    {
+        var startTicks = Interlocked.Read(ref _activeCallStartTicks);
+        var busy = _gate.CurrentCount == 0;
+        TimeSpan? age = busy && startTicks != 0
+            ? DateTimeOffset.UtcNow - new DateTimeOffset(startTicks, TimeSpan.Zero)
+            : null;
+        return (busy, age, Volatile.Read(ref _gateWaiters));
+    }
+
+    private void MarkGateAcquired() =>
+        Interlocked.Exchange(ref _activeCallStartTicks, DateTimeOffset.UtcNow.UtcTicks);
+
+    private void ReleaseGate()
+    {
+        Interlocked.Exchange(ref _activeCallStartTicks, 0);
+        _gate.Release();
+    }
+
     // The serialization gate wait is part of the same wall-clock budget as
     // execution (issue #6): a queued call must not overshoot its budget just
     // because another call holds the runspace. Chunked for sleep safety.
     private async Task<bool> TryEnterGateAsync(DateTimeOffset deadline, CancellationToken cancellationToken)
     {
-        while (true)
+        Interlocked.Increment(ref _gateWaiters);
+        try
         {
-            var remaining = deadline - DateTimeOffset.UtcNow;
-            if (remaining <= TimeSpan.Zero) return false;
-            var chunk = remaining < DeadlineCheckChunk ? remaining : DeadlineCheckChunk;
-            if (await _gate.WaitAsync(chunk, cancellationToken)) return true;
+            while (true)
+            {
+                var remaining = deadline - DateTimeOffset.UtcNow;
+                if (remaining <= TimeSpan.Zero) return false;
+                var chunk = remaining < DeadlineCheckChunk ? remaining : DeadlineCheckChunk;
+                if (await _gate.WaitAsync(chunk, cancellationToken))
+                {
+                    MarkGateAcquired();
+                    return true;
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Decrement(ref _gateWaiters);
         }
     }
 
@@ -577,15 +617,23 @@ public sealed class RunspaceHost : IDisposable
 
     // Queue expiry is NOT the execution timeout: nothing ran, nothing was
     // recycled, and saying otherwise sends the model rebuilding warm state it
-    // never lost (plan finding i56p-8).
-    private static InvokeResult QueueExpiryResult(TimeSpan budget) => new(
-        Success: false,
-        Output: string.Empty,
-        Errors: [$"Runspace busy: this call's {budget.TotalSeconds:0}s wall-clock budget expired while waiting for another call to finish. " +
-            "The script was NOT executed and warm state is untouched. " +
-            "Retry when the active call finishes, raise timeoutSeconds, or use background=true for stateless work."],
-        Warnings: [],
-        TimedOut: true);
+    // never lost (plan finding i56p-8). The busy detail makes queue wait and
+    // the active call's age independently observable (issue #6).
+    private InvokeResult QueueExpiryResult(TimeSpan budget)
+    {
+        var (_, age, waiters) = GetGateStatus();
+        var busyDetail = age is not null
+            ? $"the active call has held the runspace for {age.Value.TotalSeconds:0}s and {waiters} caller(s) are waiting"
+            : "another call holds the runspace";
+        return new InvokeResult(
+            Success: false,
+            Output: string.Empty,
+            Errors: [$"Runspace busy: this call's {budget.TotalSeconds:0}s wall-clock budget expired while waiting for another call to finish ({busyDetail}). " +
+                "The script was NOT executed and warm state is untouched. " +
+                "Retry when the active call finishes, raise timeoutSeconds, or use background=true for stateless work."],
+            Warnings: [],
+            TimedOut: true);
+    }
 
     private InvokeResult ExecutionTimeoutResult(TimeSpan budget) => new(
         Success: false,
@@ -609,6 +657,30 @@ public sealed class RunspaceHost : IDisposable
         {
             return QueueExpiryResult(budget);
         }
+        return await InvokeGateHeldAsync(script, raw, route, callDeadline, budget, cancellationToken);
+    }
+
+    /// <summary>Runs the script only if the runspace is idle RIGHT NOW; null
+    /// means it is busy and nothing ran. The ptk_state probes use this so the
+    /// health check never queues behind the workload it exists to diagnose
+    /// (issue #6) — the failed zero-wait acquire IS the busy signal, with no
+    /// check-then-queue window for a new call to slip into.</summary>
+    public async Task<InvokeResult?> TryInvokeIfIdleAsync(string script, bool raw = false, CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        // A served busy report is user activity (the sd2-3 class; plan finding
+        // i56p-10): stamp BEFORE the acquire attempt so even the null return
+        // refreshes the idle clock — the watchdog must not stop a server right
+        // after it answered.
+        LastActivityUtc = DateTimeOffset.UtcNow;
+        if (!_gate.Wait(0)) return null;
+        MarkGateAcquired();
+        var budget = _callTimeout;
+        return await InvokeGateHeldAsync(script, raw, "auto", DateTimeOffset.UtcNow + budget, budget, cancellationToken);
+    }
+
+    private async Task<InvokeResult> InvokeGateHeldAsync(string script, bool raw, string route, DateTimeOffset callDeadline, TimeSpan budget, CancellationToken cancellationToken)
+    {
         var ps = PowerShell.Create();
         var handedOff = false;
         try
@@ -749,7 +821,7 @@ public sealed class RunspaceHost : IDisposable
         finally
         {
             if (!handedOff) ps.Dispose();
-            _gate.Release();
+            ReleaseGate();
         }
     }
 
@@ -808,7 +880,7 @@ public sealed class RunspaceHost : IDisposable
         finally
         {
             if (!handedOff) ps.Dispose();
-            _gate.Release();
+            ReleaseGate();
         }
     }
 
@@ -836,6 +908,7 @@ public sealed class RunspaceHost : IDisposable
         ObjectDisposedException.ThrowIf(_disposed, this);
         LastActivityUtc = DateTimeOffset.UtcNow;
         await _gate.WaitAsync(cancellationToken);
+        MarkGateAcquired();
         try
         {
             var old = _runspace;
@@ -845,7 +918,7 @@ public sealed class RunspaceHost : IDisposable
         }
         finally
         {
-            _gate.Release();
+            ReleaseGate();
         }
     }
 

@@ -50,7 +50,7 @@ Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 | --- | --- | --- |
 | `ptk_invoke` | `script`, optional `raw`, `route`, `background`, `timeoutSeconds` | Run a PowerShell script or native command line in the warm runspace; `background: true` starts it as a cold background job instead, `timeoutSeconds` overrides the per-call timeout (capped by the server maximum). |
 | `ptk_job` | `action` (`status`/`output`/`kill`/`list`), `id`, `offset` | Manage background jobs: `output` returns new output since `offset`, shaped and bounded, ending with the next offset to pass; the complete raw log path is in `status`. |
-| `ptk_state` | optional `listAvailable` | Session introspection and health check: engine, server PID/uptime, cwd, loaded modules, and drift — env vars changed since server start, PATH as an entry diff, variable count. With `listAvailable: true`, also enumerate installed modules once and cache the result. |
+| `ptk_state` | optional `listAvailable` | Session introspection and health check: engine, server PID/uptime, cwd, loaded modules, and drift — env vars changed since server start, PATH as an entry diff, variable count. With `listAvailable: true`, also enumerate installed modules once and cache the result. Never queues: while another call holds the runspace it answers promptly with host-level facts plus a busy line (active-call age, waiter count), marking runspace-dependent details unavailable. |
 | `ptk_reset` | none | Recycle the runspace to factory state: discards variables, loaded modules, current directory, default parameters, and connections, and restores environment variables to their server-start values. |
 
 `ptk_invoke` returns command output, then labeled sections when present, in

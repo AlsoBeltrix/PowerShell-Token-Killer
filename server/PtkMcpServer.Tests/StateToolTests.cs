@@ -20,6 +20,62 @@ public sealed class StateToolTests : IDisposable
     }
 
     [Fact]
+    public async Task State_answers_promptly_with_busy_indicator_during_an_active_call()
+    {
+        var slow = _host.InvokeAsync("Start-Sleep -Seconds 6; 'slow-done'");
+        await Task.Delay(500); // let the slow call own the gate
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        sw.Stop();
+
+        // The health check must not queue behind the workload it diagnoses
+        // (issue #6): prompt answer, busy line, host-level facts intact.
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"ptk_state took {sw.Elapsed}");
+        Assert.Contains("runspace: busy (active call running", state);
+        Assert.Contains("waiting)", state);
+        Assert.Contains("unavailable while busy", state);
+        Assert.Contains($"pid {Environment.ProcessId}", state);
+        Assert.Contains("[env drift since server start]", state);
+        Assert.Contains("jobs:", state);
+
+        var slowResult = await slow;
+        Assert.True(slowResult.Success); // the probe disturbed nothing
+    }
+
+    [Fact]
+    public async Task Busy_listAvailable_leg_reports_unavailable_without_queueing()
+    {
+        StateTool.ClearAvailableCacheForTests();
+        var slow = _host.InvokeAsync("Start-Sleep -Seconds 6");
+        await Task.Delay(500);
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+        sw.Stop();
+
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"ptk_state took {sw.Elapsed}");
+        Assert.Contains("unavailable while the runspace is busy (not cached)", state);
+        await slow;
+    }
+
+    [Fact]
+    public async Task Busy_state_call_refreshes_the_idle_clock()
+    {
+        // A served busy report is user activity (plan finding i56p-10): the
+        // idle watchdog must not stop a server right after it answered.
+        var slow = _host.InvokeAsync("Start-Sleep -Seconds 4");
+        await Task.Delay(500);
+        var before = _host.LastActivityUtc;
+        await Task.Delay(300);
+
+        await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+
+        Assert.True(_host.LastActivityUtc > before, "busy-path ptk_state did not stamp LastActivityUtc");
+        await slow;
+    }
+
+    [Fact]
     public async Task State_reports_server_and_session_basics()
     {
         var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);

@@ -95,13 +95,21 @@ budgets) at approval time.
    regardless of the caller's `timeoutSeconds` — run under the same
    remaining budget, so a background retry after a queue expiry cannot
    itself block for the 300s default, and a request whose budget expires
-   pre-start returns the fast busy failure with no job started.
+   pre-start returns the fast busy failure with no job started. The cwd
+   probe's busy expiry must fail the request, never degrade to a
+   null-cwd start: `JobManager` sets `WorkingDirectory` only when it gets
+   a path (`JobManager.cs`), so a silent fallback would run a queued
+   build in whatever directory the server process happened to start in —
+   the wrong project — contradicting the documented session-cwd contract
+   in `server/README.md`. A failed start with retry guidance is
+   recoverable; a wrong-directory build is not.
    Regression coverage (from the issue): a queued call whose budget
    expires never executes later (observable side effect asserted absent);
    execution timeout still recycles only the call that owns the runspace;
    queue-expiry leaves the active call's warm state intact; a
    slow-shadowed preflight helper cannot hold a small-budget call past
-   its deadline (i56p-1).
+   its deadline (i56p-1); a busy-expired background request starts no job
+   at all — in particular none in the server process cwd (i56p-4).
 
 3. **#6b — prompt `ptk_state` under load.** `RunspaceHost` maintains a
    busy snapshot around the gate (active-call start time, waiter count)

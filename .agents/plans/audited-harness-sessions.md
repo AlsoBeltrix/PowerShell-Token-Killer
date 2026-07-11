@@ -199,6 +199,13 @@ Rules:
 - `name` is schema-optional because `list` is global: `list` requires it to be
   absent and rejects lifecycle-only arguments, while `open`, `close`, and
   `restart` require a valid name. No ignored sentinel name is invented.
+- The flat signature above is notation, not the generated schema.
+  `SessionTool` is registered with an explicit `oneOf` JSON schema: a `list`
+  branch permits only `action`; an `open` branch requires `name` and permits
+  only open-time binding fields; `close` and `restart` branches require `name`
+  and permit only their generation/force fields. The adapter validates the
+  original JSON property-presence set before binding defaults, so omitted is
+  distinguishable from explicitly supplied `null`, `false`, or `0`.
 - Each worker has a random boot ID and a monotonic generation. An optional
   nonzero `expectedGeneration` mismatch refuses before any side effect.
 - A compact session/worker/generation/declared-purpose header appears on
@@ -810,7 +817,9 @@ Tools/
 Existing ownership changes:
 
 - `Program.cs` selects supervisor/worker mode, loads audit/template options,
-  and registers only supervisor services in MCP mode.
+  and registers only supervisor services in MCP mode. It excludes
+  `SessionTool` from reflection-only `.WithToolsFromAssembly()` discovery and
+  registers that tool with its explicit conditional schema/raw-JSON adapter.
 - `InvokeTool`, `JobTool`, `StateTool`, and `ResetTool` become thin session
   routers and begin/finish supervisor audit scopes.
 - `RunspaceHost` accepts absolute deadlines and structured execution/output
@@ -957,6 +966,8 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Add dynamic semantic session aliases, optional frozen templates, lifecycle
   state machine/gate/operation leases, `ptk_session`, and explicit session
   arguments on all tools.
+- Register `ptk_session` with the explicit action-conditional `oneOf` schema
+  and validate raw field presence before typed/default binding.
 - Move public job-ID allocation to the supervisor's nonreusing 64-bit
   sequence; worker-local IDs never cross MCP.
 - Prove isolation of variables, aliases, cwd, environment, modules, auth
@@ -1118,6 +1129,9 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - The generated `ptk_session` schema accepts `list` with no name and rejects
   open/close/restart without one; list neither requires nor ignores a sentinel
   session name.
+- Schema and runtime tests also reject `{action:"list",force:false}` and
+  explicit-null lifecycle fields, proving absence is preserved rather than
+  collapsed into CLR defaults.
 - Barrier-controlled invoke/job-start versus reset/restart/close races prove
   the lifecycle transition wins before admission or the operation lease wins
   before the busy check; work never starts in a dying generation, duplicate

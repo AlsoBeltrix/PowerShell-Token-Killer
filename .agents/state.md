@@ -5,13 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Owner approved the dual-reviewed replacement architecture on 2026-07-11;
-  implementation has not started and awaits an explicit go.**
+- **Implementation started on the owner’s explicit 2026-07-11 go; slice 0 is
+  complete with no product-code changes.**
   `.agents/plans/audited-harness-sessions.md` combines
   mandatory PTK-owned/SIEM-exportable audit, private harness-scoped
   process-per-session workers, internal PTK→RTK routing, same-invocation
-  output recovery, and no-retry mixed-domain handling. Both reviewers accepted
-  the same final plan content with no open findings; canonical evidence and
+  output recovery, and no-retry mixed-domain handling. Its frozen slice-0
+  results record the absent RTK capture seam, local-only/anchored OTLP
+  contracts, exact profile/protocol bounds, carried routing guards, and live
+  passing Windows/Unix parent-death probes. Both plan reviewers accepted the
+  same approved pre-implementation content; focused RTK, audit/export, and
+  platform/schema reviews of the slice-0 freeze closed with no remaining
+  medium-or-higher issue. Canonical pre-implementation review evidence and
   fixed-head guards live in `.agents/review/index.md`.
 - **Prior security/routing shapes remain evidence, not implementation
   authority.** The declarative policy gate and secret redaction are rejected;
@@ -31,8 +36,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Await explicit implementation go; then begin only the approved plan's first
-   slice under the repo's one-slice/one-commit and guard-proof rules.
+1. Implement only audited-harness slice 1: mandatory current-server audit
+   foundation, exact-script evidence, capacity reservation, and fail-closed
+   pre-effect guards.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
@@ -78,9 +84,9 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- The audited-session plan/review work is docs-only. `git diff --check` passed;
+- Audited-session slice 0 is docs/contracts only. `git diff --check` passed;
   product tests were not run because no runtime/setup/generated behavior
-  changed. Machine-specific reviewer probes live in `.agents/machines.md`.
+  changed. Machine-specific probe evidence lives in `.agents/machines.md`.
 
 ## Active Sources
 

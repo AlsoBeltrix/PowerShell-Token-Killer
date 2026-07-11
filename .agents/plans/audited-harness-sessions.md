@@ -1,8 +1,8 @@
 # Plan: mandatory audit, harness-scoped sessions, and internal RTK routing
 
-**Status:** APPROVED — owner-approved 2026-07-11 after Claude and Grok
-reviewloop convergence. Implementation has not started and begins only on an
-explicit owner go.
+**Status:** IMPLEMENTING — owner-approved 2026-07-11 after Claude and Grok
+reviewloop convergence. Slice 0's external/platform contract freeze completed
+2026-07-11 after the owner's explicit implementation go; slice 1 is next.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -130,8 +130,12 @@ supervisor owns MCP, session lifecycle, worker process trees, the output-store
 handle table/artifact directory, audit persistence/export, and correlation
 IDs.
 
-All workers are children of the supervisor and enter containment atomically at
-creation, before any worker instruction or runspace/bootstrap can run. On
+All workers are harness-owned descendants of the supervisor and enter
+containment atomically at creation, before the worker executable or any
+runspace/bootstrap instruction can run. On Windows the worker is a direct
+supervisor child. On Unix the topology is unconditionally
+`supervisor -> native broker -> worker`; calling the Unix worker a supervisor
+"child" anywhere below means managed descendant, not direct parentage. On
 supported Windows, the supervisor first creates/configures the Job Object,
 then uses `CreateProcessW`/`STARTUPINFOEX` with
 `PROC_THREAD_ATTRIBUTE_JOB_LIST` so the worker belongs to the
@@ -140,14 +144,81 @@ Object handle is noninherited and supervisor-owned. A platform without that
 creation-time primitive fails worker startup rather than falling back to the
 spawn-then-assign race.
 
-On Unix, a tiny containment broker/reaper is started first with the
-supervisor-only liveness pipe. It, not the supervisor, forks the worker behind
-a closed start gate, places it in a dedicated process group, and releases the
-gate only after liveness and group ownership are armed. EOF before release
-kills/abandons the gated child; EOF later sends the group bounded TERM then
-KILL and the broker exits. The supervisor waits for a containment-armed
-acknowledgment before sending `initialize`. The ordinary protocol EOF watcher
-remains a graceful fast path, not the hard-death proof.
+On Unix, a tiny single-threaded native `PtkContainmentBroker` executable is
+started first with the supervisor-only liveness pipe. It is portable C/POSIX
+source built and shipped beside PTK for `linux-x64`, `linux-arm64`, and
+`osx-arm64`; there is no managed-runtime or shell-script broker fallback. It,
+not the supervisor, forks the worker. The pre-exec child performs only
+async-signal-safe close/dup/group/gate/`execve` operations, blocks behind a
+closed pipe gate, and executes the managed worker only after containment is
+armed. Broker and child both perform the race-safe `setpgid` checks; the broker
+retains reaper parentage and places no user code before the gate.
+
+The broker arms supervisor liveness and group ownership, then sends a bounded
+containment-armed acknowledgment. The supervisor tells the broker to release;
+only then does the child `execve` the worker, complete its private-protocol
+hello, and receive `initialize`. EOF before release kills/abandons the gated
+child; EOF later sends the group bounded TERM then KILL and the broker exits.
+The ordinary protocol EOF watcher remains a graceful fast path, not the
+hard-death proof. Failure to build, locate, authenticate, launch, or arm the
+RID-matched broker refuses worker startup; the supervisor never spawns the
+Unix worker itself.
+
+The broker contract is fixed and contains no user/script data:
+
+- Resolve `PtkContainmentBroker` from the published server's sibling directory,
+  never PATH. A generated sibling
+  `ptk-containment-broker.manifest.json` contains exactly
+  `schemaVersion:1`, `protocolVersion:1`, runtime `rid`, `fileName`, and
+  lowercase SHA-256. Require the current RID, exact digest, a nonsymlink
+  regular executable owned by the effective UID, and no group/world write
+  bits before launch. A development/test override requires both an absolute
+  path and explicit expected SHA-256. "Authenticate" below means this package
+  identity/drift check, not resistance to a hostile same-user process.
+- Map only these inherited descriptors into the broker: FD 3 liveness-read,
+  FD 4 supervisor-control-read, FD 5 broker-event-write, FD 6 worker-protocol
+  request-read, FD 7 worker-protocol event/write, FD 8 worker-stdout-write,
+  and FD 9 worker-stderr-write. The supervisor alone retains the
+  liveness/control write ends, broker-event read end, opposite worker-protocol
+  ends, and diagnostic read ends. Broker stdin/stdout/stderr are `/dev/null`;
+  broker failures use event/exit status. Close every other unintended
+  descriptor. Broker-only FDs 3..5 and broker copies of 6..9 are
+  `FD_CLOEXEC`; after fork the gated child closes broker FDs, opens worker
+  stdin from `/dev/null`, `dup2`s 8/9 to stdout/stderr and 6/7 to worker FDs
+  3/4, closes 6..9, and leaves only 0..4 non-CLOEXEC for `execve`. The worker
+  sets protocol FDs 3/4 CLOEXEC before any runspace/user process can inherit
+  them; the supervisor continuously drains and applies the frozen per-boot
+  caps to diagnostic stdout/stderr.
+- Control/event frames have an eight-byte header: ASCII `PTKB`, version byte
+  `1`, message-type byte, and unsigned two-byte big-endian payload length.
+  Payload is at most 64 bytes. Readers loop through `EINTR`/short reads to read
+  exactly one header and its declared payload; EOF/error before completion is
+  protocol-fatal. Coalesced frames are parsed sequentially, never rejected as
+  "extra" bytes. Unknown type/version, oversize length, or a type-specific
+  payload-length mismatch is protocol-fatal.
+  Integers below are unsigned big-endian. Supervisor commands are `START=1`,
+  `RELEASE=2`, and `SHUTDOWN=3`, all with empty payload. The exact absolute
+  worker exec vector (`PtkMcpServer --worker`, or pinned `dotnet` plus absolute
+  entry DLL under tests) is nonsecret broker argv fixed at launch, never a
+  control-frame string.
+- Broker events are `HELLO=1`, `ARMED=2`, `RELEASED=3`, and
+  `START_FAILED=4`. `HELLO` carries broker PID `u32` plus start identity
+  `(u64 high,u64 low)`. After `START`, `ARMED` carries broker PID/identity,
+  worker PID/identity, and PGID `u32`; the supervisor requires the spawned
+  broker PID, `PGID == worker PID`, and independently queried matching start
+  identities before `RELEASE`. Linux identity is `(0, /proc/<pid>/stat
+  starttime ticks)`; Darwin identity is `(proc_bsdinfo start seconds, start
+  microseconds)`. `RELEASED` is empty and is sent only after the child's
+  CLOEXEC exec-error pipe proves successful `execve`. `START_FAILED` carries
+  stage `u8` and errno `u32`, after confirmed gated-child/group death.
+- Broker exit codes are `0` for requested clean shutdown/reap, `64` protocol
+  error, `70` internal failure before child creation, `71` arm/identity
+  failure after confirmed child death, `72` exec failure after confirmed child
+  death, `73` supervisor-liveness EOF after confirmed group teardown, and `74`
+  unconfirmed teardown. Any pre-ready nonzero fails startup. Any post-ready
+  exit, including zero not paired with the admitted shutdown transition,
+  triggers the generation-fatal `broker_lost` path; code 74 goes directly to
+  quarantine/direct identity-validated teardown.
 
 The supervisor retains the broker PID/start identity plus the worker
 PGID/leader start identity and continuously waits the broker process. An
@@ -270,11 +341,12 @@ the effective upstream identity remains authoritative.
 
 ## Supervisor/worker protocol
 
-Run the existing executable in two modes:
+Run the managed executable in two modes and ship the Unix-only native helper:
 
 ```text
 PtkMcpServer             # MCP supervisor
 PtkMcpServer --worker    # one internal session worker
+PtkContainmentBroker     # Unix direct child; forks/gates/reaps one worker
 ```
 
 Use two dedicated inherited anonymous-pipe handles for versioned
@@ -502,7 +574,7 @@ ResolutionContext     Warm | Cold
 RequestedRoute
 EffectiveRoute
 OutputProvenance      PowerShellObjects | DirectText |
-                      RtkFiltered | RtkPassthrough
+                      RtkUnknown | RtkFiltered | RtkPassthrough
 FallbackReason
 RtkExecutableIdentity
 ```
@@ -563,7 +635,8 @@ but never asks the model to reconstruct or resubmit the script.
 - RTK absent, routing timeout, routing error, or pre-execution resolution
   change falls back to the original once. No fallback occurs after execution
   begins.
-- RTK-filtered stdout is never sent to generic `rtk log` a second time.
+- Any RTK-routed stdout, including seam-absent `RtkUnknown`, is treated as
+  already RTK-processed and is never sent to generic `rtk log` a second time.
 - Direct PowerShell/native log-shaped final text may use `rtk log`.
 - PowerShell objects remain PTK-shaped.
 
@@ -638,8 +711,8 @@ then shape those same captured results in a private internal pipeline. Tests
 must prove shaping/recovery do not change `$LASTEXITCODE`, `$Error`, cwd,
 variables, or module/connection state.
 
-RTK filtering happens before PTK sees the unfiltered bytes. Therefore raw
-recovery for an RTK-filtered call has a hard external prerequisite: RTK must
+RTK execution may filter before PTK sees the unfiltered bytes. Therefore raw
+recovery for any RTK-routed call has a hard external prerequisite: RTK must
 provide a machine-readable per-call capture contract that writes the original
 stdout/stderr and completion metadata from the same child invocation for
 filtered, passthrough, success, and failure cases. Human
@@ -798,23 +871,155 @@ unclosed event, never “still running forever.”
 ### Versioned event envelope
 
 ```text
-schema_version, event_id, event_type, occurred_utc, observed_utc
-producer: host_id, supervisor_boot_id, worker_boot_id, pid, version,
-          binary_digest
-sequence, previous_event_hash, event_hash
-session: name, generation, declared purpose/target/identity,
-         effective identity when verifiable
-actor: transport/client metadata and attribution_strength
-correlation: call_id, job_id, parent_event_id, trace_id
-request: tool/action, cwd, timeout, background, original_script_digest,
-         exact-script evidence reference
-routing: domain, requested/effective route, RTK identity, provenance,
-         fallback reason
-outcome: state, exit_code, duration, queue time, warm_state_lost,
-         worker_replaced, termination_certainty
-coverage: ptk_request, root_process_observed, descendants_observed,
-          remote_effect_observed
+schema_version: const "ptk.audit/1"
+event_id: lowercase UUIDv7
+event_type: event-code
+occurred_utc: UTC `yyyy-MM-ddTHH:mm:ss.fffffffZ`
+observed_utc: UTC `yyyy-MM-ddTHH:mm:ss.fffffffZ`
+
+producer:                                      # all keys required
+  host_id: persisted opaque UUIDv4
+  supervisor_boot_id: UUIDv4
+  worker_boot_id: UUIDv4 | null
+  pid: positive integer | null                 # process originating the fact
+  version: text-128
+  binary_digest: lowercase SHA-256 hex | null
+
+sequence: integer 1..Int64.MaxValue            # restarts at 1 per supervisor
+previous_event_hash: lowercase SHA-256 hex | null  # null only at sequence 1
+
+session:
+  name: canonical session name | null
+  generation: integer 0..Int64.MaxValue | null
+  binding_kind: "default" | "dynamic" | "template" | null
+  template_name: canonical template name | null
+  template_digest: lowercase SHA-256 hex | null
+  bootstrap_digest: lowercase SHA-256 hex | null
+  declared_purpose: text-512 | null
+  declared_target: text-256 | null
+  declared_identity: text-256 | null
+  effective_identity: text-256 | null
+  allow_cold_background: boolean | null
+
+actor:
+  transport: "mcp_stdio" | null
+  client_name: text-256 | null
+  client_version: text-256 | null
+  client_session_id: text-256 | null
+  attribution_strength: "unknown" | "transport_only" |
+                        "client_asserted" | "authenticated"
+
+correlation:
+  call_id: lowercase UUIDv7 | null
+  job_id: integer 1..Int64.MaxValue | null
+  parent_event_id: lowercase UUIDv7 | null
+  trace_id: 32 lowercase hex | null
+
+request:
+  tool: machine-name | null
+  action: machine-name | null
+  provided_fields: sorted unique property-name array, maximum 64
+  session_requested: canonical session name | null
+  cwd: path-text | null
+  timeout_ms: integer 0..Int64.MaxValue | null
+  deadline_utc: UTC timestamp | null
+  route: "auto" | "pwsh" | "rtk" | null
+  background: boolean | null
+  raw: boolean | null
+  list_available: boolean | null
+  job_id: integer 1..Int64.MaxValue | null
+  offset: integer 0..Int64.MaxValue | null
+  expected_generation: integer 0..Int64.MaxValue | null
+  force: boolean | null
+  template: canonical template name | null
+  allow_cold_background: boolean | null
+  max_bytes: integer 0..Int64.MaxValue | null
+  pattern_fingerprint: lowercase HMAC-SHA-256 hex | null
+  output_handle_digest: lowercase SHA-256 hex | null
+  original_script_digest: lowercase SHA-256 hex | null
+  script_evidence_id: opaque UUIDv4 | null
+
+routing:
+  domain: "powershell" | "native_terminal" | "mixed_dataflow" | "bash" | null
+  requested_route: "auto" | "pwsh" | "rtk" | null
+  effective_route: "powershell_direct" | "rtk" | "native_direct" |
+                   "bash_via_rtk" | null
+  rtk_version: text-128 | null
+  rtk_binary_digest: lowercase SHA-256 hex | null
+  provenance: "powershell_objects" | "direct_text" | "rtk_unknown" |
+              "rtk_filtered" | "rtk_passthrough" | null
+  fallback_reason: machine-code | null
+
+outcome:
+  state: machine-code | null
+  detail_code: machine-code | null
+  exit_code: integer Int64.MinValue..Int64.MaxValue | null
+  duration_ms: integer 0..Int64.MaxValue | null
+  queue_ms: integer 0..Int64.MaxValue | null
+  bytes_returned: integer 0..Int64.MaxValue | null
+  next_offset: integer 0..Int64.MaxValue | null
+  warm_state_lost: boolean | null
+  worker_replaced: boolean | null
+  termination_certainty: "not_applicable" | "confirmed" |
+                           "unconfirmed" | "unknown" | null
+
+coverage:
+  ptk_request: boolean
+  root_process_observed: "complete" | "none" | "unknown" | "not_applicable"
+  descendants_observed: "complete" | "partial" | "none" | "unknown" |
+                        "not_applicable"
+  remote_effect_observed: "complete" | "partial" | "none" | "unknown" |
+                          "not_applicable"
+
+event_hash: lowercase SHA-256 hex             # required final property
 ```
+
+All top-level and nested keys above are required; `null` is an explicit value,
+not omission. Request values are the effective values used by PTK, while
+`provided_fields` preserves omitted versus explicit `null`, `false`, or `0` at
+the MCP boundary. The schema rejects every unlisted key. Bounded strings and
+arrays must fit the frozen core-record limit below; inability to represent an
+accepted request's worst-case records is a pre-effect no-start, never silent
+truncation. `previous_event_hash` must equal the prior record's `event_hash`.
+
+V1 scalar aliases are exact: `text-N` is 1..N Unicode scalar values with no
+Unicode `Cc` scalar; `path-text` is 1..4,096 Unicode scalar values with no NUL;
+`machine-name` is ASCII `[a-z][a-z0-9_.-]{0,63}`; `machine-code` and
+`event-code` are ASCII `[a-z][a-z0-9_.-]{0,127}` (an event code contains at
+least one dot); `property-name` is ASCII `[A-Za-z][A-Za-z0-9_]{0,63}`;
+canonical session/template names use the public 64-character pattern. UUID
+and hex fields have the exact lengths implied above. JSON arrays preserve the
+stated order. `provided_fields` uses ordinal sorting after duplicate removal.
+
+`pattern_fingerprint` is
+`HMAC-SHA-256(per-supervisor random nonexported key,
+"ptk.output-pattern/1\0" || strict-UTF8-pattern)`; the key exists only in
+supervisor memory. This records equality within one harness without putting a
+dictionary-recoverable digest of a low-entropy token/search string into the
+SIEM stream. Raw pattern text remains excluded.
+
+Attribution values are normative. `unknown` means no actor fact is available;
+`transport_only` means PTK knows only the local stdio transport instance;
+`client_asserted` means client name/version/session came from unauthenticated
+MCP initialize metadata; `authenticated` requires a future cryptographically
+authenticated client transport. Current MCP stdio is never `authenticated`,
+regardless of the worker's OS/upstream identity.
+
+Coverage is scoped, never a whole-host claim. `root_process_observed=complete`
+means PTK observed its managed execution root from confirmed start to terminal
+state; `none` means no root started, `unknown` means start/termination could
+not be proved, and `not_applicable` is a nonexecution operation.
+`descendants_observed=complete` means only the local descendants inside the
+armed Job Object/process group were contained and confirmed terminal;
+scheduled tasks, services, WMI, SSH, deliberate detach/breakaway, and remote
+work are outside that word. Use `partial` when only part of that local tree or
+an escape is observed, `none` when no descendant exists/started, `unknown`
+when membership/outcome is uncertain, and `not_applicable` when the operation
+cannot create descendants. `remote_effect_observed=complete` requires an
+authoritative provider receipt for the specific effect, `partial` means PTK
+observed only a request/response or subset, `none` means a proved no-start,
+`unknown` means remote outcome is uncertain, and `not_applicable` means no
+remote effect was requested.
 
 The core event stream excludes stdout/stderr, environment values, raw job
 content, credentials, tokens, certificate material, and session/output
@@ -842,13 +1047,31 @@ vendor SDK per SIEM. A collector running under a different OS principal and a
 remote append-controlled index are the recommended protected deployment.
 
 The exporter checkpoint is atomic sidecar state containing spool file
-identity, byte offset, sequence, and acknowledged event ID. It is not a core
-audit event, is never exported, and does not participate in the event hash
-chain. Acknowledging an event updates only that sidecar. Core events are
-emitted only on exporter lifecycle transitions or hysteresis-bounded backlog
-threshold crossings, not on each acknowledgment, so an idle fully
-acknowledged exporter drains and becomes quiescent rather than recursively
-creating checkpoint traffic.
+identity, byte offset, sequence, and acknowledged event ID plus a nullable
+blocked-record tuple: blocked file/offset/sequence/event ID, failure class,
+HTTP/protocol detail code, response digest, first-failure UTC, and stable
+export-configuration identity. It is not a core audit event, is never exported,
+and does not participate in the event hash chain. Acknowledging an event
+updates only that sidecar.
+
+The stable configuration identity is HMAC-SHA-256 over ASCII
+`ptk.export-config/1\0` and the complete export configuration: verbatim
+endpoint, headers sorted by lowercase ordinal name with original raw values,
+CA bytes, client certificate/key bytes, protocol, and timeout. Each string or
+byte field is framed by an unsigned four-byte big-endian byte length; timeout
+is unsigned eight-byte big-endian milliseconds. The HMAC key is 32 random
+bytes, exclusively created owner-only beside the sidecar, persistent across
+supervisor restarts, and never exported. A partial
+rejection or permanent data/protocol failure remains blocked across restart
+and every configuration identity until an explicit out-of-band operator
+disposition records either a separately verified receipt or an acknowledged
+evidence gap before advancing. A configuration/auth/TLS block remains across
+restart while identity is unchanged; a changed identity permits one new
+attempt with the same stable event ID/body. No model-facing call can clear a
+block. Core events are emitted only on exporter lifecycle transitions,
+operator disposition, or hysteresis-bounded backlog threshold crossings, not
+on each acknowledgment, so an idle fully acknowledged exporter drains and
+becomes quiescent rather than recursively creating checkpoint traffic.
 
 Freeze one operator-controlled protection mode at supervisor startup; there
 is no per-call/model override:
@@ -943,6 +1166,9 @@ Worker/
   WorkerProcessFactory.cs
   ProcessTreeSupervisor.cs
 
+PtkContainmentBroker/
+  ptk-containment-broker.c   # native Unix broker, built per supported RID
+
 Tools/
   SessionTool.cs
   OutputTool.cs
@@ -962,8 +1188,8 @@ Existing ownership changes:
   output handle, and a polling-independent terminal continuation.
 - `IdleWatchdog` observes `SessionManager` aggregate activity/live work.
 - `PwshTokenCompressor.psm1` retains PowerShell-object and log-text shaping,
-  but receives provenance so RTK-filtered output is not shaped twice and all
-  rerun-with-raw wording is removed.
+  but receives provenance so every RTK-routed output, including `RtkUnknown`,
+  is not shaped twice and all rerun-with-raw wording is removed.
 - `RawUsageCounter.cs` is deleted only when the compatibility argument is
   removed.
 
@@ -976,7 +1202,8 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 
 - Probe and record the RTK machine-readable raw-capture seam. If absent,
   record the exact upstream requirement and freeze the seam-absent contract:
-  RTK routing stays active, RTK-filtered calls advertise no recovery handle,
+  RTK routing stays active, seam-absent calls use `RtkUnknown` and advertise
+  no recovery handle or second shaping,
   and other captured paths remain recoverable. Do not fake recovery or
   authorize cross-repo changes.
 - Freeze OTLP collector test endpoint/auth behavior and the JSONL schema
@@ -1013,8 +1240,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   events, hard-death/unclosed semantics, and audit retrieval access events.
 - Add at-least-once OTLP exporter, durable checkpoints, retry/backlog health,
   duplicate-safe IDs, and a fake collector integration suite.
-- Add evidence export/access auditing and retention integration without
-  changing slice 1's pre-effect ordering.
+- Add auditing for evidence reads and operator-initiated exports plus evidence
+  retention integration, without changing slice 1's pre-effect ordering. V1
+  has no automatic evidence-byte exporter; its OTLP core event anchors the
+  evidence reference/digest only.
 - Document collector/SIEM deployment without claiming local hash-chain
   immutability.
 
@@ -1045,8 +1274,8 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   per-call write reservations only, so generation replacement does not erase
   prior handles.
 - Integrate the verified RTK raw-capture seam when available; otherwise ship
-  the explicit recovery-unavailable result for RTK-filtered calls without
-  changing their route.
+  `RtkUnknown` plus the explicit recovery-unavailable result for every
+  seam-absent RTK-routed call without changing its route or shaping it again.
 - Replace raw rerun markers with opaque handle instructions.
 - Intentionally replace the `$ElisionHint` default and the four Pester guards
   named `bounds pathological line counts with a labeled head+tail window`,
@@ -1080,8 +1309,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 
 - Compute cold-context execution plans before job start.
 - Persist route/provenance/output handles with job metadata.
-- Add RTK capture for safe terminal native jobs and exact cold PowerShell for
-  mixed jobs.
+- Route safe terminal native jobs through RTK and add capture only when the
+  negotiated seam proves it. Otherwise persist `RtkUnknown`, return no
+  recovery handle, never use wrapper output as raw, and keep exact cold
+  PowerShell for mixed jobs.
 - Enforce `allowColdBackground` before every pre-start side effect. Keep warm
   asynchronous session tasks out of this plan; never silently substitute a
   cold job for a connection-dependent request.
@@ -1185,6 +1416,365 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Run a protected collector/SIEM smoke test and demonstrate sequence/gap and
   unclosed-event alerts.
 
+## Slice 0 results (frozen 2026-07-11)
+
+No product code changed in this slice. These contracts are implementation
+inputs for the later slices and may not be silently widened or weakened.
+
+### RTK same-invocation capture seam
+
+The adjacent RTK source probe used product-equivalent commit `5d32d07` (the
+checkout's extra commit was governance-only), and the independent installed
+runtime probe used RTK 0.43.0. No PTK-usable raw-capture seam exists:
+
+- `rtk rewrite` returns rewritten command text and routing status; it does not
+  execute or expose capture metadata.
+- The shared streaming runner has bounded internal string capture, while
+  other capture paths differ and passthrough can inherit stdout/stderr with no
+  captured bytes. Normal tee output is optional, command-path-dependent,
+  size/mode-gated, truncated/rotated, and disableable; a force-hint path can
+  bypass some tee gates without becoming a stable API. Tee concatenates
+  streams and exposes only a spoofable human `[full output: path]` hint.
+- RTK has a product version, but no capture-capability/schema negotiation, PTK
+  correlation ID, stream-separated artifact, child-started bit,
+  provenance/completeness manifest, or atomic terminal record. PTK therefore
+  cannot turn current tee files into truthful `ptk_output` handles.
+
+The selected seam-absent behavior above is final: keep safe RTK routing,
+return `recovery=unavailable: rtk capture unsupported` with no handle for an
+RTK-routed result, preserve handles only for non-RTK execution paths whose
+unshaped bytes PTK captured before any lossy shaping, and never rerun or parse
+a human tee hint. Until a valid seam proves more, every RTK-routed result has
+`RtkUnknown` provenance, is treated as already RTK-processed (never sent to
+`rtk log` again), and cannot masquerade as a raw capture. `RtkFiltered` and
+`RtkPassthrough` require the negotiated machine record.
+
+Any future upstream RTK seam must provide all of the following before PTK may
+advertise RTK recovery:
+
+1. Stable capability/schema negotiation before a user process starts.
+2. A PTK-supplied per-call correlation ID and restricted destinations or
+   inherited handles owned by PTK, independent of RTK tee configuration.
+3. Binary-safe pre-filter stdout and stderr bytes in separate artifacts for
+   filtered, passthrough, success, nonzero-exit, spawn-failure, and capture
+   failure paths. A stream marked complete is exact and untruncated. A
+   post-start capture failure preserves whatever prefix was captured, marks
+   that stream incomplete, and never silently labels it exact. RTK does not
+   rotate these artifacts.
+4. An atomically completed machine record containing schema/correlation,
+   `child_started`, filtered-versus-passthrough provenance, exit/signal,
+   per-stream byte counts and SHA-256 digests, and per-stream completeness.
+5. A pre-start capture/setup failure distinguishable from any post-start
+   failure. PTK may use an allowed exact-semantics fallback at most once only
+   when an atomically complete, schema-supported, correlation-matched machine
+   record explicitly proves `child_started=false`. A missing, malformed,
+   stale, mismatched, or partial record is `outcome_unknown` and forbids
+   fallback. After a proved start PTK reports incomplete/unknown and never
+   re-executes.
+6. PTK-owned retention and cleanup. A filesystem path or prose hint is not the
+   machine protocol.
+
+This plan still authorizes no change to the adjacent RTK repository.
+
+### Audit JSONL and OTLP/HTTP
+
+The core JSONL schema identity is the literal `ptk.audit/1`. Records are
+compact UTF-8 without BOM, exactly one JSON object followed by LF, with a
+maximum of 65,536 UTF-8 bytes including LF. The envelope under **Versioned
+event envelope** is the v1 semantic field set. Every defined object key is
+present; non-applicable or unknown scalar values are `null`, arrays use `[]`,
+and unrecognized properties are forbidden. A field/meaning/default/hash
+change requires `ptk.audit/2`; adding a new dotted `event_type` does not.
+Oversize variable data is represented by an existing bounded code/digest or
+the operation refuses before effects; it is never silently truncated into a
+core event.
+
+V1 uses lowercase UUIDv7 event/call IDs, UUIDv4 boot/host IDs, UTC RFC 3339
+timestamps, signed 64-bit monotonic sequence values starting at one per
+supervisor, and lowercase SHA-256 hex. Every emitted integer token uses
+canonical base-10 integer syntax without fraction, exponent, leading plus, or
+leading zero. Emit properties in the envelope's documented order. Serialize
+compactly without `event_hash`, SHA-256 those
+exact UTF-8 bytes (which already contain `schema_version` and
+`previous_event_hash`), append `event_hash` as the final property, then LF.
+Do not reserialize an event to compute or export its hash. Independent
+verification strips LF, requires the exact final suffix
+`,"event_hash":"<64-lowercase-hex>"}`, replaces that suffix with `}` to
+recover the original pre-hash byte sequence, hashes those raw bytes, compares
+the extracted value, then performs strict schema and previous-link validation.
+
+`local-only` is the startup default and needs no SIEM, collector, endpoint, or
+credentials. Anchored mode has no default endpoint and fails startup if its
+export configuration is incomplete. The operator supplies a complete
+signal-specific URL such as `https://collector.example:4318/v1/logs`; PTK uses
+its path verbatim and never appends `/v1/logs`. A bare
+`https://collector.example:4318` therefore posts to `/`; it is not silently
+rewritten. The URL must be HTTPS with normal name/chain validation and may not
+contain userinfo, query, or fragment.
+
+Anchored mode requires either at least one configured authentication header
+(normally `Authorization: Bearer ...`) or an mTLS PEM certificate/private-key
+pair. Header names must be unique case-insensitively and valid HTTP tokens;
+values may not contain CR/LF. Configuration may not override `Host`,
+`Content-Type`, `Content-Length`, `Transfer-Encoding`, `Connection`, or
+`User-Agent`, `Content-Encoding`, or `Accept-Encoding`; fixed PTK protocol
+headers win by rejecting such configuration, not by silently replacing it.
+The fixed user agent is
+`PowerShell-Token-Killer/<version> OTLP-HTTP-dotnet/1`. With no CA file, use
+the system trust store. A configured PEM CA bundle is a replacement custom
+trust store, not an implicit augmentation. mTLS certificate and key paths are
+both required, loaded once at startup, must form a matching private-key pair,
+be currently valid, and, if an EKU extension exists, permit client
+authentication. Secrets never enter audit events, diagnostics, worker
+environments, or protocol frames.
+
+The first-class exporter contract is:
+
+- OTLP/HTTP binary protobuf, one JSONL event per `ExportLogsServiceRequest`,
+  one request in flight, no compression initially, 10-second request timeout,
+  `Content-Type: application/x-protobuf`, and automatic HTTP redirects
+  disabled. A `3xx` is observed/classified at the configured anchor; PTK never
+  forwards the body, headers, or mTLS identity to its `Location` target.
+- The JSONL line without LF is the exact `LogRecord` string body. Resource
+  attributes are `service.namespace="ptk"`,
+  `service.name="powershell-token-killer"`, `service.version`,
+  `service.instance.id=<supervisor_boot_id>`, and `host.id`. Instrumentation
+  scope is `PtkMcpServer.Audit` at the producer version.
+- `time_unix_nano` and `observed_time_unix_nano` map the two event timestamps;
+  `event_name` is `ptk.audit.<event_type>`; `trace_id` is set only when present;
+  span ID and severity are unset. Query attributes, each unique and typed, are
+  `ptk.audit.schema_version` (string), `ptk.audit.event_id` (string),
+  `ptk.audit.event_type` (string), `ptk.audit.sequence` (int64),
+  `ptk.audit.previous_event_hash` (string when nonnull),
+  `ptk.audit.event_hash` (string), `ptk.supervisor.boot_id` (string),
+  `ptk.worker.boot_id` (string when nonnull), `ptk.session.name` (string when
+  nonnull), `ptk.session.generation` (int64 when nonnull), `ptk.call.id`
+  (string when nonnull), `ptk.job.id` (int64 when nonnull),
+  `ptk.outcome.state` (string when nonnull), and
+  `ptk.termination.certainty` (string when nonnull). No null-valued OTLP
+  attribute is emitted; `dropped_attributes_count` remains zero. Any mapping
+  or attribute loss is export failure.
+- Stable IDs and exact body bytes survive retry. Full-jitter backoff starts at
+  one second and caps at 60 seconds. Honor `Retry-After`.
+- The fake receiver binds
+  `https://127.0.0.1:<ephemeral>/v1/logs` with a generated test CA/leaf whose
+  SAN contains `127.0.0.1` and a random 256-bit bearer token. Missing/wrong
+  auth returns `401`, `WWW-Authenticate: Bearer`,
+  `Content-Type: application/x-protobuf`, and a binary `google.rpc.Status`; it
+  persists nothing. Every fake-receiver `4xx`/`5xx` uses that OTLP failure
+  content type/body shape. Decoded fake bodies are `{code:0,
+  message:"unauthenticated", details:[]}` for `401`, `{code:0,
+  message:"bad data", details:[]}` for `400`, and `{code:0,
+  message:"unavailable", details:[]}` for `503`; the `503` fixture also sends
+  `Retry-After: 1`.
+
+Acknowledgment is exact because each request carries one event:
+
+| Response | Frozen PTK behavior |
+|---|---|
+| `200` plus a valid `ExportLogsServiceResponse`, no partial response or `rejected_log_records=0` | Acknowledge and atomically checkpoint. A zero-rejection warning is health metadata, not rejection. |
+| `200` plus `rejected_log_records=1` | Do not checkpoint and do not automatically retry the prohibited partial request; pin the record and mark export stalled/degraded. |
+| `200` with malformed protobuf, wrong content type, or rejected count outside `0..1` | Acknowledgment unknown; keep the record and retry the same ID/body. |
+| `429`, `502`, `503`, or `504` | Retry the same ID/body; honor `Retry-After`, otherwise jittered backoff. |
+| Timeout, disconnect/EOF, DNS, or connection failure | No checkpoint; retry the same ID/body with jittered backoff. |
+| `401`, `403`, or `404` | Non-retryable configuration/auth failure: no checkpoint or automatic retry, retain/persist the block, and permit one new attempt only after configuration identity changes. |
+| `400` or `413` | Permanent data failure: no checkpoint or automatic retry under any configuration identity; retain/persist the block for explicit operator disposition. |
+| Any other `4xx`/`5xx`, including `500` | Permanent protocol/server disposition: no checkpoint or automatic retry under any configuration identity; retain/persist the block for explicit operator disposition. |
+| Any other `2xx`/`3xx`, including `202` and `204`, or TLS validation/client-auth failure | Not an acknowledgment; retain and pin the record, enter permanent stalled/configuration state, and do not automatically retry until the startup configuration identity changes. |
+
+The configured receiver is the anchor boundary: an OTLP `200` is not evidence
+that an arbitrary downstream SIEM indexed the event. The fake receiver must
+durably append and flush the exact body/event ID before `200`; production docs
+must require an equivalently durable collector queue/index under the intended
+separate principal. V1 OTLP requests carry the core event only, never exact
+script-evidence bytes. Core acknowledgment externally anchors the evidence
+ID/digest and releases the referenced local evidence object from the anchored
+mode's acknowledgment pin into ordinary retention; it does not claim remote
+possession of the script. Any operator evidence read/export is separately
+audited; there is no automatic evidence-byte exporter in v1.
+
+Required integration cases are success/checkpoint,
+`503` then identical retry, persisted response-loss then duplicate replay,
+wrong auth, partial rejection, `400`, zero-rejection warning without audit
+recursion, wrong CA/hostname, and `307` with an instrumented redirect target
+that receives no request while the checkpoint remains unchanged. This follows the official
+[OTLP/HTTP request/response contract](https://opentelemetry.io/docs/specs/otlp/)
+and [OTLP exporter configuration](https://opentelemetry.io/docs/specs/otel/protocol/exporter/).
+
+### Parent-death containment probes
+
+Both platform shapes passed with disposable children; machine-specific
+versions/hashes are recorded only in `.agents/machines.md`.
+
+**Windows:** On `NETWATCH-01`, a native .NET probe created an unnamed,
+noninheritable Job Object, set and queried back exactly
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, and created a suspended probe worker with
+`CreateProcessW`, `STARTUPINFOEX`, and
+`PROC_THREAD_ATTRIBUTE_JOB_LIST`. Suspension was probe instrumentation only;
+creation-time membership came from `JOB_LIST`. The job handle was excluded
+from the explicit five-handle `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`, was never
+duplicated, and the probe contained no `AssignProcessToJobObject` or
+`TerminateJobObject` path.
+
+`IsProcessInJob(worker, exact_job)` was true before `ResumeThread`; the worker
+was alive, acknowledged the closed gate, and did not signal work. A gated
+supervisor-only termination killed that worker. In the released case an
+ordinary no-breakaway descendant was alive and independently confirmed in the
+same exact job. Raw `TerminateProcess` targeted only the supervisor; held
+worker/descendant process handles then signaled death, proving last-job-handle
+closure killed both without a PID/name sweep or controller tree-kill. No probe
+process survived. Production Windows support therefore requires Windows 10 /
+Server 2016 or newer and this creation attribute; unsupported/failing systems
+refuse worker startup, never spawn then assign. See Microsoft
+[`UpdateProcThreadAttribute`](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-updateprocthreadattribute),
+[`IsProcessInJob`](https://learn.microsoft.com/en-us/windows/win32/api/jobapi/nf-jobapi-isprocessinjob),
+and [Job Objects](https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects).
+
+**Unix:** On Darwin, a broker-first fork/pipe probe passed three barriers:
+supervisor death after worker fork but before group arm, after arm but before
+gate release, and after release with a TERM-ignoring descendant. The broker
+alone forked the worker, made `PGID == worker PID`, withheld the gate until
+group/liveness setup, observed EOF from the supervisor's sole liveness writer,
+and killed the group; no pre-gate work or survivor remained. This validates
+the topology/primitives, not yet the later .NET implementation. The durable
+implementation must additionally capture broker/leader start identity and
+prove broker-loss teardown while the supervisor remains alive. There is no
+spawn-then-arm fallback.
+
+### Session/profile schemas and worker protocol bounds
+
+`~/.ptk/profiles.json` uses this exact v1 shape (the API calls these entries
+templates):
+
+```json
+{
+  "schemaVersion": 1,
+  "templates": [
+    {
+      "name": "ad",
+      "description": "Contoso on-prem AD",
+      "bootstrapScript": "bootstrap/ad.ps1",
+      "startupTimeoutSeconds": 300,
+      "declaredTarget": "contoso-ad",
+      "declaredIdentity": "svc-ad-read",
+      "allowColdBackground": false
+    }
+  ]
+}
+```
+
+The catalog schema is JSON Schema draft 2020-12 semantics with
+`additionalProperties:false` throughout and every shown property required.
+The JSON file is strict UTF-8 with an optional UTF-8 BOM, at most 1,048,576
+raw bytes including that BOM, and at most 128 templates. Strip the optional
+BOM only for parsing; the source-file diagnostic digest covers it. Comments,
+trailing commas, duplicate properties/names, explicit null, and unsupported
+versions fault the entire external catalog. Before ordinary deserialization,
+an incremental `Utf8JsonReader` pass tracks each decoded property name with an
+ordinal set at every object depth and rejects a duplicate (including an escape
+spelling of the same name); last-property-wins binding is forbidden.
+
+Names are already canonical lowercase, match
+`[a-z0-9][a-z0-9._-]{0,63}`, and may not be `default`. Description is 1..512
+Unicode scalar values; declared target/identity are 1..256; bootstrap path is
+1..4096. Those three metadata fields and the path contain no Unicode `Cc`
+control scalar (therefore no NUL). Startup timeout is an integer 1..86,400.
+All `integer` schema values accept every valid JSON number whose mathematical
+value is integral and in the target range, including `300.0` or `3e2`; the raw
+adapter normalizes it to the target integer before typed binding. Schema and
+runtime parity tests cover fractional, exponent, overflow, and boundary forms.
+
+Resolve relative bootstrap paths against the directory of the lexical
+`Path.GetFullPath` catalog path, never cwd or the final target directory of a
+catalog symlink. The digest path is exactly the bootstrap path string returned
+by `Path.GetFullPath`: do not resolve a link target, fold case, normalize
+Unicode, or replace the platform separators. Thus the digest is intentionally
+platform-scoped. Open the resulting path as one finite regular target at
+catalog load, accept strict UTF-8 with an optional UTF-8 BOM, cap raw bytes at
+131,072, and freeze those raw bytes before any session open. Strip a bootstrap BOM for
+the frozen decoded script passed to the worker, while `bootstrap_digest`
+remains SHA-256 of the raw bytes including the BOM. A link/reparse path may
+open a regular target, but its final target path is not hashed; later target
+changes cannot affect the frozen bytes.
+
+`template_digest` is SHA-256 over ASCII `ptk.session-template/1\0`, followed
+in this order by canonical name, description, lexical absolute path string,
+startup-timeout integer, declared target, declared identity, cold-background
+boolean, and raw bootstrap bytes. Strings/bytes use a four-byte unsigned
+big-endian length followed by strict UTF-8/raw bytes; timeout is unsigned
+four-byte big-endian and boolean is one byte (`0`/`1`). The healthy
+`catalog_digest` is SHA-256 over ASCII `ptk.session-catalog/1\0` followed by
+ordinal-name-sorted, length-prefixed canonical names and their 32 raw
+`template_digest` bytes. Also retain a SHA-256 of readable source JSON for
+fault diagnosis.
+
+A missing file is a healthy empty catalog. Any malformed definition,
+duplicate, unsupported schema, invalid/unreadable/oversize bootstrap, or
+decode/read error faults all external templates; none partially loads.
+`default` and explicit template-less dynamic sessions remain available. Every
+template-backed open then returns the stable catalog fault, and an unknown
+template always refuses before alias binding, bootstrap, or worker creation.
+
+The explicit `ptk_session` `oneOf` schema is frozen as follows:
+
+| Action | Required properties | Optional properties |
+|---|---|---|
+| `list` | `action` | none |
+| `open` | `action`, `name` | `template`, `allowColdBackground`, `timeoutSeconds` |
+| `close`, `restart` | `action`, `name` | `expectedGeneration`, `force`, `timeoutSeconds` |
+
+`action` is the exact branch constant (`list`, `open`, `close`, or `restart`),
+so precisely one branch can validate. Each branch rejects null and every
+unlisted property. Before binding, run the same decoded-name duplicate-key
+scan and validate the raw property-presence set. `timeoutSeconds` is integer
+`0..Int32.MaxValue` and runtime-capped; `expectedGeneration` is integer
+`0..Int64.MaxValue`. These numeric fields use the same schema-valid integral
+normalization rule as the catalog. `open default` is a semantic refusal.
+
+Supervisor/worker protocol v1 is compact strict-UTF-8 NDJSON over the private
+pipes described above, no BOM, one LF terminator, maximum JSON depth 32, and a
+symmetric maximum encoded frame of 1,048,576 bytes excluding LF. Readers cap
+incrementally: after 1,048,576 payload bytes the next byte must be LF and is
+accepted as the terminator; a next non-LF payload byte fails before it is
+buffered. No unbounded line reader is permitted. Submitted/bootstrap decoded
+script is at most 131,072 bytes of its strict-UTF-8 logical text before JSON
+escaping. Inline worker result is at most 131,072 aggregate pre-escape UTF-8
+bytes across all inline stream/result fields, and initialize metadata is at
+most 65,536 aggregate pre-escape UTF-8 bytes. Larger result content uses the
+output artifact. Worker stdout and stderr each retain at most 65,536 bytes per
+worker boot (not per call), then continue draining/discarding for that boot
+with exactly one per-stream truncation marker so a child cannot block on a
+full pipe.
+
+Supervisor-originated oversize input produces an audited no-start before
+prepare/commit. Invalid UTF-8, malformed/unknown-version/method, excess depth,
+or oversize worker frames fail closed and contain that worker; after dispatch,
+the supervisor records the appropriately unknown terminal outcome. Worst-case
+JSON escaping of a 131,072-byte script remains below the frame cap with
+envelope headroom.
+
+### Frozen `rrp` regression carry-forward
+
+Only the still-relevant correctness cases carry forward:
+
+| Prior case | Required result here |
+|---|---|
+| rrp-1 | The configured/pinned off-PATH RTK identity beats a conflicting PATH copy. |
+| rrp-2, rrp-15 | Resolve against live warm/cold command state at prepare and revalidate at commit. Aliases, functions, cmdlets, `.cmd`/`.bat`, and preceding/ambient mutations keep exact PowerShell semantics. |
+| rrp-3, rrp-8 | Redirection, producer/consumer pipelines, counts/parsers, and prefixed `find`/`fd` pipelines remain unfiltered exact-original execution. |
+| rrp-12 | Wrapper contexts such as `docker exec ... git ...` stay original; never inject the host RTK path into the target context. |
+| rrp-13 | Foreground RTK uses warm-session cwd; cold jobs use their documented session cwd. |
+| rrp-11 | Native error preferences cannot discard RTK stdout, pollute `$Error`, or alter stream/exit capture. |
+| rrp-4, rrp-14 | RTK absence, pre-start routing/capture failure, or insufficient remaining budget may use an allowed exact fallback at most once only with valid machine proof that no user process started; missing/invalid proof is unknown and never falls back. |
+| rrp-6 | Every forced-route fallback is labeled. Seam-absent RTK is explicitly `RtkUnknown`; filtered versus passthrough is asserted only from a valid negotiated record. |
+| rrp-7 | If PTK invokes `rtk rewrite`, exits `0`/`3` plus nonempty stdout are candidate rewrites; exit `1` with empty stdout is no-rewrite exact fallback. Exit `2` is an RTK permission deny, but RTK config is not PTK authorization: record `rtk_rewrite_deny_ignored` and execute the exact original once through the allowed pre-start fallback (labeled for `route=rtk`). Any wrong output/exit pairing is protocol error and exact pre-start fallback. Only the old PS7 compound matrix is conditional on later routing breadth. |
+| name-keyed hooks | Preserve the documented hook-name divergence and `route=pwsh` escape; do not claim a routed `git` fires `git`-keyed hooks. |
+| former rrp-5 | Exercise foreground and cold-background contexts separately; the old foreground-only limit is superseded. |
+
+Do not import the prior broad compound-routing claim. The PS7 compound matrix
+becomes mandatory only if routing later widens; rrp-9's savings benchmark is
+not a correctness guard, and rrp-10 remains documentation reconciliation.
+
 ## Acceptance matrix
 
 ### Audit completeness and failure
@@ -1258,7 +1848,8 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   original once with no refusal/retry text.
 - `git diff | Set-Content patch.txt` writes an applyable unfiltered patch;
   `git diff > patch.txt` is accepted without prefiltering file bytes.
-- RTK-filtered stdout is not passed through `rtk log` again.
+- No RTK-routed stdout is passed through `rtk log` again; seam-absent
+  foreground and job fixtures assert `RtkUnknown`.
 - A parse-fatal, detector-positive, `bash -n`-valid fixture executes exact
   bytes through Bash when present and has a truthful not-started result when
   absent.
@@ -1281,11 +1872,13 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - PowerShell objects, bounded text, log shaping, RTK filtering, stderr,
   warnings/errors, and background streams recover from the same invocation
   whenever their execution path produced a raw artifact.
-- With the RTK capture seam present, an RTK-filtered call returns a working
-  handle for its pre-filter stdout/stderr.
-- With the seam absent, the same call remains RTK-routed, returns no handle,
-  and reports `recovery=unavailable`; PowerShell/direct captures in the same
-  server still return working handles.
+- With the RTK capture seam present, a machine-proven `RtkFiltered` or
+  `RtkPassthrough` call returns a working handle for its pre-filter
+  stdout/stderr.
+- With the seam absent, every foreground/background RTK route is
+  `RtkUnknown`, remains RTK-routed, receives no handle or second `rtk log`
+  shaping, and reports `recovery=unavailable`; PowerShell/direct captures in
+  the same server still return working handles.
 - A persistent counter/file sentinel proves `ptk_output` never reruns.
 - Retrieval after underlying files/state change returns the captured snapshot.
 - A handle issued in generation N remains readable after timeout replacement,

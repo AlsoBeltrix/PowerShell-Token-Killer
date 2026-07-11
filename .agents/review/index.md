@@ -884,26 +884,29 @@ table is a valid review result.
 | ahs-3 | HIGH     | Auto-Bash turns detector false positives into wrong-interpreter execution | `[x]` | master (direct, e0710eb) |
 | ahs-4 | MEDIUM   | Exact-script evidence is not part of the durable pre-effect commit | `[x]` | master (direct, 098dcd3) |
 | ahs-5 | MEDIUM   | Closing reserved `default` can permanently brick unqualified tools | `[x]` | master (direct, 5c458f8) |
-| ahs-6 | MEDIUM   | Reconciliation omits approved routing/dialect contracts this plan replaces | `[~]` | master (direct, 61f6d53 + bca83e2) |
+| ahs-6 | MEDIUM   | Reconciliation omits approved routing/dialect contracts this plan replaces | `[x]` | master (direct, 61f6d53 + bca83e2) |
 | ahs-7 | MEDIUM   | Warm background-session concurrency and kill semantics are undefined | `[x]` | master (direct, 2f8e419) |
 | ahs-8 | LOW      | Fail-closed audit prevents `ptk_state` from reporting the audit failure | `[x]` | master (direct, 5ee1aa3) |
-| ahs-9 | MEDIUM   | New Bash execution contract breaks an unnamed load-bearing heredoc refusal guard | `[~]` | master (direct, 2c5774f) |
-| ahs-10 | MEDIUM  | Output-handle wording breaks four unnamed load-bearing Pester marker guards | `[~]` | master (direct, 2ca8434) |
-| ahs-11 | MEDIUM  | Template-less sessions have no defined cold-background policy | `[~]` | master (direct, baf765e) |
-| ahs-12 | HIGH    | Worker protocol on stdout is corruptible by FullLanguage user code | `[~]` | master (direct, 1b21005) |
-| ahs-13 | HIGH    | Pre-effect audit has no immutable prepare/commit reservation protocol | `[~]` | master (direct, 05a41e6) |
-| ahs-14 | MEDIUM  | Background call and job terminal events have an impossible ordering | `[~]` | master (direct, 58e7d05) |
-| ahs-15 | MEDIUM  | Reused worker-local job IDs can target a new generation from a stale call | `[~]` | master (direct, 9527390) |
-| ahs-16 | MEDIUM  | Retention may delete audit segments that SIEM never acknowledged | `[~]` | master (direct, a65d6f2) |
-| ahs-17 | MEDIUM  | Export-checkpoint audit events can recursively generate forever | `[~]` | master (direct, 3f783b1) |
-| ahs-18 | HIGH    | Hard supervisor death can leave a blocked worker or job orphaned | `[~]` | master (direct, 23043b5) |
-| ahs-19 | HIGH    | Timeout containment is undefined for dynamically connected sessions | `[~]` | master (direct, f2f4255) |
-| ahs-20 | HIGH    | Same-session lifecycle and invocation admissions are not linearized | `[~]` | master (direct, dc3d626) |
-| ahs-21 | MEDIUM  | Busy `restart(force=false)` has no defined no-side-effect behavior | `[~]` | master (direct, ab31227) |
-| ahs-22 | MEDIUM  | A session alias can be ambiguously rebound to another template/digest | `[~]` | master (direct, 757b994) |
-| ahs-23 | MEDIUM  | Malformed catalogs and bootstrap path failures have no fail-closed contract | `[~]` | master (direct, 18aebca) |
-| ahs-24 | HIGH    | Timed-out bootstrap can later yield an untracked authenticated worker | `[~]` | master (direct, 6fce3af) |
-| ahs-25 | LOW     | `ptk_session list` conflicts with a schema that requires `name` | `[~]` | master (direct, c342747) |
+| ahs-9 | MEDIUM   | New Bash execution contract breaks an unnamed load-bearing heredoc refusal guard | `[x]` | master (direct, 2c5774f) |
+| ahs-10 | MEDIUM  | Output-handle wording breaks four unnamed load-bearing Pester marker guards | `[x]` | master (direct, 2ca8434) |
+| ahs-11 | MEDIUM  | Template-less sessions have no defined cold-background policy | `[x]` | master (direct, baf765e) |
+| ahs-12 | HIGH    | Worker protocol on stdout is corruptible by FullLanguage user code | `[x]` | master (direct, 1b21005) |
+| ahs-13 | HIGH    | Pre-effect audit has no immutable prepare/commit reservation protocol | `[x]` | master (direct, 05a41e6) |
+| ahs-14 | MEDIUM  | Background call and job terminal events have an impossible ordering | `[x]` | master (direct, 58e7d05) |
+| ahs-15 | MEDIUM  | Reused worker-local job IDs can target a new generation from a stale call | `[x]` | master (direct, 9527390) |
+| ahs-16 | MEDIUM  | Retention may delete audit segments that SIEM never acknowledged | `[x]` | master (direct, a65d6f2) |
+| ahs-17 | MEDIUM  | Export-checkpoint audit events can recursively generate forever | `[x]` | master (direct, 3f783b1) |
+| ahs-18 | HIGH    | Hard supervisor death can leave a blocked worker or job orphaned | `[x]` | master (direct, 23043b5) |
+| ahs-19 | HIGH    | Timeout containment is undefined for dynamically connected sessions | `[x]` | master (direct, f2f4255) |
+| ahs-20 | HIGH    | Same-session lifecycle and invocation admissions are not linearized | `[x]` | master (direct, dc3d626) |
+| ahs-21 | MEDIUM  | Busy `restart(force=false)` has no defined no-side-effect behavior | `[x]` | master (direct, ab31227) |
+| ahs-22 | MEDIUM  | A session alias can be ambiguously rebound to another template/digest | `[x]` | master (direct, 757b994) |
+| ahs-23 | MEDIUM  | Malformed catalogs and bootstrap path failures have no fail-closed contract | `[x]` | master (direct, 18aebca) |
+| ahs-24 | HIGH    | Timed-out bootstrap can later yield an untracked authenticated worker | `[x]` | master (direct, 6fce3af) |
+| ahs-25 | LOW     | `ptk_session list` conflicts with a schema that requires `name` | `[x]` | master (direct, c342747) |
+| ahs-26 | MEDIUM  | Two .NET raw/path guards are omitted from the intentional migration inventory | `[~]` | master (direct) |
+| ahs-27 | MEDIUM  | Running-job busy semantics contradict the shipped reset-kills-job contract | `[~]` | master (direct) |
+| ahs-28 | MEDIUM  | Output-handle ownership and lifetime across worker generations are undefined | `[~]` | master (direct) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -981,3 +984,18 @@ all-or-nothing catalog/path validation), `6fce3af` (ahs-24, confirmed startup
 containment), and `c342747` (ahs-25, name-free list schema). All rows remain
 `[~]` until reviewer re-grade; none of these plan commits authorizes product
 code.
+
+**Claude re-grade round 3 — REOPENED** (Claude Code 2.1.207, default
+claude-opus-4-8, read-only), reviewed head
+`e3cbbd2f2e780e55954b2ec8916647d117501792` against base
+`875efa05b7ef6c01354466f3f93211316d30c901`,
+`guard_confirmed=true`, 2026-07-11T10:31:09Z. Structured verdict and both SHAs
+matched the dispatch. Claude returned one evidence-backed RESOLVED comment for
+each requested ID (ahs-6 and ahs-9..ahs-25); those rows were provisionally
+flipped `[x]` to record its grade. It found three new MEDIUM issues, **ALL
+ADMITTED** after coder verification: ahs-26 names two shipped .NET raw/path
+guards omitted from the intentional migration inventory; ahs-27 captures the
+running-job/reset semantic conflict exposed by the new busy predicate; and
+ahs-28 settles supervisor-versus-worker ownership and generation lifetime for
+`ptk_output` artifacts. The valid empty-findings condition was not met, so the
+Claude loop remains open.

@@ -5,6 +5,9 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Active review loop:** audited-harness Slice 0 is reopened on `ahs-37`;
+  see `.agents/review/index.md`. Slice 1 is blocked until Claude accepts the
+  fixed finding or the owner adjudicates it.
 - **Implementation started on the owner’s explicit 2026-07-11 go; slice 0 is
   complete with no product-code changes.**
   `.agents/plans/audited-harness-sessions.md` combines

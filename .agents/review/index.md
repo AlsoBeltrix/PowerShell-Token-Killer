@@ -915,6 +915,7 @@ table is a valid review result.
 | ahs-34 | MEDIUM  | Idle exit can discard an unconfirmed containment quarantine | `[x]` | master (direct, 00bb110) |
 | ahs-35 | HIGH    | Unix broker death after arming can remove the hard-parent-death proof | `[x]` | master (direct, f6a20f3) |
 | ahs-36 | MEDIUM  | Worker-starting lifecycle tools have no defined startup deadline function | `[x]` | master (direct, da32d9c + 1c23e1b) |
+| ahs-37 | MEDIUM  | Canonical state claims Slice 0 reviews closed without durable evidence | `[~]` | `fix/ahs-37-record-slice0-review` |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1184,3 +1185,14 @@ decisions-log edits, nor push.
 is now the canonical implementation contract. The approval message did not
 request an implementation slice or authorize push; both remain separate
 explicit-go actions. The decisions-log hold remains in force.
+
+**AUDITED-HARNESS SLICE 0 CLAUDE REVIEW — REOPENED / ahs-37 ADMITTED**
+(Claude Code 2.1.207, model reported as `claude-fable-5`, read-only), reviewed
+head `a9fe9ecae75b712f5ab48fd7636613a3e0ffb35a` against pre-slice base
+`2a83723369e2752b4d930fd57c3ae4b5f484bad9`, `guard_confirmed=true`, verdict
+recorded 2026-07-11T16:53:29Z. The fixed-worktree review found one material
+issue: `.agents/state.md` claims three focused Slice 0 reviews closed without
+any committed review record supporting that claim. The coder independently
+confirmed the claim is present at the reviewed head and the cited evidence is
+absent, so the MEDIUM finding is admitted as ahs-37. Slice 1 remains blocked;
+review acceptance would authorize neither merge nor push.

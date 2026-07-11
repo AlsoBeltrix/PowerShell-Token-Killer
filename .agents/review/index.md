@@ -722,3 +722,54 @@ suggested external-companion architecture verbatim (daemon grows no
 HTTP surface; --json stabilizes the data contract, does not make a
 dashboard free) — trivial-docs-fix convergence precedent.
 
+---
+
+Loop run 2026-07-10 (rtk-rewrite-routing + security-layer plan drafts) —
+reviewer: codex (codex-cli 0.144.1, read-only), docs-only scope: the two
+DRAFT plans reviewed at head `63b4cbc` (introduced at `8c524c9` and
+`ef4896e`), one dispatch per plan. **20 findings, ALL ADMITTED at
+intake** — every disputed factual claim was master-verified before
+admission: live rtk 0.43.0 probes (exit protocol 0/1/2/3 read from
+`../rtk/src/hooks/rewrite_cmd.rs` and probe-confirmed — the draft's
+"passthrough = exit 3" observation was wrong; producer-side pipe
+rewrites including `git diff | Set-Content`; `sudo find | wc -l`
+bypassing the find-guard; lexical `ls` → `rtk ls`) and repo records
+(archived default-read-only policy design; release-plan `policy.psd1`
+reservation; ResetTool's KillAll-before-reset ordering). Index rows
+without per-finding docs per the accepted spr-loop precedent; fixes
+direct to `master`, one per commit.
+
+## Findings (rtk-rewrite-routing plan loop)
+
+| ID     | Severity | Impact (one line)                                                        | Status | Branch |
+|--------|----------|---------------------------------------------------------------------------|--------|--------|
+| rrp-1  | HIGH     | Emitted literal `rtk` tokens break the PTK_RTK_PATH pin                  | `[~]`  | master (direct, 7975152) |
+| rrp-2  | HIGH     | Lexical rewrite tramples PS7 aliases/functions/shims (`ls` → `rtk ls`)   | `[~]`  | master (direct, 818181e) |
+| rrp-3  | HIGH     | Producer-side pipe rewrites feed filtered data to consumers (silent corruption) | `[~]`  | master (direct, 4460808) |
+| rrp-4  | HIGH     | A hung rewrite eats the call budget; fail-open promise impossible as written | `[~]`  | master (direct, 96243a5) |
+| rrp-5  | MEDIUM   | Background jobs silently out of scope while the plan claims all native work | `[~]`  | master (direct, 3d1dafb) |
+| rrp-6  | MEDIUM   | route=rtk undefined under rewrite-based routing                           | `[~]`  | master (direct, 01aa10e) |
+| rrp-7  | MEDIUM   | Recorded exit-code observation wrong (passthrough=1, not 3); CI has no rtk | `[~]`  | master (direct, 7e63a52) |
+| rrp-8  | MEDIUM   | Env/sudo-prefixed find defeats the find-before-pipe guard                 | `[~]`  | master (direct, 3358936) |
+| rrp-9  | MEDIUM   | Savings measurement not reproducible by a cold agent                      | `[~]`  | master (direct, fe9e2cf) |
+| rrp-10 | MEDIUM   | No slice reconciles the still-active single-command-routing contracts     | `[~]`  | master (direct, 0f22e24) |
+
+## Findings (security-layer plan loop)
+
+| ID     | Severity | Impact (one line)                                                        | Status | Branch |
+|--------|----------|---------------------------------------------------------------------------|--------|--------|
+| slp-1  | HIGH     | Opt-in gate silently replaces the recorded default-read-only baseline    | `[~]`  | master (direct, 72108c2) |
+| slp-2  | HIGH     | Optional background coverage = one-flag bypass of every deny rule        | `[~]`  | master (direct, d635787) |
+| slp-3  | HIGH     | Warm-alias classification can bless a cold-context destructive command   | `[~]`  | master (direct, d3da99e) |
+| slp-4  | HIGH     | Policy language/evaluator not implementable by a cold agent; psd1 already reserved | `[~]`  | master (direct, d2b247e) |
+| slp-5  | HIGH     | "Human-only" policy edit claim contradicts the same-user threat model    | `[~]`  | master (direct, 475af37) |
+| slp-6  | MEDIUM   | Reset/job-kill have no policy vocabulary; in-Reset check fires after KillAll | `[~]`  | master (direct, 3964c56) |
+| slp-7  | MEDIUM   | One-line-per-call audit cannot represent background execution            | `[~]`  | master (direct, 3bbb007) |
+| slp-8  | MEDIUM   | Audit fields omit cwd, control args, policy identity, session fields     | `[~]`  | master (direct, f08e7d0) |
+| slp-9  | MEDIUM   | Multi-process rotation and write-failure semantics undefined             | `[~]`  | master (direct, b22d0b5) |
+| slp-10 | HIGH     | Verification could pass while the gate's core properties fail            | `[~]`  | master (direct, 0f4d875) |
+
+**Re-grade round 2 pending** (dispatched over the amended plans; both
+plans remain DRAFTs awaiting owner approval — nothing here authorizes
+implementation). Commits unpushed pending the owner's master push go.
+

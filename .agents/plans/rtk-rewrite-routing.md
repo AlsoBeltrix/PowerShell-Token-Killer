@@ -141,13 +141,17 @@ not have.
    contract (the owner may veto at approval): `route=rtk` is
    rewrite-mandatory-with-labeled-outcome.** rtk rewrite is always
    attempted; exit 0/3 with stdout executes the rebound rewritten
-   line; exit 1/2 executes the script UNCHANGED and prepends a labeled
-   `[rtk] no rewrite (passthrough|deny) — executed unrouted` line, so
-   a forced call is always distinguishable from `auto` (which stays
-   silent). Force-wrapping arbitrary text as `rtk <script>` is retired
-   with the shape check that made it safe. The existing pinned Pester
-   test and the model-visible tool description change to exactly this
-   contract in the same slice.
+   line. EVERY path that ends up executing the script unrouted under
+   a forced `route=rtk` carries a labeled line naming its reason —
+   `[rtk] no rewrite (passthrough|deny|wrapper-context|rewrite
+   failed|rewrite timed out) — executed unrouted` — covering exit 1/2,
+   the rrp-12 wrapper-discard, and the rrp-4 failure/timeout fallback
+   alike: the invariant is that a forced call is NEVER silently
+   indistinguishable from `auto` (which stays silent), whatever
+   knocked the rewrite out. Force-wrapping arbitrary text as `rtk
+   <script>` is retired with the shape check that made it safe. The
+   existing pinned Pester test and the model-visible tool description
+   change to exactly this contract in the same slice.
 3. **Measure and record (protocol frozen here — rrp-9):** the
    measurement is self-contained in this plan, not a reference to a
    session artifact. Method: drive the BUILT server over real MCP

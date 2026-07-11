@@ -751,7 +751,7 @@ direct to `master`, one per commit.
 | rrp-6  | MEDIUM   | route=rtk undefined under rewrite-based routing                           | `[~]`  | master (direct, 01aa10e) |
 | rrp-7  | MEDIUM   | Recorded exit-code observation wrong (passthrough=1, not 3); CI has no rtk | `[x]`  | master (direct, 7e63a52) |
 | rrp-8  | MEDIUM   | Env/sudo-prefixed find defeats the find-before-pipe guard                 | `[x]`  | master (direct, 3358936) |
-| rrp-9  | MEDIUM   | Savings measurement not reproducible by a cold agent                      | `[~]`  | master (direct, fe9e2cf) |
+| rrp-9  | MEDIUM   | Savings measurement not reproducible by a cold agent                      | `[x]`  | master (direct, fe9e2cf) |
 | rrp-10 | MEDIUM   | No slice reconciles the still-active single-command-routing contracts     | `[x]`  | master (direct, 0f22e24) |
 
 ## Findings (security-layer plan loop)
@@ -783,7 +783,7 @@ ADMITTED (the rrp-11 preference-throw was reviewer-probed live on PS
 |--------|----------|---------------------------------------------------------------------------|--------|--------|
 | rrp-11 | MEDIUM   | Session native-error preferences make a successful rewrite throw; routing silently dies | `[x]`  | master (direct, 1ec00e4) |
 | rrp-12 | MEDIUM   | Rebinding host path into `docker exec ... rtk ...` breaks a valid command | `[x]`  | master (direct, 0e3e34e) |
-| slp-11 | MEDIUM   | Rotated audit files accumulate unbounded until disk exhaustion            | `[~]`  | master (direct, f4cdc7d) |
+| slp-11 | MEDIUM   | Rotated audit files accumulate unbounded until disk exhaustion            | `[x]`  | master (direct, f4cdc7d) |
 | slp-12 | MEDIUM   | Hard-killed server leaves job-start events reading as running forever     | `[x]`  | master (direct, df13998) |
 
 Round-1 statuses: all ten slp rows and rrp-1..5/7/8 flipped `[x]`;
@@ -803,12 +803,24 @@ ALL ADMITTED (rrp-13 reviewer-probed live; rrp-14/15 verified against
 
 | ID     | Severity | Impact (one line)                                                        | Status | Branch |
 |--------|----------|---------------------------------------------------------------------------|--------|--------|
-| rrp-13 | MEDIUM   | Rewrite child inherits server cwd; rtk reads the WRONG project's rules   | `[~]`  | master (direct, 9f06e5d) |
-| rrp-14 | HIGH     | Fixed rewrite bound can exceed remaining budget; outer deadline recycles warm state | `[~]`  | master (direct, b30a1af) |
+| rrp-13 | MEDIUM   | Rewrite child inherits server cwd; rtk reads the WRONG project's rules   | `[x]`  | master (direct, 9f06e5d) |
+| rrp-14 | HIGH     | Fixed rewrite bound can exceed remaining budget; outer deadline recycles warm state | `[x]`  | master (direct, b30a1af) |
 | rrp-15 | HIGH     | `Set-Alias git ...; git status` — preflight resolution lies for later segments | `[~]`  | master (direct, 0ad0769) |
 
-**Re-grade round 4 pending** over rrp-6/9/13/14/15 + slp-11. Round
-sizes strictly diminishing: 20 → 7 → 6. Both plans remain DRAFTs
-awaiting owner approval. Commits unpushed pending the owner's master
-push go.
+**Re-grade round 4 (codex, codex-cli 0.144.1, read-only) at head
+`20e4084`:** rrp-9, rrp-13, rrp-14, slp-11 **RESOLVED**; NO NEW
+FINDINGS — **the security plan is fully closed (all 12 slp findings
+resolved).** Two interaction tails held on the rtk plan, both
+coder-accepted and completed one commit each: rrp-6 (the rrp-14 budget
+skip was a new unlabeled unrouted path under forced route=rtk and
+contradicted "always attempted" — completed `851c125`: skip labeled,
+wording qualified) and rrp-15 (a native-HEADED statement is not inert —
+`true (Set-Alias git Write-Output); git status` executes the embedded
+mutation; completed `6e3ef9b`: preceding natives must carry
+constant-literal arguments only, counterexample added verbatim as a
+regression case).
+
+**Re-grade round 5 pending** over rrp-6 and rrp-15 only. Round sizes
+strictly diminishing: 20 → 7 → 6 → 2. Both plans remain DRAFTs awaiting
+owner approval. Commits unpushed pending the owner's master push go.
 

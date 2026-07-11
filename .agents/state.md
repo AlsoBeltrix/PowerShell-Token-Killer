@@ -5,6 +5,45 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **SECURITY: policy-gate premise REJECTED by the owner 2026-07-11 —
+  read `.agents/plans/security-layer.md` top section BEFORE any security
+  work.** Owner's verdict (ARB grounds): ptk is a low-friction bypass
+  gated on one careless persistent "yes"; the missing control is the
+  per-ACTION check (`Allow Remove-Mailbox CEO@company.com Y/n?`), not a
+  config file; "the agent could do it with direct tools anyway" is not a
+  defense, because ptk removes friction the harness would apply. The
+  declarative policy file is dead ("brittle nonsense — alias it, use
+  python, edit the rules file"). **Live candidate, UNVERIFIED, next
+  session's first job: MCP elicitation** (server-initiated user
+  confirmation mid-call) — verify spec support, per-harness client
+  support, and headless behavior. Also banked from the neutral
+  cross-harness consultation and independent of the gate question:
+  **secret redaction on output paths** (tokens/creds currently flow
+  through the compressor into model context — a real leak, new to this
+  repo's thinking), ConstrainedLanguage profile, authenticated-session
+  TTL/process-teardown, and control-action gating placement above
+  `ptk_reset`/`ptk_job kill`. Process lesson recorded in the plan: shape
+  review BEFORE plan review — a review loop cannot question its own
+  premise.
+- **Two DRAFT plans, codex-reviewed, NEITHER APPROVED — no code written
+  for either.** (a) `.agents/plans/rtk-rewrite-routing.md` — route all
+  native work through `rtk rewrite` (owner direction 2026-07-10:
+  "everything that isn't powershell should route through rtk"); loop
+  CLOSED CONVERGED after 7 rounds, 15 findings, rounds 20→7→6→2→1→1→1.
+  One item (rrp-15) closed by coder disposition, not reviewer grade —
+  **flagged for owner ratification**: routing by substitution means
+  name-keyed session hooks (a `git` breakpoint) never fire on a routed
+  segment; inherent to substitution, already true of shipped
+  single-command routing, disclosed in docs with `route=pwsh` as escape.
+  (b) `.agents/plans/security-layer.md` — see the rejection above; its
+  12 findings were all resolved before the premise fell.
+- **`.agents/decisions.md` is UNDER HOLD** (owner, in-session 2026-07-10:
+  "don't update decisions until we're done talking"; a premature entry
+  was reverted at `6ee6f9e` — reverted, never rewritten). The rtk-routing
+  direction and the security reframe both still need decision entries
+  when the owner releases the hold.
+- **~30 commits local-ahead of `origin/master`** (both plan drafts, all
+  loop fixes, the loop records). Owner pushes himself.
 - **issue-5/6 batch COMPLETE, loop CLOSED (2026-07-10)**: the
   implementation review ran three rounds (10 findings → 3 reopened + 5
   new → clean NO-FINDINGS close at `9a894e1`); all 25 findings fixed one
@@ -79,6 +118,17 @@ short and update it when important repo facts change.
 
 ## Next
 
+1. **Security (highest, owner-driven):** verify the MCP-elicitation
+   candidate (spec support; which harnesses render server-initiated
+   prompts; headless failure mode — a prompt nobody renders fails OPEN
+   and is worse than none). Then present the shape to the owner in ≤50
+   plain-English words BEFORE any plan document. Do NOT re-derive the
+   policy file.
+2. **rtk-routing plan:** owner approval + ratification of the rrp-15
+   disposition (see `## Now`). No code until then.
+3. Owner push go for the local-ahead tail (~30 commits).
+4. Owner releases the decisions.md hold, then record: the rtk-routing
+   direction and the security reframe.
 - Owner push go for the local-ahead docs tail (shared-runspace idea
   plan + its two review loops' records + drift fixes; ask-first
   policy). The issue-5/6 approval/push bullet that lived here is DONE —
@@ -103,9 +153,13 @@ short and update it when important repo facts change.
   Windows-box real-usage evaluation intent lives on only as the slice-7
   test matrix above and the shared-host measured-pain criterion in
   `.agents/decisions.md`.
-- Interim security posture: keep ptk_invoke on ask-per-call in the harness; the
-  policy-file gate design is recorded in the continuation decision, build only if
-  real usage creates blanket-allow pressure.
+- ~~Interim security posture: keep ptk_invoke on ask-per-call in the
+  harness; build the policy-file gate if blanket-allow pressure
+  appears.~~ — SUPERSEDED 2026-07-11: the criterion fired AND the
+  response was rejected. Current posture: ask-per-call remains the only
+  control, the owner considers that insufficient (`## Now`), and the
+  replacement shape is unresolved. The decision entry stays OPEN until
+  the hold lifts.
 
 ## Blockers
 

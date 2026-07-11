@@ -913,8 +913,8 @@ table is a valid review result.
 | ahs-32 | MEDIUM  | Post-launch startup containment can wait forever after its deadline | `[x]` | master (direct, 70e1d39 + 7ec5d7a) |
 | ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[x]` | master (direct, 69caf6c) |
 | ahs-34 | MEDIUM  | Idle exit can discard an unconfirmed containment quarantine | `[x]` | master (direct, 00bb110) |
-| ahs-35 | HIGH    | Unix broker death after arming can remove the hard-parent-death proof | `[~]` | master (direct) |
-| ahs-36 | MEDIUM  | Worker-starting lifecycle tools have no defined startup deadline function | `[~]` | master (direct) |
+| ahs-35 | HIGH    | Unix broker death after arming can remove the hard-parent-death proof | `[~]` | master (direct, f6a20f3) |
+| ahs-36 | MEDIUM  | Worker-starting lifecycle tools have no defined startup deadline function | `[~]` | master (direct, da32d9c) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1128,3 +1128,12 @@ Unix containment broker itself exits after its armed acknowledgment; ahs-36
 defines the absolute startup deadline for open/restart/reset, template-backed
 and dynamic/default starts, explicit overrides, lazy invoke starts, and the
 fixed containment grace. No duplicate or stylistic finding was admitted.
+
+**Grok fix round 1 LANDED:** `f6a20f3` (ahs-35) makes the Unix broker a
+continuously monitored containment lease; unexpected exit blocks admission,
+directly tears down the identity-validated process group, and faults or
+quarantines the generation before recovery. `da32d9c` (ahs-36) adds
+`timeoutSeconds` to lifecycle tools and freezes the shared operator-default /
+positive-override cap / template-ceiling / lazy-invoke deadline function, with
+containment grace only after that budget expires. Both rows remain `[~]`
+pending Grok re-grade; no product code is authorized.

@@ -896,17 +896,20 @@ table is a valid review result.
 | ahs-15 | MEDIUM  | Reused worker-local job IDs can target a new generation from a stale call | `[x]` | master (direct, 9527390) |
 | ahs-16 | MEDIUM  | Retention may delete audit segments that SIEM never acknowledged | `[x]` | master (direct, a65d6f2) |
 | ahs-17 | MEDIUM  | Export-checkpoint audit events can recursively generate forever | `[x]` | master (direct, 3f783b1) |
-| ahs-18 | HIGH    | Hard supervisor death can leave a blocked worker or job orphaned | `[x]` | master (direct, 23043b5) |
+| ahs-18 | HIGH    | Hard supervisor death can leave a blocked worker or job orphaned | `[~]` | master (direct, 23043b5) |
 | ahs-19 | HIGH    | Timeout containment is undefined for dynamically connected sessions | `[x]` | master (direct, f2f4255) |
 | ahs-20 | HIGH    | Same-session lifecycle and invocation admissions are not linearized | `[x]` | master (direct, dc3d626) |
 | ahs-21 | MEDIUM  | Busy `restart(force=false)` has no defined no-side-effect behavior | `[x]` | master (direct, ab31227) |
-| ahs-22 | MEDIUM  | A session alias can be ambiguously rebound to another template/digest | `[x]` | master (direct, 757b994) |
+| ahs-22 | MEDIUM  | A session alias can be ambiguously rebound to another template/digest | `[~]` | master (direct, 757b994) |
 | ahs-23 | MEDIUM  | Malformed catalogs and bootstrap path failures have no fail-closed contract | `[x]` | master (direct, 18aebca) |
 | ahs-24 | HIGH    | Timed-out bootstrap can later yield an untracked authenticated worker | `[x]` | master (direct, 6fce3af) |
-| ahs-25 | LOW     | `ptk_session list` conflicts with a schema that requires `name` | `[x]` | master (direct, c342747) |
+| ahs-25 | LOW     | `ptk_session list` conflicts with a schema that requires `name` | `[~]` | master (direct, c342747) |
 | ahs-26 | MEDIUM  | Two .NET raw/path guards are omitted from the intentional migration inventory | `[~]` | master (direct) |
 | ahs-27 | MEDIUM  | Running-job busy semantics contradict the shipped reset-kills-job contract | `[~]` | master (direct) |
 | ahs-28 | MEDIUM  | Output-handle ownership and lifetime across worker generations are undefined | `[~]` | master (direct) |
+| ahs-29 | HIGH    | Timeout replacement has no deadlock-free transition or post-deadline grace | `[~]` | master (direct) |
+| ahs-30 | MEDIUM  | New audited reads can consume the reserve needed for terminal events | `[~]` | master (direct) |
+| ahs-31 | MEDIUM  | Side-effect-free prepare forbids the required external `bash -n` validator | `[~]` | master (direct) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -999,3 +1002,24 @@ running-job/reset semantic conflict exposed by the new busy predicate; and
 ahs-28 settles supervisor-versus-worker ownership and generation lifetime for
 `ptk_output` artifacts. The valid empty-findings condition was not met, so the
 Claude loop remains open.
+
+**Coder disposition after Claude round 3 — three grades HELD, three NEW
+findings ADMITTED.** Independent fixed-head re-grades accepted Claude's closure
+of ahs-6, ahs-9..17, ahs-19..21, ahs-23, and ahs-24, but did not accept three
+RESOLVED labels: ahs-18 still has a spawn-to-containment race before Windows
+Job Object assignment / Unix reaper arming; ahs-22 says both “first successful
+open” and that failed bootstrap preserves an immutable binding; and ahs-25's
+nullable reflection signature cannot enforce action-conditional field
+presence or distinguish omitted fields. Those rows returned to `[~]`.
+
+Three non-duplicate cross-boundary failures were also admitted: ahs-29 gives
+post-start timeout replacement an atomic lifecycle transition, self-lease
+exemption, confirmed old-worker death, and named containment grace after the
+request deadline; ahs-30 prevents new audited reads from consuming the
+terminal-event reserve at anchored high water; and ahs-31 orders the external
+no-execution `bash -n` validator after audited commit because `prepare`
+explicitly forbids process start. For ahs-27, the coder disposition is to
+preserve the shipped reset-kills-running-jobs contract by removing running
+jobs from the non-force busy predicate, rather than rewriting that guard to
+bless an accidental compatibility regression. All nine pending rows require
+one-finding-per-commit fixes and reviewer re-grade.

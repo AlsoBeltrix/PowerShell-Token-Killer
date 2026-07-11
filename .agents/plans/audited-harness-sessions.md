@@ -124,10 +124,11 @@ Harness
 ```
 
 The supervisor never hosts user PowerShell. A worker owns exactly one
-`SessionRuntime` containing one `RunspaceHost`, one `JobManager`, one output
-store partition, one module cache, and one authentication/environment
-context. The supervisor owns MCP, session lifecycle, worker process trees,
-audit persistence/export, and correlation IDs.
+`SessionRuntime` containing one `RunspaceHost`, one `JobManager`, output-capture
+staging, one module cache, and one authentication/environment context. The
+supervisor owns MCP, session lifecycle, worker process trees, the output-store
+handle table/artifact directory, audit persistence/export, and correlation
+IDs.
 
 All workers are children of the supervisor and enter containment atomically at
 creation, before any worker instruction or runspace/bootstrap can run. On
@@ -336,9 +337,9 @@ cold | starting | ready | resetting | closing | faulted | lost
 ```
 
 `SessionSlot` owns one asynchronous lifecycle gate and a monotonically
-changing transition version. Every invoke, job start/kill, bootstrap, output
-operation tied to a worker, reset, restart, close, or open is admitted under
-that gate:
+changing transition version. Every invoke, job start/kill/status/output tied
+to a worker, bootstrap, reset, restart, close, or open is admitted under that
+gate. Supervisor-owned `ptk_output` is not:
 
 1. An ordinary worker-bound call validates state and expected generation,
    captures boot ID/generation/transition version, and increments an operation
@@ -358,9 +359,10 @@ that gate:
    It may complete its caller/audit outcome but can never install state or a
    job into a replacement generation.
 
-`ptk_session list` and supervisor-only state snapshots do not take operation
-leases. Worker `ptk_state` uses a validated ready-generation lease but remains
-zero-wait with respect to the runspace execution gate. This lifecycle gate
+`ptk_session list`, `ptk_output`, and supervisor-only state snapshots do not
+take worker operation leases. Worker `ptk_state` uses a validated
+ready-generation lease but remains zero-wait with respect to the runspace
+execution gate. This lifecycle gate
 linearizes admission and replacement; the worker runtime gate separately
 serializes scripts within the admitted generation.
 
@@ -516,8 +518,13 @@ The same planner runs against the actual resolution context:
 
 ## Same-invocation output recovery
 
-Add a per-session `OutputStore` distinct from audit and job logs. It stores
-the canonical unshaped response from the completed invocation: stdout and
+Add a supervisor-owned, harness-lifetime `OutputStore` distinct from audit and
+job logs. Its quota is partitioned/attributed by session alias, not worker
+generation. Before a script commit the supervisor creates a restricted capture
+reservation and passes the worker only its internal write capability/artifact
+ID; the worker never owns the handle table. The supervisor atomically seals
+the artifact on terminal metadata, or marks it incomplete if the worker dies.
+It stores the canonical unshaped response from the invocation: stdout and
 stderr separately, PowerShell error/warning streams, exit code, provenance,
 and completeness. Handles are opaque random values; filesystem paths are
 never model-facing.
@@ -531,6 +538,11 @@ Properties:
   event.
 - Recovery returns the snapshot from that invocation even if files/session
   state later change.
+- A handle survives worker timeout/replacement, reset, restart, close, fault,
+  and loss until normal TTL/quota eviction or supervisor exit. It is readable
+  while its alias is closed and never routes through or restarts a worker. A
+  worker death during capture yields the explicit incomplete artifact already
+  written, not a bare not-found. No handle is valid in a new harness.
 - A storage failure never reruns work and never fabricates recoverability.
 
 Foreground PowerShell execution is split from shaping: execute the user
@@ -908,6 +920,9 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 ### Slice 4 — same-invocation output recovery and raw retirement
 
 - Land `OutputStore`/`ptk_output` and two-stage foreground capture/shaping.
+- Host the handle table/artifact retention in the supervisor; workers receive
+  per-call write reservations only, so generation replacement does not erase
+  prior handles.
 - Integrate the verified RTK raw-capture seam when available; otherwise ship
   the explicit recovery-unavailable result for RTK-filtered calls without
   changing their route.
@@ -1121,6 +1136,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   server still return working handles.
 - A persistent counter/file sentinel proves `ptk_output` never reruns.
 - Retrieval after underlying files/state change returns the captured snapshot.
+- A handle issued in generation N remains readable after timeout replacement,
+  reset, restart, close, and loss of N until its ordinary TTL/quota eviction.
+  A worker killed mid-capture returns an explicit incomplete snapshot/status,
+  never not-found and never rerun advice.
 - Offset/search reads are stable; expired/evicted/incomplete handles are
   explicit and never advise rerun.
 - Output-store failure leaves the execution count at one and reports recovery

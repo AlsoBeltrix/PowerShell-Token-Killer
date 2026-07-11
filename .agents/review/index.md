@@ -911,6 +911,7 @@ table is a valid review result.
 | ahs-30 | MEDIUM  | New audited reads can consume the reserve needed for terminal events | `[x]` | master (direct, 23586fb) |
 | ahs-31 | MEDIUM  | Side-effect-free prepare forbids the required external `bash -n` validator | `[x]` | master (direct, e4e261d) |
 | ahs-32 | MEDIUM  | Post-launch startup containment can wait forever after its deadline | `[~]` | master (direct) |
+| ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[~]` | master (direct) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1051,3 +1052,15 @@ terminal, quarantine, and eventual-confirmed-death recovery gate as the
 post-start execution timeout path. All three parallel coder re-grades also
 accepted the submitted fixes and found no other schema/lifecycle/routing
 regression on that fixed head.
+
+**Coder audit after Claude round 4 — one NEW finding ADMITTED.** ahs-33 closes
+a remaining guarantee gap in ahs-30: stopping new calls at high water protects
+the reserve from later reads, but nothing reserves future terminal bytes when
+calls/jobs are accepted below that threshold. An arbitrary burst across
+independent sessions can therefore commit side effects and later exhaust a
+fixed terminal segment. The required fix atomically allocates bounded terminal
+capacity before `call.accepted`; a background start also retains a separate job
+terminal reservation, and live workers reserve loss/exit capacity. Admission
+fails before acceptance when the appropriate reservation cannot be made.
+This finding was independently checked against the bounded-record and
+all-session concurrency contracts; it is not a duplicate of ahs-30.

@@ -315,6 +315,14 @@ cold | starting | ready | resetting | closing | faulted | lost
   `force=true` cancels and terminates the session worker tree.
 - Timeout/recycle, reset, close, and worker loss never affect another
   session.
+- Queue expiry or cancellation before a prepared commit leaves the worker
+  unchanged. Any execution timeout after commit replaces the entire target
+  worker, for `default`, template-backed, and dynamically opened sessions
+  alike; PTK never tries to infer whether that process acquired a connection.
+  The generation increments, all of that worker's managed jobs are terminated,
+  and the result labels session-state loss. This deliberately replaces the
+  current in-process runspace rebuild on timeout so process-scoped auth/module
+  state cannot survive in an ambiguously connected dynamic session.
 - Supervisor idle exit is forbidden while a worker is starting/resetting, a
   foreground call is active, or a managed job is running.
 
@@ -685,8 +693,9 @@ session's jobs.
 The supervisor must use the armed Windows Job Object / Unix process-group
 reaper contract above, or an equivalently proven hard-parent-death mechanism.
 Containment setup failure prevents worker initialization. Whole-worker
-replacement is the reset/timeout containment primitive for connection-bearing
-sessions. Detached processes, scheduled tasks, services, WMI, SSH, and remote
+replacement is the unconditional post-start timeout containment primitive for
+every session; it is never gated on a claimed connection-bearing profile.
+Detached processes, scheduled tasks, services, WMI, SSH, and remote
 effects require OS/provider audit and are reported with partial/unknown
 coverage rather than false certainty.
 
@@ -1022,6 +1031,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Two named sessions use distinct PIDs/boot IDs and isolate variables,
   aliases, environment, modules, cwd, caches, `$LASTEXITCODE`, jobs, and
   timeout/reset effects.
+- A template-less dynamic session establishes a process-scoped auth/module
+  sentinel, then times out after execution starts. Its whole worker exits, its
+  generation changes, its managed jobs stop, and the sentinel is absent from
+  the replacement; the other session remains untouched.
 - A barrier test, not timing alone, proves different sessions can progress
   concurrently while one session remains serial.
 - Concurrent open starts one worker; list/state on cold does not start it.

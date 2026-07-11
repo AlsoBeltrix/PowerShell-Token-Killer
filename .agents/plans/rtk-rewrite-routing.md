@@ -46,14 +46,31 @@ not have.
 
 ## Slices
 
-0. **Probe and freeze `rtk rewrite` semantics** (no code): exit codes
-   (a passthrough probe returned exit 3 with empty output — the
-   contract must be pinned, not assumed); stdout contract (rewritten
-   line vs empty); behavior on PowerShell-syntax input, quoting edge
-   cases, env prefixes, `RTK_DISABLED`; guard cases verified against
-   the documented list; version sensitivity noted (probed on 0.43.0).
-   Results freeze into this plan before implementation (shell-dialect
-   slice-0 precedent).
+0. **Probe and freeze `rtk rewrite` semantics** (no code). The exit
+   protocol is now source- and probe-verified on 0.43.0
+   (`../rtk/src/hooks/rewrite_cmd.rs`) — an earlier in-session
+   observation recorded passthrough as "exit 3, empty output"; that was
+   WRONG (rrp-7). The real contract:
+
+   | Exit | Stdout    | Meaning                                    |
+   |------|-----------|--------------------------------------------|
+   | 0    | rewritten | rewrite, allow-tier permission verdict     |
+   | 1    | (none)    | passthrough — no rtk equivalent            |
+   | 2    | (none)    | deny rule matched                          |
+   | 3    | rewritten | rewrite, ask/default-tier verdict          |
+
+   Probe-confirmed: `pwsh -NoProfile -Command Get-Date` → exit 1, no
+   output; `head -20 README.md` → exit 3 + rewrite. Success for ptk =
+   exit 0 OR 3 AND non-empty stdout (treating exit 3 as failure would
+   silently unroute nearly everything — default-tier verdicts are the
+   common case). What ptk does with exit 2 (rtk-side deny: honor as a
+   refusal, or ignore — rtk permission rules are a separate config
+   surface from ptk's own planned policy gate) is pinned here in slice
+   0 and decided by the owner at approval. Remaining slice-0 work:
+   quoting edge cases, PowerShell-syntax inputs, env prefixes,
+   `RTK_DISABLED`, guard cases verified against the documented list;
+   version sensitivity noted. Results freeze into this plan before
+   implementation (shell-dialect slice-0 precedent).
 1. **PS7 execution-compatibility matrix** (no code): rtk emits
    POSIX-shaped lines; the warm runspace executes PowerShell 7. Probe
    each shape rtk can emit (`&&`, `||`, `;`, `|`, `2>&1`,
@@ -115,8 +132,12 @@ not have.
 ## Risks / notes
 
 - rtk rule changes ride rtk releases; ptk inherits them without code
-  changes (that is the point), but a probe-pinned contract means a
-  breaking `rtk rewrite` CLI change surfaces in tests, not in live use.
+  changes (that is the point). The exit/stdout protocol gets its own
+  Pester tests against the real binary, but note honestly: CI installs
+  no rtk, so those protocol tests only run where a binary is present
+  (locally, and rtk-absent seams elsewhere) — a breaking upstream CLI
+  change surfaces on the first LOCAL battery run after an rtk upgrade,
+  not in CI (rrp-7).
 - The existing per-command rewrite (`& '<rtk>' <cmd>`) executes rtk as
   a PowerShell native call; multi-segment rewritten lines execute as a
   PS7 statement — the slice-1 matrix is the safety net.

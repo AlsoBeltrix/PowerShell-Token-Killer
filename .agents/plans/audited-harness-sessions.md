@@ -159,7 +159,7 @@ ptk_reset(session="default", expectedGeneration=0, force=false)
 Add:
 
 ```text
-ptk_session(action, name, template=null, allowColdBackground=null,
+ptk_session(action, name=null, template=null, allowColdBackground=null,
             expectedGeneration=0, force=false)
   action = list | open | close | restart
 
@@ -186,6 +186,9 @@ Rules:
   explicit exception: it always exists, may be cold, and lazily starts a new
   worker generation on the next unqualified effectful call.
 - `list` never starts a worker.
+- `name` is schema-optional because `list` is global: `list` requires it to be
+  absent and rejects lifecycle-only arguments, while `open`, `close`, and
+  `restart` require a valid name. No ignored sentinel name is invented.
 - Each worker has a random boot ID and a monotonic generation. An optional
   nonzero `expectedGeneration` mismatch refuses before any side effect.
 - A compact session/worker/generation/declared-purpose header appears on
@@ -1100,6 +1103,9 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - A barrier test, not timing alone, proves different sessions can progress
   concurrently while one session remains serial.
 - Concurrent open starts one worker; list/state on cold does not start it.
+- The generated `ptk_session` schema accepts `list` with no name and rejects
+  open/close/restart without one; list neither requires nor ignores a sentinel
+  session name.
 - Barrier-controlled invoke/job-start versus reset/restart/close races prove
   the lifecycle transition wins before admission or the operation lease wins
   before the busy check; work never starts in a dying generation, duplicate

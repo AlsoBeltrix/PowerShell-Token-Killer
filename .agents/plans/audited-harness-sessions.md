@@ -160,8 +160,10 @@ Rules:
   lowercase, and match `[a-z0-9][a-z0-9._-]{0,63}`.
 - `open` is idempotent for the same live name/template digest.
 - Every non-default operation names its session. There is no `select`.
-- An unknown/closed session never falls back to `default` and never
-  auto-creates after a typo.
+- An unknown or closed **non-default** session never falls back to `default`
+  and never auto-creates after a typo. The reserved default slot is the one
+  explicit exception: it always exists, may be cold, and lazily starts a new
+  worker generation on the next unqualified effectful call.
 - `list` never starts a worker.
 - Each worker has a random boot ID and a monotonic generation. An optional
   nonzero `expectedGeneration` mismatch refuses before any side effect.
@@ -253,8 +255,11 @@ cold | starting | ready | resetting | closing | faulted | lost
   starts a fresh context under the same generation.
 - `restart` replaces the whole worker process, reruns bootstrap, and
   increments generation.
-- `close` terminates the worker tree and leaves the name cold/closed for this
-  harness; reopening creates a new generation.
+- `close` terminates the worker tree and leaves a non-default name closed for
+  this harness; `open` is required to create its next generation. Closing
+  `default` leaves its reserved slot cold, and the next unqualified effectful
+  call lazily starts a new generation. `restart`/`ptk_reset` on `default`
+  replace it immediately rather than leaving it unavailable.
 - `ptk_reset` becomes session-local process replacement. Authorization/checks
   occur before job or process termination.
 - Busy reset/close with `force=false` returns a no-side-effect busy result.
@@ -828,6 +833,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Reset/restart increments generation and affects only the named session.
 - Stale generation and non-force busy close/reset have zero side effects.
 - Worker loss fails pending calls once and requires explicit restart.
+- Closing `default` kills its jobs/worker, leaves the reserved slot cold, and
+  the next unqualified invoke starts exactly one new generation. Closing a
+  named session never auto-reopens it and never redirects its calls to
+  `default`.
 - Supervisor EOF/shutdown leaves no managed workers/jobs.
 
 ### Compatibility and live verification

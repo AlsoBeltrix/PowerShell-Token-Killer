@@ -177,14 +177,15 @@ ptk_invoke(script, route="auto", background=false, timeoutSeconds=0,
            raw=false [deprecated], session="default")
 ptk_job(action, id, offset=0, session="default")
 ptk_state(listAvailable=false, session="default")
-ptk_reset(session="default", expectedGeneration=0, force=false)
+ptk_reset(session="default", expectedGeneration=0, force=false,
+          timeoutSeconds=0)
 ```
 
 Add:
 
 ```text
 ptk_session(action, name=null, template=null, allowColdBackground=null,
-            expectedGeneration=0, force=false)
+            expectedGeneration=0, force=false, timeoutSeconds=0)
   action = list | open | close | restart
 
 ptk_output(handle, action="read", offset=0, maxBytes=<bounded>, pattern=null)
@@ -218,8 +219,9 @@ Rules:
   `SessionTool` is registered with an explicit `oneOf` JSON schema: a `list`
   branch permits only `action`; an `open` branch requires `name` and permits
   only open-time binding fields; `close` and `restart` branches require `name`
-  and permit only their generation/force fields. The adapter validates the
-  original JSON property-presence set before binding defaults, so omitted is
+  and permit only their generation/force/deadline fields. The adapter
+  validates the original JSON property-presence set before binding defaults,
+  so omitted is
   distinguishable from explicitly supplied `null`, `false`, or `0`.
 - Each worker has a random boot ID and a monotonic generation. An optional
   nonzero `expectedGeneration` mismatch refuses before any side effect.
@@ -297,6 +299,30 @@ budget. A fixed startup-configured `timeoutContainmentGrace` is separate: it
 permits no user work and may extend a post-launch startup-failure or post-start
 execution-timeout response only long enough to confirm process-tree death.
 Tool descriptions disclose the maximum deadline-plus-grace wall clock.
+
+Every lifecycle action that may launch, replace, stop, or wait for a worker
+uses the same boundary deadline function as invoke:
+
+- `timeoutSeconds=0` selects the operator-configured server call default. A
+  positive override is capped by the server's max-call-timeout; as in the
+  shipped contract, that max caps caller overrides but does not second-guess a
+  longer operator-configured default.
+- Template-backed open/restart/reset additionally applies the frozen
+  `startupTimeout` as a ceiling to initialize/bootstrap: the earlier of the
+  call deadline and template ceiling wins.
+- Template-less dynamic open/restart, explicit default open/restart/reset, and
+  close use the same default/override/max rule. A lazy `default` start inside
+  `ptk_invoke` has no fresh budget; it consumes that invoke's already-computed
+  absolute deadline.
+- Reset/restart's graceful stop, new worker creation, initialize, and bootstrap
+  share one deadline. Close's graceful stop shares it. Only containment after
+  a launched process misses that deadline may use
+  `timeoutContainmentGrace`; no user/bootstrap work runs in the grace.
+
+The `ptk_reset` and action-conditional `ptk_session` schemas expose
+`timeoutSeconds`; `list` rejects it. Their descriptions state the
+default/override/template-ceiling function and the maximum
+deadline-plus-containment-grace response time.
 
 Protocol requirements:
 
@@ -1098,6 +1124,9 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   arguments on all tools.
 - Register `ptk_session` with the explicit action-conditional `oneOf` schema
   and validate raw field presence before typed/default binding.
+- Compute open/restart/close/reset deadlines at the tool boundary with the
+  shared default/override/max/template-ceiling function; pass the absolute
+  deadline through shutdown, worker launch, initialize, and bootstrap.
 - Move public job-ID allocation to the supervisor's nonreusing 64-bit
   sequence; worker-local IDs never cross MCP.
 - Prove isolation of variables, aliases, cwd, environment, modules, auth
@@ -1109,6 +1138,8 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 
 - Make reset/restart whole-worker, target-local, generation-checked, and
   pre-effect audited.
+- Apply the same lifecycle deadline to old-worker shutdown and replacement
+  startup; use containment grace only after the user/startup deadline expires.
 - Add bounded graceful shutdown plus proven tree kill.
 - Prove broker-loss teardown and quarantine separately from ordinary worker
   loss; no live generation may continue without its armed broker.
@@ -1304,6 +1335,11 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   and `quarantined`, rejects open/restart, ignores late-ready frames, and only
   permits one different worker after later confirmed death plus explicit
   restart.
+- Dynamic open and reset replacement against wedged initialize/bootstrap
+  return by the documented server-default-or-override deadline plus containment
+  grace. Template-backed startup stops at the earlier template ceiling;
+  positive overrides above the server maximum are capped; lazy default start
+  under invoke cannot reset or extend the invoke deadline.
 - Missing catalog yields no templates. Malformed/unsupported/duplicate
   catalog data and missing/unreadable bootstrap paths disable every template
   as one visible catalog fault while default and explicit dynamic sessions

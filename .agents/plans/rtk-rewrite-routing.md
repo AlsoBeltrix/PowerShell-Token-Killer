@@ -132,12 +132,31 @@ not have.
    labeled no-op result when rtk declines), or the flag retired. The
    chosen semantics update the tests and the model-visible tool
    description in the same slice.
-3. **Measure and record:** re-run the 2026-07-10 shaped-vs-raw
-   measurement plus `rtk gain` on a realistic mixed workload; record
-   the numbers in this plan. This is the evidence for the owner's
-   token-savings justification question — if widening routing does not
-   move the native-workload number materially, that finding is recorded
-   just as loudly.
+3. **Measure and record (protocol frozen here — rrp-9):** the
+   measurement is self-contained in this plan, not a reference to a
+   session artifact. Method: drive the BUILT server over real MCP
+   stdio (initialize handshake, then `tools/call` on `ptk_invoke`);
+   for each case call once with `raw=true` and once shaped
+   (`raw=false`), compare response-text character counts. Fixed case
+   set (the 2026-07-10 baseline workload, from the repo root):
+   - objects: `Get-ChildItem server -Recurse -File | Select-Object
+     Name,Length,LastWriteTime` (baseline ratio 3%)
+   - objects: `Get-Process | Select-Object -First 50` (81%)
+   - native: `git log --stat -30` (46%)
+   - logs: 80 synthetic `INFO worker[n]: step n completed in nms`
+     lines (2%)
+   - passthrough: `Get-Content README.md -Raw` (100%)
+   plus, added for this slice, at least 3 native cases the new routing
+   is expected to change (compound `&&` chain, `cargo test`/`npm
+   test`-shaped output where available, a `head`-class file read).
+   One run per case (output is deterministic enough at this size;
+   re-run twice only if a ratio moves >5 points between runs).
+   `rtk gain` accumulates HISTORICAL tracking data — snapshot or reset
+   its counter before the run and report only the delta, never the
+   accumulated total. Materiality bar for the owner's justification
+   question: the native-case subtotal ratio must improve by ≥10
+   percentage points over the frozen baseline, or the finding "routing
+   widened, savings did not move" is recorded just as loudly.
 
 ## Risks / notes
 

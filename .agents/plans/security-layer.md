@@ -61,6 +61,17 @@ default.
    store: issue #3's "80% of this" overstates it — `JobManager`
    persists only child output; script, start, and exit metadata live
    in process memory, and foreground/control calls never touch it.
+   **Format (slp-8):** versioned JSONL, one event per line. Fields
+   beyond the list above, each required by a named consumer: `cwd`
+   (issue #3's own field — a relative destructive command is
+   meaningless without it), tool-specific arguments for control calls
+   (`ptk_job` action/id — status and kill must not look alike),
+   requested vs effective route, event/call/job ids for correlation,
+   policy file digest + matched rule on refused/allowed-by-rule events
+   (decisions stay reconstructable after the policy is edited), and
+   NULLABLE session-key/client fields reserved for the
+   shared-runspace admin CLI so that consumer extends rather than
+   breaks the format.
 2. **Policy gate:** a declarative policy file OUTSIDE any workspace,
    evaluated server-side before execution. The file is
    `~/.ptk/policy.psd1` — not open: the release-distribution plan

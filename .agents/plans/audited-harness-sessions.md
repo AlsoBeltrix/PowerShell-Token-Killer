@@ -349,8 +349,11 @@ that gate:
 3. Reset/restart/close publishes its transitional state before releasing the
    gate, which rejects every later worker-bound admission. Its `force=false`
    busy decision atomically includes queued/prepared/foreground leases,
-   in-flight job starts, and running managed jobs. `force=true` first blocks
-   admission, then cancels leases and invokes containment.
+   in-flight job starts, and another lifecycle transition, but not an already
+   started cold background job. Running managed jobs are owned resources that
+   reset/restart/close intentionally terminate after the pre-effect audit,
+   preserving the current reset-kills-jobs contract. `force=true` first blocks
+   admission, then cancels active leases and invokes containment.
 4. A late response is accepted only for the captured boot/generation/version.
    It may complete its caller/audit outcome but can never install state or a
    job into a replacement generation.
@@ -388,7 +391,9 @@ serializes scripts within the admitted generation.
   occur before job or process termination.
 - Busy reset/restart/close with `force=false` returns the same no-side-effect
   busy result. `ptk_session restart` and `ptk_reset` are equivalent for this
-  rule; neither queues behind or kills active work without force.
+  rule; neither queues behind or kills an active/queued invocation without
+  force. A running cold background job alone is not “busy”: all three
+  lifecycle operations proceed and terminate that job as documented.
   `force=true` cancels and terminates the session worker tree.
 - Timeout/recycle, reset, close, and worker loss never affect another
   session.
@@ -1167,6 +1172,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Reset/restart increments generation and affects only the named session.
 - Stale generation and non-force busy close/reset/restart have zero side
   effects and share one observable busy contract.
+- `ResetToolTests.Reset_kills_running_background_jobs` remains unchanged:
+  with no foreground/queued call, default `ptk_reset(force=false)` kills the
+  running cold job and replaces the session; a separate foreground-busy case
+  refuses until `force=true`.
 - Worker loss fails pending calls once and requires explicit restart.
 - Start a job, replace its worker, then start another job. The public IDs
   differ, and status/output/kill using the old ID cannot observe or affect the

@@ -914,6 +914,7 @@ correlation:
   job_id: integer 1..Int64.MaxValue | null
   parent_event_id: lowercase UUIDv7 | null
   trace_id: 32 lowercase hex | null
+  plan_id: lowercase UUIDv4 | null
 
 request:
   tool: machine-name | null
@@ -944,6 +945,8 @@ routing:
   requested_route: "auto" | "pwsh" | "rtk" | null
   effective_route: "powershell_direct" | "rtk" | "native_direct" |
                    "bash_via_rtk" | null
+  permitted_fallbacks: sorted unique ("powershell_direct" |
+                       "native_direct") array, maximum 2
   rtk_version: text-128 | null
   rtk_binary_digest: lowercase SHA-256 hex | null
   provenance: "powershell_objects" | "direct_text" | "rtk_unknown" |
@@ -971,6 +974,16 @@ coverage:
   remote_effect_observed: "complete" | "partial" | "none" | "unknown" |
                           "not_applicable"
 
+audit:                                         # all keys required
+  protection_mode: "local-only" | "anchored"
+  export_configuration_identity: lowercase HMAC-SHA-256 hex | null
+  health_state: "healthy" | "degraded" | "recovered" | null
+  failure_class: machine-code | null
+  degraded_since_utc: UTC timestamp | null
+  emergency_probe_count: integer 0..Int64.MaxValue | null
+  emergency_probe_first_utc: UTC timestamp | null
+  emergency_probe_last_utc: UTC timestamp | null
+
 event_hash: lowercase SHA-256 hex             # required final property
 ```
 
@@ -989,7 +1002,33 @@ Unicode `Cc` scalar; `path-text` is 1..4,096 Unicode scalar values with no NUL;
 least one dot); `property-name` is ASCII `[A-Za-z][A-Za-z0-9_]{0,63}`;
 canonical session/template names use the public 64-character pattern. UUID
 and hex fields have the exact lengths implied above. JSON arrays preserve the
-stated order. `provided_fields` uses ordinal sorting after duplicate removal.
+stated order. `provided_fields` and `routing.permitted_fallbacks` use ordinal
+sorting after duplicate removal.
+
+`correlation.plan_id` is nonnull for every prepared plan, dispatch,
+validation, and execution terminal. It is stable for one single-use prepared
+attempt and changes on every audited replan. `routing.permitted_fallbacks` is
+the exact bounded set authorized by that plan and is `[]` on events without a
+prepared execution; an actual fallback still records its separate
+`fallback_reason`.
+
+`audit.protection_mode` is the startup-frozen mode on every event so local-only
+telemetry is visibly unanchored. `export_configuration_identity` is nonnull
+only in anchored mode. Ordinary healthy records use `health_state="healthy"`
+and null recovery fields. `audit.degraded` records `health_state="degraded"`,
+the failure class, and `degraded_since_utc`. The first successful
+`audit.recovered` record uses `health_state="recovered"` and carries the same
+failure/degraded start plus the exact in-memory emergency-probe count; first
+and last probe timestamps are both nonnull when the count is positive and both
+null when it is zero. This explicitly represents the gap summary required by
+the journal-unavailable diagnostic contract.
+
+The added `plan_id`, `permitted_fallbacks`, and `audit` fields are a
+pre-implementation completeness correction to the never-emitted v1 contract:
+the approved ordering/recovery rules already required those facts but the
+initial field list omitted their representation. They are part of the first
+implemented `ptk.audit/1` schema. After a v1 writer ships, any field, meaning,
+default, or hash-input change requires `ptk.audit/2` as specified below.
 
 `pattern_fingerprint` is
 `HMAC-SHA-256(per-supervisor random nonexported key,

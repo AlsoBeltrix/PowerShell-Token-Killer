@@ -5,6 +5,10 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Active review loop:** the never-shipped `ptk.audit/1` completeness
+  correction is awaiting fixed-SHA Claude review; see
+  `.agents/review/index.md`. Slice 1 product code resumes immediately after the
+  correction is accepted and merged.
 - **Local branch management is delegated for the remaining audited-harness
   implementation** (owner, 2026-07-11): create, switch, merge, and delete local
   implementation/review branches without per-merge confirmation. Push remains
@@ -66,14 +70,6 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- **Audit schema contradiction blocks Slice 1 product code:** the required
-  `audit.recovered` emergency-probe summary (count plus first/last timestamps)
-  has no representable fields in the frozen strict `ptk.audit/1` envelope,
-  which rejects extras and reserves every existing field for another meaning.
-  No compliant encoding exists without a schema amendment/version change or a
-  weaker recovery-evidence requirement. The recommended correction is to amend
-  the still-unshipped v1 envelope with a required nullable `audit_gap` object;
-  owner direction is required before changing the approved frozen contract.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in

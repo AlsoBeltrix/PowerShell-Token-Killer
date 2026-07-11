@@ -1215,3 +1215,11 @@ and cleanup for the remainder of the audited-harness coding work. The accepted
 branch was fast-forwarded into `master` at `008dfa0`, its content arrival was
 verified with an empty branch-to-master diff, and the local branch was deleted.
 This authority does not include push; push remains ask-first.
+
+**AUDIT V1 COMPLETENESS CORRECTION — CLAUDE REVIEW ACTIVE.** Before the first
+audit writer was implemented, Slice 1 mapping proved the strict v1 field list
+could not represent three already-required facts: prepared plan ID, bounded
+permitted fallback set, and the emergency-probe recovery summary. The narrow
+docs correction adds explicit typed fields without weakening any behavior or
+changing an emitted format; fixed base/head and the docs guard are recorded by
+the synchronous Claude reviewloop before product code resumes.

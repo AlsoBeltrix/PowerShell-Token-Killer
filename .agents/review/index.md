@@ -911,7 +911,7 @@ table is a valid review result.
 | ahs-30 | MEDIUM  | New audited reads can consume the reserve needed for terminal events | `[x]` | master (direct, 23586fb) |
 | ahs-31 | MEDIUM  | Side-effect-free prepare forbids the required external `bash -n` validator | `[x]` | master (direct, e4e261d) |
 | ahs-32 | MEDIUM  | Post-launch startup containment can wait forever after its deadline | `[~]` | master (direct, 70e1d39) |
-| ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[~]` | master (direct, 69caf6c) |
+| ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[x]` | master (direct, 69caf6c) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1073,3 +1073,16 @@ reserves each call's worst-case terminal set before `call.accepted`, retains
 job/worker lifecycle reservations, and derives admission capacity from
 physical free bytes minus outstanding obligations. Both rows remain `[~]`
 pending fixed-SHA review; no product code is authorized.
+
+**Claude re-grade round 5 — REOPENED** (Claude Code 2.1.207, default
+claude-opus-4-8, read-only), reviewed head
+`c38e0fbc8d6637e26339399117d76c6a3a29e11d` against base
+`875efa05b7ef6c01354466f3f93211316d30c901`,
+`guard_confirmed=true`, 2026-07-11T10:58:02Z. Structured verdict and both SHAs
+matched. ahs-33 is RESOLVED: reservation covers the worst-case call set before
+acceptance, persistent asynchronous job/worker obligations, atomic concurrent
+admission, and the anchored physical reserve; its row is `[x]`. ahs-32 remains
+NOT_RESOLVED only because Slice 7 still literally says every post-launch
+startup timeout/cancel must await confirmed containment before returning,
+contradicting the newly bounded lifecycle contract and acceptance test. No
+other finding was returned.

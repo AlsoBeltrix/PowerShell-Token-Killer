@@ -224,9 +224,10 @@ cannot enter the protocol decoder. This is an operational isolation seam, not
 a security boundary against arbitrary same-process P/Invoke, which remains an
 explicit assurance limit.
 
-Envelope kinds are `initialize`, `request`, `cancel`, `event`, `response`,
-and `shutdown`. Every envelope contains protocol version, worker boot ID,
-request ID where applicable, and a bounded payload. Requests carry an
+Envelope kinds are `initialize`, `prepare`, `commit`, `abort`, `request`,
+`cancel`, `event`, `response`, and `shutdown`. Every envelope contains
+protocol version, worker boot ID, request ID where applicable, and a bounded
+payload. Requests carry an
 absolute UTC deadline computed at the MCP boundary; worker startup,
 bootstrap, queue wait, routing, execution, and shaping consume the same
 budget.
@@ -238,6 +239,21 @@ Protocol requirements:
   in argv.
 - One reader task demultiplexes responses/events; one write gate prevents
   interleaved JSON.
+- Script-bearing invoke, job-start, and bootstrap operations use a prepared
+  execution reservation. `prepare` acquires the worker runtime gate, performs
+  only parse and non-executing inspection of already-loaded command state,
+  and returns an immutable descriptor containing a random single-use plan ID,
+  exact script digest, worker boot/generation, execution plan, permitted
+  exact-semantics fallback set, and deadline. It must not autoload a module,
+  invoke a provider or command-not-found hook, or start a process; uncertainty
+  selects the conservative exact PowerShell plan.
+- The worker holds that reservation/gate until matching `commit`, `abort`, or
+  deadline expiry. A commit with the wrong plan ID, script digest,
+  boot/generation, or stale command identity executes nothing and returns
+  `replan_required`. A valid commit is idempotent: the first one starts the
+  prepared operation once, and duplicates return the same task/result rather
+  than re-executing. Abort and expiry release the reservation without user
+  effects.
 - The worker can serve zero-wait `state` while the runspace is busy.
 - Cancellation targets one request and is propagated to the active pipeline
   or pre-start job operation.
@@ -309,9 +325,14 @@ FallbackReason
 RtkExecutableIdentity
 ```
 
-The planner is side-effect-free. It returns metadata and a planned execution;
-it never starts the user command. Audit commits the pre-effect dispatch event
-before the worker receives permission to execute.
+The planner is side-effect-free under the prepared-reservation protocol. It
+returns metadata and a planned execution; it never starts the user command.
+The supervisor commits the pre-effect dispatch event for that exact plan ID,
+script digest, worker generation, route, and bounded fallback set before the
+worker receives `commit` permission. If preparation becomes stale, the worker
+returns `replan_required` without execution; the supervisor may prepare again
+inside the same original call and remaining deadline, with a new audited plan,
+but never asks the model to reconstruct or resubmit the script.
 
 ### Automatic routing
 
@@ -476,9 +497,22 @@ invoke/job/bootstrap this is ordered:
 
 1. Write the exact submitted script evidence payload, flush it to disk, and
    atomically publish its opaque ID/digest.
-2. Append and flush the intent/dispatch event that references that already
-   durable evidence.
-3. Only then send the worker the execute/kill/reset/close commit.
+2. Append and flush `call.accepted` plus a prepare authorization referencing
+   that evidence. It authorizes only the side-effect-free `prepare` operation
+   defined above, not user execution.
+3. Send `prepare`; receive and validate the immutable prepared descriptor
+   while the worker holds its runtime reservation.
+4. Append and flush the intent/dispatch event containing the evidence ID,
+   plan ID, exact digest, boot/generation, planned route, and explicitly
+   permitted pre-execution fallback set.
+5. Only then send the matching single-use worker `commit`.
+
+Reset, restart, close, kill, and forced cancellation have no planning phase:
+their generation-bound intent is appended/flushed before their single-use
+control commit. A lost response never authorizes a retry that repeats user
+work. Duplicate script commits are idempotent; a lost worker after commit is
+`outcome_unknown`. A stale prepared descriptor produces an audited
+not-started/replan transition, never an execution under unaudited metadata.
 
 If evidence persistence or journal append/flush fails, the operation does not
 execute. An evidence blob published before a later journal failure is an
@@ -852,6 +886,11 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   script evidence referenced by that dispatch remains retrievable. Inject
   evidence-write, evidence-flush, event-append, and event-flush failures
   independently and prove no user work starts.
+- Lose a response after commit, deliver the same commit twice, expire a
+  prepared reservation, and change a prepared command identity. The sentinel
+  executes at most once; stale/expired plans execute zero times; every
+  internally prepared replacement remains under the original call/deadline
+  and receives its own durable dispatch record.
 - Concurrent events produce no torn records, duplicate sequence, or broken
   chain.
 - Rotation/retention bound a long-lived supervisor; a live file is not swept.

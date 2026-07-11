@@ -36,13 +36,21 @@ Write-Output; git status` mutates what `git` means BETWEEN the check
 and the second statement — rtk still rewrites the second segment, and
 routing would then run the real binary where unrouted PowerShell would
 have run the alias. Rule: a segment is routable only when every
-PRECEDING statement in the submission is itself a confirmed-native
-application call — natives cannot mutate PowerShell command
-resolution, while ANY preceding PowerShell statement (cmdlet, alias,
-function, assignment) disqualifies all later segments from routing.
-All-native compounds (`git status && git log`) keep routing; mixed
-submissions fail conservative. Regression cases: `Set-Alias` before a
-native segment; `Import-Module` before a native segment.
+PRECEDING statement in the submission is a confirmed-native
+application call **whose arguments are constant literal tokens only —
+no parenthesized expressions, no subexpressions, no script blocks**:
+a native HEAD does not make a statement inert, because PowerShell
+evaluates expression arguments in-session (`true (Set-Alias git
+Write-Output); git status` executes the alias mutation while
+rewritten output would run real git). Literal-args native statements
+run out-of-process and cannot mutate session command resolution; ANY
+preceding PowerShell statement (cmdlet, alias, function, assignment)
+or expression-bearing argument disqualifies all later segments from
+routing. All-native literal compounds (`git status && git log`) keep
+routing; mixed submissions fail conservative. Regression cases:
+`Set-Alias` before a native segment; `Import-Module` before a native
+segment; the `true (Set-Alias git Write-Output); git status`
+counterexample verbatim.
 
 ## Scope (rrp-5)
 

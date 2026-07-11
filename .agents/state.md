@@ -5,9 +5,9 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Owner-directed replacement architecture has completed Claude and Grok
-  reviewloop; it remains DRAFT pending explicit owner approval, so no code is
-  authorized.** `.agents/plans/audited-harness-sessions.md` combines
+- **Owner approved the dual-reviewed replacement architecture on 2026-07-11;
+  implementation has not started and awaits an explicit go.**
+  `.agents/plans/audited-harness-sessions.md` combines
   mandatory PTK-owned/SIEM-exportable audit, private harness-scoped
   process-per-session workers, internal PTK→RTK routing, same-invocation
   output recovery, and no-retry mixed-domain handling. Both reviewers accepted
@@ -31,10 +31,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Present `.agents/plans/audited-harness-sessions.md` for explicit owner
-   approval or rejection. No implementation before that approval.
-2. If approved, begin only the plan's first implementation slice under the
-   repo's one-slice/one-commit and guard-proof rules.
+1. Await explicit implementation go; then begin only the approved plan's first
+   slice under the repo's one-slice/one-commit and guard-proof rules.
+2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
 4. When the owner releases the decisions hold, reconcile the rejected

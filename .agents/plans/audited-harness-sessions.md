@@ -1,15 +1,15 @@
 # Plan: mandatory audit, harness-scoped sessions, and internal RTK routing
 
-**Status:** DRAFT — owner-directed 2026-07-11; implementation is NOT
-approved. Claude and Grok reviewloop are required before this plan is
-presented for implementation approval.
+**Status:** APPROVED — owner-approved 2026-07-11 after Claude and Grok
+reviewloop convergence. Implementation has not started and begins only on an
+explicit owner go.
 
-This plan is the candidate replacement for the still-open security response,
-the unapproved durable/shared-session idea, and the reviewed-but-unapproved
-`rtk rewrite` draft. It does not amend `.agents/decisions.md` while the
-owner's hold on that file remains active. If approved, the final documentation
-slice must reconcile those older records rather than leaving competing
-contracts.
+This plan is the canonical implementation contract replacing the still-open
+security response, the unapproved durable/shared-session idea, and the
+reviewed-but-unapproved `rtk rewrite` draft. It does not amend
+`.agents/decisions.md` while the owner's hold on that file remains active. The
+final documentation slice must reconcile those older records rather than
+leaving competing contracts.
 
 ## Outcome
 
@@ -1436,10 +1436,11 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 
 ## Documentation state after approval
 
-This plan becomes the canonical implementation contract only after explicit
-owner approval following reviewloop. Until then:
+The owner approved this plan on 2026-07-11 after dual-review convergence.
+Following approval:
 
-- No code is authorized.
+- This is the canonical implementation contract. No implementation slice was
+  requested with the approval; execution still begins only on an explicit go.
 - `security-layer.md` remains the record of the rejected policy-gate
   exploration.
 - `rtk-rewrite-routing.md` remains a reviewed draft whose regression evidence

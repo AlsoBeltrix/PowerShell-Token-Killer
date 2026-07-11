@@ -1178,3 +1178,9 @@ HEAD/PLAN.** Final reviewed head
 is `[x]`; all 36 admitted findings are closed. The plan remains DRAFT pending
 explicit owner approval; review convergence authorizes neither product code,
 decisions-log edits, nor push.
+
+**OWNER APPROVAL — 2026-07-11:** the owner explicitly accepted
+`.agents/plans/audited-harness-sessions.md` after dual-review closure. The plan
+is now the canonical implementation contract. The approval message did not
+request an implementation slice or authorize push; both remain separate
+explicit-go actions. The decisions-log hold remains in force.

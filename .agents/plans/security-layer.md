@@ -12,7 +12,18 @@ classifiers; GitHub issue #3 documents the same bypass from live use).
 against model sloppiness and unreviewed reach, NOT a security boundary —
 same OS user, no privilege separation. The recorded threat model stands;
 this plan narrows blast radius and adds visibility, it does not make ptk
-safe against a hostile local process.
+safe against a hostile local process. **That applies to the policy file
+itself (slp-5):** an agent with any raw-shell path (harness Bash, a
+second tool) runs as the same user and can edit or delete
+`~/.ptk/policy.psd1`; outside-workspace placement buys resistance to
+ACCIDENTAL workspace-scoped edits and keeps the file out of repo
+checkouts — it is not an agent-proof control plane, and no wording in
+this plan may claim otherwise. Concretely: once a server process has
+loaded a policy, that file going missing or unreadable mid-session is
+fail-closed with a labeled diagnostic (slp-4 rule) — deleting the file
+under a running gated server is loud, not a silent return to
+unrestricted; only a server that STARTS with no file gets the no-policy
+default.
 
 ## Prior art this plan assembles (nothing here is new thinking)
 

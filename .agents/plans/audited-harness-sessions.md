@@ -430,10 +430,21 @@ action, receives a terminal event.
 ### Pre-effect rule
 
 Before the supervisor sends any operation capable of side effects to a
-worker, it durably commits the corresponding intent/dispatch event. This
-includes foreground execution, job start, job kill, reset, restart, close,
-and forced cancellation. If the required journal cannot commit and flush the
-event, the operation does not execute.
+worker, it durably commits the operation's complete pre-effect record. For an
+invoke/job/bootstrap this is ordered:
+
+1. Write the exact submitted script evidence payload, flush it to disk, and
+   atomically publish its opaque ID/digest.
+2. Append and flush the intent/dispatch event that references that already
+   durable evidence.
+3. Only then send the worker the execute/kill/reset/close commit.
+
+If evidence persistence or journal append/flush fails, the operation does not
+execute. An evidence blob published before a later journal failure is an
+unreferenced orphan and is retention-swept; the reverse state (a dispatched
+event referring to missing evidence) is forbidden. This rule also covers job
+start, job kill, reset, restart, close, and forced cancellation, with complete
+tool-specific parameters in the pre-effect record.
 
 There is no model-facing audit-off switch. SIEM network loss does not block
 while the durable local spool is healthy and below quota. A missing, corrupt,
@@ -625,6 +636,9 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 
 - Add schema, journal, required pre-effect commits, health, rotation,
   retention, sequence/hash chain, server lifecycle, and in-memory test sink.
+- Add the protected exact-script evidence store in the same slice. Evidence
+  write+flush and the referencing dispatch append+flush are the ordered
+  pre-effect commit; no script-bearing call may execute with only a digest.
 - Audit every current tool boundary and all no-start/terminal outcomes.
 - `ptk_state` reports audit health without exposing credentials.
 - Guard: forced journal failure produces no foreground/background/reset/kill
@@ -636,7 +650,8 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   events, hard-death/unclosed semantics, and audit retrieval access events.
 - Add at-least-once OTLP exporter, durable checkpoints, retry/backlog health,
   duplicate-safe IDs, and a fake collector integration suite.
-- Add protected evidence payload handling for exact submitted scripts.
+- Add evidence export/access auditing and retention integration without
+  changing slice 1's pre-effect ordering.
 - Document collector/SIEM deployment without claiming local hash-chain
   immutability.
 
@@ -745,6 +760,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   worker death.
 - Required-journal failure before foreground, job start, reset, close, and
   kill proves zero side effects.
+- Hard-kill after a dispatch commit but before its terminal event; the exact
+  script evidence referenced by that dispatch remains retrievable. Inject
+  evidence-write, evidence-flush, event-append, and event-flush failures
+  independently and prove no user work starts.
 - Concurrent events produce no torn records, duplicate sequence, or broken
   chain.
 - Rotation/retention bound a long-lived supervisor; a live file is not swept.

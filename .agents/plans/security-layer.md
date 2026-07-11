@@ -45,11 +45,21 @@ safe against a hostile local process.
    command lines (deny wins), cmdlet classification
    (`SupportsShouldProcess`/`ConfirmImpact` + alias resolution) for
    PowerShell. Fail-closed on unknowns while a policy is active; no
-   policy file = today's behavior exactly (the gate is opt-in, so
-   nothing changes under an owner who never writes one). Refusals are
-   labeled, name the matched rule, and teach the recovery path (edit
-   the policy — a human act outside the agent's reach; that asymmetry
-   is the point).
+   policy file = today's behavior exactly. **This opt-in default is a
+   DEPARTURE from the recorded baseline, flagged, not slipped in
+   (slp-1):** the archived tentatively-accepted design was DEFAULT
+   READ-ONLY — destructive commands refused unless pre-authorized,
+   protection present without any file. Opt-in means an owner who
+   blanket-allows `ptk_invoke` believing the archived behavior shipped
+   is unprotected. The choice (opt-in as drafted vs. archived
+   default-read-only) is an explicit owner decision at approval, and
+   whichever wins amends the open decision entry so the record
+   matches. Either way both edges are defined exactly: policy active +
+   command matching no rule → refused (fail-closed, including
+   known-destructive cmdlets); no policy file → whichever default the
+   owner picked, stated in the model-visible tool description.
+   Refusals are labeled, name the matched rule, and teach the recovery
+   path (edit the policy file).
 3. **Read-only preset:** a shipped policy preset expressing issue #3's
    read-only/dry-run install, as a starting template rather than a
    hardcoded mode.

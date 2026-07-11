@@ -49,6 +49,18 @@ default.
    default: it is the cheapest artifact with immediate value to an
    owner managing many agents, and it makes every later enforcement
    decision reviewable. No execution behavior changes.
+   **Background calls are events, not a line (slp-7):** a
+   `background=true` invoke returns before the exit code exists, so
+   "one line with exit + duration" cannot describe it, and appending
+   the exit later would mean mutating an append-only record. The log
+   is therefore event-shaped with correlation: `call` (every tool
+   call, fields known at accept time), `job-start` (job id joined to
+   its originating call), `job-end` (exit, duration) — foreground
+   calls collapse to one `call` event carrying everything. The job
+   system is an execution SOURCE feeding these events, not the audit
+   store: issue #3's "80% of this" overstates it — `JobManager`
+   persists only child output; script, start, and exit metadata live
+   in process memory, and foreground/control calls never touch it.
 2. **Policy gate:** a declarative policy file OUTSIDE any workspace,
    evaluated server-side before execution. The file is
    `~/.ptk/policy.psd1` — not open: the release-distribution plan

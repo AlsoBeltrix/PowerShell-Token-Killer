@@ -5,12 +5,14 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Owner-directed replacement architecture is in plan review; no code is
+- **Owner-directed replacement architecture has completed Claude and Grok
+  reviewloop; it remains DRAFT pending explicit owner approval, so no code is
   authorized.** `.agents/plans/audited-harness-sessions.md` combines
   mandatory PTK-owned/SIEM-exportable audit, private harness-scoped
   process-per-session workers, internal PTK→RTK routing, same-invocation
-  output recovery, and no-retry mixed-domain handling. Active review loop:
-  see `.agents/review/index.md` (requested reviewers: Claude and Grok).
+  output recovery, and no-retry mixed-domain handling. Both reviewers accepted
+  the same final plan content with no open findings; canonical evidence and
+  fixed-head guards live in `.agents/review/index.md`.
 - **Prior security/routing shapes remain evidence, not implementation
   authority.** The declarative policy gate and secret redaction are rejected;
   `.agents/plans/security-layer.md` is prior-art context. The closed review
@@ -29,18 +31,16 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Complete synchronous Claude and Grok reviewloop on
-   `.agents/plans/audited-harness-sessions.md`, recording and resolving each
-   admitted plan finding one commit at a time.
-2. Present the converged plan and any contested decisions for explicit owner
+1. Present `.agents/plans/audited-harness-sessions.md` for explicit owner
    approval or rejection. No implementation before that approval.
+2. If approved, begin only the plan's first implementation slice under the
+   repo's one-slice/one-commit and guard-proof rules.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
 4. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
-5. Owner push go for this committed docs-only drift slice; push policy is
-   ask-first.
+5. Push remains ask-first; no push is authorized by plan/review completion.
 
 ## Open / Parked
 
@@ -79,8 +79,9 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- This drift slice is docs-only. Its live evidence was rechecked on
-  2026-07-11; machine-specific results live in `.agents/machines.md`.
+- The audited-session plan/review work is docs-only. `git diff --check` passed;
+  product tests were not run because no runtime/setup/generated behavior
+  changed. Machine-specific reviewer probes live in `.agents/machines.md`.
 
 ## Active Sources
 
@@ -89,6 +90,7 @@ short and update it when important repo facts change.
 - `.agents/decisions.md`
 - `.agents/plans/security-layer.md`
 - `.agents/plans/rtk-rewrite-routing.md`
+- `.agents/plans/audited-harness-sessions.md`
 - `.agents/plans/release-distribution.md`
 - `.agents/plans/warm-runspace-mcp-server.md`
 - `.agents/plans/shared-persistent-runspace.md`

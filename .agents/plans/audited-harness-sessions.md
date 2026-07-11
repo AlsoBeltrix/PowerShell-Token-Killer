@@ -280,9 +280,9 @@ payload. Requests carry an
 absolute UTC deadline computed at the MCP boundary; worker startup,
 bootstrap, queue wait, routing, execution, and shaping consume the same
 budget. A fixed startup-configured `timeoutContainmentGrace` is separate: it
-permits no user work and may extend a post-start timeout response only long
-enough to confirm process-tree death. Tool descriptions disclose the maximum
-deadline-plus-grace wall clock.
+permits no user work and may extend a post-launch startup-failure or post-start
+execution-timeout response only long enough to confirm process-tree death.
+Tool descriptions disclose the maximum deadline-plus-grace wall clock.
 
 Protocol requirements:
 
@@ -336,7 +336,7 @@ supervisor adapters.
 Each session slot is one of:
 
 ```text
-cold | starting | ready | resetting | closing | faulted | lost
+cold | starting | ready | resetting | closing | faulted | lost | quarantined
 ```
 
 `SessionSlot` owns one asynchronous lifecycle gate and a monotonically
@@ -375,12 +375,16 @@ serializes scripts within the admitted generation.
   drift baseline.
 - Cancellation/deadline before process launch leaves the slot cold. After a
   worker is launched, startup failure, cancellation, or deadline keeps the
-  slot in `starting` while the supervisor aborts protocol, waits a bounded
-  grace, invokes OS/reaper containment, and confirms that worker/process group
-  exited. Only then publish `faulted` and return. A synchronous runspace or
-  bootstrap that ignores cancellation is killed; a late ready frame for that
-  boot/transition is discarded. No open/restart may launch the next generation
-  until prior containment is confirmed.
+  slot in `starting` while the supervisor aborts protocol and invokes
+  OS/reaper containment. Wait at most `timeoutContainmentGrace` for confirmed
+  worker/process-group exit. On confirmation publish `faulted` and return. On
+  grace expiry return a terminal startup
+  `containment_unconfirmed`, publish `quarantined`, and keep observing the old
+  containment identity; no open/restart or next generation is admitted. When
+  death is later confirmed, transition to `faulted` so explicit restart can
+  proceed. A synchronous runspace or bootstrap that ignores cancellation gets
+  the same bounded response, and a late ready frame for that boot/transition
+  is always discarded.
 - Unexpected process exit marks `lost`. Ordinary invocation never silently
   starts a fresh context under the same generation.
 - `restart` replaces the whole worker process, reruns bootstrap, and
@@ -420,9 +424,9 @@ serializes scripts within the admitted generation.
   4. On confirmation, terminate its managed jobs, increment generation, and
      leave a named alias `lost(reason=timeout)` pending explicit restart; leave
      reserved `default` cold for its documented lazy next generation. On
-     grace expiry, return `timed_out, containment_unconfirmed`, quarantine the
-     slot with no new admission/generation, and keep observing containment;
-     only confirmed death can unblock explicit recovery.
+     grace expiry, return `timed_out, containment_unconfirmed`, publish
+     `quarantined` with no new admission/generation, and keep observing
+     containment; only confirmed death can unblock explicit recovery.
 
   The timeout response is returned after confirmation or grace expiry and
   labels session/job state loss plus containment certainty. PTK never tries to
@@ -1056,8 +1060,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Prove ordinary MCP EOF removes every worker and managed job; classify hard
   death/outcome uncertainty honestly. Hard-kill the supervisor during worker
   launch, blocked bootstrap, ready idle, foreground native execution, and a
-  background job; the armed OS/reaper containment must remove every managed
-  descendant within its bound without help from the runspace thread.
+  background job; removable fixtures must exit through armed OS/reaper
+  containment without help from the runspace thread. Production evidence that
+  cannot confirm death is reported as `containment_unconfirmed`, never as a
+  proved kill.
 
 ### Slice 10 — contract reconciliation and live Windows validation
 
@@ -1229,9 +1235,11 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   workers never appear, and late replies cannot populate the replacement.
 - Bootstrap runs once, faults visibly, and becomes the drift baseline.
 - A bootstrap fixture that ignores cancellation is timed out; the open call
-  does not return until its PID/group is gone, its late-ready frame cannot
-  change slot state, and a subsequent explicit restart creates exactly one
-  different worker.
+  returns by deadline plus containment grace. A confirmed kill publishes
+  `faulted`; a test-sabotaged unconfirmed kill returns the explicit terminal
+  and `quarantined`, rejects open/restart, ignores late-ready frames, and only
+  permits one different worker after later confirmed death plus explicit
+  restart.
 - Missing catalog yields no templates. Malformed/unsupported/duplicate
   catalog data and missing/unreadable bootstrap paths disable every template
   as one visible catalog fault while default and explicit dynamic sessions

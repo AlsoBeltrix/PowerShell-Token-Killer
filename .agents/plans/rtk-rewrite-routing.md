@@ -35,28 +35,28 @@ script-local-shadowed `git`; `.cmd`/`.bat` shim.
 Write-Output; git status` mutates what `git` means BETWEEN the check
 and the second statement — rtk still rewrites the second segment, and
 routing would then run the real binary where unrouted PowerShell would
-have run the alias. Rule: a segment is routable only when every
-PRECEDING statement in the submission is **provably inert, judged by
-an AST WHITELIST over the entire statement — not an enumeration of
-dangerous shapes**: every node in the preceding statement's full AST
-(arguments, parameters, redirection targets, everything) must be one
-of {pipeline of a single command, command whose head resolves to a
-native application, constant string element, command parameter,
-redirection whose target is a constant string}. Any other node type
-anywhere in the statement — subexpression, parenthesized expression,
-script block, variable, expandable string, or anything not on the
-list — disqualifies all later segments from routing, fail-closed on
-node types the check does not recognize. Enumerating evaluation sites
-lost twice already: PowerShell evaluates expressions in argument
-position (`true (Set-Alias git Write-Output); git status`) AND in
-redirection targets (`true > $(Set-Alias git Write-Output;
-'/dev/null'); git status`) — both probed live to flip `git` from
-Application to Alias between preflight and execution. Constant-only
-native statements run out-of-process and cannot mutate session
-command resolution. All-native literal compounds (`git status && git
-log`) keep routing; mixed submissions fail conservative. Regression
-cases: `Set-Alias` before a native segment; `Import-Module` before a
-native segment; both probed counterexamples verbatim.
+have run the alias. **Static preflight proofs are UNSOUND in a warm
+session — the review escalation proved it four ways** (top-level
+`Set-Alias`; an expression in argument position; a subexpression in a
+redirection target; finally `Set-PSBreakpoint -Command true -Action
+{ Set-Alias git Write-Output -Scope Global }`, where the mutation
+lives in AMBIENT state and no analysis of the submission text can see
+it — all probed live). Soundness therefore comes from EXECUTION-TIME
+re-resolution, not static analysis: each routed segment executes as a
+guarded form that re-resolves its head command immediately before
+running — still a native application → run the rebound routed form;
+anything else → run the ORIGINAL segment verbatim. Preflight AST
+screening survives only as a cheap first gate (obviously mixed
+submissions skip the rewrite call entirely, saving the subprocess);
+correctness never rests on it. Regression cases: `Set-Alias` before a
+native segment; `Import-Module` before a native segment; all three
+probed counterexamples verbatim, including the breakpoint one
+(`true; git status` with the ambient breakpoint must run the alias
+semantics, unrouted). Accepted contrived residual, recorded: defeating
+the guard now requires an ambient hook on the guard's own resolution
+primitive in the instant before the routed form runs — self-sabotage
+of one's own session, the same accepted-residual class as the sd1
+close.
 
 ## Scope (rrp-5)
 

@@ -250,6 +250,15 @@ not have.
   leave `$Error` untouched, and carries a regression test with both
   preferences set proving routing still applies and the session stays
   clean.
+- **The rewrite subprocess runs in the warm session's cwd (rrp-13):**
+  a plain ProcessStartInfo child inherits the SERVER process's cwd,
+  which deliberately differs from the warm runspace's current location
+  — and rtk discovers project-local permission rules from OS cwd
+  (reviewer-probed live: after `Set-Location /tmp` the child still saw
+  the repo root). The rewrite invocation sets its WorkingDirectory to
+  the warm runspace's current filesystem location, and a cross-project
+  regression test (`Set-Location` to another project, then route)
+  proves the verdict comes from the right project's rules.
 - Windows behavior must be probed on the real Windows box (slice-1
   matrix includes it; the dev-install refresh is a prerequisite there).
 

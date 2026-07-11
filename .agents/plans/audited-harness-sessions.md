@@ -616,8 +616,9 @@ producer. The supervisor assigns stable event/call IDs and appends
 including `ptk_state`, `ptk_session`, `ptk_output`, and every `ptk_job`
 action, receives a terminal event while the journal is healthy.
 
-There is one diagnostic exception when the journal itself cannot accept an
-event: `ptk_state` may return a minimal supervisor-only
+There is one diagnostic exception when the journal cannot admit a new call,
+including anchored high-water reserve mode: `ptk_state` may return a minimal
+supervisor-only
 `audit=unavailable, unrecorded=true` response containing the failure class,
 degraded-since time, and spool/export configuration identity. It must not
 query or reveal runspace, session, job, output, script, or credential data and
@@ -769,10 +770,14 @@ is no per-call/model override:
 - `anchored`: every closed segment and referenced script-evidence object is
   retention-ineligible until the configured collector acknowledges its final
   event IDs. A network outage pins that backlog. At the audit high-water mark,
-  refuse new effectful calls before the spool is full; keep a fixed emergency
-  reserve for already-started terminal events, exporter health transitions,
-  and recovery facts. Exhausting the reserve is a loud degraded/unknown
-  interval, never permission to delete unacknowledged data.
+  stop admission of **every** new audited call before the spool is full,
+  including state/session/job/output reads and lists. Only the minimal
+  unrecorded `ptk_state` diagnostic above remains available. Keep a physically
+  separate/preallocated emergency segment writable only by already-accepted
+  terminal events, automatic containment facts, exporter health transitions,
+  and recovery facts; ordinary tool-call scopes cannot consume it. Exhausting
+  that reserve is a loud degraded/unknown interval, never permission to delete
+  unacknowledged data.
 
 Changing protection mode requires supervisor restart and produces a startup
 configuration event. In anchored mode, quota pressure caused by unacknowledged
@@ -1120,6 +1125,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   sentinel while a started job can still append its terminal event from the
   reserve. In local-only mode, bounded retention is allowed and is visibly
   labeled as unanchored telemetry.
+- At anchored high water, flood `ptk_state`, session/job list/status/output,
+  and `ptk_output` calls. All except the minimal unrecorded health diagnostic
+  are rejected before acceptance and consume zero reserve bytes; a previously
+  started job still appends its terminal event to the preallocated reserve.
 - Exact script evidence is retrievable only from the protected evidence
   stream; fixture tokens/output never enter core events.
 

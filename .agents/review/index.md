@@ -913,6 +913,8 @@ table is a valid review result.
 | ahs-32 | MEDIUM  | Post-launch startup containment can wait forever after its deadline | `[x]` | master (direct, 70e1d39 + 7ec5d7a) |
 | ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[x]` | master (direct, 69caf6c) |
 | ahs-34 | MEDIUM  | Idle exit can discard an unconfirmed containment quarantine | `[x]` | master (direct, 00bb110) |
+| ahs-35 | HIGH    | Unix broker death after arming can remove the hard-parent-death proof | `[~]` | master (direct) |
+| ahs-36 | MEDIUM  | Worker-starting lifecycle tools have no defined startup deadline function | `[~]` | master (direct) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1114,3 +1116,15 @@ an empty findings array. Those rows are `[x]`; all 34 ahs findings are now
 closed by Claude/coder grade. This closes the requested Claude reviewloop only;
 the independent Grok loop remains required, and any Grok-driven plan change
 will receive a final Claude confirmation on the same final plan head.
+
+**Grok round 1 — REOPENED** (grok 0.2.93, read-only sandbox), reviewed head
+`c96da777bcf5e9a6ee862025b4b6a805243f08d0` against base
+`875efa05b7ef6c01354466f3f93211316d30c901`,
+`guard_confirmed=true`, 2026-07-11T11:09:04Z. Structured verdict and both SHAs
+matched. Grok independently accepted the ahs-1..ahs-34 closures and owner
+constraints, then returned two actionable findings, **BOTH ADMITTED** after
+coder verification. ahs-35 defines supervisor fail-closed handling when the
+Unix containment broker itself exits after its armed acknowledgment; ahs-36
+defines the absolute startup deadline for open/restart/reset, template-backed
+and dynamic/default starts, explicit overrides, lazy invoke starts, and the
+fixed containment grace. No duplicate or stylistic finding was admitted.

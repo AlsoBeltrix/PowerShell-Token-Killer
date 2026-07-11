@@ -912,6 +912,7 @@ table is a valid review result.
 | ahs-31 | MEDIUM  | Side-effect-free prepare forbids the required external `bash -n` validator | `[x]` | master (direct, e4e261d) |
 | ahs-32 | MEDIUM  | Post-launch startup containment can wait forever after its deadline | `[~]` | master (direct, 70e1d39) |
 | ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[x]` | master (direct, 69caf6c) |
+| ahs-34 | MEDIUM  | Idle exit can discard an unconfirmed containment quarantine | `[~]` | master (direct) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1086,3 +1087,13 @@ NOT_RESOLVED only because Slice 7 still literally says every post-launch
 startup timeout/cancel must await confirmed containment before returning,
 contradicting the newly bounded lifecycle contract and acceptance test. No
 other finding was returned.
+
+**Coder audit after Claude round 5 — one NEW finding ADMITTED.** Both
+independent lifecycle/audit re-grades found the same non-duplicate gap:
+ahs-34. Startup/execution containment may now return and leave the slot
+`quarantined` under continued death observation, but supervisor idle
+suppression still names only starting/resetting, active foreground calls, and
+running jobs. Idle exit can therefore discard the observer/alias quarantine
+before confirmation and let a later harness overlap the unconfirmed worker.
+The fix must count every quarantined/live containment observer as aggregate
+live work and prove an idle interval cannot end the supervisor first.

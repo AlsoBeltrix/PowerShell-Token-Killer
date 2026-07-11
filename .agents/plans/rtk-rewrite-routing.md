@@ -71,6 +71,16 @@ not have.
    `RTK_DISABLED`, guard cases verified against the documented list;
    version sensitivity noted. Results freeze into this plan before
    implementation (shell-dialect slice-0 precedent).
+   **Known guard hole, probed (rrp-8):** the find-before-pipe guard
+   checks the raw producer for a LITERAL leading `find`/`fd`, but
+   env/`sudo` prefixes are stripped and reattached later — so
+   `sudo find . -name "*.rs" | wc -l` rewrites to `sudo rtk find ... |
+   wc -l`, feeding grouped output to the pipe consumer the guard exists
+   to protect (wrong counts, broken `xargs`). Slice 0 must probe
+   prefixed `find`/`fd` pipelines explicitly, and integration must
+   exclude them ptk-side (or an upstream rtk fix must land) before any
+   pipeline routing — do not treat the documented guard list as
+   established fidelity.
 1. **PS7 execution-compatibility matrix** (no code): rtk emits
    POSIX-shaped lines; the warm runspace executes PowerShell 7. Probe
    each shape rtk can emit (`&&`, `||`, `;`, `|`, `2>&1`,

@@ -88,10 +88,14 @@ default.
    and audit itself enters the degraded path (`JobManager` already
    sweeps aged job logs for exactly this reason). The slp-4 design
    freeze sets an age AND total-size cap for `~/.ptk/logs/` (defaults
-   to propose: 30 days / 200 MB, owner-tunable), swept on server
-   start; a sweep never touches another LIVE process's active file
-   (liveness checked via the pid in the filename). Acceptance case:
-   aged rotations provably bounded.
+   to propose: 30 days / 200 MB, owner-tunable), enforced at server
+   start AND at every rotation event — a long-lived server that keeps
+   rotating enforces the cap itself; startup-only enforcement would
+   let it fill the disk between restarts. A sweep never touches
+   another LIVE process's active file (liveness checked via the pid in
+   the filename). Acceptance cases: aged rotations provably bounded,
+   and a rotation loop in one long-lived process stays under the
+   total-size cap without any restart.
    **Crash truth (slp-12):** a hard-killed server leaves background
    children running and its `job-end` unwritten forever; a merged
    reader must not render that as "still running". The pid+startstamp

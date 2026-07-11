@@ -17,10 +17,8 @@ short and update it when important repo facts change.
   results record the absent RTK capture seam, local-only/anchored OTLP
   contracts, exact profile/protocol bounds, carried routing guards, and live
   passing Windows/Unix parent-death probes. Both plan reviewers accepted the
-  same approved pre-implementation content; focused RTK, audit/export, and
-  platform/schema reviews of the slice-0 freeze closed with no remaining
-  medium-or-higher issue. Canonical pre-implementation review evidence and
-  fixed-head guards live in `.agents/review/index.md`.
+  same approved pre-implementation content. Canonical pre-implementation
+  review evidence and fixed-head guards live in `.agents/review/index.md`.
 - **Prior security/routing shapes remain evidence, not implementation
   authority.** The declarative policy gate and secret redaction are rejected;
   `.agents/plans/security-layer.md` is prior-art context. The closed review

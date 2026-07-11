@@ -152,16 +152,17 @@ not have.
    script that rtk passes through (exit 1) would silently execute as
    plain PowerShell — indistinguishable from `auto`. **Selected
    contract (the owner may veto at approval): `route=rtk` is
-   rewrite-mandatory-with-labeled-outcome.** rtk rewrite is always
-   attempted; exit 0/3 with stdout executes the rebound rewritten
-   line. EVERY path that ends up executing the script unrouted under
-   a forced `route=rtk` carries a labeled line naming its reason —
-   `[rtk] no rewrite (passthrough|deny|wrapper-context|rewrite
-   failed|rewrite timed out) — executed unrouted` — covering exit 1/2,
-   the rrp-12 wrapper-discard, and the rrp-4 failure/timeout fallback
-   alike: the invariant is that a forced call is NEVER silently
-   indistinguishable from `auto` (which stays silent), whatever
-   knocked the rewrite out. Force-wrapping arbitrary text as `rtk
+   rewrite-mandatory-with-labeled-outcome.** rtk rewrite is attempted
+   whenever the rrp-14 budget check permits; exit 0/3 with stdout
+   executes the rebound rewritten line. EVERY path that ends up
+   executing the script unrouted under a forced `route=rtk` carries a
+   labeled line naming its reason — `[rtk] no rewrite
+   (passthrough|deny|wrapper-context|rewrite failed|rewrite timed
+   out|skipped: insufficient budget) — executed unrouted` — covering
+   exit 1/2, the rrp-12 wrapper-discard, the rrp-4 failure/timeout
+   fallback, AND the rrp-14 budget skip alike: the invariant is that a
+   forced call is NEVER silently indistinguishable from `auto` (which
+   stays silent), whatever knocked the rewrite out. Force-wrapping arbitrary text as `rtk
    <script>` is retired with the shape check that made it safe. The
    existing pinned Pester test and the model-visible tool description
    change to exactly this contract in the same slice.

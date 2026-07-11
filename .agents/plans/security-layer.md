@@ -1,12 +1,129 @@
-# Plan: second security layer — policy gate + audit log (DRAFT — not approved)
+# Plan: second security layer (PREMISE REJECTED 2026-07-11 — reframing in progress)
 
-**Status:** DRAFT 2026-07-10 on the owner's instruction (in-session). The
-recorded build criterion for the policy gate — "build only if real usage
-creates the desire to blanket-allow `ptk_invoke`" (`.agents/decisions.md`,
-OPEN destructive-cmdlet entry) — has fired: the owner runs ~10 agents on
-blanket approvals, and this week codex invoked `ptk_invoke` from inside a
-read-only review sandbox (MCP tools sit outside harness command
-classifiers; GitHub issue #3 documents the same bypass from live use).
+## STOP — read this before the rest of the file
+
+**Owner verdict, 2026-07-11 (in-session, decisive):** ptk as it stands
+"gets ZERO consideration" — it is an ARB-fail. The owner's grounds (30
+years IT, security event response, ARB interviews), recorded in his
+terms:
+
+- ptk is **a low-friction bypass gated on one careless, persistent
+  "yes."** The install-time question is "allow ptk?" and the honest
+  human answer is always "of course, I installed it, I need you to use
+  it." That single grant then covers every subsequent command forever.
+- **The missing control is the per-ACTION sanity check**, not a config
+  file: there is no `Allow Remove-Mailbox CEO@company.com  Y/n?`
+  moment. The harness would impose one per destructive command; routing
+  through an MCP tool erases it.
+- **"The agent could do it anyway with direct tools" is not a defense.**
+  The objection is precisely that ptk *removes friction the harness
+  would otherwise apply*. Equivalent worst-case reachability is not
+  equivalent risk when one path asks and the other never does.
+
+**What this kills:** the declarative policy-file gate as the answer.
+Owner: "brittle nonsense — no allow/deny list survives an even
+half-competent agent's attempt to work around a friction point. Can't
+call `rm -rf`? Make an alias. Use python to delete. Edit the rules
+file." The slices below are retained as PRIOR ART ONLY — the reviewed
+design work is sound on its own terms, and its premise is rejected. Do
+not implement them.
+
+**What survives as the live question:** how to restore a per-destructive-
+action human check to a tool whose whole value is unattended,
+low-friction execution — without the per-call prompts that are already
+dead in practice at ~10 agents.
+
+**Candidate shape, UNVERIFIED — next session's first job:** MCP
+**elicitation** (server-initiated request for user input mid-call). If
+the protocol and the owner's harnesses support it, ptk can raise its own
+confirmation for a classified-destructive action — the tool grant stops
+being a blanket grant, and the `Remove-Mailbox CEO@company.com  Y/n?`
+moment exists again, sourced by the server rather than the harness
+classifier that never sees it. Verify: (1) MCP spec support for
+elicitation and its current status; (2) which of Claude Code / codex /
+grok / agy actually implement it (a server-side prompt nobody renders is
+worse than none — it fails open silently); (3) what happens headless.
+This is the only shape found that answers the owner's objection on its
+own terms; it was NOT proposed by any reviewer — it comes from the
+owner's critique.
+
+## Cross-harness consultation record (2026-07-10/11)
+
+Two rounds, both recorded because the first was methodologically
+botched and the failure is instructive.
+
+**Round 1 — LEADING PROMPT (discard the verdict, keep the additions).**
+Three harnesses (codex, grok, agy) were asked "what is the shape of the
+security layer, if any?" — but the prompt contained the sentence *"the
+tool should build nothing; the layer belongs elsewhere' is a fully valid
+recommendation"* plus a pointer to where the blast radius lives. All
+three returned `build_nothing_is_the_answer: true`. **That unanimity is
+an echo of the prompt, not evidence** (owner caught this: "you handed
+them the answer"). Salvageable, because it required knowledge rather
+than agreement: (a) credential scoping collapses if the broad secret is
+readable on disk by the agent's OS identity — a denied agent simply
+re-authenticates as the owner from any exec path; (b) where remote roles
+are too coarse (legacy AD), the surviving alternative is a typed
+operation broker, never arbitrary PowerShell; (c) a keyed pre-authenticated
+shared session (the parked shared-runspace idea) is a bearer-token risk
+concentrator and must not be built without this settled.
+
+**Round 2 — OWNER'S FRAMING ("how do we secure this at the app layer").**
+Neutral prompt, no escape hatch, no bypass list. All three produced
+ranked app-layer measures. Convergent items worth keeping regardless of
+what the gate question resolves to:
+
+- **Secret redaction on every output path** (all three, independently —
+  and NEW to this repo's thinking): tokens, PATs, JWTs, connection
+  strings, credential dumps currently flow through the compressor into
+  model context, harness transcripts, and job logs. codex's framing:
+  *"raw should mean uncompressed, not unredacted."* This is a live leak
+  in a tool whose job is to shape output, and it is independent of the
+  policy debate.
+- **ConstrainedLanguage mode** (agy) — a real PowerShell primitive, not
+  a hand-rolled filter: blocks arbitrary .NET/`Add-Type`. Cost is high
+  (breaks admin modules and dev work), so it is a profile, not a
+  default — but it is app-layer, OS-backed, and was never considered
+  here.
+- **Authenticated-session lifecycle** (codex, grok): TTL and hard
+  teardown for admin sessions; on privileged reset, replace the WORKER
+  PROCESS, not just the runspace, because auth state is process-scoped.
+- **Control-action gating placement** (grok, codex): whatever gate
+  exists must sit ABOVE `ptk_reset`/`ptk_job kill` — today ResetTool
+  kills jobs before the host reset, so a check inside `ResetAsync`
+  fires after the destructive half already ran.
+- Every one of them ranked the in-tool command policy LAST and marked it
+  advisory-only, naming the owner's own bypasses. Independent of the
+  round-1 leak, that is three-for-three against the gate as a control.
+
+Raw verdicts: `shape-{codex,grok,agy}.json` and
+`applayer-{codex,grok,agy}.json` in the session scratchpad (not durable —
+the substance is recorded above).
+
+## Process failure, recorded so it is not repeated
+
+The policy-gate design was driven through **seven adversarial review
+rounds** (20 findings, all fixed, all graded) without any round being
+able to ask *"is this mechanism capable of achieving the goal?"* — a
+review loop grades text against its own premise. The owner's five
+questions demolished the premise that ten agent-hours of reviewing had
+polished. **Lesson (owner, verbatim): "what you should have said is,
+'this is the goal. what's the shape?' then iterated on that."** Shape
+review BEFORE plan review; a plan loop cannot save a wrong shape.
+
+---
+
+## PRIOR ART BELOW — DO NOT IMPLEMENT (premise rejected above)
+
+**Original status:** DRAFT 2026-07-10 on the owner's instruction
+(in-session). The recorded build criterion for the policy gate — "build
+only if real usage creates the desire to blanket-allow `ptk_invoke`"
+(`.agents/decisions.md`, OPEN destructive-cmdlet entry) — had fired: the
+owner runs ~10 agents on blanket approvals, and codex invoked
+`ptk_invoke` from inside a read-only review sandbox (MCP tools sit
+outside harness command classifiers; GitHub issue #3 documents the same
+bypass from live use). The criterion firing is still true; the RESPONSE
+recorded below is what the owner rejected.
 
 **Honesty line carried from the threat model:** these are guardrails
 against model sloppiness and unreviewed reach, NOT a security boundary —

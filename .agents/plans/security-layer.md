@@ -86,6 +86,16 @@ default.
    owner picked, stated in the model-visible tool description.
    Refusals are labeled, name the matched rule, and teach the recovery
    path (edit the policy file).
+   **Control actions need their own vocabulary and check placement
+   (slp-6):** regex-over-natives and cmdlet classification cannot
+   express "may this client recycle the runspace" — `ptk_reset` has no
+   script, and it kills all background jobs BEFORE the host reset
+   (`ResetTool.cs`), so a gate placed inside `ResetAsync` refuses after
+   the destructive half already ran. `ptk_job kill` is a second
+   scriptless destructive action. The schema freeze (slp-4) therefore
+   includes tool/action rules, every check sits at the MCP tool
+   boundary BEFORE any side effect, and the read-only preset states
+   its verdict for reset and job-kill explicitly.
    **Classification runs in the execution context it judges (slp-3):**
    the server already resolves foreground commands against the mutable
    WARM session and background commands against a pristine COLD table,

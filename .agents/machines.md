@@ -79,6 +79,9 @@ installed Windows payload was not changed._
   after restoring joint ExternalScript/Application enumeration. The updated
   source hashes matched the Mac checkout and the validation tree contained no
   AppleDouble files.
+- All four disposable validation directories and their four transfer archives
+  were removed from `F:\dev` after local landing; no installed payload or
+  persistent host configuration was changed.
 
 ## Disposable Ubuntu 26.04 ARM64 validation
 

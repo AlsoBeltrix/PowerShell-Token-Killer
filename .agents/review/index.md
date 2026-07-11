@@ -1259,3 +1259,9 @@ credential-free `ptk_state` outage exception, and confirmed trusted preflight
 does not re-enter user hooks before dispatch. Slice 2 SIEM export was correctly
 treated as out of scope. Acceptance authorizes local landing under the owner's
 delegated branch authority, not push or history rewriting.
+
+**SLICE 1 LANDED LOCALLY — 2026-07-11.** `master` fast-forwarded to the
+acceptance-record commit `286b171`; `git diff
+feat/audited-harness-slice1 master --` was empty before the feature branch was
+deleted. The disposable Claude worktree was clean and removed. No push was
+performed.

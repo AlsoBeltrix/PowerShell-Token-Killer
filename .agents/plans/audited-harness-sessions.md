@@ -129,10 +129,19 @@ store partition, one module cache, and one authentication/environment
 context. The supervisor owns MCP, session lifecycle, worker process trees,
 audit persistence/export, and correlation IDs.
 
-All workers are children of the supervisor and receive an EOF/parent-death
-signal. Graceful shutdown asks workers to stop, waits a bounded grace, then
-kills every remaining worker process tree. A hard-killed supervisor must not
-silently turn a worker into a durable session.
+All workers are children of the supervisor and enter containment before any
+runspace/bootstrap can start. On Windows, the supervisor owns the sole
+noninherited handle to a Job Object configured `KILL_ON_JOB_CLOSE` and assigns
+the worker before releasing initialization. On Unix, the worker and its
+managed descendants enter a dedicated process group while a tiny reaper
+outside that group watches a supervisor-only liveness pipe; EOF sends the
+group bounded TERM then KILL and the reaper exits. The supervisor waits for a
+containment-armed acknowledgment before sending `initialize`. The ordinary
+protocol EOF watcher remains a graceful fast path, not the hard-death proof.
+Graceful shutdown asks workers to stop, waits a bounded grace, then invokes
+the same containment kill. A hard-killed supervisor therefore cannot silently
+turn a managed worker into a durable session. Deliberate `setsid`, scheduled
+tasks, services, and remote work remain explicit partial-coverage escapes.
 
 ## Public MCP contract
 
@@ -258,6 +267,10 @@ Protocol requirements:
 - Cancellation targets one request and is propagated to the active pipeline
   or pre-start job operation.
 - EOF cancels work, disposes `SessionRuntime`, kills managed jobs, and exits.
+- Parent-death containment is armed and acknowledged before `initialize`; it
+  does not depend on the runspace thread, protocol loop, or bootstrap honoring
+  cancellation. The Unix liveness-pipe write end and Windows Job Object handle
+  exist only in the supervisor and are not inherited by workers or children.
 - Unknown versions/methods, malformed protocol-pipe frames, and excess frame
   size fail that worker closed. Stray standard output is bounded/labeled as
   diagnostics and never parsed as a frame.
@@ -669,8 +682,9 @@ Status/output/kill/list are all audited. Output reads record offsets and byte
 counts, not returned content. Reset/close/shutdown kill only the target
 session's jobs.
 
-The supervisor must own worker process groups on Unix and Windows Job Objects
-on Windows, or an equivalently proven tree-kill mechanism. Whole-worker
+The supervisor must use the armed Windows Job Object / Unix process-group
+reaper contract above, or an equivalently proven hard-parent-death mechanism.
+Containment setup failure prevents worker initialization. Whole-worker
 replacement is the reset/timeout containment primitive for connection-bearing
 sessions. Detached processes, scheduled tasks, services, WMI, SSH, and remote
 effects require OS/provider audit and are reported with partial/unknown
@@ -871,7 +885,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Add bounded graceful shutdown plus proven tree kill.
 - Aggregate idle activity/live-work semantics in the supervisor.
 - Prove ordinary MCP EOF removes every worker and managed job; classify hard
-  death/outcome uncertainty honestly.
+  death/outcome uncertainty honestly. Hard-kill the supervisor during worker
+  launch, blocked bootstrap, ready idle, foreground native execution, and a
+  background job; the armed OS/reaper containment must remove every managed
+  descendant within its bound without help from the runspace thread.
 
 ### Slice 10 — contract reconciliation and live Windows validation
 
@@ -1019,7 +1036,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   the next unqualified invoke starts exactly one new generation. Closing a
   named session never auto-reopens it and never redirects its calls to
   `default`.
-- Supervisor EOF/shutdown leaves no managed workers/jobs.
+- Supervisor EOF/shutdown leaves no managed workers/jobs. Forced supervisor
+  death in starting, bootstrapping, ready, foreground-busy, and job-running
+  phases exercises the platform containment path and leaves none after its
+  bounded grace.
 
 ### Compatibility and live verification
 

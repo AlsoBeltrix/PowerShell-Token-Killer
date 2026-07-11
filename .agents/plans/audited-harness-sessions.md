@@ -443,6 +443,7 @@ Introduce a structured `ExecutionPlan`:
 OriginalScript
 Domain                PowerShell | NativeTerminal | MixedDataflow | Bash
 ExecutionPath         PowerShellDirect | Rtk | NativeDirect | BashViaRtk
+PreExecutionValidation None | BashSyntax
 ResolutionContext     Warm | Cold
 RequestedRoute
 EffectiveRoute
@@ -485,16 +486,26 @@ but never asks the model to reconstruct or resubmit the script.
   to prefilter the bytes written to the file.
 - `.cmd`/`.bat`, wrapper-context, alias/function shadowing, and any other
   fidelity exclusion execute the original once.
-- Automatic Bash execution requires all three independent conditions:
-  PowerShell reports a parse-fatal script; PTK's detector identifies a
-  specific Bash construct from non-comment/non-string evidence; and a
-  bounded, no-execution `bash -n -c <exact-script>` validation succeeds.
-  Only then run the same exact bytes through `bash -lc`, with argument-list
-  passing rather than string concatenation. Bash itself is an internal native
-  RTK delegation. A clean-parsing dialect finding, missing Bash, failed
-  `bash -n` validation, or expired validation budget keeps the existing
-  labeled not-started refusal; do not execute it under a guessed interpreter.
-  `route=pwsh` bypasses this path as explicit PowerShell consent.
+- Automatic Bash execution still requires three independent conditions, but
+  they are ordered around the audit boundary. Side-effect-free `prepare`
+  verifies that PowerShell reports a parse-fatal script and PTK's detector
+  identifies a specific Bash construct from non-comment/non-string evidence;
+  it returns `PreExecutionValidation=BashSyntax` without starting Bash. The
+  supervisor's flushed dispatch record authorizes and identifies both the
+  validator and conditional Bash execution. Only after `commit` does the
+  worker run a bounded direct validator using the pinned executable,
+  `bash --noprofile --norc -n -c <exact-script>`, argument-list passing, and a
+  scrubbed startup environment (`BASH_ENV`, `ENV`, shell-option/function
+  injection removed). The validator never runs through RTK and never executes
+  the submitted commands.
+
+  A successful validator permits the same exact bytes to run once through
+  `bash -lc` as the internal RTK delegation. Missing Bash, failed/timed-out
+  validation, or expired remaining execution budget produces the existing
+  labeled not-started terminal; the submitted script never starts. Record
+  validator start/completion and identity as internal lifecycle facts under
+  the already-audited plan. A clean-parsing dialect finding never reaches the
+  validator. `route=pwsh` bypasses this path as explicit PowerShell consent.
 - RTK absent, routing timeout, routing error, or pre-execution resolution
   change falls back to the original once. No fallback occurs after execution
   begins.
@@ -673,6 +684,7 @@ Foreground:
 call.accepted
 execution.planned
 execution.dispatched
+execution.validation_started | execution.validation_completed  # when planned
 execution.completed | failed | canceled | timed_out | outcome_unknown
 call.completed | failed | not_started
 ```
@@ -682,6 +694,7 @@ Background:
 ```text
 call.accepted
 job.start_requested
+execution.validation_started | execution.validation_completed  # when planned
 job.started | job.start_failed | job.not_started
 call.completed | call.failed | call.not_started
 
@@ -932,8 +945,9 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Route safe terminal native commands through RTK; keep mixed/dataflow and
   fidelity exclusions exact and single-execution.
 - Add the three-part parse-fatal + detector + bounded-`bash -n` gate, then run
-  only proven Bash syntax through Bash. Retain D1 refusal for every other
-  finding.
+  only proven Bash syntax through Bash. Keep parse/detector in `prepare`; run
+  the scrubbed no-execution validator only after the audited commit. Retain D1
+  refusal for every other finding.
 - Intentionally replace
   `Parse_fatal_bash_shape_is_refused_with_its_construct_named`: its heredoc
   fixture now asserts exact-byte `bash -lc` execution when Bash is present and
@@ -1146,6 +1160,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - A parse-fatal, detector-positive, `bash -n`-valid fixture executes exact
   bytes through Bash when present and has a truthful not-started result when
   absent.
+- A validator fixture sets hostile `BASH_ENV`/exported-function sentinels and
+  a side-effecting submitted command. Prepare starts no process; after the
+  dispatch flush, scrubbed `bash -n` is audited but creates no sentinel; only
+  successful validation permits the submitted command's single execution.
 - ``Write-Output `tColumn` Name`` (the recorded sd1-2 valid-PowerShell
   false-positive class) never executes under Bash even if the dialect
   detector is test-sabotaged to return a finding, because PowerShell parsing

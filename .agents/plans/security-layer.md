@@ -92,6 +92,14 @@ default.
    start; a sweep never touches another LIVE process's active file
    (liveness checked via the pid in the filename). Acceptance case:
    aged rotations provably bounded.
+   **Crash truth (slp-12):** a hard-killed server leaves background
+   children running and its `job-end` unwritten forever; a merged
+   reader must not render that as "still running". The pid+startstamp
+   in the audit filename makes it decidable: a `job-start` with no
+   `job-end` whose writer pid is dead reads as TERMINAL-UNKNOWN
+   (server died; child outcome unrecorded) — distinct from running
+   and from every recorded outcome. Acceptance case: hard-kill the
+   server mid-job and prove the merged reading.
 2. **Policy gate:** a declarative policy file OUTSIDE any workspace,
    evaluated server-side before execution. The file is
    `~/.ptk/policy.psd1` — not open: the release-distribution plan

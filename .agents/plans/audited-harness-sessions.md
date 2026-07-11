@@ -770,13 +770,20 @@ temporarily sabotaging/reverting the production behavior, then restored green.
 - Amend `unified-shell-routing.md` with a pointer here and mark its frozen
   single-bare-native routing rule plus `raw=true`-skips-routing clause
   superseded; retain its still-current hook/one-PTK-surface decisions.
-- Amend `shell-dialect.md` with a pointer here and mark only the changed D1/D2
-  clauses superseded: the `raw=true` consent bypass and the parse-fatal,
-  independently Bash-validated subset of “no auto-translation.” Retain the
+- Amend `shell-dialect.md` with a pointer here and mark only the changed
+  clauses superseded. In D1 those are the `raw=true` consent bypass and the
+  parse-fatal, independently Bash-validated subset of “no auto-translation.”
+  In D2 those are the recovery-only `raw=true` wording inventory, the sd3-1
+  requirement that elision markers advise `raw=true`, and the raw-usage
+  counter/log-line requirement when `RawUsageCounter` is removed. Retain the
   clean-parse refusal, `route=pwsh` consent, and unaffected precision guards.
+- Amend the greenfield decision's `raw=true`-unbounded clause: the 400-line /
+  40-KB ordinary bounds remain, but same-invocation recovery moves to
+  `ptk_output` and legacy `raw=true` no longer selects unbounded execution or
+  output.
 - Reconcile `.agents/decisions.md` only after the owner releases its hold.
-  That deferred amendment must carry the same exact D1/D2 split rather than
-  replacing the whole shell-dialect decision.
+  That deferred amendment must carry the complete D1, D2, sd3-1, and
+  greenfield split above rather than replacing either whole decision.
 - Run owner-controlled AD, on-prem Exchange, and EXO proof: distinct worker
   PIDs/identities/targets, warm reuse, independent reset, job behavior, and
   harness teardown.

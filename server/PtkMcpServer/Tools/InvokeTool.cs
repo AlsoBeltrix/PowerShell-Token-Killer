@@ -62,7 +62,7 @@ public static class InvokeTool
         AuditCallContextAccessor? auditContext = null)
     {
         var audit = auditContext?.Current;
-        if (audit is not null && !audit.BeginValidation())
+        if (!background && audit is not null && !audit.BeginValidation())
             return AuditCallContext.NotStartedMessage;
 
         // Raw-usage visibility (shell-dialect plan D2): counted here at the
@@ -94,6 +94,10 @@ public static class InvokeTool
                 // (plan finding i56p-3).
                 var deadline = audit?.Metadata.Request.DeadlineUtc
                     ?? host.ComputeDeadline(timeoutSeconds);
+
+                var plan = jobs.PrepareStart(script);
+                if (audit is not null && !audit.BeginJobStartRequest(plan.Id))
+                    return AuditCallContext.NotStartedMessage;
 
                 // Dialect check BEFORE the job starts (shell-dialect plan,
                 // slice 2): a detected bash-only script is refused fast, never
@@ -162,7 +166,7 @@ public static class InvokeTool
                            "Nothing was executed. Retry, or raise timeoutSeconds.");
                 }
 
-                var plan = jobs.PrepareStart(script, cwd);
+                plan = plan with { WorkingDirectory = cwd };
                 var terminalLease = audit?.AuthorizeJobStart(plan.Id, cwd);
                 if (audit is not null && terminalLease is null)
                     return AuditCallContext.NotStartedMessage;

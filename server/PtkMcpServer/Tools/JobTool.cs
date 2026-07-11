@@ -31,31 +31,70 @@ public static class JobTool
             case "list":
             {
                 var all = jobs.List();
-                return all.Length == 0 ? "(no jobs)" : string.Join('\n', all.Select(Describe));
+                var response = all.Length == 0 ? "(no jobs)" : string.Join('\n', all.Select(Describe));
+                audit?.CommitReadOutcome("job.list_accessed", "completed", response);
+                return response;
             }
             case "status":
             {
                 var snapshot = jobs.Snapshot(id);
-                return snapshot is null ? $"[no such job: {id}]" : Describe(snapshot);
+                var response = snapshot is null ? $"[no such job: {id}]" : Describe(snapshot);
+                audit?.CommitReadOutcome(
+                    "job.status_accessed",
+                    snapshot is null ? "not_found" : "completed",
+                    response,
+                    jobId: id);
+                return response;
             }
             case "kill":
             {
                 if (audit is not null && !audit.AuthorizeControl("job.kill_requested", id))
                     return AuditCallContext.NotStartedMessage;
-                return jobs.Kill(id)
-                    ? $"[job {id} killed]"
-                    : $"[no such job or already exited: {id}]";
+                var result = jobs.RequestKill(id, JobTerminationReason.ExplicitKill);
+                var (eventType, state, detailCode, response, callState) = result.Disposition switch
+                {
+                    JobKillDisposition.Requested => (
+                        "job.kill_dispatched", "dispatched", "explicit_kill", $"[job {id} kill requested]", "completed"),
+                    JobKillDisposition.NotFound => (
+                        "job.kill_not_started", "not_started", "job_not_found", $"[no such job: {id}]", "not_started"),
+                    JobKillDisposition.AlreadyExited => (
+                        "job.kill_not_started", "not_started", "already_exited", $"[job {id} already exited]", "not_started"),
+                    JobKillDisposition.AlreadyRequested => (
+                        "job.kill_not_started", "not_started", "kill_already_requested", $"[job {id} kill already requested]", "not_started"),
+                    _ => (
+                        "job.kill_failed", "failed", "kill_request_failed", $"[job {id} kill request failed]", "failed"),
+                };
+                audit?.RecordControlOutcome(
+                    eventType,
+                    state,
+                    detailCode,
+                    id,
+                    terminationCertainty: "not_applicable");
+                audit?.CompleteCall(callState, response);
+                return response;
             }
             case "output":
             {
                 if (audit is not null && !audit.AuthorizeControl("job.output_requested", id))
                     return AuditCallContext.NotStartedMessage;
                 var snapshot = jobs.Snapshot(id);
-                if (snapshot is null) return $"[no such job: {id}]";
+                if (snapshot is null)
+                {
+                    var missing = $"[no such job: {id}]";
+                    audit?.CommitReadOutcome("job.output_accessed", "not_found", missing, jobId: id, nextOffset: offset);
+                    return missing;
+                }
                 // Snapshot BEFORE reading: a job that exits mid-poll reports
                 // "running" one poll late rather than losing tail output.
                 var chunk = jobs.ReadOutput(id, offset)!;
-                var (text, nextOffset) = chunk.Value;
+                var (text, nextOffset, bytesRead) = chunk.Value;
+                audit?.CommitReadOutcome(
+                    "job.output_accessed",
+                    "completed",
+                    text,
+                    jobId: id,
+                    nextOffset: nextOffset,
+                    bytesReturnedOverride: bytesRead);
                 // sd3-2..sd3-4: the marker's default advice (raw=true) is a
                 // ptk_invoke control this tool does not have — re-running
                 // the JOB duplicates side-effecting work and the offset has

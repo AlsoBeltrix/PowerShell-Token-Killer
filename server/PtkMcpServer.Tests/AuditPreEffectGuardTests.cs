@@ -55,8 +55,14 @@ public sealed class AuditPreEffectGuardTests : IDisposable
     }
 
     [Theory]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 2)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 2)]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 3)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 3)]
     [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 4)]
     [InlineData((int)AuditSinkFaultPoint.Flush, 4)]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 5)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 5)]
     [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 6)]
     [InlineData((int)AuditSinkFaultPoint.Flush, 6)]
     public async Task Foreground_authorization_failure_never_executes_user_script(
@@ -491,6 +497,69 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         AssertNoStartRefusal(result);
     }
 
+    [Fact]
+    public async Task Reset_reports_partial_effect_when_a_job_kill_request_fails()
+    {
+        using var fixture = CreateFixture();
+        var job = fixture.Jobs.Start("Start-Sleep -Seconds 300");
+        fixture.Jobs.BeforeKillForTests = _ =>
+            throw new InvalidOperationException("injected kill failure");
+        try
+        {
+            var result = await fixture.Filter(
+                Call("ptk_reset"),
+                async token => Text(await ResetTool.Reset(
+                    fixture.Host,
+                    fixture.Jobs,
+                    token,
+                    fixture.AuditContext)));
+
+            Assert.Contains("1 kill request(s) failed", ResultText(result), StringComparison.Ordinal);
+            Assert.True(fixture.Jobs.Snapshot(job.Id)!.Running);
+            var partial = fixture.Events().Single(value =>
+                value.GetProperty("event_type").GetString() == "reset.partial_effect");
+            Assert.Equal(
+                "runspace_recycled_job_kill_failed",
+                partial.GetProperty("outcome").GetProperty("detail_code").GetString());
+            Assert.True(partial.GetProperty("outcome").GetProperty("warm_state_lost").GetBoolean());
+        }
+        finally
+        {
+            fixture.Jobs.BeforeKillForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task Reset_failure_after_job_kill_never_claims_runspace_recycled()
+    {
+        using var fixture = CreateFixture();
+        var job = fixture.Jobs.Start("Start-Sleep -Seconds 300");
+        using var canceled = new CancellationTokenSource();
+        canceled.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await fixture.Filter(
+                Call("ptk_reset"),
+                _ => new ValueTask<CallToolResult>(ResetAndWrapAsync())));
+
+        async Task<CallToolResult> ResetAndWrapAsync() => Text(await ResetTool.Reset(
+            fixture.Host,
+            fixture.Jobs,
+            canceled.Token,
+            fixture.AuditContext));
+
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+        var events = fixture.Events();
+        Assert.DoesNotContain(events, value =>
+            value.GetProperty("event_type").GetString() == "runspace.recycled");
+        var partial = events.Single(value =>
+            value.GetProperty("event_type").GetString() == "reset.partial_effect");
+        var outcome = partial.GetProperty("outcome");
+        Assert.Equal("jobs_killed_runspace_outcome_unknown", outcome.GetProperty("detail_code").GetString());
+        Assert.Equal("unknown", outcome.GetProperty("termination_certainty").GetString());
+        Assert.Equal(JsonValueKind.Null, outcome.GetProperty("warm_state_lost").ValueKind);
+    }
+
     [Theory]
     [InlineData((int)AuditSinkFaultPoint.BeforeAppend)]
     [InlineData((int)AuditSinkFaultPoint.Flush)]
@@ -514,6 +583,95 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         Assert.True(fixture.Jobs.Snapshot(job.Id)?.Running);
         Assert.True(result.IsError);
         AssertNoStartRefusal(result);
+    }
+
+    [Fact]
+    public async Task Job_output_access_is_durable_with_raw_bytes_and_next_offset_before_release()
+    {
+        using var fixture = CreateFixture();
+        var job = fixture.Jobs.Start("'audited-output'");
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+
+        var result = await fixture.Filter(
+            Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "output",
+                token,
+                job.Id,
+                0,
+                fixture.AuditContext)));
+
+        Assert.Contains("audited-output", ResultText(result), StringComparison.Ordinal);
+        var access = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "job.output_accessed");
+        var outcome = access.GetProperty("outcome");
+        var rawBytes = new FileInfo(job.OutputPath).Length;
+        Assert.Equal(rawBytes, outcome.GetProperty("bytes_returned").GetInt64());
+        Assert.Equal(rawBytes, outcome.GetProperty("next_offset").GetInt64());
+    }
+
+    [Fact]
+    public async Task Job_output_access_persistence_failure_releases_no_tool_result()
+    {
+        using var fixture = CreateFixture(
+            journalFault: (point, append) => point == AuditSinkFaultPoint.Flush && append == 3);
+        var job = fixture.Jobs.Start("'must-not-be-released'");
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+
+        await Assert.ThrowsAsync<AuditUnavailableException>(async () =>
+            await fixture.Filter(
+                Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
+                async token => Text(await JobTool.Job(
+                    fixture.Host,
+                    fixture.Jobs,
+                    "output",
+                    token,
+                    job.Id,
+                    0,
+                    fixture.AuditContext))));
+    }
+
+    [Fact]
+    public async Task Read_only_job_and_state_calls_emit_specific_access_outcomes()
+    {
+        using var fixture = CreateFixture();
+
+        _ = await fixture.Filter(
+            Call("ptk_job", ("action", "list")),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "list",
+                token,
+                auditContext: fixture.AuditContext)));
+        _ = await fixture.Filter(
+            Call("ptk_job", ("action", "status"), ("id", 999L)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "status",
+                token,
+                999,
+                auditContext: fixture.AuditContext)));
+        _ = await fixture.Filter(
+            Call("ptk_state"),
+            async token => Text(await StateTool.State(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                listAvailable: false,
+                cancellationToken: token,
+                auditContext: fixture.AuditContext)));
+
+        var events = fixture.Events();
+        Assert.Single(events, value => value.GetProperty("event_type").GetString() == "job.list_accessed");
+        var status = Assert.Single(events, value =>
+            value.GetProperty("event_type").GetString() == "job.status_accessed");
+        Assert.Equal("not_found", status.GetProperty("outcome").GetProperty("state").GetString());
+        Assert.Single(events, value =>
+            value.GetProperty("event_type").GetString() == "state.probe_completed");
     }
 
     [Fact]
@@ -549,17 +707,157 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         Assert.Equal(
             [
                 "call.accepted",
+                "job.start_requested",
                 "execution.validation_started",
                 "execution.prepare_authorized",
                 "execution.validation_completed",
                 "execution.planned",
                 "execution.dispatched",
-                "job.start_requested",
                 "job.started",
                 "call.completed",
                 "job.completed",
             ],
             events);
+    }
+
+    [Fact]
+    public async Task Explicit_kill_dispatch_is_unconfirmed_and_terminal_carries_explicit_reason()
+    {
+        using var fixture = CreateFixture();
+        const string script = "Start-Sleep -Seconds 300";
+        var start = await fixture.Filter(
+            Call(
+                "ptk_invoke",
+                ("script", script),
+                ("raw", true),
+                ("route", "pwsh"),
+                ("background", true)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                raw: true,
+                route: "pwsh",
+                background: true,
+                auditContext: fixture.AuditContext)));
+        Assert.False(start.IsError ?? false);
+        var job = Assert.Single(fixture.Jobs.List());
+
+        var kill = await fixture.Filter(
+            Call("ptk_job", ("action", "kill"), ("id", job.Id)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "kill",
+                token,
+                job.Id,
+                auditContext: fixture.AuditContext)));
+        Assert.Contains("kill requested", ResultText(kill), StringComparison.Ordinal);
+        await WaitUntilAsync(() => fixture.EventTypes().Count(type => type == "job.killed") == 1);
+
+        var events = fixture.Events();
+        var requestedIndex = events.FindIndex(value =>
+            value.GetProperty("event_type").GetString() == "job.kill_requested");
+        var dispatchedIndex = events.FindIndex(value =>
+            value.GetProperty("event_type").GetString() == "job.kill_dispatched");
+        var terminalIndex = events.FindIndex(value =>
+            value.GetProperty("event_type").GetString() == "job.killed");
+        Assert.True(requestedIndex >= 0 && dispatchedIndex > requestedIndex && terminalIndex > requestedIndex);
+        Assert.Equal(
+            "not_applicable",
+            events[dispatchedIndex].GetProperty("outcome").GetProperty("termination_certainty").GetString());
+        Assert.Equal(
+            "explicit_kill",
+            events[terminalIndex].GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Contains(events, value =>
+            value.GetProperty("event_type").GetString() == "call.completed" &&
+            value.GetProperty("request").GetProperty("tool").GetString() == "ptk_job" &&
+            value.GetProperty("request").GetProperty("action").GetString() == "kill");
+    }
+
+    [Fact]
+    public async Task Kill_noop_and_failure_have_truthful_call_terminals()
+    {
+        using var fixture = CreateFixture();
+        const long missingId = 999;
+        _ = await fixture.Filter(
+            Call("ptk_job", ("action", "kill"), ("id", missingId)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "kill",
+                token,
+                missingId,
+                auditContext: fixture.AuditContext)));
+
+        var job = fixture.Jobs.Start("Start-Sleep -Seconds 300");
+        fixture.Jobs.BeforeKillForTests = _ =>
+            throw new InvalidOperationException("injected kill failure");
+        try
+        {
+            _ = await fixture.Filter(
+                Call("ptk_job", ("action", "kill"), ("id", job.Id)),
+                async token => Text(await JobTool.Job(
+                    fixture.Host,
+                    fixture.Jobs,
+                    "kill",
+                    token,
+                    job.Id,
+                    auditContext: fixture.AuditContext)));
+        }
+        finally
+        {
+            fixture.Jobs.BeforeKillForTests = null;
+        }
+
+        var events = fixture.Events();
+        Assert.Contains(events, value =>
+            value.GetProperty("event_type").GetString() == "call.not_started" &&
+            value.GetProperty("request").GetProperty("job_id").GetInt64() == missingId);
+        Assert.Contains(events, value =>
+            value.GetProperty("event_type").GetString() == "call.failed" &&
+            value.GetProperty("request").GetProperty("job_id").GetInt64() == job.Id);
+    }
+
+    [Fact]
+    public async Task Reset_kill_terminal_carries_reset_reason_after_asynchronous_exit()
+    {
+        using var fixture = CreateFixture();
+        const string script = "Start-Sleep -Seconds 300";
+        _ = await fixture.Filter(
+            Call(
+                "ptk_invoke",
+                ("script", script),
+                ("raw", true),
+                ("route", "pwsh"),
+                ("background", true)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                raw: true,
+                route: "pwsh",
+                background: true,
+                auditContext: fixture.AuditContext)));
+
+        _ = await fixture.Filter(
+            Call("ptk_reset"),
+            async token => Text(await ResetTool.Reset(
+                fixture.Host,
+                fixture.Jobs,
+                token,
+                fixture.AuditContext)));
+        await WaitUntilAsync(() => fixture.EventTypes().Count(type => type == "job.killed") == 1);
+
+        var terminal = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "job.killed");
+        Assert.Equal(
+            "reset",
+            terminal.GetProperty("outcome").GetProperty("detail_code").GetString());
     }
 
     private GuardFixture CreateFixture(
@@ -689,6 +987,12 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 return document.RootElement.GetProperty("event_type").GetString()!;
             }).ToList();
         }
+
+        internal List<JsonElement> Events() => Sink.Lines.Select(line =>
+        {
+            using var document = JsonDocument.Parse(line.AsMemory(0, line.Length - 1));
+            return document.RootElement.Clone();
+        }).ToList();
 
         public void Dispose()
         {

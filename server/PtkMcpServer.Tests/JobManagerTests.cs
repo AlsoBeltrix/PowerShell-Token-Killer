@@ -97,7 +97,8 @@ public sealed class JobManagerTests : IDisposable
         {
             Environment.SetEnvironmentVariable("PATH", Path.GetDirectoryName(available.AbsolutePath));
 
-            var error = Assert.Throws<InvalidOperationException>(() => jobs.PrepareStart("'must not run'"));
+            var plan = jobs.PrepareStart("'must not run'");
+            var error = Assert.Throws<InvalidOperationException>(() => jobs.CommitStart(plan));
 
             Assert.Contains("server-start PATH", error.Message);
             Assert.Empty(jobs.List());
@@ -233,16 +234,20 @@ public sealed class JobManagerTests : IDisposable
     {
         var stale = _jobs.PrepareStart("'must not start'");
 
+        JobStartPlan blocked;
         using (_jobs.BeginReset())
         {
             Assert.Throws<InvalidOperationException>(() =>
                 _jobs.CommitStart(stale));
+            blocked = _jobs.PrepareStart("'blocked during reset'");
             Assert.Throws<InvalidOperationException>(() =>
-                _jobs.PrepareStart("'blocked during reset'"));
+                _jobs.CommitStart(blocked));
         }
+        Assert.Throws<InvalidOperationException>(() =>
+            _jobs.CommitStart(blocked));
 
         var fresh = _jobs.PrepareStart("'fresh generation'");
-        Assert.Equal(stale.Id + 1, fresh.Id);
+        Assert.Equal(stale.Id + 2, fresh.Id);
         Assert.NotEqual(stale.Generation, fresh.Generation);
     }
 
@@ -275,10 +280,11 @@ public sealed class JobManagerTests : IDisposable
             var started = await commit.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.True(_jobs.ConfirmStartRecorded(started.Id));
             using var resetLease = await reset.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Equal(1, resetLease.KilledCount);
+            Assert.Equal(1, resetLease.TerminationRequestedCount);
             Assert.Single(await list.WaitAsync(TimeSpan.FromSeconds(10)));
             var final = await WaitForExitAsync(started.Id);
             Assert.True(final.KillRequested);
+            Assert.Equal(JobTerminationReason.Reset, final.TerminationReason);
         }
         finally
         {
@@ -343,7 +349,28 @@ public sealed class JobManagerTests : IDisposable
         var final = await WaitForExitAsync(job.Id);
         Assert.False(final.Running);
         Assert.True(final.KillRequested);
+        Assert.Equal(JobTerminationReason.ExplicitKill, final.TerminationReason);
         Assert.False(_jobs.Kill(job.Id)); // already dead
+    }
+
+    [Fact]
+    public async Task Kill_reason_is_visible_before_process_termination_is_requested()
+    {
+        var job = _jobs.Start("Start-Sleep -Seconds 300");
+        _jobs.BeforeKillForTests = _ =>
+            Assert.Equal(JobTerminationReason.Reset, _jobs.Snapshot(job.Id)!.TerminationReason);
+        try
+        {
+            var result = _jobs.RequestKill(job.Id, JobTerminationReason.Reset);
+            Assert.Equal(JobKillDisposition.Requested, result.Disposition);
+        }
+        finally
+        {
+            _jobs.BeforeKillForTests = null;
+        }
+
+        var final = await WaitForExitAsync(job.Id);
+        Assert.Equal(JobTerminationReason.Reset, final.TerminationReason);
     }
 
     [Fact]
@@ -357,6 +384,7 @@ public sealed class JobManagerTests : IDisposable
             var afterFailure = _jobs.Snapshot(job.Id)!;
             Assert.True(afterFailure.Running);
             Assert.False(afterFailure.KillRequested);
+            Assert.Equal(JobTerminationReason.None, afterFailure.TerminationReason);
         }
         finally
         {
@@ -366,6 +394,7 @@ public sealed class JobManagerTests : IDisposable
 
         var final = await WaitForExitAsync(job.Id);
         Assert.True(final.KillRequested);
+        Assert.Equal(JobTerminationReason.ExplicitKill, final.TerminationReason);
     }
 
     [Fact]
@@ -377,6 +406,8 @@ public sealed class JobManagerTests : IDisposable
         Assert.Equal(2, _jobs.KillAll());
         await WaitForExitAsync(a.Id);
         await WaitForExitAsync(b.Id);
+        Assert.Equal(JobTerminationReason.ExplicitKill, _jobs.Snapshot(a.Id)!.TerminationReason);
+        Assert.Equal(JobTerminationReason.ExplicitKill, _jobs.Snapshot(b.Id)!.TerminationReason);
         Assert.Equal(0, _jobs.KillAll());
     }
 

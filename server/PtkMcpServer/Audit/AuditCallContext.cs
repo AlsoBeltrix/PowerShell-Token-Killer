@@ -24,6 +24,9 @@ internal sealed class AuditCallContext
     private Guid? _parentEventId;
     private Guid? _planId;
     private bool _accepted;
+    private bool _validationStarted;
+    private bool _validationCompleted;
+    private bool _jobStartRequested;
     private bool _effectAuthorized;
     private bool _authorizationPersistenceFailed;
     private bool _terminalWritten;
@@ -156,9 +159,9 @@ internal sealed class AuditCallContext
     internal bool BeginValidation()
     {
         EnsureActive();
-        if (_planId is not null) return true;
+        if (_validationStarted) return true;
 
-        _planId = Guid.NewGuid();
+        _planId ??= Guid.NewGuid();
         var requested = _request!.Route ?? "auto";
         _routing = _routing with
         {
@@ -171,6 +174,7 @@ internal sealed class AuditCallContext
         {
             Append("execution.validation_started", outcomeState: "started");
             Append("execution.prepare_authorized", outcomeState: "authorized");
+            _validationStarted = true;
             return true;
         }
         catch (AuditUnavailableException)
@@ -203,6 +207,7 @@ internal sealed class AuditCallContext
         try
         {
             Append("execution.validation_completed", outcomeState: "completed");
+            _validationCompleted = true;
             Append("execution.planned", outcomeState: "planned");
             Append("execution.dispatched", outcomeState: "dispatched");
             _effectAuthorized = true;
@@ -219,13 +224,45 @@ internal sealed class AuditCallContext
     {
         EnsureActive();
         if (_planId is null && !BeginValidation()) return;
-        TryAppend("execution.validation_completed", "not_started", detailCode);
+        try
+        {
+            Append("execution.validation_completed", "not_started", detailCode);
+            _validationCompleted = true;
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+        }
+    }
+
+    internal bool BeginJobStartRequest(long jobId)
+    {
+        EnsureActive();
+        if (_jobStartRequested)
+            return _request!.JobId == jobId;
+
+        _request = _request! with { JobId = jobId };
+        try
+        {
+            Append("job.start_requested", outcomeState: "requested", jobId: jobId);
+            _jobStartRequested = true;
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+            return false;
+        }
+
+        return BeginValidation();
     }
 
     internal AuditJobTerminalLease? AuthorizeJobStart(long jobId, string? cwd)
     {
         EnsureActive();
-        if (_planId is null && !BeginValidation())
+        if (_jobStartRequested && _request!.JobId != jobId)
+            throw new InvalidOperationException("The authorized job ID does not match the requested job ID.");
+        if ((!_jobStartRequested && !BeginJobStartRequest(jobId)) ||
+            (!_validationStarted && !BeginValidation()))
         {
             _authorizationPersistenceFailed = true;
             return null;
@@ -243,9 +280,9 @@ internal sealed class AuditCallContext
         try
         {
             Append("execution.validation_completed", outcomeState: "completed");
+            _validationCompleted = true;
             Append("execution.planned", outcomeState: "planned");
             Append("execution.dispatched", outcomeState: "dispatched");
-            Append("job.start_requested", outcomeState: "requested", jobId: jobId);
             var terminalReservation = _reservation!.TransferSlot();
             _effectAuthorized = true;
             _jobTerminalLease = new AuditJobTerminalLease(
@@ -291,7 +328,30 @@ internal sealed class AuditCallContext
 
     internal void RecordJobNotStarted(string detailCode, string response, long? jobId = null)
     {
-        TryAppend("job.not_started", "not_started", detailCode, jobId);
+        if (_authorizationPersistenceFailed)
+        {
+            CompleteCall("not_started", response);
+            return;
+        }
+
+        try
+        {
+            if (!_validationCompleted)
+            {
+                if (!_validationStarted && !BeginValidation())
+                {
+                    CompleteCall("not_started", response);
+                    return;
+                }
+                Append("execution.validation_completed", "not_started", detailCode, jobId);
+                _validationCompleted = true;
+            }
+            Append("job.not_started", "not_started", detailCode, jobId);
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+        }
         CompleteCall("not_started", response);
     }
 
@@ -327,6 +387,31 @@ internal sealed class AuditCallContext
             jobId,
             warmStateLost: warmStateLost,
             terminationCertainty: terminationCertainty,
+            rootCoverage: "not_applicable");
+    }
+
+    /// <summary>
+    /// Persists a read/access fact before the caller may release the result.
+    /// Unlike post-effect terminal reporting, persistence failure is propagated.
+    /// </summary>
+    internal void CommitReadOutcome(
+        string eventType,
+        string state,
+        string response,
+        string? detailCode = null,
+        long? jobId = null,
+        long? nextOffset = null,
+        long? bytesReturnedOverride = null)
+    {
+        EnsureActive();
+        Append(
+            eventType,
+            state,
+            detailCode,
+            jobId,
+            bytesReturned: bytesReturnedOverride ?? Utf8.GetByteCount(response ?? string.Empty),
+            nextOffset: nextOffset,
+            terminationCertainty: "not_applicable",
             rootCoverage: "not_applicable");
     }
 
@@ -454,6 +539,7 @@ internal sealed class AuditCallContext
         long? jobId = null,
         long? exitCode = null,
         long? bytesReturned = null,
+        long? nextOffset = null,
         bool? warmStateLost = null,
         string terminationCertainty = "not_applicable",
         string rootCoverage = "not_applicable")
@@ -481,6 +567,7 @@ internal sealed class AuditCallContext
                     detailCode,
                     exitCode,
                     bytesReturned,
+                    nextOffset,
                     warmStateLost,
                     terminationCertainty,
                     rootCoverage));
@@ -501,6 +588,7 @@ internal sealed class AuditCallContext
         long? jobId = null,
         long? exitCode = null,
         long? bytesReturned = null,
+        long? nextOffset = null,
         bool? warmStateLost = null,
         string terminationCertainty = "not_applicable",
         string rootCoverage = "not_applicable")
@@ -514,6 +602,7 @@ internal sealed class AuditCallContext
                 jobId,
                 exitCode,
                 bytesReturned,
+                nextOffset,
                 warmStateLost,
                 terminationCertainty,
                 rootCoverage);
@@ -533,6 +622,7 @@ internal sealed class AuditCallContext
         string? detailCode,
         long? exitCode,
         long? bytesReturned,
+        long? nextOffset,
         bool? warmStateLost,
         string terminationCertainty,
         string rootCoverage)
@@ -559,6 +649,7 @@ internal sealed class AuditCallContext
                 DurationMs = Math.Max(0, (long)(DateTimeOffset.UtcNow - _startedUtc).TotalMilliseconds),
                 QueueMs = null,
                 BytesReturned = bytesReturned,
+                NextOffset = nextOffset,
                 WarmStateLost = warmStateLost,
                 WorkerReplaced = warmStateLost,
                 TerminationCertainty = terminationCertainty,
@@ -677,6 +768,13 @@ internal sealed class AuditJobTerminalLease
         try
         {
             var eventType = snapshot.KillRequested ? "job.killed" : "job.completed";
+            var detailCode = snapshot.TerminationReason switch
+            {
+                JobTerminationReason.ExplicitKill => "explicit_kill",
+                JobTerminationReason.Reset => "reset",
+                JobTerminationReason.Shutdown => "shutdown",
+                _ => null,
+            };
             _journal.Append(
                 _reservation,
                 new AuditEventInput
@@ -702,6 +800,7 @@ internal sealed class AuditJobTerminalLease
                     Outcome = new AuditOutcome
                     {
                         State = snapshot.KillRequested ? "killed" : "completed",
+                        DetailCode = detailCode,
                         ExitCode = snapshot.ExitCode,
                         TerminationCertainty = "confirmed",
                     },

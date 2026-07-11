@@ -254,7 +254,13 @@ internal static class AuditCallMetadataCapture
             actor,
             request,
             new AuditOperationProfile(
-                action is "kill" or "output" ? 4 : 2,
+                action switch
+                {
+                    "output" => 5,
+                    "kill" => 4,
+                    "list" or "status" => 3,
+                    _ => 2,
+                },
                 0,
                 RequiresScriptEvidence: false,
                 MayHaveSideEffects: action is "kill" or "output"));
@@ -279,7 +285,7 @@ internal static class AuditCallMetadataCapture
         metadata = new AuditCallMetadata(
             actor,
             BaseRequest("ptk_state", "state", providedFields) with { ListAvailable = listAvailable },
-            new AuditOperationProfile(4, 0, RequiresScriptEvidence: false, MayHaveSideEffects: true));
+            new AuditOperationProfile(5, 0, RequiresScriptEvidence: false, MayHaveSideEffects: true));
         return true;
     }
 

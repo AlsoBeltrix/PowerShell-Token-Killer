@@ -64,6 +64,23 @@ public static class StateTool
             runspaceLossRecorded = true;
         }
 
+        var probeState = result is not null && (!result.Success || result.Errors.Length > 0)
+            ? "partial"
+            : "completed";
+        string? probeDetailCode = result is null
+            ? "runspace_busy"
+            : probeState == "partial" ? "probe_errors" : null;
+
+        string Finish(string response)
+        {
+            audit?.CommitReadOutcome(
+                "state.probe_completed",
+                probeState,
+                response,
+                detailCode: probeDetailCode);
+            return response;
+        }
+
         var sb = new StringBuilder();
         // raw count: user-level raw=true calls only (shell-dialect plan D2) —
         // this tool's own raw:true probes are plumbing and never counted.
@@ -131,7 +148,7 @@ public static class StateTool
             {
                 sb.AppendLine("modules available:");
                 sb.AppendLine(cachedFast.Length > 0 ? cachedFast : "  (none)");
-                return sb.ToString().TrimEnd();
+                return Finish(sb.ToString().TrimEnd());
             }
             // Zero-wait like every other status probe (codex finding i56-7):
             // a second state call must not block for minutes behind another
@@ -140,7 +157,8 @@ public static class StateTool
             if (!CacheGate.Wait(0))
             {
                 sb.AppendLine("modules available: enumeration already in progress in another state call (not cached)");
-                return sb.ToString().TrimEnd();
+                probeDetailCode ??= "module_enumeration_in_progress";
+                return Finish(sb.ToString().TrimEnd());
             }
             try
             {
@@ -170,6 +188,7 @@ public static class StateTool
                     // so both must be clear before caching.
                     if (available is null)
                     {
+                        probeDetailCode ??= "module_probe_busy";
                         sb.AppendLine("modules available: unavailable while the runspace is busy (not cached)");
                         // A long call can win the gate BETWEEN the main probe
                         // and this one; the promised busy snapshot must not
@@ -182,6 +201,8 @@ public static class StateTool
                     }
                     else
                     {
+                        probeState = "partial";
+                        probeDetailCode = "module_probe_errors";
                         sb.AppendLine("modules available: probe reported errors (not cached)");
                         foreach (var error in available.Errors) sb.AppendLine("  " + error);
                     }
@@ -198,7 +219,7 @@ public static class StateTool
             }
         }
 
-        return sb.ToString().TrimEnd();
+        return Finish(sb.ToString().TrimEnd());
     }
 
     /// <summary>Test hook: the available-module cache is process-static, so cache

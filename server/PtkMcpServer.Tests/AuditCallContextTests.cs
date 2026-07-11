@@ -140,7 +140,89 @@ public sealed class AuditCallContextTests : IDisposable
         AssertOutcome(events[3], "completed", "not_applicable", "not_applicable");
     }
 
-    private ContextFixture CreateFixture(CallToolRequestParams call, string? exactScript)
+    [Fact]
+    public void Background_refusal_records_start_intent_before_validation_and_no_terminal_job_event()
+    {
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", "'never-ran'"), ("background", true)),
+            exactScript: "'never-ran'");
+
+        Assert.True(fixture.Context.BeginJobStartRequest(17));
+        fixture.Context.RecordJobNotStarted("dialect_refused", "refused", 17);
+
+        Assert.Equal(
+            [
+                "call.accepted",
+                "job.start_requested",
+                "execution.validation_started",
+                "execution.prepare_authorized",
+                "execution.validation_completed",
+                "job.not_started",
+                "call.not_started",
+            ],
+            fixture.Events().Select(EventType));
+    }
+
+    [Fact]
+    public void Background_refusal_persistence_failure_is_marked_for_generic_fail_closed_response()
+    {
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", "'never-ran'"), ("background", true)),
+            exactScript: "'never-ran'",
+            journalFault: (point, append) => point == AuditSinkFaultPoint.Flush && append == 5);
+
+        Assert.True(fixture.Context.BeginJobStartRequest(17));
+        fixture.Context.RecordValidationNoStart("dialect_refused");
+        Assert.True(fixture.Context.AuthorizationPersistenceFailed);
+
+        fixture.Context.RecordJobNotStarted("dialect_refused", "must be replaced", 17);
+        Assert.DoesNotContain("job.not_started", fixture.Events().Select(EventType));
+    }
+
+    [Fact]
+    public void Read_outcome_persists_exact_byte_count_and_next_offset_before_release()
+    {
+        using var fixture = CreateFixture(
+            Call("ptk_job", ("action", "output"), ("id", 17L), ("offset", 4L)),
+            exactScript: null);
+        Assert.True(fixture.Context.AuthorizeControl("job.output_requested", 17));
+
+        fixture.Context.CommitReadOutcome(
+            "job.output_accessed",
+            "completed",
+            "ignored for byte override",
+            jobId: 17,
+            nextOffset: 11,
+            bytesReturnedOverride: 7);
+        fixture.Context.CompleteCall("completed", "response");
+
+        var access = fixture.Events().Single(value => EventType(value) == "job.output_accessed");
+        var outcome = access.GetProperty("outcome");
+        Assert.Equal(7, outcome.GetProperty("bytes_returned").GetInt64());
+        Assert.Equal(11, outcome.GetProperty("next_offset").GetInt64());
+        Assert.Equal(17, access.GetProperty("correlation").GetProperty("job_id").GetInt64());
+    }
+
+    [Fact]
+    public void Read_outcome_persistence_failure_is_not_swallowed()
+    {
+        using var fixture = CreateFixture(
+            Call("ptk_job", ("action", "status"), ("id", 17L)),
+            exactScript: null,
+            journalFault: (point, append) => point == AuditSinkFaultPoint.Flush && append == 2);
+
+        Assert.Throws<AuditUnavailableException>(() =>
+            fixture.Context.CommitReadOutcome(
+                "job.status_accessed",
+                "completed",
+                "must not be released",
+                jobId: 17));
+    }
+
+    private ContextFixture CreateFixture(
+        CallToolRequestParams call,
+        string? exactScript,
+        Func<AuditSinkFaultPoint, int, bool>? journalFault = null)
     {
         const int maxRecordBytes = 4096;
         var root = Path.Combine(
@@ -163,7 +245,8 @@ public sealed class AuditCallContextTests : IDisposable
             options.SegmentBytes,
             options.AggregateBytes,
             options.ProtectionMode,
-            options.RetentionAge);
+            options.RetentionAge,
+            journalFault);
         var journal = new AuditJournal(
             options,
             health,

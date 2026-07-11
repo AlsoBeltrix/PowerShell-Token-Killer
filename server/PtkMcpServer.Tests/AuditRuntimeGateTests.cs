@@ -433,6 +433,9 @@ public sealed class AuditRuntimeGateTests : IDisposable
 
         var events = ReadEvents(options);
         Assert.Equal("job.killed", EventType(events[^2]));
+        Assert.Equal(
+            "shutdown",
+            events[^2].RootElement.GetProperty("outcome").GetProperty("detail_code").GetString());
         Assert.Equal("server.stopped", EventType(events[^1]));
     }
 

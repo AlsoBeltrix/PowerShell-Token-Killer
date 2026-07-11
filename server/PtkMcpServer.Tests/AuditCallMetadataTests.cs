@@ -96,11 +96,12 @@ public sealed class AuditCallMetadataTests
         Assert.Equal(0, metadata.Request.Offset);
         Assert.Equal(["action", "id"], metadata.Request.ProvidedFields);
         Assert.True(metadata.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(4, metadata.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(5, metadata.OperationProfile.MaximumCallRecordSlots);
 
         Assert.True(Capture(Call("ptk_job", ("action", "list")), new(), out metadata, out _, out _));
         Assert.Null(metadata!.Request.JobId);
         Assert.Null(metadata.Request.Offset);
+        Assert.Equal(3, metadata.OperationProfile.MaximumCallRecordSlots);
 
         Assert.True(Capture(
             Call("ptk_job", ("action", "list"), ("id", 42L)),
@@ -121,7 +122,7 @@ public sealed class AuditCallMetadataTests
         Assert.Empty(state.Request.ProvidedFields);
         Assert.Equal("transport_only", state.Actor.AttributionStrength);
         Assert.True(state.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(4, state.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(5, state.OperationProfile.MaximumCallRecordSlots);
 
         Assert.True(Capture(Call("ptk_reset"), new(), out var reset, out _, out _));
         Assert.Equal("reset", reset!.Request.Action);

@@ -67,6 +67,31 @@ internal readonly record struct JobPwshExecutable(string? AbsolutePath)
             "Background jobs are unavailable because pwsh was not found on the server-start PATH.");
 }
 
+public enum JobTerminationReason
+{
+    None,
+    ExplicitKill,
+    Reset,
+    Shutdown,
+}
+
+public enum JobKillDisposition
+{
+    Requested,
+    NotFound,
+    AlreadyExited,
+    AlreadyRequested,
+    Failed,
+}
+
+public readonly record struct JobKillResult(
+    long JobId,
+    JobKillDisposition Disposition,
+    JobTerminationReason Reason)
+{
+    public bool KillRequested => Disposition == JobKillDisposition.Requested;
+}
+
 public sealed record JobSnapshot(
     long Id,
     int Pid,
@@ -75,7 +100,10 @@ public sealed record JobSnapshot(
     DateTimeOffset StartedUtc,
     string Script,
     string OutputPath,
-    bool KillRequested = false);
+    JobTerminationReason TerminationReason = JobTerminationReason.None)
+{
+    public bool KillRequested => TerminationReason != JobTerminationReason.None;
+}
 
 /// <summary>
 /// Side-effect-free background-start descriptor. The public job ID is allocated
@@ -125,7 +153,7 @@ public sealed class JobManager : IDisposable
         public TaskCompletionSource<bool> TerminalCompleted { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public int TerminalPublished;
-        public int KillRequested;
+        public int TerminationReason;
     }
 
     public JobManager(string? jobsDirOverride = null)
@@ -166,12 +194,13 @@ public sealed class JobManager : IDisposable
     /// </summary>
     public JobStartPlan PrepareStart(string script, string? workingDirectory = null)
     {
-        var pwshExecutablePath = _pwshExecutable.RequireAvailable();
         long generation;
         lock (_shutdownGate)
         {
-            ThrowIfAdmissionClosedLocked();
-            generation = _generation;
+            // Preparing is deliberately effect-free so audit can name intent
+            // even while admission is closed. A descriptor prepared during
+            // reset/shutdown is permanently stale and can never be committed.
+            generation = _stopping || _resetting ? -1 : _generation;
         }
         var id = Interlocked.Increment(ref _nextId);
         var outputPath = Path.Combine(_jobsDir, $"job-{Environment.ProcessId}-{id}.log");
@@ -192,25 +221,7 @@ public sealed class JobManager : IDisposable
             "& $ptkJobBlock *> $ptkJobLog\n" +
             "if ($global:LASTEXITCODE -is [int]) { exit $global:LASTEXITCODE } else { exit 0 }";
 
-        var psi = new ProcessStartInfo
-        {
-            FileName = pwshExecutablePath,
-            // Closed immediately below: stdin readers see EOF, never a live pipe
-            // (the same hazard ChildStdinGuard closes for foreground children).
-            RedirectStandardInput = true,
-            UseShellExecute = false,
-        };
-        if (workingDirectory is not null) psi.WorkingDirectory = workingDirectory;
-        psi.ArgumentList.Add("-NoProfile");
-        psi.ArgumentList.Add("-NonInteractive");
-        // Same rationale as the foreground runspace's pinned Bypass (the
-        // dddbb6b regression): an unconfigured Windows policy silently blocks
-        // module/script loads in the child; ptk is not a security boundary.
-        // Harmless off-Windows, where policies do not apply.
-        psi.ArgumentList.Add("-ExecutionPolicy");
-        psi.ArgumentList.Add("Bypass");
-        psi.ArgumentList.Add("-EncodedCommand");
-        psi.ArgumentList.Add(Convert.ToBase64String(Encoding.Unicode.GetBytes(wrapped)));
+        var encodedCommand = Convert.ToBase64String(Encoding.Unicode.GetBytes(wrapped));
 
         return new JobStartPlan(
             id,
@@ -218,7 +229,7 @@ public sealed class JobManager : IDisposable
             script,
             workingDirectory,
             outputPath,
-            psi.ArgumentList[^1]);
+            encodedCommand);
     }
 
     /// <summary>
@@ -366,7 +377,7 @@ public sealed class JobManager : IDisposable
                 entry.StartedUtc,
                 entry.Script,
                 entry.OutputPath,
-                Volatile.Read(ref entry.KillRequested) != 0);
+                (JobTerminationReason)Volatile.Read(ref entry.TerminationReason));
         }
     }
 
@@ -376,37 +387,62 @@ public sealed class JobManager : IDisposable
             return [.. _jobs.Keys.OrderBy(id => id).Select(id => Snapshot(id)!).Where(job => job is not null)];
     }
 
-    /// <summary>True when the job existed and was still running (and is now killed).</summary>
-    public bool Kill(long id)
+    /// <summary>
+    /// Requests termination and retains the first successful reason before the
+    /// process can publish its asynchronous terminal event.
+    /// </summary>
+    public JobKillResult RequestKill(
+        long id,
+        JobTerminationReason reason = JobTerminationReason.ExplicitKill)
     {
+        if (reason == JobTerminationReason.None || !Enum.IsDefined(reason))
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
         lock (_shutdownGate)
         {
-            if (!_jobs.TryGetValue(id, out var entry) || entry.Process.HasExited) return false;
+            if (!_jobs.TryGetValue(id, out var entry))
+                return new JobKillResult(id, JobKillDisposition.NotFound, reason);
+            if (entry.Process.HasExited)
+                return new JobKillResult(id, JobKillDisposition.AlreadyExited, reason);
+
+            var existingReason = (JobTerminationReason)Volatile.Read(ref entry.TerminationReason);
+            if (existingReason != JobTerminationReason.None)
+                return new JobKillResult(id, JobKillDisposition.AlreadyRequested, existingReason);
+
+            Interlocked.Exchange(ref entry.TerminationReason, (int)reason);
             try
             {
                 BeforeKillForTests?.Invoke(entry.Process);
                 entry.Process.Kill(entireProcessTree: true);
-                Interlocked.Exchange(ref entry.KillRequested, 1);
-                return true;
+                return new JobKillResult(id, JobKillDisposition.Requested, reason);
             }
             catch
             {
-                return false;
+                Interlocked.Exchange(ref entry.TerminationReason, (int)JobTerminationReason.None);
+                return new JobKillResult(id, JobKillDisposition.Failed, reason);
             }
         }
     }
 
+    /// <summary>Compatibility boolean for callers that only need effect admission.</summary>
+    public bool Kill(long id, JobTerminationReason reason = JobTerminationReason.ExplicitKill) =>
+        RequestKill(id, reason).KillRequested;
+
     /// <summary>Kills every running job (ptk_reset, server shutdown). Returns the count.</summary>
-    public int KillAll()
+    public int KillAll(JobTerminationReason reason = JobTerminationReason.ExplicitKill)
+        => KillAllDetailed(reason).Count(result => result.KillRequested);
+
+    public JobKillResult[] KillAllDetailed(
+        JobTerminationReason reason = JobTerminationReason.ExplicitKill)
     {
+        if (reason == JobTerminationReason.None || !Enum.IsDefined(reason))
+            throw new ArgumentOutOfRangeException(nameof(reason));
+
         lock (_shutdownGate)
         {
-            var killed = 0;
-            foreach (var id in _jobs.Keys)
-            {
-                if (Kill(id)) killed++;
-            }
-            return killed;
+            return _jobs.Keys
+                .Select(id => RequestKill(id, reason))
+                .ToArray();
         }
     }
 
@@ -424,7 +460,7 @@ public sealed class JobManager : IDisposable
                 throw new InvalidOperationException("The background-job manager cannot begin reset.");
             _resetting = true;
             _generation = checked(_generation + 1);
-            return new JobResetLease(this, KillAll());
+            return new JobResetLease(this, KillAllDetailed(JobTerminationReason.Reset));
         }
     }
 
@@ -444,13 +480,17 @@ public sealed class JobManager : IDisposable
     {
         private JobManager? _owner;
 
-        internal JobResetLease(JobManager owner, int killedCount)
+        internal JobResetLease(JobManager owner, JobKillResult[] killResults)
         {
             _owner = owner;
-            KilledCount = killedCount;
+            KillResults = killResults;
         }
 
-        internal int KilledCount { get; }
+        internal IReadOnlyList<JobKillResult> KillResults { get; }
+
+        internal int TerminationRequestedCount => KillResults.Count(result => result.KillRequested);
+
+        internal int FailedCount => KillResults.Count(result => result.Disposition == JobKillDisposition.Failed);
 
         public void Dispose() => Interlocked.Exchange(ref _owner, null)?.EndReset();
     }
@@ -458,10 +498,13 @@ public sealed class JobManager : IDisposable
     /// <summary>Reads new output since <paramref name="offset"/>; null when the job
     /// does not exist. A full buffer is cut back to the last newline so the next
     /// poll resumes on a clean boundary.</summary>
-    public (string Text, long NextOffset)? ReadOutput(long id, long offset, int maxBytes = 131072)
+    public (string Text, long NextOffset, int BytesRead)? ReadOutput(
+        long id,
+        long offset,
+        int maxBytes = 131072)
     {
         if (!_jobs.TryGetValue(id, out var entry)) return null;
-        if (!File.Exists(entry.OutputPath)) return (string.Empty, Math.Max(0, offset));
+        if (!File.Exists(entry.OutputPath)) return (string.Empty, Math.Max(0, offset), 0);
 
         using var stream = new FileStream(
             entry.OutputPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
@@ -471,7 +514,7 @@ public sealed class JobManager : IDisposable
 
         var buffer = new byte[maxBytes];
         var read = stream.Read(buffer, 0, maxBytes);
-        if (read <= 0) return (string.Empty, offset);
+        if (read <= 0) return (string.Empty, offset, 0);
 
         var take = read;
         if (read == maxBytes)
@@ -479,7 +522,7 @@ public sealed class JobManager : IDisposable
             var lastNewline = Array.LastIndexOf(buffer, (byte)'\n', read - 1);
             if (lastNewline > 0) take = lastNewline + 1;
         }
-        return (Encoding.UTF8.GetString(buffer, 0, take), offset + take);
+        return (Encoding.UTF8.GetString(buffer, 0, take), offset + take, take);
     }
 
     /// <summary>
@@ -501,7 +544,7 @@ public sealed class JobManager : IDisposable
         if (ShutdownOverrideForTests is { } shutdownOverride)
             await shutdownOverride().ConfigureAwait(false);
         var entries = _jobs.Values.ToArray();
-        KillAll();
+        KillAllDetailed(JobTerminationReason.Shutdown);
         foreach (var entry in entries)
         {
             try { await entry.Process.WaitForExitAsync().ConfigureAwait(false); }

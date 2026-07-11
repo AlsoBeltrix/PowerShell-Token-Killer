@@ -914,7 +914,7 @@ table is a valid review result.
 | ahs-33 | HIGH    | Accepted calls/jobs can overbook the terminal-event reserve | `[x]` | master (direct, 69caf6c) |
 | ahs-34 | MEDIUM  | Idle exit can discard an unconfirmed containment quarantine | `[x]` | master (direct, 00bb110) |
 | ahs-35 | HIGH    | Unix broker death after arming can remove the hard-parent-death proof | `[x]` | master (direct, f6a20f3) |
-| ahs-36 | MEDIUM  | Worker-starting lifecycle tools have no defined startup deadline function | `[~]` | master (direct, da32d9c) |
+| ahs-36 | MEDIUM  | Worker-starting lifecycle tools have no defined startup deadline function | `[~]` | master (direct, da32d9c + 1c23e1b) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1161,3 +1161,8 @@ close/restart name their deadline field. A strict `oneOf` implementation would
 therefore reject the open override that the lifecycle deadline contract and
 acceptance matrix require. The finding is admitted as an ahs-36 residual; no
 new ID is needed.
+
+**Cross-review fix LANDED:** `1c23e1b` completes ahs-36 by explicitly allowing
+`timeoutSeconds` in the `open` branch of the action-conditional schema and
+adding schema acceptance for open/close/restart versus list. The row remains
+`[~]` until both Claude and Grok confirm the final plan content.

@@ -150,7 +150,8 @@ ptk_reset(session="default", expectedGeneration=0, force=false)
 Add:
 
 ```text
-ptk_session(action, name, template=null, expectedGeneration=0, force=false)
+ptk_session(action, name, template=null, allowColdBackground=null,
+            expectedGeneration=0, force=false)
   action = list | open | close | restart
 
 ptk_output(handle, action="read", offset=0, maxBytes=<bounded>, pattern=null)
@@ -175,6 +176,12 @@ Rules:
   non-default results. Default output remains compatible where practical.
 - `ptk_output` reads a stored artifact only. It accepts no script and cannot
   execute or rerun work.
+- The reserved `default` session has effective `allowColdBackground=true` to
+  preserve today's explicit cold-child job contract. A template-less named
+  session defaults it to `false`; `ptk_session open` may set it explicitly
+  only for that session's first binding, after which it is frozen. A
+  template-backed session takes the frozen template value and rejects a
+  conflicting call-site override.
 
 ### Optional session templates
 
@@ -363,13 +370,14 @@ The same planner runs against the actual resolution context:
 - Complex/mixed jobs execute the original once in cold PowerShell.
 - Route/provenance metadata is stored with the job and controls later output
   shaping.
-- Every first-version background job is explicitly cold and stateless.
-  Templates default `allowColdBackground=false` because such a job does not
-  inherit the session's warm modules, variables, or authenticated connection.
-  If false, record the audited `call.accepted`/`job.not_started` refusal but
-  stop before cwd probing, output allocation, job dispatch, or process start,
-  with a truthful capability message. If true, run the cold job under that
-  session's cwd/environment contract. Never silently turn a warm
+- Every first-version background job is explicitly cold and stateless. The
+  session's frozen effective `allowColdBackground` value governs it: true for
+  reserved `default`, false by default for a template-less named session, and
+  the declared value for a template-backed session. If false, record the
+  audited `call.accepted`/`job.not_started` refusal but stop before cwd probing,
+  output allocation, job dispatch, or process start, with a truthful
+  capability message. If true, run the cold job under that session's
+  cwd/environment contract. Never silently turn a warm
   connection-dependent request into a cold job. Warm session-mode jobs are a
   deferred feature, not a mode a cold implementer may invent here.
 
@@ -819,6 +827,10 @@ temporarily sabotaging/reverting the production behavior, then restored green.
   artifact, or child process and records `job.not_started`. Enabling it starts
   a cold job that demonstrably cannot see the warm session's variables or
   connection. No session-mode job can occupy/starve the serialized runspace.
+- Reserved `default` continues to start today's cold background child. A
+  template-less named session defaults to the same audited no-start behavior
+  as a false template; an explicit true value on its first open enables only
+  the documented cold/stateless behavior and is immutable thereafter.
 - Required-journal failure before foreground, job start, reset, close, and
   kill proves zero side effects.
 - With an unwritable/corrupt spool, `ptk_state` returns only the labeled

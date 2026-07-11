@@ -896,20 +896,21 @@ table is a valid review result.
 | ahs-15 | MEDIUM  | Reused worker-local job IDs can target a new generation from a stale call | `[x]` | master (direct, 9527390) |
 | ahs-16 | MEDIUM  | Retention may delete audit segments that SIEM never acknowledged | `[x]` | master (direct, a65d6f2) |
 | ahs-17 | MEDIUM  | Export-checkpoint audit events can recursively generate forever | `[x]` | master (direct, 3f783b1) |
-| ahs-18 | HIGH    | Hard supervisor death can leave a blocked worker or job orphaned | `[~]` | master (direct, 23043b5 + b7677da) |
+| ahs-18 | HIGH    | Hard supervisor death can leave a blocked worker or job orphaned | `[x]` | master (direct, 23043b5 + b7677da) |
 | ahs-19 | HIGH    | Timeout containment is undefined for dynamically connected sessions | `[x]` | master (direct, f2f4255) |
 | ahs-20 | HIGH    | Same-session lifecycle and invocation admissions are not linearized | `[x]` | master (direct, dc3d626) |
 | ahs-21 | MEDIUM  | Busy `restart(force=false)` has no defined no-side-effect behavior | `[x]` | master (direct, ab31227) |
-| ahs-22 | MEDIUM  | A session alias can be ambiguously rebound to another template/digest | `[~]` | master (direct, 757b994 + c9a14ba) |
+| ahs-22 | MEDIUM  | A session alias can be ambiguously rebound to another template/digest | `[x]` | master (direct, 757b994 + c9a14ba) |
 | ahs-23 | MEDIUM  | Malformed catalogs and bootstrap path failures have no fail-closed contract | `[x]` | master (direct, 18aebca) |
 | ahs-24 | HIGH    | Timed-out bootstrap can later yield an untracked authenticated worker | `[x]` | master (direct, 6fce3af) |
-| ahs-25 | LOW     | `ptk_session list` conflicts with a schema that requires `name` | `[~]` | master (direct, c342747 + 4dd8074) |
-| ahs-26 | MEDIUM  | Two .NET raw/path guards are omitted from the intentional migration inventory | `[~]` | master (direct, 1f2c9c2) |
-| ahs-27 | MEDIUM  | Running-job busy semantics contradict the shipped reset-kills-job contract | `[~]` | master (direct, e36b40b) |
-| ahs-28 | MEDIUM  | Output-handle ownership and lifetime across worker generations are undefined | `[~]` | master (direct, af73889) |
-| ahs-29 | HIGH    | Timeout replacement has no deadlock-free transition or post-deadline grace | `[~]` | master (direct, 6294340) |
-| ahs-30 | MEDIUM  | New audited reads can consume the reserve needed for terminal events | `[~]` | master (direct, 23586fb) |
-| ahs-31 | MEDIUM  | Side-effect-free prepare forbids the required external `bash -n` validator | `[~]` | master (direct, e4e261d) |
+| ahs-25 | LOW     | `ptk_session list` conflicts with a schema that requires `name` | `[x]` | master (direct, c342747 + 4dd8074) |
+| ahs-26 | MEDIUM  | Two .NET raw/path guards are omitted from the intentional migration inventory | `[x]` | master (direct, 1f2c9c2) |
+| ahs-27 | MEDIUM  | Running-job busy semantics contradict the shipped reset-kills-job contract | `[x]` | master (direct, e36b40b) |
+| ahs-28 | MEDIUM  | Output-handle ownership and lifetime across worker generations are undefined | `[x]` | master (direct, af73889) |
+| ahs-29 | HIGH    | Timeout replacement has no deadlock-free transition or post-deadline grace | `[x]` | master (direct, 6294340) |
+| ahs-30 | MEDIUM  | New audited reads can consume the reserve needed for terminal events | `[x]` | master (direct, 23586fb) |
+| ahs-31 | MEDIUM  | Side-effect-free prepare forbids the required external `bash -n` validator | `[x]` | master (direct, e4e261d) |
+| ahs-32 | MEDIUM  | Post-launch startup containment can wait forever after its deadline | `[~]` | master (direct) |
 
 **Claude round 1 — REOPENED** (Claude Code 2.1.207, default
 claude-opus-4-8, read-only), reviewed head
@@ -1036,3 +1037,17 @@ post-deadline containment grace), `23586fb` (ahs-30, physically separate
 terminal reserve and all-call admission stop), and `e4e261d` (ahs-31,
 post-audit scrubbed `bash -n` validation). Rows remain `[~]` pending fixed-SHA
 review; no product code is authorized.
+
+**Claude re-grade round 4 — REOPENED** (Claude Code 2.1.207, default
+claude-opus-4-8, read-only), reviewed head
+`baf8ba31a508fe5e815667c0f86c0f8fa78418f2` against base
+`875efa05b7ef6c01354466f3f93211316d30c901`,
+`guard_confirmed=true`, 2026-07-11T10:49:13Z. Structured verdict and both SHAs
+matched the dispatch. Claude returned evidence-backed RESOLVED comments for
+ahs-18, ahs-22, and ahs-25..ahs-31; those rows are now `[x]`. It found one new
+MEDIUM issue, **ADMITTED**: ahs-32 gives post-launch startup failure the same
+bounded containment-confirmation grace, explicit `containment_unconfirmed`
+terminal, quarantine, and eventual-confirmed-death recovery gate as the
+post-start execution timeout path. All three parallel coder re-grades also
+accepted the submitted fixes and found no other schema/lifecycle/routing
+regression on that fixed head.

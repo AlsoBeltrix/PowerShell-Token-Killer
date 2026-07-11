@@ -158,6 +158,21 @@ not have.
    percentage points over the frozen baseline, or the finding "routing
    widened, savings did not move" is recorded just as loudly.
 
+4. **Reconcile the durable contracts (rrp-10):** the repo's standing
+   record says the opposite of this plan — the greenfield decision and
+   its adopted plan deliberately preserve single-command routing, and
+   the `ptk_invoke` tool description plus both READMEs advertise it.
+   Implementing slices 0-3 without touching those leaves code and
+   canon contradicting each other: models read a stale contract, and a
+   future cold agent could "correct" the code back to the narrow
+   check. On approval, a final slice records the superseding owner
+   decision in `.agents/decisions.md`, amends the greenfield plan's
+   routing paragraph with a pointer here, and updates the InvokeTool
+   `route` description, `README.md`, and `server/README.md` in the
+   same slice, with the handshake/schema assertions updated to the new
+   wording. (The decisions.md entry itself waits for the owner's
+   explicit go, per the standing in-session instruction.)
+
 ## Risks / notes
 
 - rtk rule changes ride rtk releases; ptk inherits them without code

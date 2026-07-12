@@ -2,7 +2,7 @@
 
 **Severity**: HIGH — a crash during rotation can permanently prevent anchored
 startup and its out-of-band administration path.
-**Status**: In progress
+**Status**: Verified
 **Branch**: `fix/s2-anchored-temp-recovery`
 **Commit**: `622c4c88750a2c8b24f0189479f32a65171f5a2f`
 
@@ -71,3 +71,12 @@ Claude Code 2.1.207 (`claude-fable-5`) reviewed fixed head
 `reopened`, recorded 2026-07-12T14:33:24Z. The reviewer traced a hard death
 between protected temporary creation and atomic publication into a permanent
 anchored preflight refusal shared by normal and administrative startup.
+
+Claude Code 2.1.207 re-reviewed integrated head
+`49971d6ce5cb246d2283eab052163ae85a5b5c87` against the same base,
+`guard_confirmed=true`, recorded 2026-07-12T15:35:30Z. It independently removed
+only the anchored recovery call, observed both canonical crash-temporary guards
+fail with the former unknown-entry refusal, restored byte-exact source, and
+passed 2/2. It also reviewed the bounded inventory, canonical validation,
+retained identities, and deletion primitive and found this recovery safe. The
+integrated verdict remained `reopened` only for two distinct new findings.

@@ -188,6 +188,54 @@ internal static class SecureAuditStorage
         }
     }
 
+    internal static void ReplaceAtomically(
+        string temporaryPath,
+        string publishedPath,
+        string root,
+        Action? destinationReplacedForTests = null)
+    {
+        // The caller must close and durably flush the protected temporary file
+        // before entering this primitive. Replacement makes those exact bytes
+        // visible; it does not attempt to stabilize a still-open writer.
+        var protectedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        VerifyExternalProtectedDirectory(protectedRoot);
+        temporaryPath = RequireDirectChild(protectedRoot, temporaryPath);
+        publishedPath = RequireDirectChild(protectedRoot, publishedPath);
+        if (string.Equals(temporaryPath, publishedPath, PathComparison))
+            throw new IOException("Atomic replacement requires two distinct protected files.");
+        VerifyExternalProtectedFile(temporaryPath);
+        VerifyExternalProtectedFile(publishedPath);
+
+        if (OperatingSystem.IsWindows())
+        {
+            if (!WindowsNative.MoveFileEx(
+                    temporaryPath,
+                    publishedPath,
+                    WindowsNative.MoveFileFlags.ReplaceExisting |
+                    WindowsNative.MoveFileFlags.WriteThrough))
+            {
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+            }
+        }
+        else
+        {
+            if (UnixNative.ReplaceFile(temporaryPath, publishedPath) != 0)
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+        }
+
+        // This seam intentionally precedes the Unix directory fsync. It proves
+        // that every failure after the OS has replaced the name preserves the
+        // complete new file. The caller reloads it to distinguish an old-or-
+        // new outcome; deleting it here would turn uncertainty into state loss.
+        destinationReplacedForTests?.Invoke();
+        if (!OperatingSystem.IsWindows())
+            FlushUnixDirectory(protectedRoot);
+        VerifyExternalProtectedDirectory(protectedRoot);
+        VerifyExternalProtectedFile(publishedPath);
+        if (File.Exists(temporaryPath))
+            throw new IOException("The atomic replacement left its temporary file published.");
+    }
+
     internal static void TryDelete(string path)
     {
         try
@@ -352,6 +400,22 @@ internal static class SecureAuditStorage
 
     private static StringComparison PathComparison =>
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+
+    private static string RequireDirectChild(string root, string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        var parent = Path.GetDirectoryName(fullPath)
+            ?? throw new IOException("The protected file parent is unavailable.");
+        if (!string.Equals(
+                Path.TrimEndingDirectorySeparator(parent),
+                root,
+                PathComparison))
+        {
+            throw new IOException("Atomic protected files must share one direct parent.");
+        }
+
+        return fullPath;
+    }
 
     private static void ProtectDirectory(string path)
     {
@@ -672,6 +736,11 @@ internal static class SecureAuditStorage
             [MarshalAs(UnmanagedType.LPUTF8Str)] string existingPath,
             [MarshalAs(UnmanagedType.LPUTF8Str)] string newPath);
 
+        [DllImport("libc", EntryPoint = "rename", SetLastError = true)]
+        internal static extern int ReplaceFile(
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string existingPath,
+            [MarshalAs(UnmanagedType.LPUTF8Str)] string newPath);
+
         [DllImport("libc", SetLastError = true)]
         internal static extern int close(int fileDescriptor);
     }
@@ -753,6 +822,7 @@ internal static class SecureAuditStorage
         [Flags]
         internal enum MoveFileFlags : uint
         {
+            ReplaceExisting = 0x00000001,
             WriteThrough = 0x00000008,
         }
 

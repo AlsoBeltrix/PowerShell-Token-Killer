@@ -1,6 +1,11 @@
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text;
 using PtkMcpServer.Audit;
 
 namespace PtkMcpServer.Tests;
@@ -119,6 +124,209 @@ public sealed class SecureAuditStorageTests : IDisposable
         Assert.Contains("extended access-control list", exception.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Atomic_replace_publishes_one_complete_protected_file()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+
+        SecureAuditStorage.ReplaceAtomically(temporary, published, root);
+
+        Assert.Equal("new-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.False(File.Exists(temporary));
+        SecureAuditStorage.VerifyProtectedFile(published);
+    }
+
+    [Fact]
+    public void Atomic_replace_requires_the_caller_to_publish_the_initial_file_first()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(temporary, "first-state");
+
+        Assert.Throws<IOException>(() =>
+            SecureAuditStorage.ReplaceAtomically(temporary, published, root));
+
+        Assert.False(File.Exists(published));
+        Assert.Equal("first-state", File.ReadAllText(temporary, Encoding.UTF8));
+    }
+
+    [Fact]
+    public void Atomic_replace_post_commit_failure_preserves_the_complete_new_file()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+
+        Assert.Throws<InvalidOperationException>(() =>
+            SecureAuditStorage.ReplaceAtomically(
+                temporary,
+                published,
+                root,
+                () => throw new InvalidOperationException("injected post-replace failure")));
+
+        Assert.Equal("new-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.False(File.Exists(temporary));
+        SecureAuditStorage.VerifyProtectedFile(published);
+    }
+
+    [Fact]
+    public void Atomic_replace_rejects_a_file_outside_the_protected_parent()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var otherRoot = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(otherRoot, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+
+        Assert.Throws<IOException>(() =>
+            SecureAuditStorage.ReplaceAtomically(temporary, published, root));
+
+        Assert.Equal("old-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.Equal("new-state", File.ReadAllText(temporary, Encoding.UTF8));
+    }
+
+    [Fact]
+    public void Atomic_replace_rejects_a_published_file_outside_the_protected_parent()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var otherRoot = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(otherRoot, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+
+        Assert.Throws<IOException>(() =>
+            SecureAuditStorage.ReplaceAtomically(temporary, published, root));
+
+        Assert.Equal("old-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.Equal("new-state", File.ReadAllText(temporary, Encoding.UTF8));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Atomic_replace_rejects_unprotected_input_files_without_modifying_them(
+        bool sabotageTemporary)
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+        AddUnprotectedAccess(sabotageTemporary ? temporary : published, isDirectory: false);
+
+        Assert.Throws<IOException>(() =>
+            SecureAuditStorage.ReplaceAtomically(temporary, published, root));
+
+        Assert.Equal("old-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.Equal("new-state", File.ReadAllText(temporary, Encoding.UTF8));
+        RestoreProtection(published, isDirectory: false);
+        RestoreProtection(temporary, isDirectory: false);
+    }
+
+    [Fact]
+    public void Atomic_replace_rejects_an_unprotected_root_without_modifying_files()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+        AddUnprotectedAccess(root, isDirectory: true);
+
+        Assert.Throws<IOException>(() =>
+            SecureAuditStorage.ReplaceAtomically(temporary, published, root));
+
+        Assert.Equal("old-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.Equal("new-state", File.ReadAllText(temporary, Encoding.UTF8));
+        RestoreProtection(root, isDirectory: true);
+    }
+
+    [Fact]
+    public async Task Atomic_replace_is_never_observed_missing_or_partially_written()
+    {
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var first = new string('a', 4096);
+        var second = new string('b', 4096);
+        WriteProtected(published, first);
+        var failures = new ConcurrentQueue<string>();
+        var firstObservation = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var observationCount = 0;
+        using var stop = new CancellationTokenSource();
+        var reader = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                try
+                {
+                    using var stream = new FileStream(
+                        published,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete);
+                    using var text = new StreamReader(
+                        stream,
+                        Encoding.UTF8,
+                        detectEncodingFromByteOrderMarks: false,
+                        bufferSize: 1024,
+                        leaveOpen: false);
+                    var observed = text.ReadToEnd();
+                    if (!string.Equals(observed, first, StringComparison.Ordinal) &&
+                        !string.Equals(observed, second, StringComparison.Ordinal))
+                    {
+                        failures.Enqueue($"unexpected length {observed.Length}");
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref observationCount);
+                        firstObservation.TrySetResult(true);
+                    }
+                }
+                catch (Exception exception)
+                {
+                    failures.Enqueue(exception.GetType().Name);
+                }
+            }
+        });
+
+        var observationsBeforeReplacements = 0;
+        try
+        {
+            await firstObservation.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            observationsBeforeReplacements = Volatile.Read(ref observationCount);
+            for (var index = 0; index < 32; index++)
+            {
+                var temporary = Path.Combine(root, $".checkpoint.{index:D2}.tmp");
+                WriteProtected(temporary, index % 2 == 0 ? second : first);
+                SecureAuditStorage.ReplaceAtomically(temporary, published, root);
+                if (index == 0)
+                {
+                    Assert.True(SpinWait.SpinUntil(
+                        () => Volatile.Read(ref observationCount) > observationsBeforeReplacements,
+                        TimeSpan.FromSeconds(10)));
+                }
+            }
+        }
+        finally
+        {
+            stop.Cancel();
+            await reader.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        Assert.Empty(failures);
+        Assert.True(Volatile.Read(ref observationCount) > observationsBeforeReplacements);
+    }
+
     private string NewRoot()
     {
         var root = Path.Combine(
@@ -126,6 +334,68 @@ public sealed class SecureAuditStorageTests : IDisposable
             ".ptk-secure-storage-tests-" + Guid.NewGuid().ToString("N"));
         _roots.Add(root);
         return root;
+    }
+
+    private static void WriteProtected(string path, string value)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value);
+        try
+        {
+            using var stream = SecureAuditStorage.CreateExclusiveFile(path);
+            stream.Write(bytes);
+            stream.Flush(flushToDisk: true);
+        }
+        finally
+        {
+            Array.Clear(bytes);
+        }
+    }
+
+    private static void AddUnprotectedAccess(string path, bool isDirectory)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            AddWindowsWorldReadAccess(path, isDirectory);
+            return;
+        }
+
+        var mode = File.GetUnixFileMode(path);
+        File.SetUnixFileMode(
+            path,
+            mode | (isDirectory ? UnixFileMode.GroupExecute : UnixFileMode.GroupRead));
+    }
+
+    private static void RestoreProtection(string path, bool isDirectory)
+    {
+        if (isDirectory)
+        {
+            _ = SecureAuditStorage.PrepareRoot(path);
+            return;
+        }
+
+        if (OperatingSystem.IsWindows())
+        {
+            SecureAuditStorage.VerifyProtectedFile(path);
+            return;
+        }
+
+        File.SetUnixFileMode(path, SecureAuditStorage.OwnerFileMode);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void AddWindowsWorldReadAccess(string path, bool isDirectory)
+    {
+        FileSystemSecurity security = isDirectory
+            ? FileSystemAclExtensions.GetAccessControl(new DirectoryInfo(path))
+            : FileSystemAclExtensions.GetAccessControl(new FileInfo(path));
+        security.AddAccessRule(new FileSystemAccessRule(
+            new SecurityIdentifier(WellKnownSidType.WorldSid, null),
+            isDirectory ? FileSystemRights.ReadAndExecute : FileSystemRights.Read,
+            AccessControlType.Allow));
+        if (isDirectory)
+            FileSystemAclExtensions.SetAccessControl(new DirectoryInfo(path), (DirectorySecurity)security);
+        else
+            FileSystemAclExtensions.SetAccessControl(new FileInfo(path), (FileSecurity)security);
     }
 
     private static void AddMacExtendedAcl(string path)

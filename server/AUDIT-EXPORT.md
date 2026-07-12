@@ -113,7 +113,8 @@ store. They are never included in the automatic OTLP export.
 
 ## Out-of-band audit administration
 
-`PtkAuditAdmin` is a separate executable, not an MCP tool. It uses the same
+`PtkAuditAdmin` is installed beside the server under `~/.ptk/bin/` as a
+separate executable, not an MCP tool. It uses the same
 `PTK_AUDIT_ROOT` and optional `PTK_AUDIT_EXPORT_CONFIG` startup environment as
 the server. Every evidence access durably records an intent before opening the
 payload and records success or failure afterward. Core events contain the

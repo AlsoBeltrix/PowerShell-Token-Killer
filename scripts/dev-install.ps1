@@ -125,7 +125,7 @@ function Get-PtkServerBinaryName {
     if ($TargetRid -like 'win-*') { 'PtkMcpServer.exe' } else { 'PtkMcpServer' }
 }
 
-# Publishes the server and assembles the canonical layout (bin/, src/,
+# Publishes both executables and assembles the canonical layout (bin/, src/,
 # scripts/, VERSION) in $Destination. The one layout generator dev installs
 # and release CI share.
 function New-PtkLayout {
@@ -140,6 +140,13 @@ function New-PtkLayout {
         -p:Version=$PayloadVersion `
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
+
+    Write-Host "Publishing PtkAuditAdmin ($TargetRid, $PayloadVersion)..."
+    dotnet publish (Join-Path $repoRoot 'server' 'PtkAuditAdmin') `
+        -c Release -r $TargetRid --self-contained `
+        -p:Version=$PayloadVersion `
+        -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw 'PtkAuditAdmin dotnet publish failed.' }
 
     $src = New-Item -ItemType Directory -Path (Join-Path $Destination 'src') -Force
     foreach ($f in 'PwshTokenCompressor.psd1', 'PwshTokenCompressor.psm1') {

@@ -72,6 +72,8 @@ internal sealed class AuditExportAttemptResult
 
 internal interface IAuditOtlpExportTransport
 {
+    string ConfigurationIdentity { get; }
+
     Task<AuditExportAttemptResult> ExportAsync(
         AuditOtlpRecord record,
         CancellationToken cancellationToken);
@@ -201,6 +203,9 @@ internal sealed class AuditOtlpHttpExporter : IAuditOtlpExportTransport, IDispos
         AuditOtlpRecord record,
         CancellationToken cancellationToken) =>
         ExportAsync(record, cancellationToken);
+
+    string IAuditOtlpExportTransport.ConfigurationIdentity =>
+        _options.ConfigurationIdentity;
 
     public void Dispose()
     {

@@ -27,8 +27,7 @@ public sealed class AuditClosedSpoolExportPumpTests
             AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false));
         var pump = new AuditClosedSpoolExportPump(
             reader,
-            transport,
-            ConfigurationIdentity);
+            transport);
 
         var first = await pump.ExportNextAsync(CancellationToken.None);
         Assert.Equal(AuditClosedSpoolExportStepKind.Advanced, first.Kind);
@@ -70,8 +69,7 @@ public sealed class AuditClosedSpoolExportPumpTests
         using var reader = new AuditClosedSpoolChainReader(fixture.Options, fixture.Store);
         var pump = new AuditClosedSpoolExportPump(
             reader,
-            transport,
-            ConfigurationIdentity);
+            transport);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
 
         var export = pump.ExportNextAsync(timeout.Token);
@@ -106,8 +104,7 @@ public sealed class AuditClosedSpoolExportPumpTests
         var transport = new ScriptedTransport();
         var pump = new AuditClosedSpoolExportPump(
             reader,
-            transport,
-            ConfigurationIdentity);
+            transport);
 
         var completed = await pump.ExportNextAsync(CancellationToken.None);
 
@@ -115,6 +112,23 @@ public sealed class AuditClosedSpoolExportPumpTests
         Assert.Null(completed.EventId);
         Assert.Equal(0, transport.Calls);
         Assert.True(fixture.Store.Current.ChainComplete);
+    }
+
+    [Fact]
+    public void Transport_identity_must_match_the_anchored_reader_configuration()
+    {
+        using var fixture = new ClosedFixture(recordCount: 1);
+        using var reader = new AuditClosedSpoolChainReader(fixture.Options, fixture.Store);
+        var transport = new ScriptedTransport(
+            AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false))
+        {
+            ConfigurationIdentity = ChangedConfigurationIdentity,
+        };
+
+        Assert.Throws<ArgumentException>(() =>
+            new AuditClosedSpoolExportPump(reader, transport));
+        Assert.Equal(0, transport.Calls);
+        Assert.Equal(0, fixture.Store.Current.Sequence);
     }
 
     [Fact]
@@ -128,8 +142,7 @@ public sealed class AuditClosedSpoolExportPumpTests
             AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false));
         var pump = new AuditClosedSpoolExportPump(
             reader,
-            transport,
-            ConfigurationIdentity);
+            transport);
 
         var retry = await pump.ExportNextAsync(CancellationToken.None);
         Assert.Equal(AuditClosedSpoolExportStepKind.Retry, retry.Kind);
@@ -159,7 +172,6 @@ public sealed class AuditClosedSpoolExportPumpTests
         var pump = new AuditClosedSpoolExportPump(
             reader,
             transport,
-            ConfigurationIdentity,
             new FixedTimeProvider(BaseTime));
 
         var blocked = await pump.ExportNextAsync(CancellationToken.None);
@@ -183,8 +195,7 @@ public sealed class AuditClosedSpoolExportPumpTests
             AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false));
         var restartedPump = new AuditClosedSpoolExportPump(
             restartedReader,
-            restartedTransport,
-            ConfigurationIdentity);
+            restartedTransport);
         var afterRestart = await restartedPump.ExportNextAsync(CancellationToken.None);
         Assert.Equal(AuditClosedSpoolExportStepKind.Blocked, afterRestart.Kind);
         Assert.Equal(0, restartedTransport.Calls);
@@ -203,7 +214,6 @@ public sealed class AuditClosedSpoolExportPumpTests
         var initialPump = new AuditClosedSpoolExportPump(
             reader,
             rejectedTransport,
-            ConfigurationIdentity,
             new FixedTimeProvider(BaseTime));
         Assert.Equal(
             AuditClosedSpoolExportStepKind.Blocked,
@@ -215,21 +225,27 @@ public sealed class AuditClosedSpoolExportPumpTests
             AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false));
         var samePump = new AuditClosedSpoolExportPump(
             sameReader,
-            sameTransport,
-            ConfigurationIdentity);
+            sameTransport);
         Assert.Equal(
             AuditClosedSpoolExportStepKind.Blocked,
             (await samePump.ExportNextAsync(CancellationToken.None)).Kind);
         Assert.Equal(0, sameTransport.Calls);
 
         sameReader.Dispose();
-        using var changedReader = new AuditClosedSpoolChainReader(fixture.Options, fixture.Store);
+        var changedOptions = OptionsWithIdentity(
+            fixture.Options,
+            ChangedConfigurationIdentity);
+        using var changedReader = new AuditClosedSpoolChainReader(
+            changedOptions,
+            fixture.Store);
         var changedTransport = new ScriptedTransport(
-            AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false));
+            AuditExportAttemptResult.Acknowledged(ResponseDigest, warning: false))
+        {
+            ConfigurationIdentity = ChangedConfigurationIdentity,
+        };
         var changedPump = new AuditClosedSpoolExportPump(
             changedReader,
-            changedTransport,
-            ChangedConfigurationIdentity);
+            changedTransport);
         Assert.Equal(
             AuditClosedSpoolExportStepKind.ChainComplete,
             (await changedPump.ExportNextAsync(CancellationToken.None)).Kind);
@@ -247,6 +263,9 @@ public sealed class AuditClosedSpoolExportPumpTests
 
         internal int Calls => Records.Count;
 
+        public string ConfigurationIdentity { get; init; } =
+            AuditClosedSpoolExportPumpTests.ConfigurationIdentity;
+
         public Task<AuditExportAttemptResult> ExportAsync(
             AuditOtlpRecord record,
             CancellationToken cancellationToken)
@@ -263,6 +282,21 @@ public sealed class AuditClosedSpoolExportPumpTests
     {
         public override DateTimeOffset GetUtcNow() => now;
     }
+
+    private static AuditOptions OptionsWithIdentity(
+        AuditOptions source,
+        string configurationIdentity) => AuditOptions.Create(
+        source.RootDirectory,
+        AuditProtectionMode.Anchored,
+        configurationIdentity,
+        source.MaxRecordBytes,
+        source.SegmentBytes,
+        source.AggregateBytes,
+        source.EmergencyReserveBytes,
+        source.RetentionAge,
+        source.MaxEvidenceBytes,
+        source.EvidenceAggregateBytes,
+        source.EvidenceRetentionAge);
 
     private sealed class ClosedFixture : IDisposable
     {

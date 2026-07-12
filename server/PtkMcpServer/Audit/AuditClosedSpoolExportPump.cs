@@ -36,12 +36,21 @@ internal sealed class AuditClosedSpoolExportPump
     internal AuditClosedSpoolExportPump(
         AuditClosedSpoolChainReader reader,
         IAuditOtlpExportTransport transport,
-        string configurationIdentity,
         TimeProvider? timeProvider = null)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(transport);
+        var configurationIdentity = transport.ConfigurationIdentity;
         RequireConfigurationIdentity(configurationIdentity);
+        if (!string.Equals(
+                reader.ExportConfigurationIdentity,
+                configurationIdentity,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The audit export transport does not match the anchored reader configuration.",
+                nameof(transport));
+        }
         _reader = reader;
         _transport = transport;
         _configurationIdentity = configurationIdentity;

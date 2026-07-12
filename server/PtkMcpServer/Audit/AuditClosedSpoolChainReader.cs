@@ -70,6 +70,10 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
         _checkpointLease = checkpointStore.RetainClosedChainReader(options);
     }
 
+    internal string ExportConfigurationIdentity =>
+        _options.ExportConfigurationIdentity ?? throw new IOException(
+            "The anchored audit reader has no export configuration identity.");
+
     /// <summary>
     /// Acquires every selected segment exclusively, validates the complete
     /// chain through those handles, and resolves the durable cursor to its

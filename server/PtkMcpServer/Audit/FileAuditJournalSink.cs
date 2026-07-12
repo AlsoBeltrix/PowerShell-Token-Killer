@@ -579,6 +579,14 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
                      .GroupBy(item => item.BootId))
         {
             var ordered = group.OrderBy(item => item.Index).ToArray();
+            if (_options.ProtectionMode == AuditProtectionMode.Anchored &&
+                ordered[0].Index != 0)
+            {
+                RequireCheckpointProvedRetainedFloor(
+                    group.Key,
+                    ordered[0].Index,
+                    ordered[^1].Index);
+            }
             var sawClosed = false;
             var checkpointOwnerConfirmed = false;
             int? priorIndex = null;
@@ -587,12 +595,6 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
                 var item = ordered[index];
                 if (priorIndex is int previousIndex && item.Index != previousIndex + 1)
                     throw new IOException("A retained audit segment sequence has an internal gap.");
-                if (priorIndex is null &&
-                    _options.ProtectionMode == AuditProtectionMode.Anchored &&
-                    item.Index != 0)
-                {
-                    throw new IOException("An anchored audit segment prefix is missing.");
-                }
                 priorIndex = item.Index;
 
                 if (!IsLockedSegment(item.Segment))
@@ -650,6 +652,37 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         availableOwner?.Dispose();
         throw new IOException(
             "A nonterminal locked audit prefix has no active checkpoint owner.");
+    }
+
+    private void RequireCheckpointProvedRetainedFloor(
+        Guid supervisorBootId,
+        int retainedFloor,
+        int retainedTail)
+    {
+        AuditExportCheckpoint checkpoint;
+        if (AuditExportCheckpointStore.TryAcquireExisting(
+                _options,
+                supervisorBootId,
+                out var availableOwner))
+        {
+            using (availableOwner)
+                checkpoint = availableOwner!.Current;
+        }
+        else
+        {
+            checkpoint = AuditExportCheckpointStore.ReadSnapshot(
+                _options,
+                supervisorBootId);
+        }
+
+        if (checkpoint.Spool is not { } floorProof ||
+            floorProof.SupervisorBootId != supervisorBootId ||
+            floorProof.Index < retainedFloor ||
+            floorProof.Index > retainedTail)
+        {
+            throw new IOException(
+                "An anchored audit segment prefix is missing without checkpoint proof.");
+        }
     }
 
     private static long AlignAllocation(long length)
@@ -1325,6 +1358,7 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
             long? priorSequence = null;
             string? priorHash = null;
             var hasOpaquePrefix = false;
+            var hasCheckpointProvedFloor = ordered[0].Named.Index > 0;
             foreach (var classified in ordered)
             {
                 var item = classified.Named;
@@ -1396,7 +1430,9 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
                         }
                         else if (!hasOpaquePrefix &&
                                  _options.ProtectionMode == AuditProtectionMode.Anchored &&
-                                 (record.Sequence != 1 || record.PreviousEventHash is not null))
+                                 (!hasCheckpointProvedFloor
+                                     ? record.Sequence != 1 || record.PreviousEventHash is not null
+                                     : record.Sequence <= 1 || record.PreviousEventHash is null))
                         {
                             throw new IOException("An anchored audit hash chain does not begin at sequence one.");
                         }

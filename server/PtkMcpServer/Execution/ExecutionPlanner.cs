@@ -17,7 +17,8 @@ internal static class ExecutionPlanner
         TrustedCommandSnapshot commands,
         bool raw,
         bool compressAvailable,
-        ResolutionContext resolutionContext)
+        ResolutionContext resolutionContext,
+        bool allowFileSystemGuidance = false)
     {
         ArgumentNullException.ThrowIfNull(script);
         ArgumentNullException.ThrowIfNull(commands);
@@ -41,10 +42,15 @@ internal static class ExecutionPlanner
                 domain: null,
                 noFallbacks,
                 fallbackReason: null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                postSuccessGuidance: null);
         }
 
         var domain = ClassifyDomain(script, commands);
+        var postSuccessGuidance = allowFileSystemGuidance &&
+                                  domain == ExecutionDomain.MixedDataflow
+            ? TryCreateMixedDataflowGuidance(script, commands)
+            : null;
         if (effectiveRtkIdentity is null)
         {
             return Direct(
@@ -58,7 +64,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkExecutableUnavailable
                     : null,
-                outputShapingRtkIdentity: null);
+                outputShapingRtkIdentity: null,
+                postSuccessGuidance);
         }
 
         var command = GetEligibleCommand(script);
@@ -75,7 +82,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkIneligibleShape
                     : null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                postSuccessGuidance);
         }
 
         var name = ((StringConstantExpressionAst)command.CommandElements[0]).Value;
@@ -93,7 +101,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkSelfInvocation
                     : null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                postSuccessGuidance);
         }
 
         var resolved = commands.Resolve(name, CommandTypes.All);
@@ -110,7 +119,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkResolutionNotApplication
                     : null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                postSuccessGuidance);
         }
         var extension = Path.GetExtension(resolved.Source ?? string.Empty);
         if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
@@ -127,7 +137,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkFidelityExclusion
                     : null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                postSuccessGuidance);
         }
 
         var escapedRtk = effectiveRtkIdentity.ExecutablePath.Replace("'", "''");
@@ -161,7 +172,8 @@ internal static class ExecutionPlanner
             domain: null,
             ImmutableArray<ExecutionPath>.Empty,
             fallbackReason: null,
-            outputShapingRtkIdentity);
+            outputShapingRtkIdentity,
+            postSuccessGuidance: null);
 
     internal static ExecutionPlan CreateBash(
         string script,
@@ -210,7 +222,8 @@ internal static class ExecutionPlanner
         ExecutionDomain? domain,
         ImmutableArray<ExecutionPath> fallbacks,
         ExecutionFallbackReason? fallbackReason,
-        RtkExecutableIdentity? outputShapingRtkIdentity) =>
+        RtkExecutableIdentity? outputShapingRtkIdentity,
+        PostSuccessGuidance? postSuccessGuidance) =>
         new(
             script,
             script,
@@ -227,7 +240,10 @@ internal static class ExecutionPlanner
             rtkExecutableIdentity: null,
             outputShapingRtkIdentity: raw || !compressAvailable
                 ? null
-                : outputShapingRtkIdentity);
+                : outputShapingRtkIdentity,
+            postSuccessGuidance: raw
+                ? null
+                : postSuccessGuidance);
 
     private static RequestedExecutionRoute NormalizeRoute(string? route) =>
         route?.ToLowerInvariant() switch
@@ -263,6 +279,130 @@ internal static class ExecutionPlanner
         }
 
         return command;
+    }
+
+    private static PostSuccessGuidance? TryCreateMixedDataflowGuidance(
+        string script,
+        TrustedCommandSnapshot commands)
+    {
+        if (script.Contains('\r') || script.Contains('\n')) return null;
+        var ast = Parser.ParseInput(script, out _, out var parseErrors);
+        if (parseErrors.Length > 0 || ast.ParamBlock is not null ||
+            ast.DynamicParamBlock is not null || ast.BeginBlock is not null ||
+            ast.ProcessBlock is not null || ast.CleanBlock is not null ||
+            ast.EndBlock?.Statements.Count != 1 ||
+            ast.EndBlock.Statements[0] is not PipelineAst pipeline ||
+            pipeline.Background ||
+            pipeline.PipelineElements.Count != 2 ||
+            pipeline.PipelineElements[0] is not CommandAst producer ||
+            pipeline.PipelineElements[1] is not CommandAst sink ||
+            producer.InvocationOperator != TokenKind.Unknown ||
+            sink.InvocationOperator != TokenKind.Unknown ||
+            producer.Redirections.Count > 0 || sink.Redirections.Count > 0 ||
+            producer.CommandElements.FirstOrDefault() is not
+                StringConstantExpressionAst producerName ||
+            sink.CommandElements.FirstOrDefault() is not
+                StringConstantExpressionAst sinkName ||
+            !HasOnlyConstantArguments(producer))
+        {
+            return null;
+        }
+
+        var resolvedProducer = commands.Resolve(producerName.Value, CommandTypes.All);
+        if (resolvedProducer?.CommandType != CommandTypes.Application)
+            return null;
+        var producerExtension = Path.GetExtension(resolvedProducer.Source ?? string.Empty);
+        if (producerExtension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+            producerExtension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var resolvedSink = commands.Resolve(sinkName.Value, CommandTypes.All);
+        if (!sinkName.Value.Equals("Set-Content", StringComparison.OrdinalIgnoreCase) ||
+            resolvedSink?.CommandType != CommandTypes.Cmdlet ||
+            !string.Equals(
+                resolvedSink.Source,
+                "Microsoft.PowerShell.Management",
+                StringComparison.OrdinalIgnoreCase) ||
+            !TryGetSimpleSetContentPath(sink, out var pathExpression))
+        {
+            return null;
+        }
+
+        var path = pathExpression.Value;
+        if (string.IsNullOrWhiteSpace(path) ||
+            path.IndexOfAny(['*', '?', '[', ']']) >= 0 ||
+            LooksProviderQualified(path))
+        {
+            return null;
+        }
+
+        var suggestedScript =
+            $"{producer.Extent.Text.Trim()} > {pathExpression.Extent.Text}";
+        if (suggestedScript.Length >
+                PostSuccessGuidance.MaximumSuggestedScriptCharacters ||
+            suggestedScript.Contains('\r') || suggestedScript.Contains('\n'))
+        {
+            return null;
+        }
+        return new PostSuccessGuidance(
+            PostSuccessGuidance.PreferNativeRedirection,
+            suggestedScript);
+    }
+
+    private static bool LooksProviderQualified(string path)
+    {
+        // PowerShell drive letters are dynamic PSDrives, so even C:\\ is not
+        // proof that Set-Content will target the filesystem provider.
+        return path.Contains(':');
+    }
+
+    private static bool HasOnlyConstantArguments(CommandAst command)
+    {
+        foreach (var element in command.CommandElements.Skip(1))
+        {
+            var isConstant = element is ConstantExpressionAst ||
+                element is CommandParameterAst parameter &&
+                (parameter.Argument is null ||
+                 parameter.Argument is ConstantExpressionAst);
+            if (!isConstant) return false;
+        }
+        return true;
+    }
+
+    private static bool TryGetSimpleSetContentPath(
+        CommandAst sink,
+        out StringConstantExpressionAst path)
+    {
+        path = null!;
+        var elements = sink.CommandElements;
+        if (elements.Count == 2 &&
+            elements[1] is StringConstantExpressionAst positional)
+        {
+            path = positional;
+            return true;
+        }
+        if (elements.Count == 2 && elements[1] is CommandParameterAst
+            {
+                ParameterName: var parameterName,
+                Argument: StringConstantExpressionAst attached,
+            } && parameterName.Equals("Path", StringComparison.OrdinalIgnoreCase))
+        {
+            path = attached;
+            return true;
+        }
+        if (elements.Count == 3 && elements[1] is CommandParameterAst
+            {
+                ParameterName: var separatedName,
+                Argument: null,
+            } && separatedName.Equals("Path", StringComparison.OrdinalIgnoreCase) &&
+            elements[2] is StringConstantExpressionAst separated)
+        {
+            path = separated;
+            return true;
+        }
+        return false;
     }
 
     private static ExecutionDomain? ClassifyDomain(

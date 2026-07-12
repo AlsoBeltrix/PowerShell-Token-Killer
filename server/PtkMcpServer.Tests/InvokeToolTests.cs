@@ -880,6 +880,215 @@ public sealed class InvokeToolTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Mixed_native_file_capture_executes_once_then_suggests_redirection()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-mixed-guidance-");
+        var outputPath = Path.Combine(directory.FullName, "version capture.txt");
+        var escapedDirectory = directory.FullName.Replace("'", "''");
+        try
+        {
+            var location = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedDirectory}'",
+                raw: true,
+                route: "pwsh");
+            Assert.True(location.Success, string.Join(Environment.NewLine, location.Errors));
+
+            var result = await _host.InvokeAsync(
+                "dotnet --version | Set-Content -Path 'version capture.txt'");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(InvokeDisposition.Completed, result.Disposition);
+            Assert.Empty(result.Errors);
+            Assert.True(File.Exists(outputPath));
+            Assert.False(string.IsNullOrWhiteSpace(File.ReadAllText(outputPath)));
+            var guidance = Assert.Single(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+            Assert.Contains("completed unchanged", guidance, StringComparison.Ordinal);
+            Assert.Contains(
+                "dotnet --version > 'version capture.txt'",
+                guidance,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Mixed_guidance_is_not_emitted_when_the_original_pipeline_reports_errors()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-mixed-guidance-error-");
+        var outputPath = Path.Combine(directory.FullName, "missing", "capture.txt");
+        var escapedDirectory = directory.FullName.Replace("'", "''");
+        try
+        {
+            var location = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedDirectory}'",
+                raw: true,
+                route: "pwsh");
+            Assert.True(location.Success, string.Join(Environment.NewLine, location.Errors));
+
+            var result = await _host.InvokeAsync(
+                "dotnet --version | Set-Content -Path 'missing/capture.txt'");
+
+            Assert.NotEmpty(result.Errors);
+            Assert.DoesNotContain(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+            Assert.False(File.Exists(outputPath));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Mixed_guidance_is_not_emitted_for_a_nonzero_native_exit()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-mixed-guidance-exit-");
+        var outputPath = Path.Combine(directory.FullName, "capture.txt");
+        var escapedDirectory = directory.FullName.Replace("'", "''");
+        try
+        {
+            var location = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedDirectory}'",
+                raw: true,
+                route: "pwsh");
+            Assert.True(location.Success, string.Join(Environment.NewLine, location.Errors));
+
+            var result = await _host.InvokeAsync(
+                "dotnet __ptk_command_that_does_not_exist__ | Set-Content -Path capture.txt");
+
+            Assert.NotNull(result.ExitCode);
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.DoesNotContain(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Mixed_guidance_is_not_emitted_when_errors_are_suppressed()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-mixed-guidance-ignore-");
+        var outputPath = Path.Combine(directory.FullName, "missing", "capture.txt");
+        var escapedDirectory = directory.FullName.Replace("'", "''");
+        try
+        {
+            var setup = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedDirectory}'; " +
+                "$global:ErrorActionPreference = 'Ignore'",
+                raw: true,
+                route: "pwsh");
+            Assert.True(setup.Success, string.Join(Environment.NewLine, setup.Errors));
+
+            var result = await _host.InvokeAsync(
+                "dotnet --version | Set-Content -Path 'missing/capture.txt'");
+
+            Assert.True(result.Success);
+            Assert.Empty(result.Errors);
+            Assert.True(result.PipelineHadErrors);
+            Assert.False(File.Exists(outputPath));
+            Assert.DoesNotContain(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Mixed_guidance_is_not_emitted_under_whatif_preference()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-mixed-guidance-whatif-");
+        var outputPath = Path.Combine(directory.FullName, "capture.txt");
+        var escapedDirectory = directory.FullName.Replace("'", "''");
+        try
+        {
+            var setup = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedDirectory}'; " +
+                "$global:WhatIfPreference = $true",
+                raw: true,
+                route: "pwsh");
+            Assert.True(setup.Success, string.Join(Environment.NewLine, setup.Errors));
+
+            var result = await _host.InvokeAsync(
+                "dotnet --version | Set-Content -Path capture.txt");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.False(File.Exists(outputPath));
+            Assert.DoesNotContain(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Mixed_guidance_is_not_emitted_with_default_parameter_overrides()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-mixed-guidance-defaults-");
+        var outputPath = Path.Combine(directory.FullName, "capture.txt");
+        var escapedDirectory = directory.FullName.Replace("'", "''");
+        try
+        {
+            var setup = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedDirectory}'; " +
+                "$global:PSDefaultParameterValues = @{ 'Set-Content:NoNewline' = $true }",
+                raw: true,
+                route: "pwsh");
+            Assert.True(setup.Success, string.Join(Environment.NewLine, setup.Errors));
+
+            var result = await _host.InvokeAsync(
+                "dotnet --version | Set-Content -Path capture.txt");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.True(File.Exists(outputPath));
+            Assert.DoesNotContain(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Mixed_guidance_is_not_emitted_outside_the_filesystem_provider()
+    {
+        var environmentName = "PTK_MIXED_PROVIDER_" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(30));
+            var location = await host.InvokeAsync(
+                "Set-Location Env:",
+                raw: true,
+                route: "pwsh");
+            Assert.True(location.Success, string.Join(Environment.NewLine, location.Errors));
+
+            var result = await host.InvokeAsync(
+                $"dotnet --version | Set-Content {environmentName}");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.False(string.IsNullOrWhiteSpace(
+                Environment.GetEnvironmentVariable(environmentName)));
+            Assert.DoesNotContain(result.Warnings, warning =>
+                warning.Contains("[ptk:routing]", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(environmentName, null);
+        }
+    }
+
     [Theory]
     [InlineData(true, "rtk")]
     [InlineData(false, "pwsh")]

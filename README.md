@@ -76,6 +76,14 @@ output. `route=rtk` asserts RTK routing only for an eligible terminal native
 application; an unavailable or ineligible RTK leg is labeled and the exact
 original runs once without a model retry.
 
+Mixed native/PowerShell dataflow also runs exactly once as submitted. For the
+narrow successful shape `<native command> | Set-Content <constant path>` in a
+filesystem location, PTK may append a text-only suggestion to prefer `>` for
+direct file capture next time. It never rewrites, refuses, or asks the model
+to resubmit the command. Dynamic or provider-qualified paths, shadowed
+cmdlets, ambient WhatIf/default-parameter semantics, and error-producing cases
+stay silent.
+
 Long work has two paths, by workload: `background=true` runs the script as a
 cold background job polled through `ptk_job` (builds, watchers — anything
 stateless that could exceed the call timeout), while `timeoutSeconds` raises

@@ -186,6 +186,17 @@ Routing rules:
   `route=pwsh` bypasses the detector/delegation path as explicit PowerShell
   consent. `raw=true` retains its current routing bypass until its documented
   recovery-only transition lands.
+- High-confidence mixed file capture remains advisory: the exact original
+  `<native application> | Set-Content <constant non-wildcard path>` pipeline
+  runs first in PowerShell. Only the canonical
+  `Microsoft.PowerShell.Management` cmdlet in a filesystem location is
+  eligible, and only after it completes without PowerShell errors may PTK
+  append `[ptk:routing]` with the simpler direct-capture style
+  `<native application> > <path>` for next time. PTK never rewrites or reruns
+  the command, never refuses to teach style, and emits no suggestion for
+  dynamic or provider-qualified paths, extra sink semantics, shadowed
+  commands, multiline shapes, existing redirection, ambient WhatIf/Confirm or
+  default-parameter overrides, or failed pipelines.
 
 Output shaping:
 

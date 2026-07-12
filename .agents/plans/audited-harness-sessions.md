@@ -591,6 +591,7 @@ OutputProvenance      PowerShellObjects | DirectText |
 FallbackReason
 RtkExecutableIdentity
 OutputShapingRtkExecutableIdentity
+PostSuccessGuidance    None | PreferNativeRedirection
 ```
 
 The planner is side-effect-free under the prepared-reservation protocol. It

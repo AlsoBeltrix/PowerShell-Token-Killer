@@ -81,6 +81,7 @@ public sealed record InvokeResult(
     internal ExecutionRouteSummary? Routing { get; init; }
     internal string? AuditDetailCode { get; init; }
     internal OutputShapingSummary? OutputShaping { get; init; }
+    internal bool PipelineHadErrors { get; init; }
 }
 
 internal sealed record ExecutionRouteSummary(
@@ -1111,6 +1112,45 @@ public sealed class RunspaceHost : IDisposable
         catch { return null; }
     }
 
+    private static bool IsCurrentLocationFileSystem(Runspace runspace)
+    {
+        try
+        {
+            return string.Equals(
+                runspace.SessionStateProxy.Path.CurrentLocation.Provider.Name,
+                "FileSystem",
+                StringComparison.OrdinalIgnoreCase);
+        }
+        catch { return false; }
+    }
+
+    private static bool AllowsAdvisoryFileWriteGuidance(Runspace runspace)
+    {
+        try
+        {
+            if (LanguagePrimitives.IsTrue(
+                    runspace.SessionStateProxy.GetVariable("WhatIfPreference")))
+            {
+                return false;
+            }
+
+            if (runspace.SessionStateProxy.GetVariable("ConfirmPreference") is not
+                ConfirmImpact.High)
+            {
+                return false;
+            }
+
+            return runspace.SessionStateProxy.GetVariable("PSDefaultParameterValues") is not
+                System.Collections.IDictionary { Count: > 0 };
+        }
+        catch
+        {
+            // Advice is optional. If ambient semantics cannot be proven, stay
+            // silent instead of suggesting a non-equivalent native redirect.
+            return false;
+        }
+    }
+
     /// <summary>Dialect check for a script about to start as a background job
     /// (shell-dialect plan, slice 2): must run BEFORE the job starts, so a
     /// detected script is refused fast instead of dying in its log. Resolves
@@ -1535,9 +1575,21 @@ public sealed class RunspaceHost : IDisposable
 
     private static InvokeResult WithDispatchRouting(
         InvokeResult result,
-        ExecutionDispatch dispatch) =>
-        result with
+        ExecutionDispatch dispatch)
+    {
+        var warnings = result.Warnings;
+        if (result.Success &&
+            result.Disposition == InvokeDisposition.Completed &&
+            result.Errors.Length == 0 &&
+            !result.PipelineHadErrors &&
+            result.ExitCode is null &&
+            dispatch.PostSuccessGuidance is { } guidance)
         {
+            warnings = [.. warnings, guidance.Render()];
+        }
+        return result with
+        {
+            Warnings = warnings,
             Routing = new ExecutionRouteSummary(
                 dispatch.RequestedRoute,
                 dispatch.ExecutionPath,
@@ -1548,6 +1600,7 @@ public sealed class RunspaceHost : IDisposable
                     dispatch.Plan.OriginalScript,
                     StringComparison.Ordinal)),
         };
+    }
 
     private static (string Output, OutputShapingSummary? Shaping)
         CaptureInvocationOutput(
@@ -1640,6 +1693,11 @@ public sealed class RunspaceHost : IDisposable
                 if (checkDialect)
                 {
                     var commands = CaptureForegroundCommandFacts(runspace, script);
+                    var workingDirectory =
+                        TryCaptureCurrentFileSystemLocation(runspace);
+                    var allowFileSystemGuidance =
+                        IsCurrentLocationFileSystem(runspace) &&
+                        AllowsAdvisoryFileWriteGuidance(runspace);
                     var assessment = TrustedPreflightClassifier.AssessShellDialect(script, commands);
                     var findingOverride = DialectFindingOverrideForTests;
                     var finding = findingOverride is null
@@ -1649,8 +1707,6 @@ public sealed class RunspaceHost : IDisposable
                     {
                         if (assessment.PowerShellParseFatal)
                         {
-                            var workingDirectory =
-                                TryCaptureCurrentFileSystemLocation(runspace);
                             if (_bashExecutableIdentity is not null &&
                                 effectiveRtkIdentity is not null &&
                                 workingDirectory is not null)
@@ -1688,7 +1744,8 @@ public sealed class RunspaceHost : IDisposable
                         commands,
                         raw,
                         compressAvailable: !raw && primed.CompressCommand is not null,
-                        ResolutionContext.Warm);
+                        ResolutionContext.Warm,
+                        allowFileSystemGuidance);
                 }
                 return (Refusal: (string?)null, Plan: plan);
             }, CancellationToken.None);
@@ -2027,6 +2084,7 @@ public sealed class RunspaceHost : IDisposable
                     WarmStateLost: wedged)
                 {
                     OutputShaping = outputShaping,
+                    PipelineHadErrors = ps.HadErrors,
                 }, dispatch);
             }
             catch (RuntimeException ex)

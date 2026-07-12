@@ -42,6 +42,12 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
         Assert.DoesNotContain(options.EvidenceDirectory, auditText, StringComparison.Ordinal);
         using var outcome = JsonDocument.Parse(fixture.Sink.Lines[1]);
         Assert.Equal(
+            "stdout",
+            outcome.RootElement.GetProperty("request").GetProperty("destination_kind").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            outcome.RootElement.GetProperty("request").GetProperty("destination_path").ValueKind);
+        Assert.Equal(
             stored.ScriptDigest,
             outcome.RootElement.GetProperty("request").GetProperty("original_script_digest").GetString());
         Assert.Equal(
@@ -122,7 +128,7 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
     }
 
     [Fact]
-    public void Export_creates_one_protected_file_and_never_audits_its_path()
+    public void Export_records_its_protected_destination_without_evidence_bytes()
     {
         var options = Options();
         var stored = new ScriptEvidenceStore(options).Store("Get-ExportedSecret");
@@ -140,8 +146,15 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
             fixture.Sink.Lines.Select(EventType).ToArray());
         var auditText = string.Concat(
             fixture.Sink.Lines.Select(line => Encoding.UTF8.GetString(line)));
-        Assert.DoesNotContain(outputPath, auditText, StringComparison.Ordinal);
+        Assert.Contains(Path.GetFullPath(outputPath), auditText, StringComparison.Ordinal);
         Assert.DoesNotContain("ExportedSecret", auditText, StringComparison.Ordinal);
+        using var outcome = JsonDocument.Parse(fixture.Sink.Lines[1]);
+        Assert.Equal(
+            "protected_file",
+            outcome.RootElement.GetProperty("request").GetProperty("destination_kind").GetString());
+        Assert.Equal(
+            Path.GetFullPath(outputPath),
+            outcome.RootElement.GetProperty("request").GetProperty("destination_path").GetString());
     }
 
     [Fact]

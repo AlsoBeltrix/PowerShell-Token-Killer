@@ -62,7 +62,8 @@ internal static class AuditEvidenceSpoolScanner
     private static readonly HashSet<string> RequestProperties = new(
         [
             "tool", "action", "provided_fields", "session_requested", "cwd",
-            "timeout_ms", "deadline_utc", "route", "background", "raw",
+            "destination_kind", "destination_path", "timeout_ms", "deadline_utc",
+            "route", "background", "raw",
             "list_available", "job_id", "offset", "expected_generation",
             "force", "template", "allow_cold_background", "max_bytes",
             "pattern_fingerprint", "output_handle_digest",

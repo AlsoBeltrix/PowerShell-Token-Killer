@@ -58,8 +58,9 @@ public sealed class AuditEventTests
             ["call_id", "job_id", "parent_event_id", "trace_id", "plan_id"],
             Names(root, "correlation"));
         Assert.Equal(
-            ["tool", "action", "provided_fields", "session_requested", "cwd", "timeout_ms",
-             "deadline_utc", "route", "background", "raw", "list_available", "job_id", "offset",
+            ["tool", "action", "provided_fields", "session_requested", "cwd", "destination_kind",
+             "destination_path", "timeout_ms", "deadline_utc", "route", "background", "raw",
+             "list_available", "job_id", "offset",
              "expected_generation", "force", "template", "allow_cold_background", "max_bytes",
              "pattern_fingerprint", "output_handle_digest", "original_script_digest", "script_evidence_id"],
             Names(root, "request"));
@@ -165,6 +166,20 @@ public sealed class AuditEventTests
             1, null, CompleteInput() with
             {
                 Request = CompleteInput().Request with { Cwd = "has\0nul" }
+            }));
+        Assert.Throws<AuditEventValidationException>(() => Serialize(
+            1, null, CompleteInput() with
+            {
+                Request = CompleteInput().Request with { DestinationKind = "arbitrary" }
+            }));
+        Assert.Throws<AuditEventValidationException>(() => Serialize(
+            1, null, CompleteInput() with
+            {
+                Request = CompleteInput().Request with
+                {
+                    DestinationKind = "stdout",
+                    DestinationPath = "/should-not-exist",
+                }
             }));
         Assert.Throws<AuditEventValidationException>(() => Serialize(
             1, null, CompleteInput() with

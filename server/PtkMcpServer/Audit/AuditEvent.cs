@@ -68,6 +68,8 @@ internal sealed record AuditRequest
     public IReadOnlyList<string> ProvidedFields { get; init; } = Array.Empty<string>();
     public string? SessionRequested { get; init; }
     public string? Cwd { get; init; }
+    public string? DestinationKind { get; init; }
+    public string? DestinationPath { get; init; }
     public long? TimeoutMs { get; init; }
     public DateTimeOffset? DeadlineUtc { get; init; }
     public string? Route { get; init; }
@@ -161,6 +163,8 @@ internal static class AuditEventSerializer
         new(["unknown", "transport_only", "client_asserted", "authenticated"], StringComparer.Ordinal);
     private static readonly HashSet<string> Routes =
         new(["auto", "pwsh", "rtk"], StringComparer.Ordinal);
+    private static readonly HashSet<string> DestinationKinds =
+        new(["stdout", "protected_file"], StringComparer.Ordinal);
     private static readonly HashSet<string> Domains =
         new(["powershell", "native_terminal", "mixed_dataflow", "bash"], StringComparer.Ordinal);
     private static readonly HashSet<string> EffectiveRoutes =
@@ -354,6 +358,18 @@ internal static class AuditEventSerializer
         RequireMachineName(value.Action, "request.action", nullable: true);
         RequireSessionName(value.SessionRequested, "request.session_requested", nullable: true);
         RequirePath(value.Cwd, "request.cwd", nullable: true);
+        RequireEnum(
+            value.DestinationKind,
+            DestinationKinds,
+            "request.destination_kind",
+            nullable: true);
+        RequirePath(value.DestinationPath, "request.destination_path", nullable: true);
+        if (value.DestinationKind != "protected_file" && value.DestinationPath is not null)
+        {
+            throw Invalid(
+                "request.destination_path",
+                "must be null without a protected_file destination");
+        }
         RequireNonNegative(value.TimeoutMs, "request.timeout_ms");
         RequireNullableUtc(value.DeadlineUtc, "request.deadline_utc");
         RequireEnum(value.Route, Routes, "request.route", nullable: true);
@@ -580,6 +596,8 @@ internal static class AuditEventSerializer
         writer.WriteEndArray();
         WriteString(writer, "session_requested", input.Request.SessionRequested);
         WriteString(writer, "cwd", input.Request.Cwd);
+        WriteString(writer, "destination_kind", input.Request.DestinationKind);
+        WriteString(writer, "destination_path", input.Request.DestinationPath);
         WriteNumber(writer, "timeout_ms", input.Request.TimeoutMs);
         WriteTimestamp(writer, "deadline_utc", input.Request.DeadlineUtc);
         WriteString(writer, "route", input.Request.Route);

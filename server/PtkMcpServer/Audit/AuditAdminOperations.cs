@@ -158,6 +158,8 @@ internal sealed class AuditAdminOperations
         string? outputPath)
     {
         var parsedEvidenceId = TryParseEvidenceId(evidenceId);
+        var destinationKind = destination is not null ? "stdout" : "protected_file";
+        var auditedDestinationPath = TryCanonicalDestinationPath(outputPath);
         EvidenceExportPublication? exportPublication = null;
         var readWriteStarted = false;
         long? readBytesReleased = null;
@@ -173,7 +175,9 @@ internal sealed class AuditAdminOperations
             scriptDigest: null,
             bytesReturned: null,
             parentEventId: null,
-            declaredTarget: null);
+            declaredTarget: null,
+            destinationKind,
+            auditedDestinationPath);
 
         try
         {
@@ -222,7 +226,9 @@ internal sealed class AuditAdminOperations
                 reference.ScriptDigest,
                 reference.ByteLength,
                 intent.EventId,
-                declaredTarget: null);
+                declaredTarget: null,
+                destinationKind,
+                auditedDestinationPath);
             exportPublication?.CompleteAfterAuditOutcome();
             return reference;
         }
@@ -236,6 +242,8 @@ internal sealed class AuditAdminOperations
                 intent.EventId,
                 declaredTarget: null,
                 reservation,
+                destinationKind,
+                auditedDestinationPath,
                 failureDetailCode: destination is null
                     ? "operation.failed"
                     : readBytesReleased.HasValue
@@ -516,6 +524,8 @@ internal sealed class AuditAdminOperations
         Guid parentEventId,
         string? declaredTarget,
         AuditReservation reservation,
+        string? destinationKind = null,
+        string? destinationPath = null,
         string failureDetailCode = "operation.failed",
         string? failureScriptDigest = null,
         long? failureBytesReturned = null)
@@ -532,7 +542,9 @@ internal sealed class AuditAdminOperations
                 failureScriptDigest,
                 failureBytesReturned,
                 parentEventId,
-                declaredTarget);
+                declaredTarget,
+                destinationKind,
+                destinationPath);
         }
         catch (Exception auditFailure) when (!IsFatal(auditFailure))
         {
@@ -572,7 +584,9 @@ internal sealed class AuditAdminOperations
         string? scriptDigest,
         long? bytesReturned,
         Guid? parentEventId,
-        string? declaredTarget)
+        string? declaredTarget,
+        string? destinationKind = null,
+        string? destinationPath = null)
     {
         var health = _journal.Health.Snapshot();
         var unhealthy = health.State is AuditHealthState.Degraded or AuditHealthState.Unavailable;
@@ -591,6 +605,8 @@ internal sealed class AuditAdminOperations
             {
                 Tool = "audit_admin",
                 Action = action,
+                DestinationKind = destinationKind,
+                DestinationPath = destinationPath,
                 ScriptEvidenceId = evidenceId,
                 OriginalScriptDigest = scriptDigest,
             },
@@ -644,6 +660,21 @@ internal sealed class AuditAdminOperations
             return null;
         }
         return parsed;
+    }
+
+    private static string? TryCanonicalDestinationPath(string? outputPath)
+    {
+        if (string.IsNullOrWhiteSpace(outputPath)) return null;
+        try
+        {
+            return Path.IsPathFullyQualified(outputPath)
+                ? Path.GetFullPath(outputPath)
+                : null;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return null;
+        }
     }
 
     private static bool IsUuidV7(Guid value)

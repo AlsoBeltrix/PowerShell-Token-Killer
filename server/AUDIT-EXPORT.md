@@ -109,9 +109,54 @@ The OTLP body contains the core audit JSON record and useful fields are also
 projected into OTLP attributes. Exact submitted script bytes are deliberately
 excluded: the exported event carries only its opaque local evidence ID and
 SHA-256 digest. Evidence files are sensitive and remain in the owner-only local
-store. PTK does not yet expose an operator evidence-read or audit-administration
-API; do not give the model direct filesystem access merely to compensate for
-that missing surface.
+store. They are never included in the automatic OTLP export.
+
+## Out-of-band audit administration
+
+`PtkAuditAdmin` is a separate executable, not an MCP tool. It uses the same
+`PTK_AUDIT_ROOT` and optional `PTK_AUDIT_EXPORT_CONFIG` startup environment as
+the server. Every evidence access durably records an intent before opening the
+payload and records success or failure afterward. Core events contain the
+opaque evidence ID, digest, and byte count, never the script bytes or export
+path.
+
+```text
+PtkAuditAdmin evidence read --id <evidence-uuid>
+PtkAuditAdmin evidence export --id <evidence-uuid> --output <absolute-path>
+```
+
+`read` writes the exact sensitive script bytes to stdout. `export` exclusively
+creates a new file in an already owner-only protected directory and refuses an
+existing path, symlink, or reparse point. Protect stdout, shell history, and
+redirections as incident evidence too.
+
+A permanent partial/data/protocol export block never clears automatically.
+With the target supervisor stopped, an operator can either attest a separately
+verified durable receipt or explicitly acknowledge an evidence gap:
+
+```text
+PtkAuditAdmin disposition --boot-id <uuid> --event-id <uuid> \
+  --verified-receipt-digest <lowercase-sha256>
+
+PtkAuditAdmin disposition --boot-id <uuid> --event-id <uuid> \
+  --acknowledged-gap-reason <machine-code>
+```
+
+The command takes the target boot's exclusive checkpoint lease, resolves the
+exact blocked record, durably persists an idempotent proof-bound disposition
+intent, and only then advances that one checkpoint. The receipt digest is an
+operator attestation; this executable does not query or independently verify a
+SIEM. Configuration/authentication blocks still require corrected startup
+configuration rather than operator disposition.
+
+This separation is an interface boundary, not hostile same-user isolation.
+An agent allowed to run arbitrary native commands under the PTK account can
+invoke any installed executable that OS policy makes reachable, including
+`PtkAuditAdmin`. Keep administrative invocation outside the model-controlled
+session and enforce any stronger restriction with a separate operator login,
+application control, elevation boundary, or equivalent OS policy. PTK cannot
+manufacture that boundary while the harness and administrator share one
+unrestricted identity.
 
 ## SIEM and log-routing patterns
 
@@ -144,6 +189,9 @@ At minimum, alert on:
 - `server.started` without a corresponding `server.stopped`, while allowing for
   a known hard kill or host failure; and
 - audit-storage unavailability or protection failures on the PTK host.
+
+Also alert on `export.disposition_intent`, especially an acknowledged gap, and
+on an evidence-access intent without its matching completed/failed outcome.
 
 Keep receiver-side retention, access control, and alert administration outside
 the PTK/harness identity. Local files are protected from other identities but

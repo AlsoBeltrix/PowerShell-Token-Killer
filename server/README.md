@@ -76,9 +76,14 @@ not run. `ptk_state` alone may return the minimal supervisor-only
 runspace or jobs in that mode.
 
 Local journal retention defaults to 30 days. Exact-script evidence has a
-bounded quota but is not independently evicted while retained journal records
-may still reference it; PTK fails new script-bearing admission when that quota
-is full pending coordinated journal/evidence retention.
+bounded quota. Local-only evidence becomes ordinarily retention-eligible only
+after its referencing audit append is durable. In anchored mode, acknowledged
+closed spool prefixes and their referenced evidence become eligible only after
+the exact remote acknowledgment is durably checkpointed; unacknowledged
+segments remain pinned. Completed chains retire through a crash-recoverable
+durable deletion intent instead of leaving checkpoint controls forever. PTK
+fails new script-bearing admission rather than deleting evidence whose status
+is ambiguous.
 `PTK_AUDIT_ROOT` may select a different absolute operator-controlled root at
 process startup. With `PTK_AUDIT_EXPORT_CONFIG` absent, the executable remains
 local-only and needs no SIEM. Supplying that variable opts into strict anchored
@@ -95,6 +100,13 @@ duplicates. Exact submitted script bytes remain only in the protected local
 evidence store; they are not sent in OTLP records. Configuration, receiver
 durability requirements, and SIEM adapter patterns are in
 [Anchored audit export](AUDIT-EXPORT.md).
+
+The separate `PtkAuditAdmin` executable provides audited evidence read/export
+and exact permanent-block disposition without adding a model-facing MCP tool.
+It is still callable by any process that the OS permits to execute it; use an
+external operator/OS boundary when the model-controlled account must not have
+that capability. Commands and proof semantics are documented in
+[Anchored audit export](AUDIT-EXPORT.md#out-of-band-audit-administration).
 
 `ptk_invoke` returns command output, then labeled sections when present, in
 this order: `[exit] N`, `[stderr]`, `[errors]`, and `[warnings]`. Empty

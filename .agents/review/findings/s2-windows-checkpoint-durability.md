@@ -3,7 +3,7 @@
 **Severity**: HIGH — a Windows power loss can revert a checkpoint already used
 to authorize retention, causing duplicate export or permanent chain-adoption
 failure after acknowledged data was deleted.
-**Status**: In progress
+**Status**: Verified
 **Branch**: `fix/s2-windows-checkpoint-durability`
 **Commit**: `e4e5a697d3f65731bdf5356c814525e50214e181`
 
@@ -120,3 +120,16 @@ the retained `GENERIC_WRITE` flush handle and received
 `ERROR_SHARING_VIOLATION`. This is a product integration regression, not a
 fixture failure; the durability barrier must coexist with the checkpoint's
 strict read-sharing contract.
+
+Claude Code 2.1.207 re-reviewed fixed head
+`70dff0246c78b752f2c1dc700d0f7a0b3bdc6fc9` against
+`0c9f430b71f14ac40c89aad6ad7da712aa2fc47e`, `guard_confirmed=true`, verdict
+`accepted`, recorded 2026-07-12T16:46:25Z. In a disposable `netwatch-01`
+checkout it independently removed the flush call and observed the ordering
+guard fail, then disabled error-32 retry and observed the deterministic reader
+guard fault before its retry observer. Byte-exact restoration passed focused
+4/4 plus ten additional race iterations. The local review tree passed .NET
+927/927, Pester 134 with two platform skips, and the zero-warning handshake;
+all local and remote artifacts were removed. The only non-material observation
+was that a theoretical non-Win32 `IOException` with low word 32 could be
+delayed up to one second before propagating unchanged.

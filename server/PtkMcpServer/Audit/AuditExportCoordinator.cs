@@ -26,7 +26,7 @@ internal sealed record AuditExportCoordinatorStep(
 /// second, retained segment handles third; missing control state is never
 /// created by this path.
 /// </summary>
-internal sealed class AuditExportCoordinator : IDisposable
+internal sealed class AuditExportCoordinator : IAuditExportStepSource
 {
     private readonly AuditOptions _options;
     private readonly AuditBootExportSource _current;
@@ -74,7 +74,7 @@ internal sealed class AuditExportCoordinator : IDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    internal async Task<AuditExportCoordinatorStep> ExportNextAsync(
+    public async Task<AuditExportCoordinatorStep> ExportNextAsync(
         CancellationToken cancellationToken)
     {
         var prior = Interlocked.CompareExchange(ref _lifecycle, 1, 0);

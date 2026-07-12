@@ -3,7 +3,7 @@
 **Severity**: HIGH — a Windows power loss can revert a checkpoint already used
 to authorize retention, causing duplicate export or permanent chain-adoption
 failure after acknowledged data was deleted.
-**Status**: Verified
+**Status**: In progress
 **Branch**: `fix/s2-windows-checkpoint-durability`
 **Commit**: `e56d9f2d1b5efc7366be5809d4355b6c3ba6c47f`
 
@@ -94,3 +94,13 @@ fail, restored byte-exact source, and passed 2/2 again. It also passed local
 handshake. Static review confirmed write access, retained-handle ordering, and
 fail-closed checkpoint recovery before retention authorization; all local and
 remote review artifacts were removed.
+
+Post-merge exact-head Windows validation at
+`32cd67e236260a064389ed21de6dc642f84e5628` reopened this finding after the
+accepted review. The full suite failed
+`Concurrent_readers_observe_only_complete_atomic_checkpoints`: a reader opening
+the newly published checkpoint with `FileShare.Read | FileShare.Delete` raced
+the retained `GENERIC_WRITE` flush handle and received
+`ERROR_SHARING_VIOLATION`. This is a product integration regression, not a
+fixture failure; the durability barrier must coexist with the checkpoint's
+strict read-sharing contract.

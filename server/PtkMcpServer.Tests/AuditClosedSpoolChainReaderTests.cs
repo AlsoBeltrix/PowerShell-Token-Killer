@@ -602,6 +602,31 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
     }
 
     [Fact]
+    public async Task Snapshot_acquisition_waits_for_the_shared_spool_quota_lease()
+    {
+        var (options, store) = OwnedFixture();
+        using (store)
+        {
+            var record = Records(1)[0];
+            WriteSegment(options, 0, record);
+            using var quota = AuditSpoolQuotaLease.AcquireExisting(
+                options.SpoolDirectory);
+            using var reader = new AuditClosedSpoolChainReader(options, store);
+            var resolution = Task.Run(reader.ResolveCheckpoint);
+
+            var early = await Task.WhenAny(
+                resolution,
+                Task.Delay(TimeSpan.FromMilliseconds(250)));
+            Assert.NotSame(resolution, early);
+
+            quota.Dispose();
+            var recovered = await resolution.WaitAsync(TimeSpan.FromSeconds(10));
+            var position = Assert.IsType<AuditClosedSpoolRecovery.Record>(recovered);
+            Assert.Equal(record.EventId, position.Position.EventId);
+        }
+    }
+
+    [Fact]
     public void Path_replacement_after_acquisition_never_redirects_record_bytes()
     {
         var (options, store) = OwnedFixture();
@@ -818,6 +843,9 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
         var options = Options(NewRoot());
         var store = AuditExportCheckpointStore.CreateForWriter(options, BootId);
         SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
+        using (AuditSpoolQuotaLease.CreateControlAndAcquire(options.SpoolDirectory))
+        {
+        }
         return (options, store);
     }
 

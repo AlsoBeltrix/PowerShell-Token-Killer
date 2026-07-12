@@ -39,7 +39,6 @@ internal interface IAuditClosedSpoolPrefixEndPosition;
 /// </summary>
 internal sealed class AuditClosedSpoolChainReader : IDisposable
 {
-    private const string QuotaLockFileName = ".ptk-audit-quota.lock";
     // Snapshot integrity requires retaining every selected segment handle.
     // These fixed ceilings bound descriptor and directory-walk work even if
     // same-user spool contents no longer reflect writer-created state.
@@ -142,11 +141,13 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
             PendingResolution? pending = null;
             try
             {
+                using var quotaLease = AuditSpoolQuotaLease.AcquireExisting(_spoolRoot);
                 _checkpointLease.WithOwnedCheckpoint(checkpoint =>
                 {
                     pending = ResolveOwnedCheckpoint(
                         checkpoint,
-                        exclusiveLiveBoundary);
+                        exclusiveLiveBoundary,
+                        quotaLease);
                     return true;
                 });
                 var resolved = pending ?? throw new IOException(
@@ -165,31 +166,44 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
 
     private PendingResolution ResolveOwnedCheckpoint(
         AuditExportCheckpoint checkpoint,
-        AuditSpoolSegmentIdentity? exclusiveLiveBoundary)
+        AuditSpoolSegmentIdentity? exclusiveLiveBoundary,
+        AuditSpoolQuotaLease quotaLease)
     {
-        AuditExportCheckpointCodec.Validate(checkpoint);
-        if (checkpoint.SupervisorBootId != _supervisorBootId)
-        {
-            throw new IOException(
-                "The owned audit export checkpoint belongs to a different spool chain.");
-        }
-
-        if (exclusiveLiveBoundary is not null && checkpoint.ChainComplete)
-        {
-            throw new IOException(
-                "A complete audit export checkpoint cannot be resolved as a live prefix.");
-        }
-
-        var inventory = InventoryClosedChain(exclusiveLiveBoundary);
-        var acquired = AcquireClosedChain(inventory);
+        SegmentHandle[] acquired = [];
         try
         {
+            try
+            {
+                AuditExportCheckpointCodec.Validate(checkpoint);
+                if (checkpoint.SupervisorBootId != _supervisorBootId)
+                {
+                    throw new IOException(
+                        "The owned audit export checkpoint belongs to a different spool chain.");
+                }
+
+                if (exclusiveLiveBoundary is not null && checkpoint.ChainComplete)
+                {
+                    throw new IOException(
+                        "A complete audit export checkpoint cannot be resolved as a live prefix.");
+                }
+
+                var inventory = InventoryClosedChain(exclusiveLiveBoundary);
+                acquired = AcquireClosedChain(inventory);
                 // The complete handle set is already held FileShare.None.
                 // This second inventory rejects a name-set race before any
                 // checkpoint decision is based on the retained inodes.
                 _handlesAcquiredForTests?.Invoke();
                 VerifyStableInventory(inventory, exclusiveLiveBoundary);
                 VerifyRetainedIdentities(acquired);
+                quotaLease.VerifyOwnership();
+            }
+            finally
+            {
+                // Retained no-share segment handles now freeze the selected
+                // snapshot; do not hold the global quota during record parsing
+                // or network work.
+                quotaLease.Dispose();
+            }
 
                 var snapshotToken = new object();
                 RecordPosition? nextRecord = null;
@@ -485,7 +499,7 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
             if (entry is FileInfo quotaLock &&
                 string.Equals(
                     quotaLock.Name,
-                    QuotaLockFileName,
+                    AuditSpoolQuotaLease.ControlFileName,
                     StringComparison.Ordinal))
             {
                 SecureAuditStorage.VerifyExternalProtectedFile(quotaLock.FullName);

@@ -1305,3 +1305,13 @@ push.
 close audited admission until restart, and misstate the client-visible refusal
 as completed. Canonical detail is in
 `.agents/review/findings/s2-job-id-audit-poison.md`.
+
+---
+
+**SLICE 2 INTEGRATED REVIEW FINDING — ANCHORED TEMP RECOVERY OPEN** (Claude
+Code 2.1.207, fixed head `6cbd1d3061985f06bb0a5da8bcf2faa84a5bb826`
+against `78e256ca0f3b1253aa97dd984f1d913429ea452a`,
+`guard_confirmed=true`, verdict `reopened`, 2026-07-12T14:33:24Z). A hard
+death after protected rotation-temporary creation can make anchored startup
+and `ptk-audit-admin` reject the spool forever. Canonical detail is in
+`.agents/review/findings/s2-anchored-temp-recovery.md`.

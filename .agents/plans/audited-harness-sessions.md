@@ -5,8 +5,9 @@ reviewloop convergence. Slices 0-1 are complete: Slice 1's mandatory audit
 foundation landed at `460c106` and passed the required Claude reviewloop on
 2026-07-11. Slice 2 is implementing: job/control/retrieval lifecycle work is
 committed at `8470b4b`, and the protected export-configuration identity
-foundation is committed at `5238984`; OTLP checkpoint/export/retention remains
-in flight.
+foundation is committed at `5238984`; strict exporter configuration is
+committed at `eb0060f`; durable atomic sidecar replacement is committed at
+`815a3f1`. OTLP checkpoint/export/retention remains in flight.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -1115,6 +1116,14 @@ block. Core events are emitted only on exporter lifecycle transitions,
 operator disposition, or hysteresis-bounded backlog threshold crossings, not
 on each acknowledgment, so an idle fully acknowledged exporter drains and
 becomes quiescent rather than recursively creating checkpoint traffic.
+
+**Slice 2 implementation clarification (2026-07-11, pending final Slice 2
+review):** checkpoint and exclusive exporter-lease ownership are per
+supervisor boot, matching the plan's one spool per supervisor. Segment order
+is total only within one boot chain; UUIDv4 boot IDs provide no safe global
+order. A later process may adopt an orphan boot only after it holds that
+boot's lease and every segment in the chain is unlocked. No checkpoint may
+advance another live supervisor's chain.
 
 Freeze one operator-controlled protection mode at supervisor startup; there
 is no per-call/model override:

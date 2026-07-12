@@ -9,9 +9,14 @@ short and update it when important repo facts change.
   `feat/audited-harness-slice2`.** Commit `8470b4b` completes current-server
   job/control/retrieval lifecycle facts, truthful kill/reset attribution, and
   fail-closed read release; commit `5238984` adds the persistent protected
-  HMAC key and literal frozen export-configuration identity. Independent
-  reviews accepted both deltas after red→green guards. Anchored mode remains
-  unreachable while OTLP checkpoint/export/retention is incomplete.
+  HMAC key and literal frozen export-configuration identity; commit `eb0060f`
+  adds strict secret-safe exporter configuration and TLS material loading; and
+  commit `815a3f1` adds protected durable atomic sidecar replacement.
+  Independent reviews accepted the deltas after red→green guards. Anchored
+  mode remains unreachable while OTLP checkpoint/export/retention is
+  incomplete. Checkpoint implementation is proceeding per supervisor boot,
+  with one sidecar/lease for each independently ordered boot chain; the plan
+  records this as a pending-review implementation clarification.
 - **Local branch management is delegated for the remaining audited-harness
   implementation** (owner, 2026-07-11): create, switch, merge, and delete local
   implementation/review branches without per-merge confirmation. Push remains
@@ -49,10 +54,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue only audited-harness Slice 2 from `5238984`: add strict frozen
-   exporter configuration, at-least-once SIEM/OTLP export/checkpoints,
-   evidence-read/export audit, unclosed-lifecycle recovery, and coordinated
-   retention; run the required Claude reviewloop before Slice 3.
+1. Continue only audited-harness Slice 2 from `815a3f1`: add the strict
+   per-supervisor-boot checkpoint/lease and spool reader, then at-least-once
+   SIEM/OTLP export, evidence-read/export audit, unclosed-lifecycle recovery,
+   and coordinated retention; run the required Claude reviewloop before
+   Slice 3.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
@@ -101,9 +107,9 @@ short and update it when important repo facts change.
 - Audited-session slices 0-1 are complete. Slice 1's fixed-SHA Claude verdict
   lives in `.agents/review/index.md`; its macOS, Windows, and ARM64 verification
   evidence lives in `.agents/machines.md`.
-- Slice 2 is in flight; exact-checkout local/Windows evidence through
-  `5238984` is recorded in `.agents/machines.md`. No Slice 2 Claude verdict or
-  landing record exists yet.
+- Slice 2 is in flight; exact-checkout local evidence through `815a3f1` and
+  Windows evidence through `eb0060f` are recorded in `.agents/machines.md`.
+  No Slice 2 Claude verdict or landing record exists yet.
 
 ## Active Sources
 

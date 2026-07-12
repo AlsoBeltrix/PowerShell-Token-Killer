@@ -38,7 +38,7 @@ installed-payload update._
 
 ### Audited-harness Slice 2 in-flight checkout validation
 
-_Verified 2026-07-11 through `5238984`; this was checkout validation, not an
+_Verified 2026-07-11 through `815a3f1`; this was checkout validation, not an
 installed-payload update._
 
 - At `8470b4b`, the full .NET suite passed 390/390, the PowerShell module suite
@@ -48,6 +48,14 @@ installed-payload update._
   independent literal byte-vector guard, forced eight-publisher collision
   coverage, strict-UTF-8 rejection, corrupt/missing-key refusal, and
   crash-temp/link guards; each new behavior was proved red before restoration.
+- At `eb0060f`, the full .NET suite passed 455/455. Strict configuration,
+  read-only protection checks, endpoint noncanonicalization, and Schannel PEM
+  client-certificate loading passed focused red→green guards.
+- At `815a3f1`, the full .NET suite passed 464/464, the PowerShell module suite
+  passed 134/136 with its two Windows-only skips, and the stdio handshake
+  passed with a zero-warning build. Atomic replacement guards rejected
+  delete-gap-move publication, post-commit destination deletion, and removed
+  owner-only protection checks.
 
 ## `NETWATCH-01` — Michael's Windows machine
 
@@ -98,13 +106,19 @@ installed Windows payload was not changed._
 
 ### Audited-harness Slice 2 in-flight checkout validation
 
-_Verified 2026-07-11 at `8470b4b` in a disposable copy under `F:\dev`; the
+_Verified 2026-07-11 through `eb0060f` in disposable copies under `F:\dev`; the
 installed Windows payload and existing repository were not changed._
 
 - The full .NET suite passed 390/390; the PowerShell module suite passed
   136/136; the stdio handshake passed with a zero-warning build.
 - The transfer archive and disposable validation directory were removed after
   the run.
+- At `eb0060f`, the full .NET suite passed 455/455. Focused configuration/ACL
+  and Schannel mTLS guards also passed. The exact Windows Pester and handshake
+  checks were not rerun at this commit.
+- `815a3f1` Windows validation remains pending because `netwatch-01` stopped
+  resolving from the development host during this checkpoint; no host-key
+  bypass was attempted.
 
 ## Disposable Ubuntu 26.04 ARM64 validation
 

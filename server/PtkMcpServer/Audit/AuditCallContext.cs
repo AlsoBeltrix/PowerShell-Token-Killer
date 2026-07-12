@@ -229,9 +229,7 @@ internal sealed class AuditCallContext
         _routing = _routing with
         {
             RequestedRoute = requested,
-            PermittedFallbacks = _request.Raw == true || requested == "pwsh"
-                ? []
-                : ["powershell_direct"],
+            PermittedFallbacks = [],
         };
         try
         {
@@ -248,7 +246,7 @@ internal sealed class AuditCallContext
     }
 
     internal ValueTask<bool> AuthorizeInvocationAsync(
-        InvocationPreparation preparation,
+        ExecutionPlan plan,
         CancellationToken _)
     {
         EnsureActive();
@@ -260,11 +258,16 @@ internal sealed class AuditCallContext
 
         _routing = _routing with
         {
-            Domain = preparation.EffectiveRoute == "rtk" ? "native_terminal" : "powershell",
-            RequestedRoute = preparation.RequestedRoute,
-            EffectiveRoute = preparation.EffectiveRoute,
-            PermittedFallbacks = preparation.PermittedFallbacks,
-            FallbackReason = preparation.FallbackReason,
+            Domain = plan.Domain?.ToMachineCode(),
+            RequestedRoute = plan.RequestedRoute.ToMachineCode(),
+            EffectiveRoute = plan.EffectiveRoute,
+            PermittedFallbacks = plan.PermittedFallbacks
+                .Select(path => path.ToMachineCode())
+                .ToArray(),
+            RtkVersion = plan.RtkExecutableIdentity?.Verified?.Version,
+            RtkBinaryDigest = plan.RtkExecutableIdentity?.Verified?.BinaryDigest,
+            Provenance = plan.OutputProvenance.ToMachineCode(),
+            FallbackReason = plan.FallbackReason?.ToMachineCode(),
         };
 
         try

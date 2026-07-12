@@ -90,65 +90,6 @@ internal static class TrustedPreflightClassifier
         ];
     }
 
-    internal static string ResolveScript(
-        string script,
-        string route,
-        string? effectiveRtkPath,
-        TrustedCommandSnapshot commands)
-    {
-        ArgumentNullException.ThrowIfNull(script);
-        ArgumentNullException.ThrowIfNull(route);
-        ArgumentNullException.ThrowIfNull(commands);
-
-        if (route.Equals("pwsh", StringComparison.OrdinalIgnoreCase)) return script;
-        if (!route.Equals("auto", StringComparison.OrdinalIgnoreCase) &&
-            !route.Equals("rtk", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new ArgumentOutOfRangeException(nameof(route), route, "Route must be auto, pwsh, or rtk.");
-        }
-        if (string.IsNullOrEmpty(effectiveRtkPath)) return script;
-
-        var ast = Parser.ParseInput(script, out _, out var parseErrors);
-        if (parseErrors.Length > 0) return script;
-        if (ast.ParamBlock is not null || ast.BeginBlock is not null || ast.ProcessBlock is not null)
-            return script;
-        if (ast.EndBlock is null || ast.EndBlock.Statements.Count != 1) return script;
-        if (ast.EndBlock.Statements[0] is not PipelineAst pipeline) return script;
-        if (pipeline.PipelineElements.Count != 1) return script;
-        if (pipeline.PipelineElements[0] is not CommandAst command) return script;
-        if (command.InvocationOperator != TokenKind.Unknown || command.Redirections.Count > 0)
-            return script;
-
-        var elements = command.CommandElements;
-        if (elements.Count == 0 || elements[0] is not StringConstantExpressionAst commandName)
-            return script;
-        var name = commandName.Value;
-        if (Path.GetFileNameWithoutExtension(name).Equals("rtk", StringComparison.OrdinalIgnoreCase))
-            return script;
-
-        foreach (var element in elements.Skip(1))
-        {
-            var isConstant = element is ConstantExpressionAst ||
-                element is CommandParameterAst parameter &&
-                (parameter.Argument is null || parameter.Argument is ConstantExpressionAst);
-            if (!isConstant) return script;
-        }
-
-        if (!route.Equals("rtk", StringComparison.OrdinalIgnoreCase))
-        {
-            var resolved = commands.Resolve(name, CommandTypes.All);
-            if (resolved?.CommandType != CommandTypes.Application) return script;
-            var extension = Path.GetExtension(resolved.Source ?? string.Empty);
-            if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
-                extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
-            {
-                return script;
-            }
-        }
-
-        return $"& '{effectiveRtkPath.Replace("'", "''")}' {command.Extent.Text}";
-    }
-
     internal static string? GetShellDialectFinding(
         string script,
         TrustedCommandSnapshot commands)

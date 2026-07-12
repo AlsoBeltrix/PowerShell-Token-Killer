@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
@@ -43,11 +44,12 @@ public sealed class AuditCallContextTests : IDisposable
             exactScript: "'terminal-matrix'");
         Assert.True(fixture.Context.BeginValidation());
         Assert.True(await fixture.Context.AuthorizeInvocationAsync(
-            new InvocationPreparation(
-                EffectiveRoute: "powershell_direct",
-                RequestedRoute: "auto",
-                PermittedFallbacks: ["powershell_direct"],
-                FallbackReason: null),
+            ExecutionPlanner.CreateDirect(
+                "'terminal-matrix'",
+                "auto",
+                raw: false,
+                compressAvailable: true,
+                ResolutionContext.Warm),
             CancellationToken.None));
 
         fixture.Context.RecordInvokeResult(
@@ -80,6 +82,51 @@ public sealed class AuditCallContextTests : IDisposable
             success ? "completed" : "failed",
             disposition == InvokeDisposition.OutcomeUnknown ? "unknown" : "not_applicable",
             "not_applicable");
+    }
+
+    [Fact]
+    public async Task Invocation_audit_uses_plan_domain_not_effective_route()
+    {
+        const string script = "git diff | Set-Content patch.txt";
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", script)),
+            exactScript: script);
+        Assert.True(fixture.Context.BeginValidation());
+        var plan = new ExecutionPlan(
+            script,
+            script,
+            ExecutionDomain.MixedDataflow,
+            ExecutionPath.PowerShellDirect,
+            PreExecutionValidation.None,
+            ResolutionContext.Warm,
+            RequestedExecutionRoute.Auto,
+            OutputProvenance.PowerShellObjects,
+            ImmutableArray<ExecutionPath>.Empty,
+            fallbackReason: null,
+            rtkExecutableIdentity: null);
+
+        Assert.True(await fixture.Context.AuthorizeInvocationAsync(
+            plan,
+            CancellationToken.None));
+        fixture.Context.RecordInvokeResult(
+            new InvokeResult(
+                Success: true,
+                Output: "ok",
+                Errors: [],
+                Warnings: [],
+                TimedOut: false,
+                Disposition: InvokeDisposition.Completed,
+                UserExecutionStarted: true),
+            "ok");
+
+        var dispatched = fixture.Events()
+            .Single(value => EventType(value) == "execution.dispatched");
+        var routing = dispatched.GetProperty("routing");
+        Assert.Equal("mixed_dataflow", routing.GetProperty("domain").GetString());
+        Assert.Equal("auto", routing.GetProperty("requested_route").GetString());
+        Assert.Equal("powershell_direct", routing.GetProperty("effective_route").GetString());
+        Assert.Equal("powershell_objects", routing.GetProperty("provenance").GetString());
+        Assert.Empty(routing.GetProperty("permitted_fallbacks").EnumerateArray());
     }
 
     [Fact]

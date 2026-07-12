@@ -4,8 +4,6 @@ namespace PtkMcpServer.Tests;
 
 public sealed class TrustedPreflightClassifierTests
 {
-    private const string RtkPath = "/trusted/rtk";
-
     [Fact]
     public void Snapshot_is_case_insensitive_type_exact_and_cloneable()
     {
@@ -34,91 +32,6 @@ public sealed class TrustedPreflightClassifierTests
         Assert.Contains("export", names, StringComparer.OrdinalIgnoreCase);
         Assert.Contains("then", names, StringComparer.OrdinalIgnoreCase);
         Assert.Equal(1, names.Count(name => name.Equals("export", StringComparison.OrdinalIgnoreCase)));
-    }
-
-    [Fact]
-    public void Resolver_rewrites_one_application_and_preserves_constant_text()
-    {
-        var commands = Application("git", "/usr/bin/git");
-
-        Assert.Equal(
-            "& '/trusted/rtk' git commit -m \"hello world\"",
-            TrustedPreflightClassifier.ResolveScript(
-                "git commit -m \"hello world\"", "auto", RtkPath, commands));
-        Assert.Equal(
-            "& '/trusted/o''brien/rtk' git status",
-            TrustedPreflightClassifier.ResolveScript(
-                "git status", "auto", "/trusted/o'brien/rtk", commands));
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("param(); git status")]
-    [InlineData("begin { git status }")]
-    [InlineData("process { git status }")]
-    [InlineData("git status; git diff")]
-    [InlineData("if ($true) { git status }")]
-    [InlineData("git status | Out-Null")]
-    [InlineData("1 + 2")]
-    [InlineData("& git status")]
-    [InlineData("git log -1 > out.txt")]
-    [InlineData("$cmd status")]
-    [InlineData("rtk gain")]
-    [InlineData("/opt/RTK.EXE gain")]
-    [InlineData("git commit -m \"$msg\"")]
-    [InlineData("git -flag:$value")]
-    [InlineData("git status ||| (")]
-    public void Resolver_keeps_every_non_single_constant_command_shape_unchanged(string script)
-    {
-        Assert.Equal(
-            script,
-            TrustedPreflightClassifier.ResolveScript(
-                script, "auto", RtkPath, Application("git", "/usr/bin/git")));
-    }
-
-    [Theory]
-    [InlineData(CommandTypes.Alias, null, null)]
-    [InlineData(CommandTypes.Function, null, null)]
-    [InlineData(CommandTypes.Cmdlet, null, null)]
-    [InlineData(CommandTypes.ExternalScript, "/tmp/git.ps1", null)]
-    [InlineData(CommandTypes.Application, "/tmp/git.cmd", null)]
-    [InlineData(CommandTypes.Application, "/tmp/git.BAT", null)]
-    public void Auto_route_keeps_non_native_or_batch_resolution_on_PowerShell(
-        CommandTypes type,
-        string? source,
-        string? definition)
-    {
-        var commands = new TrustedCommandSnapshot();
-        commands.Set("git", CommandTypes.All, new ResolvedCommand(type, source, definition));
-
-        Assert.Equal(
-            "git status",
-            TrustedPreflightClassifier.ResolveScript("git status", "auto", RtkPath, commands));
-    }
-
-    [Fact]
-    public void Resolver_honors_absent_rtk_pwsh_and_forced_rtk_contracts()
-    {
-        var commands = new TrustedCommandSnapshot();
-        commands.Set("Get-ChildItem", CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Cmdlet));
-
-        Assert.Equal(
-            "git status",
-            TrustedPreflightClassifier.ResolveScript("git status", "auto", null, commands));
-        Assert.Equal(
-            "git status",
-            TrustedPreflightClassifier.ResolveScript("git status", "auto", string.Empty, commands));
-        Assert.Equal(
-            "git status",
-            TrustedPreflightClassifier.ResolveScript("git status", "PWSH", RtkPath, commands));
-        Assert.Equal(
-            "& '/trusted/rtk' Get-ChildItem",
-            TrustedPreflightClassifier.ResolveScript("Get-ChildItem", "RTK", RtkPath, commands));
-        Assert.Equal(
-            "git status | Out-Null",
-            TrustedPreflightClassifier.ResolveScript(
-                "git status | Out-Null", "rtk", RtkPath, commands));
     }
 
     public static TheoryData<string, string> BashDetections => new()
@@ -278,14 +191,6 @@ public sealed class TrustedPreflightClassifierTests
 
         Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding(
             "if $true; Get-Date; then", commands));
-    }
-
-    private static TrustedCommandSnapshot Application(string name, string source)
-    {
-        var commands = new TrustedCommandSnapshot();
-        commands.Set(name, CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Application, source));
-        return commands;
     }
 
     private static TrustedCommandSnapshot StockCommands()

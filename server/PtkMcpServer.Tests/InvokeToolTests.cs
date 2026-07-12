@@ -126,9 +126,15 @@ public sealed class InvokeToolTests : IDisposable
         }
     }
 
-    private static (DirectoryInfo dir, string path) CreateRtkStub(string body)
+    private static (DirectoryInfo dir, string path) CreateRtkStub(
+        string body,
+        string? parentDirectory = null)
     {
-        var dir = Directory.CreateTempSubdirectory("ptk-rtk-route-");
+        var dir = parentDirectory is null
+            ? Directory.CreateTempSubdirectory("ptk-rtk-route-")
+            : Directory.CreateDirectory(Path.Combine(
+                parentDirectory,
+                "ptk-rtk-route-" + Guid.NewGuid().ToString("N")));
         string path;
         if (OperatingSystem.IsWindows())
         {
@@ -147,6 +153,49 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Relative_rtk_override_is_bound_before_the_warm_cwd_changes()
+    {
+        var processCwd = Directory.GetCurrentDirectory();
+        var (rtkDir, stub) = CreateRtkStub(
+            "echo RTKROUTE %*\nexit /b 0",
+            AppContext.BaseDirectory);
+        var warmCwd = Directory.CreateTempSubdirectory("ptk-relative-rtk-cwd-");
+        var relativeStub = Path.GetRelativePath(processCwd, stub);
+        var saved = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Assert.False(Path.IsPathFullyQualified(relativeStub));
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", relativeStub);
+            var escapedCwd = warmCwd.FullName.Replace("'", "''");
+            var moved = await _host.InvokeAsync(
+                $"Set-Location -LiteralPath '{escapedCwd}'",
+                raw: true,
+                route: "pwsh");
+            Assert.True(moved.Success, string.Join(Environment.NewLine, moved.Errors));
+            ExecutionPlan? observed = null;
+
+            var result = await _host.InvokeAsync(
+                "git status",
+                (plan, _) =>
+                {
+                    observed = plan;
+                    return ValueTask.FromResult(true);
+                },
+                route: "auto");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Contains("RTKROUTE git status", result.Output);
+            Assert.Equal(Path.GetFullPath(stub), observed?.RtkExecutableIdentity?.ExecutablePath);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", saved);
+            rtkDir.Delete(recursive: true);
+            warmCwd.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Authorization_observes_exact_rtk_preparation_before_exit_reset_and_execution()
     {
         var (dir, stub) = CreateRtkStub("echo RTKROUTE %*\nexit /b 0");
@@ -156,7 +205,7 @@ public sealed class InvokeToolTests : IDisposable
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
             var order = new List<string>();
             var authorizationCalls = 0;
-            InvocationPreparation? observed = null;
+            ExecutionPlan? observed = null;
             _host.ExitCodeResetObserverForTests = () => order.Add("reset");
 
             var result = await _host.InvokeAsync(
@@ -174,10 +223,19 @@ public sealed class InvokeToolTests : IDisposable
             Assert.Contains("RTKROUTE git status", result.Output);
             Assert.Equal(1, authorizationCalls);
             Assert.NotNull(observed);
+            Assert.Equal("git status", observed.OriginalScript);
+            Assert.NotEqual(observed.OriginalScript, observed.ExecutionScript);
+            Assert.Contains(stub, observed.ExecutionScript, StringComparison.Ordinal);
+            Assert.Equal(ExecutionDomain.NativeTerminal, observed.Domain);
+            Assert.Equal(ExecutionPath.Rtk, observed.ExecutionPath);
             Assert.Equal("rtk", observed.EffectiveRoute);
-            Assert.Equal("auto", observed.RequestedRoute);
-            Assert.Equal(["powershell_direct"], observed.PermittedFallbacks);
+            Assert.Equal(PreExecutionValidation.None, observed.PreExecutionValidation);
+            Assert.Equal(ResolutionContext.Warm, observed.ResolutionContext);
+            Assert.Equal(RequestedExecutionRoute.Auto, observed.RequestedRoute);
+            Assert.Equal(OutputProvenance.RtkUnknown, observed.OutputProvenance);
+            Assert.Empty(observed.PermittedFallbacks);
             Assert.Null(observed.FallbackReason);
+            Assert.Equal(stub, observed.RtkExecutableIdentity?.ExecutablePath);
             Assert.Equal(["authorize", "reset"], order);
         }
         finally
@@ -199,7 +257,7 @@ public sealed class InvokeToolTests : IDisposable
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
             var shadow = await _host.InvokeAsync(shadowScript, raw: true, route: "pwsh");
             Assert.True(shadow.Success, string.Join(Environment.NewLine, shadow.Errors));
-            InvocationPreparation? observed = null;
+            ExecutionPlan? observed = null;
 
             var result = await _host.InvokeAsync(
                 "git status",
@@ -212,7 +270,7 @@ public sealed class InvokeToolTests : IDisposable
 
             Assert.Equal(InvokeDisposition.NotStarted, result.Disposition);
             Assert.NotNull(observed);
-            Assert.Equal("powershell_direct", observed.EffectiveRoute);
+            Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
         }
         finally
         {
@@ -239,7 +297,7 @@ public sealed class InvokeToolTests : IDisposable
                 "PATH",
                 commandDir.FullName + Path.PathSeparator + savedPath);
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
-            InvocationPreparation? observed = null;
+            ExecutionPlan? observed = null;
 
             var result = await _host.InvokeAsync(
                 commandName,
@@ -252,7 +310,7 @@ public sealed class InvokeToolTests : IDisposable
 
             Assert.Equal(InvokeDisposition.NotStarted, result.Disposition);
             Assert.NotNull(observed);
-            Assert.Equal("powershell_direct", observed.EffectiveRoute);
+            Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
         }
         finally
         {
@@ -266,23 +324,35 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Forced_rtk_original_path_reports_its_exact_fallback_metadata()
     {
-        InvocationPreparation? observed = null;
+        var (dir, stub) = CreateRtkStub("echo must-not-run\nexit /b 0");
+        var saved = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
+            ExecutionPlan? observed = null;
 
-        var result = await _host.InvokeAsync(
-            "$global:forcedFallbackRan = 1",
-            (preparation, cancellationToken) =>
-            {
-                observed = preparation;
-                return ValueTask.FromResult(true);
-            },
-            route: "rtk");
+            var result = await _host.InvokeAsync(
+                "$global:forcedFallbackRan = 1",
+                (plan, cancellationToken) =>
+                {
+                    observed = plan;
+                    return ValueTask.FromResult(true);
+                },
+                route: "rtk");
 
-        Assert.True(result.Success);
-        Assert.NotNull(observed);
-        Assert.Equal("powershell_direct", observed.EffectiveRoute);
-        Assert.Equal("rtk", observed.RequestedRoute);
-        Assert.Equal(["powershell_direct"], observed.PermittedFallbacks);
-        Assert.Equal("rtk_resolution_returned_original", observed.FallbackReason);
+            Assert.True(result.Success);
+            Assert.NotNull(observed);
+            Assert.Equal(ExecutionDomain.MixedDataflow, observed.Domain);
+            Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
+            Assert.Equal(RequestedExecutionRoute.Rtk, observed.RequestedRoute);
+            Assert.Empty(observed.PermittedFallbacks);
+            Assert.Equal(ExecutionFallbackReason.RtkIneligibleShape, observed.FallbackReason);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", saved);
+            dir.Delete(recursive: true);
+        }
     }
 
     [Theory]
@@ -290,7 +360,7 @@ public sealed class InvokeToolTests : IDisposable
     [InlineData(false, "pwsh")]
     public async Task Explicit_direct_consent_permits_no_fallback(bool raw, string route)
     {
-        InvocationPreparation? observed = null;
+        ExecutionPlan? observed = null;
 
         var result = await _host.InvokeAsync(
             "'direct execution'",
@@ -304,8 +374,12 @@ public sealed class InvokeToolTests : IDisposable
 
         Assert.True(result.Success);
         Assert.NotNull(observed);
-        Assert.Equal("powershell_direct", observed.EffectiveRoute);
-        Assert.Equal(route, observed.RequestedRoute);
+        Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
+        Assert.Equal(
+            route == "pwsh"
+                ? RequestedExecutionRoute.PowerShell
+                : RequestedExecutionRoute.Rtk,
+            observed.RequestedRoute);
         Assert.Empty(observed.PermittedFallbacks);
         Assert.Null(observed.FallbackReason);
     }

@@ -17,16 +17,8 @@ public enum InvokeDisposition
     OutcomeUnknown,
 }
 
-/// <summary>Immutable routing facts presented to the pre-execution audit
-/// barrier. Values use the audit schema's exact machine strings.</summary>
-internal sealed record InvocationPreparation(
-    string EffectiveRoute,
-    string RequestedRoute,
-    string[] PermittedFallbacks,
-    string? FallbackReason);
-
 internal delegate ValueTask<bool> InvocationAuthorizationCallback(
-    InvocationPreparation preparation,
+    ExecutionPlan plan,
     CancellationToken cancellationToken);
 
 /// <summary>Result of one script invocation in the warm runspace.</summary>
@@ -835,8 +827,24 @@ public sealed class RunspaceHost : IDisposable
     {
         var configured = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
         if (configured is not null)
-            return configured.Length > 0 && File.Exists(configured) ? configured : null;
-        return commands.Resolve("rtk", CommandTypes.Application)?.Source;
+            return CanonicalExistingRtkPath(configured);
+        return CanonicalExistingRtkPath(
+            commands.Resolve("rtk", CommandTypes.Application)?.Source);
+    }
+
+    private static string? CanonicalExistingRtkPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        try
+        {
+            var fullPath = Path.GetFullPath(path);
+            return File.Exists(fullPath) ? fullPath : null;
+        }
+        catch (Exception exception) when (exception is not (
+            OutOfMemoryException or StackOverflowException or AccessViolationException))
+        {
+            return null;
+        }
     }
 
     // Exit-code bookkeeping runs as tiny extra pipelines on the warm runspace
@@ -1290,34 +1298,6 @@ public sealed class RunspaceHost : IDisposable
         string message,
         Exception? innerException = null) : Exception(message, innerException);
 
-    private static InvocationPreparation PrepareInvocation(
-        string originalScript,
-        string resolvedScript,
-        bool raw,
-        string route)
-    {
-        var requestedRoute = route?.ToLowerInvariant() switch
-        {
-            "pwsh" => "pwsh",
-            "rtk" => "rtk",
-            _ => "auto",
-        };
-        var effectiveRoute = string.Equals(resolvedScript, originalScript, StringComparison.Ordinal)
-            ? "powershell_direct"
-            : "rtk";
-        var permittedFallbacks = raw || requestedRoute == "pwsh"
-            ? Array.Empty<string>()
-            : ["powershell_direct"];
-        var fallbackReason = !raw && requestedRoute == "rtk" && effectiveRoute == "powershell_direct"
-            ? "rtk_resolution_returned_original"
-            : null;
-        return new InvocationPreparation(
-            effectiveRoute,
-            requestedRoute,
-            permittedFallbacks,
-            fallbackReason);
-    }
-
     private async Task<InvokeResult> InvokeGateHeldAsync(
         string script,
         bool raw,
@@ -1351,7 +1331,12 @@ public sealed class RunspaceHost : IDisposable
             {
                 if (preflightDelay > TimeSpan.Zero)
                     Thread.Sleep(preflightDelay);
-                var resolved = script;
+                var plan = ExecutionPlanner.CreateDirect(
+                    script,
+                    route,
+                    raw,
+                    compressAvailable: !raw && primed.CompressCommand is not null,
+                    ResolutionContext.Warm);
                 if (checkDialect)
                 {
                     var commands = CaptureForegroundCommandFacts(runspace, script);
@@ -1363,19 +1348,18 @@ public sealed class RunspaceHost : IDisposable
                                 finding,
                                 BashAvailable(commands),
                                 background: false),
-                            Script: script);
+                            Plan: plan);
                     }
-                    if (route.Equals("auto", StringComparison.OrdinalIgnoreCase) ||
-                        route.Equals("rtk", StringComparison.OrdinalIgnoreCase))
-                    {
-                        resolved = TrustedPreflightClassifier.ResolveScript(
-                            script,
-                            route,
-                            ResolveEffectiveRtkPath(commands),
-                            commands);
-                    }
+                    plan = ExecutionPlanner.Create(
+                        script,
+                        route,
+                        ResolveEffectiveRtkPath(commands),
+                        commands,
+                        raw,
+                        compressAvailable: !raw && primed.CompressCommand is not null,
+                        ResolutionContext.Warm);
                 }
-                return (Refusal: (string?)null, Script: resolved);
+                return (Refusal: (string?)null, Plan: plan);
             }, CancellationToken.None);
 
             var preflightOutcome = await WaitForDeadlineAsync(preflight, callDeadline, cancellationToken);
@@ -1420,7 +1404,7 @@ public sealed class RunspaceHost : IDisposable
                         WarmStateLost: true); // the flag must match the text (i56-14)
             }
 
-            (string? preflightRefusal, string resolvedScript) preflightResult;
+            (string? preflightRefusal, ExecutionPlan plan) preflightResult;
             try
             {
                 preflightResult = await preflight;
@@ -1441,7 +1425,7 @@ public sealed class RunspaceHost : IDisposable
                     UserExecutionStarted: false,
                     WarmStateLost: true);
             }
-            var (preflightRefusal, resolvedScript) = preflightResult;
+            var (preflightRefusal, plan) = preflightResult;
             if (preflightRefusal is not null)
             {
                 return new InvokeResult(
@@ -1474,7 +1458,6 @@ public sealed class RunspaceHost : IDisposable
 
             if (authorizationCallback is not null)
             {
-                var preparation = PrepareInvocation(script, resolvedScript, raw, route);
                 Task<bool> authorization;
                 try
                 {
@@ -1484,7 +1467,7 @@ public sealed class RunspaceHost : IDisposable
                     // must not abandon it and let a terminal record overtake a
                     // late dispatch append.
                     authorization = authorizationCallback(
-                        preparation, CancellationToken.None).AsTask();
+                        plan, CancellationToken.None).AsTask();
                 }
                 catch (Exception)
                 {
@@ -1532,7 +1515,7 @@ public sealed class RunspaceHost : IDisposable
             ps.Runspace = runspace;
             // useLocalScope: false — assignments land in the runspace's session
             // state and survive into the next call; that persistence is the point.
-            ps.AddScript(resolvedScript, useLocalScope: false);
+            ps.AddScript(plan.ExecutionScript, useLocalScope: false);
             if (!raw && primed.CompressCommand is not null)
                 ps.AddScript(
                         "$input | & $args[0]",

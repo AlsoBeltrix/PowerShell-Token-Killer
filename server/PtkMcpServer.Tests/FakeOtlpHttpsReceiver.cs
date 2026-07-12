@@ -143,6 +143,8 @@ internal sealed class FakeOtlpHttpsReceiver : IAsyncDisposable
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _receiptFlushRelease =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _responseStarted =
+        new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly bool _blockReceiptFlush;
     private int _requestCount;
     private int _disposed;
@@ -198,6 +200,8 @@ internal sealed class FakeOtlpHttpsReceiver : IAsyncDisposable
     internal byte[]? LastRequestBody { get; private set; }
 
     internal FakeOtlpResponseSnapshot? LastResponse { get; private set; }
+
+    internal bool ResponseStarted => _responseStarted.Task.IsCompleted;
 
     internal Task WaitForReceiptFlushPendingAsync(CancellationToken cancellationToken) =>
         _receiptFlushPending.Task.WaitAsync(cancellationToken);
@@ -629,6 +633,7 @@ internal sealed class FakeOtlpHttpsReceiver : IAsyncDisposable
         IReadOnlyDictionary<string, string> extraHeaders,
         CancellationToken cancellationToken)
     {
+        _responseStarted.TrySetResult();
         var reason = statusCode switch
         {
             200 => "OK",

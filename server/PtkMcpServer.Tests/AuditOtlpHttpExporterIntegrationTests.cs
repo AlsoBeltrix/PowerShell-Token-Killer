@@ -21,7 +21,7 @@ public sealed class AuditOtlpHttpExporterIntegrationTests
         await receiver.WaitForReceiptFlushPendingAsync(timeout.Token);
         try
         {
-            Assert.False(export.IsCompleted);
+            Assert.False(receiver.ResponseStarted);
         }
         finally
         {

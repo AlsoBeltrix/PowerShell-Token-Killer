@@ -212,8 +212,12 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
                         new EndPosition(
                             this,
                             snapshotToken,
-                            checkpoint))
-                    : new AuditClosedSpoolRecovery(nextRecord, null);
+                            checkpoint),
+                        blockedRecord: null)
+                    : new AuditClosedSpoolRecovery(
+                        nextRecord,
+                        endPosition: null,
+                        blockedRecord: checkpoint.BlockedRecord);
                 var resolution = new PendingResolution(
                     acquired,
                     snapshotToken,
@@ -749,15 +753,21 @@ internal sealed class AuditClosedSpoolRecovery
 {
     internal AuditClosedSpoolRecovery(
         IAuditClosedSpoolRecordPosition? nextRecord,
-        IAuditClosedSpoolEndPosition? endPosition)
+        IAuditClosedSpoolEndPosition? endPosition,
+        AuditExportBlockedRecord? blockedRecord)
     {
         if ((nextRecord is null) == (endPosition is null))
             throw new ArgumentException("A closed spool recovery must resolve to one exact position.");
+        if (nextRecord is null && blockedRecord is not null)
+            throw new ArgumentException("A closed spool end cannot remain blocked.");
         NextRecord = nextRecord;
         EndPosition = endPosition;
+        BlockedRecord = blockedRecord;
     }
 
     internal IAuditClosedSpoolRecordPosition? NextRecord { get; }
 
     internal IAuditClosedSpoolEndPosition? EndPosition { get; }
+
+    internal AuditExportBlockedRecord? BlockedRecord { get; }
 }

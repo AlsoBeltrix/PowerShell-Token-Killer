@@ -70,12 +70,19 @@ internal sealed class AuditExportAttemptResult
         new(AuditExportAttemptKind.Blocked, failureClass, detailCode, responseDigest, null, false);
 }
 
+internal interface IAuditOtlpExportTransport
+{
+    Task<AuditExportAttemptResult> ExportAsync(
+        AuditOtlpRecord record,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// Performs one bounded OTLP/HTTP attempt for one immutable mapped record.
 /// Retry scheduling, checkpointing, retention, and operator disposition live
 /// above this transport and are intentionally not coupled to it.
 /// </summary>
-internal sealed class AuditOtlpHttpExporter : IDisposable
+internal sealed class AuditOtlpHttpExporter : IAuditOtlpExportTransport, IDisposable
 {
     internal const int MaximumResponseBytes = 64 * 1024;
 
@@ -189,6 +196,11 @@ internal sealed class AuditOtlpHttpExporter : IDisposable
             _requestGate.Release();
         }
     }
+
+    Task<AuditExportAttemptResult> IAuditOtlpExportTransport.ExportAsync(
+        AuditOtlpRecord record,
+        CancellationToken cancellationToken) =>
+        ExportAsync(record, cancellationToken);
 
     public void Dispose()
     {

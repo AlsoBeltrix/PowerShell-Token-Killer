@@ -146,6 +146,29 @@ internal sealed class ScriptEvidenceStoreProvider
         }
     }
 
+    internal bool ReconcileExistingAwaitingBeforeWriter()
+    {
+        lock (_gate)
+        {
+            try
+            {
+                if (_store is null && !EntryExists(_options.EvidenceDirectory))
+                    return true;
+                return GetOrCreateLocked().ReconcileAwaitingBeforeWriter(_options);
+            }
+            catch (ScriptEvidenceStorageException)
+            {
+                _store = null;
+                throw;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                _store = null;
+                throw new ScriptEvidenceStorageException();
+            }
+        }
+    }
+
     private static bool EntryExists(string path)
     {
         var file = new FileInfo(path);

@@ -322,6 +322,22 @@ public sealed class ScriptEvidenceStore
     internal bool ReconcileAwaiting(AuditJournal journal)
     {
         ArgumentNullException.ThrowIfNull(journal);
+        return ReconcileAwaitingCore(journal.ScanRetainedEvidenceReferences);
+    }
+
+    internal bool ReconcileAwaitingBeforeWriter(AuditOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        return ReconcileAwaitingCore(
+            candidates => AuditEvidenceSpoolScanner.CaptureBeforeWriter(
+                options,
+                candidates));
+    }
+
+    private bool ReconcileAwaitingCore(
+        Func<IReadOnlySet<AuditEvidenceIdentity>, AuditEvidenceReferenceScan> scanReferences)
+    {
+        ArgumentNullException.ThrowIfNull(scanReferences);
         try
         {
             lock (_gate)
@@ -354,7 +370,7 @@ public sealed class ScriptEvidenceStore
                             artifact.Digest));
                     }
 
-                    var scan = journal.ScanRetainedEvidenceReferences(candidates);
+                    var scan = scanReferences(candidates);
                     if (!scan.IsComplete) return false;
                     foreach (var artifact in awaiting)
                     {

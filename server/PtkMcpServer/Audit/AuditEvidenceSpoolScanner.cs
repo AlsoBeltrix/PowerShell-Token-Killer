@@ -108,6 +108,33 @@ internal static class AuditEvidenceSpoolScanner
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(liveSource);
         ArgumentNullException.ThrowIfNull(candidates);
+        return Capture(
+            options,
+            liveSource.CurrentSegmentIdentity,
+            liveSource,
+            candidates);
+    }
+
+    /// <summary>
+    /// Captures the retained topology before this process creates a writer.
+    /// Every segment must therefore be provably closed. A foreign live writer
+    /// denies the retained read handle and makes the proof incomplete.
+    /// </summary>
+    internal static AuditEvidenceReferenceScan CaptureBeforeWriter(
+        AuditOptions options,
+        IReadOnlySet<AuditEvidenceIdentity> candidates)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(candidates);
+        return Capture(options, current: null, liveSource: null, candidates);
+    }
+
+    private static AuditEvidenceReferenceScan Capture(
+        AuditOptions options,
+        AuditSpoolSegmentIdentity? current,
+        IAuditCommittedSpoolSource? liveSource,
+        IReadOnlySet<AuditEvidenceIdentity> candidates)
+    {
         if (candidates.Count == 0)
         {
             return AuditEvidenceReferenceScan.Incomplete;
@@ -124,7 +151,6 @@ internal static class AuditEvidenceSpoolScanner
             }
 
             using var quota = acquiredQuota;
-            var current = liveSource.CurrentSegmentIdentity;
             var inventory = Inventory(options, current, verifyProtection: true);
             ValidateCompleteRetainedTopology(inventory, current);
             using var handles = AcquireClosedHandles(inventory, current);
@@ -156,11 +182,13 @@ internal static class AuditEvidenceSpoolScanner
                 string? expectedPreviousHash = null;
                 foreach (var segment in chain.OrderBy(value => value.Identity.Index))
                 {
-                    if (segment.Identity == current)
+                    if (current is { } liveIdentity &&
+                        segment.Identity == liveIdentity)
                     {
                         ScanLiveSegment(
                             options,
-                            liveSource,
+                            liveSource ?? throw new IOException(
+                                "The live audit evidence source is absent."),
                             segment,
                             candidateDigests,
                             referenced,
@@ -185,7 +213,9 @@ internal static class AuditEvidenceSpoolScanner
             RequireSameInventory(
                 inventory,
                 Inventory(options, current, verifyProtection: false));
-            if (liveSource.CurrentSegmentIdentity != current)
+            if (current is { } finalLiveIdentity &&
+                (liveSource is null ||
+                 liveSource.CurrentSegmentIdentity != finalLiveIdentity))
                 throw new IOException("The live audit segment changed during evidence proof.");
             quota.VerifyOwnership();
             return new AuditEvidenceReferenceScan(true, referenced);
@@ -201,7 +231,7 @@ internal static class AuditEvidenceSpoolScanner
 
     private static SegmentDescriptor[] Inventory(
         AuditOptions options,
-        AuditSpoolSegmentIdentity current,
+        AuditSpoolSegmentIdentity? current,
         bool verifyProtection)
     {
         var root = Path.TrimEndingDirectorySeparator(
@@ -240,7 +270,8 @@ internal static class AuditEvidenceSpoolScanner
             totalBytes = checked(totalBytes + file.Length);
             if (totalBytes > options.AggregateBytes)
                 throw new IOException("The evidence-proof spool exceeds its aggregate bound.");
-            if (verifyProtection && identity != current)
+            if (verifyProtection &&
+                (current is null || identity != current.Value))
                 SecureAuditStorage.VerifyExternalProtectedFile(file.FullName);
             segments.Add(new SegmentDescriptor(identity, file.FullName, file.Length));
         }
@@ -253,9 +284,10 @@ internal static class AuditEvidenceSpoolScanner
 
     private static void ValidateCompleteRetainedTopology(
         SegmentDescriptor[] inventory,
-        AuditSpoolSegmentIdentity current)
+        AuditSpoolSegmentIdentity? current)
     {
-        if (inventory.Count(value => value.Identity == current) != 1)
+        if (current is { } liveIdentity &&
+            inventory.Count(value => value.Identity == liveIdentity) != 1)
             throw new IOException("The authoritative live audit segment is absent or ambiguous.");
 
         foreach (var chain in inventory.GroupBy(value => value.Identity.SupervisorBootId))
@@ -272,22 +304,27 @@ internal static class AuditEvidenceSpoolScanner
                 if (ordered[index].Identity.Index != index)
                     throw new IOException("An evidence-proof chain has a missing segment.");
             }
-            if (chain.Key == current.SupervisorBootId && ordered[^1].Identity != current)
+            if (current is { } currentIdentity &&
+                chain.Key == currentIdentity.SupervisorBootId &&
+                ordered[^1].Identity != currentIdentity)
                 throw new IOException("The authoritative writer is not the retained chain tail.");
         }
     }
 
     private static ClosedHandleSet AcquireClosedHandles(
         SegmentDescriptor[] inventory,
-        AuditSpoolSegmentIdentity current)
+        AuditSpoolSegmentIdentity? current)
     {
-        var handles = new List<SegmentHandle>(inventory.Length - 1);
+        var handles = new List<SegmentHandle>(
+            inventory.Length - (current.HasValue ? 1 : 0));
         var identities = new HashSet<ProtectedFileIdentity>();
         try
         {
             foreach (var segment in inventory)
             {
-                if (segment.Identity == current) continue;
+                if (current is { } liveIdentity &&
+                    segment.Identity == liveIdentity)
+                    continue;
                 var stream = new FileStream(
                     segment.Path,
                     FileMode.Open,

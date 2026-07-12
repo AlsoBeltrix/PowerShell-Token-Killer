@@ -28,8 +28,7 @@ internal static class AuditJournalFactory
             uuidV7Factory,
             sinkFaultInjector,
             hostIdentityReadCompletedForTests,
-            hostIdentityDestinationCheckedForTests,
-            deferInitialRetentionForEvidenceReconciliation: false);
+            hostIdentityDestinationCheckedForTests);
     }
 
     private static AuditJournal OpenCore(
@@ -41,20 +40,11 @@ internal static class AuditJournalFactory
         Func<DateTimeOffset, Guid>? uuidV7Factory,
         Func<FileAuditSinkFaultPoint, int, bool>? sinkFaultInjector,
         Action<string>? hostIdentityReadCompletedForTests,
-        Action? hostIdentityDestinationCheckedForTests,
-        bool deferInitialRetentionForEvidenceReconciliation)
+        Action? hostIdentityDestinationCheckedForTests)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
         ArgumentException.ThrowIfNullOrWhiteSpace(producerVersion);
-        if (deferInitialRetentionForEvidenceReconciliation &&
-            options.ProtectionMode != AuditProtectionMode.LocalOnly)
-        {
-            throw new ArgumentException(
-                "Only local audit startup may defer its initial retention pass.",
-                nameof(options));
-        }
-
         var root = SecureAuditStorage.PrepareRoot(options.RootDirectory);
         _ = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
         var hostId = LoadOrCreateHostId(
@@ -62,17 +52,11 @@ internal static class AuditJournalFactory
             hostIdentityReadCompletedForTests,
             hostIdentityDestinationCheckedForTests);
         var supervisorBootId = Guid.NewGuid();
-        var sink = deferInitialRetentionForEvidenceReconciliation
-            ? FileAuditJournalSink.CreateLocalForEvidenceReconciliation(
-                options,
-                supervisorBootId,
-                utcNow,
-                sinkFaultInjector)
-            : new FileAuditJournalSink(
-                options,
-                supervisorBootId,
-                utcNow,
-                sinkFaultInjector);
+        var sink = new FileAuditJournalSink(
+            options,
+            supervisorBootId,
+            utcNow,
+            sinkFaultInjector);
         return CreateJournalTakingSink(
             options,
             health,
@@ -86,11 +70,10 @@ internal static class AuditJournalFactory
     }
 
     /// <summary>
-    /// Opens a local writer without allowing its constructor to retain old
-    /// closed segments first, reconciles every awaiting evidence artifact,
-    /// and only then exposes a journal whose first reservation may run normal
-    /// local retention. Both the MCP supervisor and the out-of-band admin
-    /// writer must use this path.
+    /// Reconciles every awaiting evidence artifact against a stable all-closed
+    /// spool snapshot, then creates the local writer and permits ordinary
+    /// retention. Both the MCP supervisor and the out-of-band admin writer
+    /// must use this path.
     /// </summary>
     internal static AuditJournal OpenReconciledLocal(
         AuditOptions options,
@@ -109,34 +92,20 @@ internal static class AuditJournalFactory
                 nameof(options));
         }
 
-        AuditJournal? journal = null;
-        try
-        {
-            journal = OpenCore(
-                options,
-                health,
-                producerVersion,
-                binaryDigest: null,
-                utcNow: null,
-                uuidV7Factory: null,
-                sinkFaultInjector: null,
-                hostIdentityReadCompletedForTests: null,
-                hostIdentityDestinationCheckedForTests: null,
-                deferInitialRetentionForEvidenceReconciliation: true);
-            var reconciler = new AuditEvidenceOrphanReconciler(journal, evidence);
-            if (!reconciler.ReconcileNow() &&
-                health.Snapshot().State != AuditHealthState.Unavailable)
-            {
-                journal.EnterExternalUnavailable("evidence.reconciliation");
-            }
-            var result = journal;
-            journal = null;
-            return result;
-        }
-        finally
-        {
-            journal?.Dispose();
-        }
+        AuditEvidenceOrphanReconciler.RequireCompleteBeforeWriter(
+            options,
+            health,
+            evidence);
+        return OpenCore(
+            options,
+            health,
+            producerVersion,
+            binaryDigest: null,
+            utcNow: null,
+            uuidV7Factory: null,
+            sinkFaultInjector: null,
+            hostIdentityReadCompletedForTests: null,
+            hostIdentityDestinationCheckedForTests: null);
     }
 
     /// <summary>

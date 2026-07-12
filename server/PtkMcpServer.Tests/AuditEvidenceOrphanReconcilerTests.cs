@@ -150,6 +150,152 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
     }
 
     [Fact]
+    public async Task Local_runtime_stays_diagnostic_only_without_sweeping_incomplete_history()
+    {
+        var options = CreateLocalOptions(NewRoot());
+        var health = new AuditHealth(options);
+        var evidence = new ScriptEvidenceStoreProvider(options);
+        var retainedFloor = SeedIncompleteStartupTopology(
+            options,
+            evidence,
+            "local startup pinned evidence");
+        using var gate = new AuditRuntimeGate(
+            options,
+            health,
+            evidence,
+            "local-startup-barrier-test");
+
+        await gate.StartAsync(CancellationToken.None);
+
+        Assert.Equal(AuditHealthState.Unavailable, health.Snapshot().State);
+        Assert.Equal("evidence.reconciliation", health.Snapshot().FailureClass);
+        Assert.True(File.Exists(retainedFloor));
+        Assert.Single(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+        Assert.False(gate.TryCreateCallContext(1, out _));
+        Assert.True(File.Exists(retainedFloor));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+
+        File.Delete(retainedFloor);
+        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
+        Assert.NotNull(recoveredContext);
+        Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
+        Assert.Empty(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(
+            options.EvidenceDirectory,
+            "*.unreferenced.script"));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+    }
+
+    [Fact]
+    public async Task Anchored_runtime_stays_diagnostic_only_until_startup_proof_completes()
+    {
+        var options = CreateOptions(NewRoot());
+        var health = new AuditHealth(options);
+        var evidence = new ScriptEvidenceStoreProvider(options);
+        using (var publication = evidence.Publish("anchored startup pinned evidence"))
+        {
+        }
+        var foreignBoot = Guid.NewGuid();
+        using var preparation = FileAuditJournalSink.PrepareAnchored(options, foreignBoot);
+        using var checkpoint = preparation.CreateCheckpointStore();
+        var foreignSink = preparation.Activate(checkpoint);
+        using var foreignJournal = new AuditJournal(
+            options,
+            new AuditHealth(options),
+            foreignSink,
+            "anchored-foreign-writer-test",
+            binaryDigest: null,
+            Guid.NewGuid(),
+            foreignBoot);
+        AppendRecord(
+            foreignJournal,
+            evidence: null,
+            protectionMode: "anchored",
+            configurationIdentity: ConfigurationIdentity);
+        var retainedForeign = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(foreignBoot, 0).FileName);
+        using var gate = new AuditRuntimeGate(
+            options,
+            health,
+            evidence,
+            "anchored-startup-barrier-test",
+            openRuntime: () => AuditRuntimeResources.OpenAnchored(
+                options,
+                health,
+                "anchored-startup-barrier-test",
+                new AcknowledgingTransport(ConfigurationIdentity),
+                evidence));
+
+        await gate.StartAsync(CancellationToken.None);
+
+        Assert.Equal(AuditHealthState.Unavailable, health.Snapshot().State);
+        Assert.Equal("evidence.reconciliation", health.Snapshot().FailureClass);
+        Assert.True(File.Exists(retainedForeign));
+        Assert.Single(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+        Assert.False(gate.TryCreateCallContext(1, out _));
+        Assert.True(File.Exists(retainedForeign));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+
+        foreignJournal.Dispose();
+        checkpoint.Dispose();
+        preparation.Dispose();
+        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
+        Assert.NotNull(recoveredContext);
+        Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
+        Assert.Empty(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(
+            options.EvidenceDirectory,
+            "*.unreferenced.script"));
+        Assert.InRange(
+            Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl").Length,
+            1,
+            2);
+    }
+
+    [Fact]
+    public async Task Startup_storage_recovery_reruns_evidence_proof_before_admission()
+    {
+        var options = CreateLocalOptions(NewRoot());
+        using (var publication = new ScriptEvidenceStore(options)
+                   .Publish("startup storage recovery evidence"))
+        {
+        }
+        var failEvidenceOpen = true;
+        var evidence = new ScriptEvidenceStoreProvider(options, () =>
+        {
+            if (failEvidenceOpen)
+                throw new ScriptEvidenceStorageException();
+            return new ScriptEvidenceStore(options);
+        });
+        var health = new AuditHealth(options);
+        using var gate = new AuditRuntimeGate(
+            options,
+            health,
+            evidence,
+            "evidence-storage-recovery-test");
+
+        await gate.StartAsync(CancellationToken.None);
+
+        Assert.Equal(AuditHealthState.Unavailable, health.Snapshot().State);
+        Assert.Equal("evidence.storage", health.Snapshot().FailureClass);
+        Assert.Empty(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+        Assert.Single(AwaitingPaths(options));
+
+        failEvidenceOpen = false;
+        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
+        Assert.NotNull(recoveredContext);
+        Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
+        Assert.Empty(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(
+            options.EvidenceDirectory,
+            "*.unreferenced.script"));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+    }
+
+    [Fact]
     public void Local_failed_append_with_no_written_bytes_is_proved_unreferenced()
     {
         using var fixture = CreateLocalFixture(
@@ -231,7 +377,7 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
     }
 
     [Fact]
-    public void Startup_reconciliation_runs_after_staged_global_quota_release()
+    public void Startup_reconciliation_opens_evidence_without_holding_global_quota()
     {
         var options = CreateOptions(NewRoot());
         using (var publication = new ScriptEvidenceStore(options).Publish("startup orphan"))
@@ -414,6 +560,32 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
                      "ptk-audit-*.jsonl"))
         {
             File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-20));
+        }
+    }
+
+    private static string SeedIncompleteStartupTopology(
+        AuditOptions options,
+        ScriptEvidenceStoreProvider evidence,
+        string script)
+    {
+        using (var publication = evidence.Publish(script))
+        {
+            // Simulate process loss before the audit append outcome became
+            // knowable. The nonzero retained floor below makes absence
+            // impossible to prove and must therefore pin this artifact.
+        }
+
+        var spool = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
+        using (AuditSpoolQuotaLease.CreateControlAndAcquire(spool))
+        {
+            var retainedFloor = Path.Combine(
+                spool,
+                AuditSpoolSegmentIdentity.Create(Guid.NewGuid(), 1).FileName);
+            using (SecureAuditStorage.CreateExclusiveFile(retainedFloor))
+            {
+            }
+            File.SetLastWriteTimeUtc(retainedFloor, DateTime.UtcNow.AddHours(-1));
+            return retainedFloor;
         }
     }
 

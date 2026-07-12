@@ -54,10 +54,10 @@ internal sealed class AuditRuntimeResources : IDisposable
         AuditJournal? journal = null;
         try
         {
-            // The writer creates its new current segment but cannot sweep old
-            // closed segments until evidence reconciliation has inspected the
-            // complete retained topology. A failed proof closes admission, so
-            // the first CanReserve cannot turn uncertainty into deletion.
+            // The complete retained topology was reconciled before this writer
+            // can run its constructor retention. A failed proof never reaches
+            // this point, so capacity recovery cannot turn uncertainty into
+            // deletion.
             journal = AuditJournalFactory.OpenReconciledLocal(
                 options,
                 health,
@@ -102,6 +102,11 @@ internal sealed class AuditRuntimeResources : IDisposable
                 nameof(transport));
         }
 
+        AuditEvidenceOrphanReconciler.RequireCompleteBeforeWriter(
+            options,
+            health,
+            evidence);
+
         AuditAnchoredWriterPreparation? preparation = null;
         AuditExportCheckpointStore? checkpointStore = null;
         AuditJournal? journal = null;
@@ -123,15 +128,13 @@ internal sealed class AuditRuntimeResources : IDisposable
                 health,
                 producerVersion,
                 sink);
-            // Activate consumes and releases the staged writer's global spool
-            // quota before reconciliation takes evidence then journal then
-            // global topology. Startup can therefore never invert the staged
-            // global -> checkpoint construction order.
+            // Startup reconciliation completed before writer preparation. The
+            // long-lived reconciler handles only artifacts published after
+            // this writer became authoritative.
             var evidenceReconciler = new AuditEvidenceOrphanReconciler(
                 journal,
                 evidence,
                 timeProvider);
-            _ = evidenceReconciler.ReconcileNow();
             current = new AuditBootExportSource(
                 journal,
                 checkpointStore,

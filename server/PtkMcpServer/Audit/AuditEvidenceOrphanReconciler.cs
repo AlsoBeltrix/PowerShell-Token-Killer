@@ -30,6 +30,44 @@ internal sealed class AuditEvidenceOrphanReconciler
             throw new ArgumentOutOfRangeException(nameof(interval));
     }
 
+    /// <summary>
+    /// Proves all pre-existing awaiting artifacts before a new writer can run
+    /// retention or publish another boot. A later startup attempt reruns this
+    /// proof; ordinary journal-capacity recovery is not evidence recovery.
+    /// </summary>
+    internal static void RequireCompleteBeforeWriter(
+        AuditOptions options,
+        AuditHealth health,
+        ScriptEvidenceStoreProvider evidence)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(health);
+        ArgumentNullException.ThrowIfNull(evidence);
+
+        try
+        {
+            _ = SecureAuditStorage.PrepareRoot(options.RootDirectory);
+            var spool = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
+            using (AuditSpoolQuotaLease.CreateControlAndAcquire(spool))
+            {
+                // Establish the protected topology mutex before the lazy
+                // evidence provider opens. The proof itself reacquires it only
+                // after the evidence quota, preserving evidence -> spool order.
+            }
+
+            if (evidence.ReconcileExistingAwaitingBeforeWriter())
+                return;
+
+            health.MarkUnavailable("evidence.reconciliation");
+            throw new AuditUnavailableException();
+        }
+        catch (ScriptEvidenceStorageException)
+        {
+            health.MarkUnavailable("evidence.storage");
+            throw new AuditUnavailableException();
+        }
+    }
+
     internal bool ReconcileNow()
     {
         lock (_gate)

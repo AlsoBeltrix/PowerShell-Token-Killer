@@ -3,16 +3,16 @@
 **Status:** IMPLEMENTING — owner-approved 2026-07-11 after Claude and Grok
 reviewloop convergence. Slices 0-1 are complete: Slice 1's mandatory audit
 foundation landed at `460c106` and passed the required Claude reviewloop on
-2026-07-11. Slice 2 is implementing: job/control/retrieval lifecycle work is
-committed at `8470b4b`, and the protected export-configuration identity
-foundation is committed at `5238984`; strict exporter configuration is
-committed at `eb0060f`; durable atomic sidecar replacement is committed at
-`815a3f1`. Foundations through `1ce5900` add canonical per-boot spool
-identities, a strict checkpoint codec/store and exclusive lease, the
-committed-live read seam, crash-safe macOS compaction, and shared strict spool
-record validation. The closed-chain reader, orphan adoption, OTLP
-transport/recovery, evidence integration, and coordinated retention remain in
-flight.
+2026-07-11. Slice 2 implementation is code-complete across the current
+integrated code head `72e42b3` and the completed disposition-administration
+classification delta that still awaits integration. The integrated work now
+includes current-server job/control/retrieval lifecycle facts, local-only and
+anchored startup, closed/live/orphan chain export with durable checkpoints and
+retention, audited evidence administration and automatic retention, complete
+operator-disposition facts, and the strict `ptk.audit/2` extension. Slice 2 is
+not accepted or landed: integrate the disposition delta, run exact-head
+cross-platform verification, and complete the required fixed-SHA Claude
+reviewloop first.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -1073,6 +1073,12 @@ exported without reserialization; a boot hash chain may therefore contain
 either supported version so long as its sequence and exact-byte hash links
 remain valid.
 
+For v2, `destination_path` is nonnull only with `protected_file`. All five
+evidence-subject fields are nonnull together only on the three evidence
+retention event types; their ordinary script-reference ID/digest fields are
+null. Subject state `temporary` is present if and only if the reason is
+`crash_temporary`. These pairings are strict schema facts, not consumer hints.
+
 All top-level and nested keys above are required; `null` is an explicit value,
 not omission. Request values are the effective values used by PTK, while
 `provided_fields` preserves omitted versus explicit `null`, `false`, or `0` at
@@ -1109,12 +1115,12 @@ and last probe timestamps are both nonnull when the count is positive and both
 null when it is zero. This explicitly represents the gap summary required by
 the journal-unavailable diagnostic contract.
 
-The added `plan_id`, `permitted_fallbacks`, and `audit` fields are a
-pre-implementation completeness correction to the never-emitted v1 contract:
-the approved ordering/recovery rules already required those facts but the
-initial field list omitted their representation. They are part of the first
-implemented `ptk.audit/1` schema. After a v1 writer ships, any field, meaning,
-default, or hash-input change requires `ptk.audit/2` as specified below.
+The added `plan_id`, `permitted_fallbacks`, and `audit` fields were a
+pre-implementation completeness correction: the approved ordering/recovery
+rules already required those facts but the initial field list omitted their
+representation. They shipped in `ptk.audit/1`. Both supported schemas are now
+frozen; any further field, meaning, default, ordering, or hash-input change
+requires a new schema version after `ptk.audit/2`.
 
 `pattern_fingerprint` is
 `HMAC-SHA-256(per-supervisor random nonexported key,
@@ -1331,15 +1337,18 @@ Existing ownership changes:
 
 ## Implementation slices
 
-Each slice is one coherent commit. Any new guard test must be proven red by
+Each independently reviewable implementation sub-slice is one coherent commit;
+a numbered product slice may comprise multiple such reviewlooped commits plus
+one final fixed-SHA integrated review. Any new guard test must be proven red by
 temporarily sabotaging/reverting the production behavior, then restored green.
-After every slice commit, and before the next slice starts, run the synchronous
-`.agents/playbooks/reviewloop.md` workflow with the Claude harness against the
-fixed pre-slice base SHA and slice head SHA. Record a clean pass or triage every
-material finding through the playbook; a reopened/contested loop blocks the
-next slice until it is closed or the owner adjudicates it. Review acceptance
-does not authorize push or history rewriting. A docs-only slice uses the
-applicable manual guard instead of inventing a code sabotage.
+After every sub-slice commit, and before the next sub-slice starts, run the
+synchronous `.agents/playbooks/reviewloop.md` workflow with the Claude harness
+against the fixed pre-sub-slice base SHA and sub-slice head SHA. Record a clean
+pass or triage every material finding through the playbook; a
+reopened/contested loop blocks the next sub-slice until it is closed or the
+owner adjudicates it. Review acceptance does not authorize push or history
+rewriting. A docs-only sub-slice uses the applicable manual guard instead of
+inventing a code sabotage.
 
 ### Slice 0 — freeze external and platform contracts (no product code)
 
@@ -1697,10 +1706,23 @@ The first-class exporter contract is:
   `ptk.worker.boot_id` (string when nonnull), `ptk.session.name` (string when
   nonnull), `ptk.session.generation` (int64 when nonnull), `ptk.call.id`
   (string when nonnull), `ptk.job.id` (int64 when nonnull),
-  `ptk.outcome.state` (string when nonnull), and
-  `ptk.termination.certainty` (string when nonnull). No null-valued OTLP
-  attribute is emitted; `dropped_attributes_count` remains zero. Any mapping
-  or attribute loss is export failure.
+  `ptk.outcome.state` (string when nonnull),
+  `ptk.termination.certainty` (string when nonnull),
+  `ptk.evidence.subject.id` (string when nonnull),
+  `ptk.evidence.subject.digest` (string when nonnull),
+  `ptk.evidence.subject.bytes` (int64 when nonnull),
+  `ptk.evidence.subject.state` (string when nonnull),
+  `ptk.evidence.retention.reason` (string when nonnull),
+  `ptk.disposition.id` (string when nonnull),
+  `ptk.disposition.target.boot_id` (string when nonnull),
+  `ptk.disposition.target.event_id` (string when nonnull),
+  `ptk.disposition.proof_kind` (string when nonnull),
+  `ptk.disposition.failure_class` (string when nonnull),
+  `ptk.disposition.target.export_configuration_identity` (string when
+  nonnull), `ptk.disposition.verified_receipt_digest` (string when nonnull),
+  and `ptk.disposition.acknowledged_gap_reason` (string when nonnull). No
+  null-valued OTLP attribute is emitted; `dropped_attributes_count` remains
+  zero. Any mapping or attribute loss is export failure.
 - Stable IDs and exact body bytes survive retry. Full-jitter backoff starts at
   one second and caps at 60 seconds. Honor `Retry-After`.
 - The fake receiver binds
@@ -1733,12 +1755,13 @@ The configured receiver is the anchor boundary: an OTLP `200` is not evidence
 that an arbitrary downstream SIEM indexed the event. The fake receiver must
 durably append and flush the exact body/event ID before `200`; production docs
 must require an equivalently durable collector queue/index under the intended
-separate principal. V1 OTLP requests carry the core event only, never exact
-script-evidence bytes. Core acknowledgment externally anchors the evidence
-ID/digest and releases the referenced local evidence object from the anchored
-mode's acknowledgment pin into ordinary retention; it does not claim remote
-possession of the script. Any operator evidence read/export is separately
-audited; there is no automatic evidence-byte exporter in v1.
+separate principal. OTLP requests for either supported core schema carry the
+core event only, never exact script-evidence bytes. Core acknowledgment
+externally anchors the evidence ID/digest and releases the referenced local
+evidence object from the anchored mode's acknowledgment pin into ordinary
+retention; it does not claim remote possession of the script. Any operator
+evidence read/export is separately audited; Slice 2 has no automatic
+evidence-byte exporter.
 
 Required integration cases are success/checkpoint,
 `503` then identical retry, persisted response-loss then duplicate replay,
@@ -1978,12 +2001,25 @@ not a correctness guard, and rrp-10 remains documentation reconciliation.
   sentinel while a started job can still append its terminal event from the
   reserve. In local-only mode, bounded retention is allowed and is visibly
   labeled as unanchored telemetry.
+- Automatic evidence retention reserves its complete intent/terminal pair,
+  durably appends the exact subject intent before unlink, and emits completed,
+  failed, or outcome-unknown truth afterward. Constructor/probe/pre-writer and
+  no-journal publication paths delete nothing; an unreservable capacity sweep
+  fails the triggering admission. Crash temporaries use only the paired
+  `temporary`/`crash_temporary` facts, and request-triggered pressure carries
+  the triggering call attribution.
 - At anchored high water, flood `ptk_state`, session/job list/status/output,
   and `ptk_output` calls. All except the minimal unrecorded health diagnostic
   are rejected before acceptance and consume zero reserve bytes; a previously
   started job still appends its terminal event to the preallocated reserve.
 - Exact script evidence is retrievable only from the protected evidence
   stream; fixture tokens/output never enter core events.
+- Evidence administration distinguishes invalid/absent/control/storage and
+  destination failures from no disclosure, disclosure unknown, flush failure
+  after disclosure, terminal-audit failure after disclosure, and
+  terminal-audit failure after protected publication. Disposition failures
+  likewise preserve the exact pre-effect or post-checkpoint stage rather than
+  collapsing every failure to `operation.failed`.
 
 ### Single-execution routing
 

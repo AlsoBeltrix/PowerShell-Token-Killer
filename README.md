@@ -88,6 +88,21 @@ the per-call limit for long work that needs the warm session itself.
 | `ptk_state` | Session introspection and health check: engine, uptime, cwd, loaded modules, jobs, and drift (env/PATH/variable changes since server start). |
 | `ptk_reset` | Recycle the runspace to factory state: server-start environment restored, background jobs killed. |
 
+## Mandatory Audit
+
+PTK records every accepted tool operation and spawned-job lifecycle in its own
+protected audit journal. The default is local-only under `~/.ptk/audit`: it
+requires no SIEM, collector, endpoint, credentials, or network service. Anchored
+OTLP/HTTP export is an optional startup configuration, not a requirement for
+local logging.
+
+Core records contain bounded metadata and hashes, while the exact submitted
+script is persisted separately as owner-only evidence. Scripts can contain
+credentials, tokens, or other secrets, so treat the audit root and its backups
+as sensitive. See the [mandatory local audit](server/README.md#mandatory-local-audit)
+and [optional anchored export](server/AUDIT-EXPORT.md) documentation for
+retention limits, failure behavior, administration, and SIEM routing.
+
 ## Setup
 
 Verify the server builds and answers the MCP handshake:
@@ -212,6 +227,7 @@ pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -Timeout
 ## More Docs
 
 - [MCP server setup, configuration, and operations](server/README.md)
+- [Local audit and optional anchored/SIEM export](server/AUDIT-EXPORT.md)
 
 ## Credits
 

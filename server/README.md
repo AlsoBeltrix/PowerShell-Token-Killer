@@ -65,6 +65,10 @@ or user script. The default is local-only protected storage under
 Core JSONL events live under `spool/`. Exact submitted script bytes live as
 separate owner-only evidence files under `evidence/`; core events contain only
 their opaque ID and SHA-256 digest, not script text.
+The current writer emits strict `ptk.audit/2` records. Recovery and export also
+accept retained byte-exact `ptk.audit/1` records; a chain may contain both
+versions. Exact scripts can contain credentials, tokens, or other secrets, so
+treat the audit root and every backup or copied evidence file as sensitive.
 
 Admission is fail-closed. PTK durably stores script evidence, reserves the
 worst-case terminal capacity, and flushes the accepted/dispatch records before
@@ -75,15 +79,30 @@ not run. `ptk_state` alone may return the minimal supervisor-only
 `audit=unavailable, unrecorded=true` diagnostic; it does not inspect the
 runspace or jobs in that mode.
 
-Local journal retention defaults to 30 days. Exact-script evidence has a
-bounded quota. Local-only evidence becomes ordinarily retention-eligible only
-after its referencing audit append is durable. In anchored mode, acknowledged
-closed spool prefixes and their referenced evidence become eligible only after
-the exact remote acknowledgment is durably checkpointed; unacknowledged
-segments remain pinned. Completed chains retire through a crash-recoverable
-durable deletion intent instead of leaving checkpoint controls forever. PTK
-fails new script-bearing admission rather than deleting evidence whose status
-is ambiguous.
+The executable currently freezes these storage bounds at startup; there are no
+environment-variable overrides for them:
+
+| Store | Default age threshold | Default aggregate limit | Per-item limit |
+| --- | --- | --- | --- |
+| Core journal | 30 days | 256 MiB, including a 4 MiB terminal-event reserve | 64 KiB per JSONL record; 16 MiB segments |
+| Exact-script evidence | 30 days | 256 MiB | 128 KiB per script |
+
+Local-only evidence becomes ordinarily retention-eligible only after its
+referencing audit append is durable. In anchored mode, each referenced
+evidence object becomes eligible only after its exact core event acknowledgment
+is durably checkpointed; acknowledged closed spool prefixes separately become
+eligible for chain retirement. Unacknowledged segments and evidence remain
+pinned. Completed chains retire through a crash-recoverable durable deletion
+intent instead of leaving checkpoint controls forever.
+
+Every automatic evidence deletion is itself journal-bound: PTK flushes an
+`evidence.retention_intent` containing the exact subject ID, digest, byte count,
+state, and reason before unlink, then records `evidence.retention_completed` or
+`evidence.retention_failed`. If terminal truth cannot be proved, the failure is
+`outcome_unknown`. PTK fails new script-bearing admission rather than deleting
+evidence without the complete audit reservation or when retention status is
+ambiguous.
+
 `PTK_AUDIT_ROOT` may select a different absolute operator-controlled root at
 process startup. With `PTK_AUDIT_EXPORT_CONFIG` absent, the executable remains
 local-only and needs no SIEM. Supplying that variable opts into strict anchored

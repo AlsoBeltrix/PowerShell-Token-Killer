@@ -5,6 +5,21 @@ requires no SIEM, collector, endpoint, or export credentials. Anchored mode is
 an explicit startup choice that copies core audit records to a remote durable
 boundary; it does not replace the local journal.
 
+## Local-only operation
+
+Leave `PTK_AUDIT_EXPORT_CONFIG` unset. PTK writes the same mandatory core JSONL
+and exact-script evidence under `PTK_AUDIT_ROOT` (default `~/.ptk/audit`) but
+makes no collector request and needs no network service. The current writer
+emits strict `ptk.audit/2`; recovery and export retain byte-exact
+`ptk.audit/1` compatibility. Local-only records remain bounded same-user
+telemetry: age/capacity retention applies, and the local hash chain is not
+immutable against arbitrary code running as the PTK account.
+
+`PtkAuditAdmin evidence read` and `evidence export` work in local-only mode.
+They use and audit against the local journal without requiring an endpoint or
+credentials. Operator disposition applies only to a permanent blocked record
+from anchored export.
+
 ## Enable anchored mode
 
 Set `PTK_AUDIT_EXPORT_CONFIG` to an absolute path. The variable being absent
@@ -111,6 +126,15 @@ excluded: the exported event carries only its opaque local evidence ID and
 SHA-256 digest. Evidence files are sensitive and remain in the owner-only local
 store. They are never included in the automatic OTLP export.
 
+For `ptk.audit/2` evidence-retention events, query attributes project
+`ptk.evidence.subject.id`, `ptk.evidence.subject.digest`,
+`ptk.evidence.subject.bytes`, `ptk.evidence.subject.state`, and
+`ptk.evidence.retention.reason`. PTK flushes `evidence.retention_intent` before
+the exact unlink and follows it with `evidence.retention_completed` or
+`evidence.retention_failed`; an unprovable deletion result is
+`outcome_unknown`. These events remain in the local journal in local-only mode
+and flow through the same OTLP path in anchored mode.
+
 ## Out-of-band audit administration
 
 `PtkAuditAdmin` is installed beside the server under `~/.ptk/bin/` as a
@@ -130,6 +154,24 @@ PtkAuditAdmin evidence export --id <evidence-uuid> --output <absolute-path>
 creates a new file in an already owner-only protected directory and refuses an
 existing path, symlink, or reparse point. Protect stdout, shell history, and
 redirections as incident evidence too.
+
+Evidence-access failure records use closed `outcome.detail_code` values so an
+investigator can distinguish storage failure from disclosure or publication:
+
+| Detail code | Meaning |
+| --- | --- |
+| `evidence.id_invalid` | The requested evidence ID was not canonical UUIDv4. |
+| `evidence.path_invalid` | The protected export destination was not a valid absolute path. |
+| `evidence.absent` | The exact protected evidence object was absent. |
+| `evidence.storage_failed` | Protected evidence or destination storage failed without a narrower classification. |
+| `evidence.control_invalid` | Evidence control metadata or protected identity was invalid. |
+| `evidence.destination_refused` | OS protection or access control refused the destination. |
+| `evidence.destination_exists` | The exclusive export destination already existed. |
+| `operation.failed_before_disclosure` | A read failed before its destination write began. |
+| `operation.disclosure_unknown` | A destination write began but did not return, so partial disclosure is unknown. |
+| `operation.flush_failed_after_disclosure` | The complete write returned, but destination flush failed. |
+| `audit.outcome_failed_after_disclosure` | The read bytes were written and flushed before terminal audit failed. |
+| `audit.outcome_failed_after_publish` | A protected export was published before terminal audit failed; retained-identity cleanup is attempted. |
 
 A permanent partial/data/protocol export block never clears automatically.
 With the target supervisor stopped, an operator can either attest a separately
@@ -201,8 +243,10 @@ At minimum, alert on:
   a known hard kill or host failure; and
 - audit-storage unavailability or protection failures on the PTK host.
 
-Also alert on `export.disposition_intent`, especially an acknowledged gap, and
-on an evidence-access intent without its matching completed/failed outcome.
+Also alert on `export.disposition_intent`, especially an acknowledged gap; on
+an evidence-access intent without its matching completed/failed outcome; on an
+`evidence.retention_intent` without its terminal event; and on
+`evidence.retention_failed` with `outcome_unknown`.
 
 Keep receiver-side retention, access control, and alert administration outside
 the PTK/harness identity. Local files are protected from other identities but

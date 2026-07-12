@@ -261,6 +261,8 @@ internal sealed class AuditJournal : IDisposable
 
     internal Guid SupervisorBootId { get; }
 
+    internal AuditOptions Options => _options;
+
     internal long Sequence
     {
         get

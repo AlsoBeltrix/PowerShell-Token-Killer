@@ -438,7 +438,7 @@ public sealed class AuditExportCheckpointStoreTests : IDisposable
     }
 
     [Fact]
-    public void Configuration_block_can_be_reclassified_only_for_a_changed_identity()
+    public void Configuration_block_reclassifies_after_each_changed_identity_then_freezes()
     {
         var options = Options(NewRoot(), AuditProtectionMode.Anchored);
         using var store = AuditExportCheckpointStore.Acquire(options, BootId);
@@ -469,6 +469,58 @@ public sealed class AuditExportCheckpointStoreTests : IDisposable
         store.Save(new AuditExportCheckpoint(BootId, false, null, 0, 0, null, retried));
 
         Assert.Equal(changedIdentity, store.Current.BlockedRecord?.ExportConfigurationIdentity);
+        var sameIdentityPermanent = new AuditExportBlockedRecord(
+            retried.Spool,
+            retried.ByteOffset,
+            retried.Sequence,
+            retried.EventId,
+            AuditExportFailureClass.Protocol,
+            "http.500",
+            responseDigest: null,
+            retried.FirstFailureUtc,
+            changedIdentity);
+        Assert.Throws<ArgumentException>(() => store.Save(
+            new AuditExportCheckpoint(
+                BootId,
+                false,
+                null,
+                0,
+                0,
+                null,
+                sameIdentityPermanent)));
+
+        var finalIdentity = new string('c', 64);
+        var permanent = new AuditExportBlockedRecord(
+            retried.Spool,
+            retried.ByteOffset,
+            retried.Sequence,
+            retried.EventId,
+            AuditExportFailureClass.Protocol,
+            "http.500",
+            responseDigest: null,
+            retried.FirstFailureUtc,
+            finalIdentity);
+        store.Save(new AuditExportCheckpoint(
+            BootId,
+            false,
+            null,
+            0,
+            0,
+            null,
+            permanent));
+
+        Assert.Equal(AuditExportFailureClass.Protocol, store.Current.BlockedRecord?.FailureClass);
+        Assert.Equal(finalIdentity, store.Current.BlockedRecord?.ExportConfigurationIdentity);
+        var rewrittenPermanent = new AuditExportBlockedRecord(
+            permanent.Spool,
+            permanent.ByteOffset,
+            permanent.Sequence,
+            permanent.EventId,
+            AuditExportFailureClass.Data,
+            "http.400",
+            responseDigest: null,
+            permanent.FirstFailureUtc,
+            new string('d', 64));
         Assert.Throws<ArgumentException>(() => store.Save(new AuditExportCheckpoint(
             BootId,
             false,
@@ -476,16 +528,7 @@ public sealed class AuditExportCheckpointStoreTests : IDisposable
             0,
             0,
             null,
-            new AuditExportBlockedRecord(
-                retried.Spool,
-                retried.ByteOffset,
-                retried.Sequence,
-                retried.EventId,
-                AuditExportFailureClass.Protocol,
-                "http.500",
-                responseDigest: null,
-                retried.FirstFailureUtc,
-                changedIdentity))));
+            rewrittenPermanent)));
     }
 
     [Fact]

@@ -688,7 +688,6 @@ internal sealed class AuditExportCheckpointStore : IDisposable
 
         if (!sameRecord ||
             current.FailureClass != AuditExportFailureClass.Configuration ||
-            next.FailureClass != AuditExportFailureClass.Configuration ||
             string.Equals(
                 current.ExportConfigurationIdentity,
                 next.ExportConfigurationIdentity,

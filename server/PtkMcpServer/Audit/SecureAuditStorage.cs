@@ -261,10 +261,13 @@ internal static class SecureAuditStorage
         string path,
         int maximumBytes,
         bool requireProtectedParent = false,
-        bool verifyWithoutMutation = false)
+        bool verifyWithoutMutation = false,
+        FileShare share = FileShare.Read)
     {
         if (maximumBytes < 1)
             throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+        if ((share & ~(FileShare.Read | FileShare.Delete)) != 0)
+            throw new ArgumentOutOfRangeException(nameof(share));
 
         var parent = Path.GetDirectoryName(Path.GetFullPath(path))
             ?? throw new IOException("The protected file parent is unavailable.");
@@ -279,7 +282,7 @@ internal static class SecureAuditStorage
             path,
             FileMode.Open,
             FileAccess.Read,
-            FileShare.Read,
+            share,
             bufferSize: 16 * 1024,
             FileOptions.SequentialScan);
         if (stream.Length < 0 || stream.Length > maximumBytes)
@@ -308,7 +311,7 @@ internal static class SecureAuditStorage
         }
     }
 
-    private static void VerifyExternalProtectedFile(string path)
+    internal static void VerifyExternalProtectedFile(string path)
     {
         RefuseLinkedPathComponents(path);
         RefuseLinkOrReparsePoint(path);
@@ -322,7 +325,7 @@ internal static class SecureAuditStorage
         VerifyUnixProtection(path, OwnerFileMode, "file");
     }
 
-    private static void VerifyExternalProtectedDirectory(string path)
+    internal static void VerifyExternalProtectedDirectory(string path)
     {
         RefuseLinkedPathComponents(path);
         RefuseLinkOrReparsePoint(path);

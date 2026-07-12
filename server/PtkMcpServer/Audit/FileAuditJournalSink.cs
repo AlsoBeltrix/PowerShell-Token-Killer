@@ -80,6 +80,10 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         _faultInjector = faultInjector;
         _spoolRoot = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
         _quotaLockPath = Path.Combine(_spoolRoot, QuotaLockFileName);
+        if (options.ProtectionMode == AuditProtectionMode.Anchored)
+        {
+            _ = AuditExportCheckpointStore.ReadSnapshot(options, supervisorBootId);
+        }
         EnsureQuotaLockFile();
         using (AcquireQuotaLock())
         {

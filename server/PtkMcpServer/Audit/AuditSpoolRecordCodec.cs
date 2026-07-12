@@ -62,8 +62,10 @@ internal static class AuditSpoolRecordCodec
                 .GetString();
             if (root.GetProperty("schema_version").GetString() != "ptk.audit/1" ||
                 root.GetProperty("event_hash").GetString() != hashText ||
-                !Guid.TryParseExact(supervisorBootIdText, "D", out var supervisorBootId) ||
-                supervisorBootId != expectedSupervisorBootId)
+                !string.Equals(
+                    supervisorBootIdText,
+                    expectedSupervisorBootId.ToString("D"),
+                    StringComparison.Ordinal))
             {
                 throw new IOException("An audit spool record has invalid identity metadata.");
             }

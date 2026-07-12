@@ -375,6 +375,28 @@ public sealed class FileAuditJournalSinkTests : IDisposable
     }
 
     [Fact]
+    public void Spool_codec_rejects_a_rehashed_noncanonical_supervisor_boot_id()
+    {
+        var options = Options(NewRoot(), segmentSlots: 2, aggregateSegments: 4);
+        var health = new AuditHealth(options, () => BaseTime);
+        var sink = new FileAuditJournalSink(options, BootId, () => BaseTime);
+        using var journal = Journal(options, health, sink, BootId);
+        Assert.True(journal.TryReserve(1, out var reservation, out _));
+        var serialized = journal.Append(reservation!, Input("call.accepted"));
+        reservation!.Release();
+        var canonicalBootId = BootId.ToString("D");
+        var invalidLine = RewriteStringFieldAndRehash(
+            serialized,
+            "supervisor_boot_id",
+            canonicalBootId,
+            canonicalBootId.ToUpperInvariant());
+
+        Assert.Throws<IOException>(() => AuditSpoolRecordCodec.Parse(
+            invalidLine.AsSpan(0, invalidLine.Length - 1),
+            BootId));
+    }
+
+    [Fact]
     public void Missing_live_segment_path_is_detected_before_more_capacity_is_admitted()
     {
         if (OperatingSystem.IsWindows()) return;

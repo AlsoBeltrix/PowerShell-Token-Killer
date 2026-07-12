@@ -33,6 +33,7 @@ internal sealed class AuditAdminJournalSession : IDisposable
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(producerVersion);
         var health = new AuditHealth(options);
+        var evidence = new ScriptEvidenceStoreProvider(options);
         if (options.ProtectionMode == AuditProtectionMode.LocalOnly)
         {
             return new AuditAdminJournalSession(
@@ -40,9 +41,14 @@ internal sealed class AuditAdminJournalSession : IDisposable
                     options,
                     health,
                     producerVersion,
-                    new ScriptEvidenceStoreProvider(options)),
+                    evidence),
                 checkpointStore: null);
         }
+
+        AuditEvidenceOrphanReconciler.RequireCompleteBeforeWriter(
+            options,
+            health,
+            evidence);
 
         AuditAnchoredWriterPreparation? preparation = null;
         AuditExportCheckpointStore? checkpointStore = null;

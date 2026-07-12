@@ -377,6 +377,53 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
     }
 
     [Fact]
+    public void Anchored_admin_refuses_incomplete_startup_without_creating_a_boot()
+    {
+        var options = CreateOptions(NewRoot());
+        var evidence = new ScriptEvidenceStoreProvider(options);
+        using (var publication = evidence.Publish("anchored admin pinned evidence"))
+        {
+        }
+        var foreignBoot = Guid.NewGuid();
+        using var preparation = FileAuditJournalSink.PrepareAnchored(options, foreignBoot);
+        using var checkpoint = preparation.CreateCheckpointStore();
+        var foreignSink = preparation.Activate(checkpoint);
+        using var foreignJournal = new AuditJournal(
+            options,
+            new AuditHealth(options),
+            foreignSink,
+            "anchored-admin-foreign-writer-test",
+            binaryDigest: null,
+            Guid.NewGuid(),
+            foreignBoot);
+        AppendRecord(
+            foreignJournal,
+            evidence: null,
+            protectionMode: "anchored",
+            configurationIdentity: ConfigurationIdentity);
+
+        Assert.Throws<AuditUnavailableException>(() =>
+            AuditAdminJournalSession.Open(options, "anchored-admin-barrier-test"));
+
+        Assert.Single(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
+
+        foreignJournal.Dispose();
+        checkpoint.Dispose();
+        preparation.Dispose();
+        using var recovered = AuditAdminJournalSession.Open(
+            options,
+            "anchored-admin-barrier-test");
+        Assert.Empty(AwaitingPaths(options));
+        Assert.Single(Directory.GetFiles(
+            options.EvidenceDirectory,
+            "*.unreferenced.script"));
+        Assert.Equal(
+            2,
+            Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl").Length);
+    }
+
+    [Fact]
     public void Startup_reconciliation_opens_evidence_without_holding_global_quota()
     {
         var options = CreateOptions(NewRoot());

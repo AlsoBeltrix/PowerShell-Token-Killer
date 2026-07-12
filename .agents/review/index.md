@@ -1294,3 +1294,14 @@ fail-closed observations are recorded in
 `.agents/review/findings/s2-admin-disposition-failures.md`. Acceptance
 authorizes local landing under the owner's delegated branch authority, not
 push.
+
+---
+
+**SLICE 2 INTEGRATED REVIEW FINDING — JOB-ID AUDIT POISON OPEN** (Claude Code
+2.1.207, fixed head `6cbd1d3061985f06bb0a5da8bcf2faa84a5bb826` against
+`78e256ca0f3b1253aa97dd984f1d913429ea452a`, `guard_confirmed=true`, verdict
+`reopened`, 2026-07-12T14:33:24Z). An omitted identifier on a job-specific
+`ptk_job` action can admit `id=0`, trigger an audit schema failure, permanently
+close audited admission until restart, and misstate the client-visible refusal
+as completed. Canonical detail is in
+`.agents/review/findings/s2-job-id-audit-poison.md`.

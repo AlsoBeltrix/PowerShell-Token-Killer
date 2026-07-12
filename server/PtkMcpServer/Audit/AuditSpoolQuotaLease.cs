@@ -143,15 +143,19 @@ internal sealed class AuditSpoolQuotaLease : IDisposable
                     BufferSize = 1,
                     Options = FileOptions.WriteThrough,
                 });
-            VerifyRetainedControl(root, controlPath, stream);
-            lease = new AuditSpoolQuotaLease(root, controlPath, stream);
-            stream = null;
-            return true;
         }
         catch (IOException exception) when (IsSharingViolation(exception))
         {
             contention = exception;
             return false;
+        }
+
+        try
+        {
+            VerifyRetainedControl(root, controlPath, stream);
+            lease = new AuditSpoolQuotaLease(root, controlPath, stream);
+            stream = null;
+            return true;
         }
         finally
         {

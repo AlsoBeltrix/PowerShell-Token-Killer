@@ -203,6 +203,39 @@ public sealed class AuditClosedSpoolExportPumpTests
     }
 
     [Fact]
+    public async Task Checkpoint_failure_after_a_remote_result_faults_before_any_second_request()
+    {
+        using var fixture = new ClosedFixture(recordCount: 1);
+        using var reader = new AuditClosedSpoolChainReader(fixture.Options, fixture.Store);
+        var transport = new ScriptedTransport(
+            AuditExportAttemptResult.Blocked(
+                AuditExportFailureClass.Data,
+                "http.400"),
+            AuditExportAttemptResult.Blocked(
+                AuditExportFailureClass.Data,
+                "http.400"))
+        {
+            BeforeResult = (_, call) =>
+            {
+                if (call == 1)
+                {
+                    File.WriteAllText(
+                        fixture.Store.CheckpointPath,
+                        "{\"invalid\":true}\n");
+                }
+            },
+        };
+        var pump = new AuditClosedSpoolExportPump(reader, transport);
+
+        await Assert.ThrowsAsync<IOException>(() =>
+            pump.ExportNextAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<IOException>(() =>
+            pump.ExportNextAsync(CancellationToken.None));
+
+        Assert.Equal(1, transport.Calls);
+    }
+
+    [Fact]
     public async Task Configuration_block_allows_a_new_attempt_only_for_a_changed_identity()
     {
         using var fixture = new ClosedFixture(recordCount: 1);
@@ -266,12 +299,15 @@ public sealed class AuditClosedSpoolExportPumpTests
         public string ConfigurationIdentity { get; init; } =
             AuditClosedSpoolExportPumpTests.ConfigurationIdentity;
 
+        internal Action<AuditOtlpRecord, int>? BeforeResult { get; init; }
+
         public Task<AuditExportAttemptResult> ExportAsync(
             AuditOtlpRecord record,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Records.Add(record);
+            BeforeResult?.Invoke(record, Records.Count);
             if (!_results.TryDequeue(out var result))
                 throw new InvalidOperationException("The scripted audit transport has no result.");
             return Task.FromResult(result);

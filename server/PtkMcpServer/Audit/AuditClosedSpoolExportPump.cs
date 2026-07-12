@@ -31,6 +31,7 @@ internal sealed class AuditClosedSpoolExportPump
     private AuditExportBlockedRecord? _blocked;
     private bool _initialized;
     private bool _complete;
+    private bool _faulted;
     private int _active;
 
     internal AuditClosedSpoolExportPump(
@@ -69,22 +70,36 @@ internal sealed class AuditClosedSpoolExportPump
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (_faulted)
+            {
+                throw new IOException(
+                    "The closed audit spool export pump is faulted and requires checkpoint recovery.");
+            }
             if (_complete)
                 return ChainComplete(null, "chain.complete");
             if (!_initialized)
             {
-                var initial = _reader.ResolveCheckpoint();
-                if (initial.EndPosition is { } initialEnd)
+                try
                 {
-                    _reader.MarkChainComplete(initialEnd);
-                    _complete = true;
-                    return ChainComplete(null, "chain.complete");
-                }
+                    var initial = _reader.ResolveCheckpoint();
+                    if (initial.EndPosition is { } initialEnd)
+                    {
+                        _reader.MarkChainComplete(initialEnd);
+                        _complete = true;
+                        return ChainComplete(null, "chain.complete");
+                    }
 
-                _next = initial.NextRecord
-                    ?? throw new IOException("The closed audit spool recovery lost its next record.");
-                _blocked = initial.BlockedRecord;
-                _initialized = true;
+                    _next = initial.NextRecord
+                        ?? throw new IOException(
+                            "The closed audit spool recovery lost its next record.");
+                    _blocked = initial.BlockedRecord;
+                    _initialized = true;
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    _faulted = true;
+                    throw;
+                }
             }
 
             var position = _next
@@ -129,29 +144,37 @@ internal sealed class AuditClosedSpoolExportPump
 
             var attempt = await _transport.ExportAsync(mapped, cancellationToken)
                 .ConfigureAwait(false);
-            return attempt.Kind switch
+            try
             {
-                AuditExportAttemptKind.Acknowledged =>
-                    Acknowledge(
-                        position,
-                        attempt.DetailCode,
-                        attempt.HasHealthWarning),
-                AuditExportAttemptKind.Retry =>
-                    new AuditClosedSpoolExportStep(
-                        AuditClosedSpoolExportStepKind.Retry,
-                        position.EventId,
-                        attempt.DetailCode,
-                        RetryAfter: attempt.RetryAfter),
-                AuditExportAttemptKind.Blocked =>
-                    PersistBlock(
-                        position,
-                        attempt.FailureClass ?? throw new InvalidOperationException(
-                            "A blocked audit export result has no failure class."),
-                        attempt.DetailCode,
-                        attempt.ResponseDigest),
-                _ => throw new InvalidOperationException(
-                    "The audit export transport returned an unknown result."),
-            };
+                return attempt.Kind switch
+                {
+                    AuditExportAttemptKind.Acknowledged =>
+                        Acknowledge(
+                            position,
+                            attempt.DetailCode,
+                            attempt.HasHealthWarning),
+                    AuditExportAttemptKind.Retry =>
+                        new AuditClosedSpoolExportStep(
+                            AuditClosedSpoolExportStepKind.Retry,
+                            position.EventId,
+                            attempt.DetailCode,
+                            RetryAfter: attempt.RetryAfter),
+                    AuditExportAttemptKind.Blocked =>
+                        PersistBlock(
+                            position,
+                            attempt.FailureClass ?? throw new InvalidOperationException(
+                                "A blocked audit export result has no failure class."),
+                            attempt.DetailCode,
+                            attempt.ResponseDigest),
+                    _ => throw new InvalidOperationException(
+                        "The audit export transport returned an unknown result."),
+                };
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                _faulted = true;
+                throw;
+            }
         }
         finally
         {
@@ -198,29 +221,37 @@ internal sealed class AuditClosedSpoolExportPump
         string detailCode,
         string? responseDigest)
     {
-        var firstFailureUtc = _timeProvider.GetUtcNow().ToUniversalTime();
-        _reader.PersistBlock(
-            position,
-            failureClass,
-            detailCode,
-            responseDigest,
-            firstFailureUtc,
-            _configurationIdentity);
-        _blocked = new AuditExportBlockedRecord(
-            position.Spool,
-            position.StartOffset,
-            position.Sequence,
-            position.EventId,
-            failureClass,
-            detailCode,
-            responseDigest,
-            firstFailureUtc,
-            _configurationIdentity);
-        return new AuditClosedSpoolExportStep(
-            AuditClosedSpoolExportStepKind.Blocked,
-            position.EventId,
-            detailCode,
-            failureClass);
+        try
+        {
+            var firstFailureUtc = _timeProvider.GetUtcNow().ToUniversalTime();
+            _reader.PersistBlock(
+                position,
+                failureClass,
+                detailCode,
+                responseDigest,
+                firstFailureUtc,
+                _configurationIdentity);
+            _blocked = new AuditExportBlockedRecord(
+                position.Spool,
+                position.StartOffset,
+                position.Sequence,
+                position.EventId,
+                failureClass,
+                detailCode,
+                responseDigest,
+                firstFailureUtc,
+                _configurationIdentity);
+            return new AuditClosedSpoolExportStep(
+                AuditClosedSpoolExportStepKind.Blocked,
+                position.EventId,
+                detailCode,
+                failureClass);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            _faulted = true;
+            throw;
+        }
     }
 
     private static AuditClosedSpoolExportStep ChainComplete(
@@ -246,4 +277,8 @@ internal sealed class AuditClosedSpoolExportPump
                 nameof(value));
         }
     }
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or StackOverflowException or
+            AccessViolationException or AppDomainUnloadedException;
 }

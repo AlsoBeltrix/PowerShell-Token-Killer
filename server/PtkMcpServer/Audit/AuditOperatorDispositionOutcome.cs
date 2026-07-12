@@ -14,10 +14,10 @@ namespace PtkMcpServer.Audit;
 internal sealed class AuditOperatorDispositionOutcome
 {
     private const string SchemaVersion = "ptk.operator-disposition-outcome/1";
-    private const string FilePrefix = "operator.disposition-completed-";
-    private const string FileSuffix = ".json";
-    private const string TemporaryPrefix = ".operator.disposition-completed-";
-    private const string TemporarySuffix = ".json.tmp";
+    internal const string FilePrefix = "operator.disposition-completed-";
+    internal const string FileSuffix = ".json";
+    internal const string TemporaryPrefix = ".operator.disposition-completed-";
+    internal const string TemporarySuffix = ".json.tmp";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private const int MaximumBytes = 8 * 1024;
 
@@ -121,39 +121,40 @@ internal sealed class AuditOperatorDispositionOutcome
             throw new IOException("A disposition completion publication is already pending.");
         }
 
-        try
+        using (var stream = SecureAuditStorage.CreateExclusiveFile(
+                   temporaryPath,
+                   preallocationSize: bytes.Length))
         {
-            using (var stream = SecureAuditStorage.CreateExclusiveFile(
-                       temporaryPath,
-                       preallocationSize: bytes.Length))
+            try
             {
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: true);
             }
-            try
+            catch
             {
-                SecureAuditStorage.PublishAtomically(temporaryPath, publishedPath, root);
+                SecureAuditStorage.DeleteRetainedProtectedFile(
+                    root,
+                    temporaryPath,
+                    stream.SafeFileHandle);
+                throw;
             }
-            catch (Exception exception) when (
-                AuditJournalFactory.IsConcurrentPublishCollision(exception) &&
-                EntryExists(publishedPath))
-            {
-                var concurrent = TryOpenCommitted(options, intent)
-                    ?? throw new IOException("The disposition completion publication is ambiguous.");
-                return concurrent;
-            }
-            afterPublishedForTests?.Invoke();
-            var committed = Read(publishedPath);
-            RequireCompatible(committed, intent);
-            return committed;
         }
-        finally
+        try
         {
-            // This removes only the deterministic name this invocation
-            // created. A hard-crash alias is recovered by TryOpenCommitted.
-            if (!EntryExists(publishedPath))
-                SecureAuditStorage.TryDelete(temporaryPath);
+            SecureAuditStorage.PublishAtomically(temporaryPath, publishedPath, root);
         }
+        catch (Exception exception) when (
+            AuditJournalFactory.IsConcurrentPublishCollision(exception) &&
+            EntryExists(publishedPath))
+        {
+            var concurrent = TryOpenCommitted(options, intent)
+                ?? throw new IOException("The disposition completion publication is ambiguous.");
+            return concurrent;
+        }
+        afterPublishedForTests?.Invoke();
+        var committed = Read(publishedPath);
+        RequireCompatible(committed, intent);
+        return committed;
     }
 
     internal static AuditOperatorDispositionOutcome? TryOpenCommitted(
@@ -179,7 +180,13 @@ internal sealed class AuditOperatorDispositionOutcome
                 throw new IOException(
                     "The disposition completion publication has ambiguous aliases.");
             }
-            RecoverPublishedAlias(root, publishedPath, temporaryPath, intent);
+            RecoverPublishedAlias(
+                root,
+                publishedPath,
+                temporaryPath,
+                intent.SupervisorBootId,
+                intent.EventId,
+                intent);
             temporaryExists = false;
         }
         else if (!publishedExists && temporaryExists)
@@ -205,7 +212,13 @@ internal sealed class AuditOperatorDispositionOutcome
                     throw new IOException(
                         "The disposition completion publication has ambiguous aliases.");
                 }
-                RecoverPublishedAlias(root, publishedPath, temporaryPath, intent);
+                RecoverPublishedAlias(
+                    root,
+                    publishedPath,
+                    temporaryPath,
+                    intent.SupervisorBootId,
+                    intent.EventId,
+                    intent);
                 temporaryExists = false;
             }
         }
@@ -226,41 +239,212 @@ internal sealed class AuditOperatorDispositionOutcome
         ArgumentNullException.ThrowIfNull(options);
         AuditSpoolSegmentIdentity.RequireUuidV4(supervisorBootId, nameof(supervisorBootId));
         var intents = AuditOperatorDispositionIntent.OpenForRetirement(options, supervisorBootId);
-        var expectedNames = new HashSet<string>(StringComparer.Ordinal);
+        var outcomes = InventoryOutcomes(
+            options,
+            supervisorBootId,
+            intents,
+            allowOrphans: false);
         foreach (var intent in intents)
         {
-            expectedNames.Add(FileName(intent.SupervisorBootId, intent.EventId));
-            expectedNames.Add(TemporaryFileName(intent.SupervisorBootId, intent.EventId));
-            if (TryOpenCommitted(options, intent) is null)
+            if (!outcomes.TryGetValue(intent.EventId, out var outcome))
                 return false;
+            RequireCompatible(outcome.Outcome, intent);
+        }
+        return true;
+    }
+
+    internal static void ValidateBoundedInventory(
+        AuditOptions options,
+        Guid supervisorBootId,
+        IReadOnlyList<AuditOperatorDispositionIntent> intents)
+    {
+        _ = InventoryOutcomes(
+            options,
+            supervisorBootId,
+            intents,
+            allowOrphans: false);
+    }
+
+    internal static void CleanupRetiredBoot(
+        AuditOptions options,
+        Guid supervisorBootId,
+        Action<int>? afterIntentDeletedForTests = null,
+        Action<int>? afterOutcomeDeletedForTests = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        AuditSpoolSegmentIdentity.RequireUuidV4(supervisorBootId, nameof(supervisorBootId));
+        var intents = AuditOperatorDispositionIntent.OpenForRetirement(
+            options,
+            supervisorBootId);
+        var outcomes = InventoryOutcomes(
+            options,
+            supervisorBootId,
+            intents,
+            allowOrphans: true);
+        if (intents.Any(intent => !outcomes.ContainsKey(intent.EventId)))
+        {
+            throw new IOException(
+                "Retirement cleanup found an operator disposition without completion authority.");
         }
 
+        var deletedIntents = 0;
+        var deletedOutcomes = 0;
+        foreach (var intent in intents.OrderBy(
+                     value => value.EventId.ToString("D"),
+                     StringComparer.Ordinal))
+        {
+            var outcome = outcomes[intent.EventId];
+            RequireCompatible(outcome.Outcome, intent);
+            intent.DeleteForRetirement(options);
+            deletedIntents = checked(deletedIntents + 1);
+            afterIntentDeletedForTests?.Invoke(deletedIntents);
+            DeleteOutcome(options, outcome);
+            outcomes.Remove(intent.EventId);
+            deletedOutcomes = checked(deletedOutcomes + 1);
+            afterOutcomeDeletedForTests?.Invoke(deletedOutcomes);
+        }
+
+        // A receipt without its intent is the deliberate crash residue from
+        // the intent-first deletion above. The still-present retirement
+        // authority is what makes exact deletion of that receipt safe.
+        foreach (var outcome in outcomes.Values.OrderBy(
+                     value => value.Outcome.BlockedEventId.ToString("D"),
+                     StringComparer.Ordinal))
+        {
+            DeleteOutcome(options, outcome);
+            deletedOutcomes = checked(deletedOutcomes + 1);
+            afterOutcomeDeletedForTests?.Invoke(deletedOutcomes);
+        }
+
+        if (AuditOperatorDispositionIntent.OpenForRetirement(options, supervisorBootId).Count != 0 ||
+            InventoryOutcomes(
+                options,
+                supervisorBootId,
+                [],
+                allowOrphans: true).Count != 0)
+        {
+            throw new IOException("Retirement cleanup left operator disposition controls behind.");
+        }
+    }
+
+    private static Dictionary<Guid, OutcomeControl> InventoryOutcomes(
+        AuditOptions options,
+        Guid supervisorBootId,
+        IReadOnlyList<AuditOperatorDispositionIntent> intents,
+        bool allowOrphans)
+    {
         var root = RequireRoot(options);
         var publishedPrefix = FilePrefix + supervisorBootId.ToString("N") + "-";
         var temporaryPrefix = TemporaryPrefix + supervisorBootId.ToString("N") + "-";
+        var published = new Dictionary<Guid, string>();
+        var temporaries = new Dictionary<Guid, string>();
         foreach (var entry in new DirectoryInfo(root)
                      .EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly))
         {
-            if (!entry.Name.StartsWith(publishedPrefix, StringComparison.Ordinal) &&
-                !entry.Name.StartsWith(temporaryPrefix, StringComparison.Ordinal))
-            {
+            var isPublished = entry.Name.StartsWith(publishedPrefix, StringComparison.Ordinal);
+            var isTemporary = entry.Name.StartsWith(temporaryPrefix, StringComparison.Ordinal);
+            if (!isPublished && !isTemporary)
                 continue;
-            }
-            if (entry is not FileInfo || !expectedNames.Contains(entry.Name))
+            if (entry is not FileInfo file)
             {
                 throw new IOException(
-                    "The audit root contains unmatched disposition completion state.");
+                    "The audit root contains malformed disposition completion state.");
             }
+            Guid bootId;
+            Guid eventId;
+            if (isPublished
+                    ? !TryParseFileName(file.Name, out bootId, out eventId)
+                    : !TryParseTemporaryFileName(file.Name, out bootId, out eventId) ||
+                      isPublished)
+            {
+                throw new IOException(
+                    "The audit root contains malformed disposition completion state.");
+            }
+            if (bootId != supervisorBootId)
+                throw new IOException("A disposition completion control names another boot.");
+            var controls = isPublished ? published : temporaries;
+            if (!controls.TryAdd(eventId, file.FullName))
+                throw new IOException("The audit root contains duplicate disposition completion state.");
+        }
+
+        var eventIds = published.Keys.Concat(temporaries.Keys).Distinct().ToArray();
+        if (eventIds.Length > AuditOperatorDispositionIntent.MaximumDispositionsPerBoot ||
+            published.Count + temporaries.Count >
+                AuditOperatorDispositionIntent.MaximumDispositionsPerBoot * 2)
+        {
+            throw new IOException(
+                "The target audit boot exceeds its disposition completion control bound.");
+        }
+        var intentByEvent = intents.ToDictionary(value => value.EventId);
+        if (!allowOrphans && eventIds.Any(eventId => !intentByEvent.ContainsKey(eventId)))
+            throw new IOException("The audit root contains unmatched disposition completion state.");
+
+        var outcomes = new Dictionary<Guid, OutcomeControl>();
+        foreach (var eventId in eventIds.OrderBy(value => value.ToString("D"), StringComparer.Ordinal))
+        {
+            intentByEvent.TryGetValue(eventId, out var intent);
+            var publishedPath = Path.Combine(root, FileName(supervisorBootId, eventId));
+            var temporaryPath = Path.Combine(root, TemporaryFileName(supervisorBootId, eventId));
+            var hasPublished = published.ContainsKey(eventId);
+            var hasTemporary = temporaries.ContainsKey(eventId);
+            if (hasPublished && hasTemporary)
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    throw new IOException(
+                        "The disposition completion publication has ambiguous aliases.");
+                }
+                RecoverPublishedAlias(
+                    root,
+                    publishedPath,
+                    temporaryPath,
+                    supervisorBootId,
+                    eventId,
+                    intent);
+            }
+            else if (hasTemporary)
+            {
+                var pending = Read(temporaryPath);
+                RequireNamedOutcome(pending, supervisorBootId, eventId);
+                if (intent is not null) RequireCompatible(pending, intent);
+                try
+                {
+                    SecureAuditStorage.PublishAtomically(temporaryPath, publishedPath, root);
+                }
+                catch (Exception exception) when (
+                    AuditJournalFactory.IsConcurrentPublishCollision(exception) &&
+                    EntryExists(publishedPath))
+                {
+                    if (EntryExists(temporaryPath))
+                    {
+                        if (OperatingSystem.IsWindows())
+                            throw new IOException("The disposition completion publication is ambiguous.");
+                        RecoverPublishedAlias(
+                            root,
+                            publishedPath,
+                            temporaryPath,
+                            supervisorBootId,
+                            eventId,
+                            intent);
+                    }
+                }
+            }
+            var outcome = Read(publishedPath);
+            RequireNamedOutcome(outcome, supervisorBootId, eventId);
+            if (intent is not null) RequireCompatible(outcome, intent);
+            outcomes.Add(eventId, new OutcomeControl(publishedPath, outcome));
         }
         SecureAuditStorage.VerifyExternalProtectedDirectory(root);
-        return true;
+        return outcomes;
     }
 
     private static void RecoverPublishedAlias(
         string root,
         string publishedPath,
         string temporaryPath,
-        AuditOperatorDispositionIntent intent)
+        Guid supervisorBootId,
+        Guid eventId,
+        AuditOperatorDispositionIntent? intent)
     {
         using var published = OpenPublishedAlias(publishedPath);
         using var temporary = OpenPublishedAlias(temporaryPath);
@@ -278,7 +462,8 @@ internal sealed class AuditOperatorDispositionOutcome
             if (!publishedBytes.AsSpan().SequenceEqual(temporaryBytes))
                 throw new IOException("The disposition completion aliases differ.");
             var outcome = ParseCanonical(publishedBytes);
-            RequireCompatible(outcome, intent);
+            RequireNamedOutcome(outcome, supervisorBootId, eventId);
+            if (intent is not null) RequireCompatible(outcome, intent);
             SecureAuditStorage.RemoveRetainedPublishedAlias(
                 root,
                 publishedPath,
@@ -290,6 +475,39 @@ internal sealed class AuditOperatorDispositionOutcome
         {
             CryptographicOperations.ZeroMemory(publishedBytes);
             CryptographicOperations.ZeroMemory(temporaryBytes);
+        }
+    }
+
+    private static void DeleteOutcome(
+        AuditOptions options,
+        OutcomeControl expected)
+    {
+        using var stream = new FileStream(
+            expected.Path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Delete,
+            bufferSize: 1,
+            FileOptions.WriteThrough);
+        _ = SecureAuditStorage.VerifyRetainedProtectedFileIdentity(
+            expected.Path,
+            stream.SafeFileHandle);
+        if (stream.Length is < 2 or > MaximumBytes)
+            throw new IOException("The disposition completion receipt changed before retirement.");
+        var bytes = new byte[checked((int)stream.Length)];
+        try
+        {
+            stream.ReadExactly(bytes);
+            var observed = ParseCanonical(bytes);
+            RequireSameOutcome(observed, expected.Outcome);
+            SecureAuditStorage.DeleteRetainedProtectedFile(
+                options.RootDirectory,
+                expected.Path,
+                stream.SafeFileHandle);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(bytes);
         }
     }
 
@@ -425,6 +643,42 @@ internal sealed class AuditOperatorDispositionOutcome
             !string.Equals(outcome.IntentSha256, intent.CanonicalSha256, StringComparison.Ordinal))
         {
             throw new IOException("The disposition completion receipt belongs to another intent.");
+        }
+    }
+
+    private static void RequireNamedOutcome(
+        AuditOperatorDispositionOutcome outcome,
+        Guid supervisorBootId,
+        Guid eventId)
+    {
+        if (outcome.SupervisorBootId != supervisorBootId ||
+            outcome.BlockedEventId != eventId)
+        {
+            throw new IOException("A disposition completion receipt names another target.");
+        }
+    }
+
+    private static void RequireSameOutcome(
+        AuditOperatorDispositionOutcome actual,
+        AuditOperatorDispositionOutcome expected)
+    {
+        if (actual.DispositionId != expected.DispositionId ||
+            actual.SupervisorBootId != expected.SupervisorBootId ||
+            actual.BlockedEventId != expected.BlockedEventId ||
+            !string.Equals(actual.IntentSha256, expected.IntentSha256, StringComparison.Ordinal) ||
+            actual.CompletedAuditSupervisorBootId != expected.CompletedAuditSupervisorBootId ||
+            actual.CompletedAuditEventId != expected.CompletedAuditEventId ||
+            !string.Equals(
+                actual.CompletedAuditEventHash,
+                expected.CompletedAuditEventHash,
+                StringComparison.Ordinal) ||
+            actual.CompletedAuditSequence != expected.CompletedAuditSequence ||
+            !string.Equals(
+                actual.CompletedAuditRecordSha256,
+                expected.CompletedAuditRecordSha256,
+                StringComparison.Ordinal))
+        {
+            throw new IOException("The disposition completion receipt changed before retirement.");
         }
     }
 
@@ -599,11 +853,55 @@ internal sealed class AuditOperatorDispositionOutcome
         return root;
     }
 
-    private static string FileName(Guid bootId, Guid eventId) =>
+    internal static string FileName(Guid bootId, Guid eventId) =>
         FilePrefix + bootId.ToString("N") + "-" + eventId.ToString("D") + FileSuffix;
 
-    private static string TemporaryFileName(Guid bootId, Guid eventId) =>
+    internal static string TemporaryFileName(Guid bootId, Guid eventId) =>
         TemporaryPrefix + bootId.ToString("N") + "-" + eventId.ToString("D") + TemporarySuffix;
+
+    internal static bool TryParseFileName(
+        string name,
+        out Guid supervisorBootId,
+        out Guid eventId) => TryParseControlFileName(
+        name,
+        FilePrefix,
+        FileSuffix,
+        out supervisorBootId,
+        out eventId);
+
+    internal static bool TryParseTemporaryFileName(
+        string name,
+        out Guid supervisorBootId,
+        out Guid eventId) => TryParseControlFileName(
+        name,
+        TemporaryPrefix,
+        TemporarySuffix,
+        out supervisorBootId,
+        out eventId);
+
+    private static bool TryParseControlFileName(
+        string name,
+        string prefix,
+        string suffix,
+        out Guid supervisorBootId,
+        out Guid eventId)
+    {
+        supervisorBootId = default;
+        eventId = default;
+        if (!name.StartsWith(prefix, StringComparison.Ordinal) ||
+            !name.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var stem = name.AsSpan(prefix.Length, name.Length - prefix.Length - suffix.Length);
+        if (stem.Length != 32 + 1 + 36 || stem[32] != '-')
+            return false;
+        return Guid.TryParseExact(stem[..32], "N", out supervisorBootId) &&
+               AuditSpoolSegmentIdentity.IsUuidV4(supervisorBootId) &&
+               Guid.TryParseExact(stem[33..], "D", out eventId) &&
+               string.Equals(stem[33..].ToString(), eventId.ToString("D"), StringComparison.Ordinal) &&
+               IsUuidVersion(eventId, 7);
+    }
 
     private static bool EntryExists(string path)
     {
@@ -697,4 +995,8 @@ internal sealed class AuditOperatorDispositionOutcome
         string CompletedAuditEventHash,
         long CompletedAuditSequence,
         string CompletedAuditRecordSha256);
+
+    private sealed record OutcomeControl(
+        string Path,
+        AuditOperatorDispositionOutcome Outcome);
 }

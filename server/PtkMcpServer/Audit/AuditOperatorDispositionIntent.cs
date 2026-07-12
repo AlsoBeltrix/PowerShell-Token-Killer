@@ -75,9 +75,12 @@ internal sealed class AuditOperatorDispositionIntent
 {
     internal const string SchemaVersion = "ptk.operator-disposition/1";
     internal const int MaximumBytes = 8 * 1024;
+    internal const int MaximumDispositionsPerBoot = 64;
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     internal const string FilePrefix = "operator.disposition-";
     internal const string FileSuffix = ".json";
+    private const string TemporaryPrefix = ".operator.disposition-";
+    private const string TemporarySuffix = ".json.tmp";
 
     private static readonly HashSet<string> Properties = new(
         [
@@ -216,38 +219,54 @@ internal sealed class AuditOperatorDispositionIntent
             (utcNow?.Invoke() ?? DateTimeOffset.UtcNow).ToUniversalTime());
         ValidateFields(expected);
 
-        if (EntryExists(path))
-            return RequireCompatible(Read(path), expected, ignoreIdentityAndTime: true);
+        var existing = OpenForRetirement(options, blocked.Spool.SupervisorBootId);
+        AuditOperatorDispositionOutcome.ValidateBoundedInventory(
+            options,
+            blocked.Spool.SupervisorBootId,
+            existing);
+        var exact = existing.SingleOrDefault(value => value.EventId == blocked.EventId);
+        if (exact is not null)
+            return RequireCompatible(exact, expected, ignoreIdentityAndTime: true);
+        if (existing.Count >= MaximumDispositionsPerBoot)
+        {
+            throw new IOException(
+                "The target audit boot reached its operator disposition control bound.");
+        }
 
         var bytes = Serialize(expected);
-        var temporaryPath = Path.Combine(
-            root,
-            $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.tmp");
-        try
+        var temporaryPath = Path.Combine(root, TemporaryFileName(
+            blocked.Spool.SupervisorBootId,
+            blocked.EventId));
+        using (var stream = SecureAuditStorage.CreateExclusiveFile(
+                   temporaryPath,
+                   preallocationSize: bytes.Length))
         {
-            using (var stream = SecureAuditStorage.CreateExclusiveFile(
-                       temporaryPath,
-                       preallocationSize: bytes.Length))
+            try
             {
                 stream.Write(bytes);
                 stream.Flush(flushToDisk: true);
             }
-            try
+            catch
             {
-                SecureAuditStorage.PublishAtomically(temporaryPath, path, root);
+                SecureAuditStorage.DeleteRetainedProtectedFile(
+                    root,
+                    temporaryPath,
+                    stream.SafeFileHandle);
+                throw;
             }
-            catch (Exception exception) when (
-                AuditJournalFactory.IsConcurrentPublishCollision(exception) && EntryExists(path))
-            {
-                SecureAuditStorage.TryDelete(temporaryPath);
-                return RequireCompatible(Read(path), expected, ignoreIdentityAndTime: true);
-            }
-            return RequireCompatible(Read(path), expected, ignoreIdentityAndTime: false);
         }
-        finally
+        try
         {
-            SecureAuditStorage.TryDelete(temporaryPath);
+            SecureAuditStorage.PublishAtomically(temporaryPath, path, root);
         }
+        catch (Exception exception) when (
+            AuditJournalFactory.IsConcurrentPublishCollision(exception) && EntryExists(path))
+        {
+            var concurrent = OpenForRetirement(options, blocked.Spool.SupervisorBootId)
+                .Single(value => value.EventId == blocked.EventId);
+            return RequireCompatible(concurrent, expected, ignoreIdentityAndTime: true);
+        }
+        return RequireCompatible(Read(path), expected, ignoreIdentityAndTime: false);
     }
 
     internal static AuditOperatorDispositionIntent? OpenExisting(
@@ -264,11 +283,13 @@ internal sealed class AuditOperatorDispositionIntent
         if (options.ProtectionMode != AuditProtectionMode.Anchored)
             throw new ArgumentException("Operator disposition requires anchored audit mode.", nameof(options));
 
-        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.RootDirectory));
-        SecureAuditStorage.VerifyExternalProtectedDirectory(root);
-        var path = Path.Combine(root, FileName(supervisorBootId, eventId));
-        if (!EntryExists(path)) return null;
-        var persisted = Read(path);
+        var intents = OpenForRetirement(options, supervisorBootId);
+        AuditOperatorDispositionOutcome.ValidateBoundedInventory(
+            options,
+            supervisorBootId,
+            intents);
+        var persisted = intents.SingleOrDefault(value => value.EventId == eventId);
+        if (persisted is null) return null;
         if (persisted.SupervisorBootId != supervisorBootId ||
             persisted.EventId != eventId ||
             persisted.Proof != proof)
@@ -289,28 +310,92 @@ internal sealed class AuditOperatorDispositionIntent
 
         var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(options.RootDirectory));
         SecureAuditStorage.VerifyExternalProtectedDirectory(root);
-        var prefix = FilePrefix + supervisorBootId.ToString("N") + "-";
-        var intents = new List<AuditOperatorDispositionIntent>();
+        var publishedPrefix = FilePrefix + supervisorBootId.ToString("N") + "-";
+        var temporaryPrefix = TemporaryPrefix + supervisorBootId.ToString("N") + "-";
+        var published = new Dictionary<Guid, string>();
+        var temporaries = new Dictionary<Guid, string>();
         foreach (var entry in new DirectoryInfo(root)
                      .EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly))
         {
-            if (!entry.Name.StartsWith(prefix, StringComparison.Ordinal))
+            var isPublished = entry.Name.StartsWith(publishedPrefix, StringComparison.Ordinal);
+            var isTemporary = entry.Name.StartsWith(temporaryPrefix, StringComparison.Ordinal);
+            if (!isPublished && !isTemporary)
                 continue;
-            if (entry is not FileInfo file ||
-                !TryParseFileName(file.Name, out var bootId, out var eventId) ||
-                bootId != supervisorBootId)
+            if (entry is not FileInfo file)
             {
                 throw new IOException("The audit root contains malformed operator disposition state.");
             }
-            var intent = Read(file.FullName);
-            if (intent.SupervisorBootId != bootId || intent.EventId != eventId)
-                throw new IOException("An operator disposition intent names another target.");
+            Guid bootId;
+            Guid eventId;
+            if (isPublished
+                    ? !TryParseFileName(file.Name, out bootId, out eventId)
+                    : !TryParseTemporaryFileName(file.Name, out bootId, out eventId) ||
+                      isPublished)
+            {
+                throw new IOException("The audit root contains malformed operator disposition state.");
+            }
+            if (bootId != supervisorBootId)
+                throw new IOException("An operator disposition control names another boot.");
+            var controls = isPublished ? published : temporaries;
+            if (!controls.TryAdd(eventId, file.FullName))
+                throw new IOException("The audit root contains duplicate operator disposition state.");
+        }
+
+        var eventIds = published.Keys.Concat(temporaries.Keys).Distinct().ToArray();
+        if (eventIds.Length > MaximumDispositionsPerBoot ||
+            published.Count + temporaries.Count > MaximumDispositionsPerBoot * 2)
+        {
+            throw new IOException(
+                "The target audit boot exceeds its operator disposition control bound.");
+        }
+
+        var intents = new List<AuditOperatorDispositionIntent>(eventIds.Length);
+        foreach (var eventId in eventIds.OrderBy(value => value.ToString("D"), StringComparer.Ordinal))
+        {
+            var finalPath = Path.Combine(root, FileName(supervisorBootId, eventId));
+            var temporaryPath = Path.Combine(root, TemporaryFileName(supervisorBootId, eventId));
+            var hasPublished = published.ContainsKey(eventId);
+            var hasTemporary = temporaries.ContainsKey(eventId);
+            if (hasPublished && hasTemporary)
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    throw new IOException(
+                        "The operator disposition publication has ambiguous aliases.");
+                }
+                RecoverPublishedAlias(root, finalPath, temporaryPath, supervisorBootId, eventId);
+            }
+            else if (hasTemporary)
+            {
+                var pending = Read(temporaryPath);
+                RequireNamedTarget(pending, supervisorBootId, eventId);
+                try
+                {
+                    SecureAuditStorage.PublishAtomically(temporaryPath, finalPath, root);
+                }
+                catch (Exception exception) when (
+                    AuditJournalFactory.IsConcurrentPublishCollision(exception) &&
+                    EntryExists(finalPath))
+                {
+                    if (EntryExists(temporaryPath))
+                    {
+                        if (OperatingSystem.IsWindows())
+                            throw new IOException("The operator disposition publication is ambiguous.");
+                        RecoverPublishedAlias(
+                            root,
+                            finalPath,
+                            temporaryPath,
+                            supervisorBootId,
+                            eventId);
+                    }
+                }
+            }
+            var intent = Read(finalPath);
+            RequireNamedTarget(intent, supervisorBootId, eventId);
             intents.Add(intent);
         }
         SecureAuditStorage.VerifyExternalProtectedDirectory(root);
-        return intents
-            .OrderBy(value => value.EventId.ToString("D"), StringComparer.Ordinal)
-            .ToArray();
+        return intents;
     }
 
     internal void ConsumeForCheckpointAdvance(
@@ -350,6 +435,38 @@ internal sealed class AuditOperatorDispositionIntent
         }
         return checkpoint.BlockedRecord is null ||
                checkpoint.BlockedRecord.Sequence > Sequence;
+    }
+
+    internal void DeleteForRetirement(AuditOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        using var stream = new FileStream(
+            _path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Delete,
+            bufferSize: 1,
+            FileOptions.WriteThrough);
+        _ = SecureAuditStorage.VerifyRetainedProtectedFileIdentity(
+            _path,
+            stream.SafeFileHandle);
+        if (stream.Length != _canonicalBytes.Length)
+            throw new IOException("The operator disposition intent changed before retirement.");
+        var observed = new byte[_canonicalBytes.Length];
+        try
+        {
+            stream.ReadExactly(observed);
+            if (!observed.AsSpan().SequenceEqual(_canonicalBytes))
+                throw new IOException("The operator disposition intent changed before retirement.");
+            SecureAuditStorage.DeleteRetainedProtectedFile(
+                options.RootDirectory,
+                _path,
+                stream.SafeFileHandle);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(observed);
+        }
     }
 
     private void RequireExactTarget(
@@ -430,11 +547,18 @@ internal sealed class AuditOperatorDispositionIntent
             requireProtectedParent: true,
             verifyWithoutMutation: true,
             share: FileShare.Read);
+        return ReadCanonical(path, bytes);
+    }
+
+    private static AuditOperatorDispositionIntent ReadCanonical(
+        string path,
+        ReadOnlyMemory<byte> bytes)
+    {
         try
         {
             var fields = Parse(bytes);
             var canonical = Serialize(fields);
-            if (!bytes.AsSpan().SequenceEqual(canonical))
+            if (!bytes.Span.SequenceEqual(canonical))
                 throw new IOException("The operator disposition intent is not canonical.");
             return new AuditOperatorDispositionIntent(
                 path,
@@ -457,6 +581,76 @@ internal sealed class AuditOperatorDispositionIntent
         catch (Exception exception) when (exception is not IOException)
         {
             throw new IOException("The operator disposition intent is invalid.");
+        }
+    }
+
+    private static void RequireNamedTarget(
+        AuditOperatorDispositionIntent intent,
+        Guid supervisorBootId,
+        Guid eventId)
+    {
+        if (intent.SupervisorBootId != supervisorBootId || intent.EventId != eventId)
+            throw new IOException("An operator disposition intent names another target.");
+    }
+
+    private static void RecoverPublishedAlias(
+        string root,
+        string publishedPath,
+        string temporaryPath,
+        Guid supervisorBootId,
+        Guid eventId)
+    {
+        using var published = OpenPublishedAlias(publishedPath);
+        using var temporary = OpenPublishedAlias(temporaryPath);
+        if (published.Length is < 2 or > MaximumBytes ||
+            published.Length != temporary.Length)
+        {
+            throw new IOException("The operator disposition alias length is invalid.");
+        }
+        var publishedBytes = new byte[checked((int)published.Length)];
+        var temporaryBytes = new byte[publishedBytes.Length];
+        try
+        {
+            published.ReadExactly(publishedBytes);
+            temporary.ReadExactly(temporaryBytes);
+            if (!publishedBytes.AsSpan().SequenceEqual(temporaryBytes))
+                throw new IOException("The operator disposition aliases differ.");
+            var intent = ReadCanonical(publishedPath, publishedBytes);
+            RequireNamedTarget(intent, supervisorBootId, eventId);
+            SecureAuditStorage.RemoveRetainedPublishedAlias(
+                root,
+                publishedPath,
+                published.SafeFileHandle,
+                temporaryPath,
+                temporary.SafeFileHandle);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(publishedBytes);
+            CryptographicOperations.ZeroMemory(temporaryBytes);
+        }
+    }
+
+    private static FileStream OpenPublishedAlias(string path)
+    {
+        var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Delete,
+            bufferSize: 1,
+            FileOptions.WriteThrough);
+        try
+        {
+            _ = SecureAuditStorage.VerifyRetainedPublishedAliasIdentity(
+                path,
+                stream.SafeFileHandle);
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
         }
     }
 
@@ -624,6 +818,10 @@ internal sealed class AuditOperatorDispositionIntent
     internal static string FileName(Guid bootId, Guid eventId) =>
         FilePrefix + bootId.ToString("N") + "-" + eventId.ToString("D") + FileSuffix;
 
+    internal static string TemporaryFileName(Guid bootId, Guid eventId) =>
+        TemporaryPrefix + bootId.ToString("N") + "-" + eventId.ToString("D") +
+        TemporarySuffix;
+
     internal static bool TryParseFileName(
         string name,
         out Guid supervisorBootId,
@@ -639,6 +837,30 @@ internal sealed class AuditOperatorDispositionIntent
         var stem = name.AsSpan(
             FilePrefix.Length,
             name.Length - FilePrefix.Length - FileSuffix.Length);
+        if (stem.Length != 32 + 1 + 36 || stem[32] != '-')
+            return false;
+        return Guid.TryParseExact(stem[..32], "N", out supervisorBootId) &&
+               AuditSpoolSegmentIdentity.IsUuidV4(supervisorBootId) &&
+               Guid.TryParseExact(stem[33..], "D", out eventId) &&
+               string.Equals(stem[33..].ToString(), eventId.ToString("D"), StringComparison.Ordinal) &&
+               IsUuidVersion(eventId, 7);
+    }
+
+    internal static bool TryParseTemporaryFileName(
+        string name,
+        out Guid supervisorBootId,
+        out Guid eventId)
+    {
+        supervisorBootId = default;
+        eventId = default;
+        if (!name.StartsWith(TemporaryPrefix, StringComparison.Ordinal) ||
+            !name.EndsWith(TemporarySuffix, StringComparison.Ordinal))
+        {
+            return false;
+        }
+        var stem = name.AsSpan(
+            TemporaryPrefix.Length,
+            name.Length - TemporaryPrefix.Length - TemporarySuffix.Length);
         if (stem.Length != 32 + 1 + 36 || stem[32] != '-')
             return false;
         return Guid.TryParseExact(stem[..32], "N", out supervisorBootId) &&

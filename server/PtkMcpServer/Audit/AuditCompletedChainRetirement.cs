@@ -11,6 +11,8 @@ internal enum AuditCompletedChainRetirementFaultPoint
     SegmentDeleted,
     CheckpointDeleted,
     LockDeleted,
+    DispositionIntentDeleted,
+    DispositionOutcomeDeleted,
 }
 
 /// <summary>
@@ -158,6 +160,10 @@ internal static class AuditCompletedChainRetirement
                 faultInjector?.Invoke(
                     AuditCompletedChainRetirementFaultPoint.LockDeleted,
                     0);
+                CleanupDispositionControls(
+                    options,
+                    supervisorBootId,
+                    faultInjector);
                 DeleteIntent(options, intent);
                 quota.VerifyOwnership();
                 return true;
@@ -398,10 +404,30 @@ internal static class AuditCompletedChainRetirement
                 AuditCompletedChainRetirementFaultPoint.LockDeleted,
                 0);
         }
+        CleanupDispositionControls(
+            options,
+            intent.SupervisorBootId,
+            faultInjector);
         DeleteExactFile(
             options.RootDirectory,
             intentPath,
             SerializeIntent(intent));
+    }
+
+    private static void CleanupDispositionControls(
+        AuditOptions options,
+        Guid supervisorBootId,
+        Action<AuditCompletedChainRetirementFaultPoint, int>? faultInjector)
+    {
+        AuditOperatorDispositionOutcome.CleanupRetiredBoot(
+            options,
+            supervisorBootId,
+            afterIntentDeletedForTests: ordinal => faultInjector?.Invoke(
+                AuditCompletedChainRetirementFaultPoint.DispositionIntentDeleted,
+                ordinal),
+            afterOutcomeDeletedForTests: ordinal => faultInjector?.Invoke(
+                AuditCompletedChainRetirementFaultPoint.DispositionOutcomeDeleted,
+                ordinal));
     }
 
     private static void ValidateRecoveryTopology(

@@ -49,6 +49,84 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
         AssertRetired(options);
     }
 
+    [Fact]
+    public void Retirement_exactly_cleans_completed_disposition_controls()
+    {
+        var options = Options(NewRoot());
+        CreateCompletedChain(options, aged: true);
+        _ = CreateCompletedDispositionControls(options);
+        Assert.Single(IntentPaths(options));
+        Assert.Single(OutcomePaths(options));
+
+        Assert.True(AuditCompletedChainRetirement.TryRetire(
+            options,
+            BootId,
+            DateTimeOffset.UtcNow,
+            requiredHeadroomBytes: 0));
+
+        AssertRetired(options);
+    }
+
+    [Theory]
+    [InlineData((int)AuditCompletedChainRetirementFaultPoint.DispositionIntentDeleted)]
+    [InlineData((int)AuditCompletedChainRetirementFaultPoint.DispositionOutcomeDeleted)]
+    public void Disposition_cleanup_crash_boundaries_recover_under_retirement_authority(
+        int injectedPointValue)
+    {
+        var injectedPoint = (AuditCompletedChainRetirementFaultPoint)injectedPointValue;
+        var options = Options(NewRoot());
+        CreateCompletedChain(options, aged: true);
+        _ = CreateCompletedDispositionControls(options);
+
+        Assert.Throws<IOException>(() => AuditCompletedChainRetirement.TryRetire(
+            options,
+            BootId,
+            DateTimeOffset.UtcNow,
+            requiredHeadroomBytes: 0,
+            (point, ordinal) =>
+            {
+                if (point == injectedPoint && ordinal == 1)
+                    throw new IOException("injected disposition cleanup crash");
+            }));
+        Assert.Single(Directory.GetFiles(
+            options.RootDirectory,
+            "audit.retirement-*.json"));
+        Assert.Empty(IntentPaths(options));
+        if (injectedPoint == AuditCompletedChainRetirementFaultPoint.DispositionIntentDeleted)
+            Assert.Single(OutcomePaths(options));
+        else
+            Assert.Empty(OutcomePaths(options));
+
+        using (var quota = AuditSpoolQuotaLease.AcquireExisting(options.SpoolDirectory))
+            AuditAnchoredWriterStartupPreflight.RunUnderQuota(options, quota);
+
+        AssertRetired(options);
+    }
+
+    [Fact]
+    public void Retirement_recovers_a_durable_unpublished_completion_receipt()
+    {
+        var options = Options(NewRoot());
+        CreateCompletedChain(options, aged: true);
+        var disposition = CreateCompletedDispositionControls(options);
+        var published = Assert.Single(OutcomePaths(options));
+        var temporary = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionOutcome.TemporaryFileName(
+                BootId,
+                disposition.EventId));
+        File.Move(published, temporary);
+
+        Assert.True(AuditCompletedChainRetirement.TryRetire(
+            options,
+            BootId,
+            DateTimeOffset.UtcNow,
+            requiredHeadroomBytes: 0));
+
+        AssertRetired(options);
+        Assert.False(File.Exists(temporary));
+    }
+
     [Theory]
     [InlineData((int)AuditCompletedChainRetirementFaultPoint.IntentPublished, 0)]
     [InlineData((int)AuditCompletedChainRetirementFaultPoint.SegmentDeleted, 1)]
@@ -201,8 +279,8 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
         AuditProtectionMode.Anchored,
         ConfigurationIdentity,
         maxRecordBytes: 4096,
-        segmentBytes: 16_384,
-        aggregateBytes: 65_536,
+        segmentBytes: 32_768,
+        aggregateBytes: 131_072,
         emergencyReserveBytes: 8192,
         retentionAge: TimeSpan.FromMinutes(10),
         maxEvidenceBytes: 4096,
@@ -279,6 +357,55 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
         }
     }
 
+    private static CompletedDisposition CreateCompletedDispositionControls(
+        AuditOptions options)
+    {
+        var eventId = Guid.CreateVersion7();
+        var spool = AuditSpoolSegmentIdentity.Create(BootId, 0);
+        var blocked = new AuditExportBlockedRecord(
+            spool,
+            byteOffset: 0,
+            sequence: 1,
+            eventId: eventId,
+            failureClass: AuditExportFailureClass.Data,
+            detailCode: "test.block",
+            responseDigest: null,
+            firstFailureUtc: DateTimeOffset.UtcNow,
+            exportConfigurationIdentity: ConfigurationIdentity);
+        var position = new DispositionPosition(spool, 0, 1, 1, eventId);
+        var proof = AuditOperatorDispositionProof.AcknowledgedGap("operator.accepted");
+        var intent = AuditOperatorDispositionIntent.CreateOrOpen(
+            options,
+            position,
+            blocked,
+            proof);
+
+        using var admin = AdminJournal(options);
+        var operations = new AuditAdminOperations(options, admin.Journal);
+        Assert.Equal(
+            intent.DispositionId,
+            operations.ApplyPermanentBlockDisposition(BootId, eventId, proof));
+        return new CompletedDisposition(eventId, intent.DispositionId);
+    }
+
+    private static AdminJournalFixture AdminJournal(AuditOptions options)
+    {
+        var sink = new InMemoryAuditJournalSink(
+            options.SegmentBytes,
+            options.AggregateBytes,
+            options.ProtectionMode,
+            options.RetentionAge);
+        var journal = new AuditJournal(
+            options,
+            new AuditHealth(options),
+            sink,
+            "retirement-disposition-test",
+            binaryDigest: null,
+            Guid.NewGuid(),
+            Guid.NewGuid());
+        return new AdminJournalFixture(journal, sink);
+    }
+
     private static void CreateOpenChain(AuditOptions options)
     {
         using var store = AuditExportCheckpointStore.CreateForWriter(options, BootId);
@@ -340,6 +467,22 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
                 out _))
             .ToArray();
 
+    private static string[] IntentPaths(AuditOptions options) =>
+        Directory.GetFiles(options.RootDirectory)
+            .Where(path => AuditOperatorDispositionIntent.TryParseFileName(
+                Path.GetFileName(path),
+                out var bootId,
+                out _) && bootId == BootId)
+            .ToArray();
+
+    private static string[] OutcomePaths(AuditOptions options) =>
+        Directory.GetFiles(options.RootDirectory)
+            .Where(path => AuditOperatorDispositionOutcome.TryParseFileName(
+                Path.GetFileName(path),
+                out var bootId,
+                out _) && bootId == BootId)
+            .ToArray();
+
     private static void AssertRetired(AuditOptions options)
     {
         Assert.Empty(Segments(options));
@@ -352,6 +495,8 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
         Assert.Empty(Directory.GetFiles(
             options.RootDirectory,
             "audit.retirement-*"));
+        Assert.Empty(IntentPaths(options));
+        Assert.Empty(OutcomePaths(options));
         Assert.True(File.Exists(Path.Combine(
             options.SpoolDirectory,
             AuditSpoolQuotaLease.ControlFileName)));
@@ -359,4 +504,25 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
 
     [DllImport("libc", EntryPoint = "link", SetLastError = true)]
     private static extern int CreateHardLink(string existingPath, string newPath);
+
+    private sealed record CompletedDisposition(Guid EventId, Guid DispositionId);
+
+    private sealed record DispositionPosition(
+        AuditSpoolSegmentIdentity Spool,
+        long StartOffset,
+        long NextOffset,
+        long Sequence,
+        Guid EventId) : IAuditClosedSpoolRecordPosition
+    {
+        public string? PreviousEventHash => null;
+        public string EventHash => new('0', 64);
+        public ReadOnlyMemory<byte> ExactJsonlBytes => ReadOnlyMemory<byte>.Empty;
+    }
+
+    private sealed record AdminJournalFixture(
+        AuditJournal Journal,
+        InMemoryAuditJournalSink Sink) : IDisposable
+    {
+        public void Dispose() => Journal.Dispose();
+    }
 }

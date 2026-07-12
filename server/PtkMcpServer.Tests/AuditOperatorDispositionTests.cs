@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using PtkMcpServer.Audit;
 
 namespace PtkMcpServer.Tests;
@@ -214,29 +215,170 @@ public sealed class AuditOperatorDispositionTests : IDisposable
         }
         Assert.Single(DispositionOutcomes(options));
 
+        using (var replayBeforeRetirement = AdminJournal(options))
+        {
+            var preRetirementReplay = new AuditAdminOperations(
+                options,
+                replayBeforeRetirement.Journal);
+            Assert.Equal(
+                persistedId,
+                preRetirementReplay.ApplyPermanentBlockDisposition(
+                    target.BootId,
+                    target.EventId,
+                    proof));
+            using var replayed = JsonDocument.Parse(replayBeforeRetirement.Sink.Lines[2]);
+            Assert.Equal(
+                "disposition.previously_completed",
+                replayed.RootElement.GetProperty("outcome").GetProperty("detail_code").GetString());
+        }
+
         Assert.True(AuditCompletedChainRetirement.TryRetire(
             options,
             target.BootId,
             DateTimeOffset.UtcNow,
             requiredHeadroomBytes: options.AggregateBytes));
         Assert.False(TargetControlsExist(options, target.BootId));
+        Assert.DoesNotContain(
+            Directory.GetFiles(options.RootDirectory),
+            path => AuditOperatorDispositionIntent.TryParseFileName(
+                 Path.GetFileName(path),
+                 out var bootId,
+                 out _) && bootId == target.BootId);
+        Assert.Empty(DispositionOutcomes(options));
 
         using var replayAdmin = AdminJournal(options);
         var replay = new AuditAdminOperations(options, replayAdmin.Journal);
-        Assert.Equal(
-            persistedId,
+        Assert.Throws<AuditAdminOperationException>(() =>
             replay.ApplyPermanentBlockDisposition(target.BootId, target.EventId, proof));
         Assert.Equal(
-            [
-                "export.disposition_intent",
-                "export.disposition_authorized",
-                "export.disposition_completed",
-            ],
+            ["export.disposition_intent", "export.disposition_failed"],
             replayAdmin.Sink.Lines.Select(EventType).ToArray());
-        using var replayed = JsonDocument.Parse(replayAdmin.Sink.Lines[2]);
-        Assert.Equal(
-            "disposition.previously_completed",
-            replayed.RootElement.GetProperty("outcome").GetProperty("detail_code").GetString());
+    }
+
+    [Fact]
+    public void Deterministic_intent_temporary_is_recovered_for_exact_retry()
+    {
+        var options = Options();
+        var target = CreateBlockedTarget(options, AuditExportFailureClass.Data);
+        var proof = AuditOperatorDispositionProof.AcknowledgedGap("operator.accepted");
+        var fixture = CreateIntentFixture(options, target, proof);
+        var published = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionIntent.FileName(target.BootId, target.EventId));
+        var temporary = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionIntent.TemporaryFileName(target.BootId, target.EventId));
+        File.Move(published, temporary);
+
+        var recovered = AuditOperatorDispositionIntent.CreateOrOpen(
+            options,
+            fixture.Position,
+            fixture.Blocked,
+            proof);
+
+        Assert.Equal(fixture.Intent.DispositionId, recovered.DispositionId);
+        Assert.True(File.Exists(published));
+        Assert.False(File.Exists(temporary));
+    }
+
+    [Fact]
+    public void Unix_intent_publication_alias_recovers_only_the_same_inode()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var options = Options();
+        var target = CreateBlockedTarget(options, AuditExportFailureClass.Protocol);
+        var proof = AuditOperatorDispositionProof.VerifiedReceipt(new string('8', 64));
+        var fixture = CreateIntentFixture(options, target, proof);
+        var published = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionIntent.FileName(target.BootId, target.EventId));
+        var temporary = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionIntent.TemporaryFileName(target.BootId, target.EventId));
+        Assert.Equal(0, CreateHardLink(published, temporary));
+
+        var recovered = AuditOperatorDispositionIntent.OpenExisting(
+            options,
+            target.BootId,
+            target.EventId,
+            proof);
+
+        Assert.NotNull(recovered);
+        Assert.Equal(fixture.Intent.DispositionId, recovered.DispositionId);
+        Assert.False(File.Exists(temporary));
+    }
+
+    [Fact]
+    public void Distinct_intent_publication_names_fail_closed_as_ambiguous()
+    {
+        var options = Options();
+        var target = CreateBlockedTarget(options, AuditExportFailureClass.Data);
+        var proof = AuditOperatorDispositionProof.AcknowledgedGap("operator.accepted");
+        _ = CreateIntentFixture(options, target, proof);
+        var published = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionIntent.FileName(target.BootId, target.EventId));
+        var temporary = Path.Combine(
+            options.RootDirectory,
+            AuditOperatorDispositionIntent.TemporaryFileName(target.BootId, target.EventId));
+        var bytes = File.ReadAllBytes(published);
+        using (var stream = SecureAuditStorage.CreateExclusiveFile(temporary))
+        {
+            stream.Write(bytes);
+            stream.Flush(flushToDisk: true);
+        }
+
+        Assert.ThrowsAny<IOException>(() => AuditOperatorDispositionIntent.OpenExisting(
+            options,
+            target.BootId,
+            target.EventId,
+            proof));
+        Assert.True(File.Exists(published));
+        Assert.True(File.Exists(temporary));
+    }
+
+    [Fact]
+    public void Per_boot_control_ceiling_allows_exact_retry_and_scopes_new_refusal()
+    {
+        var options = Options();
+        _ = SecureAuditStorage.PrepareRoot(options.RootDirectory);
+        var bootId = Guid.NewGuid();
+        var proof = AuditOperatorDispositionProof.AcknowledgedGap("operator.accepted");
+        IntentFixture? first = null;
+        for (var index = 0;
+             index < AuditOperatorDispositionIntent.MaximumDispositionsPerBoot;
+             index++)
+        {
+            var fixture = CreateIntentFixture(
+                options,
+                bootId,
+                Guid.CreateVersion7(),
+                index + 1,
+                proof);
+            first ??= fixture;
+        }
+
+        var exact = AuditOperatorDispositionIntent.CreateOrOpen(
+            options,
+            first!.Position,
+            first.Blocked,
+            proof);
+        Assert.Equal(first.Intent.DispositionId, exact.DispositionId);
+        Assert.Throws<IOException>(() => CreateIntentFixture(
+            options,
+            bootId,
+            Guid.CreateVersion7(),
+            AuditOperatorDispositionIntent.MaximumDispositionsPerBoot + 1,
+            proof));
+
+        var otherBoot = Guid.NewGuid();
+        var unrelated = CreateIntentFixture(
+            options,
+            otherBoot,
+            Guid.CreateVersion7(),
+            1,
+            proof);
+        Assert.Equal(otherBoot, unrelated.Intent.SupervisorBootId);
     }
 
     [Fact]
@@ -774,6 +916,60 @@ public sealed class AuditOperatorDispositionTests : IDisposable
             AuditSpoolSegmentIdentity.TryParse(Path.GetFileName(path), out var identity) &&
             identity.SupervisorBootId == bootId);
 
+    private static IntentFixture CreateIntentFixture(
+        AuditOptions options,
+        BlockedTarget target,
+        AuditOperatorDispositionProof proof)
+    {
+        var blocked = Assert.IsType<AuditExportBlockedRecord>(
+            Checkpoint(options, target.BootId).BlockedRecord);
+        var position = new IntentPosition(
+            blocked.Spool,
+            blocked.ByteOffset,
+            checked(blocked.ByteOffset + 1),
+            blocked.Sequence,
+            blocked.EventId);
+        var intent = AuditOperatorDispositionIntent.CreateOrOpen(
+            options,
+            position,
+            blocked,
+            proof);
+        return new IntentFixture(intent, position, blocked);
+    }
+
+    private static IntentFixture CreateIntentFixture(
+        AuditOptions options,
+        Guid bootId,
+        Guid eventId,
+        long sequence,
+        AuditOperatorDispositionProof proof)
+    {
+        var spool = AuditSpoolSegmentIdentity.Create(bootId, 0);
+        var startOffset = checked(sequence * 10);
+        var blocked = new AuditExportBlockedRecord(
+            spool,
+            startOffset,
+            sequence,
+            eventId,
+            AuditExportFailureClass.Data,
+            "test.block",
+            responseDigest: null,
+            firstFailureUtc: DateTimeOffset.UtcNow,
+            exportConfigurationIdentity: ConfigurationIdentity);
+        var position = new IntentPosition(
+            spool,
+            startOffset,
+            checked(startOffset + 1),
+            sequence,
+            eventId);
+        var intent = AuditOperatorDispositionIntent.CreateOrOpen(
+            options,
+            position,
+            blocked,
+            proof);
+        return new IntentFixture(intent, position, blocked);
+    }
+
     private static AuditExportBlockedRecord Mutate(
         AuditExportBlockedRecord blocked,
         BlockedField field) => new(
@@ -797,6 +993,11 @@ public sealed class AuditOperatorDispositionTests : IDisposable
     }
 
     private sealed record BlockedTarget(Guid BootId, Guid EventId);
+
+    private sealed record IntentFixture(
+        AuditOperatorDispositionIntent Intent,
+        IntentPosition Position,
+        AuditExportBlockedRecord Blocked);
 
     public enum BlockedField
     {
@@ -826,4 +1027,7 @@ public sealed class AuditOperatorDispositionTests : IDisposable
     {
         public void Dispose() => Journal.Dispose();
     }
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int CreateHardLink(string existingPath, string newPath);
 }

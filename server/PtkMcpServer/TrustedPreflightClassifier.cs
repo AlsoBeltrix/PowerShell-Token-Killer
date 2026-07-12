@@ -10,7 +10,8 @@ namespace PtkMcpServer;
 internal sealed record ResolvedCommand(
     CommandTypes CommandType,
     string? Source = null,
-    string? Definition = null);
+    string? Definition = null,
+    bool IsCanonicalManagementSetContent = false);
 
 internal sealed record ShellDialectAssessment(
     bool PowerShellParseFatal,

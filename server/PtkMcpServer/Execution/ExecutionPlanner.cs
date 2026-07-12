@@ -287,7 +287,8 @@ internal static class ExecutionPlanner
     {
         if (script.Contains('\r') || script.Contains('\n')) return null;
         var ast = Parser.ParseInput(script, out _, out var parseErrors);
-        if (parseErrors.Length > 0 || ast.ParamBlock is not null ||
+        if (parseErrors.Length > 0 || ast.UsingStatements.Count > 0 ||
+            ast.ParamBlock is not null ||
             ast.DynamicParamBlock is not null || ast.BeginBlock is not null ||
             ast.ProcessBlock is not null || ast.CleanBlock is not null ||
             ast.EndBlock?.Statements.Count != 1 ||
@@ -321,6 +322,7 @@ internal static class ExecutionPlanner
         var resolvedSink = commands.Resolve(sinkName.Value, CommandTypes.All);
         if (!sinkName.Value.Equals("Set-Content", StringComparison.OrdinalIgnoreCase) ||
             resolvedSink?.CommandType != CommandTypes.Cmdlet ||
+            !resolvedSink.IsCanonicalManagementSetContent ||
             !string.Equals(
                 resolvedSink.Source,
                 "Microsoft.PowerShell.Management",

@@ -188,9 +188,10 @@ Routing rules:
   recovery-only transition lands.
 - High-confidence mixed file capture remains advisory: the exact original
   `<native application> | Set-Content <constant non-wildcard path>` pipeline
-  runs first in PowerShell. Only the canonical
-  `Microsoft.PowerShell.Management` cmdlet in a filesystem location is
-  eligible, and only after it completes without PowerShell errors may PTK
+  runs first in PowerShell. Only the exact built-in
+  `Microsoft.PowerShell.Management` `Set-Content` implementation in a
+  filesystem location is eligible, and only after it completes without
+  PowerShell errors may PTK
   append `[ptk:routing]` with the simpler direct-capture style
   `<native application> > <path>` for next time. PTK never rewrites or reruns
   the command, never refuses to teach style, and emits no suggestion for

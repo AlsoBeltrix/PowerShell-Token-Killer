@@ -261,7 +261,8 @@ public sealed class ExecutionPlannerTests
             CommandTypes.All,
             new ResolvedCommand(
                 CommandTypes.Cmdlet,
-                Source: "Microsoft.PowerShell.Management"));
+                Source: "Microsoft.PowerShell.Management",
+                IsCanonicalManagementSetContent: true));
 
         const string original = "git diff | Set-Content -Path 'patch file.txt'";
         var plan = Plan(
@@ -291,7 +292,8 @@ public sealed class ExecutionPlannerTests
             CommandTypes.All,
             new ResolvedCommand(
                 CommandTypes.Cmdlet,
-                Source: "Microsoft.PowerShell.Management"));
+                Source: "Microsoft.PowerShell.Management",
+                IsCanonicalManagementSetContent: true));
         commands.Set(
             "Measure-Object",
             CommandTypes.All,
@@ -312,6 +314,7 @@ public sealed class ExecutionPlannerTests
             "git diff | Set-Content 'patch[1].txt'",
             "git diff | Set-Content env:PATCH",
             "git diff | Set-Content 'C:\\patch.txt'",
+            "using module './Evil.psm1'; git diff | Set-Content patch.txt",
             "git diff | EvilModule\\Set-Content patch.txt",
             "git diff | Measure-Object",
             "Get-Date | Set-Content patch.txt",
@@ -337,7 +340,9 @@ public sealed class ExecutionPlannerTests
         commands.Set(
             "Set-Content",
             CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Cmdlet, Source: "EvilModule"));
+            new ResolvedCommand(
+                CommandTypes.Cmdlet,
+                Source: "Microsoft.PowerShell.Management"));
         Assert.Null(Plan(
             "git diff | Set-Content patch.txt",
             "auto",
@@ -349,7 +354,8 @@ public sealed class ExecutionPlannerTests
             CommandTypes.All,
             new ResolvedCommand(
                 CommandTypes.Cmdlet,
-                Source: "Microsoft.PowerShell.Management"));
+                Source: "Microsoft.PowerShell.Management",
+                IsCanonicalManagementSetContent: true));
         Assert.Null(ExecutionPlanner.Create(
             "git diff | Set-Content patch.txt",
             "auto",

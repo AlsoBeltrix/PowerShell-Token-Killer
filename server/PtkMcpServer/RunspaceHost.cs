@@ -751,7 +751,10 @@ public sealed class RunspaceHost : IDisposable
             : new ResolvedCommand(
                 command.CommandType,
                 command.Source,
-                command.Definition);
+                command.Definition,
+                command is CmdletInfo cmdlet &&
+                cmdlet.ImplementingType ==
+                    typeof(Microsoft.PowerShell.Commands.SetContentCommand));
     }
 
     private static TrustedCommandSnapshot CaptureCommandFacts(

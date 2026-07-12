@@ -13,17 +13,20 @@ failure after acknowledged data was deleted.
 files atomically, but the Windows `SetFileInformationByHandle(FileRenameInfoEx)`
 path at `SecureAuditStorage.cs:1238-1282` does not call `FlushFileBuffers` and
 the durability helper flushes the directory only on non-Windows.
-`server/PtkMcpServer/Audit/AuditExportCheckpointStore.cs:1164` treats the
-replacement as durable before installing the advanced checkpoint state that
-authorizes acknowledged-prefix deletion and evidence-anchor finalization.
+`server/PtkMcpServer/Audit/AuditExportCheckpointStore.cs:358-392` treats the
+successful replacement and reload as durable before installing the advanced
+checkpoint state that authorizes acknowledged-prefix deletion and
+evidence-anchor finalization. Line 1164 is the uncertain-replacement recovery
+path, not the normal commit.
 
 ## Predicted observable failure
 
 Power loss shortly after an acknowledged checkpoint replacement can restore
 the older checkpoint. The minimum result is duplicate export. If retention
 already deleted the prefix proved by the newer checkpoint, restart can reject
-the retained spool floor permanently; independently configured spool and
-control roots can make their persistence order diverge.
+the retained spool floor permanently. The spool is a protected child of the
+same configured root, so this is an unsupported persistence-order assumption
+within Windows filesystems, not the reviewer's claimed cross-volume layout.
 
 ## What
 
@@ -48,7 +51,10 @@ boundary and add an instrumented Windows guard proving the call and ordering.
 
 ## Coder dispute (if any)
 
-None yet; independent triage is in progress.
+The finding is valid, but two reviewer details were corrected during intake.
+The normal checkpoint commit is at lines 358-392 rather than line 1164, and
+spool/control roots cannot be configured on separate volumes. Neither
+correction removes the missing durability barrier or rollback risk.
 
 ## Known gaps
 

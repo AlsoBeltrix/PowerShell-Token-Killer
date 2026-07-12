@@ -80,11 +80,21 @@ bounded quota but is not independently evicted while retained journal records
 may still reference it; PTK fails new script-bearing admission when that quota
 is full pending coordinated journal/evidence retention.
 `PTK_AUDIT_ROOT` may select a different absolute operator-controlled root at
-process startup. The executable still operates local-only. Internal strict
-export-configuration, per-boot checkpoint/lease, committed-read, and
-spool-record validation foundations exist, but PTK sends no collector requests
-and anchored mode is not yet operator-accessible. Local-only operation remains
-complete without a SIEM.
+process startup. With `PTK_AUDIT_EXPORT_CONFIG` absent, the executable remains
+local-only and needs no SIEM. Supplying that variable opts into strict anchored
+mode: the protected configuration, HTTPS endpoint, authentication material,
+and export runtime must all initialize before PTK serves tools. An empty,
+malformed, incomplete, or unprotected configuration fails startup instead of
+falling back to local-only.
+
+Anchored mode sends core audit events as
+[OTLP/HTTP protobuf logs](https://opentelemetry.io/docs/specs/otel/protocol/exporter/)
+with at-least-once delivery. Retries preserve `ptk.audit.event_id` and
+`ptk.audit.event_hash`, so a receiver must tolerate or deduplicate identical
+duplicates. Exact submitted script bytes remain only in the protected local
+evidence store; they are not sent in OTLP records. Configuration, receiver
+durability requirements, and SIEM adapter patterns are in
+[Anchored audit export](AUDIT-EXPORT.md).
 
 `ptk_invoke` returns command output, then labeled sections when present, in
 this order: `[exit] N`, `[stderr]`, `[errors]`, and `[warnings]`. Empty
@@ -240,6 +250,7 @@ Set these in the MCP registration `env` block when defaults do not fit:
 | `PTK_MAX_CALL_TIMEOUT_SECONDS` | `3600` | Cap on the per-call `timeoutSeconds` override. |
 | `PTK_IDLE_EXIT_SECONDS` | `14400` | Idle self-exit backstop for orphaned servers, in seconds. |
 | `PTK_AUDIT_ROOT` | `~/.ptk/audit` | Absolute protected root for mandatory local audit JSONL and exact-script evidence. Local logging requires no SIEM configuration. |
+| `PTK_AUDIT_EXPORT_CONFIG` | unset | Absolute path to a protected `ptk.export-config/1` JSON file. Unset selects local-only mode; presence, including an empty value, requests strict anchored mode and makes incomplete or invalid configuration a startup failure. |
 | `PTK_MODULE_PATH` | auto-discovered `src/PwshTokenCompressor.psd1` | Explicit module manifest to import into the runspace. If set to a missing file, shaping is disabled. |
 | `PTK_RTK_PATH` | `rtk` on `PATH` | Explicit `rtk` binary for native routing and log shaping. If set to a missing file, `rtk` is treated as absent. |
 
@@ -273,5 +284,8 @@ audit adds durable attribution, ordering, capacity guarantees, and tamper
 evidence; it does not grant or remove PowerShell/OS permissions. Run the
 harness under the restricted identity whose upstream RBAC is meant to govern
 the work. Local-only files are protected from other identities but are not
-claimed immutable against the same account. Anchored SIEM export is not
-operational in the current executable.
+claimed immutable against the same account, and their hash chain does not make
+them immutable to that account. Anchored export improves that boundary only
+after a separately administered receiver has durably acknowledged the event;
+an in-memory proxy or a receiver controlled by the harness identity does not.
+See [Anchored audit export](AUDIT-EXPORT.md) for the required trust boundary.

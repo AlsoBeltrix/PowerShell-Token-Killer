@@ -2,7 +2,7 @@
 
 **Severity**: HIGH — one model-facing call can permanently disable every audited
 operation until the server restarts.
-**Status**: In progress
+**Status**: Verified
 **Branch**: `fix/s2-job-id-audit-poison`
 **Commit**: `a73d09c07bfe2cfe01d9e16b71fa09993b8ea596`
 
@@ -73,3 +73,12 @@ Claude Code 2.1.207 (`claude-fable-5`) reviewed fixed head
 `reopened`, recorded 2026-07-12T14:33:24Z. The reviewer verified the complete
 omitted-ID failure chain and classified it as a model-triggerable, fail-closed
 process-lifetime availability loss with a companion false completed terminal.
+
+Claude Code 2.1.207 re-reviewed integrated head
+`49971d6ce5cb246d2283eab052163ae85a5b5c87` against the same base,
+`guard_confirmed=true`, recorded 2026-07-12T15:35:30Z. It independently removed
+the required-ID production boundary, observed all three metadata cases plus the
+end-to-end poison guard fail, restored byte-exact source, and passed the focused
+5/5. It also traced the authorization-refusal fallback and confirmed the false
+completed terminal is closed. The integrated verdict remained `reopened` only
+for two distinct new findings.

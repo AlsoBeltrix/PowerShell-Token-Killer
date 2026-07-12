@@ -41,6 +41,9 @@ public sealed class FileAuditJournalSinkTests : IDisposable
         var health = new AuditHealth(options, () => BaseTime);
         var sink = new FileAuditJournalSink(options, BootId, () => BaseTime);
         var path = sink.CurrentSegmentPath;
+        Assert.Equal(
+            AuditSpoolSegmentIdentity.Create(BootId, 0).FileName,
+            Path.GetFileName(path));
         Assert.Equal(0, new FileInfo(path).Length);
 
         SerializedAuditEvent appended;
@@ -459,6 +462,9 @@ public sealed class FileAuditJournalSinkTests : IDisposable
     [InlineData("unexpected.bin")]
     [InlineData(".ptk-audit-malformed.allocating")]
     [InlineData(".ptk-audit-00000000000000000000000000000000-00000000.jsonl.00000000000000000000000000000000.allocating")]
+    [InlineData(".ptk-audit-2234567812344ABC8DEF0123456789AB-00000000.jsonl.3234567812344abc8def0123456789ab.allocating")]
+    [InlineData("ptk-audit-2234567812344ABC8DEF0123456789AB-00000000.jsonl")]
+    [InlineData("ptk-audit-2234567812344abc8def0123456789ab-000000000.jsonl")]
     [InlineData("ptk-audit-00000000000000000000000000000000-00000000.jsonl")]
     public void Startup_rejects_an_unknown_spool_entry(string entryName)
     {

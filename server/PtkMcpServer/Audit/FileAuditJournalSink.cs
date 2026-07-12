@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Win32.SafeHandles;
 
 namespace PtkMcpServer.Audit;
@@ -21,14 +20,9 @@ internal enum FileAuditSinkFaultPoint
 /// </summary>
 internal sealed class FileAuditJournalSink : IAuditJournalSink
 {
-    private const string SegmentPrefix = "ptk-audit-";
     private const string QuotaLockFileName = ".ptk-audit-quota.lock";
-    private static readonly Regex SegmentNamePattern = new(
-        "^ptk-audit-([0-9a-f]{32})-([0-9]{8})\\.jsonl$",
-        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-    private static readonly Regex AllocatingNamePattern = new(
-        "^\\.ptk-audit-([0-9a-f]{32})-([0-9]{8})\\.jsonl\\.([0-9a-f]{32})\\.allocating$",
-        RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
+    private const string AllocatingSuffix = ".allocating";
+    private const int AllocationIdLength = 32;
     private static readonly byte[] EventHashMarker = Encoding.ASCII.GetBytes(",\"event_hash\":\"");
     private readonly AuditOptions _options;
     private readonly Guid _supervisorBootId;
@@ -49,7 +43,7 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink
         Func<FileAuditSinkFaultPoint, int, bool>? faultInjector = null)
     {
         ArgumentNullException.ThrowIfNull(options);
-        RequireUuidV4(supervisorBootId, nameof(supervisorBootId));
+        AuditSpoolSegmentIdentity.RequireUuidV4(supervisorBootId, nameof(supervisorBootId));
         _options = options;
         _supervisorBootId = supervisorBootId;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
@@ -314,7 +308,7 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink
 
     private (FileStream Stream, string Path) CreateSegment(int index)
     {
-        var fileName = $"{SegmentPrefix}{_supervisorBootId:N}-{index:D8}.jsonl";
+        var fileName = AuditSpoolSegmentIdentity.Create(_supervisorBootId, index).FileName;
         var path = Path.Combine(_spoolRoot, fileName);
         var temporaryPath = Path.Combine(
             _spoolRoot,
@@ -509,7 +503,8 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink
             {
                 continue;
             }
-            if (entry is not FileInfo segment || !SegmentNamePattern.IsMatch(entry.Name))
+            if (entry is not FileInfo segment ||
+                !AuditSpoolSegmentIdentity.TryParse(entry.Name, out _))
                 throw new IOException("The audit spool contains an unknown entry.");
 
             segments.Add(segment);
@@ -535,15 +530,9 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink
                 throw new IOException("The audit spool contains an unknown entry.");
             if (string.Equals(file.Name, QuotaLockFileName, StringComparison.Ordinal))
                 continue;
-            if (SegmentNamePattern.IsMatch(file.Name))
+            if (AuditSpoolSegmentIdentity.TryParse(file.Name, out _))
                 continue;
-            var allocationMatch = AllocatingNamePattern.Match(file.Name);
-            if (!allocationMatch.Success ||
-                !Guid.TryParseExact(allocationMatch.Groups[1].Value, "N", out var bootId) ||
-                !int.TryParse(allocationMatch.Groups[2].Value, out _) ||
-                !Guid.TryParseExact(allocationMatch.Groups[3].Value, "N", out var allocationId) ||
-                !IsUuidV4(bootId) ||
-                !IsUuidV4(allocationId))
+            if (!IsCanonicalAllocationName(file.Name))
             {
                 throw new IOException("The audit spool contains an unknown entry.");
             }
@@ -587,16 +576,12 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink
 
     private static NamedSegment ParseNamedSegment(FileInfo segment)
     {
-        var match = SegmentNamePattern.Match(segment.Name);
-        if (!match.Success ||
-            !Guid.TryParseExact(match.Groups[1].Value, "N", out var bootId) ||
-            !int.TryParse(match.Groups[2].Value, out var index) ||
-            !IsUuidV4(bootId))
+        if (!AuditSpoolSegmentIdentity.TryParse(segment.Name, out var identity))
         {
             throw new IOException("An audit segment name is invalid.");
         }
 
-        return new NamedSegment(segment, bootId, index);
+        return new NamedSegment(segment, identity.SupervisorBootId, identity.Index);
     }
 
     private readonly record struct NamedSegment(FileInfo Segment, Guid BootId, int Index);
@@ -803,16 +788,23 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink
         Path.GetFullPath(right),
         OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
-    private static void RequireUuidV4(Guid value, string parameterName)
+    private static bool IsCanonicalAllocationName(string fileName)
     {
-        if (!IsUuidV4(value))
-            throw new ArgumentException("A canonical RFC 4122 UUIDv4 is required.", parameterName);
-    }
+        var allocationSeparator = 1 + AuditSpoolSegmentIdentity.FileNameLength;
+        var expectedLength = allocationSeparator + 1 + AllocationIdLength + AllocatingSuffix.Length;
+        if (fileName.Length != expectedLength || fileName[0] != '.' ||
+            fileName[allocationSeparator] != '.' ||
+            !fileName.EndsWith(AllocatingSuffix, StringComparison.Ordinal) ||
+            !AuditSpoolSegmentIdentity.TryParse(
+                fileName.Substring(1, AuditSpoolSegmentIdentity.FileNameLength),
+                out _))
+        {
+            return false;
+        }
 
-    private static bool IsUuidV4(Guid value)
-    {
-        var text = value.ToString("D");
-        return text[14] == '4' && text[19] is '8' or '9' or 'a' or 'b';
+        return AuditSpoolSegmentIdentity.TryParseCanonicalUuidV4(
+            fileName.AsSpan(allocationSeparator + 1, AllocationIdLength),
+            out _);
     }
 
     private static class PhysicalAllocation

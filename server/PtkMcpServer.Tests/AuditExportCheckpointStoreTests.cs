@@ -276,6 +276,60 @@ public sealed class AuditExportCheckpointStoreTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public void Live_store_faults_after_a_strict_checkpoint_read_failure(bool deleteCheckpoint)
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        using var store = AuditExportCheckpointStore.Acquire(options, BootId);
+        var malformed = "{\"not\":\"a checkpoint\"}\n"u8.ToArray();
+        if (deleteCheckpoint)
+            File.Delete(store.CheckpointPath);
+        else
+            File.WriteAllBytes(store.CheckpointPath, malformed);
+
+        Assert.Throws<IOException>(() => store.Save(
+            Checkpoint(BootId, sequence: 1, byteOffset: 128)));
+
+        Assert.Throws<IOException>(() => _ = store.Current);
+        if (deleteCheckpoint)
+            Assert.False(File.Exists(store.CheckpointPath));
+        else
+            Assert.Equal(malformed, File.ReadAllBytes(store.CheckpointPath));
+    }
+
+    [Fact]
+    public void Live_store_faults_after_its_lease_name_disappears()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        using var store = AuditExportCheckpointStore.Acquire(options, BootId);
+        File.Delete(store.LockPath);
+
+        Assert.Throws<IOException>(() => store.Save(
+            Checkpoint(BootId, sequence: 1, byteOffset: 128)));
+
+        Assert.Throws<IOException>(() => _ = store.Current);
+        Assert.False(File.Exists(store.LockPath));
+    }
+
+    [Fact]
+    public void Post_replace_strict_reload_failure_faults_the_live_store()
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        using var store = AuditExportCheckpointStore.Acquire(options, BootId);
+        var malformed = "{\"not\":\"a checkpoint\"}\n"u8.ToArray();
+
+        Assert.Throws<IOException>(() => store.Save(
+            Checkpoint(BootId, sequence: 1, byteOffset: 128),
+            afterAtomicReplaceForTests: () =>
+                File.WriteAllBytes(store.CheckpointPath, malformed)));
+
+        Assert.Equal(malformed, File.ReadAllBytes(store.CheckpointPath));
+        Assert.Throws<IOException>(() => _ = store.Current);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public void Protected_reads_reject_acl_or_mode_sabotage_without_repairing_it(
         bool sabotageParent)
     {

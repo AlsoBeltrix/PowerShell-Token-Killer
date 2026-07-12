@@ -167,21 +167,24 @@ internal sealed class AuditExportCheckpointStore : IDisposable
     internal void Save(
         AuditExportCheckpoint next,
         Action? beforeAtomicReplaceForTests = null,
-        Action? destinationReplacedForTests = null)
+        Action? destinationReplacedForTests = null,
+        Action? afterAtomicReplaceForTests = null)
     {
         lock (_lifetimeGate)
         {
             SaveLocked(
                 next,
                 beforeAtomicReplaceForTests,
-                destinationReplacedForTests);
+                destinationReplacedForTests,
+                afterAtomicReplaceForTests);
         }
     }
 
     private void SaveLocked(
         AuditExportCheckpoint next,
         Action? beforeAtomicReplaceForTests,
-        Action? destinationReplacedForTests)
+        Action? destinationReplacedForTests,
+        Action? afterAtomicReplaceForTests)
     {
         ThrowIfUnavailable();
         ArgumentNullException.ThrowIfNull(next);
@@ -215,10 +218,8 @@ internal sealed class AuditExportCheckpointStore : IDisposable
                 return;
             }
 
-            var persisted = ReadSnapshotWithBytes(
-                _root,
-                _checkpointPath,
-                _supervisorBootId);
+            afterAtomicReplaceForTests?.Invoke();
+            var persisted = ReadOwnedSnapshotOrFault();
             if (!persisted.Bytes.AsSpan().SequenceEqual(intendedBytes))
             {
                 _faulted = true;
@@ -414,23 +415,46 @@ internal sealed class AuditExportCheckpointStore : IDisposable
 
     private void VerifyLeasePath()
     {
-        var lease = _lease ?? throw new ObjectDisposedException(
-            nameof(AuditExportCheckpointStore));
-        VerifyLease(lease, _root, _lockPath);
+        try
+        {
+            var lease = _lease ?? throw new ObjectDisposedException(
+                nameof(AuditExportCheckpointStore));
+            VerifyLease(lease, _root, _lockPath);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            _faulted = true;
+            throw;
+        }
     }
 
     private void VerifyCurrentPersistedState()
     {
-        var persisted = ReadSnapshotWithBytes(
-            _root,
-            _checkpointPath,
-            _supervisorBootId);
+        var persisted = ReadOwnedSnapshotOrFault();
         if (persisted.Bytes.AsSpan().SequenceEqual(_currentBytes))
             return;
 
         _faulted = true;
         throw new IOException(
             "The audit export checkpoint changed outside its owning lease.");
+    }
+
+    private (
+        AuditExportCheckpoint Checkpoint,
+        byte[] Bytes) ReadOwnedSnapshotOrFault()
+    {
+        try
+        {
+            return ReadSnapshotWithBytes(
+                _root,
+                _checkpointPath,
+                _supervisorBootId);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            _faulted = true;
+            throw;
+        }
     }
 
     private static void PublishInitial(

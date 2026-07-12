@@ -55,17 +55,24 @@ internal sealed class ScriptEvidenceStoreProvider
     }
 
     internal IScriptEvidencePublication Publish(string script)
-        => PublishCore(script, retentionJournal: null);
+        => PublishCore(script, retentionJournal: null, retentionContext: null);
 
     internal IScriptEvidencePublication Publish(string script, AuditJournal retentionJournal)
+        => Publish(script, retentionJournal, retentionContext: null);
+
+    internal IScriptEvidencePublication Publish(
+        string script,
+        AuditJournal retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
     {
         ArgumentNullException.ThrowIfNull(retentionJournal);
-        return PublishCore(script, retentionJournal);
+        return PublishCore(script, retentionJournal, retentionContext);
     }
 
     private IScriptEvidencePublication PublishCore(
         string script,
-        AuditJournal? retentionJournal)
+        AuditJournal? retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
     {
         lock (_gate)
         {
@@ -73,7 +80,10 @@ internal sealed class ScriptEvidenceStoreProvider
             {
                 return retentionJournal is null
                     ? GetOrCreateLocked().Publish(script)
-                    : GetOrCreateLocked().Publish(script, retentionJournal);
+                    : GetOrCreateLocked().Publish(
+                        script,
+                        retentionJournal,
+                        retentionContext);
             }
             catch (AuditUnavailableException)
             {

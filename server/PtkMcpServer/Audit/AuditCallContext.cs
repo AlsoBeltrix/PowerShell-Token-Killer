@@ -97,6 +97,7 @@ internal sealed class AuditCallContext
 
         try
         {
+            _callId = _journal.CreateCallId();
             if (metadata.OperationProfile.RequiresScriptEvidence)
             {
                 if (exactSubmittedScript is null)
@@ -104,7 +105,13 @@ internal sealed class AuditCallContext
 
                 try
                 {
-                    evidencePublication = _evidence.Publish(exactSubmittedScript, _journal);
+                    evidencePublication = _evidence.Publish(
+                        exactSubmittedScript,
+                        _journal,
+                        new AuditEvidenceRetentionContext(
+                            _callId,
+                            CallSession(),
+                            metadata.Actor));
                 }
                 catch (ArgumentOutOfRangeException)
                 {
@@ -126,7 +133,6 @@ internal sealed class AuditCallContext
                 };
             }
 
-            _callId = _journal.CreateCallId();
             _routing = new AuditRouting
             {
                 RequestedRoute = _request.Route,
@@ -691,13 +697,7 @@ internal sealed class AuditCallContext
         return new AuditEventInput
         {
             EventType = eventType,
-            Session = new AuditSession
-            {
-                Name = "default",
-                Generation = 0,
-                BindingKind = "default",
-                AllowColdBackground = true,
-            },
+            Session = CallSession(),
             Actor = actor,
             Correlation = correlation,
             Request = request,
@@ -735,6 +735,14 @@ internal sealed class AuditCallContext
             Audit = HealthyEvent(_journal.Health.Snapshot()),
         };
     }
+
+    private static AuditSession CallSession() => new()
+    {
+        Name = "default",
+        Generation = 0,
+        BindingKind = "default",
+        AllowColdBackground = true,
+    };
 
     private static AuditEventHealth HealthyEvent(AuditHealthSnapshot snapshot)
     {

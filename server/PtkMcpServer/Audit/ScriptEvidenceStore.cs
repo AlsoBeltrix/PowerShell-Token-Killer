@@ -174,17 +174,24 @@ public sealed class ScriptEvidenceStore
     }
 
     internal IScriptEvidencePublication Publish(string script) =>
-        PublishCore(script, retentionJournal: null);
+        PublishCore(script, retentionJournal: null, retentionContext: null);
 
     internal IScriptEvidencePublication Publish(string script, AuditJournal retentionJournal)
+        => Publish(script, retentionJournal, retentionContext: null);
+
+    internal IScriptEvidencePublication Publish(
+        string script,
+        AuditJournal retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
     {
         ArgumentNullException.ThrowIfNull(retentionJournal);
-        return PublishCore(script, retentionJournal);
+        return PublishCore(script, retentionJournal, retentionContext);
     }
 
     private IScriptEvidencePublication PublishCore(
         string script,
-        AuditJournal? retentionJournal)
+        AuditJournal? retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
     {
         ArgumentNullException.ThrowIfNull(script);
 
@@ -217,7 +224,7 @@ public sealed class ScriptEvidenceStore
                 quota = AcquireQuotaLock();
                 _ = retentionJournal is null
                     ? MeasureWithoutRetention(bytes.Length)
-                    : RetainAndMeasure(bytes.Length, retentionJournal);
+                    : RetainAndMeasure(bytes.Length, retentionJournal, retentionContext);
                 var evidenceId = Guid.NewGuid().ToString("D");
                 var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
                 var reference = new ScriptEvidenceReference(evidenceId, digest, bytes.Length);
@@ -280,7 +287,10 @@ public sealed class ScriptEvidenceStore
         {
             lock (_gate)
             using (AcquireQuotaLock())
-                _ = RetainAndMeasure(requiredPayloadBytes: null, journal);
+                _ = RetainAndMeasure(
+                    requiredPayloadBytes: null,
+                    retentionJournal: journal,
+                    retentionContext: null);
         }
         catch (AuditUnavailableException)
         {
@@ -402,7 +412,10 @@ public sealed class ScriptEvidenceStore
                 // byte intact until a writer can audit retention.
                 _ = retentionJournal is null
                     ? MeasureWithoutRetention(requiredPayloadBytes: null)
-                    : RetainAndMeasure(requiredPayloadBytes: null, retentionJournal);
+                    : RetainAndMeasure(
+                        requiredPayloadBytes: null,
+                        retentionJournal: retentionJournal,
+                        retentionContext: null);
                 var changed = false;
                 using (var inventory = InventoryArtifacts())
                 {
@@ -462,7 +475,10 @@ public sealed class ScriptEvidenceStore
                 {
                     _ = retentionJournal is null
                         ? MeasureWithoutRetention(requiredPayloadBytes: null)
-                        : RetainAndMeasure(requiredPayloadBytes: null, retentionJournal);
+                        : RetainAndMeasure(
+                            requiredPayloadBytes: null,
+                            retentionJournal: retentionJournal,
+                            retentionContext: null);
                 }
                 return true;
             }
@@ -562,15 +578,17 @@ public sealed class ScriptEvidenceStore
 
     private long RetainAndMeasure(
         int? requiredPayloadBytes,
-        AuditJournal retentionJournal)
+        AuditJournal retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
     {
         ArgumentNullException.ThrowIfNull(retentionJournal);
-        return ProcessRetention(requiredPayloadBytes, retentionJournal);
+        return ProcessRetention(requiredPayloadBytes, retentionJournal, retentionContext);
     }
 
     private long ProcessRetention(
         int? requiredPayloadBytes,
-        AuditJournal? retentionJournal)
+        AuditJournal? retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext = null)
     {
         if (requiredPayloadBytes is < 0 || requiredPayloadBytes > _maximumBytes)
             throw new IOException("Evidence reservation exceeds its configured bound.");
@@ -601,7 +619,8 @@ public sealed class ScriptEvidenceStore
                     if (!DeleteArtifactAudited(
                             temporary,
                             AuditEvidenceRetentionReason.CrashTemporary,
-                            retentionJournal))
+                            retentionJournal,
+                            retentionContext))
                     {
                         retentionAuditBlocked = true;
                         break;
@@ -622,7 +641,8 @@ public sealed class ScriptEvidenceStore
                         if (!DeleteArtifactAudited(
                                 artifact,
                                 AuditEvidenceRetentionReason.AgeExpired,
-                                retentionJournal))
+                                retentionJournal,
+                                retentionContext))
                         {
                             retentionAuditBlocked = true;
                             break;
@@ -646,7 +666,8 @@ public sealed class ScriptEvidenceStore
                     if (!DeleteArtifactAudited(
                             artifact,
                             AuditEvidenceRetentionReason.CapacityPressure,
-                            retentionJournal))
+                            retentionJournal,
+                            retentionContext))
                     {
                         retentionAuditBlocked = true;
                         break;
@@ -892,7 +913,8 @@ public sealed class ScriptEvidenceStore
     private bool DeleteArtifactAudited(
         EvidenceArtifact artifact,
         AuditEvidenceRetentionReason reason,
-        AuditJournal journal)
+        AuditJournal journal,
+        AuditEvidenceRetentionContext? context)
     {
         var subject = new AuditEvidenceRetentionSubject(
             Guid.ParseExact(artifact.EvidenceId, "D"),
@@ -909,7 +931,8 @@ public sealed class ScriptEvidenceStore
                 DeleteArtifact(artifact);
                 _retentionFaultInjector?.Invoke(AuditEvidenceRetentionFaultPoint.AfterDelete);
             },
-            () => ExactArtifactStillNamed(artifact));
+            () => ExactArtifactStillNamed(artifact),
+            context);
     }
 
     private static string ArtifactStateText(ArtifactState state) => state switch

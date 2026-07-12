@@ -54,6 +54,15 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
         Assert.Equal(
             events[0].GetProperty("event_id").GetString(),
             events[1].GetProperty("correlation").GetProperty("parent_event_id").GetString());
+        Assert.Equal(
+            JsonValueKind.Null,
+            events[0].GetProperty("correlation").GetProperty("call_id").ValueKind);
+        Assert.Equal(
+            "unknown",
+            events[0].GetProperty("actor").GetProperty("attribution_strength").GetString());
+        Assert.Equal(
+            "evidence_retention",
+            events[0].GetProperty("session").GetProperty("declared_purpose").GetString());
 
         var observer = new ScriptEvidenceAcknowledgmentObserver(
             new ScriptEvidenceStoreProvider(store));
@@ -240,6 +249,20 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
             ],
             events.Select(EventType));
         AssertRetentionTuple(events[0], retained, "local_committed", "capacity_pressure");
+        var retentionCorrelation = events[0].GetProperty("correlation");
+        var acceptedCorrelation = events[2].GetProperty("correlation");
+        var callId = acceptedCorrelation.GetProperty("call_id").GetString();
+        Assert.NotNull(callId);
+        Assert.Equal(callId, retentionCorrelation.GetProperty("call_id").GetString());
+        Assert.Equal(
+            callId,
+            events[1].GetProperty("correlation").GetProperty("call_id").GetString());
+        Assert.Equal(
+            events[2].GetProperty("actor").GetRawText(),
+            events[0].GetProperty("actor").GetRawText());
+        Assert.Equal(
+            events[2].GetProperty("session").GetRawText(),
+            events[0].GetProperty("session").GetRawText());
     }
 
     [Fact]

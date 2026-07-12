@@ -23,6 +23,15 @@ internal readonly record struct AuditEvidenceRetentionSubject(
     AuditEvidenceRetentionReason Reason);
 
 /// <summary>
+/// Bounded normalized attribution copied from the triggering call. It carries
+/// no submitted script, response, credential, or other variable payload.
+/// </summary>
+internal sealed record AuditEvidenceRetentionContext(
+    Guid CallId,
+    AuditSession Session,
+    AuditActor Actor);
+
+/// <summary>
 /// Persists one bounded evidence-retention attempt. The two-slot reservation
 /// exists before the durable intent, and the exact unlink cannot run before
 /// that intent has flushed. A hard death may leave intent-only evidence but
@@ -34,7 +43,8 @@ internal static class AuditEvidenceRetentionAudit
         AuditJournal journal,
         AuditEvidenceRetentionSubject subject,
         Action deleteExactArtifact,
-        Func<bool> exactArtifactStillNamed)
+        Func<bool> exactArtifactStillNamed,
+        AuditEvidenceRetentionContext? context = null)
     {
         ArgumentNullException.ThrowIfNull(journal);
         ArgumentNullException.ThrowIfNull(deleteExactArtifact);
@@ -53,7 +63,8 @@ internal static class AuditEvidenceRetentionAudit
                     "evidence.retention_intent",
                     "accepted",
                     "retention." + ReasonText(subject.Reason),
-                    parentEventId: null));
+                    parentEventId: null,
+                    context));
 
             try
             {
@@ -81,7 +92,8 @@ internal static class AuditEvidenceRetentionAudit
                         definitelyRetained
                             ? "retention.delete_failed"
                             : "retention.delete_outcome_unknown",
-                        intent.EventId));
+                        intent.EventId,
+                        context));
                 ExceptionDispatchInfo.Capture(deletionFailure).Throw();
                 throw;
             }
@@ -94,7 +106,8 @@ internal static class AuditEvidenceRetentionAudit
                     "evidence.retention_completed",
                     "completed",
                     "retention." + ReasonText(subject.Reason),
-                    intent.EventId));
+                    intent.EventId,
+                    context));
         }
         return true;
     }
@@ -105,16 +118,27 @@ internal static class AuditEvidenceRetentionAudit
         string eventType,
         string outcomeState,
         string detailCode,
-        Guid? parentEventId)
+        Guid? parentEventId,
+        AuditEvidenceRetentionContext? context)
     {
         var health = journal.Health.Snapshot();
         var unhealthy = health.State is AuditHealthState.Degraded or AuditHealthState.Unavailable;
         return new AuditEventInput
         {
             EventType = eventType,
-            Session = new AuditSession { DeclaredPurpose = "evidence_retention" },
-            Actor = new AuditActor { AttributionStrength = "unknown" },
-            Correlation = new AuditCorrelation { ParentEventId = parentEventId },
+            Session = context?.Session ?? new AuditSession
+            {
+                DeclaredPurpose = "evidence_retention",
+            },
+            Actor = context?.Actor ?? new AuditActor
+            {
+                AttributionStrength = "unknown",
+            },
+            Correlation = new AuditCorrelation
+            {
+                CallId = context?.CallId,
+                ParentEventId = parentEventId,
+            },
             Request = new AuditRequest
             {
                 Action = "retention",

@@ -135,6 +135,146 @@ internal sealed class AuditExportCheckpointStore : IDisposable
     }
 
     /// <summary>
+    /// Creates control state for a fresh writer boot. Existing checkpoint,
+    /// lease, or spool state is never reopened as a writer generation.
+    /// </summary>
+    internal static AuditExportCheckpointStore CreateForWriter(
+        AuditOptions options,
+        Guid supervisorBootId)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        AuditSpoolSegmentIdentity.RequireUuidV4(
+            supervisorBootId,
+            nameof(supervisorBootId));
+        if (options.ProtectionMode != AuditProtectionMode.Anchored)
+        {
+            throw new ArgumentException(
+                "Audit export checkpoints require anchored protection mode.",
+                nameof(options));
+        }
+
+        var root = PrepareOrVerifyRoot(options.RootDirectory);
+        var checkpointPath = Path.Combine(root, CheckpointFileName(supervisorBootId));
+        var lockPath = Path.Combine(root, LockFileName(supervisorBootId));
+        if (EntryExists(checkpointPath) ||
+            EntryExists(lockPath) ||
+            HasSameBootSegment(options.SpoolDirectory, supervisorBootId))
+        {
+            throw new IOException("A fresh audit writer boot already has persistent state.");
+        }
+
+        FileStream? lease = null;
+        try
+        {
+            lease = SecureAuditStorage.CreateExclusiveFile(lockPath);
+            VerifyLease(lease, root, lockPath);
+            if (EntryExists(checkpointPath) ||
+                HasSameBootSegment(options.SpoolDirectory, supervisorBootId))
+            {
+                throw new IOException("A fresh audit writer boot raced existing state.");
+            }
+
+            var initial = AuditExportCheckpoint.Initial(supervisorBootId);
+            var initialBytes = AuditExportCheckpointCodec.Serialize(initial);
+            PublishInitial(root, checkpointPath, supervisorBootId, initialBytes);
+            var published = ReadSnapshotWithBytes(
+                root,
+                checkpointPath,
+                supervisorBootId);
+            if (!published.Bytes.AsSpan().SequenceEqual(initialBytes))
+                throw new IOException("The initial audit export checkpoint was not published exactly.");
+            VerifyLease(lease, root, lockPath);
+
+            var store = new AuditExportCheckpointStore(
+                supervisorBootId,
+                root,
+                checkpointPath,
+                lockPath,
+                lease,
+                published.Checkpoint,
+                published.Bytes);
+            lease = null;
+            return store;
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// Non-creating acquisition for a discovered closed boot chain. False
+    /// means only that another process owns the exact persistent lease; all
+    /// missing, malformed, misprotected, or replaced state fails closed.
+    /// </summary>
+    internal static bool TryAcquireExisting(
+        AuditOptions options,
+        Guid supervisorBootId,
+        out AuditExportCheckpointStore? store)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        AuditSpoolSegmentIdentity.RequireUuidV4(
+            supervisorBootId,
+            nameof(supervisorBootId));
+        if (options.ProtectionMode != AuditProtectionMode.Anchored)
+        {
+            throw new ArgumentException(
+                "Audit export checkpoints require anchored protection mode.",
+                nameof(options));
+        }
+
+        store = null;
+        var root = VerifyExistingRoot(options.RootDirectory);
+        var checkpointPath = Path.Combine(root, CheckpointFileName(supervisorBootId));
+        var lockPath = Path.Combine(root, LockFileName(supervisorBootId));
+        if (!EntryExists(checkpointPath) || !EntryExists(lockPath))
+            throw new IOException("An existing audit export chain is missing control state.");
+        SecureAuditStorage.VerifyExternalProtectedFile(checkpointPath);
+        VerifyPersistentLeaseFile(root, lockPath);
+        if (!HasSameBootSegment(options.SpoolDirectory, supervisorBootId))
+            throw new IOException("The existing audit export chain has no spool segment.");
+
+        FileStream? lease = null;
+        try
+        {
+            try
+            {
+                lease = OpenExistingPersistentLease(root, lockPath);
+            }
+            catch (IOException exception) when (IsLeaseSharingViolation(exception))
+            {
+                return false;
+            }
+
+            CleanStaleTemporaryFiles(root, supervisorBootId);
+            if (!HasSameBootSegment(options.SpoolDirectory, supervisorBootId))
+                throw new IOException("The existing audit export chain lost its spool segment.");
+            var persisted = ReadSnapshotWithBytes(
+                root,
+                checkpointPath,
+                supervisorBootId);
+            VerifyLease(lease, root, lockPath);
+            if (!HasSameBootSegment(options.SpoolDirectory, supervisorBootId))
+                throw new IOException("The existing audit export chain lost its spool segment.");
+
+            store = new AuditExportCheckpointStore(
+                supervisorBootId,
+                root,
+                checkpointPath,
+                lockPath,
+                lease,
+                persisted.Checkpoint,
+                persisted.Bytes);
+            lease = null;
+            return true;
+        }
+        finally
+        {
+            lease?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Strict read-only snapshot used by the journal's anchored-mode ordering
     /// guard and by non-owner observers. FileShare.Delete permits a Windows
     /// atomic rename while the reader still holds the old inode.
@@ -454,6 +594,13 @@ internal sealed class AuditExportCheckpointStore : IDisposable
         return SecureAuditStorage.PrepareRoot(root);
     }
 
+    private static string VerifyExistingRoot(string rootPath)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        SecureAuditStorage.VerifyExternalProtectedDirectory(root);
+        return root;
+    }
+
     private static FileStream AcquirePersistentLease(string root, string lockPath)
     {
         SecureAuditStorage.VerifyExternalProtectedDirectory(root);
@@ -508,6 +655,42 @@ internal sealed class AuditExportCheckpointStore : IDisposable
             lease.Dispose();
             throw;
         }
+    }
+
+    private static FileStream OpenExistingPersistentLease(string root, string lockPath)
+    {
+        var lease = new FileStream(
+            lockPath,
+            new FileStreamOptions
+            {
+                Mode = FileMode.Open,
+                Access = FileAccess.ReadWrite,
+                Share = FileShare.None,
+                BufferSize = 1,
+                Options = FileOptions.WriteThrough,
+            });
+        try
+        {
+            VerifyLease(lease, root, lockPath);
+            return lease;
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+    }
+
+    private static bool IsLeaseSharingViolation(IOException exception)
+    {
+        var nativeCode = exception.HResult & 0xffff;
+        if (OperatingSystem.IsWindows())
+            return nativeCode is 32 or 33;
+        if (OperatingSystem.IsLinux())
+            return exception.HResult == 11 || nativeCode == 11;
+        if (OperatingSystem.IsMacOS())
+            return exception.HResult == 35 || nativeCode == 35;
+        return false;
     }
 
     private static void VerifyLease(FileStream lease, string root, string lockPath)

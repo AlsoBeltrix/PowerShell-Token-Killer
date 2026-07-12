@@ -89,6 +89,125 @@ public sealed class AuditExportCheckpointStoreTests : IDisposable
     }
 
     [Fact]
+    public void Existing_chain_acquisition_reports_only_an_active_owner_as_busy()
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        using var owner = AuditExportCheckpointStore.CreateForWriter(options, BootId);
+        using var sink = new FileAuditJournalSink(
+            options,
+            BootId,
+            checkpointStore: owner);
+        var checkpointBytes = File.ReadAllBytes(owner.CheckpointPath);
+
+        Assert.False(AuditExportCheckpointStore.TryAcquireExisting(
+            options,
+            BootId,
+            out var competing));
+        Assert.Null(competing);
+        Assert.Equal(checkpointBytes, File.ReadAllBytes(owner.CheckpointPath));
+        Assert.Equal(0, new FileInfo(owner.LockPath).Length);
+    }
+
+    [Fact]
+    public void Existing_chain_acquisition_reopens_without_creating_control_state()
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        string checkpointPath;
+        string lockPath;
+        using (var owner = AuditExportCheckpointStore.CreateForWriter(options, BootId))
+        {
+            checkpointPath = owner.CheckpointPath;
+            lockPath = owner.LockPath;
+            using var sink = new FileAuditJournalSink(
+                options,
+                BootId,
+                checkpointStore: owner);
+        }
+
+        var checkpointTimestamp = File.GetLastWriteTimeUtc(checkpointPath);
+        var lockTimestamp = File.GetLastWriteTimeUtc(lockPath);
+        Assert.True(AuditExportCheckpointStore.TryAcquireExisting(
+            options,
+            BootId,
+            out var reopened));
+        using (reopened)
+        {
+            Assert.NotNull(reopened);
+            AssertCheckpoint(reopened.Current, sequence: 0, chainComplete: false);
+        }
+        Assert.Equal(checkpointTimestamp, File.GetLastWriteTimeUtc(checkpointPath));
+        Assert.Equal(lockTimestamp, File.GetLastWriteTimeUtc(lockPath));
+    }
+
+    [Fact]
+    public void Writer_creation_never_adopts_an_existing_boot_chain()
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        using (var owner = AuditExportCheckpointStore.CreateForWriter(options, BootId))
+        {
+            using var sink = new FileAuditJournalSink(
+                options,
+                BootId,
+                checkpointStore: owner);
+        }
+
+        Assert.Throws<IOException>(() =>
+            AuditExportCheckpointStore.CreateForWriter(options, BootId));
+        Assert.True(AuditExportCheckpointStore.TryAcquireExisting(
+            options,
+            BootId,
+            out var adopted));
+        adopted!.Dispose();
+    }
+
+    [Fact]
+    public void Existing_chain_acquisition_never_creates_missing_control_state()
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        SecureAuditStorage.PrepareRoot(options.RootDirectory);
+        SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
+        var segment = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(BootId, 0).FileName);
+        using (SecureAuditStorage.CreateExclusiveFile(segment))
+        {
+        }
+        var checkpointPath = Path.Combine(
+            options.RootDirectory,
+            AuditExportCheckpointStore.CheckpointFileName(BootId));
+        var lockPath = Path.Combine(
+            options.RootDirectory,
+            AuditExportCheckpointStore.LockFileName(BootId));
+        var checkpointBytes = AuditExportCheckpointCodec.Serialize(
+            AuditExportCheckpoint.Initial(BootId));
+        WriteProtected(checkpointPath, checkpointBytes);
+
+        Assert.Throws<IOException>(() =>
+            AuditExportCheckpointStore.TryAcquireExisting(options, BootId, out _));
+        Assert.Equal(checkpointBytes, File.ReadAllBytes(checkpointPath));
+        Assert.False(File.Exists(lockPath));
+    }
+
+    [Fact]
+    public void Existing_chain_acquisition_treats_corrupt_checkpoint_as_fault_not_busy()
+    {
+        var options = Options(NewRoot(), AuditProtectionMode.Anchored);
+        string checkpointPath;
+        using (var owner = AuditExportCheckpointStore.CreateForWriter(options, BootId))
+        {
+            checkpointPath = owner.CheckpointPath;
+            using var sink = new FileAuditJournalSink(
+                options,
+                BootId,
+                checkpointStore: owner);
+        }
+        File.WriteAllText(checkpointPath, "not a checkpoint");
+
+        Assert.Throws<IOException>(() =>
+            AuditExportCheckpointStore.TryAcquireExisting(options, BootId, out _));
+    }
+
+    [Fact]
     public void Anchored_sink_refuses_to_publish_a_segment_before_fresh_checkpoint()
     {
         var options = Options(NewRoot(), AuditProtectionMode.Anchored);

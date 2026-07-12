@@ -1279,3 +1279,18 @@ No material finding remained. Detail and the non-blocking concurrent-destination
 classification caveat are recorded in
 `.agents/review/findings/s2-admin-evidence-failures.md`. Acceptance authorizes
 local landing under the owner's delegated branch authority, not push.
+
+---
+
+**SLICE 2 DISPOSITION-ADMIN FAILURE CLASSIFICATION — CLAUDE ACCEPTED**
+(Claude Code 2.1.207, model `claude-fable-5`, isolated disposable worktree),
+reviewed head `7e982ce4a4008c2ba5fee850ed890c8a78193550` against base
+`a5420993147413a60fcd9cc52ba60d920eb609b2`, `guard_confirmed=true`,
+2026-07-12T09:38:37Z. Claude independently collapsed the post-completion
+receipt-missing state into the broader post-checkpoint code, observed the exact
+guard fail, restored production byte-exactly, and passed focused 22/22 plus
+full 877/877. No material finding remained. Detail and three non-blocking
+fail-closed observations are recorded in
+`.agents/review/findings/s2-admin-disposition-failures.md`. Acceptance
+authorizes local landing under the owner's delegated branch authority, not
+push.

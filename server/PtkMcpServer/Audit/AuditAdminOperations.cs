@@ -518,11 +518,11 @@ internal sealed class AuditAdminOperations
         Action? afterOutcomePublishedForTests = null)
     {
         ArgumentNullException.ThrowIfNull(proof);
-        AuditSpoolSegmentIdentity.RequireUuidV4(supervisorBootId, nameof(supervisorBootId));
-        if (!IsUuidV7(blockedEventId))
-            throw new ArgumentException("A canonical UUIDv7 blocked event ID is required.", nameof(blockedEventId));
-        if (_options.ProtectionMode != AuditProtectionMode.Anchored)
-            throw new InvalidOperationException("Export-block disposition requires anchored audit mode.");
+        if (!AuditSpoolSegmentIdentity.IsUuidV4(supervisorBootId) ||
+            !IsUuidV7(blockedEventId))
+        {
+            RejectInvalidDispositionTarget(supervisorBootId, blockedEventId);
+        }
 
         // Intent, pre-effect authorization, completion, and a possible
         // post-completion failure each retain their own durable slot.
@@ -530,6 +530,10 @@ internal sealed class AuditAdminOperations
         AuditSpoolQuotaLease? quota = null;
         AuditExportCheckpointStore? checkpointStore = null;
         AuditClosedSpoolChainReader? reader = null;
+        var stage = AuditDispositionStage.IntentControl;
+        var checkpointAdvanced = false;
+        var completedAuditAppended = false;
+        var receiptCommitted = false;
         var dispositionFacts = RequestDispositionFacts(
             supervisorBootId,
             blockedEventId,
@@ -545,6 +549,9 @@ internal sealed class AuditAdminOperations
         var failureParentEventId = auditIntent.EventId;
         try
         {
+            if (_options.ProtectionMode != AuditProtectionMode.Anchored)
+                throw new AuditDispositionModeIneligibleException();
+
             var durableIntent = AuditOperatorDispositionIntent.OpenExisting(
                 _options,
                 supervisorBootId,
@@ -565,11 +572,14 @@ internal sealed class AuditAdminOperations
                 afterDurableIntentForTests?.Invoke();
             }
 
+            stage = AuditDispositionStage.OutcomeControl;
             if (durableIntent is not null &&
                 AuditOperatorDispositionOutcome.TryOpenCommitted(
                     _options,
                     durableIntent) is not null)
             {
+                checkpointAdvanced = true;
+                receiptCommitted = true;
                 afterDurableIntentForTests?.Invoke();
                 var replayCompleted = AppendDispositionEvent(
                     reservation,
@@ -578,21 +588,35 @@ internal sealed class AuditAdminOperations
                     "disposition.previously_completed",
                     dispositionFacts,
                     authorized!.Value.EventId);
+                completedAuditAppended = true;
                 failureParentEventId = replayCompleted.EventId;
                 return durableIntent.DispositionId;
             }
 
+            stage = AuditDispositionStage.BlockResolution;
+            var targetCheckpointPath = Path.Combine(
+                _options.RootDirectory,
+                AuditExportCheckpointStore.CheckpointFileName(supervisorBootId));
+            var targetCheckpointLockPath = Path.Combine(
+                _options.RootDirectory,
+                AuditExportCheckpointStore.LockFileName(supervisorBootId));
+            if (!File.Exists(targetCheckpointPath) && !File.Exists(targetCheckpointLockPath))
+                throw new AuditDispositionBlockAbsentException();
+
+            stage = AuditDispositionStage.TargetLease;
             quota = AuditSpoolQuotaLease.AcquireExisting(_options.SpoolDirectory);
             if (!AuditExportCheckpointStore.TryAcquireExisting(
                     _options,
                     supervisorBootId,
                     out checkpointStore) || checkpointStore is null)
             {
-                throw new IOException("The target audit export checkpoint is live.");
+                throw new AuditDispositionTargetLiveException();
             }
 
             if (durableIntent is not null && durableIntent.IsAlreadyApplied(checkpointStore.Current))
             {
+                checkpointAdvanced = true;
+                stage = AuditDispositionStage.CompletionAudit;
                 var completed = AppendDispositionEvent(
                     reservation,
                     "export.disposition_completed",
@@ -600,17 +624,25 @@ internal sealed class AuditAdminOperations
                     "disposition.already_applied",
                     dispositionFacts,
                     authorized!.Value.EventId);
+                completedAuditAppended = true;
                 failureParentEventId = completed.EventId;
                 afterCompletedAuditAppendForTests?.Invoke();
+                stage = AuditDispositionStage.ReceiptCommit;
                 _ = AuditOperatorDispositionOutcome.Commit(
                     _options,
                     durableIntent,
                     _journal.SupervisorBootId,
                     completed,
-                    afterOutcomePublishedForTests);
+                    () =>
+                    {
+                        receiptCommitted = true;
+                        afterOutcomePublishedForTests?.Invoke();
+                    });
+                receiptCommitted = true;
                 return durableIntent.DispositionId;
             }
 
+            stage = AuditDispositionStage.BlockResolution;
             reader = new AuditClosedSpoolChainReader(_options, checkpointStore);
             var recovery = reader.ResolveCheckpointForAdoption(quota);
             quota = null;
@@ -618,9 +650,17 @@ internal sealed class AuditAdminOperations
                 record.BlockedRecord is not { } blocked ||
                 blocked.EventId != blockedEventId)
             {
-                throw new IOException("The target audit export block is absent or ambiguous.");
+                throw new AuditDispositionBlockAbsentException();
+            }
+            if (blocked.FailureClass is not (
+                    AuditExportFailureClass.PartialRejection or
+                    AuditExportFailureClass.Data or
+                    AuditExportFailureClass.Protocol))
+            {
+                throw new AuditDispositionBlockIneligibleException();
             }
 
+            stage = AuditDispositionStage.IntentControl;
             durableIntent ??= AuditOperatorDispositionIntent.CreateOrOpen(
                 _options,
                 record.Position,
@@ -639,8 +679,11 @@ internal sealed class AuditAdminOperations
                 failureParentEventId = authorized.Value.EventId;
                 afterDurableIntentForTests?.Invoke();
             }
+            stage = AuditDispositionStage.CheckpointAdvance;
             reader.ApplyPermanentBlockDisposition(record.Position, durableIntent);
+            checkpointAdvanced = true;
             afterCheckpointAdvanceForTests?.Invoke();
+            stage = AuditDispositionStage.CompletionAudit;
             var applied = AppendDispositionEvent(
                 reservation,
                 "export.disposition_completed",
@@ -648,14 +691,21 @@ internal sealed class AuditAdminOperations
                 "disposition.applied",
                 dispositionFacts,
                 authorized.Value.EventId);
+            completedAuditAppended = true;
             failureParentEventId = applied.EventId;
             afterCompletedAuditAppendForTests?.Invoke();
+            stage = AuditDispositionStage.ReceiptCommit;
             _ = AuditOperatorDispositionOutcome.Commit(
                 _options,
                 durableIntent,
                 _journal.SupervisorBootId,
                 applied,
-                afterOutcomePublishedForTests);
+                () =>
+                {
+                    receiptCommitted = true;
+                    afterOutcomePublishedForTests?.Invoke();
+                });
+            receiptCommitted = true;
             return durableIntent.DispositionId;
         }
         catch (Exception exception) when (!IsFatal(exception))
@@ -668,6 +718,13 @@ internal sealed class AuditAdminOperations
                 failureParentEventId,
                 supervisorBootId.ToString("D"),
                 reservation,
+                failureDetailCode: AuditAdminDispositionFailureDetailCode.From(
+                    ClassifyDispositionFailure(
+                        exception,
+                        stage,
+                        checkpointAdvanced,
+                        completedAuditAppended,
+                        receiptCommitted)),
                 operatorDisposition: dispositionFacts);
             throw;
         }
@@ -677,6 +734,76 @@ internal sealed class AuditAdminOperations
             checkpointStore?.Dispose();
             quota?.Dispose();
         }
+    }
+
+    private void RejectInvalidDispositionTarget(Guid supervisorBootId, Guid blockedEventId)
+    {
+        using var reservation = ReserveOperation(maxRecordSlots: 1);
+        _ = AppendEvent(
+            reservation,
+            "export.disposition_rejected",
+            "disposition",
+            "failed",
+            AuditAdminDispositionFailureDetailCode.From(
+                AuditAdminDispositionFailureKind.TargetIdInvalid),
+            evidenceId: null,
+            scriptDigest: null,
+            bytesReturned: null,
+            parentEventId: null,
+            $"{supervisorBootId:D}/{blockedEventId:D}");
+        throw new AuditAdminOperationException(
+            new ArgumentException("The operator disposition target is invalid."));
+    }
+
+    private static AuditAdminDispositionFailureKind ClassifyDispositionFailure(
+        Exception failure,
+        AuditDispositionStage stage,
+        bool checkpointAdvanced,
+        bool completedAuditAppended,
+        bool receiptCommitted)
+    {
+        if (completedAuditAppended && !receiptCommitted)
+            return AuditAdminDispositionFailureKind.CheckpointAdvancedReceiptMissing;
+        if (checkpointAdvanced)
+            return AuditAdminDispositionFailureKind.AuditOutcomeFailedAfterCheckpoint;
+
+        return failure switch
+        {
+            AuditDispositionModeIneligibleException =>
+                AuditAdminDispositionFailureKind.ModeIneligible,
+            AuditDispositionTargetLiveException =>
+                AuditAdminDispositionFailureKind.TargetLive,
+            AuditDispositionBlockAbsentException =>
+                AuditAdminDispositionFailureKind.BlockAbsent,
+            AuditDispositionBlockIneligibleException =>
+                AuditAdminDispositionFailureKind.BlockIneligible,
+            AuditOperatorDispositionIntentException
+            {
+                FailureKind: AuditOperatorDispositionIntentFailureKind.Conflict,
+            } => AuditAdminDispositionFailureKind.ProofConflict,
+            AuditOperatorDispositionIntentException
+            {
+                FailureKind: AuditOperatorDispositionIntentFailureKind.Invalid,
+            } => AuditAdminDispositionFailureKind.IntentControlInvalid,
+            AuditOperatorDispositionOutcomeException =>
+                AuditAdminDispositionFailureKind.OutcomeControlInvalid,
+            _ when stage == AuditDispositionStage.IntentControl =>
+                AuditAdminDispositionFailureKind.IntentControlInvalid,
+            _ when stage == AuditDispositionStage.OutcomeControl =>
+                AuditAdminDispositionFailureKind.OutcomeControlInvalid,
+            _ => AuditAdminDispositionFailureKind.TargetControlInvalid,
+        };
+    }
+
+    private enum AuditDispositionStage
+    {
+        IntentControl,
+        OutcomeControl,
+        TargetLease,
+        BlockResolution,
+        CheckpointAdvance,
+        CompletionAudit,
+        ReceiptCommit,
     }
 
     private void ThrowAfterFailureEvent(

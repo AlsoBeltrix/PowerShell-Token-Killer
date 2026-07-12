@@ -327,6 +327,33 @@ public sealed class SecureAuditStorageTests : IDisposable
         Assert.True(Volatile.Read(ref observationCount) > observationsBeforeReplacements);
     }
 
+    [Fact]
+    public void Windows_atomic_replace_preserves_an_open_reader_and_publishes_new_bytes()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, "checkpoint.json");
+        var temporary = Path.Combine(root, ".checkpoint.tmp");
+        const string oldState = "old-state";
+        const string newState = "new-state";
+        WriteProtected(published, oldState);
+        WriteProtected(temporary, newState);
+        using var retained = new FileStream(
+            published,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+
+        SecureAuditStorage.ReplaceAtomically(temporary, published, root);
+
+        var heldBytes = new byte[Encoding.UTF8.GetByteCount(oldState)];
+        retained.ReadExactly(heldBytes);
+        Assert.Equal(oldState, Encoding.UTF8.GetString(heldBytes));
+        Assert.Equal(newState, File.ReadAllText(published, Encoding.UTF8));
+        Assert.False(File.Exists(temporary));
+        SecureAuditStorage.VerifyExternalProtectedFile(published);
+    }
+
     private string NewRoot()
     {
         var root = Path.Combine(

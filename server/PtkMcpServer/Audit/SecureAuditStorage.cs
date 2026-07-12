@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -261,14 +262,7 @@ internal static class SecureAuditStorage
 
         if (OperatingSystem.IsWindows())
         {
-            if (!WindowsNative.MoveFileEx(
-                    temporaryPath,
-                    publishedPath,
-                    WindowsNative.MoveFileFlags.ReplaceExisting |
-                    WindowsNative.MoveFileFlags.WriteThrough))
-            {
-                throw new Win32Exception(Marshal.GetLastPInvokeError());
-            }
+            WindowsNative.ReplaceFileAtomically(temporaryPath, publishedPath);
         }
         else
         {
@@ -1184,11 +1178,19 @@ internal static class SecureAuditStorage
         private const int SeFileObject = 1;
         private const uint FileAttributeDirectory = 0x00000010;
         private const uint FileAttributeReparsePoint = 0x00000400;
+        private const uint DeleteAccess = 0x00010000;
+        private const uint SynchronizeAccess = 0x00100000;
+        private const uint FileReadAttributes = 0x00000080;
+        private const uint ShareReadWriteDelete = 0x00000007;
+        private const uint OpenExisting = 3;
+        private const uint FileFlagOpenReparsePoint = 0x00200000;
+        private const int FileRenameInfoEx = 22;
+        private const uint RenameReplaceIfExists = 0x00000001;
+        private const uint RenamePosixSemantics = 0x00000002;
 
         [Flags]
         internal enum MoveFileFlags : uint
         {
-            ReplaceExisting = 0x00000001,
             WriteThrough = 0x00000008,
         }
 
@@ -1231,6 +1233,52 @@ internal static class SecureAuditStorage
             internal uint NumberOfLinks;
             internal uint FileIndexHigh;
             internal uint FileIndexLow;
+        }
+
+        internal static void ReplaceFileAtomically(
+            string temporaryPath,
+            string publishedPath)
+        {
+            using var source = CreateFile(
+                temporaryPath,
+                DeleteAccess | SynchronizeAccess | FileReadAttributes,
+                ShareReadWriteDelete,
+                securityAttributes: IntPtr.Zero,
+                creationDisposition: OpenExisting,
+                flagsAndAttributes: FileFlagOpenReparsePoint,
+                templateFile: IntPtr.Zero);
+            if (source.IsInvalid)
+                throw new Win32Exception(Marshal.GetLastPInvokeError());
+
+            _ = GetProtectedFileIdentity(temporaryPath, source);
+            var fileNameBytes = Encoding.Unicode.GetBytes(publishedPath);
+            var rootDirectoryOffset = IntPtr.Size == sizeof(long) ? 8 : 4;
+            var fileNameLengthOffset = rootDirectoryOffset + IntPtr.Size;
+            var fileNameOffset = fileNameLengthOffset + sizeof(uint);
+            var information = new byte[checked(fileNameOffset + fileNameBytes.Length)];
+            try
+            {
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    information.AsSpan(0, sizeof(uint)),
+                    RenameReplaceIfExists | RenamePosixSemantics);
+                BinaryPrimitives.WriteUInt32LittleEndian(
+                    information.AsSpan(fileNameLengthOffset, sizeof(uint)),
+                    checked((uint)fileNameBytes.Length));
+                fileNameBytes.CopyTo(information.AsSpan(fileNameOffset));
+                if (!SetFileInformationByHandle(
+                        source,
+                        FileRenameInfoEx,
+                        information,
+                        checked((uint)information.Length)))
+                {
+                    throw new Win32Exception(Marshal.GetLastPInvokeError());
+                }
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(fileNameBytes);
+                CryptographicOperations.ZeroMemory(information);
+            }
         }
 
         internal static ProtectedFileIdentity GetProtectedFileIdentity(
@@ -1405,6 +1453,29 @@ internal static class SecureAuditStorage
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool MoveFileEx(string existingFileName, string newFileName, MoveFileFlags flags);
+
+        [DllImport(
+            "kernel32.dll",
+            EntryPoint = "CreateFileW",
+            CharSet = CharSet.Unicode,
+            ExactSpelling = true,
+            SetLastError = true)]
+        private static extern SafeFileHandle CreateFile(
+            string fileName,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetFileInformationByHandle(
+            SafeFileHandle file,
+            int fileInformationClass,
+            [In] byte[] fileInformation,
+            uint bufferSize);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

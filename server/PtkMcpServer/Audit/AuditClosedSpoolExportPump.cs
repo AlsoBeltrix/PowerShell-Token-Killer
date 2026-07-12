@@ -65,16 +65,20 @@ internal sealed class AuditClosedSpoolExportPump
             if (!_initialized)
             {
                 var initial = _reader.ResolveCheckpoint();
-                if (initial.EndPosition is { } initialEnd)
+                if (initial is AuditClosedSpoolRecovery.ChainEnd initialEnd)
                 {
-                    _reader.MarkChainComplete(initialEnd);
+                    _reader.MarkChainComplete(initialEnd.Position);
                     _complete = true;
                     return ChainComplete(null, "chain.complete");
                 }
 
-                _next = initial.NextRecord
-                    ?? throw new IOException("The closed audit spool recovery lost its next record.");
-                _blocked = initial.BlockedRecord;
+                if (initial is not AuditClosedSpoolRecovery.Record initialRecord)
+                {
+                    throw new IOException(
+                        "The complete-chain exporter received a closed-prefix boundary.");
+                }
+                _next = initialRecord.Position;
+                _blocked = initialRecord.BlockedRecord;
                 _initialized = true;
             }
 
@@ -173,12 +177,12 @@ internal sealed class AuditClosedSpoolExportPump
         }
 
         var completion = _reader.ResolveCheckpoint();
-        if (completion.NextRecord is not null || completion.EndPosition is not { } end)
+        if (completion is not AuditClosedSpoolRecovery.ChainEnd end)
         {
             throw new IOException(
                 "The acknowledged closed audit spool did not resolve to its exact end.");
         }
-        _reader.MarkChainComplete(end);
+        _reader.MarkChainComplete(end.Position);
         _complete = true;
         return ChainComplete(position.EventId, detailCode, hasHealthWarning);
     }

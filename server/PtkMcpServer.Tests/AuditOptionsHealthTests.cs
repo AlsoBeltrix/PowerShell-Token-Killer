@@ -101,6 +101,55 @@ public sealed class AuditOptionsHealthTests
         Assert.Equal(new DateTimeOffset(2026, 7, 11, 12, 2, 0, TimeSpan.Zero), snapshot.EmergencyProbeLastUtc);
         Assert.Equal(AuditProtectionMode.LocalOnly, snapshot.ProtectionMode);
         Assert.Null(snapshot.ExportConfigurationIdentity);
+        Assert.Equal(AuditExporterState.Disabled, snapshot.Exporter.State);
+    }
+
+    [Fact]
+    public void Exporter_health_defaults_to_disabled_locally_and_created_when_anchored()
+    {
+        var local = CreateHealth().Snapshot().Exporter;
+        var anchored = new AuditHealth(AuditOptions.Create(
+            Path.Combine(Path.GetTempPath(), "ptk-audit-health-" + Guid.NewGuid().ToString("N")),
+            AuditProtectionMode.Anchored,
+            new string('a', 64))).Snapshot().Exporter;
+
+        Assert.Equal(AuditExporterState.Disabled, local.State);
+        Assert.Equal(AuditExporterState.Created, anchored.State);
+        Assert.Null(local.StateChangedUtc);
+        Assert.Null(anchored.StateChangedUtc);
+        Assert.False(local.HasHealthWarning);
+        Assert.False(anchored.HasHealthWarning);
+    }
+
+    [Fact]
+    public void Exporter_health_does_not_expose_unrecognized_detail_text()
+    {
+        var health = new AuditHealth(AuditOptions.Create(
+            Path.Combine(Path.GetTempPath(), "ptk-audit-health-" + Guid.NewGuid().ToString("N")),
+            AuditProtectionMode.Anchored,
+            new string('a', 64)));
+        var step = new AuditExportCoordinatorStep(
+            AuditExportCoordinatorStepKind.Blocked,
+            Guid.Parse("12345678-1234-4abc-8def-0123456789ab"),
+            IsCurrentBoot: true,
+            Guid.Parse("22345678-1234-4abc-8def-0123456789ab"),
+            "bearer.secret_value",
+            AuditExportFailureClass.Configuration);
+
+        health.ExportObserver.Observe(new AuditExportHealthObservation(
+            new AuditExportLoopSnapshot(
+                AuditExportLoopState.WaitingForWork,
+                step,
+                TimeSpan.FromSeconds(1)),
+            step,
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero)));
+
+        var snapshot = health.Snapshot();
+        Assert.Equal("unknown", snapshot.Exporter.Blocked?.DetailCode);
+        Assert.DoesNotContain(
+            "secret_value",
+            AuditExporterHealthText.FormatNormal(snapshot.Exporter),
+            StringComparison.Ordinal);
     }
 
     [Fact]

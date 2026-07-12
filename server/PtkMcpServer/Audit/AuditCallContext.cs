@@ -429,7 +429,8 @@ internal sealed class AuditCallContext
         var export = snapshot.ExportConfigurationIdentity is null
             ? "none"
             : snapshot.ExportConfigurationIdentity;
-        return $"audit: {state}, protection {protection}, export configuration {export}{failure}{since}";
+        return $"audit: {state}, protection {protection}, export configuration {export}{failure}{since}\n" +
+            AuditExporterHealthText.FormatNormal(snapshot.Exporter);
     }
 
     internal void RecordInvokeResult(InvokeResult result, string response)

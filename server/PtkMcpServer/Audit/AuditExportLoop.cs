@@ -8,6 +8,11 @@ internal interface IAuditExportStepSource : IDisposable
         CancellationToken cancellationToken);
 }
 
+internal interface IAuditExportHealthObserver
+{
+    void Observe(AuditExportHealthObservation observation);
+}
+
 internal enum AuditExportLoopState
 {
     Created,
@@ -25,6 +30,11 @@ internal sealed record AuditExportLoopSnapshot(
     AuditExportCoordinatorStep? LastStep,
     TimeSpan? ScheduledDelay);
 
+internal sealed record AuditExportHealthObservation(
+    AuditExportLoopSnapshot Snapshot,
+    AuditExportCoordinatorStep? ObservedStep,
+    DateTimeOffset ObservedAtUtc);
+
 /// <summary>
 /// Owns one export coordinator and runs its single-step contract in the
 /// background. The coordinator remains the only component that performs a
@@ -41,6 +51,8 @@ internal sealed class AuditExportLoop : IAsyncDisposable
     private readonly AuditExportRetrySchedule _retrySchedule;
     private readonly TimeSpan _idlePollInterval;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly TimeProvider _timeProvider;
+    private readonly IAuditExportHealthObserver? _healthObserver;
     private readonly HashSet<BlockedStepIdentity> _blocksWithoutProgress = [];
     private readonly TaskCompletionSource _disposeFinished = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -58,7 +70,8 @@ internal sealed class AuditExportLoop : IAsyncDisposable
         AuditExportRetrySchedule? retrySchedule = null,
         TimeSpan? idlePollInterval = null,
         TimeProvider? timeProvider = null,
-        Func<TimeSpan, CancellationToken, Task>? delay = null)
+        Func<TimeSpan, CancellationToken, Task>? delay = null,
+        IAuditExportHealthObserver? healthObserver = null)
     {
         ArgumentNullException.ThrowIfNull(source);
         var pollInterval = idlePollInterval ?? DefaultIdlePollInterval;
@@ -69,8 +82,11 @@ internal sealed class AuditExportLoop : IAsyncDisposable
         _source = source;
         _retrySchedule = retrySchedule ?? new AuditExportRetrySchedule();
         _idlePollInterval = pollInterval;
+        _timeProvider = clock;
+        _healthObserver = healthObserver;
         _delay = delay ?? ((duration, cancellationToken) =>
             Task.Delay(duration, clock, cancellationToken));
+        ObserveHealth(_snapshot, observedStep: null);
     }
 
     internal AuditExportLoopSnapshot Snapshot
@@ -100,6 +116,7 @@ internal sealed class AuditExportLoop : IAsyncDisposable
                 AuditExportLoopState.Running,
                 LastStep: null,
                 ScheduledDelay: null);
+            ObserveHealth(_snapshot, observedStep: null);
             _completion = RunLoopAsync(_stopSource.Token);
             return _completion;
         }
@@ -123,6 +140,7 @@ internal sealed class AuditExportLoop : IAsyncDisposable
                     State = AuditExportLoopState.Stopped,
                     ScheduledDelay = null,
                 };
+                ObserveHealth(_snapshot, observedStep: null);
                 return;
             }
             else
@@ -278,6 +296,7 @@ internal sealed class AuditExportLoop : IAsyncDisposable
         bool replaceLastStep,
         TimeSpan? scheduledDelay)
     {
+        AuditExportLoopSnapshot snapshot;
         lock (_gate)
         {
             if (_snapshot.State == AuditExportLoopState.Disposed)
@@ -286,6 +305,26 @@ internal sealed class AuditExportLoop : IAsyncDisposable
                 state,
                 replaceLastStep ? lastStep : _snapshot.LastStep,
                 scheduledDelay);
+            snapshot = _snapshot;
+        }
+        ObserveHealth(snapshot, replaceLastStep ? lastStep : null);
+    }
+
+    private void ObserveHealth(
+        AuditExportLoopSnapshot snapshot,
+        AuditExportCoordinatorStep? observedStep)
+    {
+        try
+        {
+            _healthObserver?.Observe(new AuditExportHealthObservation(
+                snapshot,
+                observedStep,
+                _timeProvider.GetUtcNow().ToUniversalTime()));
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Health reporting is deliberately observational. It cannot turn
+            // a successful export/checkpoint operation into an export fault.
         }
     }
 
@@ -310,6 +349,7 @@ internal sealed class AuditExportLoop : IAsyncDisposable
                     State = AuditExportLoopState.Stopped,
                     ScheduledDelay = null,
                 };
+                ObserveHealth(_snapshot, observedStep: null);
             }
         }
 
@@ -355,6 +395,7 @@ internal sealed class AuditExportLoop : IAsyncDisposable
                     State = AuditExportLoopState.Disposed,
                     ScheduledDelay = null,
                 };
+                ObserveHealth(_snapshot, observedStep: null);
             }
             _disposeFinished.TrySetResult();
         }

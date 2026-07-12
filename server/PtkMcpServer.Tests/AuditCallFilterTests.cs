@@ -111,6 +111,8 @@ public sealed class AuditCallFilterTests : IDisposable
         Assert.Contains("failure_class=journal.capacity", diagnostic, StringComparison.Ordinal);
         Assert.Contains("protection_mode=local-only", diagnostic, StringComparison.Ordinal);
         Assert.Contains("export_configuration_identity=none", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_state=disabled", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_warning=false", diagnostic, StringComparison.Ordinal);
         Assert.DoesNotContain("runspace", diagnostic, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("job", diagnostic, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("credential", diagnostic, StringComparison.OrdinalIgnoreCase);
@@ -118,6 +120,44 @@ public sealed class AuditCallFilterTests : IDisposable
         Assert.Single(fixture.Sink.Lines);
         using var degraded = Parse(fixture.Sink.Lines[0]);
         Assert.Equal("audit.degraded", degraded.RootElement.GetProperty("event_type").GetString());
+    }
+
+    [Fact]
+    public async Task Emergency_state_includes_nonsecret_anchored_export_stall_metadata()
+    {
+        using var fixture = CreateFixture(
+            slots: 8,
+            protectionMode: AuditProtectionMode.Anchored);
+        var blocked = new AuditExportCoordinatorStep(
+            AuditExportCoordinatorStepKind.Blocked,
+            Guid.Parse("32345678-1234-4abc-8def-0123456789ab"),
+            IsCurrentBoot: false,
+            Guid.Parse("42345678-1234-4abc-8def-0123456789ab"),
+            "http.401",
+            AuditExportFailureClass.Configuration);
+        fixture.Health.ExportObserver.Observe(new AuditExportHealthObservation(
+            new AuditExportLoopSnapshot(
+                AuditExportLoopState.WaitingForWork,
+                blocked,
+                TimeSpan.FromSeconds(3)),
+            blocked,
+            Now));
+        Assert.True(fixture.Journal.TryReserve(5, out var blocker, out _));
+
+        var result = await Invoke(
+            fixture,
+            Call("ptk_state"),
+            _ => ValueTask.FromResult(Text("must not run")));
+        blocker!.Release();
+
+        var diagnostic = ResultText(result);
+        Assert.Contains("exporter_state=stalled", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_blocked_supervisor_boot_id=32345678-1234-4abc-8def-0123456789ab", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_blocked_is_current_boot=false", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_blocked_event_id=42345678-1234-4abc-8def-0123456789ab", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_blocked_detail=http.401", diagnostic, StringComparison.Ordinal);
+        Assert.Contains("exporter_blocked_failure_class=configuration", diagnostic, StringComparison.Ordinal);
+        Assert.DoesNotContain("credential", diagnostic, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -137,6 +177,10 @@ public sealed class AuditCallFilterTests : IDisposable
             });
 
         Assert.NotNull(observed);
+        Assert.Contains(
+            "audit exporter: disabled (local-only), warning false",
+            observed.HealthStatusLine(),
+            StringComparison.Ordinal);
         Assert.Null(fixture.Accessor.Current);
         Assert.Equal("é", ResultText(result));
         Assert.Equal(2, fixture.Sink.Lines.Count);
@@ -225,7 +269,8 @@ public sealed class AuditCallFilterTests : IDisposable
     private FilterFixture CreateFixture(
         int slots,
         Func<AuditSinkFaultPoint, int, bool>? faultInjector = null,
-        bool includeToolDependencySentinels = false)
+        bool includeToolDependencySentinels = false,
+        AuditProtectionMode protectionMode = AuditProtectionMode.LocalOnly)
     {
         const int maximumRecordBytes = 4096;
         var root = Path.Combine(
@@ -234,9 +279,12 @@ public sealed class AuditCallFilterTests : IDisposable
         _roots.Add(root);
         var options = AuditOptions.Create(
             root,
+            protectionMode,
+            protectionMode == AuditProtectionMode.Anchored ? new string('a', 64) : null,
             maxRecordBytes: maximumRecordBytes,
             segmentBytes: maximumRecordBytes * (long)(slots + 1),
-            aggregateBytes: maximumRecordBytes * (long)(slots + 1),
+            aggregateBytes: maximumRecordBytes * (long)(slots + 1) *
+                (protectionMode == AuditProtectionMode.Anchored ? 2L : 1L),
             emergencyReserveBytes: maximumRecordBytes * 2L,
             retentionAge: TimeSpan.FromMinutes(10),
             maxEvidenceBytes: maximumRecordBytes,

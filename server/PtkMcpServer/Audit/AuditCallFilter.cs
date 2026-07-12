@@ -201,7 +201,8 @@ internal static class AuditCallFilter
                 ?? "unknown";
             var exportIdentity = snapshot.ExportConfigurationIdentity ?? "none";
             var state = snapshot.State.ToString().ToLowerInvariant();
-            var text = string.Join('\n',
+            var lines = new List<string>
+            {
                 $"audit={state}",
                 "unrecorded=true",
                 $"failure_class={snapshot.FailureClass ?? "unknown"}",
@@ -212,7 +213,10 @@ internal static class AuditCallFilter
                 $"spool_capacity_bytes={snapshot.SpoolCapacityBytes.ToString(CultureInfo.InvariantCulture)}",
                 $"reserved_bytes={snapshot.ReservedBytes.ToString(CultureInfo.InvariantCulture)}",
                 $"emergency_reserve_bytes={snapshot.EmergencyReserveBytes.ToString(CultureInfo.InvariantCulture)}",
-                $"emergency_reserve_capacity_bytes={snapshot.EmergencyReserveCapacityBytes.ToString(CultureInfo.InvariantCulture)}");
+                $"emergency_reserve_capacity_bytes={snapshot.EmergencyReserveCapacityBytes.ToString(CultureInfo.InvariantCulture)}",
+            };
+            lines.AddRange(AuditExporterHealthText.FormatEmergency(snapshot.Exporter));
+            var text = string.Join('\n', lines);
             return TextResult(text, isError: false);
         }
         catch (Exception exception) when (!IsFatal(exception))

@@ -176,7 +176,6 @@ internal sealed class AuditAdminOperations
         string evidenceId,
         string absoluteOutputPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(absoluteOutputPath);
         return AccessEvidence("export", evidenceId, destination: null, absoluteOutputPath);
     }
 

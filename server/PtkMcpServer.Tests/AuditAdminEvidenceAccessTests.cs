@@ -299,6 +299,25 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
         Assert.Equal("evidence.path_invalid", DetailCode(fixture.Sink.Lines[1]));
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void Export_audits_empty_output_path_as_path_invalid(string outputPath)
+    {
+        var options = Options();
+        var stored = new ScriptEvidenceStore(options).Store("Get-InvalidPathSecret");
+        using var fixture = Journal(options);
+        var operations = new AuditAdminOperations(options, fixture.Journal);
+
+        Assert.Throws<AuditAdminOperationException>(() =>
+            operations.ExportEvidence(stored.EvidenceId, outputPath));
+
+        Assert.Equal(
+            ["evidence.export_intent", "evidence.export_failed"],
+            fixture.Sink.Lines.Select(EventType).ToArray());
+        Assert.Equal("evidence.path_invalid", DetailCode(fixture.Sink.Lines[1]));
+    }
+
     [Fact]
     public void Export_refuses_unprotected_parent_with_specific_failure()
     {

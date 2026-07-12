@@ -33,6 +33,11 @@ internal interface IAuditClosedSpoolEndPosition;
 internal sealed class AuditClosedSpoolChainReader : IDisposable
 {
     private const string QuotaLockFileName = ".ptk-audit-quota.lock";
+    // Snapshot integrity requires retaining every selected segment handle.
+    // These fixed ceilings bound descriptor and directory-walk work even if
+    // same-user spool contents no longer reflect writer-created state.
+    internal const int MaximumClosedChainSegments = 256;
+    internal const int MaximumSpoolInventoryEntries = 1_024;
     private readonly AuditOptions _options;
     private readonly Guid _supervisorBootId;
     private readonly string _spoolRoot;
@@ -376,10 +381,18 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
     {
         SecureAuditStorage.VerifyExternalProtectedDirectory(_spoolRoot);
         var segments = new List<SegmentDescriptor>();
+        var inventoryEntries = 0;
+        var chainBytes = 0L;
         foreach (var entry in new DirectoryInfo(_spoolRoot)
-                     .EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly)
-                     .ToArray())
+                     .EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly))
         {
+            inventoryEntries = checked(inventoryEntries + 1);
+            if (inventoryEntries > MaximumSpoolInventoryEntries)
+            {
+                throw new IOException(
+                    "The audit spool inventory exceeds its recovery entry bound.");
+            }
+
             if (entry is FileInfo quotaLock &&
                 string.Equals(
                     quotaLock.Name,
@@ -401,10 +414,21 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
             file.Refresh();
             if (identity.SupervisorBootId == _supervisorBootId)
             {
+                if (segments.Count == MaximumClosedChainSegments)
+                {
+                    throw new IOException(
+                        "The closed audit spool chain exceeds its recovery segment bound.");
+                }
                 if (file.Length < 0 || file.Length > _options.SegmentBytes)
                 {
                     throw new IOException(
                         "A closed audit segment exceeds its configured bound.");
+                }
+                chainBytes = checked(chainBytes + file.Length);
+                if (chainBytes > _options.AggregateBytes)
+                {
+                    throw new IOException(
+                        "The closed audit spool chain exceeds its configured aggregate bound.");
                 }
                 segments.Add(new SegmentDescriptor(
                     identity,

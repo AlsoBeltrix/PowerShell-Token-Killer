@@ -379,6 +379,41 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
     }
 
     [Fact]
+    public void Rejects_a_chain_that_exceeds_the_configured_aggregate_bound()
+    {
+        var (options, store) = OwnedFixture();
+        using (store)
+        {
+            var fullSegment = new byte[checked((int)options.SegmentBytes)];
+            for (var index = 0; index < 5; index++)
+                WriteSegmentBytes(options, index, fullSegment);
+
+            using var reader = new AuditClosedSpoolChainReader(options, store);
+            var exception = Assert.Throws<IOException>(() => reader.ResolveCheckpoint());
+            Assert.Contains("configured aggregate bound", exception.Message);
+        }
+    }
+
+    [Fact]
+    public void Rejects_a_chain_before_its_retained_handle_count_is_unbounded()
+    {
+        var (options, store) = OwnedFixture();
+        using (store)
+        {
+            for (var index = 0;
+                 index <= AuditClosedSpoolChainReader.MaximumClosedChainSegments;
+                 index++)
+            {
+                WriteSegmentBytes(options, index, [(byte)'x']);
+            }
+
+            using var reader = new AuditClosedSpoolChainReader(options, store);
+            var exception = Assert.Throws<IOException>(() => reader.ResolveCheckpoint());
+            Assert.Contains("recovery segment bound", exception.Message);
+        }
+    }
+
+    [Fact]
     public void Live_segment_rejection_releases_every_partially_acquired_handle()
     {
         var (options, store) = OwnedFixture();

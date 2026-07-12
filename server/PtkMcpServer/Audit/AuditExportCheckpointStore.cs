@@ -515,15 +515,17 @@ internal sealed class AuditExportCheckpointStore : IDisposable
                 blocked.ResponseDigest,
                 blocked.FirstFailureUtc,
                 exportConfigurationIdentity);
-            SaveLocked(
-                new AuditExportCheckpoint(
-                    _supervisorBootId,
-                    _current.ChainComplete,
-                    _current.Spool,
-                    _current.ByteOffset,
-                    _current.Sequence,
-                    _current.AcknowledgedEventId,
-                    authorizedBlock),
+            var next = new AuditExportCheckpoint(
+                _supervisorBootId,
+                _current.ChainComplete,
+                _current.Spool,
+                _current.ByteOffset,
+                _current.Sequence,
+                _current.AcknowledgedEventId,
+                authorizedBlock);
+            AuditExportCheckpointCodec.Validate(next);
+            PersistValidatedCheckpointLocked(
+                next,
                 null,
                 null,
                 null,
@@ -1241,17 +1243,9 @@ internal sealed class AuditExportCheckpointStore : IDisposable
                              StringComparison.Ordinal);
         if (exactBlock) return;
 
-        if (!sameRecord ||
-            current.FailureClass != AuditExportFailureClass.Configuration ||
-            string.Equals(
-                current.ExportConfigurationIdentity,
-                next.ExportConfigurationIdentity,
-                StringComparison.Ordinal))
-        {
-            throw new ArgumentException(
-                "A persisted audit export block cannot be rewritten.",
-                nameof(checkpoint));
-        }
+        throw new ArgumentException(
+            "A persisted audit export block cannot be rewritten without its exact disposition capability.",
+            nameof(checkpoint));
     }
 
     private void ThrowIfUnavailable()

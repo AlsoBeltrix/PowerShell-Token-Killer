@@ -366,6 +366,17 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
                 reader.ResolveCheckpoint()).Position;
             Assert.Throws<InvalidOperationException>(() =>
                 reader.Acknowledge(position, ChangedConfigurationIdentity));
+            Assert.Throws<ArgumentException>(() =>
+                reader.PersistBlock(
+                    position,
+                    AuditExportFailureClass.Configuration,
+                    "http.403",
+                    responseDigest: null,
+                    BaseTime.AddMinutes(1),
+                    ChangedConfigurationIdentity));
+            Assert.Equal(
+                ConfigurationIdentity,
+                store.Current.BlockedRecord?.ExportConfigurationIdentity);
 
             var authorization = reader.AuthorizeConfigurationRetry(position);
             var authorizedBlock = Assert.IsType<AuditExportBlockedRecord>(

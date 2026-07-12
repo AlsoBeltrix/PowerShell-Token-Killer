@@ -137,6 +137,7 @@ internal sealed class AuditAdminOperations
     private readonly Func<ScriptEvidenceStore> _evidenceFactory;
     private readonly Action? _beforeEvidenceExportPublishForTests;
     private readonly Action? _beforeEvidenceOutcomeAppendForTests;
+    private readonly Action? _afterEvidenceExportPublishForTests;
     private readonly string _effectiveIdentity;
 
     internal AuditAdminOperations(
@@ -144,7 +145,8 @@ internal sealed class AuditAdminOperations
         AuditJournal journal,
         Func<ScriptEvidenceStore>? evidenceFactory = null,
         Action? beforeEvidenceExportPublishForTests = null,
-        Action? beforeEvidenceOutcomeAppendForTests = null)
+        Action? beforeEvidenceOutcomeAppendForTests = null,
+        Action? afterEvidenceExportPublishForTests = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
@@ -163,6 +165,7 @@ internal sealed class AuditAdminOperations
         _evidenceFactory = evidenceFactory ?? (() => new ScriptEvidenceStore(options));
         _beforeEvidenceExportPublishForTests = beforeEvidenceExportPublishForTests;
         _beforeEvidenceOutcomeAppendForTests = beforeEvidenceOutcomeAppendForTests;
+        _afterEvidenceExportPublishForTests = afterEvidenceExportPublishForTests;
         _effectiveIdentity = AuditEffectiveIdentity.Capture();
     }
 
@@ -189,6 +192,7 @@ internal sealed class AuditAdminOperations
         var destinationKind = destination is not null ? "stdout" : "protected_file";
         var auditedDestinationPath = TryCanonicalDestinationPath(outputPath);
         EvidenceExportPublication? exportPublication = null;
+        var exportProgress = destination is null ? new EvidenceExportProgress() : null;
         var readWriteStarted = false;
         var readWriteReturned = false;
         var readFlushReturned = false;
@@ -245,7 +249,8 @@ internal sealed class AuditAdminOperations
                 exportPublication = PrepareProtectedExport(
                     store,
                     evidenceId,
-                    outputPath!);
+                    outputPath!,
+                    exportProgress!);
                 reference = exportPublication.Reference;
             }
 
@@ -269,6 +274,10 @@ internal sealed class AuditAdminOperations
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
+            var exportPublished =
+                exportPublication is not null || exportProgress?.FinalPublished == true;
+            var failureReference = effectReference ??
+                (exportPublished ? exportProgress?.Reference : null);
             ThrowAfterFailureEvent(
                 exception,
                 $"evidence.{action}_failed",
@@ -289,14 +298,14 @@ internal sealed class AuditAdminOperations
                         readWriteStarted,
                         readWriteReturned,
                         readFlushReturned,
-                        exportPublication is not null)),
-                failureScriptDigest: effectReference?.ScriptDigest ?? readScriptDigest,
+                        exportPublished)),
+                failureScriptDigest: failureReference?.ScriptDigest ?? readScriptDigest,
                 failureBytesReturned: destination is not null
                     ? readWriteStarted
                         ? readBytesReleased
                         : 0
-                    : exportPublication is not null
-                        ? effectReference?.ByteLength
+                    : exportPublished
+                        ? failureReference?.ByteLength
                         : null);
             throw;
         }
@@ -309,7 +318,8 @@ internal sealed class AuditAdminOperations
     private EvidenceExportPublication PrepareProtectedExport(
         ScriptEvidenceStore store,
         string evidenceId,
-        string outputPath)
+        string outputPath,
+        EvidenceExportProgress progress)
     {
         string fullPath;
         string parent;
@@ -373,6 +383,7 @@ internal sealed class AuditAdminOperations
                         exception);
                 }
             });
+            progress.Reference = reference;
             _beforeEvidenceExportPublishForTests?.Invoke();
             try
             {
@@ -398,6 +409,8 @@ internal sealed class AuditAdminOperations
                         : AuditEvidenceDestinationFailureKind.Storage,
                     exception);
             }
+            progress.FinalPublished = true;
+            _afterEvidenceExportPublishForTests?.Invoke();
             try
             {
                 SecureAuditStorage.ConfirmRetainedCreatedFileDurability(
@@ -428,6 +441,12 @@ internal sealed class AuditAdminOperations
 
     private static bool IsDestinationRefusal(Exception exception) =>
         exception is UnauthorizedAccessException or System.Security.SecurityException;
+
+    private sealed class EvidenceExportProgress
+    {
+        internal ScriptEvidenceReference? Reference { get; set; }
+        internal bool FinalPublished { get; set; }
+    }
 
     private static bool DestinationEntryExists(string path)
     {

@@ -390,6 +390,40 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
     }
 
     [Fact]
+    public void Export_failure_before_durability_return_records_published_effect_and_known_facts()
+    {
+        var options = Options();
+        var stored = new ScriptEvidenceStore(options).Store("Get-PublishBoundarySecret");
+        var outputRoot = SecureAuditStorage.PrepareRoot(
+            Path.Combine(_root, "publish-boundary-output"));
+        var outputPath = Path.Combine(outputRoot, "evidence.bin");
+        using var fixture = Journal(options);
+        var operations = new AuditAdminOperations(
+            options,
+            fixture.Journal,
+            afterEvidenceExportPublishForTests: () =>
+                throw new IOException("injected failure after final publication"));
+
+        Assert.Throws<AuditAdminOperationException>(() =>
+            operations.ExportEvidence(stored.EvidenceId, outputPath));
+
+        Assert.False(File.Exists(outputPath));
+        Assert.Equal(
+            ["evidence.export_intent", "evidence.export_failed"],
+            fixture.Sink.Lines.Select(EventType).ToArray());
+        Assert.Equal(
+            "audit.outcome_failed_after_publish",
+            DetailCode(fixture.Sink.Lines[1]));
+        using var failure = JsonDocument.Parse(fixture.Sink.Lines[1]);
+        Assert.Equal(
+            stored.ScriptDigest,
+            failure.RootElement.GetProperty("request").GetProperty("original_script_digest").GetString());
+        Assert.Equal(
+            stored.ByteLength,
+            failure.RootElement.GetProperty("outcome").GetProperty("bytes_returned").GetInt64());
+    }
+
+    [Fact]
     public void Export_outcome_persistence_failure_removes_the_exact_final_file()
     {
         var options = Options();

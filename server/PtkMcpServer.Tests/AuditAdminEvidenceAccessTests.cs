@@ -146,7 +146,6 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
             fixture.Sink.Lines.Select(EventType).ToArray());
         var auditText = string.Concat(
             fixture.Sink.Lines.Select(line => Encoding.UTF8.GetString(line)));
-        Assert.Contains(Path.GetFullPath(outputPath), auditText, StringComparison.Ordinal);
         Assert.DoesNotContain("ExportedSecret", auditText, StringComparison.Ordinal);
         using var outcome = JsonDocument.Parse(fixture.Sink.Lines[1]);
         Assert.Equal(

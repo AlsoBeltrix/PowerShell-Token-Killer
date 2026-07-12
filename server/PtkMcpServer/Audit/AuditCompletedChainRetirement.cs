@@ -149,8 +149,8 @@ internal static class AuditCompletedChainRetirement
         var root = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(options.RootDirectory));
         SecureAuditStorage.VerifyExternalProtectedDirectory(root);
-        var intents = new List<(RetirementIntent Intent, string Path)>();
-        var temporaries = new List<string>();
+        var intentPaths = new List<(Guid BootId, string Path)>();
+        var temporaries = new List<(Guid BootId, string Path)>();
         var entries = 0;
         foreach (var entry in new DirectoryInfo(root)
                      .EnumerateFileSystemInfos("*", SearchOption.TopDirectoryOnly))
@@ -173,19 +173,13 @@ internal static class AuditCompletedChainRetirement
             if (TryParseIntentFileName(file.Name, out var bootId))
             {
                 SecureAuditStorage.VerifyExternalProtectedFile(file.FullName);
-                var bytes = SecureAuditStorage.ReadProtectedFile(
-                    file.FullName,
-                    MaximumIntentBytes);
-                var intent = ParseIntent(bytes);
-                if (intent.SupervisorBootId != bootId)
-                    throw new IOException("An audit retirement intent names another boot.");
-                intents.Add((intent, file.FullName));
+                intentPaths.Add((bootId, file.FullName));
                 continue;
             }
-            if (TryParseTemporaryFileName(file.Name, out _))
+            if (TryParseTemporaryFileName(file.Name, out var temporaryBootId))
             {
                 SecureAuditStorage.VerifyExternalProtectedFile(file.FullName);
-                temporaries.Add(file.FullName);
+                temporaries.Add((temporaryBootId, file.FullName));
                 continue;
             }
             if (file.Name.StartsWith(FilePrefix, StringComparison.Ordinal) ||
@@ -195,14 +189,41 @@ internal static class AuditCompletedChainRetirement
             }
         }
 
-        if (intents.Select(value => value.Intent.SupervisorBootId).Distinct().Count() !=
-            intents.Count)
+        if (intentPaths.Select(value => value.BootId).Distinct().Count() !=
+            intentPaths.Count)
         {
             throw new IOException("The audit root contains duplicate retirement authority.");
         }
 
-        foreach (var temporary in temporaries)
-            DeleteAnyProtectedFile(root, temporary);
+        foreach (var group in temporaries.GroupBy(value => value.BootId))
+        {
+            var published = intentPaths.SingleOrDefault(value => value.BootId == group.Key);
+            if (published.Path is null)
+            {
+                foreach (var temporary in group)
+                    DeleteAnyProtectedFile(root, temporary.Path);
+                continue;
+            }
+            var aliases = group.ToArray();
+            if (aliases.Length != 1)
+            {
+                throw new IOException(
+                    "The audit root contains ambiguous retirement publication aliases.");
+            }
+            RecoverPublishedAlias(root, published.Path, aliases[0].Path);
+        }
+
+        var intents = new List<(RetirementIntent Intent, string Path)>();
+        foreach (var published in intentPaths)
+        {
+            var bytes = SecureAuditStorage.ReadProtectedFile(
+                published.Path,
+                MaximumIntentBytes);
+            var intent = ParseIntent(bytes);
+            if (intent.SupervisorBootId != published.BootId)
+                throw new IOException("An audit retirement intent names another boot.");
+            intents.Add((intent, published.Path));
+        }
 
         var recovered = new HashSet<Guid>();
         foreach (var item in intents.OrderBy(
@@ -214,6 +235,66 @@ internal static class AuditCompletedChainRetirement
         }
         retainedQuota.VerifyOwnership();
         return recovered;
+    }
+
+    private static void RecoverPublishedAlias(
+        string root,
+        string publishedPath,
+        string temporaryPath)
+    {
+        using var published = OpenPublishedAlias(publishedPath);
+        using var temporary = OpenPublishedAlias(temporaryPath);
+        if (published.Length is < 2 or > MaximumIntentBytes ||
+            published.Length != temporary.Length)
+        {
+            throw new IOException("The retirement publication alias length is invalid.");
+        }
+        var publishedBytes = new byte[checked((int)published.Length)];
+        var temporaryBytes = new byte[publishedBytes.Length];
+        try
+        {
+            published.Position = 0;
+            published.ReadExactly(publishedBytes);
+            temporary.Position = 0;
+            temporary.ReadExactly(temporaryBytes);
+            if (!publishedBytes.AsSpan().SequenceEqual(temporaryBytes))
+                throw new IOException("The retirement publication alias content differs.");
+            _ = ParseIntent(publishedBytes);
+            SecureAuditStorage.RemoveRetainedPublishedAlias(
+                root,
+                publishedPath,
+                published.SafeFileHandle,
+                temporaryPath,
+                temporary.SafeFileHandle);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(publishedBytes);
+            CryptographicOperations.ZeroMemory(temporaryBytes);
+        }
+    }
+
+    private static FileStream OpenPublishedAlias(string path)
+    {
+        var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.Delete,
+            bufferSize: 1,
+            FileOptions.WriteThrough);
+        try
+        {
+            _ = SecureAuditStorage.VerifyRetainedPublishedAliasIdentity(
+                path,
+                stream.SafeFileHandle);
+            return stream;
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
     }
 
     private static void RecoverIntent(

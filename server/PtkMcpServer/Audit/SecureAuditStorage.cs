@@ -463,6 +463,62 @@ internal static class SecureAuditStorage
         return UnixNative.GetProtectedFileIdentity(path, handle);
     }
 
+    /// <summary>
+    /// Narrow recovery proof for the POSIX no-replace publish window: exactly
+    /// two protected direct-child names must retain the same regular owner-only
+    /// inode. Generic protected-file validation intentionally continues to
+    /// reject every multi-link file.
+    /// </summary>
+    internal static ProtectedFileIdentity VerifyRetainedPublishedAliasIdentity(
+        string path,
+        SafeFileHandle handle)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("Windows publication does not use hard-link aliases.");
+        if (handle.IsInvalid || handle.IsClosed)
+            throw new IOException("The protected file identity handle is unavailable.");
+        RefuseLinkedPathComponents(path);
+        RefuseLinkOrReparsePoint(path);
+        if (!File.Exists(path) || Directory.Exists(path))
+            throw new IOException("The protected publication alias is missing.");
+        VerifyUnixProtection(path, OwnerFileMode, "file");
+        return UnixNative.GetProtectedFileIdentity(path, handle, requiredLinkCount: 2);
+    }
+
+    internal static void RemoveRetainedPublishedAlias(
+        string root,
+        string publishedPath,
+        SafeFileHandle publishedHandle,
+        string temporaryPath,
+        SafeFileHandle temporaryHandle)
+    {
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("Windows publication does not use hard-link aliases.");
+        var protectedRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        VerifyExternalProtectedDirectory(protectedRoot);
+        publishedPath = RequireDirectChild(protectedRoot, publishedPath);
+        temporaryPath = RequireDirectChild(protectedRoot, temporaryPath);
+        var publishedIdentity = VerifyRetainedPublishedAliasIdentity(
+            publishedPath,
+            publishedHandle);
+        var temporaryIdentity = VerifyRetainedPublishedAliasIdentity(
+            temporaryPath,
+            temporaryHandle);
+        if (publishedIdentity != temporaryIdentity)
+        {
+            throw new IOException(
+                "The retirement publication names do not retain the same protected file.");
+        }
+
+        File.Delete(temporaryPath);
+        if (PathExistsWithoutFollowing(temporaryPath))
+            throw new IOException("The retirement publication alias could not be removed.");
+        FlushUnixDirectory(protectedRoot);
+        VerifyExternalProtectedDirectory(protectedRoot);
+        _ = VerifyRetainedProtectedFileIdentity(publishedPath, publishedHandle);
+    }
+
     [SupportedOSPlatform("windows")]
     private static void VerifyWindowsOwnerOnlyAcl(string path, bool isDirectory)
     {
@@ -881,7 +937,8 @@ internal static class SecureAuditStorage
 
         internal static ProtectedFileIdentity GetProtectedFileIdentity(
             string path,
-            SafeFileHandle handle)
+            SafeFileHandle handle,
+            uint requiredLinkCount = 1)
         {
             if (OperatingSystem.IsLinux())
             {
@@ -901,8 +958,8 @@ internal static class SecureAuditStorage
                     throw new Win32Exception(Marshal.GetLastPInvokeError());
                 }
 
-                ValidateLinuxRetainedFile(pathStatus);
-                ValidateLinuxRetainedFile(handleStatus);
+                ValidateLinuxRetainedFile(pathStatus, requiredLinkCount);
+                ValidateLinuxRetainedFile(handleStatus, requiredLinkCount);
                 var pathDevice = ((ulong)pathStatus.DeviceMajor << 32) |
                                  pathStatus.DeviceMinor;
                 var handleDevice = ((ulong)handleStatus.DeviceMajor << 32) |
@@ -928,8 +985,8 @@ internal static class SecureAuditStorage
                 if (pathResult != 0 || handleResult != 0)
                     throw new Win32Exception(Marshal.GetLastPInvokeError());
 
-                ValidateMacRetainedFile(pathStatus);
-                ValidateMacRetainedFile(handleStatus);
+                ValidateMacRetainedFile(pathStatus, requiredLinkCount);
+                ValidateMacRetainedFile(handleStatus, requiredLinkCount);
                 if (pathStatus.Device != handleStatus.Device ||
                     pathStatus.Inode != handleStatus.Inode)
                 {
@@ -946,25 +1003,29 @@ internal static class SecureAuditStorage
                 "Protected file identity verification is not implemented on this Unix platform.");
         }
 
-        private static void ValidateLinuxRetainedFile(LinuxStatx status)
+        private static void ValidateLinuxRetainedFile(
+            LinuxStatx status,
+            uint requiredLinkCount)
         {
             if ((status.Mask & RequiredRetainedStatxFields) != RequiredRetainedStatxFields ||
                 (status.Mode & FileTypeMask) != RegularFile ||
                 (status.Mode & PermissionMask) != OwnerReadWrite ||
                 status.UserId != geteuid() ||
-                status.LinkCount != 1)
+                status.LinkCount != requiredLinkCount)
             {
                 throw new IOException(
                     "The retained audit segment type, owner, mode, or link count is invalid.");
             }
         }
 
-        private static void ValidateMacRetainedFile(MacStat status)
+        private static void ValidateMacRetainedFile(
+            MacStat status,
+            uint requiredLinkCount)
         {
             if ((status.Mode & FileTypeMask) != RegularFile ||
                 (status.Mode & PermissionMask) != OwnerReadWrite ||
                 status.UserId != geteuid() ||
-                status.LinkCount != 1)
+                status.LinkCount != requiredLinkCount)
             {
                 throw new IOException(
                     "The retained audit segment type, owner, mode, or link count is invalid.");

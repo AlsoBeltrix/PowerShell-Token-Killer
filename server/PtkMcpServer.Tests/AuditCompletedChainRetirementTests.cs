@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using PtkMcpServer.Audit;
 
 namespace PtkMcpServer.Tests;
@@ -143,6 +144,38 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
         Assert.Single(Directory.GetFiles(
             options.RootDirectory,
             "audit.retirement-*.json"));
+    }
+
+    [Fact]
+    public void Unix_publish_crash_hard_link_alias_recovers_before_intent_parsing()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var options = Options(NewRoot());
+        CreateCompletedChain(options, aged: true);
+        Assert.Throws<IOException>(() =>
+            AuditCompletedChainRetirement.TryRetire(
+                options,
+                BootId,
+                DateTimeOffset.UtcNow,
+                requiredHeadroomBytes: 0,
+                (point, _) =>
+                {
+                    if (point == AuditCompletedChainRetirementFaultPoint.IntentPublished)
+                        throw new IOException("stop after intent");
+                }));
+        var intent = Assert.Single(Directory.GetFiles(
+            options.RootDirectory,
+            "audit.retirement-*.json"));
+        var alias = Path.Combine(
+            options.RootDirectory,
+            $".audit.retirement-{BootId:N}.{Guid.NewGuid():N}.tmp");
+        Assert.Equal(0, CreateHardLink(intent, alias));
+
+        using (var quota = AuditSpoolQuotaLease.AcquireExisting(options.SpoolDirectory))
+            AuditAnchoredWriterStartupPreflight.RunUnderQuota(options, quota);
+
+        AssertRetired(options);
+        Assert.False(File.Exists(alias));
     }
 
     public void Dispose()
@@ -323,4 +356,7 @@ public sealed class AuditCompletedChainRetirementTests : IDisposable
             options.SpoolDirectory,
             AuditSpoolQuotaLease.ControlFileName)));
     }
+
+    [DllImport("libc", EntryPoint = "link", SetLastError = true)]
+    private static extern int CreateHardLink(string existingPath, string newPath);
 }

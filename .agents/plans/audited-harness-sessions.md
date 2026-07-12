@@ -11,9 +11,11 @@ and the required fixed-SHA Claude reviewloop with `guard_confirmed=true` on
 2026-07-12. Slice 2 is complete on local `master`. Slice 3 is active: commits
 `6fb256c`, `6e604c1`, and `f3790ec` carry the immutable foreground plan through
 separate durable plan/dispatch barriers, enforce strict RTK eligibility and
-exact-original pre-start fallback, and prevent second-pass RTK shaping. Bash
-validation and mixed-domain guidance remain. No push was performed or
-authorized.
+exact-original pre-start fallback, and prevent second-pass RTK shaping. The
+active Bash increment adds the audited parse-fatal/detector/syntax gate,
+startup-frozen executable identities, bounded direct process lifecycle, and
+pre-authorized RTK log shaping. Post-success mixed-domain guidance remains.
+No push was performed or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -588,6 +590,7 @@ OutputProvenance      PowerShellObjects | DirectText |
                       RtkUnknown | RtkFiltered | RtkPassthrough
 FallbackReason
 RtkExecutableIdentity
+OutputShapingRtkExecutableIdentity
 ```
 
 The planner is side-effect-free under the prepared-reservation protocol. It
@@ -637,7 +640,9 @@ but never asks the model to reconstruct or resubmit the script.
   the submitted commands.
 
   A successful validator permits the same exact bytes to run once through
-  `bash -lc` as the internal RTK delegation. Missing Bash, failed/timed-out
+  `bash --noprofile --norc -c` as the internal RTK delegation. Startup-file
+  suppression and the validator's environment scrub prevent unvalidated shell
+  content from running before those bytes. Missing Bash, failed/timed-out
   validation, or expired remaining execution budget produces the existing
   labeled not-started terminal; the submitted script never starts. Record
   validator start/completion and identity as internal lifecycle facts under
@@ -649,6 +654,11 @@ but never asks the model to reconstruct or resubmit the script.
 - Any RTK-routed stdout, including seam-absent `RtkUnknown`, is treated as
   already RTK-processed and is never sent to generic `rtk log` a second time.
 - Direct PowerShell/native log-shaped final text may use `rtk log`.
+  A shaped direct plan carries a separate startup-frozen RTK identity into
+  both plan and dispatch audit facts; `execution.dispatched` records
+  `rtk_log_authorized` before that helper can start. A job-output call freezes
+  the same identity into the flushed `job.output_accessed` fact before
+  shaping. Success/failure envelopes must match that authorized digest.
 - PowerShell objects remain PTK-shaped.
 
 Wider compound routing is deliberately not in the first implementation.
@@ -876,6 +886,7 @@ call.accepted
 execution.planned
 execution.dispatched
 execution.validation_started | execution.validation_completed  # when planned
+output.shaped | output.shaping_failed                            # when RTK log shaping is attempted
 execution.completed | failed | canceled | timed_out | outcome_unknown
 call.completed | failed | not_started
 ```
@@ -1111,13 +1122,17 @@ that unstarted RTK authorization with the plan's declared exact fallback. The
 ordered second record is the actual single execution route; SIEM consumers
 must not count the superseded pre-effect authorization as an execution.
 
-The current PowerShell `& '<absolute-path>'` launch cannot bind an OS executable
-identity across the final availability-check-to-process-start window. The RTK
-installation therefore remains an administrator-protected dependency. A
-same-path replacement or disappearance after the final post-barrier check is
-reported as the attempted RTK terminal and never triggers fallback after the
-user pipeline starts; eliminating that residual requires a future
-execution-bound Unix/Windows handle, not another path check.
+Current RTK execution, direct Bash validation/delegation, and `rtk log`
+shaping cannot bind an OS executable identity across the final
+availability-check-to-process-start window. PTK freezes canonical path,
+bounded SHA-256 bytes, and Unix mode, rejects links/special/oversized files,
+and rechecks immediately before each launch, but Windows ACL changes, macOS
+xattrs/quarantine, dynamically loaded code, and a same-path change inside the
+last check/start window remain outside that proof. These installations
+therefore remain administrator-protected dependencies. A late replacement or
+disappearance is reported under the attempted terminal and never triggers a
+fallback after user execution starts; eliminating the residual requires a
+future execution-bound Unix/Windows handle, not another path check.
 
 `audit.protection_mode` is the startup-frozen mode on every event so local-only
 telemetry is visibly unanchored. `export_configuration_identity` is nonnull
@@ -1426,7 +1441,7 @@ inventing a code sabotage.
   refusal for every other finding.
 - Intentionally replace
   `Parse_fatal_bash_shape_is_refused_with_its_construct_named`: its heredoc
-  fixture now asserts exact-byte `bash -lc` execution when Bash is present and
+  fixture now asserts exact-byte scrubbed `bash -c` execution when Bash is present and
   `bash -n` accepts it, and the labeled not-started refusal when Bash is absent
   or validation fails. This is a load-bearing guard amendment required by the
   newly approved gate, not a test to leave red.

@@ -10,23 +10,26 @@ public static class InvokeTool
 {
     [McpServerTool(Name = "ptk_invoke")]
     [Description(
-        "Run any shell command - PowerShell or native - in the server's persistent " +
-        "warm runspace. Preferred over Bash/PowerShell tools for all shell work: " +
-        "output arrives token-compressed by shape. Single native commands (git, npm, " +
-        "docker, ...) route through rtk's per-command filters, PowerShell objects " +
+        "Run shell work through PTK. PowerShell, mixed-dataflow, and most native " +
+        "commands use the persistent warm runspace; eligible terminal native commands " +
+        "route internally through rtk, and independently proven parse-fatal Bash syntax " +
+        "may execute through startup-pinned Bash/RTK processes outside the runspace. " +
+        "Preferred over Bash/PowerShell tools for shell work: output arrives " +
+        "token-compressed by shape. PowerShell objects " +
         "become compact typed summaries, log-shaped text is deduplicated, plain text " +
         "passes through with terminal color codes stripped (oversized text is elided " +
-        "with a labeled marker). Variables, imported modules, and established " +
-        "connections persist across calls for the whole session, so heavy modules " +
-        "import once instead of on every call. Compressed output preserves errors, " +
+        "with a labeled marker). PowerShell variables, imported modules, and established " +
+        "connections persist across runspace-routed calls; delegated Bash state is " +
+        "process-local. Compressed output preserves errors, " +
         "exit codes, and structure; raw=true exists for recovering detail the " +
         "compressed form lost, not as a default - for exact execution with shaped " +
         "output use route=pwsh with raw=false. Calls run serially, and the timeout " +
         "is a total wall-clock budget covering queue wait plus execution: a call " +
         "still waiting when its budget expires fails fast WITHOUT executing (warm " +
-        "state intact - just retry or go background); only a call that overruns " +
-        "while executing is aborted with the runspace recycled, losing all warm " +
-        "state.")]
+        "state intact - just retry or go background). A PowerShell execution overrun " +
+        "recycles the runspace and loses warm state; a delegated Bash/RTK overrun " +
+        "attempts bounded tracked-root termination, preserves warm state, and reports " +
+        "descendant and remote outcomes as unknown without retrying.")]
     public static async Task<string> Invoke(
         RunspaceHost host,
         JobManager jobs,

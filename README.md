@@ -72,7 +72,9 @@ and structure, so `raw=true` — which skips routing and shaping and executes
 exactly as written — is a recovery hatch for detail the compressed form
 lost, not a default. `route=pwsh` forces plain PowerShell execution; with
 `raw=false` that pairing is the fidelity path — exact execution, shaped
-output. `route=rtk` forces the rtk rewrite when the script shape allows it.
+output. `route=rtk` asserts RTK routing only for an eligible terminal native
+application; an unavailable or ineligible RTK leg is labeled and the exact
+original runs once without a model retry.
 
 Long work has two paths, by workload: `background=true` runs the script as a
 cold background job polled through `ptk_job` (builds, watchers — anything
@@ -83,7 +85,7 @@ the per-call limit for long work that needs the warm session itself.
 
 | Tool | Purpose |
 | --- | --- |
-| `ptk_invoke` | Run a PowerShell script or native command line in the warm runspace. |
+| `ptk_invoke` | Run shell work through PTK: persistent PowerShell state, internal RTK routing for eligible terminal commands, and bounded startup-pinned Bash delegation for independently proven parse-fatal Bash syntax. |
 | `ptk_job` | Poll, read (shaped), or kill background jobs started with `background=true`. |
 | `ptk_state` | Session introspection and health check: engine, uptime, cwd, loaded modules, jobs, and drift (env/PATH/variable changes since server start). |
 | `ptk_reset` | Recycle the runspace to factory state: server-start environment restored, background jobs killed. |
@@ -95,6 +97,11 @@ protected audit journal. The default is local-only under `~/.ptk/audit`: it
 requires no SIEM, collector, endpoint, credentials, or network service. Anchored
 OTLP/HTTP export is an optional startup configuration, not a requirement for
 local logging.
+
+Internal RTK use is part of that trail. A foreground dispatch or job-output
+access durably authorizes the startup-pinned RTK digest before `rtk log` can
+start, followed by a typed shaping success/failure fact. Bash validator and
+delegated execution lifecycle facts are recorded under the same call plan.
 
 Core records contain bounded metadata and hashes, while the exact submitted
 script is persisted separately as owner-only evidence. Scripts can contain
@@ -211,7 +218,9 @@ machines without ptk.
 ## The Module
 
 `src/PwshTokenCompressor.psd1` is the server's shaping library — the MCP
-server imports it into the warm runspace and every result flows through it.
+server imports it into the warm runspace; runspace output and polled job text
+flow through it, while delegated Bash/RTK streams are captured and bounded by
+the host directly.
 It exports `Compress-PtcObject`, `Compress-PtcOutput`, and
 `Resolve-PtcInvokeScript` for the server (and for local experiments); there
 is no separate CLI face — `ptk_invoke` is the product surface.

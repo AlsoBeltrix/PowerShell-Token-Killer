@@ -100,17 +100,21 @@ public sealed class ExecutionPlannerTests
         var absent = Plan("git status", "auto", null, commands);
         AssertDirect(absent, "git status", RequestedExecutionRoute.Auto);
         Assert.Null(absent.Domain);
+        Assert.Null(absent.OutputShapingRtkIdentity);
 
         var empty = Plan("git status", "auto", string.Empty, commands);
         AssertDirect(empty, "git status", RequestedExecutionRoute.Auto);
         Assert.Null(empty.Domain);
+        Assert.Null(empty.OutputShapingRtkIdentity);
 
         var pwsh = Plan("git status", "PWSH", RtkPath, commands);
         AssertDirect(pwsh, "git status", RequestedExecutionRoute.PowerShell);
         Assert.Null(pwsh.Domain);
+        Assert.Equal(RtkPath, pwsh.OutputShapingRtkIdentity?.ExecutablePath);
 
         var forced = Plan("Get-ChildItem", "RTK", RtkPath, commands);
         AssertDirect(forced, "Get-ChildItem", RequestedExecutionRoute.Rtk);
+        Assert.Equal(RtkPath, forced.OutputShapingRtkIdentity?.ExecutablePath);
         Assert.Equal(ExecutionDomain.PowerShell, forced.Domain);
         Assert.Equal(
             ExecutionFallbackReason.RtkResolutionNotApplication,
@@ -139,7 +143,7 @@ public sealed class ExecutionPlannerTests
         var plan = ExecutionPlanner.Create(
             "git status",
             "rtk",
-            RtkPath,
+            new RtkExecutableIdentity(RtkPath),
             Application("git", "/usr/bin/git"),
             raw: true,
             compressAvailable: true,
@@ -168,6 +172,57 @@ public sealed class ExecutionPlannerTests
         Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
         Assert.Equal(OutputProvenance.DirectText, plan.OutputProvenance);
         Assert.Empty(plan.PermittedFallbacks);
+    }
+
+    [Fact]
+    public void CreateBash_carries_only_the_typed_bounded_delegation_facts()
+    {
+        const string script = "if true; then printf '%s\\n' hello; fi";
+        var cwd = Path.GetFullPath(Path.GetTempPath());
+        var rtk = new RtkExecutableIdentity(RtkPath);
+        var bash = BashExecutableIdentity.TryCapture(typeof(ExecutionPlannerTests).Assembly.Location);
+        Assert.NotNull(bash);
+
+        var plan = ExecutionPlanner.CreateBash(
+            script,
+            "auto",
+            rtk,
+            bash,
+            cwd,
+            ResolutionContext.Warm);
+
+        Assert.Equal(script, plan.OriginalScript);
+        Assert.Null(plan.ExecutionScript);
+        Assert.Equal(ExecutionDomain.Bash, plan.Domain);
+        Assert.Equal(ExecutionPath.BashViaRtk, plan.ExecutionPath);
+        Assert.Equal(PreExecutionValidation.BashSyntax, plan.PreExecutionValidation);
+        Assert.Equal(ResolutionContext.Warm, plan.ResolutionContext);
+        Assert.Equal(RequestedExecutionRoute.Auto, plan.RequestedRoute);
+        Assert.Equal(OutputProvenance.RtkUnknown, plan.OutputProvenance);
+        Assert.Empty(plan.PermittedFallbacks);
+        Assert.Null(plan.FallbackReason);
+        Assert.Same(rtk, plan.RtkExecutableIdentity);
+        Assert.Same(bash, plan.BashExecutableIdentity);
+        Assert.Equal(cwd, plan.WorkingDirectory);
+    }
+
+    [Theory]
+    [InlineData("Write-Output 'valid PowerShell'", "auto")]
+    [InlineData("if true; then printf hello; fi", "pwsh")]
+    public void CreateBash_requires_parse_fatal_input_without_pwsh_consent(
+        string script,
+        string route)
+    {
+        var bash = BashExecutableIdentity.TryCapture(typeof(ExecutionPlannerTests).Assembly.Location);
+        Assert.NotNull(bash);
+
+        Assert.Throws<ArgumentException>(() => ExecutionPlanner.CreateBash(
+            script,
+            route,
+            new RtkExecutableIdentity(RtkPath),
+            bash,
+            Path.GetFullPath(Path.GetTempPath()),
+            ResolutionContext.Warm));
     }
 
     [Fact]
@@ -274,7 +329,7 @@ public sealed class ExecutionPlannerTests
         ExecutionPlanner.Create(
             script,
             route,
-            rtkPath,
+            rtkPath is null ? null : new RtkExecutableIdentity(rtkPath),
             commands,
             raw: false,
             compressAvailable: true,

@@ -64,6 +64,24 @@ public sealed class TrustedPreflightClassifierTests
         Assert.Contains(expected, finding, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("Get-Date", false, false)]
+    [InlineData("export FOO=1", false, true)]
+    [InlineData("Write-Output >", true, false)]
+    [InlineData("cat <<EOF\nhello\nEOF", true, true)]
+    public void Assessment_keeps_parse_fatality_independent_from_dialect_guidance(
+        string script,
+        bool expectedParseFatal,
+        bool expectedFinding)
+    {
+        var assessment = TrustedPreflightClassifier.AssessShellDialect(
+            script,
+            StockCommands());
+
+        Assert.Equal(expectedParseFatal, assessment.PowerShellParseFatal);
+        Assert.Equal(expectedFinding, assessment.Finding is not null);
+    }
+
     public static TheoryData<string> FalsePositiveScripts => new()
     {
         "echo hi && echo there",

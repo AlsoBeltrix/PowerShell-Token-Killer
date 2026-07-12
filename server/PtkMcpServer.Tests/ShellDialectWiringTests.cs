@@ -2,15 +2,18 @@ using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
 
-// Server wiring for the shell-dialect detector (shell-dialect plan, slice 2):
-// a probed bash-only construct is refused fast with recovery guidance on BOTH
-// execution paths — foreground before routing, background before the job
-// starts — while raw=true and route=pwsh bypass by consent. ProcessEnvironment
-// collection: one test mutates PTK_RTK_PATH.
+// Server wiring for the shell-dialect detector. Foreground parse-fatal Bash
+// shapes may pass the bounded Bash validator and execute through RTK; every
+// other detected shape and all background detections remain not-started.
+// route=pwsh still bypasses by explicit consent. ProcessEnvironment collection:
+// tests mutate PTK_RTK_PATH.
 [Collection("ProcessEnvironment")]
 public sealed class ShellDialectWiringTests : IDisposable
 {
-    private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
+    private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60))
+    {
+        RtkIdentityOverrideForTests = ResolveFixtureRtkIdentity,
+    };
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-dialect-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
@@ -19,6 +22,131 @@ public sealed class ShellDialectWiringTests : IDisposable
     {
         _host.Dispose();
         _jobs.Dispose();
+    }
+
+    private static RtkExecutableIdentity? ResolveFixtureRtkIdentity(
+        RtkExecutableIdentity? startupIdentity)
+    {
+        var configured = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        return configured is null
+            ? startupIdentity
+            : RtkExecutableIdentity.TryCapture(configured);
+    }
+
+    private static string? ResolveBashExecutable()
+    {
+        var names = OperatingSystem.IsWindows()
+            ? new[] { "bash.exe", "bash" }
+            : new[] { "bash" };
+        var directories = (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
+            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Select(path => path.Trim().Trim('"'))
+            .Where(path => path.Length > 0)
+            .Concat(OperatingSystem.IsWindows() ? [] : new[] { "/bin", "/usr/bin" });
+
+        foreach (var directory in directories.Distinct(StringComparer.Ordinal))
+        {
+            foreach (var name in names)
+            {
+                try
+                {
+                    var candidate = new FileInfo(Path.GetFullPath(Path.Combine(directory, name)));
+                    if (!candidate.Exists) continue;
+                    var target = candidate.ResolveLinkTarget(returnFinalTarget: true);
+                    return Path.GetFullPath(target?.FullName ?? candidate.FullName);
+                }
+                catch
+                {
+                    // Keep searching PATH; a broken or inaccessible entry is
+                    // not evidence that startup-pinned Bash is available.
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string PosixQuote(string value) =>
+        "'" + value.Replace("'", "'\"'\"'") + "'";
+
+    private static string CreateMustNotRunRtkStub(
+        DirectoryInfo directory,
+        string invocationMarker)
+    {
+        string stub;
+        if (OperatingSystem.IsWindows())
+        {
+            stub = Path.Combine(directory.FullName, "rtk-must-not-run.cmd");
+            File.WriteAllText(
+                stub,
+                $"@echo off\r\n>\"{invocationMarker.Replace("%", "%%")}\" echo invoked\r\nexit /b 97\r\n");
+        }
+        else
+        {
+            stub = Path.Combine(directory.FullName, "rtk-must-not-run.sh");
+            File.WriteAllText(
+                stub,
+                "#!/bin/sh\n" +
+                $"printf invoked > {PosixQuote(invocationMarker)}\n" +
+                "exit 97\n");
+            File.SetUnixFileMode(
+                stub,
+                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        }
+
+        return stub;
+    }
+
+    private static string CreateRecordingForwardingRtkStub(
+        DirectoryInfo directory,
+        string invocationLog)
+    {
+        if (OperatingSystem.IsWindows())
+            throw new PlatformNotSupportedException("The forwarding integration stub is POSIX-only.");
+
+        var stub = Path.Combine(directory.FullName, "rtk-recording-proxy.sh");
+        File.WriteAllText(
+            stub,
+            "#!/bin/sh\n" +
+            "set -eu\n" +
+            $"log={PosixQuote(invocationLog)}\n" +
+            "printf 'CALL\\n' >> \"$log\"\n" +
+            "for argument in \"$@\"; do\n" +
+            "  encoded=$(printf '%s' \"$argument\" | base64 | tr -d '\\r\\n')\n" +
+            "  printf 'ARG:%s\\n' \"$encoded\" >> \"$log\"\n" +
+            "done\n" +
+            "printf 'END\\n' >> \"$log\"\n" +
+            "[ \"$#\" -ge 3 ] || exit 91\n" +
+            "[ \"$1\" = proxy ] || exit 92\n" +
+            "shift\n" +
+            "[ \"$1\" = -- ] || exit 93\n" +
+            "shift\n" +
+            "exec \"$@\"\n");
+        File.SetUnixFileMode(
+            stub,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        return stub;
+    }
+
+    private static void AssertSingleProxyInvocation(
+        string invocationLog,
+        params string[] expectedArguments)
+    {
+        var lines = File.ReadAllLines(invocationLog);
+        Assert.Equal(expectedArguments.Length + 2, lines.Length);
+        Assert.Equal("CALL", lines[0]);
+        Assert.Equal("END", lines[^1]);
+        var arguments = lines[1..^1]
+            .Select(line =>
+            {
+                Assert.StartsWith("ARG:", line);
+                return System.Text.Encoding.UTF8.GetString(
+                    Convert.FromBase64String(line[4..]));
+            })
+            .ToArray();
+        Assert.Equal(expectedArguments, arguments);
+        Assert.DoesNotContain(arguments, argument =>
+            argument.Equals("log", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -48,13 +176,224 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task Parse_fatal_bash_shape_is_refused_with_its_construct_named()
+    public async Task Parse_fatal_valid_heredoc_executes_exactly_once_through_rtk_proxy()
     {
-        var text = await InvokeTool.Invoke(
-            _host, _jobs, _rawUsage, "cat <<EOF\nhello\nEOF", CancellationToken.None);
+        // ProcessStartInfo cannot faithfully forward a multiline argv through
+        // a batch wrapper, so the end-to-end forwarding fixture is Unix-only.
+        // The planner/validator argument-list tests remain platform-neutral.
+        if (OperatingSystem.IsWindows()) return;
+        var bash = ResolveBashExecutable();
+        if (bash is null) return;
 
-        Assert.Contains("[ptk:dialect] not executed", text);
-        Assert.Contains("heredoc", text);
+        var directory = Directory.CreateTempSubdirectory("ptk-bash-heredoc-");
+        var invocationLog = Path.Combine(directory.FullName, "rtk-invocations.log");
+        var outputPath = Path.Combine(directory.FullName, "heredoc-output.txt");
+        var rtk = CreateRecordingForwardingRtkStub(directory, invocationLog);
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        var payload = "ptk-heredoc-once-" + Guid.NewGuid().ToString("N");
+        var script =
+            $"cat <<'PTK_EOF' >> {PosixQuote(outputPath)}\n" +
+            payload + "\n" +
+            "PTK_EOF";
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", rtk);
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                bashPathOverride: bash);
+
+            var result = await host.InvokeAsync(script);
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(InvokeDisposition.Completed, result.Disposition);
+            Assert.True(result.UserExecutionStarted);
+            Assert.Equal(ExecutionPath.BashViaRtk, result.Routing?.EffectivePath);
+            Assert.True(result.Routing?.OriginalScriptDispatched);
+            Assert.DoesNotContain("[ptk:log via rtk]", result.Output);
+            Assert.Equal(
+                payload + "\n",
+                File.ReadAllText(outputPath).Replace("\r\n", "\n"));
+            AssertSingleProxyInvocation(
+                invocationLog,
+                "proxy",
+                "--",
+                bash,
+                "--noprofile",
+                "--norc",
+                "-c",
+                script);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Parse_fatal_bash_shape_is_not_started_when_startup_bash_is_missing()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-bash-missing-");
+        var marker = Path.Combine(directory.FullName, "rtk-invoked");
+        var outputPath = Path.Combine(directory.FullName, "must-not-exist");
+        var rtk = CreateMustNotRunRtkStub(directory, marker);
+        var missingBash = Path.Combine(directory.FullName, "no-such-bash");
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", rtk);
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                bashPathOverride: missingBash);
+            var script =
+                $"cat <<'PTK_EOF' >> {PosixQuote(outputPath)}\n" +
+                "must-not-run\n" +
+                "PTK_EOF";
+
+            var result = await host.InvokeAsync(script);
+
+            Assert.False(result.Success);
+            Assert.Equal(InvokeDisposition.NotStarted, result.Disposition);
+            Assert.False(result.UserExecutionStarted);
+            Assert.Contains("startup-pinned Bash executable is unavailable", result.Output);
+            Assert.False(File.Exists(outputPath));
+            Assert.False(File.Exists(marker));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Bash_syntax_invalid_shape_is_not_started_and_never_reaches_rtk()
+    {
+        var bash = ResolveBashExecutable();
+        if (bash is null) return;
+
+        var directory = Directory.CreateTempSubdirectory("ptk-bash-invalid-");
+        var marker = Path.Combine(directory.FullName, "rtk-invoked");
+        var rtk = CreateMustNotRunRtkStub(directory, marker);
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", rtk);
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                bashPathOverride: bash)
+            {
+                // Recorded sd1-6 synthesized-shape regression: sabotage only
+                // the detector output; the trusted PowerShell parse fact and
+                // real Bash validator remain independent.
+                DialectFindingOverrideForTests = _ => "a test-only Bash function shape",
+            };
+
+            var result = await host.InvokeAsync("foo 'bar'() { echo hi; }");
+
+            Assert.False(result.Success);
+            Assert.Equal(InvokeDisposition.NotStarted, result.Disposition);
+            Assert.False(result.UserExecutionStarted);
+            Assert.Contains("Bash syntax validation rejected", result.Output);
+            Assert.False(File.Exists(marker));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Post_validation_cancellation_keeps_its_typed_no_start_detail()
+    {
+        var bash = ResolveBashExecutable();
+        if (bash is null) return;
+
+        var directory = Directory.CreateTempSubdirectory("ptk-bash-post-validation-cancel-");
+        var marker = Path.Combine(directory.FullName, "rtk-invoked");
+        var rtk = CreateMustNotRunRtkStub(directory, marker);
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", rtk);
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                bashPathOverride: bash);
+            using var canceled = new CancellationTokenSource();
+            var authorizer = new TestInvocationAuthorizer(
+                (_, _) => ValueTask.FromResult(true),
+                recordValidatorCompleted: (_, validation, _) =>
+                {
+                    Assert.Equal(BashSyntaxValidationStatus.Valid, validation.Status);
+                    canceled.Cancel();
+                    return ValueTask.FromResult(true);
+                });
+            const string script = "cat <<'EOF' >/dev/null\nvalidated\nEOF\nprintf never";
+
+            var result = await host.InvokeAsync(
+                script,
+                authorizer,
+                cancellationToken: canceled.Token);
+
+            Assert.False(result.Success);
+            Assert.Equal(InvokeDisposition.NotStarted, result.Disposition);
+            Assert.False(result.UserExecutionStarted);
+            Assert.Equal("bash_execution_canceled_before_start", result.AuditDetailCode);
+            Assert.Contains("request budget was exhausted or canceled", Assert.Single(result.Errors));
+            Assert.False(File.Exists(marker));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Clean_parse_recorded_false_positive_retains_refusal_and_never_reaches_bash()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-bash-clean-false-positive-");
+        var marker = Path.Combine(directory.FullName, "rtk-invoked");
+        var rtk = CreateMustNotRunRtkStub(directory, marker);
+        var fakeBash = Path.Combine(directory.FullName, "pinned-bash");
+        File.WriteAllText(fakeBash, "not an executable, and must never be started");
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", rtk);
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                bashPathOverride: fakeBash)
+            {
+                // Recorded sd1-2 valid-PowerShell false positive. The detector
+                // can be sabotaged, but it cannot manufacture parse-fatal
+                // evidence and thereby reach Bash validation or execution.
+                DialectFindingOverrideForTests = _ => "a sabotaged Bash finding",
+            };
+            var planAuthorizations = 0;
+            var authorizer = new TestInvocationAuthorizer((_, _) =>
+            {
+                planAuthorizations++;
+                return ValueTask.FromResult(true);
+            });
+
+            var result = await host.InvokeAsync(
+                "Write-Output `tColumn` Name",
+                authorizer);
+
+            Assert.False(result.Success);
+            Assert.Equal(InvokeDisposition.NotStarted, result.Disposition);
+            Assert.False(result.UserExecutionStarted);
+            Assert.Contains("[ptk:dialect] not executed", result.Output);
+            Assert.Equal(0, planAuthorizations);
+            Assert.False(File.Exists(marker));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            directory.Delete(recursive: true);
+        }
     }
 
     [Fact]
@@ -90,6 +429,21 @@ public sealed class ShellDialectWiringTests : IDisposable
         Assert.DoesNotContain("[ptk:dialect]", text);
         Assert.Contains("[errors]", text);
         Assert.Contains("export", text);
+    }
+
+    [Fact]
+    public async Task Route_pwsh_bypasses_parse_fatal_bash_delegation_as_consent()
+    {
+        const string script = "cat <<EOF\nhello\nEOF";
+
+        var result = await _host.InvokeAsync(script, route: "pwsh");
+
+        Assert.DoesNotContain("[ptk:dialect]", result.Output);
+        Assert.NotEqual(ExecutionPath.BashViaRtk, result.Routing?.EffectivePath);
+        Assert.Equal(ExecutionPath.PowerShellDirect, result.Routing?.EffectivePath);
+        Assert.Contains(result.Errors, error =>
+            error.Contains("MissingFileSpecification", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("file specification", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]
@@ -186,11 +540,10 @@ public sealed class ShellDialectWiringTests : IDisposable
     [Fact]
     public async Task Detection_precedes_forced_rtk_routing()
     {
-        // sd2-6: `export X=1` satisfies the resolver's single-command
-        // constant-args shape and route=rtk skips the Application check, so
-        // a wiring that routed BEFORE detecting would hand the detector
-        // `& '<rtk>' export X=1` (operator-invoked, export in argument
-        // position: no finding) and execute the stub instead of refusing.
+        // sd2-6 after strict forced-route eligibility: route=rtk no longer
+        // bypasses Application resolution. Dialect detection must still win
+        // before the forced-route fallback could execute this exact original
+        // once as PowerShell.
         var dir = Directory.CreateTempSubdirectory("ptk-dialect-rtk-");
         string stub;
         if (OperatingSystem.IsWindows())
@@ -214,6 +567,7 @@ public sealed class ShellDialectWiringTests : IDisposable
 
             Assert.Contains("[ptk:dialect] not executed", text);
             Assert.DoesNotContain("RTKROUTE", text);
+            Assert.DoesNotContain("[errors]", text);
         }
         finally
         {

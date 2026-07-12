@@ -151,6 +151,12 @@ public sealed class RawUsageTests : IDisposable
         Assert.Contains("not as a default", tool);
         Assert.Contains("route=pwsh with raw=false", tool);
         Assert.DoesNotContain("full uncompressed output", tool);
+        Assert.Contains("outside the runspace", tool);
+        Assert.Contains("delegated Bash state is process-local", tool);
+        Assert.Contains("preserves warm state", tool);
+        Assert.DoesNotContain(
+            "only a call that overruns while executing is aborted with the runspace recycled",
+            tool);
 
         var rawParam = invoke.GetParameters().Single(p => p.Name == "raw");
         var raw = ((DescriptionAttribute)rawParam.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;

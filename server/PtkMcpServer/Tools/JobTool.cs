@@ -88,13 +88,20 @@ public static class JobTool
                 // "running" one poll late rather than losing tail output.
                 var chunk = jobs.ReadOutput(id, offset)!;
                 var (text, nextOffset, bytesRead) = chunk.Value;
+                var authorizedShapingRtk = text.Length == 0
+                    ? null
+                    : host.CaptureOutputShapingRtkIdentity();
                 audit?.CommitReadOutcome(
                     "job.output_accessed",
                     "completed",
                     text,
+                    detailCode: authorizedShapingRtk is null
+                        ? null
+                        : "rtk_log_authorized",
                     jobId: id,
                     nextOffset: nextOffset,
-                    bytesReturnedOverride: bytesRead);
+                    bytesReturnedOverride: bytesRead,
+                    outputShapingRtkIdentity: authorizedShapingRtk);
                 // sd3-2..sd3-4: the marker's default advice (raw=true) is a
                 // ptk_invoke control this tool does not have — re-running
                 // the JOB duplicates side-effecting work and the offset has
@@ -105,19 +112,25 @@ public static class JobTool
                 // (ANSI stripping shortens without eliding, near-boundary
                 // elision lengthens).
                 var elisionHint = $"read the complete raw log at {snapshot.OutputPath} if the elided middle matters";
-                var shaped = text.Length == 0
-                    ? "(no new output)"
+                var shapedResult = text.Length == 0
+                    ? new ShapedTextResult("(no new output)", null)
                     : audit is null
-                        ? await host.ShapeTextAsync(text, cancellationToken, elisionHint)
+                        ? new ShapedTextResult(
+                            await host.ShapeTextAsync(text, cancellationToken, elisionHint),
+                            null)
                         : await host.ShapeTextAuditedAsync(
                             text,
                             cancellationToken,
                             elisionHint,
+                            authorizedShapingRtk,
                             () => audit.RecordControlOutcome(
                                 "runspace.recycled",
                                 "completed",
                                 detailCode: "job_output_shaping_timed_out",
                                 warmStateLost: true));
+                if (shapedResult.Shaping is { } shaping)
+                    audit?.RecordOutputShaping(shaping);
+                var shaped = shapedResult.Text;
                 var state = snapshot.Running ? "running" : $"exited {snapshot.ExitCode}";
                 return $"{shaped}\n[job {id} {state}] next offset: {nextOffset}";
             }

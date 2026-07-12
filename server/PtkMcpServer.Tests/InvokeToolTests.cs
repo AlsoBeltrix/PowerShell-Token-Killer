@@ -1,13 +1,17 @@
+using System.Security.Cryptography;
 using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
 
-// ProcessEnvironment collection: mutates PTK_RTK_PATH, which a parallel
-// reset-driven environment restore would otherwise wipe mid-test.
+// ProcessEnvironment collection: mutates PTK_RTK_PATH and PATH, which a
+// parallel reset-driven environment restore would otherwise wipe mid-test.
 [Collection("ProcessEnvironment")]
 public sealed class InvokeToolTests : IDisposable
 {
-    private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
+    private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60))
+    {
+        RtkIdentityOverrideForTests = ResolveFixtureRtkIdentity,
+    };
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-invoke-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
@@ -16,6 +20,15 @@ public sealed class InvokeToolTests : IDisposable
     {
         _host.Dispose();
         _jobs.Dispose();
+    }
+
+    private static RtkExecutableIdentity? ResolveFixtureRtkIdentity(
+        RtkExecutableIdentity? startupIdentity)
+    {
+        var configured = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        return configured is null
+            ? startupIdentity
+            : RtkExecutableIdentity.TryCapture(configured);
     }
 
     [Fact]
@@ -128,28 +141,217 @@ public sealed class InvokeToolTests : IDisposable
 
     private static (DirectoryInfo dir, string path) CreateRtkStub(
         string body,
-        string? parentDirectory = null)
+        string? parentDirectory = null,
+        string? fileName = null)
     {
         var dir = parentDirectory is null
             ? Directory.CreateTempSubdirectory("ptk-rtk-route-")
             : Directory.CreateDirectory(Path.Combine(
                 parentDirectory,
                 "ptk-rtk-route-" + Guid.NewGuid().ToString("N")));
-        string path;
+        var path = Path.Combine(
+            dir.FullName,
+            fileName ?? (OperatingSystem.IsWindows() ? "rtk-stub.cmd" : "rtk-stub.sh"));
+        WriteRtkStub(path, body);
+        return (dir, path);
+    }
+
+    private static void WriteRtkStub(string path, string body)
+    {
         if (OperatingSystem.IsWindows())
         {
-            path = Path.Combine(dir.FullName, "rtk-stub.cmd");
             File.WriteAllText(path, "@echo off\r\n" + body.Replace("\n", "\r\n") + "\r\n");
+            return;
         }
-        else
+
+        File.WriteAllText(path,
+            "#!/bin/sh\n" + body.Replace("%*", "\"$@\"").Replace("exit /b ", "exit ") + "\n");
+        File.SetUnixFileMode(path,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    [Fact]
+    public async Task Operator_pinned_rtk_identity_survives_warm_environment_poisoning()
+    {
+        const string trustedLogName = "PTK_RTK_PINNED_TRUSTED_LOG";
+        const string fakeLogName = "PTK_RTK_PINNED_FAKE_LOG";
+        var trustedBody = OperatingSystem.IsWindows()
+            ? $">>\"%{trustedLogName}%\" echo %*\necho TRUSTED_PINNED_RTK %*\nexit /b 0"
+            : $"printf '%s\\n' \"$*\" >> \"${trustedLogName}\"\n" +
+              "echo \"TRUSTED_PINNED_RTK $*\"\nexit 0";
+        var fakeBody = OperatingSystem.IsWindows()
+            ? $">>\"%{fakeLogName}%\" echo %*\necho FAKE_RTK %*\nexit /b 0"
+            : $"printf '%s\\n' \"$*\" >> \"${fakeLogName}\"\n" +
+              "echo \"FAKE_RTK $*\"\nexit 0";
+        var (trustedDir, trustedRtk) = CreateRtkStub(trustedBody);
+        var (fakeDir, fakeRtk) = CreateRtkStub(
+            fakeBody,
+            fileName: OperatingSystem.IsWindows() ? "rtk.cmd" : "rtk");
+        var trustedLog = Path.Combine(trustedDir.FullName, "trusted.log");
+        var fakeLog = Path.Combine(fakeDir.FullName, "fake.log");
+        var expectedDigest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(trustedRtk)))
+            .ToLowerInvariant();
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        var savedPath = Environment.GetEnvironmentVariable("PATH");
+        var savedTrustedLog = Environment.GetEnvironmentVariable(trustedLogName);
+        var savedFakeLog = Environment.GetEnvironmentVariable(fakeLogName);
+        RunspaceHost? host = null;
+        try
         {
-            path = Path.Combine(dir.FullName, "rtk-stub.sh");
-            File.WriteAllText(path,
-                "#!/bin/sh\n" + body.Replace("%*", "\"$@\"").Replace("exit /b ", "exit ") + "\n");
-            File.SetUnixFileMode(path,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            Environment.SetEnvironmentVariable(trustedLogName, trustedLog);
+            Environment.SetEnvironmentVariable(fakeLogName, fakeLog);
+            host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                rtkPathOverride: trustedRtk);
+            var escapedFakeRtk = fakeRtk.Replace("'", "''");
+            var escapedFakeDir = fakeDir.FullName.Replace("'", "''");
+            var poisoned = await host.InvokeAsync(
+                $"$env:PTK_RTK_PATH = '{escapedFakeRtk}'; " +
+                $"$env:PATH = '{escapedFakeDir}' + [IO.Path]::PathSeparator + $env:PATH; " +
+                "(Get-Command rtk -CommandType Application).Source",
+                raw: true,
+                route: "pwsh");
+            Assert.True(poisoned.Success, string.Join(Environment.NewLine, poisoned.Errors));
+            Assert.Contains(
+                Path.GetFullPath(fakeRtk),
+                poisoned.Output,
+                OperatingSystem.IsWindows()
+                    ? StringComparison.OrdinalIgnoreCase
+                    : StringComparison.Ordinal);
+
+            ExecutionPlan? planned = null;
+            ExecutionDispatch? auditedDispatch = null;
+            var result = await host.InvokeAsync(
+                "git status",
+                new TestInvocationAuthorizer(
+                    (plan, _) =>
+                    {
+                        planned = plan;
+                        return ValueTask.FromResult(true);
+                    },
+                    (dispatch, _) =>
+                    {
+                        auditedDispatch = dispatch;
+                        return ValueTask.FromResult(true);
+                    }),
+                route: "auto");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Contains("TRUSTED_PINNED_RTK git status", result.Output);
+            Assert.DoesNotContain("FAKE_RTK", result.Output);
+            Assert.Single(File.ReadAllLines(trustedLog));
+            Assert.False(File.Exists(fakeLog));
+            Assert.NotNull(planned);
+            Assert.Equal(ExecutionPath.Rtk, planned.ExecutionPath);
+            Assert.Equal(Path.GetFullPath(trustedRtk), planned.RtkExecutableIdentity?.ExecutablePath);
+            Assert.Equal(expectedDigest, planned.RtkExecutableIdentity?.CapturedBinaryDigest);
+            Assert.Equal(expectedDigest, planned.RtkExecutableIdentity?.AuditBinaryDigest);
+            Assert.NotNull(auditedDispatch);
+            Assert.Equal(ExecutionPath.Rtk, auditedDispatch.ExecutionPath);
+            Assert.Same(planned.RtkExecutableIdentity, auditedDispatch.RtkExecutableIdentity);
+            Assert.Equal(expectedDigest, auditedDispatch.RtkExecutableIdentity?.AuditBinaryDigest);
         }
-        return (dir, path);
+        finally
+        {
+            host?.Dispose();
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            Environment.SetEnvironmentVariable("PATH", savedPath);
+            Environment.SetEnvironmentVariable(trustedLogName, savedTrustedLog);
+            Environment.SetEnvironmentVariable(fakeLogName, savedFakeLog);
+            trustedDir.Delete(recursive: true);
+            fakeDir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Same_path_rtk_replacement_during_dispatch_audit_falls_back_before_start()
+    {
+        const string fakeLogName = "PTK_RTK_REPLACEMENT_FAKE_LOG";
+        var initialBody = "echo ORIGINAL_RTK_MUST_NOT_RUN %*\nexit /b 0";
+        var replacementBody = OperatingSystem.IsWindows()
+            ? $">>\"%{fakeLogName}%\" echo %*\necho REPLACEMENT_RTK_MUST_NOT_RUN %*\nexit /b 0"
+            : $"printf '%s\\n' \"$*\" >> \"${fakeLogName}\"\n" +
+              "echo \"REPLACEMENT_RTK_MUST_NOT_RUN $*\"\nexit 0";
+        var (dir, pinnedRtk) = CreateRtkStub(initialBody);
+        var fakeLog = Path.Combine(dir.FullName, "replacement-ran.log");
+        var originalCount = Path.Combine(dir.FullName, "exact-original-count.txt");
+        var expectedDigest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(pinnedRtk)))
+            .ToLowerInvariant();
+        var savedFakeLog = Environment.GetEnvironmentVariable(fakeLogName);
+        RunspaceHost? host = null;
+        try
+        {
+            Environment.SetEnvironmentVariable(fakeLogName, fakeLog);
+            host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                rtkPathOverride: pinnedRtk);
+            var escapedCount = originalCount.Replace("'", "''");
+            var original =
+                "pwsh -NoProfile -NonInteractive -Command \"" +
+                $"[IO.File]::AppendAllText('{escapedCount}', '1'); " +
+                "'EXACT_REPLACEMENT_ORIGINAL_ONCE'\"";
+            ExecutionPlan? planned = null;
+            var auditedDispatches = new List<ExecutionDispatch>();
+            var authorizer = new TestInvocationAuthorizer(
+                (plan, _) =>
+                {
+                    planned = plan;
+                    return ValueTask.FromResult(true);
+                },
+                (dispatch, _) =>
+                {
+                    auditedDispatches.Add(dispatch);
+                    if (auditedDispatches.Count == 1)
+                    {
+                        Assert.Equal(ExecutionPath.Rtk, dispatch.ExecutionPath);
+                        Assert.Equal(expectedDigest, dispatch.RtkExecutableIdentity?.AuditBinaryDigest);
+                        WriteRtkStub(pinnedRtk, replacementBody);
+                    }
+                    return ValueTask.FromResult(true);
+                });
+
+            var result = await host.InvokeAsync(original, authorizer, route: "auto");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(InvokeDisposition.Completed, result.Disposition);
+            Assert.True(result.UserExecutionStarted);
+            Assert.Contains("EXACT_REPLACEMENT_ORIGINAL_ONCE", result.Output);
+            Assert.DoesNotContain("REPLACEMENT_RTK_MUST_NOT_RUN", result.Output);
+            Assert.Equal("1", File.ReadAllText(originalCount));
+            Assert.False(File.Exists(fakeLog));
+            Assert.NotNull(planned);
+            Assert.Equal(ExecutionPath.Rtk, planned.ExecutionPath);
+            Assert.Equal(Path.GetFullPath(pinnedRtk), planned.RtkExecutableIdentity?.ExecutablePath);
+            Assert.Equal(expectedDigest, planned.RtkExecutableIdentity?.CapturedBinaryDigest);
+            Assert.Collection(
+                auditedDispatches,
+                first =>
+                {
+                    Assert.Same(planned, first.Plan);
+                    Assert.Equal(ExecutionPath.Rtk, first.ExecutionPath);
+                    Assert.Equal(expectedDigest, first.RtkExecutableIdentity?.AuditBinaryDigest);
+                },
+                fallback =>
+                {
+                    Assert.Same(planned, fallback.Plan);
+                    Assert.Equal(ExecutionPath.PowerShellDirect, fallback.ExecutionPath);
+                    Assert.Equal(original, fallback.ExecutionScript);
+                    Assert.Equal(
+                        ExecutionFallbackReason.RtkExecutableBecameUnavailable,
+                        fallback.FallbackReason);
+                    Assert.Null(fallback.RtkExecutableIdentity);
+                });
+            Assert.Equal(ExecutionPath.PowerShellDirect, result.Routing?.EffectivePath);
+            Assert.Equal(
+                ExecutionFallbackReason.RtkExecutableBecameUnavailable,
+                result.Routing?.FallbackReason);
+        }
+        finally
+        {
+            host?.Dispose();
+            Environment.SetEnvironmentVariable(fakeLogName, savedFakeLog);
+            dir.Delete(recursive: true);
+        }
     }
 
     [Fact]
@@ -468,6 +670,17 @@ public sealed class InvokeToolTests : IDisposable
             Dispatch = dispatch;
             return ValueTask.FromResult(true);
         }
+
+        public ValueTask<bool> RecordValidatorStartedAsync(
+            ExecutionDispatch dispatch,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(true);
+
+        public ValueTask<bool> RecordValidatorCompletedAsync(
+            ExecutionDispatch dispatch,
+            BashSyntaxValidationResult result,
+            CancellationToken cancellationToken) =>
+            ValueTask.FromResult(true);
     }
 
     [Theory]
@@ -955,16 +1168,16 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task A_wedged_shaping_call_cannot_hold_the_gate_forever()
     {
-        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(2));
         // A .ps1 rtk stub runs IN the warm runspace, so its sleep wedges the
         // shaping pipeline exactly like a hung rtk child would.
         var dir = Directory.CreateTempSubdirectory("ptk-wedge-stub-");
         var stub = Path.Combine(dir.FullName, "rtk-sleep.ps1");
         File.WriteAllText(stub, "param($verb, $path) Start-Sleep -Seconds 120");
-        var saved = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        using var host = new RunspaceHost(
+            callTimeout: TimeSpan.FromSeconds(2),
+            rtkPathOverride: stub);
         try
         {
-            Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
             var logShaped = string.Join('\n', Enumerable.Range(1, 8)
                 .Select(i => $"2026-07-08 10:00:0{i % 10} INFO worker: step {i}"));
 
@@ -979,7 +1192,6 @@ public sealed class InvokeToolTests : IDisposable
         }
         finally
         {
-            Environment.SetEnvironmentVariable("PTK_RTK_PATH", saved);
             dir.Delete(recursive: true);
         }
     }

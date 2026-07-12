@@ -13,7 +13,7 @@ internal static class ExecutionPlanner
     internal static ExecutionPlan Create(
         string script,
         string? route,
-        string? effectiveRtkPath,
+        RtkExecutableIdentity? effectiveRtkIdentity,
         TrustedCommandSnapshot commands,
         bool raw,
         bool compressAvailable,
@@ -21,6 +21,12 @@ internal static class ExecutionPlanner
     {
         ArgumentNullException.ThrowIfNull(script);
         ArgumentNullException.ThrowIfNull(commands);
+        if (effectiveRtkIdentity is not null &&
+            (string.IsNullOrWhiteSpace(effectiveRtkIdentity.ExecutablePath) ||
+             !Path.IsPathFullyQualified(effectiveRtkIdentity.ExecutablePath)))
+        {
+            effectiveRtkIdentity = null;
+        }
 
         var requestedRoute = NormalizeRoute(route);
         var noFallbacks = ImmutableArray<ExecutionPath>.Empty;
@@ -34,11 +40,12 @@ internal static class ExecutionPlanner
                 requestedRoute,
                 domain: null,
                 noFallbacks,
-                fallbackReason: null);
+                fallbackReason: null,
+                effectiveRtkIdentity);
         }
 
         var domain = ClassifyDomain(script, commands);
-        if (string.IsNullOrEmpty(effectiveRtkPath))
+        if (effectiveRtkIdentity is null)
         {
             return Direct(
                 script,
@@ -50,7 +57,8 @@ internal static class ExecutionPlanner
                 noFallbacks,
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkExecutableUnavailable
-                    : null);
+                    : null,
+                outputShapingRtkIdentity: null);
         }
 
         var command = GetEligibleCommand(script);
@@ -66,7 +74,8 @@ internal static class ExecutionPlanner
                 noFallbacks,
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkIneligibleShape
-                    : null);
+                    : null,
+                effectiveRtkIdentity);
         }
 
         var name = ((StringConstantExpressionAst)command.CommandElements[0]).Value;
@@ -83,7 +92,8 @@ internal static class ExecutionPlanner
                 noFallbacks,
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkSelfInvocation
-                    : null);
+                    : null,
+                effectiveRtkIdentity);
         }
 
         var resolved = commands.Resolve(name, CommandTypes.All);
@@ -99,7 +109,8 @@ internal static class ExecutionPlanner
                 noFallbacks,
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkResolutionNotApplication
-                    : null);
+                    : null,
+                effectiveRtkIdentity);
         }
         var extension = Path.GetExtension(resolved.Source ?? string.Empty);
         if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
@@ -115,10 +126,11 @@ internal static class ExecutionPlanner
                 noFallbacks,
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkFidelityExclusion
-                    : null);
+                    : null,
+                effectiveRtkIdentity);
         }
 
-        var escapedRtk = effectiveRtkPath.Replace("'", "''");
+        var escapedRtk = effectiveRtkIdentity.ExecutablePath.Replace("'", "''");
         return new ExecutionPlan(
             script,
             $"& '{escapedRtk}' {command.Extent.Text}",
@@ -130,7 +142,7 @@ internal static class ExecutionPlanner
             OutputProvenance.RtkUnknown,
             ImmutableArray.Create(ExecutionPath.PowerShellDirect),
             fallbackReason: null,
-            new RtkExecutableIdentity(effectiveRtkPath));
+            effectiveRtkIdentity);
     }
 
     internal static ExecutionPlan CreateDirect(
@@ -138,7 +150,8 @@ internal static class ExecutionPlanner
         string? route,
         bool raw,
         bool compressAvailable,
-        ResolutionContext resolutionContext) =>
+        ResolutionContext resolutionContext,
+        RtkExecutableIdentity? outputShapingRtkIdentity = null) =>
         Direct(
             script,
             raw,
@@ -147,7 +160,46 @@ internal static class ExecutionPlanner
             NormalizeRoute(route),
             domain: null,
             ImmutableArray<ExecutionPath>.Empty,
-            fallbackReason: null);
+            fallbackReason: null,
+            outputShapingRtkIdentity);
+
+    internal static ExecutionPlan CreateBash(
+        string script,
+        string? route,
+        RtkExecutableIdentity rtkExecutableIdentity,
+        BashExecutableIdentity bashExecutableIdentity,
+        string workingDirectory,
+        ResolutionContext resolutionContext)
+    {
+        ArgumentNullException.ThrowIfNull(script);
+        ArgumentNullException.ThrowIfNull(rtkExecutableIdentity);
+        ArgumentNullException.ThrowIfNull(bashExecutableIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
+
+        var requestedRoute = NormalizeRoute(route);
+        Parser.ParseInput(script, out _, out var parseErrors);
+        if (parseErrors.Length == 0 || requestedRoute == RequestedExecutionRoute.PowerShell)
+        {
+            throw new ArgumentException(
+                "Bash delegation requires independently parse-fatal PowerShell input without route=pwsh consent.",
+                nameof(script));
+        }
+
+        return new ExecutionPlan(
+            script,
+            executionScript: null,
+            ExecutionDomain.Bash,
+            ExecutionPath.BashViaRtk,
+            PreExecutionValidation.BashSyntax,
+            resolutionContext,
+            requestedRoute,
+            OutputProvenance.RtkUnknown,
+            ImmutableArray<ExecutionPath>.Empty,
+            fallbackReason: null,
+            rtkExecutableIdentity,
+            bashExecutableIdentity,
+            workingDirectory);
+    }
 
     private static ExecutionPlan Direct(
         string script,
@@ -157,7 +209,8 @@ internal static class ExecutionPlanner
         RequestedExecutionRoute requestedRoute,
         ExecutionDomain? domain,
         ImmutableArray<ExecutionPath> fallbacks,
-        ExecutionFallbackReason? fallbackReason) =>
+        ExecutionFallbackReason? fallbackReason,
+        RtkExecutableIdentity? outputShapingRtkIdentity) =>
         new(
             script,
             script,
@@ -171,7 +224,10 @@ internal static class ExecutionPlanner
                 : OutputProvenance.PowerShellObjects,
             fallbacks,
             fallbackReason,
-            rtkExecutableIdentity: null);
+            rtkExecutableIdentity: null,
+            outputShapingRtkIdentity: raw || !compressAvailable
+                ? null
+                : outputShapingRtkIdentity);
 
     private static RequestedExecutionRoute NormalizeRoute(string? route) =>
         route?.ToLowerInvariant() switch

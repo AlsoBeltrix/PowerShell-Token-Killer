@@ -30,7 +30,10 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     private bool _validationCompleted;
     private bool _jobStartRequested;
     private bool _effectAuthorized;
+    private bool _validatorStarted;
+    private bool _validatorCompleted;
     private bool _authorizationPersistenceFailed;
+    private bool _userExecutionStarted;
     private bool _terminalWritten;
     private DateTimeOffset _startedUtc;
     private AuditJobTerminalLease? _jobTerminalLease;
@@ -51,6 +54,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     internal bool EffectAuthorized => _effectAuthorized;
 
     internal bool AuthorizationPersistenceFailed => _authorizationPersistenceFailed;
+
+    internal bool UserExecutionStarted => _userExecutionStarted;
 
     internal bool TerminalWritten => _terminalWritten;
 
@@ -261,6 +266,10 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             return ValueTask.FromResult(false);
         }
 
+        if (plan.WorkingDirectory is not null)
+            _request = _request! with { Cwd = plan.WorkingDirectory };
+        var plannedRtk = plan.RtkExecutableIdentity ?? plan.OutputShapingRtkIdentity;
+
         _routing = _routing with
         {
             Domain = plan.Domain?.ToMachineCode(),
@@ -269,8 +278,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             PermittedFallbacks = plan.PermittedFallbacks
                 .Select(path => path.ToMachineCode())
                 .ToArray(),
-            RtkVersion = plan.RtkExecutableIdentity?.Verified?.Version,
-            RtkBinaryDigest = plan.RtkExecutableIdentity?.Verified?.BinaryDigest,
+            RtkVersion = plannedRtk?.Verified?.Version,
+            RtkBinaryDigest = plannedRtk?.AuditBinaryDigest,
             Provenance = plan.OutputProvenance.ToMachineCode(),
             FallbackReason = plan.FallbackReason?.ToMachineCode(),
         };
@@ -311,6 +320,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         // fallback already bounded by the same plan; terminal routing below
         // then inherits this actual dispatch.
 
+        var dispatchedRtk =
+            dispatch.RtkExecutableIdentity ?? dispatch.OutputShapingRtkIdentity;
         _routing = _routing with
         {
             Domain = dispatch.Domain?.ToMachineCode(),
@@ -319,8 +330,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             PermittedFallbacks = dispatch.PermittedFallbacks
                 .Select(path => path.ToMachineCode())
                 .ToArray(),
-            RtkVersion = dispatch.RtkExecutableIdentity?.Verified?.Version,
-            RtkBinaryDigest = dispatch.RtkExecutableIdentity?.Verified?.BinaryDigest,
+            RtkVersion = dispatchedRtk?.Verified?.Version,
+            RtkBinaryDigest = dispatchedRtk?.AuditBinaryDigest,
             Provenance = dispatch.OutputProvenance.ToMachineCode(),
             FallbackReason = dispatch.FallbackReason?.ToMachineCode(),
         };
@@ -332,7 +343,11 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
                 outcomeState: "dispatched",
                 detailCode: dispatch.IsFallback
                     ? dispatch.FallbackReason?.ToMachineCode()
-                    : null);
+                    : dispatch.ExecutionPath == ExecutionPath.BashViaRtk
+                        ? dispatch.BashExecutableIdentity?.AuditIdentityCode
+                        : dispatch.OutputShapingRtkIdentity is not null
+                            ? "rtk_log_authorized"
+                            : null);
             _authorizedDispatch = dispatch;
             _effectAuthorized = true;
             return ValueTask.FromResult(true);
@@ -341,6 +356,119 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         {
             _authorizationPersistenceFailed = true;
             return ValueTask.FromResult(false);
+        }
+    }
+
+    public ValueTask<bool> RecordValidatorStartedAsync(
+        ExecutionDispatch dispatch,
+        CancellationToken _)
+    {
+        ArgumentNullException.ThrowIfNull(dispatch);
+        EnsureActive();
+        EnsureCurrentBashDispatch(dispatch);
+        if (_validatorStarted || _validatorCompleted)
+            throw new InvalidOperationException("The Bash validator lifecycle already started.");
+
+        try
+        {
+            Append(
+                "execution.validator_started",
+                outcomeState: "started",
+                terminationCertainty: "not_applicable",
+                rootCoverage: "unknown");
+            _validatorStarted = true;
+            return ValueTask.FromResult(true);
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+            return ValueTask.FromResult(false);
+        }
+    }
+
+    public ValueTask<bool> RecordValidatorCompletedAsync(
+        ExecutionDispatch dispatch,
+        BashSyntaxValidationResult result,
+        CancellationToken _)
+    {
+        ArgumentNullException.ThrowIfNull(dispatch);
+        ArgumentNullException.ThrowIfNull(result);
+        EnsureActive();
+        EnsureCurrentBashDispatch(dispatch);
+        if (_validatorCompleted || result.Status == BashSyntaxValidationStatus.AuditUnavailable)
+            throw new InvalidOperationException("The Bash validator outcome is not recordable.");
+        if (result.ProcessStarted != _validatorStarted)
+            throw new InvalidOperationException("The Bash validator start fact does not match its outcome.");
+        if (result.ProcessStarted &&
+            result.RootTerminationConfirmed is null)
+        {
+            throw new InvalidOperationException(
+                "A started validator requires explicit root-process termination certainty.");
+        }
+        if (!result.ProcessStarted &&
+            result.RootTerminationConfirmed == true)
+        {
+            throw new InvalidOperationException(
+                "A validator that did not start cannot have confirmed root termination.");
+        }
+        if ((result.Status is BashSyntaxValidationStatus.Valid or
+                BashSyntaxValidationStatus.SyntaxInvalid) &&
+            result.RootTerminationConfirmed != true)
+        {
+            throw new InvalidOperationException(
+                "A completed validator must have confirmed root-process termination.");
+        }
+
+        var completed = result.Status == BashSyntaxValidationStatus.Valid;
+        var terminationCertainty = result.RootTerminationConfirmed switch
+        {
+            true => "confirmed",
+            false => "unconfirmed",
+            null => "not_applicable",
+        };
+        var rootCoverage = result.RootTerminationConfirmed switch
+        {
+            true => "complete",
+            false => "unknown",
+            null => "none",
+        };
+        try
+        {
+            Append(
+                completed ? "execution.validator_completed" : "execution.validator_failed",
+                outcomeState: completed ? "completed" : result.Status switch
+                {
+                    BashSyntaxValidationStatus.TimedOut => "timed_out",
+                    BashSyntaxValidationStatus.Canceled => "canceled",
+                    BashSyntaxValidationStatus.StartOutcomeUnknown => "outcome_unknown",
+                    BashSyntaxValidationStatus.SyntaxInvalid or
+                        BashSyntaxValidationStatus.RuntimeFailed => "failed",
+                    _ => "not_started",
+                },
+                detailCode: result.DetailCode,
+                exitCode: result.ExitCode,
+                terminationCertainty: terminationCertainty,
+                rootCoverage: rootCoverage);
+            _validatorCompleted = true;
+            return ValueTask.FromResult(true);
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+            return ValueTask.FromResult(false);
+        }
+    }
+
+    private void EnsureCurrentBashDispatch(ExecutionDispatch dispatch)
+    {
+        if (!_effectAuthorized ||
+            _authorizedDispatch is null ||
+            !ReferenceEquals(_authorizedDispatch, dispatch) ||
+            dispatch.ExecutionPath != ExecutionPath.BashViaRtk ||
+            dispatch.BashExecutableIdentity is null)
+        {
+            throw new InvalidOperationException(
+                "Validator facts must belong to the currently authorized Bash dispatch.");
         }
     }
 
@@ -514,6 +642,33 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             rootCoverage: "not_applicable");
     }
 
+    internal void RecordOutputShaping(OutputShapingSummary shaping)
+    {
+        ArgumentNullException.ThrowIfNull(shaping);
+        EnsureActive();
+        _routing = _routing with
+        {
+            RtkBinaryDigest = shaping.RtkBinaryDigest,
+            Provenance = shaping.UsedRtk
+                ? OutputProvenance.RtkFiltered.ToMachineCode()
+                : OutputProvenance.DirectText.ToMachineCode(),
+        };
+        TryAppend(
+            shaping.UsedRtk ? "output.shaped" : "output.shaping_failed",
+            shaping.Status switch
+            {
+                OutputShapingStatus.RtkLogUsed => "completed",
+                OutputShapingStatus.RtkLogUnavailable or
+                    OutputShapingStatus.RtkLogIdentityUnavailable => "not_started",
+                OutputShapingStatus.PipelineCanceled => "canceled",
+                OutputShapingStatus.PipelineTimedOut => "timed_out",
+                _ => "failed",
+            },
+            shaping.DetailCode,
+            terminationCertainty: "not_applicable",
+            rootCoverage: "not_applicable");
+    }
+
     /// <summary>
     /// Persists a read/access fact before the caller may release the result.
     /// Unlike post-effect terminal reporting, persistence failure is propagated.
@@ -525,9 +680,18 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         string? detailCode = null,
         long? jobId = null,
         long? nextOffset = null,
-        long? bytesReturnedOverride = null)
+        long? bytesReturnedOverride = null,
+        RtkExecutableIdentity? outputShapingRtkIdentity = null)
     {
         EnsureActive();
+        if (outputShapingRtkIdentity is not null)
+        {
+            _routing = _routing with
+            {
+                RtkVersion = outputShapingRtkIdentity.Verified?.Version,
+                RtkBinaryDigest = outputShapingRtkIdentity.AuditBinaryDigest,
+            };
+        }
         Append(
             eventType,
             state,
@@ -564,6 +728,9 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     {
         ArgumentNullException.ThrowIfNull(result);
         EnsureActive();
+        _userExecutionStarted |= result.UserExecutionStarted;
+        if (result.OutputShaping is { } shaping)
+            RecordOutputShaping(shaping);
 
         if (!_effectAuthorized && !result.UserExecutionStarted && _planId is not null)
         {
@@ -592,7 +759,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             TryAppend(
                 eventType,
                 Machine(result.Disposition),
-                result.Recovering ? "runspace_recovering" : null,
+                result.AuditDetailCode ??
+                    (result.Recovering ? "runspace_recovering" : null),
                 exitCode: result.ExitCode,
                 warmStateLost: result.WarmStateLost,
                 terminationCertainty: result.Disposition == InvokeDisposition.OutcomeUnknown

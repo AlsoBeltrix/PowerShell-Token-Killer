@@ -83,7 +83,47 @@ internal sealed record RtkVerifiedBinaryIdentity
 
 internal sealed record RtkExecutableIdentity(
     string ExecutablePath,
-    RtkVerifiedBinaryIdentity? Verified = null);
+    RtkVerifiedBinaryIdentity? Verified = null,
+    string? CapturedBinaryDigest = null,
+    UnixFileMode? CapturedUnixFileMode = null)
+{
+    internal string? AuditBinaryDigest =>
+        Verified?.BinaryDigest ?? CapturedBinaryDigest;
+
+    internal static RtkExecutableIdentity? TryCapture(
+        string? path,
+        RtkVerifiedBinaryIdentity? verified = null)
+    {
+        var identity = ExecutableFileIdentity.TryCapture(path);
+        return identity is null
+            ? null
+            : new RtkExecutableIdentity(
+                identity.ExecutablePath,
+                verified,
+                identity.BinaryDigest,
+                identity.UnixFileMode);
+    }
+
+    internal bool MatchesCurrentFile()
+    {
+        if (CapturedBinaryDigest is null)
+            return File.Exists(ExecutablePath);
+        var current = ExecutableFileIdentity.TryCapture(ExecutablePath);
+        return current is not null &&
+               string.Equals(
+                   current.ExecutablePath,
+                   ExecutablePath,
+                   OperatingSystem.IsWindows()
+                       ? StringComparison.OrdinalIgnoreCase
+                       : StringComparison.Ordinal) &&
+               string.Equals(
+                   current.BinaryDigest,
+                   CapturedBinaryDigest,
+                   StringComparison.Ordinal) &&
+               (CapturedUnixFileMode is null ||
+                current.UnixFileMode == CapturedUnixFileMode);
+    }
+}
 
 /// <summary>
 /// Immutable foreground preparation handed unchanged to the audit barrier and
@@ -94,7 +134,7 @@ internal sealed record ExecutionPlan
 {
     internal ExecutionPlan(
         string originalScript,
-        string executionScript,
+        string? executionScript,
         ExecutionDomain? domain,
         ExecutionPath executionPath,
         PreExecutionValidation preExecutionValidation,
@@ -103,10 +143,38 @@ internal sealed record ExecutionPlan
         OutputProvenance outputProvenance,
         ImmutableArray<ExecutionPath> permittedFallbacks,
         ExecutionFallbackReason? fallbackReason,
-        RtkExecutableIdentity? rtkExecutableIdentity)
+        RtkExecutableIdentity? rtkExecutableIdentity,
+        BashExecutableIdentity? bashExecutableIdentity = null,
+        string? workingDirectory = null,
+        RtkExecutableIdentity? outputShapingRtkIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(originalScript);
-        ArgumentNullException.ThrowIfNull(executionScript);
+        var isBash = executionPath == ExecutionPath.BashViaRtk;
+        if (isBash)
+        {
+            if (executionScript is not null ||
+                domain != ExecutionDomain.Bash ||
+                preExecutionValidation != PreExecutionValidation.BashSyntax ||
+                requestedRoute == RequestedExecutionRoute.PowerShell ||
+                bashExecutableIdentity is null ||
+                string.IsNullOrWhiteSpace(bashExecutableIdentity.ExecutablePath) ||
+                !Path.IsPathFullyQualified(bashExecutableIdentity.ExecutablePath) ||
+                string.IsNullOrWhiteSpace(workingDirectory) ||
+                !Path.IsPathFullyQualified(workingDirectory))
+            {
+                throw new ArgumentException(
+                    "Bash delegation requires a typed pinned identity, filesystem cwd, and no constructed script.");
+            }
+        }
+        else if (executionScript is null ||
+                 bashExecutableIdentity is not null ||
+                 workingDirectory is not null ||
+                 preExecutionValidation != PreExecutionValidation.None)
+        {
+            throw new ArgumentException(
+                "Only Bash delegation may carry Bash validation facts.",
+                nameof(bashExecutableIdentity));
+        }
         if (permittedFallbacks.IsDefault)
             throw new ArgumentException("Fallbacks must be initialized.", nameof(permittedFallbacks));
         if (permittedFallbacks.Any(path => path is not (
@@ -118,6 +186,8 @@ internal sealed record ExecutionPlan
         }
         if (permittedFallbacks.Distinct().Count() != permittedFallbacks.Length)
             throw new ArgumentException("Fallbacks must be unique.", nameof(permittedFallbacks));
+        if (isBash && permittedFallbacks.Length != 0)
+            throw new ArgumentException("Bash delegation has no PowerShell fallback.", nameof(permittedFallbacks));
         if (executionPath is ExecutionPath.Rtk or ExecutionPath.BashViaRtk &&
             (rtkExecutableIdentity is null ||
              string.IsNullOrWhiteSpace(rtkExecutableIdentity.ExecutablePath) ||
@@ -144,6 +214,16 @@ internal sealed record ExecutionPlan
                 "Only RTK execution may carry RTK identity or provenance.",
                 nameof(rtkExecutableIdentity));
         }
+        if (outputShapingRtkIdentity is not null &&
+            (executionPath != ExecutionPath.PowerShellDirect ||
+             outputProvenance != OutputProvenance.PowerShellObjects ||
+             string.IsNullOrWhiteSpace(outputShapingRtkIdentity.ExecutablePath) ||
+             !Path.IsPathFullyQualified(outputShapingRtkIdentity.ExecutablePath)))
+        {
+            throw new ArgumentException(
+                "An output-shaping RTK identity requires a shaped direct PowerShell plan.",
+                nameof(outputShapingRtkIdentity));
+        }
         if (fallbackReason is not null &&
             (requestedRoute != RequestedExecutionRoute.Rtk ||
              executionPath != ExecutionPath.PowerShellDirect))
@@ -164,10 +244,13 @@ internal sealed record ExecutionPlan
         PermittedFallbacks = permittedFallbacks;
         FallbackReason = fallbackReason;
         RtkExecutableIdentity = rtkExecutableIdentity;
+        BashExecutableIdentity = bashExecutableIdentity;
+        WorkingDirectory = workingDirectory;
+        OutputShapingRtkIdentity = outputShapingRtkIdentity;
     }
 
     internal string OriginalScript { get; }
-    internal string ExecutionScript { get; }
+    internal string? ExecutionScript { get; }
     internal ExecutionDomain? Domain { get; }
     internal ExecutionPath ExecutionPath { get; }
     internal PreExecutionValidation PreExecutionValidation { get; }
@@ -177,6 +260,9 @@ internal sealed record ExecutionPlan
     internal ImmutableArray<ExecutionPath> PermittedFallbacks { get; }
     internal ExecutionFallbackReason? FallbackReason { get; }
     internal RtkExecutableIdentity? RtkExecutableIdentity { get; }
+    internal BashExecutableIdentity? BashExecutableIdentity { get; }
+    internal string? WorkingDirectory { get; }
+    internal RtkExecutableIdentity? OutputShapingRtkIdentity { get; }
 
     internal string EffectiveRoute => ExecutionPath.ToMachineCode();
 }
@@ -191,14 +277,13 @@ internal sealed record ExecutionDispatch
 {
     private ExecutionDispatch(
         ExecutionPlan plan,
-        string executionScript,
+        string? executionScript,
         ExecutionPath executionPath,
         OutputProvenance outputProvenance,
         ExecutionFallbackReason? fallbackReason,
         RtkExecutableIdentity? rtkExecutableIdentity)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        ArgumentNullException.ThrowIfNull(executionScript);
 
         var followsPlan = executionPath == plan.ExecutionPath;
         if (!followsPlan && !plan.PermittedFallbacks.Contains(executionPath))
@@ -238,11 +323,17 @@ internal sealed record ExecutionDispatch
     }
 
     internal ExecutionPlan Plan { get; }
-    internal string ExecutionScript { get; }
+    internal string? ExecutionScript { get; }
     internal ExecutionPath ExecutionPath { get; }
     internal OutputProvenance OutputProvenance { get; }
     internal ExecutionFallbackReason? FallbackReason { get; }
     internal RtkExecutableIdentity? RtkExecutableIdentity { get; }
+    internal BashExecutableIdentity? BashExecutableIdentity => Plan.BashExecutableIdentity;
+    internal string? WorkingDirectory => Plan.WorkingDirectory;
+    internal RtkExecutableIdentity? OutputShapingRtkIdentity =>
+        ExecutionPath == ExecutionPath.PowerShellDirect
+            ? Plan.OutputShapingRtkIdentity
+            : null;
     internal ExecutionDomain? Domain => Plan.Domain;
     internal PreExecutionValidation PreExecutionValidation => Plan.PreExecutionValidation;
     internal ResolutionContext ResolutionContext => Plan.ResolutionContext;

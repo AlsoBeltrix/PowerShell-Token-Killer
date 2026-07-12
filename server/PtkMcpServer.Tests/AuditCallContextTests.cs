@@ -284,6 +284,230 @@ public sealed class AuditCallContextTests : IDisposable
     }
 
     [Fact]
+    public async Task Bash_validator_lifecycle_follows_dispatch_and_preserves_plan_routing()
+    {
+        const string script = "cat <<EOF\nhello\nEOF";
+        var workingDirectory = Path.GetFullPath(Path.GetTempPath());
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", script)),
+            exactScript: script);
+        Assert.True(fixture.Context.BeginValidation());
+        var plan = CreateBashPlan(script, workingDirectory);
+        var dispatch = ExecutionDispatch.FromPlan(plan);
+
+        Assert.True(await fixture.Context.AuthorizePlanAsync(plan, CancellationToken.None));
+        Assert.True(await fixture.Context.AuthorizeDispatchAsync(dispatch, CancellationToken.None));
+        Assert.True(await fixture.Context.RecordValidatorStartedAsync(
+            dispatch,
+            CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await fixture.Context.RecordValidatorStartedAsync(
+                dispatch,
+                CancellationToken.None));
+        var validation = new BashSyntaxValidationResult(
+            BashSyntaxValidationStatus.Valid,
+            ProcessStarted: true,
+            ExitCode: 0,
+            RootTerminationConfirmed: true);
+        Assert.True(await fixture.Context.RecordValidatorCompletedAsync(
+            dispatch,
+            validation,
+            CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await fixture.Context.RecordValidatorCompletedAsync(
+                dispatch,
+                validation,
+                CancellationToken.None));
+        fixture.Context.RecordInvokeResult(
+            new InvokeResult(
+                Success: true,
+                Output: "hello",
+                Errors: [],
+                Warnings: [],
+                TimedOut: false,
+                Disposition: InvokeDisposition.Completed,
+                UserExecutionStarted: true),
+            "hello");
+
+        var events = fixture.Events();
+        Assert.Equal(
+            [
+                "call.accepted",
+                "execution.validation_started",
+                "execution.prepare_authorized",
+                "execution.validation_completed",
+                "execution.planned",
+                "execution.dispatched",
+                "execution.validator_started",
+                "execution.validator_completed",
+                "execution.completed",
+                "call.completed",
+            ],
+            events.Select(EventType));
+        var planId = events
+            .Single(value => EventType(value) == "execution.planned")
+            .GetProperty("correlation")
+            .GetProperty("plan_id")
+            .GetGuid();
+        foreach (var value in events.Where(value => EventType(value) is
+                     "execution.planned" or
+                     "execution.dispatched" or
+                     "execution.validator_started" or
+                     "execution.validator_completed" or
+                     "execution.completed" or
+                     "call.completed"))
+        {
+            Assert.Equal(
+                planId,
+                value.GetProperty("correlation").GetProperty("plan_id").GetGuid());
+            var routing = value.GetProperty("routing");
+            Assert.Equal("bash", routing.GetProperty("domain").GetString());
+            Assert.Equal("bash_via_rtk", routing.GetProperty("effective_route").GetString());
+            Assert.Equal("rtk_unknown", routing.GetProperty("provenance").GetString());
+            Assert.Empty(routing.GetProperty("permitted_fallbacks").EnumerateArray());
+            Assert.Equal(
+                workingDirectory,
+                value.GetProperty("request").GetProperty("cwd").GetString());
+        }
+        var dispatched = events.Single(value => EventType(value) == "execution.dispatched");
+        Assert.Equal(
+            plan.BashExecutableIdentity!.AuditIdentityCode,
+            dispatched.GetProperty("outcome").GetProperty("detail_code").GetString());
+        var started = events.Single(value => EventType(value) == "execution.validator_started");
+        Assert.Equal(
+            JsonValueKind.Null,
+            started.GetProperty("outcome").GetProperty("detail_code").ValueKind);
+        var completed = events.Single(value => EventType(value) == "execution.validator_completed");
+        Assert.Equal(
+            "bash_syntax_valid",
+            completed.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal(
+            "confirmed",
+            completed.GetProperty("outcome").GetProperty("termination_certainty").GetString());
+    }
+
+    [Fact]
+    public async Task Bash_syntax_rejection_is_a_validator_failure_and_user_execution_not_started()
+    {
+        const string script = "if true; then\necho missing-fi";
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", script)),
+            exactScript: script);
+        Assert.True(fixture.Context.BeginValidation());
+        var plan = CreateBashPlan(script, Path.GetFullPath(Path.GetTempPath()));
+        var dispatch = ExecutionDispatch.FromPlan(plan);
+        Assert.True(await fixture.Context.AuthorizePlanAsync(plan, CancellationToken.None));
+        Assert.True(await fixture.Context.AuthorizeDispatchAsync(dispatch, CancellationToken.None));
+        Assert.True(await fixture.Context.RecordValidatorStartedAsync(
+            dispatch,
+            CancellationToken.None));
+        Assert.True(await fixture.Context.RecordValidatorCompletedAsync(
+            dispatch,
+            new BashSyntaxValidationResult(
+                BashSyntaxValidationStatus.SyntaxInvalid,
+                ProcessStarted: true,
+                ExitCode: 2,
+                RootTerminationConfirmed: true),
+            CancellationToken.None));
+        fixture.Context.RecordInvokeResult(
+            new InvokeResult(
+                Success: false,
+                Output: "not executed",
+                Errors: [],
+                Warnings: [],
+                TimedOut: false,
+                Disposition: InvokeDisposition.NotStarted,
+                UserExecutionStarted: false)
+            {
+                AuditDetailCode = "bash_syntax_invalid",
+            },
+            "not executed");
+
+        var events = fixture.Events();
+        Assert.Contains("execution.validator_failed", events.Select(EventType));
+        Assert.Contains("execution.not_started", events.Select(EventType));
+        Assert.DoesNotContain("execution.failed", events.Select(EventType));
+        var failed = events.Single(value => EventType(value) == "execution.validator_failed");
+        Assert.Equal(
+            "bash_syntax_invalid",
+            failed.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal(2, failed.GetProperty("outcome").GetProperty("exit_code").GetInt64());
+        Assert.Equal("failed", failed.GetProperty("outcome").GetProperty("state").GetString());
+        var terminal = events.Single(value => EventType(value) == "execution.not_started");
+        Assert.Equal(
+            "bash_syntax_invalid",
+            terminal.GetProperty("outcome").GetProperty("detail_code").GetString());
+    }
+
+    [Fact]
+    public async Task Bash_validator_unconfirmed_stop_is_never_a_confirmed_audit_fact()
+    {
+        const string script = "cat <<EOF\nhello\nEOF";
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", script)),
+            exactScript: script);
+        Assert.True(fixture.Context.BeginValidation());
+        var plan = CreateBashPlan(script, Path.GetFullPath(Path.GetTempPath()));
+        var dispatch = ExecutionDispatch.FromPlan(plan);
+        Assert.True(await fixture.Context.AuthorizePlanAsync(plan, CancellationToken.None));
+        Assert.True(await fixture.Context.AuthorizeDispatchAsync(dispatch, CancellationToken.None));
+        Assert.True(await fixture.Context.RecordValidatorStartedAsync(
+            dispatch,
+            CancellationToken.None));
+        Assert.True(await fixture.Context.RecordValidatorCompletedAsync(
+            dispatch,
+            new BashSyntaxValidationResult(
+                BashSyntaxValidationStatus.TimedOut,
+                ProcessStarted: true,
+                RootTerminationConfirmed: false),
+            CancellationToken.None));
+
+        var failed = fixture.Events().Single(value =>
+            EventType(value) == "execution.validator_failed");
+        var outcome = failed.GetProperty("outcome");
+        Assert.Equal("timed_out", outcome.GetProperty("state").GetString());
+        Assert.Equal("unconfirmed", outcome.GetProperty("termination_certainty").GetString());
+        Assert.Equal(
+            "unknown",
+            failed.GetProperty("coverage").GetProperty("root_process_observed").GetString());
+    }
+
+    [Fact]
+    public async Task Bash_dispatch_records_expected_identity_even_when_validator_never_starts()
+    {
+        const string script = "cat <<EOF\nhello\nEOF";
+        using var fixture = CreateFixture(
+            Call("ptk_invoke", ("script", script)),
+            exactScript: script);
+        Assert.True(fixture.Context.BeginValidation());
+        var plan = CreateBashPlan(script, Path.GetFullPath(Path.GetTempPath()));
+        var dispatch = ExecutionDispatch.FromPlan(plan);
+        Assert.True(await fixture.Context.AuthorizePlanAsync(plan, CancellationToken.None));
+        Assert.True(await fixture.Context.AuthorizeDispatchAsync(dispatch, CancellationToken.None));
+        Assert.True(await fixture.Context.RecordValidatorCompletedAsync(
+            dispatch,
+            new BashSyntaxValidationResult(
+                BashSyntaxValidationStatus.StartFailed,
+                ProcessStarted: false),
+            CancellationToken.None));
+
+        var events = fixture.Events();
+        Assert.DoesNotContain(events, value =>
+            EventType(value) == "execution.validator_started");
+        var dispatched = events.Single(value => EventType(value) == "execution.dispatched");
+        Assert.Equal(
+            plan.BashExecutableIdentity!.AuditIdentityCode,
+            dispatched.GetProperty("outcome").GetProperty("detail_code").GetString());
+        var failed = events.Single(value => EventType(value) == "execution.validator_failed");
+        var outcome = failed.GetProperty("outcome");
+        Assert.Equal("not_started", outcome.GetProperty("state").GetString());
+        Assert.Equal("not_applicable", outcome.GetProperty("termination_certainty").GetString());
+        Assert.Equal(
+            "none",
+            failed.GetProperty("coverage").GetProperty("root_process_observed").GetString());
+    }
+
+    [Fact]
     public async Task Planned_but_undispatched_execution_records_a_no_start_terminal()
     {
         const string script = "git status";
@@ -551,6 +775,27 @@ public sealed class AuditCallContextTests : IDisposable
         return await context.AuthorizeDispatchAsync(
             ExecutionDispatch.FromPlan(plan),
             cancellationToken);
+    }
+
+    private static ExecutionPlan CreateBashPlan(string script, string workingDirectory)
+    {
+        var bash = BashExecutableIdentity.TryCapture(typeof(AuditCallContextTests).Assembly.Location);
+        Assert.NotNull(bash);
+        return new ExecutionPlan(
+            script,
+            executionScript: null,
+            ExecutionDomain.Bash,
+            ExecutionPath.BashViaRtk,
+            PreExecutionValidation.BashSyntax,
+            ResolutionContext.Warm,
+            RequestedExecutionRoute.Auto,
+            OutputProvenance.RtkUnknown,
+            ImmutableArray<ExecutionPath>.Empty,
+            fallbackReason: null,
+            new RtkExecutableIdentity(
+                Path.GetFullPath(Path.Combine(Path.GetTempPath(), "audit-rtk"))),
+            bash,
+            workingDirectory);
     }
 
     private static void AssertRouting(

@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
@@ -107,6 +108,181 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         AssertNoStartRefusal(result);
     }
 
+    [Theory]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 7)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 7)]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 8)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 8)]
+    public async Task Bash_validator_audit_failure_never_starts_submitted_script(
+        int pointValue,
+        int failingAppend)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash")) return;
+
+        var point = (AuditSinkFaultPoint)pointValue;
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-bash-audit-fault-").FullName;
+        _roots.Add(dependencyRoot);
+        var rtkMarker = Path.Combine(dependencyRoot, "bash-rtk-started");
+        var userMarker = Path.Combine(dependencyRoot, "bash-user-started");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-proxy-stub");
+        File.WriteAllText(
+            rtkStub,
+            "#!/bin/sh\n" +
+            $"printf started > '{rtkMarker.Replace("'", "'\\''")}'\n" +
+            "[ \"$1\" = proxy ] || exit 91\n" +
+            "shift\n" +
+            "[ \"$1\" = -- ] && shift\n" +
+            "exec \"$@\"\n");
+        File.SetUnixFileMode(
+            rtkStub,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        using var fixture = CreateFixture(
+            journalFault: (current, call) => current == point && call == failingAppend,
+            bashPathOverride: "/bin/bash",
+            rtkPathOverride: rtkStub);
+        var script =
+            "cat <<'EOF' >/dev/null\nvalidator-only\nEOF\n" +
+            $"printf ran > '{userMarker.Replace("'", "'\\''")}'";
+
+        var result = await fixture.Filter(
+            Call("ptk_invoke", ("script", script)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                auditContext: fixture.AuditContext)));
+
+        Assert.False(File.Exists(rtkMarker));
+        Assert.False(File.Exists(userMarker));
+        Assert.True(result.IsError);
+        AssertNoStartRefusal(result);
+        Assert.DoesNotContain("execution.completed", fixture.EventTypes());
+    }
+
+    [Fact]
+    public async Task Bash_success_executes_once_and_writes_the_exact_audit_lifecycle()
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash")) return;
+
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-bash-audit-success-").FullName;
+        _roots.Add(dependencyRoot);
+        var rtkCount = Path.Combine(dependencyRoot, "rtk-count");
+        var userCount = Path.Combine(dependencyRoot, "user-count");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-proxy-stub");
+        File.WriteAllText(
+            rtkStub,
+            "#!/bin/sh\n" +
+            $"printf 1 >> '{rtkCount.Replace("'", "'\\''")}'\n" +
+            "[ \"$1\" = proxy ] || exit 91\n" +
+            "shift\n" +
+            "[ \"$1\" = -- ] || exit 92\n" +
+            "shift\n" +
+            "exec \"$@\"\n");
+        File.SetUnixFileMode(
+            rtkStub,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        using var fixture = CreateFixture(
+            bashPathOverride: "/bin/bash",
+            rtkPathOverride: rtkStub);
+        var script =
+            "cat <<'EOF' >/dev/null\nvalidator-only\nEOF\n" +
+            $"printf 1 >> '{userCount.Replace("'", "'\\''")}'";
+
+        var result = await fixture.Filter(
+            Call("ptk_invoke", ("script", script)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                auditContext: fixture.AuditContext)));
+
+        Assert.False(result.IsError ?? false);
+        Assert.Equal("1", File.ReadAllText(rtkCount));
+        Assert.Equal("1", File.ReadAllText(userCount));
+        Assert.Equal(
+            [
+                "call.accepted",
+                "execution.validation_started",
+                "execution.prepare_authorized",
+                "execution.validation_completed",
+                "execution.planned",
+                "execution.dispatched",
+                "execution.validator_started",
+                "execution.validator_completed",
+                "execution.completed",
+                "call.completed",
+            ],
+            fixture.EventTypes());
+        var dispatched = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "execution.dispatched");
+        var expectedBash = BashExecutableIdentity.TryCapture("/bin/bash");
+        Assert.NotNull(expectedBash);
+        Assert.Equal(
+            expectedBash.AuditIdentityCode,
+            dispatched.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal(
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(rtkStub))).ToLowerInvariant(),
+            dispatched.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
+    }
+
+    [Theory]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 9)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 9)]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 10)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 10)]
+    public async Task Bash_terminal_audit_failure_after_execution_never_claims_no_start(
+        int pointValue,
+        int failingAppend)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists("/bin/bash")) return;
+
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-bash-audit-terminal-").FullName;
+        _roots.Add(dependencyRoot);
+        var rtkCount = Path.Combine(dependencyRoot, "rtk-count");
+        var userCount = Path.Combine(dependencyRoot, "user-count");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-proxy-stub");
+        File.WriteAllText(
+            rtkStub,
+            "#!/bin/sh\n" +
+            $"printf 1 >> '{rtkCount.Replace("'", "'\\''")}'\n" +
+            "shift 2\n" +
+            "exec \"$@\"\n");
+        File.SetUnixFileMode(
+            rtkStub,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var point = (AuditSinkFaultPoint)pointValue;
+        using var fixture = CreateFixture(
+            journalFault: (current, call) => current == point && call == failingAppend,
+            bashPathOverride: "/bin/bash",
+            rtkPathOverride: rtkStub);
+        var script =
+            "cat <<'EOF' >/dev/null\nvalidator-only\nEOF\n" +
+            $"printf 1 >> '{userCount.Replace("'", "'\\''")}'";
+
+        var result = await fixture.Filter(
+            Call("ptk_invoke", ("script", script)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                auditContext: fixture.AuditContext)));
+
+        Assert.False(result.IsError ?? false);
+        Assert.Equal("1", File.ReadAllText(rtkCount));
+        Assert.Equal("1", File.ReadAllText(userCount));
+        Assert.DoesNotContain(
+            "original operation was not started",
+            ResultText(result),
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("execution.validator_completed", fixture.EventTypes());
+    }
+
     [Fact]
     public async Task Foreground_success_writes_the_exact_audit_lifecycle()
     {
@@ -138,6 +314,114 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 "call.completed",
             ],
             fixture.EventTypes());
+    }
+
+    [Fact]
+    public async Task Foreground_rtk_log_shaping_is_an_explicit_audit_lifecycle_fact()
+    {
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-shaping-audit-").FullName;
+        _roots.Add(dependencyRoot);
+        var invocationMarker = Path.Combine(dependencyRoot, "rtk-log-invoked");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-log.ps1");
+        File.WriteAllText(
+            rtkStub,
+            "param($verb, $path)\n" +
+            $"[IO.File]::AppendAllText('{invocationMarker.Replace("'", "''")}', '1')\n" +
+            "'AUDITED_RTK_LOG'\n");
+        using var fixture = CreateFixture(rtkPathOverride: rtkStub);
+        const string script =
+            "1..8 | ForEach-Object { \"2026-07-12 10:00:0$_ INFO worker: step $_\" }";
+
+        var result = await fixture.Filter(
+            Call("ptk_invoke", ("script", script)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                auditContext: fixture.AuditContext)));
+
+        Assert.False(result.IsError ?? false);
+        Assert.Contains("AUDITED_RTK_LOG", ResultText(result), StringComparison.Ordinal);
+        Assert.True(
+            File.Exists(invocationMarker),
+            $"RTK marker missing; durable events: {string.Join(", ", fixture.EventTypes())}");
+        Assert.Equal("1", File.ReadAllText(invocationMarker));
+        Assert.Equal(
+            [
+                "call.accepted",
+                "execution.validation_started",
+                "execution.prepare_authorized",
+                "execution.validation_completed",
+                "execution.planned",
+                "execution.dispatched",
+                "output.shaped",
+                "execution.completed",
+                "call.completed",
+            ],
+            fixture.EventTypes());
+        var shaped = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.shaped");
+        var dispatched = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "execution.dispatched");
+        var expectedDigest =
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(rtkStub))).ToLowerInvariant();
+        Assert.Equal(
+            expectedDigest,
+            dispatched.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
+        Assert.Equal(
+            "rtk_log_authorized",
+            dispatched.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal("rtk_log_used", shaped.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal("rtk_filtered", shaped.GetProperty("routing").GetProperty("provenance").GetString());
+        Assert.Equal(
+            expectedDigest,
+            shaped.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
+    }
+
+    [Fact]
+    public async Task Same_call_rtk_log_replacement_is_refused_and_audited_without_execution()
+    {
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-shaping-replacement-").FullName;
+        _roots.Add(dependencyRoot);
+        var replacementMarker = Path.Combine(dependencyRoot, "replacement-invoked");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-log.ps1");
+        File.WriteAllText(rtkStub, "param($verb, $path) 'ORIGINAL_RTK_LOG'\n");
+        var expectedDigest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(rtkStub)))
+            .ToLowerInvariant();
+        using var fixture = CreateFixture(rtkPathOverride: rtkStub);
+        var replacement =
+            "param($verb, $path) " +
+            $"[IO.File]::AppendAllText('{replacementMarker.Replace("'", "''")}', '1'); " +
+            "'REPLACEMENT_RTK_LOG'";
+        var script =
+            $"Set-Content -LiteralPath '{rtkStub.Replace("'", "''")}' -Value '{replacement.Replace("'", "''")}' -NoNewline; " +
+            "1..8 | ForEach-Object { \"2026-07-12 10:00:0$_ INFO worker: step $_\" }";
+
+        var result = await fixture.Filter(
+            Call("ptk_invoke", ("script", script)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                script,
+                token,
+                auditContext: fixture.AuditContext)));
+
+        Assert.False(result.IsError ?? false);
+        Assert.Contains("[ptk:log rtk not found", ResultText(result), StringComparison.Ordinal);
+        Assert.DoesNotContain("REPLACEMENT_RTK_LOG", ResultText(result), StringComparison.Ordinal);
+        Assert.False(File.Exists(replacementMarker));
+        var failed = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.shaping_failed");
+        Assert.Equal(
+            "rtk_log_identity_unavailable",
+            failed.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal("direct_text", failed.GetProperty("routing").GetProperty("provenance").GetString());
+        Assert.Equal(
+            expectedDigest,
+            failed.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
     }
 
     [Fact]
@@ -613,6 +897,142 @@ public sealed class AuditPreEffectGuardTests : IDisposable
     }
 
     [Fact]
+    public async Task Job_output_rtk_log_shaping_is_audited_after_raw_access()
+    {
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-job-shaping-audit-").FullName;
+        _roots.Add(dependencyRoot);
+        var invocationMarker = Path.Combine(dependencyRoot, "rtk-log-invoked");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-log.ps1");
+        File.WriteAllText(
+            rtkStub,
+            "param($verb, $path)\n" +
+            $"[IO.File]::AppendAllText('{invocationMarker.Replace("'", "''")}', '1')\n" +
+            "'AUDITED_JOB_RTK_LOG'\n");
+        using var fixture = CreateFixture(rtkPathOverride: rtkStub);
+        var job = fixture.Jobs.Start(
+            "1..8 | ForEach-Object { \"2026-07-12 10:00:0$_ INFO worker: step $_\" }");
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+
+        var result = await fixture.Filter(
+            Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "output",
+                token,
+                job.Id,
+                0,
+                fixture.AuditContext)));
+
+        Assert.Contains("AUDITED_JOB_RTK_LOG", ResultText(result), StringComparison.Ordinal);
+        Assert.Equal("1", File.ReadAllText(invocationMarker));
+        var eventTypes = fixture.EventTypes();
+        Assert.True(
+            eventTypes.IndexOf("job.output_accessed") < eventTypes.IndexOf("output.shaped"));
+        var shaped = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.shaped");
+        var access = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "job.output_accessed");
+        var expectedDigest =
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(rtkStub))).ToLowerInvariant();
+        Assert.Equal(
+            expectedDigest,
+            access.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
+        Assert.Equal(
+            "rtk_log_authorized",
+            access.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal("rtk_log_used", shaped.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal("rtk_filtered", shaped.GetProperty("routing").GetProperty("provenance").GetString());
+    }
+
+    [Fact]
+    public async Task Job_output_shaping_pipeline_failure_is_a_typed_audit_fact()
+    {
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-job-shaping-failure-").FullName;
+        _roots.Add(dependencyRoot);
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-log.ps1");
+        File.WriteAllText(rtkStub, "param($verb, $path) 'SHOULD_NOT_RUN'\n");
+        using var fixture = CreateFixture(rtkPathOverride: rtkStub);
+        fixture.Host.OutputShapingFailureForTests = () =>
+            throw new InvalidOperationException("forced shaping pipeline failure");
+        var job = fixture.Jobs.Start(
+            "1..8 | ForEach-Object { \"2026-07-12 10:00:0$_ INFO worker: step $_\" }");
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+
+        var result = await fixture.Filter(
+            Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "output",
+                token,
+                job.Id,
+                0,
+                fixture.AuditContext)));
+
+        Assert.Contains("step 8", ResultText(result), StringComparison.Ordinal);
+        Assert.Contains(
+            "[ptk: shaping failed; raw text returned]",
+            ResultText(result),
+            StringComparison.Ordinal);
+        var failed = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.shaping_failed");
+        Assert.Equal(
+            "output_shaping_pipeline_failed",
+            failed.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal("failed", failed.GetProperty("outcome").GetProperty("state").GetString());
+        Assert.Equal(
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(rtkStub))).ToLowerInvariant(),
+            failed.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
+    }
+
+    [Fact]
+    public async Task Job_output_access_pre_authorizes_rtk_before_a_post_effect_audit_fault()
+    {
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-job-shaping-fault-").FullName;
+        _roots.Add(dependencyRoot);
+        var invocationMarker = Path.Combine(dependencyRoot, "rtk-log-invoked");
+        var rtkStub = Path.Combine(dependencyRoot, "rtk-log.ps1");
+        File.WriteAllText(
+            rtkStub,
+            "param($verb, $path)\n" +
+            $"[IO.File]::AppendAllText('{invocationMarker.Replace("'", "''")}', '1')\n" +
+            "'AUDITED_JOB_RTK_LOG'\n");
+        using var fixture = CreateFixture(
+            rtkPathOverride: rtkStub,
+            journalFault: (point, append) =>
+                point == AuditSinkFaultPoint.BeforeAppend && append == 4);
+        var job = fixture.Jobs.Start(
+            "1..8 | ForEach-Object { \"2026-07-12 10:00:0$_ INFO worker: step $_\" }");
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+
+        _ = await fixture.Filter(
+            Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "output",
+                token,
+                job.Id,
+                0,
+                fixture.AuditContext)));
+
+        Assert.True(
+            File.Exists(invocationMarker),
+            $"RTK marker missing; durable events: {string.Join(", ", fixture.EventTypes())}");
+        Assert.Equal("1", File.ReadAllText(invocationMarker));
+        Assert.DoesNotContain("output.shaped", fixture.EventTypes());
+        var access = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "job.output_accessed");
+        Assert.Equal(
+            Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(rtkStub))).ToLowerInvariant(),
+            access.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
+        Assert.Equal(
+            "rtk_log_authorized",
+            access.GetProperty("outcome").GetProperty("detail_code").GetString());
+    }
+
+    [Fact]
     public async Task Job_output_access_persistence_failure_releases_no_tool_result()
     {
         using var fixture = CreateFixture(
@@ -862,7 +1282,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
     private GuardFixture CreateFixture(
         Func<AuditSinkFaultPoint, int, bool>? journalFault = null,
-        Action<SecureAuditStorageFaultStage>? evidenceFault = null)
+        Action<SecureAuditStorageFaultStage>? evidenceFault = null,
+        string? bashPathOverride = null,
+        string? rtkPathOverride = null)
     {
         const int maxRecordBytes = 4096;
         var root = Path.Combine(
@@ -911,7 +1333,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             sink,
             journal,
             provider,
-            new RunspaceHost(TimeSpan.FromSeconds(10), maxCallTimeout: TimeSpan.FromSeconds(30)),
+            new RunspaceHost(
+                TimeSpan.FromSeconds(10),
+                maxCallTimeout: TimeSpan.FromSeconds(30),
+                bashPathOverride: bashPathOverride,
+                rtkPathOverride: rtkPathOverride),
             new JobManager(Path.Combine(root, "jobs")),
             new RawUsageCounter(),
             auditContext);

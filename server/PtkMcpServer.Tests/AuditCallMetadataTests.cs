@@ -42,7 +42,7 @@ public sealed class AuditCallMetadataTests
         Assert.DoesNotContain("Get-Process", metadata.ToString(), StringComparison.Ordinal);
         Assert.True(metadata.OperationProfile.RequiresScriptEvidence);
         Assert.True(metadata.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(9, metadata.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(11, metadata.OperationProfile.MaximumCallRecordSlots);
         Assert.Equal(0, metadata.OperationProfile.PersistentJobTerminalSlots);
     }
 
@@ -76,10 +76,10 @@ public sealed class AuditCallMetadataTests
         Assert.True(Capture(call, new(), out var metadata, out _, out _));
 
         var profile = metadata!.OperationProfile;
-        Assert.Equal(9, profile.MaximumCallRecordSlots);
+        Assert.Equal(11, profile.MaximumCallRecordSlots);
         Assert.Equal(1, profile.PersistentJobTerminalSlots);
-        Assert.Equal(10, profile.MaximumRecordSlots);
-        Assert.Equal(10L * 65_536, profile.MaximumReservationBytes(65_536));
+        Assert.Equal(12, profile.MaximumRecordSlots);
+        Assert.Equal(12L * 65_536, profile.MaximumReservationBytes(65_536));
     }
 
     [Fact]
@@ -96,7 +96,7 @@ public sealed class AuditCallMetadataTests
         Assert.Equal(0, metadata.Request.Offset);
         Assert.Equal(["action", "id"], metadata.Request.ProvidedFields);
         Assert.True(metadata.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(5, metadata.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(6, metadata.OperationProfile.MaximumCallRecordSlots);
 
         Assert.True(Capture(Call("ptk_job", ("action", "list")), new(), out metadata, out _, out _));
         Assert.Null(metadata!.Request.JobId);

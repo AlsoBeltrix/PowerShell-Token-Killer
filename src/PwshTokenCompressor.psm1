@@ -505,11 +505,92 @@ function Get-PtcRtkCommand {
     return $null
 }
 
+function Get-PtcPinnedRtkCommand {
+    param(
+        [AllowNull()][string]$Path,
+        [AllowNull()][string]$BinaryDigest,
+        [AllowNull()][Nullable[System.IO.UnixFileMode]]$UnixFileMode
+    )
+
+    if (-not $Path -or $BinaryDigest -notmatch '^[0-9a-f]{64}$') { return $null }
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+        $file = [System.IO.FileInfo]::new($fullPath)
+        $maximumBytes = 128L * 1024 * 1024
+        if (-not $file.Exists -or $file.LinkTarget -or
+            $file.Length -le 0 -or $file.Length -gt $maximumBytes) {
+            return $null
+        }
+        $expectedLength = $file.Length
+        if ($null -ne $UnixFileMode -and -not $IsWindows -and
+            [int][System.IO.File]::GetUnixFileMode($fullPath) -ne [int]$UnixFileMode) {
+            return $null
+        }
+        $stream = [System.IO.FileStream]::new(
+            $fullPath,
+            [System.IO.FileMode]::Open,
+            [System.IO.FileAccess]::Read,
+            [System.IO.FileShare]::Read,
+            65536,
+            [System.IO.FileOptions]::SequentialScan)
+        try {
+            $hash = [System.Security.Cryptography.IncrementalHash]::CreateHash(
+                [System.Security.Cryptography.HashAlgorithmName]::SHA256)
+            try {
+                $buffer = [byte[]]::new(65536)
+                $total = 0L
+                while ($total -lt $expectedLength) {
+                    $remaining = $expectedLength - $total
+                    $requested = [int][Math]::Min($buffer.Length, $remaining)
+                    $read = $stream.Read($buffer, 0, $requested)
+                    if ($read -le 0) { return $null }
+                    $hash.AppendData($buffer, 0, $read)
+                    $total += $read
+                }
+                if ($stream.ReadByte() -ne -1) { return $null }
+                $actual = [System.Convert]::ToHexString(
+                    $hash.GetHashAndReset()).ToLowerInvariant()
+            }
+            finally { $hash.Dispose() }
+        }
+        finally { $stream.Dispose() }
+        $file.Refresh()
+        if (-not $file.Exists -or $file.LinkTarget -or
+            $file.Length -ne $expectedLength) {
+            return $null
+        }
+        if ($null -ne $UnixFileMode -and -not $IsWindows -and
+            [int][System.IO.File]::GetUnixFileMode($fullPath) -ne [int]$UnixFileMode) {
+            return $null
+        }
+        if ($actual -cne $BinaryDigest) { return $null }
+        return $fullPath
+    }
+    catch { return $null }
+}
+
 function Invoke-PtcRtkLog {
-    param([string]$Text)
-    $rtk = Get-PtcRtkCommand
+    param(
+        [string]$Text,
+        [AllowNull()][string]$PinnedRtkPath,
+        [AllowNull()][string]$PinnedRtkDigest,
+        [AllowNull()][Nullable[System.IO.UnixFileMode]]$PinnedRtkUnixMode
+    )
+    $pinned = $PSBoundParameters.ContainsKey('PinnedRtkPath')
+    $rtk = if ($pinned) {
+        Get-PtcPinnedRtkCommand -Path $PinnedRtkPath -BinaryDigest $PinnedRtkDigest `
+            -UnixFileMode $PinnedRtkUnixMode
+    }
+    else {
+        Get-PtcRtkCommand
+    }
     if (-not $rtk) {
-        return "[ptk:log rtk not found - returning raw text.]`n$Text"
+        return [pscustomobject]@{
+            PSTypeName = 'Ptk.RtkLogResult'
+            Text = "[ptk:log rtk not found - returning raw text.]`n$Text"
+            Code = if ($pinned) { 'rtk_log_identity_unavailable' } else { 'rtk_log_unavailable' }
+            RtkBinaryDigest = if ($pinned) { $PinnedRtkDigest } else { $null }
+        }
     }
     # rtk is a native command, so invoking it overwrites the caller's
     # $LASTEXITCODE in this runspace. Shaping must not affect the call
@@ -519,17 +600,37 @@ function Invoke-PtcRtkLog {
     $exitCodeVariable = Microsoft.PowerShell.Utility\Get-Variable -Name LASTEXITCODE -Scope Global -ErrorAction SilentlyContinue
     $hadExitCode = $null -ne $exitCodeVariable
     $savedExitCode = if ($hadExitCode) { $exitCodeVariable.Value } else { $null }
-    $tmp = [System.IO.Path]::GetTempFileName()
+    $tmp = $null
     try {
+        $tmp = [System.IO.Path]::GetTempFileName()
         Microsoft.PowerShell.Management\Set-Content -LiteralPath $tmp -Value $Text -NoNewline
         $result = & $rtk log $tmp 2>$null
         $ok = $?
         if (-not $ok -or @($result).Count -eq 0) {
-            return "[ptk:log rtk failed - returning raw text.]`n$Text"
+            return [pscustomobject]@{
+                PSTypeName = 'Ptk.RtkLogResult'
+                Text = "[ptk:log rtk failed - returning raw text.]`n$Text"
+                Code = 'rtk_log_failed'
+                RtkBinaryDigest = if ($pinned) { $PinnedRtkDigest } else { $null }
+            }
         }
-        "[ptk:log via rtk]`n" + (@($result) -join [Environment]::NewLine)
+        [pscustomobject]@{
+            PSTypeName = 'Ptk.RtkLogResult'
+            Text = "[ptk:log via rtk]`n" + (@($result) -join [Environment]::NewLine)
+            Code = 'rtk_log_used'
+            RtkBinaryDigest = if ($pinned) { $PinnedRtkDigest } else { $null }
+        }
+    } catch {
+        [pscustomobject]@{
+            PSTypeName = 'Ptk.RtkLogResult'
+            Text = "[ptk:log rtk failed - returning raw text.]`n$Text"
+            Code = 'rtk_log_failed'
+            RtkBinaryDigest = if ($pinned) { $PinnedRtkDigest } else { $null }
+        }
     } finally {
-        Microsoft.PowerShell.Management\Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        if ($tmp) {
+            Microsoft.PowerShell.Management\Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+        }
         if ($hadExitCode) {
             Microsoft.PowerShell.Utility\Set-Variable -Name LASTEXITCODE -Scope Global -Value $savedExitCode
         } else {
@@ -1011,11 +1112,18 @@ function Compress-PtcOutput {
         [int]$MaxItems = $script:DefaultMaxItems,
         # Overrides the elision markers' recovery advice for callers whose
         # recovery path is not raw=true (see Limit-PtcPassthrough).
-        [string]$ElisionHint
+        [string]$ElisionHint,
+        # The MCP host always supplies its startup-frozen RTK identity. Direct
+        # module consumers that omit these retain standalone PATH behavior.
+        [AllowNull()][string]$PinnedRtkPath,
+        [AllowNull()][string]$PinnedRtkDigest,
+        [AllowNull()][Nullable[System.IO.UnixFileMode]]$PinnedRtkUnixMode,
+        [switch]$EmitRoutingEnvelope
     )
 
     begin {
         $items = [System.Collections.Generic.List[object]]::new()
+        $rtkRoutingAttempted = $false
         $limitArgs = @{}
         if ($ElisionHint) { $limitArgs['ElisionHint'] = $ElisionHint }
     }
@@ -1042,7 +1150,26 @@ function Compress-PtcOutput {
                 # colored log would dodge the rtk dedup leg. raw=true calls
                 # never reach shaping (they return complete Out-String text).
                 $text = Remove-PtcAnsi (@($array | Microsoft.PowerShell.Core\ForEach-Object { "$_" }) -join [Environment]::NewLine)
-                if (Test-PtcLogShaped -Text $text) { return (Limit-PtcPassthrough (Invoke-PtcRtkLog -Text $text) @limitArgs) }
+                if (Test-PtcLogShaped -Text $text) {
+                    $rtkArgs = @{ Text = $text }
+                    if ($PSBoundParameters.ContainsKey('PinnedRtkPath')) {
+                        $rtkArgs['PinnedRtkPath'] = $PinnedRtkPath
+                        $rtkArgs['PinnedRtkDigest'] = $PinnedRtkDigest
+                        $rtkArgs['PinnedRtkUnixMode'] = $PinnedRtkUnixMode
+                    }
+                    $rtkRoutingAttempted = $true
+                    $rtkResult = Invoke-PtcRtkLog @rtkArgs
+                    $rendered = Limit-PtcPassthrough $rtkResult.Text @limitArgs
+                    if ($EmitRoutingEnvelope) {
+                        return [pscustomobject]@{
+                            PSTypeName = 'Ptk.OutputRoutingEnvelope'
+                            Text = $rendered
+                            ShapingCode = $rtkResult.Code
+                            RtkBinaryDigest = $rtkResult.RtkBinaryDigest
+                        }
+                    }
+                    return $rendered
+                }
                 return (Limit-PtcPassthrough $text @limitArgs)
             }
 
@@ -1053,7 +1180,16 @@ function Compress-PtcOutput {
             # Bound the fallback too (P3: no unbounded path), but never let the
             # bounder violate the never-throw contract of this catch.
             try { $raw = Limit-PtcPassthrough $raw @limitArgs } catch { }
-            return "[ptk:shape ERROR - $($_.Exception.Message). Returning unshaped output.]`n$raw"
+            $failureText = "[ptk:shape ERROR - $($_.Exception.Message). Returning unshaped output.]`n$raw"
+            if ($EmitRoutingEnvelope -and $rtkRoutingAttempted) {
+                return [pscustomobject]@{
+                    PSTypeName = 'Ptk.OutputRoutingEnvelope'
+                    Text = $failureText
+                    ShapingCode = 'rtk_log_failed'
+                    RtkBinaryDigest = $PinnedRtkDigest
+                }
+            }
+            return $failureText
         }
     }
 }

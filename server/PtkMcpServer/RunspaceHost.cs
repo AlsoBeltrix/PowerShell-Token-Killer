@@ -29,9 +29,19 @@ internal interface IInvocationAuthorizer
     ValueTask<bool> AuthorizeDispatchAsync(
         ExecutionDispatch dispatch,
         CancellationToken cancellationToken);
+
+    ValueTask<bool> RecordValidatorStartedAsync(
+        ExecutionDispatch dispatch,
+        CancellationToken cancellationToken);
+
+    ValueTask<bool> RecordValidatorCompletedAsync(
+        ExecutionDispatch dispatch,
+        BashSyntaxValidationResult result,
+        CancellationToken cancellationToken);
 }
 
-/// <summary>Result of one script invocation in the warm runspace.</summary>
+/// <summary>Result of one foreground invocation managed by the session host.
+/// A typed Bash/RTK dispatch executes outside the PowerShell runspace.</summary>
 /// <param name="Success">False on a terminating error or timeout; non-terminating
 /// errors surface in <paramref name="Errors"/> without failing the call.</param>
 /// <param name="ExitCode">Nonzero $LASTEXITCODE left by a native command, else null.
@@ -51,9 +61,10 @@ internal interface IInvocationAuthorizer
 /// (codex finding i56-11).</param>
 /// <param name="Disposition">Structured terminal state for audit consumers;
 /// never inferred from human-facing output or error strings.</param>
-/// <param name="UserExecutionStarted">True once the user pipeline has been
-/// handed to PowerShell. Preflight activity and warm-state loss alone never
-/// set this field.</param>
+/// <param name="UserExecutionStarted">True once the original user work has
+/// been handed to its selected execution engine. Preflight activity, including
+/// the no-execution Bash validator, and warm-state loss alone never set this
+/// field.</param>
 public sealed record InvokeResult(
     bool Success,
     string Output,
@@ -68,6 +79,8 @@ public sealed record InvokeResult(
     bool Recovering = false)
 {
     internal ExecutionRouteSummary? Routing { get; init; }
+    internal string? AuditDetailCode { get; init; }
+    internal OutputShapingSummary? OutputShaping { get; init; }
 }
 
 internal sealed record ExecutionRouteSummary(
@@ -75,6 +88,42 @@ internal sealed record ExecutionRouteSummary(
     ExecutionPath EffectivePath,
     ExecutionFallbackReason? FallbackReason,
     bool OriginalScriptDispatched);
+
+internal enum OutputShapingStatus
+{
+    RtkLogUsed,
+    RtkLogUnavailable,
+    RtkLogIdentityUnavailable,
+    RtkLogFailed,
+    ProtocolInvalid,
+    PipelineCanceled,
+    PipelineTimedOut,
+    PipelineFailed,
+}
+
+internal sealed record OutputShapingSummary(
+    OutputShapingStatus Status,
+    string? RtkBinaryDigest)
+{
+    internal string DetailCode => Status switch
+    {
+        OutputShapingStatus.RtkLogUsed => "rtk_log_used",
+        OutputShapingStatus.RtkLogUnavailable => "rtk_log_unavailable",
+        OutputShapingStatus.RtkLogIdentityUnavailable => "rtk_log_identity_unavailable",
+        OutputShapingStatus.RtkLogFailed => "rtk_log_failed",
+        OutputShapingStatus.ProtocolInvalid => "rtk_log_protocol_invalid",
+        OutputShapingStatus.PipelineCanceled => "output_shaping_pipeline_canceled",
+        OutputShapingStatus.PipelineTimedOut => "output_shaping_pipeline_timed_out",
+        OutputShapingStatus.PipelineFailed => "output_shaping_pipeline_failed",
+        _ => throw new ArgumentOutOfRangeException(),
+    };
+
+    internal bool UsedRtk => Status == OutputShapingStatus.RtkLogUsed;
+}
+
+internal sealed record ShapedTextResult(
+    string Text,
+    OutputShapingSummary? Shaping);
 
 /// <summary>What the session has changed in the process environment since the
 /// post-priming baseline. PATH is additionally reported as an entry-level diff
@@ -90,11 +139,12 @@ public sealed record EnvironmentDrift(
 }
 
 /// <summary>
-/// Owns the single long-lived PowerShell runspace. Calls are serialized (a runspace
-/// runs one pipeline at a time); a call that exceeds the timeout gets its pipeline
-/// stopped and the runspace recycled so warm state never wedges the whole session.
-/// The recycled-away runspace is abandoned to background disposal rather than
-/// awaited, because a truly wedged pipeline can block Dispose indefinitely.
+/// Owns the single long-lived PowerShell runspace and foreground routing gate.
+/// PowerShell pipelines are serialized; typed Bash validation/execution holds the
+/// same gate but uses direct child processes. A PowerShell timeout recycles the
+/// runspace, while Bash/RTK timeout handling preserves it and reports only the
+/// termination coverage it can prove. A recycled-away runspace is abandoned to
+/// background disposal because a truly wedged pipeline can block Dispose forever.
 /// </summary>
 public sealed class RunspaceHost : IDisposable
 {
@@ -103,6 +153,8 @@ public sealed class RunspaceHost : IDisposable
     private readonly TimeSpan _maxCallTimeout;
     private readonly string? _modulePath;
     private readonly string? _moduleSource;
+    private readonly RtkExecutableIdentity? _rtkExecutableIdentity;
+    private readonly BashExecutableIdentity? _bashExecutableIdentity;
     // The warm runspace, as a task: recycle paths swap in a REBUILD that runs
     // off the response's critical path. The slice-0 incident class — a stalled
     // Runspace.Open or module import silently withholding the labeled timeout
@@ -224,7 +276,12 @@ public sealed class RunspaceHost : IDisposable
         catch { /* best effort — a console host that refuses keeps its default */ }
     }
 
-    public RunspaceHost(TimeSpan? callTimeout = null, string? modulePathOverride = null, TimeSpan? maxCallTimeout = null)
+    public RunspaceHost(
+        TimeSpan? callTimeout = null,
+        string? modulePathOverride = null,
+        TimeSpan? maxCallTimeout = null,
+        string? bashPathOverride = null,
+        string? rtkPathOverride = null)
     {
         _callTimeout = callTimeout ?? TimeSpan.FromSeconds(300);
         // Caps only the per-call timeoutSeconds override; an env-configured
@@ -240,6 +297,12 @@ public sealed class RunspaceHost : IDisposable
         var initialPrimed = CreatePrimedRunspace();
         try
         {
+            _rtkExecutableIdentity = CaptureStartupRtkIdentity(
+                initialPrimed.Runspace,
+                rtkPathOverride);
+            _bashExecutableIdentity = CaptureStartupBashIdentity(
+                initialPrimed.Runspace,
+                bashPathOverride);
             _backgroundStockCommands = CaptureBackgroundStockCommands(initialPrimed.Runspace);
         }
         catch
@@ -381,6 +444,29 @@ public sealed class RunspaceHost : IDisposable
     /// <summary>Test hook for deadline/cancellation behavior while the pure C#
     /// preflight and its CLR command snapshot are active.</summary>
     internal TimeSpan PreflightDelayForTests { get; set; }
+
+    /// <summary>Test seam for the fixed internal Bash syntax-validation cap.</summary>
+    internal TimeSpan BashValidationLimitForTests { get; set; } =
+        BashProcessRunner.DefaultValidationLimit;
+
+    /// <summary>Test seam that may alter only detector output. The independent
+    /// PowerShell parse-fatal fact remains owned by the trusted parser.</summary>
+    internal Func<string, string?>? DialectFindingOverrideForTests { get; set; }
+
+    /// <summary>Test-only compatibility seam for fixtures that vary a fake
+    /// RTK after constructing a shared host. Production always uses the
+    /// startup-frozen identity.</summary>
+    internal Func<RtkExecutableIdentity?, RtkExecutableIdentity?>?
+        RtkIdentityOverrideForTests { get; set; }
+
+    /// <summary>Test-only exception seam for the post-access job-output
+    /// shaping pipeline. Production never assigns it.</summary>
+    internal Action? OutputShapingFailureForTests { get; set; }
+
+    private RtkExecutableIdentity? EffectiveRtkIdentity() =>
+        RtkIdentityOverrideForTests is { } overrideForTests
+            ? overrideForTests(_rtkExecutableIdentity)
+            : _rtkExecutableIdentity;
 
     /// <summary>Test hook for state-probe error/cache branches without
     /// allowing user functions to shadow module-qualified probe commands.</summary>
@@ -834,36 +920,26 @@ public sealed class RunspaceHost : IDisposable
         var requests = TrustedPreflightClassifier
             .GetRequiredCommandNames(script)
             .Select(name => new CommandLookupRequest(name, CommandTypes.All, CommandTypes.All))
-            .Append(new CommandLookupRequest("bash", CommandTypes.All, CommandTypes.All))
-            .Append(new CommandLookupRequest(
-                "rtk",
-                CommandTypes.Application,
-                CommandTypes.Application));
+            .Append(new CommandLookupRequest("bash", CommandTypes.All, CommandTypes.All));
         return CaptureCommandFacts(runspace, requests);
     }
 
-    private static string? ResolveEffectiveRtkPath(TrustedCommandSnapshot commands)
+    private static RtkExecutableIdentity? CaptureStartupRtkIdentity(
+        Runspace runspace,
+        string? rtkPathOverride)
     {
-        var configured = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        var configured = rtkPathOverride ??
+                         Environment.GetEnvironmentVariable("PTK_RTK_PATH");
         if (configured is not null)
-            return CanonicalExistingRtkPath(configured);
-        return CanonicalExistingRtkPath(
-            commands.Resolve("rtk", CommandTypes.Application)?.Source);
-    }
+            return RtkExecutableIdentity.TryCapture(configured);
 
-    private static string? CanonicalExistingRtkPath(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path)) return null;
-        try
-        {
-            var fullPath = Path.GetFullPath(path);
-            return File.Exists(fullPath) ? fullPath : null;
-        }
-        catch (Exception exception) when (exception is not (
-            OutOfMemoryException or StackOverflowException or AccessViolationException))
-        {
-            return null;
-        }
+        var resolved = WithReadOnlyCommandLookup(
+            runspace,
+            invocation => CaptureResolvedCommand(
+                invocation,
+                "rtk",
+                CommandTypes.Application));
+        return RtkExecutableIdentity.TryCapture(resolved?.Source);
     }
 
     // Exit-code bookkeeping runs as tiny extra pipelines on the warm runspace
@@ -971,6 +1047,22 @@ public sealed class RunspaceHost : IDisposable
     private static bool BashAvailable(TrustedCommandSnapshot commands) =>
         commands.Resolve("bash", CommandTypes.All)?.CommandType == CommandTypes.Application;
 
+    private static BashExecutableIdentity? CaptureStartupBashIdentity(
+        Runspace runspace,
+        string? bashPathOverride)
+    {
+        if (bashPathOverride is not null)
+            return BashExecutableIdentity.TryCapture(bashPathOverride);
+
+        var resolved = WithReadOnlyCommandLookup(
+            runspace,
+            invocation => CaptureResolvedCommand(
+                invocation,
+                "bash",
+                CommandTypes.Application));
+        return BashExecutableIdentity.TryCapture(resolved?.Source);
+    }
+
     private static string FormatDialectRefusal(string finding, bool bashAvailable, bool background)
     {
         var refused = background ? "job not started" : "not executed";
@@ -988,6 +1080,35 @@ public sealed class RunspaceHost : IDisposable
             : "Rewrite it in PowerShell (bash is not available on this machine).";
         return $"[ptk:dialect] {refused}: the script contains {finding} - bash-only syntax, " +
                $"and this tool runs PowerShell 7. {recovery}";
+    }
+
+    private static string FormatBashDelegationUnavailable(
+        string finding,
+        bool bashAvailable,
+        bool rtkAvailable,
+        bool workingDirectoryAvailable)
+    {
+        var reason = !bashAvailable
+            ? "the startup-pinned Bash executable is unavailable"
+            : !rtkAvailable
+                ? "the pinned RTK executable is unavailable"
+                : !workingDirectoryAvailable
+                    ? "the warm filesystem working directory is unavailable"
+                    : "the trusted Bash execution plan could not be prepared";
+        return $"[ptk:dialect] not executed: the script contains {finding}, but {reason}; " +
+               "the original script was NOT started and PTK did not request a retry.";
+    }
+
+    private static string? TryCaptureCurrentFileSystemLocation(Runspace runspace)
+    {
+        try
+        {
+            var path = runspace.SessionStateProxy.Path.CurrentFileSystemLocation.ProviderPath;
+            return !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
+                ? path
+                : null;
+        }
+        catch { return null; }
     }
 
     /// <summary>Dialect check for a script about to start as a background job
@@ -1320,6 +1441,58 @@ public sealed class RunspaceHost : IDisposable
         Disposition: InvokeDisposition.NotStarted,
         UserExecutionStarted: false);
 
+    private static InvokeResult BashValidationFailureResult(
+        BashSyntaxValidationResult validation)
+    {
+        var status = validation.Status;
+        var reason = status switch
+        {
+            BashSyntaxValidationStatus.SyntaxInvalid =>
+                "Bash syntax validation rejected the submitted script",
+            BashSyntaxValidationStatus.TimedOut =>
+                "the bounded Bash syntax validator timed out",
+            BashSyntaxValidationStatus.Canceled =>
+                "the Bash syntax validator was canceled",
+            BashSyntaxValidationStatus.StartFailed =>
+                "the startup-pinned Bash validator could not start",
+            BashSyntaxValidationStatus.StartOutcomeUnknown =>
+                "the Bash validator start outcome could not be proven",
+            BashSyntaxValidationStatus.RuntimeFailed =>
+                "the Bash syntax validator failed internally",
+            BashSyntaxValidationStatus.IdentityChanged =>
+                "the startup-pinned Bash identity changed",
+            BashSyntaxValidationStatus.AuditUnavailable =>
+                "validator audit persistence became unavailable",
+            _ => "Bash syntax validation did not authorize execution",
+        };
+        var termination = validation.RootTerminationConfirmed == false
+            ? "; validator root-process termination could not be confirmed and descendant coverage is unknown"
+            : string.Empty;
+        return new InvokeResult(
+            Success: false,
+            Output: $"[ptk:dialect] not executed: {reason}{termination}; the original script was NOT started and PTK did not request a retry.",
+            Errors: [],
+            Warnings: [],
+            TimedOut: status == BashSyntaxValidationStatus.TimedOut,
+            Disposition: InvokeDisposition.NotStarted,
+            UserExecutionStarted: false)
+        {
+            AuditDetailCode = validation.DetailCode,
+        };
+    }
+
+    private static InvokeResult BashDependencyFailureResult(string detailCode) => new(
+        Success: false,
+        Output: "[ptk:dialect] not executed: the pinned Bash/RTK delegation identity became unavailable; the original script was NOT started and PTK did not request a retry.",
+        Errors: [],
+        Warnings: [],
+        TimedOut: false,
+        Disposition: InvokeDisposition.NotStarted,
+        UserExecutionStarted: false)
+    {
+        AuditDetailCode = detailCode,
+    };
+
     private static async Task<bool> InvokeAuthorizationBarrierAsync(
         Func<ValueTask<bool>> authorize)
     {
@@ -1350,9 +1523,9 @@ public sealed class RunspaceHost : IDisposable
         if (plan.ExecutionPath == ExecutionPath.Rtk &&
             plan.RtkExecutableIdentity is { } identity &&
             plan.PermittedFallbacks.Contains(ExecutionPath.PowerShellDirect) &&
-            !File.Exists(identity.ExecutablePath))
+            !identity.MatchesCurrentFile())
         {
-            // File.Exists=false is a pre-start availability proof. Nothing in
+            // Digest/path drift is a pre-start availability proof. Nothing in
             // this method starts the RTK or user process.
             return ExecutionDispatch.RtkUnavailableFallback(plan);
         }
@@ -1369,11 +1542,55 @@ public sealed class RunspaceHost : IDisposable
                 dispatch.RequestedRoute,
                 dispatch.ExecutionPath,
                 dispatch.FallbackReason,
+                dispatch.ExecutionPath == ExecutionPath.BashViaRtk ||
                 string.Equals(
                     dispatch.ExecutionScript,
                     dispatch.Plan.OriginalScript,
                     StringComparison.Ordinal)),
         };
+
+    private static (string Output, OutputShapingSummary? Shaping)
+        CaptureInvocationOutput(
+            PSDataCollection<PSObject> results,
+            RtkExecutableIdentity? authorizedShapingRtk)
+    {
+        ArgumentNullException.ThrowIfNull(results);
+        if (results.Count != 1 ||
+            !results[0].TypeNames.Contains(
+                "Ptk.OutputRoutingEnvelope",
+                StringComparer.Ordinal))
+        {
+            return (string.Concat(results.Select(result => result?.ToString())), null);
+        }
+
+        var envelope = results[0];
+        var text = envelope.Properties["Text"]?.Value?.ToString() ?? string.Empty;
+        var code = envelope.Properties["ShapingCode"]?.Value?.ToString();
+        var digest = envelope.Properties["RtkBinaryDigest"]?.Value?.ToString();
+        var authorizedDigest = authorizedShapingRtk?.AuditBinaryDigest;
+        var status = code switch
+        {
+            "rtk_log_used" => OutputShapingStatus.RtkLogUsed,
+            "rtk_log_unavailable" => OutputShapingStatus.RtkLogUnavailable,
+            "rtk_log_identity_unavailable" => OutputShapingStatus.RtkLogIdentityUnavailable,
+            "rtk_log_failed" => OutputShapingStatus.RtkLogFailed,
+            _ => OutputShapingStatus.ProtocolInvalid,
+        };
+        if (digest is not null &&
+            (digest.Length != 64 || digest.Any(character => character is not (
+                >= '0' and <= '9' or >= 'a' and <= 'f'))))
+        {
+            status = OutputShapingStatus.ProtocolInvalid;
+        }
+        if (!string.Equals(digest, authorizedDigest, StringComparison.Ordinal) ||
+            (status is OutputShapingStatus.RtkLogUsed or
+                OutputShapingStatus.RtkLogFailed) && authorizedDigest is null)
+        {
+            status = OutputShapingStatus.ProtocolInvalid;
+        }
+
+        return (text, new OutputShapingSummary(status, authorizedDigest));
+    }
 
     private sealed class TrustedPreflightIsolationException(
         string message,
@@ -1412,18 +1629,51 @@ public sealed class RunspaceHost : IDisposable
             {
                 if (preflightDelay > TimeSpan.Zero)
                     Thread.Sleep(preflightDelay);
+                var effectiveRtkIdentity = EffectiveRtkIdentity();
                 var plan = ExecutionPlanner.CreateDirect(
                     script,
                     route,
                     raw,
                     compressAvailable: !raw && primed.CompressCommand is not null,
-                    ResolutionContext.Warm);
+                    ResolutionContext.Warm,
+                    effectiveRtkIdentity);
                 if (checkDialect)
                 {
                     var commands = CaptureForegroundCommandFacts(runspace, script);
-                    var finding = TrustedPreflightClassifier.GetShellDialectFinding(script, commands);
+                    var assessment = TrustedPreflightClassifier.AssessShellDialect(script, commands);
+                    var findingOverride = DialectFindingOverrideForTests;
+                    var finding = findingOverride is null
+                        ? assessment.Finding
+                        : findingOverride(script);
                     if (finding is not null)
                     {
+                        if (assessment.PowerShellParseFatal)
+                        {
+                            var workingDirectory =
+                                TryCaptureCurrentFileSystemLocation(runspace);
+                            if (_bashExecutableIdentity is not null &&
+                                effectiveRtkIdentity is not null &&
+                                workingDirectory is not null)
+                            {
+                                plan = ExecutionPlanner.CreateBash(
+                                    script,
+                                    route,
+                                    effectiveRtkIdentity,
+                                    _bashExecutableIdentity,
+                                    workingDirectory,
+                                    ResolutionContext.Warm);
+                                return (Refusal: (string?)null, Plan: plan);
+                            }
+
+                            return (
+                                Refusal: FormatBashDelegationUnavailable(
+                                    finding,
+                                    _bashExecutableIdentity is not null,
+                                    effectiveRtkIdentity is not null,
+                                    workingDirectory is not null),
+                                Plan: plan);
+                        }
+
                         return (
                             Refusal: FormatDialectRefusal(
                                 finding,
@@ -1434,7 +1684,7 @@ public sealed class RunspaceHost : IDisposable
                     plan = ExecutionPlanner.Create(
                         script,
                         route,
-                        ResolveEffectiveRtkPath(commands),
+                        effectiveRtkIdentity,
                         commands,
                         raw,
                         compressAvailable: !raw && primed.CompressCommand is not null,
@@ -1602,7 +1852,7 @@ public sealed class RunspaceHost : IDisposable
 
             if (dispatch.ExecutionPath == ExecutionPath.Rtk &&
                 dispatch.RtkExecutableIdentity is { } dispatchedIdentity &&
-                !File.Exists(dispatchedIdentity.ExecutablePath))
+                !dispatchedIdentity.MatchesCurrentFile())
             {
                 // The durable dispatch barrier itself can outlive the RTK
                 // path snapshot. Recheck after it, while still gate-held and
@@ -1635,6 +1885,55 @@ public sealed class RunspaceHost : IDisposable
                 dispatch = fallbackDispatch;
             }
 
+            if (dispatch.ExecutionPath == ExecutionPath.BashViaRtk)
+            {
+                if (dispatch.RtkExecutableIdentity is not { } bashRtk ||
+                    !bashRtk.MatchesCurrentFile())
+                {
+                    return WithDispatchRouting(
+                        BashDependencyFailureResult("rtk_identity_changed"),
+                        dispatch);
+                }
+
+                var validation = await BashProcessRunner.ValidateAsync(
+                    dispatch,
+                    callDeadline,
+                    cancellationToken,
+                    () => authorizer is null
+                        ? ValueTask.FromResult(true)
+                        : authorizer.RecordValidatorStartedAsync(
+                            dispatch,
+                            CancellationToken.None),
+                    BashValidationLimitForTests);
+
+                if (validation.Status == BashSyntaxValidationStatus.AuditUnavailable)
+                    return AuthorizationFailureResult(timedOut: false);
+
+                if (authorizer is not null &&
+                    !await InvokeAuthorizationBarrierAsync(() =>
+                        authorizer.RecordValidatorCompletedAsync(
+                            dispatch,
+                            validation,
+                            CancellationToken.None)))
+                {
+                    return AuthorizationFailureResult(timedOut: false);
+                }
+
+                if (validation.Status != BashSyntaxValidationStatus.Valid)
+                {
+                    return WithDispatchRouting(
+                        BashValidationFailureResult(validation),
+                        dispatch);
+                }
+
+                return WithDispatchRouting(
+                    await BashProcessRunner.ExecuteAsync(
+                        dispatch,
+                        callDeadline,
+                        cancellationToken),
+                    dispatch);
+            }
+
             // Reset only after the audited barrier authorizes this exact
             // preparation. A refusal/exception therefore performs no later
             // session mutation (the stale-LASTEXITCODE guard still precedes
@@ -1644,14 +1943,21 @@ public sealed class RunspaceHost : IDisposable
             ps.Runspace = runspace;
             // useLocalScope: false — assignments land in the runspace's session
             // state and survive into the next call; that persistence is the point.
-            ps.AddScript(dispatch.ExecutionScript, useLocalScope: false);
+            ps.AddScript(dispatch.ExecutionScript!, useLocalScope: false);
+            RtkExecutableIdentity? authorizedShapingRtk = null;
             if (!raw &&
                 dispatch.OutputProvenance == OutputProvenance.PowerShellObjects &&
                 primed.CompressCommand is not null)
+            {
+                authorizedShapingRtk = dispatch.OutputShapingRtkIdentity;
                 ps.AddScript(
-                        "$input | & $args[0]",
+                        "$input | & $args[0] -PinnedRtkPath $args[1] -PinnedRtkDigest $args[2] -PinnedRtkUnixMode $args[3] -EmitRoutingEnvelope",
                         useLocalScope: true)
-                  .AddArgument(primed.CompressCommand);
+                  .AddArgument(primed.CompressCommand)
+                  .AddArgument(authorizedShapingRtk?.ExecutablePath)
+                  .AddArgument(authorizedShapingRtk?.AuditBinaryDigest)
+                  .AddArgument(authorizedShapingRtk?.CapturedUnixFileMode);
+            }
             else
                 ps.AddCommand("Microsoft.PowerShell.Utility\\Out-String");
 
@@ -1702,7 +2008,9 @@ public sealed class RunspaceHost : IDisposable
             try
             {
                 var results = await invokeTask;
-                var output = string.Concat(results.Select(r => r?.ToString()));
+                var (output, outputShaping) = CaptureInvocationOutput(
+                    results,
+                    authorizedShapingRtk);
                 var (exitCode, wedged) = await ReadExitCodeBoundedAsync(runspace, callDeadline, cancellationToken);
                 var (stderr, errors) = PartitionErrorStream(ps.Streams.Error);
                 if (wedged) errors = [.. errors, BookkeepingWedgeNote];
@@ -1716,7 +2024,10 @@ public sealed class RunspaceHost : IDisposable
                     UserExecutionStarted: true,
                     ExitCode: exitCode == 0 ? null : exitCode,
                     Stderr: stderr,
-                    WarmStateLost: wedged), dispatch);
+                    WarmStateLost: wedged)
+                {
+                    OutputShaping = outputShaping,
+                }, dispatch);
             }
             catch (RuntimeException ex)
             {
@@ -1755,27 +2066,42 @@ public sealed class RunspaceHost : IDisposable
     /// (e.g. a hung rtk child on the log leg) is timed out and the runspace
     /// recycled, exactly like a timed-out foreground call: a poll must never hold
     /// the gate forever.</summary>
-    public Task<string> ShapeTextAsync(
+    public async Task<string> ShapeTextAsync(
         string text,
         CancellationToken cancellationToken = default,
         string? elisionHint = null) =>
-        ShapeTextCoreAsync(text, cancellationToken, elisionHint, runspaceRecycled: null);
+        (await ShapeTextCoreAsync(
+            text,
+            cancellationToken,
+            elisionHint,
+            EffectiveRtkIdentity(),
+            runspaceRecycled: null)).Text;
 
-    internal Task<string> ShapeTextAuditedAsync(
+    internal RtkExecutableIdentity? CaptureOutputShapingRtkIdentity() =>
+        EffectiveRtkIdentity();
+
+    internal Task<ShapedTextResult> ShapeTextAuditedAsync(
         string text,
         CancellationToken cancellationToken,
         string? elisionHint,
+        RtkExecutableIdentity? authorizedShapingRtk,
         Action runspaceRecycled) =>
-        ShapeTextCoreAsync(text, cancellationToken, elisionHint, runspaceRecycled);
+        ShapeTextCoreAsync(
+            text,
+            cancellationToken,
+            elisionHint,
+            authorizedShapingRtk,
+            runspaceRecycled);
 
-    private async Task<string> ShapeTextCoreAsync(
+    private async Task<ShapedTextResult> ShapeTextCoreAsync(
         string text,
         CancellationToken cancellationToken,
         string? elisionHint,
+        RtkExecutableIdentity? authorizedShapingRtk,
         Action? runspaceRecycled)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (!ModuleLoaded || text.Length == 0) return text;
+        if (!ModuleLoaded || text.Length == 0) return new(text, null);
         LastActivityUtc = DateTimeOffset.UtcNow;
         var deadline = DateTimeOffset.UtcNow + _callTimeout;
         // A poll must never block behind a long foreground call either: on a
@@ -1783,21 +2109,25 @@ public sealed class RunspaceHost : IDisposable
         // shaping must never fail (or stall) a poll.
         if (!await TryEnterGateAsync(deadline, cancellationToken))
         {
-            return text;
+            return new(text, null);
         }
         var ps = PowerShell.Create();
         var handedOff = false;
         try
         {
             var (primed, _) = await AwaitRunspaceReadyAsync(deadline, cancellationToken);
-            if (primed?.CompressCommand is null) return text;
+            if (primed?.CompressCommand is null) return new(text, null);
             var runspace = primed.Runspace;
             ps.Runspace = runspace;
             ps.AddScript(
-                    "if ($args.Count -gt 1) { $input | & $args[0] -ElisionHint $args[1] } " +
-                    "else { $input | & $args[0] }",
+                    "if ($args.Count -gt 4) { " +
+                    "$input | & $args[0] -PinnedRtkPath $args[1] -PinnedRtkDigest $args[2] -PinnedRtkUnixMode $args[3] -ElisionHint $args[4] -EmitRoutingEnvelope " +
+                    "} else { $input | & $args[0] -PinnedRtkPath $args[1] -PinnedRtkDigest $args[2] -PinnedRtkUnixMode $args[3] -EmitRoutingEnvelope }",
                     useLocalScope: true)
-              .AddArgument(primed.CompressCommand);
+              .AddArgument(primed.CompressCommand)
+              .AddArgument(authorizedShapingRtk?.ExecutablePath)
+              .AddArgument(authorizedShapingRtk?.AuditBinaryDigest)
+              .AddArgument(authorizedShapingRtk?.CapturedUnixFileMode);
             // Context-correct elision advice, composed BY the elision itself
             // (sd3-2..sd3-4): the caller knows its recovery path; inferring
             // elision downstream from the shaped text proved unsound in both
@@ -1806,25 +2136,46 @@ public sealed class RunspaceHost : IDisposable
             var input = new PSDataCollection<object> { text };
             input.Complete();
 
+            OutputShapingFailureForTests?.Invoke();
             var invokeTask = InvokeAsyncWithoutAmbientAudit(ps, input);
             var outcome = await WaitForDeadlineAsync(invokeTask, deadline, cancellationToken);
             if (outcome != WaitOutcome.Completed)
             {
                 if (outcome == WaitOutcome.Canceled && await TryStopPipelineAsync(ps, invokeTask))
                 {
-                    return text;
+                    return new(
+                        text + Environment.NewLine +
+                        "[ptk: shaping canceled; raw text returned]",
+                        new OutputShapingSummary(
+                            OutputShapingStatus.PipelineCanceled,
+                            authorizedShapingRtk?.AuditBinaryDigest));
                 }
                 handedOff = true;
                 AbandonAndRecycle(ps, invokeTask, runspace);
                 runspaceRecycled?.Invoke();
-                return text + Environment.NewLine +
-                    "[ptk: shaping timed out; the runspace was recycled; raw text returned]";
+                return new(
+                    text + Environment.NewLine +
+                    "[ptk: shaping timed out; the runspace was recycled; raw text returned]",
+                    new OutputShapingSummary(
+                        OutputShapingStatus.PipelineTimedOut,
+                        authorizedShapingRtk?.AuditBinaryDigest));
             }
 
             var results = await invokeTask;
-            return string.Concat(results.Select(r => r?.ToString()));
+            var (output, shaping) = CaptureInvocationOutput(
+                results,
+                authorizedShapingRtk);
+            return new(output, shaping);
         }
-        catch { return text; }
+        catch
+        {
+            return new(
+                text + Environment.NewLine +
+                "[ptk: shaping failed; raw text returned]",
+                new OutputShapingSummary(
+                    OutputShapingStatus.PipelineFailed,
+                    authorizedShapingRtk?.AuditBinaryDigest));
+        }
         finally
         {
             if (!handedOff) ps.Dispose();

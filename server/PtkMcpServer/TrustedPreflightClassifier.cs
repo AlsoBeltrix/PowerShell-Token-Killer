@@ -12,6 +12,10 @@ internal sealed record ResolvedCommand(
     string? Source = null,
     string? Definition = null);
 
+internal sealed record ShellDialectAssessment(
+    bool PowerShellParseFatal,
+    string? Finding);
+
 /// <summary>Case-insensitive, data-only command facts for one preflight. A
 /// missing fact is an authoritative miss; classification never performs a
 /// discovery lookup of its own.</summary>
@@ -88,6 +92,18 @@ internal static class TrustedPreflightClassifier
                 .Where(name => !string.IsNullOrEmpty(name))
                 .Distinct(StringComparer.OrdinalIgnoreCase),
         ];
+    }
+
+    internal static ShellDialectAssessment AssessShellDialect(
+        string script,
+        TrustedCommandSnapshot commands)
+    {
+        ArgumentNullException.ThrowIfNull(script);
+        ArgumentNullException.ThrowIfNull(commands);
+        Parser.ParseInput(script, out _, out var parseErrors);
+        return new ShellDialectAssessment(
+            PowerShellParseFatal: parseErrors.Length > 0,
+            Finding: GetShellDialectFinding(script, commands));
     }
 
     internal static string? GetShellDialectFinding(

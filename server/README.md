@@ -1,9 +1,11 @@
 # PtkMcpServer
 
 `PtkMcpServer` is a stdio MCP server that owns one long-lived PowerShell
-runspace. Agent shell calls can run inside that runspace through `ptk_invoke`,
-so variables, imported modules, and established connections survive across
-calls for the life of the MCP server process.
+runspace plus a serialized foreground routing gate. PowerShell and mixed
+dataflow calls use that runspace, so variables, imported modules, and
+established connections survive across those calls. Independently proven
+parse-fatal Bash syntax uses bounded startup-pinned Bash/RTK child processes;
+its shell state is process-local and does not enter the PowerShell session.
 
 During runspace priming the server freezes the compressor source in memory,
 captures its shaping command, and detaches the module from the user-visible
@@ -52,7 +54,7 @@ Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `ptk_invoke` | `script`, optional `raw`, `route`, `background`, `timeoutSeconds` | Run a PowerShell script or native command line in the warm runspace; `background: true` starts it as a cold background job instead, `timeoutSeconds` overrides the per-call timeout (capped by the server maximum). |
+| `ptk_invoke` | `script`, optional `raw`, `route`, `background`, `timeoutSeconds` | Run shell work through PTK: persistent PowerShell execution, eligible terminal-native RTK routing, or bounded validated Bash delegation; `background: true` starts a cold PowerShell job, and `timeoutSeconds` overrides the capped per-call timeout. |
 | `ptk_job` | `action` (`status`/`output`/`kill`/`list`), `id`, `offset` | Manage background jobs: `output` returns new output since `offset`, shaped and bounded, ending with the next offset to pass; the complete raw log path is in `status`. |
 | `ptk_state` | optional `listAvailable` | Session introspection and health check: engine, server PID/uptime, cwd, loaded modules, and drift — env vars changed since server start, PATH as an entry diff, variable count. With `listAvailable: true`, also enumerate installed modules once and cache the result. Never queues: while another call holds the runspace it answers promptly with host-level facts plus a busy line (active-call age, waiter count), marking runspace-dependent details unavailable. |
 | `ptk_reset` | none | Recycle the runspace to factory state: discards variables, loaded modules, current directory, default parameters, and connections, and restores environment variables to their server-start values. |
@@ -78,6 +80,13 @@ retain terminal obligations, and graceful shutdown drains them before writing
 not run. `ptk_state` alone may return the minimal supervisor-only
 `audit=unavailable, unrecorded=true` diagnostic; it does not inspect the
 runspace or jobs in that mode.
+
+The same ordering covers internal RTK helpers. A foreground
+`execution.dispatched` record or a job `job.output_accessed` record identifies
+and authorizes the startup-pinned RTK digest with `rtk_log_authorized` before
+`rtk log` may start. `output.shaped` or `output.shaping_failed` then records the
+typed result; a physical post-start journal failure still leaves the durable
+authorization and degraded audit chain rather than an invisible helper call.
 
 The executable currently freezes these storage bounds at startup; there are no
 environment-variable overrides for them:
@@ -153,15 +162,30 @@ Routing rules:
   `rtk` is available.
 - `rtk` itself is not double-routed.
 - Cmdlets, aliases, functions, pipelines, chains, variables, expandable
-  strings, redirections, parse errors, and `.cmd`/`.bat` shims stay on the
-  PowerShell path.
-- If `rtk` is absent, the script runs unchanged.
-- Constructs on the detector's probed detection list get a fast labeled
-  `[ptk:dialect]` refusal naming the construct and the platform-aware
-  recovery paths, on both the foreground and `background=true` paths;
-  `route=pwsh` and `raw=true` bypass as explicit consent. Detection
-  favors precision over recall: undetected bash shapes run exactly as
-  before.
+  strings, redirections, mixed dataflow, and `.cmd`/`.bat` shims stay on the
+  exact PowerShell path. RTK routing never prefilters bytes flowing into a
+  PowerShell consumer or redirection sink.
+- PTK freezes RTK's canonical path, bounded SHA-256 identity, and Unix mode at
+  server startup. Warm-session `PATH`/`PTK_RTK_PATH` changes cannot substitute
+  a different binary. Identity or availability loss before a routed process
+  starts takes the already-audited exact-original fallback once; PTK never
+  asks the model to reconstruct the command and never retries after start.
+- Automatic Bash delegation requires all three independent facts: PowerShell
+  parse-fatal input, detector evidence for a specific Bash construct outside
+  comments/strings, and a successful post-dispatch
+  `bash --noprofile --norc -n -c <exact-script>` syntax check. Only then does
+  PTK execute the exact bytes once via startup-pinned RTK and
+  `bash --noprofile --norc -c`. Both direct process environments remove Bash
+  startup/function/option injection and platform loader-injection variables.
+- Missing/drifted Bash or RTK, invalid syntax, validator timeout, audit loss,
+  or exhausted call budget returns a labeled not-started result without
+  running the submitted script or requesting a retry. Validator start/outcome
+  and root-termination certainty are typed audit facts; descendant coverage
+  remains explicitly unknown.
+- A clean-parsing detector finding retains the fast `[ptk:dialect]` refusal.
+  `route=pwsh` bypasses the detector/delegation path as explicit PowerShell
+  consent. `raw=true` retains its current routing bypass until its documented
+  recovery-only transition lands.
 
 Output shaping:
 
@@ -172,6 +196,14 @@ Output shaping:
   recovery hatch if the elided middle matters).
 - Log-shaped text routes through `rtk log` when possible.
 - Log-shaped text falls back to labeled raw text if `rtk` is absent or fails.
+- The host passes the exact startup-frozen identity into shaping, bounds the
+  rehash to a regular nonsymlink file of at most 128 MiB, checks Unix mode
+  drift, and validates the returned routing envelope against the authorized
+  digest. Foreground and job-output RTK use is auditable even on exceptional
+  or timed-out shaping paths.
+- Delegated Bash/RTK stdout and stderr are each captured to a 4 MiB response
+  bound while the pipes continue draining. Truncation is labeled and never
+  causes re-execution.
 - Nonzero native exit codes are reported as `[exit] N`.
 
 Overrides:
@@ -181,8 +213,9 @@ Overrides:
   errors, exit codes, and structure.
 - `route=pwsh` forces execution exactly as PowerShell; with `raw=false`
   that pairing is exact execution with shaped output.
-- `route=rtk` forces the `rtk` rewrite when the script has the safe
-  single-command shape.
+- `route=rtk` asserts the `rtk` rewrite only for the safe single-application
+  shape. Ineligible or unavailable routing is labeled and executes the exact
+  original once through PowerShell.
 
 Long-running work (two paths, by workload):
 
@@ -198,6 +231,11 @@ Long-running work (two paths, by workload):
   `PTK_MAX_CALL_TIMEOUT_SECONDS`) for long work that **needs** the warm
   session — live connections, imported modules. A background job would
   forfeit exactly that state.
+- A timed-out PowerShell pipeline recycles the runspace and loses its warm
+  state. A timed-out delegated Bash/RTK call instead attempts bounded tracked
+  root/process-tree termination, preserves the warm runspace, reports
+  descendants and remote effects as unknown where PTK cannot prove them, and
+  never retries the script.
 - Background jobs are killed by `ptk_reset` and at graceful server shutdown.
   A hard-killed server can leave a running job orphaned (it finishes on its
   own); job logs older than seven days are swept at server start.

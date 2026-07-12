@@ -181,7 +181,7 @@ internal static class AuditCallMetadataCapture
             Raw = raw,
         };
         var profile = new AuditOperationProfile(
-            MaximumCallRecordSlots: 9,
+            MaximumCallRecordSlots: 11,
             PersistentJobTerminalSlots: background ? 1 : 0,
             RequiresScriptEvidence: true,
             MayHaveSideEffects: true);
@@ -262,7 +262,7 @@ internal static class AuditCallMetadataCapture
             new AuditOperationProfile(
                 action switch
                 {
-                    "output" => 5,
+                    "output" => 6,
                     "kill" => 4,
                     "list" or "status" => 3,
                     _ => 2,

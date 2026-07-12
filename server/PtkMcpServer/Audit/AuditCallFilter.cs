@@ -141,7 +141,7 @@ internal static class AuditCallFilter
 
             var authorizationRefused =
                 admittedAudit.AuthorizationPersistenceFailed &&
-                !admittedAudit.EffectAuthorized;
+                !admittedAudit.UserExecutionStarted;
             if (!admittedAudit.TerminalWritten)
             {
                 var terminal = ResolveFallbackTerminal(result, authorizationRefused);

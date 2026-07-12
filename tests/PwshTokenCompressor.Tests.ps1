@@ -1209,6 +1209,122 @@ Describe 'Compress-PtcOutput' {
             $result | Should -Match 'RTKSTUB verb=log exists=True'
         }
 
+        It 'uses the host-pinned RTK identity instead of a mutated environment override' {
+            $trusted = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-pinned-{0}.ps1" -f ([guid]::NewGuid()))
+            $fake = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-fake-{0}.ps1" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $trusted -Value 'param($verb, $path) "TRUSTED_RTK $verb"' -NoNewline
+            Set-Content -LiteralPath $fake -Value 'param($verb, $path) "FAKE_RTK $verb"' -NoNewline
+            try {
+                $digest = [System.Convert]::ToHexString(
+                    [System.Security.Cryptography.SHA256]::HashData(
+                        [System.IO.File]::ReadAllBytes($trusted))).ToLowerInvariant()
+                $env:PTK_RTK_PATH = $fake
+
+                $result = $script:logText | Compress-PtcOutput `
+                    -PinnedRtkPath $trusted -PinnedRtkDigest $digest
+            }
+            finally {
+                Remove-Item -LiteralPath $trusted, $fake -Force -ErrorAction SilentlyContinue
+            }
+
+            $result | Should -Match 'TRUSTED_RTK log'
+            $result | Should -Not -Match 'FAKE_RTK'
+        }
+
+        It 'refuses a same-path RTK replacement under the pinned digest' {
+            $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-replaced-{0}.ps1" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $stub -Value 'param($verb, $path) "ORIGINAL_RTK $verb"' -NoNewline
+            try {
+                $digest = [System.Convert]::ToHexString(
+                    [System.Security.Cryptography.SHA256]::HashData(
+                        [System.IO.File]::ReadAllBytes($stub))).ToLowerInvariant()
+                Set-Content -LiteralPath $stub -Value 'param($verb, $path) "REPLACEMENT_RTK $verb"' -NoNewline
+
+                $result = $script:logText | Compress-PtcOutput `
+                    -PinnedRtkPath $stub -PinnedRtkDigest $digest
+            }
+            finally {
+                Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+            }
+
+            $result | Should -Match '\[ptk:log rtk not found'
+            $result | Should -Not -Match 'REPLACEMENT_RTK'
+            $result | Should -Match 'step 8 completed'
+        }
+
+        It 'refuses same-byte Unix mode drift under the host-pinned identity' -Skip:$IsWindows {
+            $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-mode-{0}.sh" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $stub -Value "#!/bin/sh`necho SHOULD_NOT_RUN" -NoNewline
+            [System.IO.File]::SetUnixFileMode(
+                $stub,
+                [System.IO.UnixFileMode]'UserRead, UserWrite, UserExecute')
+            try {
+                $digest = [System.Convert]::ToHexString(
+                    [System.Security.Cryptography.SHA256]::HashData(
+                        [System.IO.File]::ReadAllBytes($stub))).ToLowerInvariant()
+                $mode = [System.IO.File]::GetUnixFileMode($stub)
+                [System.IO.File]::SetUnixFileMode(
+                    $stub,
+                    [System.IO.UnixFileMode]'UserRead, UserWrite')
+
+                $result = $script:logText | Compress-PtcOutput `
+                    -PinnedRtkPath $stub -PinnedRtkDigest $digest -PinnedRtkUnixMode $mode
+            }
+            finally {
+                Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+            }
+
+            $result | Should -Match '\[ptk:log rtk not found'
+            $result | Should -Not -Match 'SHOULD_NOT_RUN'
+        }
+
+        It 'rejects an oversized pinned RTK snapshot without hashing its contents' {
+            $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-oversized-{0}" -f ([guid]::NewGuid()))
+            $stream = [System.IO.File]::OpenWrite($stub)
+            try { $stream.SetLength((128L * 1024 * 1024) + 1) }
+            finally { $stream.Dispose() }
+            try {
+                # SHA-256 of exactly 128 MiB + 1 zero bytes. Hardcode the
+                # deterministic value so the normal guard test does not read
+                # the oversized fixture it is proving PTK refuses to hash.
+                $digest = '7ea6ce492b9f2e83db0190808df466a16da53a11f25ba786f46c26821243c687'
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                $result = $script:logText | Compress-PtcOutput `
+                    -PinnedRtkPath $stub -PinnedRtkDigest $digest
+                $stopwatch.Stop()
+            }
+            finally {
+                Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+            }
+
+            $result | Should -Match '\[ptk:log rtk not found'
+            $stopwatch.Elapsed | Should -BeLessThan ([TimeSpan]::FromSeconds(2))
+        }
+
+        It 'preserves the routing envelope when post-RTK shaping throws' {
+            $stub = Join-Path ([System.IO.Path]::GetTempPath()) ("rtk-envelope-{0}.ps1" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $stub -Value 'param($verb, $path) "ROUTED"' -NoNewline
+            try {
+                $digest = [System.Convert]::ToHexString(
+                    [System.Security.Cryptography.SHA256]::HashData(
+                        [System.IO.File]::ReadAllBytes($stub))).ToLowerInvariant()
+                Mock -CommandName Limit-PtcPassthrough -ModuleName PwshTokenCompressor -MockWith {
+                    throw 'forced post-routing failure'
+                }
+
+                $result = $script:logText | Compress-PtcOutput `
+                    -PinnedRtkPath $stub -PinnedRtkDigest $digest -EmitRoutingEnvelope
+            }
+            finally {
+                Remove-Item -LiteralPath $stub -Force -ErrorAction SilentlyContinue
+            }
+
+            $result.PSTypeNames | Should -Contain 'Ptk.OutputRoutingEnvelope'
+            $result.ShapingCode | Should -Be 'rtk_log_failed'
+            $result.RtkBinaryDigest | Should -Be $digest
+            $result.Text | Should -Match 'forced post-routing failure'
+        }
+
         It 'preserves the caller''s $LASTEXITCODE across the native rtk leg' {
             # The stub must be a native command (.cmd/.sh), not a .ps1: only a
             # native invocation overwrites $LASTEXITCODE, which is the bug under

@@ -3,7 +3,7 @@
 **Severity**: HIGH — a Windows power loss can revert a checkpoint already used
 to authorize retention, causing duplicate export or permanent chain-adoption
 failure after acknowledged data was deleted.
-**Status**: In progress
+**Status**: Verified
 **Branch**: `fix/s2-windows-checkpoint-durability`
 **Commit**: `e56d9f2d1b5efc7366be5809d4355b6c3ba6c47f`
 
@@ -82,3 +82,15 @@ Claude Code 2.1.207 reviewed fixed head
 `reopened`, recorded 2026-07-12T15:35:30Z. It traced the missing Windows
 post-rename flush into checkpoint rollback after retention and classified the
 result as a cross-volume crash-durability and availability failure.
+
+Claude Code 2.1.207 reviewed fixed head
+`346829b4e6b00ec1fb8d0bcc5f9e092b09cfac3d` against
+`0c9f430b71f14ac40c89aad6ad7da712aa2fc47e`, `guard_confirmed=true`, verdict
+`accepted`, recorded 2026-07-12T16:09:47Z. In its own disposable Windows
+worktree it passed the ordering/held-reader and concurrent no-gap guards 2/2,
+removed only the production flush call and observed the intended assertion
+fail, restored byte-exact source, and passed 2/2 again. It also passed local
+.NET 926/926, Pester 134 with two platform skips, and the zero-warning
+handshake. Static review confirmed write access, retained-handle ordering, and
+fail-closed checkpoint recovery before retention authorization; all local and
+remote review artifacts were removed.

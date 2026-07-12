@@ -118,6 +118,7 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
                 // slack before charging the new supervisor's full live segment.
                 ReclaimClosedAllocations();
                 EnsurePhysicalAllocationAvailable();
+                EnsureRecoveryAdmissionAvailable(segmentIndex: 0);
                 (_stream, _currentSegmentPath, _currentSegmentIdentity) = CreateSegment(0);
                 SweepClosedSegments(GetUtcNow(), options.EmergencyReserveBytes);
             }
@@ -333,6 +334,9 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
 
     private void Rotate()
     {
+        var nextIndex = checked(_segmentIndex + 1);
+        EnsureRecoveryAdmissionAvailable(nextIndex);
+
         // Keep the preallocated current writer intact until its replacement
         // is fully allocated, protected, published, flushed, and reopened.
         // Rotation belongs to a prospective admission; its failure must not
@@ -340,7 +344,6 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         // handle.
         ReclaimClosedAllocations();
         EnsurePhysicalAllocationAvailable();
-        var nextIndex = checked(_segmentIndex + 1);
         var (nextStream, nextPath, nextIdentity) = CreateSegment(nextIndex);
         var previous = _stream;
         var previousPath = _currentSegmentPath;
@@ -357,6 +360,26 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         AuditSpoolQuotaLease.AcquireExisting(_spoolRoot);
 
     internal IDisposable AcquireQuotaLockForTests() => AcquireQuotaLock();
+
+    private void EnsureRecoveryAdmissionAvailable(int segmentIndex)
+    {
+        if (segmentIndex >= AuditClosedSpoolChainReader.MaximumClosedChainSegments)
+        {
+            throw new IOException(
+                "The audit spool has no capacity for another recoverable segment in this boot chain.");
+        }
+
+        // The quota control is itself part of the closed reader's bounded
+        // top-level inventory. The caller holds that control's shared lease,
+        // so no other legitimate writer can change this count before publish.
+        var segmentCount = EnumerateSegments().Length;
+        var entriesAfterPublish = checked(segmentCount + 2);
+        if (entriesAfterPublish > AuditClosedSpoolChainReader.MaximumSpoolInventoryEntries)
+        {
+            throw new IOException(
+                "The audit spool has no recovery inventory capacity for another segment.");
+        }
+    }
 
     private void ReclaimClosedAllocations()
     {

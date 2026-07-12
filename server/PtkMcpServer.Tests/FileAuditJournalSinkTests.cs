@@ -497,6 +497,131 @@ public sealed class FileAuditJournalSinkTests : IDisposable
     }
 
     [Fact]
+    public void Recovery_inventory_ceiling_refuses_rotation_and_a_fresh_boot_without_stranding_a_terminal()
+    {
+        var options = Options(NewRoot(), segmentSlots: 3, aggregateSegments: 2);
+        _ = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
+        var seededSegments =
+            AuditClosedSpoolChainReader.MaximumSpoolInventoryEntries - 2;
+        for (var index = 0; index < seededSegments; index++)
+        {
+            var identity = AuditSpoolSegmentIdentity.Create(Guid.NewGuid(), 0);
+            using (SecureAuditStorage.CreateExclusiveFile(
+                       Path.Combine(options.SpoolDirectory, identity.FileName)))
+            {
+            }
+        }
+
+        var sink = new FileAuditJournalSink(options, BootId, () => BaseTime);
+        var admittedPath = sink.CurrentSegmentPath;
+        Assert.Equal(
+            AuditClosedSpoolChainReader.MaximumSpoolInventoryEntries,
+            Directory.EnumerateFileSystemEntries(options.SpoolDirectory).Count());
+
+        using (var journal = Journal(
+                   options,
+                   new AuditHealth(options, () => BaseTime),
+                   sink,
+                   BootId))
+        {
+            Assert.True(journal.TryReserve(2, out var existing, out _));
+            journal.Append(existing!, Input("call.accepted"));
+
+            Assert.False(journal.TryReserve(1, out var refused, out var failure));
+            Assert.Null(refused);
+            Assert.Equal("journal.storage", failure);
+            Assert.False(journal.IsPoisoned);
+            Assert.Equal(admittedPath, sink.CurrentSegmentPath);
+
+            journal.Append(existing!, Input("call.completed"));
+            existing!.Release();
+            Assert.False(journal.IsPoisoned);
+        }
+
+        var eventTypes = File.ReadLines(admittedPath)
+            .Select(line => JsonDocument.Parse(line))
+            .Select(document =>
+            {
+                using (document)
+                    return document.RootElement.GetProperty("event_type").GetString()!;
+            })
+            .ToArray();
+        Assert.Equal(
+            ["call.accepted", "audit.degraded", "call.completed"],
+            eventTypes);
+        Assert.Equal(
+            AuditClosedSpoolChainReader.MaximumSpoolInventoryEntries,
+            Directory.EnumerateFileSystemEntries(options.SpoolDirectory).Count());
+
+        FileAuditJournalSink? unexpected = null;
+        try
+        {
+            var exception = Assert.Throws<IOException>(() => unexpected =
+                new FileAuditJournalSink(
+                    options,
+                    Guid.Parse("32345678-1234-4abc-8def-0123456789ab"),
+                    () => BaseTime));
+            Assert.Contains("recovery inventory capacity", exception.Message);
+        }
+        finally
+        {
+            unexpected?.Dispose();
+        }
+        Assert.False(File.Exists(Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(
+                Guid.Parse("32345678-1234-4abc-8def-0123456789ab"),
+                0).FileName)));
+    }
+
+    [Fact]
+    public void Boot_chain_ceiling_refuses_segment_256_without_stranding_a_terminal()
+    {
+        var future = new DateTimeOffset(2100, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var options = Options(NewRoot(), segmentSlots: 3, aggregateSegments: 2);
+        var sink = new FileAuditJournalSink(options, BootId, () => future);
+        for (var index = 1;
+             index < AuditClosedSpoolChainReader.MaximumClosedChainSegments;
+             index++)
+        {
+            sink.Append(new byte[] { (byte)'\n' });
+            sink.FlushToDisk();
+            Assert.True(sink.CanReserve(options.SegmentBytes));
+            Assert.Equal(index, sink.CurrentSegmentIdentity.Index);
+        }
+
+        var finalPath = sink.CurrentSegmentPath;
+        using (var journal = Journal(
+                   options,
+                   new AuditHealth(options, () => future),
+                   sink,
+                   BootId))
+        {
+            Assert.True(journal.TryReserve(2, out var existing, out _));
+            journal.Append(existing!, Input("call.accepted"));
+
+            Assert.False(journal.TryReserve(1, out var refused, out var failure));
+            Assert.Null(refused);
+            Assert.Equal("journal.storage", failure);
+            Assert.False(journal.IsPoisoned);
+            Assert.Equal(finalPath, sink.CurrentSegmentPath);
+            Assert.Equal(
+                AuditClosedSpoolChainReader.MaximumClosedChainSegments - 1,
+                sink.CurrentSegmentIdentity.Index);
+
+            journal.Append(existing!, Input("call.completed"));
+            existing!.Release();
+            Assert.False(journal.IsPoisoned);
+        }
+
+        Assert.False(File.Exists(Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(
+                BootId,
+                AuditClosedSpoolChainReader.MaximumClosedChainSegments).FileName)));
+    }
+
+    [Fact]
     public async Task Case_aliases_of_one_spool_share_the_filesystem_quota_lock()
     {
         var options = Options(NewRoot(), segmentSlots: 2, aggregateSegments: 4);

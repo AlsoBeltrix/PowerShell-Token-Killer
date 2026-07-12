@@ -7,7 +7,12 @@ foundation landed at `460c106` and passed the required Claude reviewloop on
 committed at `8470b4b`, and the protected export-configuration identity
 foundation is committed at `5238984`; strict exporter configuration is
 committed at `eb0060f`; durable atomic sidecar replacement is committed at
-`815a3f1`. OTLP checkpoint/export/retention remains in flight.
+`815a3f1`. Foundations through `1ce5900` add canonical per-boot spool
+identities, a strict checkpoint codec/store and exclusive lease, the
+committed-live read seam, crash-safe macOS compaction, and shared strict spool
+record validation. The closed-chain reader, orphan adoption, OTLP
+transport/recovery, evidence integration, and coordinated retention remain in
+flight.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -1090,13 +1095,16 @@ Windows Event Log/WEF and RFC 5424 syslog/TLS adapters; PTK does not carry a
 vendor SDK per SIEM. A collector running under a different OS principal and a
 remote append-controlled index are the recommended protected deployment.
 
-The exporter checkpoint is atomic sidecar state containing spool file
-identity, byte offset, sequence, and acknowledged event ID plus a nullable
-blocked-record tuple: blocked file/offset/sequence/event ID, failure class,
-HTTP/protocol detail code, response digest, first-failure UTC, and stable
-export-configuration identity. It is not a core audit event, is never exported,
-and does not participate in the event hash chain. Acknowledging an event
-updates only that sidecar.
+The exporter checkpoint is per-boot atomic sidecar state containing supervisor
+boot identity, chain-complete state, spool file identity, byte offset,
+sequence, and acknowledged event ID plus a nullable blocked-record tuple:
+blocked file/offset/sequence/event ID, failure class, HTTP/protocol detail
+code, response digest, first-failure UTC, and stable export-configuration
+identity. The protected files are
+`export.checkpoint-<supervisor-boot-id:N>.json` and the persistent exclusive
+lease `export.checkpoint-<supervisor-boot-id:N>.lock`. The checkpoint is not a
+core audit event, is never exported, and does not participate in the event
+hash chain. Acknowledging an event updates only that sidecar.
 
 The stable configuration identity is HMAC-SHA-256 over ASCII
 `ptk.export-config/1\0` and the complete export configuration: verbatim

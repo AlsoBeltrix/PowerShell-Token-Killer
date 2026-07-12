@@ -80,8 +80,11 @@ bounded quota but is not independently evicted while retained journal records
 may still reference it; PTK fails new script-bearing admission when that quota
 is full pending coordinated journal/evidence retention.
 `PTK_AUDIT_ROOT` may select a different absolute operator-controlled root at
-process startup. SIEM/OTLP export is not part of this slice yet; local-only
-operation remains complete without it.
+process startup. The executable still operates local-only. Internal strict
+export-configuration, per-boot checkpoint/lease, committed-read, and
+spool-record validation foundations exist, but PTK sends no collector requests
+and anchored mode is not yet operator-accessible. Local-only operation remains
+complete without a SIEM.
 
 `ptk_invoke` returns command output, then labeled sections when present, in
 this order: `[exit] N`, `[stderr]`, `[errors]`, and `[warnings]`. Empty
@@ -270,5 +273,5 @@ audit adds durable attribution, ordering, capacity guarantees, and tamper
 evidence; it does not grant or remove PowerShell/OS permissions. Run the
 harness under the restricted identity whose upstream RBAC is meant to govern
 the work. Local-only files are protected from other identities but are not
-claimed immutable against the same account; anchored SIEM export is a later
-slice.
+claimed immutable against the same account. Anchored SIEM export is not
+operational in the current executable.

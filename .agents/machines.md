@@ -38,7 +38,7 @@ installed-payload update._
 
 ### Audited-harness Slice 2 in-flight checkout validation
 
-_Verified 2026-07-11 through `815a3f1`; this was checkout validation, not an
+_Verified 2026-07-11 through `1ce5900`; this was checkout validation, not an
 installed-payload update._
 
 - At `8470b4b`, the full .NET suite passed 390/390, the PowerShell module suite
@@ -56,6 +56,19 @@ installed-payload update._
   passed with a zero-warning build. Atomic replacement guards rejected
   delete-gap-move publication, post-commit destination deletion, and removed
   owner-only protection checks.
+- At `93ebb4c`, the full .NET suite passed 536/536, the PowerShell module suite
+  passed 134/136 with its two Windows-only skips, and the stdio handshake
+  passed with a zero-warning build. At `56e30b0`, the full .NET suite passed
+  543/543 with the same PowerShell/handshake battery; at `9651941`, it passed
+  552/552 with that battery again.
+- At `480713d`, the focused `FileAuditJournalSinkTests` suite passed 35/35;
+  crash-safe macOS compaction guards covered publication, clone/copy failure,
+  missing paths, allocation metadata, and repeated startup.
+- At `0684af5`, the stdio handshake passed with a zero-warning build after the
+  shared strict spool-record codec landed. At `1ce5900`, the exact-head full
+  .NET suite passed 587/587. Later focused record-validation guards rejected
+  malformed prior hashes, noncanonical boot IDs, and empty intermediate
+  segments.
 
 ## `NETWATCH-01` — Michael's Windows machine
 
@@ -116,9 +129,10 @@ installed Windows payload and existing repository were not changed._
 - At `eb0060f`, the full .NET suite passed 455/455. Focused configuration/ACL
   and Schannel mTLS guards also passed. The exact Windows Pester and handshake
   checks were not rerun at this commit.
-- `815a3f1` Windows validation remains pending because `netwatch-01` stopped
-  resolving from the development host during this checkpoint; no host-key
-  bypass was attempted.
+- Every Slice 2 commit after `eb0060f`, through `1ce5900`, still needs exact
+  Windows validation because `netwatch-01` stopped resolving from the
+  development host; the 2026-07-11 retry failed at DNS resolution and no
+  host-key bypass was attempted.
 
 ## Disposable Ubuntu 26.04 ARM64 validation
 

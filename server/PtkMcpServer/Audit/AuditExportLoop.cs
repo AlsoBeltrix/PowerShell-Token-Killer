@@ -321,7 +321,9 @@ internal sealed class AuditExportLoop : IAsyncDisposable
                 observedStep,
                 _timeProvider.GetUtcNow().ToUniversalTime()));
         }
-        catch (Exception exception) when (!IsFatal(exception))
+        catch (Exception exception) when (
+            !IsFatal(exception) &&
+            exception is not AuditExportTransitionPersistenceException)
         {
             // Health reporting is deliberately observational. It cannot turn
             // a successful export/checkpoint operation into an export fault.

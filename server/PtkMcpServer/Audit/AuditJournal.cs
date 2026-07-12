@@ -544,6 +544,44 @@ internal sealed class AuditJournal : IDisposable
         }
     }
 
+    /// <summary>
+    /// Persists one bounded supervisor-generated transition from the emergency
+    /// capacity excluded from every ordinary reservation. This path must be
+    /// used only for automatic containment/health facts: it deliberately does
+    /// not consult admission or rotation quota again, because those facts must
+    /// remain writable at high water. Any failure closes this journal instance.
+    /// </summary>
+    internal SerializedAuditEvent AppendAutomaticTransition(AuditEventInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        lock (_gate)
+        {
+            ThrowIfClosedOrPoisonedLocked();
+            _reservedSlots = checked(_reservedSlots + 1);
+            var transition = new AuditReservation(this, 1);
+            try
+            {
+                return Append(transition, input);
+            }
+            catch (AuditUnavailableException)
+            {
+                // Append already recorded the authoritative append/flush
+                // failure and poisoned this journal.
+                throw;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                PoisonLocked("journal.transition");
+                throw new AuditUnavailableException();
+            }
+            finally
+            {
+                transition.Release();
+            }
+        }
+    }
+
     internal Guid CreateCallId()
     {
         lock (_gate)

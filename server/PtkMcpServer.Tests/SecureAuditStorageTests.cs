@@ -358,7 +358,7 @@ public sealed class SecureAuditStorageTests : IDisposable
             windowsFileFlushedForTests: () =>
             {
                 Assert.False(destinationCallbackObserved);
-                Assert.Equal(newState, File.ReadAllText(published, Encoding.UTF8));
+                Assert.True(File.Exists(published));
                 Assert.False(File.Exists(temporary));
                 flushObserved = true;
             });

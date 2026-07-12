@@ -5,19 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slice 2 is accepted pending local landing.** The final
+- **Audited-harness Slice 2 is complete locally.** The final
   integrated code head `3d3739a` completes job/control audit, local-only and
   anchored OTLP export, evidence administration and retention, permanent
   operator disposition, and the strict `ptk.audit/2` extension. Claude
   accepted the exact fixed head with `guard_confirmed=true`; all four material
-  integrated-review findings are closed. Canonical review and platform
-  evidence are in `.agents/review/index.md` and `.agents/machines.md`.
+  integrated-review findings are closed, and the accepted feature history was
+  fast-forwarded to local `master`. Canonical review and platform evidence are
+  in `.agents/review/index.md` and `.agents/machines.md`.
 - **Local branch management is delegated for the remaining audited-harness
   implementation** (owner, 2026-07-11): create, switch, merge, and delete local
   implementation/review branches without per-merge confirmation. Push remains
   separately ask-first.
-- **Audited-harness slices 0-1 are complete locally; accepted Slice 2 is the
-  next local fast-forward.** Slice 1 commit
+- **Audited-harness slices 0-2 are complete locally.** Slice 1 commit
   `460c106` adds the mandatory current-server audit foundation, exact-script
   evidence, capacity reservation, protected local storage, and fail-closed
   pre-effect guards. Claude accepted the fixed-SHA implementation after an
@@ -50,8 +50,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Fast-forward accepted audited-harness Slice 2 to local `master`, record the
-   content proof, then begin Slice 3 structured routing with no model retry.
+1. Begin audited-harness Slice 3 structured routing with no model retry. Carry
+   an immutable foreground execution plan through preparation, audit, and
+   dispatch before changing routing policy or Bash execution.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
@@ -97,10 +98,9 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- Audited-session slices 0-1 are complete. Slice 2's exact fixed-head Claude
-  acceptance and cross-platform verification are complete; local landing is
-  the only remaining Slice 2 action. Canonical evidence lives in
-  `.agents/review/index.md` and `.agents/machines.md`.
+- Audited-session slices 0-2 are complete locally. Slice 2's exact fixed-head
+  Claude acceptance, cross-platform verification, and local landing record
+  live in `.agents/review/index.md` and `.agents/machines.md`.
 
 ## Active Sources
 

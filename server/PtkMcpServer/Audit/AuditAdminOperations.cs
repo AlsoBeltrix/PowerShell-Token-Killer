@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Runtime.ExceptionServices;
 
 namespace PtkMcpServer.Audit;
@@ -150,6 +151,9 @@ internal sealed class AuditAdminOperations
     {
         var parsedEvidenceId = TryParseEvidenceId(evidenceId);
         EvidenceExportPublication? exportPublication = null;
+        var readWriteStarted = false;
+        long? readBytesReleased = null;
+        string? readScriptDigest = null;
         using var reservation = ReserveOperation();
         var intent = AppendEvent(
             reservation,
@@ -181,7 +185,13 @@ internal sealed class AuditAdminOperations
             {
                 reference = store.ReadExact(evidenceId, bytes =>
                 {
+                    readScriptDigest = Convert.ToHexString(
+                        SHA256.HashData(bytes.Span)).ToLowerInvariant();
+                    readWriteStarted = true;
                     destination.Write(bytes.Span);
+                    // Stream.Write either returns after accepting the full
+                    // span or throws with an unknowable partial effect.
+                    readBytesReleased = bytes.Length;
                     destination.Flush();
                 });
             }
@@ -217,7 +227,18 @@ internal sealed class AuditAdminOperations
                 parsedEvidenceId,
                 intent.EventId,
                 declaredTarget: null,
-                reservation);
+                reservation,
+                failureDetailCode: destination is null
+                    ? "operation.failed"
+                    : readBytesReleased.HasValue
+                        ? "operation.flush_failed_after_disclosure"
+                        : readWriteStarted
+                            ? "operation.disclosure_unknown"
+                            : "operation.failed_before_disclosure",
+                failureScriptDigest: readScriptDigest,
+                failureBytesReturned: destination is not null && !readWriteStarted
+                    ? 0
+                    : readBytesReleased);
             throw;
         }
         finally
@@ -486,7 +507,10 @@ internal sealed class AuditAdminOperations
         Guid? evidenceId,
         Guid parentEventId,
         string? declaredTarget,
-        AuditReservation reservation)
+        AuditReservation reservation,
+        string failureDetailCode = "operation.failed",
+        string? failureScriptDigest = null,
+        long? failureBytesReturned = null)
     {
         try
         {
@@ -495,10 +519,10 @@ internal sealed class AuditAdminOperations
                 eventType,
                 action,
                 "failed",
-                "operation.failed",
+                failureDetailCode,
                 evidenceId,
-                scriptDigest: null,
-                bytesReturned: null,
+                failureScriptDigest,
+                failureBytesReturned,
                 parentEventId,
                 declaredTarget);
         }

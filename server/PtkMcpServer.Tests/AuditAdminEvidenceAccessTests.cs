@@ -65,6 +65,59 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
         Assert.Equal(
             ["evidence.read_intent", "evidence.read_failed"],
             fixture.Sink.Lines.Select(EventType).ToArray());
+        using var failure = JsonDocument.Parse(fixture.Sink.Lines[1]);
+        Assert.Equal(
+            "operation.failed_before_disclosure",
+            failure.RootElement.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal(
+            0,
+            failure.RootElement.GetProperty("outcome").GetProperty("bytes_returned").GetInt64());
+    }
+
+    [Fact]
+    public void Read_flush_failure_records_full_disclosure_after_write_returned()
+    {
+        var options = Options();
+        var stored = new ScriptEvidenceStore(options).Store("Get-FlushedSecret");
+        using var fixture = Journal(options);
+        var operations = new AuditAdminOperations(options, fixture.Journal);
+        using var output = new FlushFailingStream();
+
+        Assert.Throws<AuditAdminOperationException>(() =>
+            operations.ReadEvidence(stored.EvidenceId, output));
+
+        Assert.Equal("Get-FlushedSecret", Encoding.UTF8.GetString(output.Bytes));
+        using var failure = JsonDocument.Parse(fixture.Sink.Lines[1]);
+        var request = failure.RootElement.GetProperty("request");
+        var outcome = failure.RootElement.GetProperty("outcome");
+        Assert.Equal(stored.ScriptDigest, request.GetProperty("original_script_digest").GetString());
+        Assert.Equal(
+            "operation.flush_failed_after_disclosure",
+            outcome.GetProperty("detail_code").GetString());
+        Assert.Equal(stored.ByteLength, outcome.GetProperty("bytes_returned").GetInt64());
+    }
+
+    [Fact]
+    public void Read_write_failure_records_unknown_partial_disclosure()
+    {
+        var options = Options();
+        var stored = new ScriptEvidenceStore(options).Store("Get-PartialSecret");
+        using var fixture = Journal(options);
+        var operations = new AuditAdminOperations(options, fixture.Journal);
+        using var output = new PartialWriteFailingStream();
+
+        Assert.Throws<AuditAdminOperationException>(() =>
+            operations.ReadEvidence(stored.EvidenceId, output));
+
+        Assert.NotEmpty(output.Bytes);
+        using var failure = JsonDocument.Parse(fixture.Sink.Lines[1]);
+        var request = failure.RootElement.GetProperty("request");
+        var outcome = failure.RootElement.GetProperty("outcome");
+        Assert.Equal(stored.ScriptDigest, request.GetProperty("original_script_digest").GetString());
+        Assert.Equal(
+            "operation.disclosure_unknown",
+            outcome.GetProperty("detail_code").GetString());
+        Assert.Equal(JsonValueKind.Null, outcome.GetProperty("bytes_returned").ValueKind);
     }
 
     [Fact]
@@ -223,5 +276,23 @@ public sealed class AuditAdminEvidenceAccessTests : IDisposable
         InMemoryAuditJournalSink Sink) : IDisposable
     {
         public void Dispose() => Journal.Dispose();
+    }
+
+    private sealed class FlushFailingStream : MemoryStream
+    {
+        internal byte[] Bytes => ToArray();
+
+        public override void Flush() => throw new IOException("injected flush failure");
+    }
+
+    private sealed class PartialWriteFailingStream : MemoryStream
+    {
+        internal byte[] Bytes => ToArray();
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            base.Write(buffer[..Math.Max(1, buffer.Length / 2)]);
+            throw new IOException("injected partial write failure");
+        }
     }
 }

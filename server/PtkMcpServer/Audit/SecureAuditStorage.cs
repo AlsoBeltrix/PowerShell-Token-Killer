@@ -261,11 +261,13 @@ internal static class SecureAuditStorage
 
         if (OperatingSystem.IsWindows())
         {
-            if (!WindowsNative.MoveFileEx(
-                    temporaryPath,
+            if (!WindowsNative.ReplaceFile(
                     publishedPath,
-                    WindowsNative.MoveFileFlags.ReplaceExisting |
-                    WindowsNative.MoveFileFlags.WriteThrough))
+                    temporaryPath,
+                    backupFileName: null,
+                    replaceFlags: 0,
+                    exclude: IntPtr.Zero,
+                    reserved: IntPtr.Zero))
             {
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
             }
@@ -1188,7 +1190,6 @@ internal static class SecureAuditStorage
         [Flags]
         internal enum MoveFileFlags : uint
         {
-            ReplaceExisting = 0x00000001,
             WriteThrough = 0x00000008,
         }
 
@@ -1405,6 +1406,21 @@ internal static class SecureAuditStorage
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool MoveFileEx(string existingFileName, string newFileName, MoveFileFlags flags);
+
+        [DllImport(
+            "kernel32.dll",
+            EntryPoint = "ReplaceFileW",
+            CharSet = CharSet.Unicode,
+            ExactSpelling = true,
+            SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool ReplaceFile(
+            string replacedFileName,
+            string replacementFileName,
+            string? backupFileName,
+            uint replaceFlags,
+            IntPtr exclude,
+            IntPtr reserved);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

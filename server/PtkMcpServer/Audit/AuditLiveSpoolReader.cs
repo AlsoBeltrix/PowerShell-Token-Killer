@@ -46,11 +46,13 @@ internal sealed record AuditLiveSpoolPoll(
 /// explicit transitions for the higher-level source to reconcile through a
 /// retained closed-prefix or full-chain snapshot.
 /// </summary>
-internal sealed class AuditLiveSpoolReader
+internal sealed class AuditLiveSpoolReader : IDisposable
 {
     private readonly AuditJournal _journal;
     private readonly Guid _supervisorBootId;
     private readonly int _maximumRecordBytes;
+    private readonly string _exportConfigurationIdentity;
+    private readonly AuditExportCheckpointStore.ClosedChainReaderLease _checkpointLease;
     private readonly object _gate = new();
     private readonly object _generation = new();
     private AuditSpoolSegmentIdentity _currentSegment;
@@ -60,10 +62,14 @@ internal sealed class AuditLiveSpoolReader
     private RecordPosition? _pending;
     private object _rotationGeneration = new();
     private RotationPosition? _pendingRotation;
+    private bool _disposed;
 
-    internal AuditLiveSpoolReader(AuditJournal journal)
+    internal AuditLiveSpoolReader(
+        AuditJournal journal,
+        AuditExportCheckpointStore checkpointStore)
     {
         ArgumentNullException.ThrowIfNull(journal);
+        ArgumentNullException.ThrowIfNull(checkpointStore);
         var options = journal.Options;
         if (options.ProtectionMode != AuditProtectionMode.Anchored)
         {
@@ -74,14 +80,44 @@ internal sealed class AuditLiveSpoolReader
 
         _journal = journal;
         _supervisorBootId = journal.SupervisorBootId;
+        if (checkpointStore.SupervisorBootId != _supervisorBootId)
+        {
+            throw new ArgumentException(
+                "The live audit spool checkpoint owner belongs to another supervisor boot.",
+                nameof(checkpointStore));
+        }
         _maximumRecordBytes = options.MaxRecordBytes;
+        _exportConfigurationIdentity = options.ExportConfigurationIdentity
+            ?? throw new IOException(
+                "The anchored live audit reader has no export configuration identity.");
         _currentSegment = AuditSpoolSegmentIdentity.Create(_supervisorBootId, 0);
+        _checkpointLease = checkpointStore.RetainExportReader(options);
+        try
+        {
+            _checkpointLease.WithOwnedCheckpoint(checkpoint =>
+            {
+                if (checkpoint.Sequence != 0 ||
+                    checkpoint.ChainComplete ||
+                    checkpoint.BlockedRecord is not null)
+                {
+                    throw new IOException(
+                        "A new live audit spool reader requires the initial export checkpoint.");
+                }
+                return true;
+            });
+        }
+        catch
+        {
+            _checkpointLease.Dispose();
+            throw;
+        }
     }
 
     internal AuditLiveSpoolPoll Poll()
     {
         lock (_gate)
         {
+            ThrowIfDisposed();
             if (_pending is { } pending)
             {
                 return new AuditLiveSpoolPoll(
@@ -119,16 +155,14 @@ internal sealed class AuditLiveSpoolReader
         }
     }
 
-    /// <summary>
-    /// Advances the in-memory live cursor only after its caller has durably
-    /// persisted remote acknowledgment through the checkpoint capability.
-    /// </summary>
-    internal void AdvanceAfterDurableAcknowledgment(
-        IAuditLiveSpoolRecordPosition position)
+    internal void Acknowledge(
+        IAuditLiveSpoolRecordPosition position,
+        string exportConfigurationIdentity)
     {
         ArgumentNullException.ThrowIfNull(position);
         lock (_gate)
         {
+            ThrowIfDisposed();
             if (position is not RecordPosition owned ||
                 !ReferenceEquals(owned.Owner, this) ||
                 !ReferenceEquals(owned.Generation, _generation) ||
@@ -139,11 +173,55 @@ internal sealed class AuditLiveSpoolReader
                     nameof(position));
             }
 
+            RequireExportConfigurationIdentity(exportConfigurationIdentity);
+            var nextSequence = CheckedNext(owned.Sequence);
+            _checkpointLease.Acknowledge(
+                owned.Spool,
+                owned.NextOffset,
+                owned.Sequence,
+                owned.EventId,
+                exportConfigurationIdentity);
             _currentSegment = owned.Spool;
             _offset = owned.NextOffset;
-            _expectedSequence = CheckedNext(owned.Sequence);
+            _expectedSequence = nextSequence;
             _previousHash = owned.EventHash;
             _pending = null;
+        }
+    }
+
+    internal void PersistBlock(
+        IAuditLiveSpoolRecordPosition position,
+        AuditExportFailureClass failureClass,
+        string detailCode,
+        string? responseDigest,
+        DateTimeOffset firstFailureUtc,
+        string exportConfigurationIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            if (position is not RecordPosition owned ||
+                !ReferenceEquals(owned.Owner, this) ||
+                !ReferenceEquals(owned.Generation, _generation) ||
+                !ReferenceEquals(owned, _pending))
+            {
+                throw new ArgumentException(
+                    "The live audit spool position is not the exact pending record.",
+                    nameof(position));
+            }
+
+            RequireExportConfigurationIdentity(exportConfigurationIdentity);
+            _checkpointLease.PersistBlock(
+                owned.Spool,
+                owned.StartOffset,
+                owned.Sequence,
+                owned.EventId,
+                failureClass,
+                detailCode,
+                responseDigest,
+                firstFailureUtc,
+                exportConfigurationIdentity);
         }
     }
 
@@ -173,6 +251,7 @@ internal sealed class AuditLiveSpoolReader
 
         lock (_gate)
         {
+            ThrowIfDisposed();
             if (rotation is not RotationPosition owned ||
                 !ReferenceEquals(owned.Owner, this) ||
                 !ReferenceEquals(owned, _pendingRotation) ||
@@ -218,6 +297,7 @@ internal sealed class AuditLiveSpoolReader
     {
         lock (_gate)
         {
+            ThrowIfDisposed();
             if (expectedSupervisorBootId != _supervisorBootId ||
                 !ReferenceEquals(position.Owner, this) ||
                 !ReferenceEquals(position, _pendingRotation) ||
@@ -332,6 +412,35 @@ internal sealed class AuditLiveSpoolReader
         _rotationGeneration = new object();
         return new AuditLiveSpoolPoll(AuditLiveSpoolPollKind.WriterClosed, observed);
     }
+
+    public void Dispose()
+    {
+        lock (_gate)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _pending = null;
+            _pendingRotation = null;
+            _rotationGeneration = new object();
+        }
+        _checkpointLease.Dispose();
+    }
+
+    private void RequireExportConfigurationIdentity(string value)
+    {
+        if (!string.Equals(
+                value,
+                _exportConfigurationIdentity,
+                StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "The live audit spool outcome does not match its startup export configuration.",
+                nameof(value));
+        }
+    }
+
+    private void ThrowIfDisposed() =>
+        ObjectDisposedException.ThrowIf(_disposed, this);
 
     private static long CheckedNext(long sequence)
     {

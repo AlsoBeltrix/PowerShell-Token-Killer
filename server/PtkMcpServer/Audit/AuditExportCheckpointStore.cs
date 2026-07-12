@@ -376,7 +376,7 @@ internal sealed class AuditExportCheckpointStore : IDisposable
         }
     }
 
-    internal ClosedChainReaderLease RetainClosedChainReader(AuditOptions options)
+    internal ClosedChainReaderLease RetainExportReader(AuditOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         lock (_lifetimeGate)
@@ -386,7 +386,7 @@ internal sealed class AuditExportCheckpointStore : IDisposable
                 !PathsEqual(options.RootDirectory, _root))
             {
                 throw new ArgumentException(
-                    "The audit checkpoint owner does not match this closed spool reader.",
+                    "The audit checkpoint owner does not match this export reader.",
                     nameof(options));
             }
 

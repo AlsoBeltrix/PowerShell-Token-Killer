@@ -15,8 +15,8 @@ public sealed class AuditLiveSpoolReaderTests
     public void Reads_exact_records_and_advances_only_the_opaque_pending_position()
     {
         using var fixture = new LiveFixture();
-        var reader = new AuditLiveSpoolReader(fixture.Journal);
-        var otherReader = new AuditLiveSpoolReader(fixture.Journal);
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
+        using var otherReader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
         var firstExpected = fixture.Append("call.accepted");
         var secondExpected = fixture.Append("call.completed");
 
@@ -32,36 +32,86 @@ public sealed class AuditLiveSpoolReaderTests
         var repeated = reader.Poll();
         Assert.Same(first, repeated.Record);
         Assert.Throws<ArgumentException>(() =>
-            otherReader.AdvanceAfterDurableAcknowledgment(first));
+            otherReader.Acknowledge(first, ConfigurationIdentity));
 
-        reader.AdvanceAfterDurableAcknowledgment(first);
+        reader.Acknowledge(first, ConfigurationIdentity);
         Assert.Throws<ArgumentException>(() =>
-            reader.AdvanceAfterDurableAcknowledgment(first));
+            reader.Acknowledge(first, ConfigurationIdentity));
 
         var second = Assert.IsAssignableFrom<IAuditLiveSpoolRecordPosition>(
             reader.Poll().Record);
         Assert.Equal(secondExpected.Utf8Line.ToArray(), second.ExactJsonlBytes.ToArray());
         Assert.Equal(2, second.Sequence);
         Assert.Equal(first.EventHash, second.PreviousEventHash);
-        reader.AdvanceAfterDurableAcknowledgment(second);
+        reader.Acknowledge(second, ConfigurationIdentity);
 
         var tail = reader.Poll();
         Assert.Equal(AuditLiveSpoolPollKind.AtCommittedTail, tail.Kind);
         Assert.Null(tail.Record);
         Assert.Equal(second.NextOffset, fixture.Sink.CurrentSegmentBytes);
-        Assert.Equal(0, fixture.Store.Current.Sequence);
+        Assert.Equal(2, fixture.Store.Current.Sequence);
         Assert.False(fixture.Store.Current.ChainComplete);
+    }
+
+    [Fact]
+    public void Durable_checkpoint_failure_leaves_the_exact_live_record_pending()
+    {
+        using var fixture = new LiveFixture();
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
+        _ = fixture.Append("call.accepted");
+        var pending = Assert.IsAssignableFrom<IAuditLiveSpoolRecordPosition>(
+            reader.Poll().Record);
+        fixture.Store.SaveForTests(new AuditExportCheckpoint(
+            BootId,
+            chainComplete: true,
+            spool: null,
+            byteOffset: 0,
+            sequence: 0,
+            acknowledgedEventId: null,
+            blockedRecord: null));
+
+        Assert.Throws<ArgumentException>(() =>
+            reader.Acknowledge(pending, ConfigurationIdentity));
+        Assert.Same(pending, reader.Poll().Record);
+    }
+
+    [Fact]
+    public void Durable_live_block_pins_the_pending_record_and_checkpoint()
+    {
+        using var fixture = new LiveFixture();
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
+        _ = fixture.Append("call.accepted");
+        var pending = Assert.IsAssignableFrom<IAuditLiveSpoolRecordPosition>(
+            reader.Poll().Record);
+        var firstFailure = DateTimeOffset.Parse("2026-07-11T12:34:56Z");
+
+        reader.PersistBlock(
+            pending,
+            AuditExportFailureClass.Configuration,
+            "http.401",
+            responseDigest: null,
+            firstFailure,
+            ConfigurationIdentity);
+
+        var blocked = Assert.IsType<AuditExportBlockedRecord>(
+            fixture.Store.Current.BlockedRecord);
+        Assert.Equal(pending.EventId, blocked.EventId);
+        Assert.Equal(firstFailure, blocked.FirstFailureUtc);
+        Assert.Same(pending, reader.Poll().Record);
+        Assert.Throws<InvalidOperationException>(() =>
+            reader.Acknowledge(pending, ConfigurationIdentity));
+        Assert.Equal(0, fixture.Store.Current.Sequence);
     }
 
     [Fact]
     public void Rotation_is_an_explicit_repeatable_transition_not_a_live_tail_or_completion()
     {
         using var fixture = new LiveFixture();
-        var reader = new AuditLiveSpoolReader(fixture.Journal);
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
         _ = fixture.Append("call.accepted");
         var record = Assert.IsAssignableFrom<IAuditLiveSpoolRecordPosition>(
             reader.Poll().Record);
-        reader.AdvanceAfterDurableAcknowledgment(record);
+        reader.Acknowledge(record, ConfigurationIdentity);
         Assert.True(fixture.Sink.CanReserve(16_000));
         var boundary = fixture.Sink.CurrentSegmentIdentity;
 
@@ -81,11 +131,11 @@ public sealed class AuditLiveSpoolReaderTests
     public void Writer_closure_dominates_an_unseen_rotation_and_reports_the_final_segment()
     {
         using var fixture = new LiveFixture();
-        var reader = new AuditLiveSpoolReader(fixture.Journal);
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
         _ = fixture.Append("call.accepted");
         var record = Assert.IsAssignableFrom<IAuditLiveSpoolRecordPosition>(
             reader.Poll().Record);
-        reader.AdvanceAfterDurableAcknowledgment(record);
+        reader.Acknowledge(record, ConfigurationIdentity);
         Assert.True(fixture.Sink.CanReserve(16_000));
         var finalIdentity = fixture.Sink.CurrentSegmentIdentity;
         fixture.Journal.Dispose();
@@ -103,7 +153,7 @@ public sealed class AuditLiveSpoolReaderTests
     public void Closed_prefix_proof_resumes_the_live_reader_with_exact_hash_state()
     {
         using var fixture = new LiveFixture();
-        var reader = new AuditLiveSpoolReader(fixture.Journal);
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
         var firstExpected = fixture.Append("call.accepted");
         var secondExpected = fixture.Append("call.completed");
         Assert.True(fixture.Sink.CanReserve(16_000));
@@ -150,7 +200,7 @@ public sealed class AuditLiveSpoolReaderTests
     public void Closed_prefix_proof_cannot_move_live_state_after_checkpoint_change()
     {
         using var fixture = new LiveFixture();
-        var reader = new AuditLiveSpoolReader(fixture.Journal);
+        using var reader = new AuditLiveSpoolReader(fixture.Journal, fixture.Store);
         _ = fixture.Append("call.accepted");
         Assert.True(fixture.Sink.CanReserve(16_000));
         var rotation = Assert.IsAssignableFrom<IAuditLiveSpoolRotationPosition>(

@@ -85,7 +85,7 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
         _spoolRoot = Path.TrimEndingDirectorySeparator(
             Path.GetFullPath(options.SpoolDirectory));
         _handlesAcquiredForTests = handlesAcquiredForTests;
-        _checkpointLease = checkpointStore.RetainClosedChainReader(options);
+        _checkpointLease = checkpointStore.RetainExportReader(options);
     }
 
     internal string ExportConfigurationIdentity =>

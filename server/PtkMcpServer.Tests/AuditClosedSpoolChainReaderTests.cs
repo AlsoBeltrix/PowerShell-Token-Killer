@@ -94,7 +94,7 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
             var secondPath = WriteSegment(options, 1, records[1]);
             var boundary = AuditSpoolSegmentIdentity.Create(BootId, 2);
             using var live = CreateLiveSegment(options, boundary.Index, records[2]);
-            using var rotation = ObserveRotation(options, boundary);
+            using var rotation = ObserveRotation(options, store, boundary);
             // A same-boot suffix is outside this snapshot even when its bytes
             // are not a valid closed record.
             WriteSegmentBytes(options, 3, [(byte)'x']);
@@ -142,6 +142,8 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
         {
             var record = Records(1)[0];
             WriteSegment(options, 0, record);
+            var boundary = AuditSpoolSegmentIdentity.Create(BootId, 1);
+            using var rotation = ObserveRotation(options, store, boundary);
             using var reader = new AuditClosedSpoolChainReader(options, store);
             var position = Assert.IsType<AuditClosedSpoolRecovery.Record>(
                 reader.ResolveCheckpoint()).Position;
@@ -149,9 +151,7 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
             var staleChainEnd = Assert.IsType<AuditClosedSpoolRecovery.ChainEnd>(
                 reader.ResolveCheckpoint()).Position;
 
-            var boundary = AuditSpoolSegmentIdentity.Create(BootId, 1);
             using var live = CreateLiveSegment(options, boundary.Index);
-            using var rotation = ObserveRotation(options, boundary);
             var prefixEnd = Assert.IsType<AuditClosedSpoolRecovery.PrefixEnd>(
                 reader.ResolveClosedPrefix(rotation.Position)).Position;
 
@@ -174,7 +174,7 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
             WriteSegmentBytes(options, 1, [(byte)'{', (byte)'}', (byte)'\n']);
             var boundary = AuditSpoolSegmentIdentity.Create(BootId, 2);
             using var live = CreateLiveSegment(options, boundary.Index);
-            using var rotation = ObserveRotation(options, boundary);
+            using var rotation = ObserveRotation(options, store, boundary);
             store.SaveForTests(new AuditExportCheckpoint(
                 BootId,
                 false,
@@ -208,7 +208,7 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
                 WriteSegment(options, 1);
             var boundary = AuditSpoolSegmentIdentity.Create(BootId, 2);
             using var live = CreateLiveSegment(options, boundary.Index);
-            using var rotation = ObserveRotation(options, boundary);
+            using var rotation = ObserveRotation(options, store, boundary);
             using var reader = new AuditClosedSpoolChainReader(options, store);
 
             Assert.Throws<IOException>(() => reader.ResolveClosedPrefix(rotation.Position));
@@ -231,8 +231,12 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
                 reader.ResolveClosedPrefix(new ForgedRotationPosition()));
 
             var otherBoot = Guid.Parse("32345678-1234-4abc-8def-0123456789ab");
+            using var otherStore = AuditExportCheckpointStore.CreateForWriter(
+                options,
+                otherBoot);
             using var wrongBoot = ObserveRotation(
                 options,
+                otherStore,
                 AuditSpoolSegmentIdentity.Create(otherBoot, 1),
                 otherBoot);
             Assert.Throws<ArgumentException>(() =>
@@ -1163,9 +1167,10 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
 
     private static RotationObservation ObserveRotation(
         AuditOptions options,
+        AuditExportCheckpointStore store,
         AuditSpoolSegmentIdentity boundary,
         Guid? supervisorBootId = null) =>
-        new(options, supervisorBootId ?? BootId, boundary);
+        new(options, store, supervisorBootId ?? BootId, boundary);
 
     private static string SegmentPath(AuditOptions options, int index) =>
         Path.Combine(
@@ -1241,9 +1246,11 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
     private sealed class RotationObservation : IDisposable
     {
         private readonly AuditJournal _journal;
+        private readonly AuditLiveSpoolReader _reader;
 
         internal RotationObservation(
             AuditOptions options,
+            AuditExportCheckpointStore store,
             Guid supervisorBootId,
             AuditSpoolSegmentIdentity boundary)
         {
@@ -1256,17 +1263,21 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
                 binaryDigest: null,
                 HostId,
                 supervisorBootId);
-            var reader = new AuditLiveSpoolReader(_journal);
-            var first = reader.Poll();
+            _reader = new AuditLiveSpoolReader(_journal, store);
+            var first = _reader.Poll();
             Position = Assert.IsAssignableFrom<IAuditLiveSpoolRotationPosition>(
                 first.Rotation);
-            var repeated = reader.Poll();
+            var repeated = _reader.Poll();
             Assert.Same(Position, repeated.Rotation);
         }
 
         internal IAuditLiveSpoolRotationPosition Position { get; }
 
-        public void Dispose() => _journal.Dispose();
+        public void Dispose()
+        {
+            _reader.Dispose();
+            _journal.Dispose();
+        }
     }
 
     private sealed class RotationSourceSink(

@@ -118,7 +118,9 @@ internal sealed class AuditOperatorDispositionOutcome
             var recovered = TryOpenCommitted(options, intent);
             if (recovered is not null)
                 return recovered;
-            throw new IOException("A disposition completion publication is already pending.");
+            throw new AuditOperatorDispositionOutcomeException(
+                AuditOperatorDispositionOutcomeFailureKind.Incomplete,
+                "A disposition completion publication is already pending.");
         }
 
         using (var stream = SecureAuditStorage.CreateExclusiveFile(
@@ -148,12 +150,11 @@ internal sealed class AuditOperatorDispositionOutcome
             EntryExists(publishedPath))
         {
             var concurrent = TryOpenCommitted(options, intent)
-                ?? throw new IOException("The disposition completion publication is ambiguous.");
+                ?? throw InvalidControl("The disposition completion publication is ambiguous.");
             return concurrent;
         }
         afterPublishedForTests?.Invoke();
-        var committed = Read(publishedPath);
-        RequireCompatible(committed, intent);
+        var committed = ReadControl(publishedPath, intent);
         return committed;
     }
 
@@ -177,10 +178,11 @@ internal sealed class AuditOperatorDispositionOutcome
         {
             if (OperatingSystem.IsWindows())
             {
-                throw new IOException(
+                throw new AuditOperatorDispositionOutcomeException(
+                    AuditOperatorDispositionOutcomeFailureKind.Invalid,
                     "The disposition completion publication has ambiguous aliases.");
             }
-            RecoverPublishedAlias(
+            RecoverPublishedAliasControl(
                 root,
                 publishedPath,
                 temporaryPath,
@@ -191,8 +193,7 @@ internal sealed class AuditOperatorDispositionOutcome
         }
         else if (!publishedExists && temporaryExists)
         {
-            var pending = Read(temporaryPath);
-            RequireCompatible(pending, intent);
+            var pending = ReadControl(temporaryPath, intent);
             try
             {
                 SecureAuditStorage.PublishAtomically(temporaryPath, publishedPath, root);
@@ -209,10 +210,11 @@ internal sealed class AuditOperatorDispositionOutcome
             {
                 if (OperatingSystem.IsWindows())
                 {
-                    throw new IOException(
+                    throw new AuditOperatorDispositionOutcomeException(
+                        AuditOperatorDispositionOutcomeFailureKind.Invalid,
                         "The disposition completion publication has ambiguous aliases.");
                 }
-                RecoverPublishedAlias(
+                RecoverPublishedAliasControl(
                     root,
                     publishedPath,
                     temporaryPath,
@@ -224,11 +226,14 @@ internal sealed class AuditOperatorDispositionOutcome
         }
 
         if (temporaryExists)
-            throw new IOException("The disposition completion publication is incomplete.");
+        {
+            throw new AuditOperatorDispositionOutcomeException(
+                AuditOperatorDispositionOutcomeFailureKind.Incomplete,
+                "The disposition completion publication is incomplete.");
+        }
         if (!publishedExists)
             return null;
-        var committed = Read(publishedPath);
-        RequireCompatible(committed, intent);
+        var committed = ReadControl(publishedPath, intent);
         return committed;
     }
 
@@ -347,7 +352,8 @@ internal sealed class AuditOperatorDispositionOutcome
                 continue;
             if (entry is not FileInfo file)
             {
-                throw new IOException(
+                throw new AuditOperatorDispositionOutcomeException(
+                    AuditOperatorDispositionOutcomeFailureKind.Invalid,
                     "The audit root contains malformed disposition completion state.");
             }
             Guid bootId;
@@ -357,14 +363,16 @@ internal sealed class AuditOperatorDispositionOutcome
                     : !TryParseTemporaryFileName(file.Name, out bootId, out eventId) ||
                       isPublished)
             {
-                throw new IOException(
+                throw new AuditOperatorDispositionOutcomeException(
+                    AuditOperatorDispositionOutcomeFailureKind.Invalid,
                     "The audit root contains malformed disposition completion state.");
             }
             if (bootId != supervisorBootId)
-                throw new IOException("A disposition completion control names another boot.");
+                throw InvalidControl("A disposition completion control names another boot.");
             var controls = isPublished ? published : temporaries;
             if (!controls.TryAdd(eventId, file.FullName))
-                throw new IOException("The audit root contains duplicate disposition completion state.");
+                throw InvalidControl(
+                    "The audit root contains duplicate disposition completion state.");
         }
 
         var eventIds = published.Keys.Concat(temporaries.Keys).Distinct().ToArray();
@@ -372,12 +380,13 @@ internal sealed class AuditOperatorDispositionOutcome
             published.Count + temporaries.Count >
                 AuditOperatorDispositionIntent.MaximumDispositionsPerBoot * 2)
         {
-            throw new IOException(
+            throw new AuditOperatorDispositionOutcomeException(
+                AuditOperatorDispositionOutcomeFailureKind.Invalid,
                 "The target audit boot exceeds its disposition completion control bound.");
         }
         var intentByEvent = intents.ToDictionary(value => value.EventId);
         if (!allowOrphans && eventIds.Any(eventId => !intentByEvent.ContainsKey(eventId)))
-            throw new IOException("The audit root contains unmatched disposition completion state.");
+            throw InvalidControl("The audit root contains unmatched disposition completion state.");
 
         var outcomes = new Dictionary<Guid, OutcomeControl>();
         foreach (var eventId in eventIds.OrderBy(value => value.ToString("D"), StringComparer.Ordinal))
@@ -391,10 +400,11 @@ internal sealed class AuditOperatorDispositionOutcome
             {
                 if (OperatingSystem.IsWindows())
                 {
-                    throw new IOException(
+                    throw new AuditOperatorDispositionOutcomeException(
+                        AuditOperatorDispositionOutcomeFailureKind.Invalid,
                         "The disposition completion publication has ambiguous aliases.");
                 }
-                RecoverPublishedAlias(
+                RecoverPublishedAliasControl(
                     root,
                     publishedPath,
                     temporaryPath,
@@ -404,9 +414,11 @@ internal sealed class AuditOperatorDispositionOutcome
             }
             else if (hasTemporary)
             {
-                var pending = Read(temporaryPath);
-                RequireNamedOutcome(pending, supervisorBootId, eventId);
-                if (intent is not null) RequireCompatible(pending, intent);
+                var pending = ReadControl(
+                    temporaryPath,
+                    intent,
+                    supervisorBootId,
+                    eventId);
                 try
                 {
                     SecureAuditStorage.PublishAtomically(temporaryPath, publishedPath, root);
@@ -418,8 +430,9 @@ internal sealed class AuditOperatorDispositionOutcome
                     if (EntryExists(temporaryPath))
                     {
                         if (OperatingSystem.IsWindows())
-                            throw new IOException("The disposition completion publication is ambiguous.");
-                        RecoverPublishedAlias(
+                            throw InvalidControl(
+                                "The disposition completion publication is ambiguous.");
+                        RecoverPublishedAliasControl(
                             root,
                             publishedPath,
                             temporaryPath,
@@ -429,9 +442,11 @@ internal sealed class AuditOperatorDispositionOutcome
                     }
                 }
             }
-            var outcome = Read(publishedPath);
-            RequireNamedOutcome(outcome, supervisorBootId, eventId);
-            if (intent is not null) RequireCompatible(outcome, intent);
+            var outcome = ReadControl(
+                publishedPath,
+                intent,
+                supervisorBootId,
+                eventId);
             outcomes.Add(eventId, new OutcomeControl(publishedPath, outcome));
         }
         SecureAuditStorage.VerifyExternalProtectedDirectory(root);
@@ -475,6 +490,37 @@ internal sealed class AuditOperatorDispositionOutcome
         {
             CryptographicOperations.ZeroMemory(publishedBytes);
             CryptographicOperations.ZeroMemory(temporaryBytes);
+        }
+    }
+
+    private static void RecoverPublishedAliasControl(
+        string root,
+        string publishedPath,
+        string temporaryPath,
+        Guid supervisorBootId,
+        Guid eventId,
+        AuditOperatorDispositionIntent? intent)
+    {
+        try
+        {
+            RecoverPublishedAlias(
+                root,
+                publishedPath,
+                temporaryPath,
+                supervisorBootId,
+                eventId,
+                intent);
+        }
+        catch (AuditOperatorDispositionOutcomeException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw new AuditOperatorDispositionOutcomeException(
+                AuditOperatorDispositionOutcomeFailureKind.Invalid,
+                "The disposition completion publication is invalid.",
+                exception);
         }
     }
 
@@ -544,6 +590,68 @@ internal sealed class AuditOperatorDispositionOutcome
             share: FileShare.Read);
         return ParseCanonical(bytes);
     }
+
+    private static AuditOperatorDispositionOutcome ReadControl(
+        string path,
+        AuditOperatorDispositionIntent intent)
+    {
+        var outcome = ReadControl(path);
+        try
+        {
+            RequireCompatible(outcome, intent);
+            return outcome;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw InvalidControl(
+                "The disposition completion receipt belongs to another intent.",
+                exception);
+        }
+    }
+
+    private static AuditOperatorDispositionOutcome ReadControl(
+        string path,
+        AuditOperatorDispositionIntent? intent,
+        Guid supervisorBootId,
+        Guid eventId)
+    {
+        var outcome = ReadControl(path);
+        try
+        {
+            RequireNamedOutcome(outcome, supervisorBootId, eventId);
+            if (intent is not null) RequireCompatible(outcome, intent);
+            return outcome;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw InvalidControl(
+                "The disposition completion receipt is invalid.",
+                exception);
+        }
+    }
+
+    private static AuditOperatorDispositionOutcome ReadControl(string path)
+    {
+        try
+        {
+            return Read(path);
+        }
+        catch (AuditOperatorDispositionOutcomeException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw InvalidControl(
+                "The disposition completion receipt is invalid.",
+                exception);
+        }
+    }
+
+    private static AuditOperatorDispositionOutcomeException InvalidControl(
+        string message,
+        Exception? innerException = null) =>
+        new(AuditOperatorDispositionOutcomeFailureKind.Invalid, message, innerException);
 
     private static AuditOperatorDispositionOutcome ParseCanonical(ReadOnlyMemory<byte> bytes)
     {

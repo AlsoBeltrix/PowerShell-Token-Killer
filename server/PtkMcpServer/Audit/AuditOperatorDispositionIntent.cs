@@ -229,7 +229,8 @@ internal sealed class AuditOperatorDispositionIntent
             return RequireCompatible(exact, expected, ignoreIdentityAndTime: true);
         if (existing.Count >= MaximumDispositionsPerBoot)
         {
-            throw new IOException(
+            throw new AuditOperatorDispositionIntentException(
+                AuditOperatorDispositionIntentFailureKind.Invalid,
                 "The target audit boot reached its operator disposition control bound.");
         }
 
@@ -294,7 +295,9 @@ internal sealed class AuditOperatorDispositionIntent
             persisted.EventId != eventId ||
             persisted.Proof != proof)
         {
-            throw new IOException("A conflicting operator disposition intent already exists.");
+            throw new AuditOperatorDispositionIntentException(
+                AuditOperatorDispositionIntentFailureKind.Conflict,
+                "A conflicting operator disposition intent already exists.");
         }
         return persisted;
     }
@@ -323,7 +326,7 @@ internal sealed class AuditOperatorDispositionIntent
                 continue;
             if (entry is not FileInfo file)
             {
-                throw new IOException("The audit root contains malformed operator disposition state.");
+                throw InvalidControl("The audit root contains malformed operator disposition state.");
             }
             Guid bootId;
             Guid eventId;
@@ -332,20 +335,21 @@ internal sealed class AuditOperatorDispositionIntent
                     : !TryParseTemporaryFileName(file.Name, out bootId, out eventId) ||
                       isPublished)
             {
-                throw new IOException("The audit root contains malformed operator disposition state.");
+                throw InvalidControl("The audit root contains malformed operator disposition state.");
             }
             if (bootId != supervisorBootId)
-                throw new IOException("An operator disposition control names another boot.");
+                throw InvalidControl("An operator disposition control names another boot.");
             var controls = isPublished ? published : temporaries;
             if (!controls.TryAdd(eventId, file.FullName))
-                throw new IOException("The audit root contains duplicate operator disposition state.");
+                throw InvalidControl("The audit root contains duplicate operator disposition state.");
         }
 
         var eventIds = published.Keys.Concat(temporaries.Keys).Distinct().ToArray();
         if (eventIds.Length > MaximumDispositionsPerBoot ||
             published.Count + temporaries.Count > MaximumDispositionsPerBoot * 2)
         {
-            throw new IOException(
+            throw new AuditOperatorDispositionIntentException(
+                AuditOperatorDispositionIntentFailureKind.Invalid,
                 "The target audit boot exceeds its operator disposition control bound.");
         }
 
@@ -360,14 +364,20 @@ internal sealed class AuditOperatorDispositionIntent
             {
                 if (OperatingSystem.IsWindows())
                 {
-                    throw new IOException(
+                    throw new AuditOperatorDispositionIntentException(
+                        AuditOperatorDispositionIntentFailureKind.Invalid,
                         "The operator disposition publication has ambiguous aliases.");
                 }
-                RecoverPublishedAlias(root, finalPath, temporaryPath, supervisorBootId, eventId);
+                RecoverPublishedAliasControl(
+                    root,
+                    finalPath,
+                    temporaryPath,
+                    supervisorBootId,
+                    eventId);
             }
             else if (hasTemporary)
             {
-                var pending = Read(temporaryPath);
+                var pending = ReadControl(temporaryPath);
                 RequireNamedTarget(pending, supervisorBootId, eventId);
                 try
                 {
@@ -380,8 +390,9 @@ internal sealed class AuditOperatorDispositionIntent
                     if (EntryExists(temporaryPath))
                     {
                         if (OperatingSystem.IsWindows())
-                            throw new IOException("The operator disposition publication is ambiguous.");
-                        RecoverPublishedAlias(
+                            throw InvalidControl(
+                                "The operator disposition publication is ambiguous.");
+                        RecoverPublishedAliasControl(
                             root,
                             finalPath,
                             temporaryPath,
@@ -390,7 +401,7 @@ internal sealed class AuditOperatorDispositionIntent
                     }
                 }
             }
-            var intent = Read(finalPath);
+            var intent = ReadControl(finalPath);
             RequireNamedTarget(intent, supervisorBootId, eventId);
             intents.Add(intent);
         }
@@ -411,11 +422,11 @@ internal sealed class AuditOperatorDispositionIntent
             nextOffset,
             blocked);
 
-        var persisted = Read(_path);
+        var persisted = ReadControl(_path);
         if (!persisted._canonicalBytes.AsSpan().SequenceEqual(_canonicalBytes) ||
             persisted.DispositionId != DispositionId)
         {
-            throw new IOException("The durable operator disposition intent changed.");
+            throw InvalidControl("The durable operator disposition intent changed.");
         }
         if (Interlocked.Exchange(ref _consumed, 1) != 0)
             throw new InvalidOperationException("The operator disposition intent was already consumed.");
@@ -520,7 +531,11 @@ internal sealed class AuditOperatorDispositionIntent
                           actual.CreatedUtc == expected.CreatedUtc;
         }
         if (!compatible)
-            throw new IOException("A conflicting operator disposition intent already exists.");
+        {
+            throw new AuditOperatorDispositionIntentException(
+                AuditOperatorDispositionIntentFailureKind.Conflict,
+                "A conflicting operator disposition intent already exists.");
+        }
         return actual;
     }
 
@@ -548,6 +563,25 @@ internal sealed class AuditOperatorDispositionIntent
             verifyWithoutMutation: true,
             share: FileShare.Read);
         return ReadCanonical(path, bytes);
+    }
+
+    private static AuditOperatorDispositionIntent ReadControl(string path)
+    {
+        try
+        {
+            return Read(path);
+        }
+        catch (AuditOperatorDispositionIntentException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw new AuditOperatorDispositionIntentException(
+                AuditOperatorDispositionIntentFailureKind.Invalid,
+                "The operator disposition intent is invalid.",
+                exception);
+        }
     }
 
     private static AuditOperatorDispositionIntent ReadCanonical(
@@ -630,6 +664,41 @@ internal sealed class AuditOperatorDispositionIntent
             CryptographicOperations.ZeroMemory(temporaryBytes);
         }
     }
+
+    private static void RecoverPublishedAliasControl(
+        string root,
+        string publishedPath,
+        string temporaryPath,
+        Guid supervisorBootId,
+        Guid eventId)
+    {
+        try
+        {
+            RecoverPublishedAlias(
+                root,
+                publishedPath,
+                temporaryPath,
+                supervisorBootId,
+                eventId);
+        }
+        catch (AuditOperatorDispositionIntentException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw new AuditOperatorDispositionIntentException(
+                AuditOperatorDispositionIntentFailureKind.Invalid,
+                "The operator disposition publication is invalid.",
+                exception);
+        }
+    }
+
+    private static AuditOperatorDispositionIntentException InvalidControl(string message) =>
+        new(AuditOperatorDispositionIntentFailureKind.Invalid, message);
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
 
     private static FileStream OpenPublishedAlias(string path)
     {

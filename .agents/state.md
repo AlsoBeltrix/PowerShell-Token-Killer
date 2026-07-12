@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Audited-harness Slice 3 is active on
+  `feat/audited-harness-slice3`.** Commit `6fb256c` carries one immutable
+  foreground `ExecutionPlan` through trusted preparation, audit authorization,
+  and dispatch; domain is independent of route, RTK identity is absolute,
+  provenance and fallback reasons are typed, and unimplemented fallbacks are
+  no longer advertised. Three production mutations proved exact-plan dispatch,
+  plan-owned audit domain, and relative RTK-path binding. The full checkout
+  battery passed after one unrelated anchored-publication timing flake passed
+  alone and on the clean rerun.
 - **Audited-harness Slice 2 is complete locally.** The final
   integrated code head `3d3739a` completes job/control audit, local-only and
   anchored OTLP export, evidence administration and retention, permanent
@@ -50,9 +59,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Begin audited-harness Slice 3 structured routing with no model retry. Carry
-   an immutable foreground execution plan through preparation, audit, and
-   dispatch before changing routing policy or Bash execution.
+1. Continue audited-harness Slice 3: enforce terminal-native RTK eligibility,
+   add provenance-aware single shaping and truthful pre-start fallback, then
+   add the post-audit bounded Bash validator/delegation and post-success mixed
+   dataflow guidance.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.

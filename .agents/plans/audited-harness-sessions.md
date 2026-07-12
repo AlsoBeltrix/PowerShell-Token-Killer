@@ -8,8 +8,11 @@ export with durable checkpoints and retention, audited evidence administration
 and automatic retention, complete operator-disposition facts, and the strict
 `ptk.audit/2` extension. It passed exact-head macOS and Windows verification
 and the required fixed-SHA Claude reviewloop with `guard_confirmed=true` on
-2026-07-12. Slice 2 is complete on local `master`; Slice 3 structured routing
-is next. No push was performed or authorized.
+2026-07-12. Slice 2 is complete on local `master`. Slice 3 is active: commit
+`6fb256c` carries the immutable foreground execution plan through preparation,
+audit, and dispatch with truthful typed route facts; routing policy, Bash
+validation, and mixed-domain guidance remain. No push was performed or
+authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

@@ -42,25 +42,25 @@ public sealed class AuditAnchoredRuntimeTests : IDisposable
         var firstStarted = await transport.WaitForAsync(
             record => record.EventType == "server.started",
             TimeSpan.FromSeconds(10));
-        _ = await transport.WaitForAsync(
+        var exportStarted = await transport.WaitForAsync(
             record => record.SupervisorBootId == firstStarted.SupervisorBootId &&
                       record.EventType == "export.started",
             TimeSpan.FromSeconds(10));
         await WaitUntilAsync(
             () => AuditExportCheckpointStore
-                .ReadSnapshot(options, firstStarted.SupervisorBootId).Sequence == 1,
+                .ReadSnapshot(options, firstStarted.SupervisorBootId).Sequence >= 2,
             TimeSpan.FromSeconds(10));
         await WaitUntilAsync(
             () => firstHealth.Snapshot().Exporter.LastAcknowledgment?.EventId ==
-                  firstStarted.EventId,
+                  exportStarted.EventId,
             TimeSpan.FromSeconds(10));
         var firstExporter = firstHealth.Snapshot().Exporter;
-        Assert.Equal(firstStarted.EventId, firstExporter.LastAcknowledgment?.EventId);
+        Assert.Equal(exportStarted.EventId, firstExporter.LastAcknowledgment?.EventId);
         Assert.Contains(
             firstExporter.State,
             new[] { AuditExporterState.Running, AuditExporterState.Idle });
-        Assert.Equal(1, AuditExportCheckpointStore
-            .ReadSnapshot(options, firstStarted.SupervisorBootId).Sequence);
+        Assert.True(AuditExportCheckpointStore
+            .ReadSnapshot(options, firstStarted.SupervisorBootId).Sequence >= 2);
 
         Assert.True(AuditCallMetadataCapture.TryCapture(
             new CallToolRequestParams

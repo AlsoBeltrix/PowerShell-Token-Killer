@@ -43,6 +43,10 @@ internal sealed record AuditClosedSpoolPrefixTransitionState(
     long TailSequence,
     string? TailEventHash);
 
+internal sealed class AuditSpoolChainBusyException(
+    string message,
+    Exception innerException) : IOException(message, innerException);
+
 /// <summary>
 /// Reads one immutable, closed anchored spool chain. This reader does not
 /// discover live writer state or acquire an orphan lease; its caller must hold
@@ -118,7 +122,24 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
         return ResolveCheckpointCore(
             exclusiveLiveBoundary: null,
             rotation: null,
-            expectedFinalSegment: null);
+            expectedFinalSegment: null,
+            ownedQuotaLease: null);
+    }
+
+    /// <summary>
+    /// Adoption-only full-chain resolution. The caller has already acquired
+    /// global quota before checkpoint ownership; this method consumes that
+    /// lease after every selected segment handle is retained.
+    /// </summary>
+    internal AuditClosedSpoolRecovery ResolveCheckpointForAdoption(
+        AuditSpoolQuotaLease ownedQuotaLease)
+    {
+        ArgumentNullException.ThrowIfNull(ownedQuotaLease);
+        return ResolveCheckpointCore(
+            exclusiveLiveBoundary: null,
+            rotation: null,
+            expectedFinalSegment: null,
+            ownedQuotaLease);
     }
 
     /// <summary>
@@ -143,7 +164,8 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
         return ResolveCheckpointCore(
             exclusiveLiveBoundary,
             rotation,
-            expectedFinalSegment: null);
+            expectedFinalSegment: null,
+            ownedQuotaLease: null);
     }
 
     /// <summary>
@@ -165,22 +187,25 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
         return ResolveCheckpointCore(
             exclusiveLiveBoundary: null,
             rotation: null,
-            expectedFinalSegment);
+            expectedFinalSegment,
+            ownedQuotaLease: null);
     }
 
     private AuditClosedSpoolRecovery ResolveCheckpointCore(
         AuditSpoolSegmentIdentity? exclusiveLiveBoundary,
         IAuditLiveSpoolRotationPosition? rotation,
-        AuditSpoolSegmentIdentity? expectedFinalSegment)
+        AuditSpoolSegmentIdentity? expectedFinalSegment,
+        AuditSpoolQuotaLease? ownedQuotaLease)
     {
         lock (_gate)
         {
             ThrowIfDisposed();
             ReleaseSnapshot();
             PendingResolution? pending = null;
+            AuditSpoolQuotaLease? quotaLease = ownedQuotaLease;
             try
             {
-                using var quotaLease = AuditSpoolQuotaLease.AcquireExisting(_spoolRoot);
+                quotaLease ??= AuditSpoolQuotaLease.AcquireExisting(_spoolRoot);
                 _checkpointLease.WithOwnedCheckpoint(checkpoint =>
                 {
                     pending = ResolveOwnedCheckpoint(
@@ -200,6 +225,7 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
             }
             finally
             {
+                quotaLease?.Dispose();
                 pending?.Dispose();
             }
         }
@@ -814,9 +840,9 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
                         bufferSize: 1,
                         FileOptions.RandomAccess);
                 }
-                catch (IOException exception)
+                catch (IOException exception) when (IsSharingViolation(exception))
                 {
-                    throw new IOException(
+                    throw new AuditSpoolChainBusyException(
                         "The selected audit spool chain has a live or unavailable segment.",
                         exception);
                 }
@@ -967,6 +993,18 @@ internal sealed class AuditClosedSpoolChainReader : IDisposable
     {
         foreach (var segment in segments)
             segment.Stream.Dispose();
+    }
+
+    private static bool IsSharingViolation(IOException exception)
+    {
+        var nativeCode = exception.HResult & 0xffff;
+        if (OperatingSystem.IsWindows())
+            return nativeCode is 32 or 33;
+        if (OperatingSystem.IsLinux())
+            return exception.HResult == 11 || nativeCode == 11;
+        if (OperatingSystem.IsMacOS())
+            return exception.HResult == 35 || nativeCode == 35;
+        return false;
     }
 
     private void ThrowIfDisposed()

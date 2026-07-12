@@ -738,7 +738,7 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
                 FileShare.None);
             using var reader = new AuditClosedSpoolChainReader(options, store);
 
-            Assert.Throws<IOException>(() => reader.ResolveCheckpoint());
+            Assert.Throws<AuditSpoolChainBusyException>(() => reader.ResolveCheckpoint());
             using var firstProbe = new FileStream(
                 firstPath,
                 FileMode.Open,
@@ -930,6 +930,45 @@ public sealed class AuditClosedSpoolChainReaderTests : IDisposable
             BootId,
             out var successor));
         using var successorOwner = Assert.IsType<AuditExportCheckpointStore>(successor);
+    }
+
+    [Fact]
+    public void Adoption_holds_owned_quota_until_all_chain_handles_are_retained()
+    {
+        var (options, writerStore) = OwnedFixture();
+        var path = WriteSegment(options, 0, Records(1));
+        writerStore.Dispose();
+        Assert.True(AuditSpoolQuotaLease.TryAcquireExisting(
+            options.SpoolDirectory,
+            out var quota));
+        Assert.True(AuditExportCheckpointStore.TryAcquireExisting(
+            options,
+            BootId,
+            out var adoptedStore));
+        using var store = Assert.IsType<AuditExportCheckpointStore>(adoptedStore);
+        using var reader = new AuditClosedSpoolChainReader(
+            options,
+            store,
+            handlesAcquiredForTests: () =>
+            {
+                Assert.False(AuditSpoolQuotaLease.TryAcquireExisting(
+                    options.SpoolDirectory,
+                    out var competing));
+                Assert.Null(competing);
+            });
+
+        var recovery = reader.ResolveCheckpointForAdoption(quota!);
+
+        Assert.IsType<AuditClosedSpoolRecovery.Record>(recovery);
+        Assert.True(AuditSpoolQuotaLease.TryAcquireExisting(
+            options.SpoolDirectory,
+            out var afterSnapshot));
+        afterSnapshot!.Dispose();
+        Assert.Throws<IOException>(() => new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.None));
     }
 
     [Fact]

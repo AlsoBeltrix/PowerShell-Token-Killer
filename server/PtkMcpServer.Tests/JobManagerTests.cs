@@ -47,6 +47,33 @@ public sealed class JobManagerTests : IDisposable
     }
 
     [Fact]
+    public void Cold_background_policy_cannot_be_bypassed_through_direct_commit()
+    {
+        var disabledRoot = Path.Combine(_dir, "disabled");
+        var processStarts = 0;
+        using var jobs = new JobManager(
+            JobPwshExecutable.ResolveFromPath(),
+            disabledRoot,
+            allowColdBackground: false)
+        {
+            BeforeProcessStartForTests = _ => Interlocked.Increment(ref processStarts),
+        };
+        var plan = jobs.PrepareStart("'must not run'", Path.GetTempPath());
+
+        JobSnapshot? unexpectedStart = null;
+        var exception = Record.Exception(() => unexpectedStart = jobs.CommitStart(plan));
+        if (unexpectedStart is not null)
+            jobs.ConfirmStartRecorded(unexpectedStart.Id);
+        var error = Assert.IsType<InvalidOperationException>(exception);
+
+        Assert.Contains("cold background", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, processStarts);
+        Assert.Empty(jobs.List());
+        Assert.False(Directory.Exists(disabledRoot));
+        Assert.False(File.Exists(plan.OutputPath));
+    }
+
+    [Fact]
     public async Task Job_uses_the_startup_pinned_pwsh_while_inheriting_live_environment()
     {
         var frozen = JobPwshExecutable.ResolveFromPath();

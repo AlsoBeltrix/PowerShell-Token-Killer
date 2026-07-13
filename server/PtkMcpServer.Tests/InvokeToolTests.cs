@@ -2400,6 +2400,57 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Cold_background_disabled_refuses_before_prestart_or_process_effects()
+    {
+        var jobsRoot = Path.Combine(
+            Path.GetTempPath(),
+            "ptk-disabled-background-jobs-" + Guid.NewGuid().ToString("N"));
+        var cwdProbes = 0;
+        var processStarts = 0;
+        var outputReservations = 0;
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60))
+        {
+            CurrentLocationReaderOverrideForTests = () =>
+            {
+                Interlocked.Increment(ref cwdProbes);
+                throw new InvalidOperationException("cold-background policy was checked too late");
+            },
+        };
+        using var jobs = new JobManager(
+            JobPwshExecutable.ResolveFromPath(),
+            jobsRoot,
+            allowColdBackground: false)
+        {
+            BeforeProcessStartForTests = _ =>
+            {
+                Interlocked.Increment(ref processStarts);
+                throw new InvalidOperationException("cold-background process started");
+            },
+        };
+        using var outputStore = CreateOutputStore(
+            reservationStartingForTests: () => Interlocked.Increment(ref outputReservations));
+
+        var text = await InvokeTool.Invoke(
+            host,
+            jobs,
+            _rawUsage,
+            "'must not run'",
+            CancellationToken.None,
+            route: "pwsh",
+            background: true,
+            outputStore: outputStore);
+
+        Assert.Contains("[job not started]", text, StringComparison.Ordinal);
+        Assert.Contains("cold and stateless", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("warm session", text, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, cwdProbes);
+        Assert.Equal(0, processStarts);
+        Assert.Equal(0, outputReservations);
+        Assert.Empty(jobs.List());
+        Assert.False(Directory.Exists(jobsRoot));
+    }
+
+    [Fact]
     public async Task Timeout_response_does_not_wait_for_the_replacement_runspace()
     {
         // The slice-0 class, closed for good (codex finding i56-2): a stalled

@@ -138,6 +138,7 @@ public sealed class JobManager : IDisposable
     private readonly ConcurrentDictionary<long, JobEntry> _jobs = new();
     private readonly string _jobsDir;
     private readonly JobPwshExecutable _pwshExecutable;
+    private readonly bool _allowColdBackground;
     private readonly object _shutdownGate = new();
     private long _nextId;
     private Task? _shutdownTask;
@@ -164,17 +165,31 @@ public sealed class JobManager : IDisposable
     }
 
     public JobManager(string? jobsDirOverride = null)
-        : this(JobPwshExecutable.ResolveFromPath(), jobsDirOverride)
+        : this(
+            JobPwshExecutable.ResolveFromPath(),
+            jobsDirOverride,
+            allowColdBackground: true)
     {
     }
 
-    internal JobManager(JobPwshExecutable pwshExecutable, string? jobsDirOverride = null)
+    internal JobManager(
+        JobPwshExecutable pwshExecutable,
+        string? jobsDirOverride = null,
+        bool allowColdBackground = true)
     {
         _pwshExecutable = pwshExecutable;
+        _allowColdBackground = allowColdBackground;
         _jobsDir = jobsDirOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ptk", "jobs");
         SweepOldLogs();
     }
+
+    /// <summary>
+    /// Frozen session admission fact. The reserved default session constructs
+    /// its manager with the public default (true); later named-session binding
+    /// passes its own frozen value through the internal constructor.
+    /// </summary>
+    internal bool AllowColdBackground => _allowColdBackground;
 
     // Logs must not accumulate forever in ~/.ptk/jobs; anything a week old
     // belongs to a long-dead session. Best effort — never fail construction.
@@ -250,6 +265,11 @@ public sealed class JobManager : IDisposable
         Func<JobSnapshot, Task>? onTerminal = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        if (!_allowColdBackground)
+        {
+            throw new InvalidOperationException(
+                "Cold background jobs are disabled for this session.");
+        }
         if (plan.ExecutionPath != ExecutionPath.PowerShellDirect)
         {
             throw new InvalidOperationException(

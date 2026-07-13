@@ -487,7 +487,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         }
     }
 
-    internal bool BeginJobStartRequest(long jobId)
+    internal bool RecordJobStartRequest(long jobId)
     {
         EnsureActive();
         if (_jobStartRequested)
@@ -505,7 +505,50 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             return false;
         }
 
-        return BeginValidation();
+        return true;
+    }
+
+    internal bool BeginJobStartRequest(long jobId)
+    {
+        if (!RecordJobStartRequest(jobId)) return false;
+        return _validationStarted || BeginValidation();
+    }
+
+    internal void RecordJobAdmissionRefused(
+        long jobId,
+        string detailCode,
+        string response)
+    {
+        EnsureActive();
+        if (_validationStarted)
+        {
+            throw new InvalidOperationException(
+                "A job admission refusal must precede execution validation.");
+        }
+        if ((!_jobStartRequested && !RecordJobStartRequest(jobId)) ||
+            _request!.JobId != jobId)
+        {
+            _authorizationPersistenceFailed = true;
+            CompleteCall("not_started", response);
+            return;
+        }
+
+        try
+        {
+            Append(
+                "job.not_started",
+                "not_started",
+                detailCode,
+                jobId,
+                rootCoverage: "none");
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+        }
+        CompleteCall("not_started", response);
+        if (!_terminalWritten)
+            _authorizationPersistenceFailed = true;
     }
 
     internal AuditJobTerminalLease? AuthorizeJobStart(long jobId, string? cwd)

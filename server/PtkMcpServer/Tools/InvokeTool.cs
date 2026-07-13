@@ -103,6 +103,24 @@ public static class InvokeTool
                     ?? host.ComputeDeadline(timeoutSeconds);
 
                 var plan = jobs.PrepareStart(script);
+                if (audit is not null && !audit.RecordJobStartRequest(plan.Id))
+                    return AuditCallContext.NotStartedMessage;
+
+                if (!jobs.AllowColdBackground)
+                {
+                    const string disabled =
+                        "[job not started] This session does not allow cold background jobs. " +
+                        "Nothing was executed. Background jobs are cold and stateless; run " +
+                        "connection-dependent work in the foreground so it uses the warm session.";
+                    audit?.RecordJobAdmissionRefused(
+                        plan.Id,
+                        "cold_background_disabled",
+                        disabled);
+                    return audit?.AuthorizationPersistenceFailed == true
+                        ? AuditCallContext.NotStartedMessage
+                        : disabled;
+                }
+
                 if (audit is not null && !audit.BeginJobStartRequest(plan.Id))
                     return AuditCallContext.NotStartedMessage;
 

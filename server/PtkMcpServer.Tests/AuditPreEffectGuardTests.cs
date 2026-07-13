@@ -756,6 +756,133 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         AssertNoStartRefusal(result);
     }
 
+    [Fact]
+    public async Task Cold_background_policy_refusal_records_request_without_plan_or_effect()
+    {
+        var cwdProbes = 0;
+        var processStarts = 0;
+        var outputReservations = 0;
+        using var fixture = CreateFixture(
+            allowColdBackground: false,
+            outputReservationStartingForTests: () =>
+                Interlocked.Increment(ref outputReservations));
+        fixture.Host.CurrentLocationReaderOverrideForTests = () =>
+        {
+            Interlocked.Increment(ref cwdProbes);
+            throw new InvalidOperationException("cold-background policy was checked too late");
+        };
+        fixture.Jobs.BeforeProcessStartForTests = _ =>
+        {
+            Interlocked.Increment(ref processStarts);
+            throw new InvalidOperationException("cold-background process started");
+        };
+
+        var result = await fixture.Filter(
+            Call(
+                "ptk_invoke",
+                ("script", "'must not run'"),
+                ("route", "pwsh"),
+                ("background", true)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                "'must not run'",
+                token,
+                route: "pwsh",
+                background: true,
+                auditContext: fixture.AuditContext,
+                outputStore: fixture.OutputStore)));
+
+        Assert.False(result.IsError ?? false);
+        Assert.Contains("[job not started]", ResultText(result), StringComparison.Ordinal);
+        Assert.Equal(0, cwdProbes);
+        Assert.Equal(0, processStarts);
+        Assert.Equal(0, outputReservations);
+        Assert.Empty(fixture.Jobs.List());
+        Assert.False(Directory.Exists(Path.Combine(fixture.Root, "jobs")));
+        Assert.Equal(
+            [
+                "call.accepted",
+                "job.start_requested",
+                "job.not_started",
+                "call.not_started",
+            ],
+            fixture.EventTypes());
+        var notStarted = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "job.not_started");
+        Assert.Equal(
+            "cold_background_disabled",
+            notStarted.GetProperty("outcome").GetProperty("detail_code").GetString());
+        var coverage = notStarted.GetProperty("coverage");
+        Assert.Equal("none", coverage.GetProperty("root_process_observed").GetString());
+        Assert.Equal("none", coverage.GetProperty("descendants_observed").GetString());
+        Assert.Equal("none", coverage.GetProperty("remote_effect_observed").GetString());
+        Assert.Equal(
+            notStarted.GetProperty("correlation").GetProperty("job_id").GetInt64(),
+            fixture.Events().Single(value =>
+                    value.GetProperty("event_type").GetString() == "job.start_requested")
+                .GetProperty("correlation").GetProperty("job_id").GetInt64());
+    }
+
+    [Theory]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 2)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 2)]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 3)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 3)]
+    [InlineData((int)AuditSinkFaultPoint.BeforeAppend, 4)]
+    [InlineData((int)AuditSinkFaultPoint.Flush, 4)]
+    public async Task Cold_background_policy_audit_failure_is_generic_and_has_no_effect(
+        int pointValue,
+        int failingAppend)
+    {
+        var point = (AuditSinkFaultPoint)pointValue;
+        var cwdProbes = 0;
+        var processStarts = 0;
+        var outputReservations = 0;
+        using var fixture = CreateFixture(
+            journalFault: (current, append) => current == point && append == failingAppend,
+            allowColdBackground: false,
+            outputReservationStartingForTests: () =>
+                Interlocked.Increment(ref outputReservations));
+        fixture.Host.CurrentLocationReaderOverrideForTests = () =>
+        {
+            Interlocked.Increment(ref cwdProbes);
+            throw new InvalidOperationException("cold-background policy was checked too late");
+        };
+        fixture.Jobs.BeforeProcessStartForTests = _ =>
+        {
+            Interlocked.Increment(ref processStarts);
+            throw new InvalidOperationException("cold-background process started");
+        };
+
+        var result = await fixture.Filter(
+            Call(
+                "ptk_invoke",
+                ("script", "'must not run'"),
+                ("route", "pwsh"),
+                ("background", true)),
+            async token => Text(await InvokeTool.Invoke(
+                fixture.Host,
+                fixture.Jobs,
+                fixture.RawUsage,
+                "'must not run'",
+                token,
+                route: "pwsh",
+                background: true,
+                auditContext: fixture.AuditContext,
+                outputStore: fixture.OutputStore)));
+
+        Assert.True(result.IsError);
+        AssertNoStartRefusal(result);
+        Assert.Equal(0, cwdProbes);
+        Assert.Equal(0, processStarts);
+        Assert.Equal(0, outputReservations);
+        Assert.Empty(fixture.Jobs.List());
+        Assert.False(Directory.Exists(Path.Combine(fixture.Root, "jobs")));
+        Assert.Equal(0, fixture.Journal.ReservedBytes);
+    }
+
     [Theory]
     [InlineData((int)AuditSinkFaultPoint.BeforeAppend)]
     [InlineData((int)AuditSinkFaultPoint.Flush)]
@@ -1461,7 +1588,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         Func<AuditSinkFaultPoint, int, bool>? journalFault = null,
         Action<SecureAuditStorageFaultStage>? evidenceFault = null,
         string? bashPathOverride = null,
-        string? rtkPathOverride = null)
+        string? rtkPathOverride = null,
+        bool allowColdBackground = true,
+        Action? outputReservationStartingForTests = null)
     {
         const int maxRecordBytes = 4096;
         var root = Path.Combine(
@@ -1504,7 +1633,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             TimeSpan.FromHours(1),
             MaximumArtifactBytes: 1024,
             MaximumSessionBytes: 2048,
-            MaximumAggregateBytes: 4096));
+            MaximumAggregateBytes: 4096,
+            ReservationStartingForTests: outputReservationStartingForTests));
         var outputProtector = new AuditOutputRequestProtector();
         var provider = new ServiceCollection()
             .AddSingleton(health)
@@ -1523,7 +1653,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 maxCallTimeout: TimeSpan.FromSeconds(30),
                 bashPathOverride: bashPathOverride,
                 rtkPathOverride: rtkPathOverride),
-            new JobManager(Path.Combine(root, "jobs")),
+            new JobManager(
+                JobPwshExecutable.ResolveFromPath(),
+                Path.Combine(root, "jobs"),
+                allowColdBackground),
             new RawUsageCounter(),
             auditContext,
             outputStore,

@@ -1409,7 +1409,7 @@ clean and removed.
 
 | ID | Severity | Impact (one line) | Status | Branch |
 |----|----------|-------------------|--------|--------|
-| s3-rtk-output-bounds | HIGH | Default RTK output bypasses ANSI cleanup and all passthrough bounds | `[ ]` | `fix/s3-rtk-output-bounds` |
+| s3-rtk-output-bounds | HIGH | Default RTK output bypasses ANSI cleanup and all passthrough bounds | `[x]` | `fix/s3-rtk-output-bounds` |
 | s3-block-fidelity | MEDIUM | Clean/dynamicparam blocks can be silently dropped by RTK routing | `[x]` | `fix/s3-block-fidelity` |
 | s3-background-operator | MEDIUM | A trailing background operator becomes synchronous RTK execution | `[x]` | `fix/s3-background-operator` |
 | s3-rtk-preference-isolation | HIGH | Warm native preferences can discard routed stdout and pollute `$Error` | `[ ]` | `fix/s3-rtk-preference-isolation` |
@@ -1463,3 +1463,15 @@ observed exactly the four container-exec guard failures, restored focused
 44/44, and confirmed the plan's docker example plus option-prefixed forms.
 The accepted scope is explicitly container `exec`, not universal wrapper
 detection; its worktree was clean and removed.
+
+**s3-rtk-output-bounds CLAUDE REVIEW — ACCEPTED** (Claude Code 2.1.207, model
+`claude-opus-4-8`, isolated disposable worktree), reviewed head
+`bda3562c5340619c8c1bb41404ec73bbba7c7902` against base
+`89b83b78ed02142bc93ee16b1256ab31585498eb`, `guard_confirmed=true`,
+2026-07-13T03:53:56Z.
+Independently restoring the old host shaping gate failed on retained ANSI and
+unbounded output; independently disabling only the module provenance skip
+failed on a second-shaping marker. Restoration passed the focused guard and
+the exact head passed 1,018/1,018 .NET tests, 139 Pester tests with two skips,
+and the handshake. Direct observation produced 401 bounded lines with no ANSI
+or second RTK invocation. Both review trees were clean and removed.

@@ -2,9 +2,9 @@
 
 **Severity**: HIGH — the default terminal-native route can return unbounded,
 ANSI-bearing text and contradict the tool's core bounded-output contract.
-**Status**: Open
+**Status**: Verified
 **Branch**: `fix/s3-rtk-output-bounds`
-**Commit**: pending
+**Commit**: `7d8b2a0`, guard-strengthening follow-up `bda3562`
 
 ## Evidence
 
@@ -33,21 +33,29 @@ suppresses only the lossy second RTK log optimization.
 
 ## Approach
 
-Pending implementation. Pass execution provenance into `Compress-PtcOutput`,
-run every non-raw result through the module, and use RTK provenance to skip
-only `Invoke-PtcRtkLog`. Preserve the existing audited pinned identity for
-direct PowerShell log shaping.
+Every non-raw result with compression available now enters
+`Compress-PtcOutput`, with the immutable execution provenance passed as a
+machine code. The module uses RTK provenance to suppress only
+`Invoke-PtcRtkLog`; ANSI stripping and bounded passthrough still apply. Direct
+PowerShell log shaping continues to require the plan's audited pinned RTK
+identity.
 
 ## Files changed
 
-- Pending.
+- `server/PtkMcpServer/RunspaceHost.cs`
+- `server/PtkMcpServer.Tests/InvokeToolTests.cs`
+- `src/PwshTokenCompressor.psm1`
 
 ## Guard proof
 
-- Pending: an end-to-end fake RTK must emit oversized ANSI text; the result
-  must be ANSI-free and bounded with a labeled marker while the RTK invocation
-  log proves no second `rtk log` call. Reverting the production correction
-  must fail this guard.
+- `Rtk_routed_output_is_not_shaped_by_rtk_a_second_time` emits 1,001
+  ANSI-colored lines through a fake RTK and requires ANSI-free bounded output,
+  the labeled elision marker, at most 402 lines, no `[ptk:log` second-shaping
+  marker, and exactly one fake RTK invocation.
+- The reviewer independently restored the old host gate and observed the guard
+  fail on retained ANSI/unbounded output. Independently disabling only the
+  module provenance skip made it fail on the second-shaping marker. Both
+  restorations passed at the exact reviewed head.
 
 ## Coder dispute (if any)
 
@@ -64,3 +72,10 @@ Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
 with `guard_confirmed=true` and verdict `reopened`, recorded
 2026-07-13T01:48:24Z. The required correction above is the reviewer's
 evidence-backed disposition.
+
+Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
+`89b83b78ed02142bc93ee16b1256ab31585498eb..bda3562c5340619c8c1bb41404ec73bbba7c7902`
+with `guard_confirmed=true` and verdict `accepted`, recorded
+2026-07-13T03:53:56Z. At the exact reviewed head, Claude passed 1,018/1,018
+.NET tests, 139 Pester tests with two platform skips, and the stdio handshake;
+both review trees were clean and removed.

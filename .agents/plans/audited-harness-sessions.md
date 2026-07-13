@@ -7,9 +7,13 @@ reviewed Slice 4b head `347d85c` adds bounded two-stage foreground capture,
 same-invocation recovery/shaping, anonymous retained artifacts, exact detached
 type nonces, and truthful recovery hints. Claude accepted `347d85c` against
 base `76005eb` with `guard_confirmed=true` after eight independent mutation
-proofs and the full local battery on 2026-07-13. Slice 4 remains in progress;
-legacy `raw` retirement and its intentional guard amendments are next. No push
-was performed or authorized.
+proofs and the full local battery on 2026-07-13. Reviewed Slice 4c head
+`76d4f0c` makes legacy `raw` behaviorally inert while preserving compatibility
+schema/audit facts, keeps `route=pwsh` as explicit direct consent, and retains
+a narrow unshaped state-probe path. Claude accepted `76d4f0c` against base
+`4477412` with `guard_confirmed=true` after seven independent policy-boundary
+proofs and the full local battery. Slice 4's final fixed-SHA integrated review
+is next. No push was performed or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

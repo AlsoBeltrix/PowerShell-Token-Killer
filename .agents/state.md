@@ -5,15 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slice 4 is in progress; reviewed sub-slices 4a and 4b are
-  complete.** Commit `bee983d` adds the supervisor-owned output artifact
-  store and audited `ptk_output`. Commit `347d85c` adds bounded two-stage
-  foreground capture, same-invocation recovery/shaping, anonymous retained
-  artifacts, exact detached type nonces, and truthful recovery hints. The full
-  local battery passed; Claude accepted exact head `347d85c` against base
-  `76005eb` with `guard_confirmed=true` after eight independent mutation
-  proofs. Canonical review evidence is in `.agents/review/index.md`. No push
-  was performed or authorized.
+- **Audited-harness Slice 4 is in progress; reviewed sub-slices 4a-4c are
+  complete and only the final integrated review remains.** Commit `bee983d`
+  adds the supervisor-owned output artifact store and audited `ptk_output`;
+  `347d85c` adds bounded two-stage foreground capture, same-invocation
+  recovery/shaping, anonymous retained artifacts, exact detached type nonces,
+  and truthful recovery hints; `76d4f0c` retires legacy `raw` as an execution
+  bypass while retaining its compatibility schema/audit facts, preserves
+  `route=pwsh` direct consent, and gives `ptk_state` a narrow unshaped probe.
+  Claude accepted each fixed-SHA sub-slice with independent red-to-green guard
+  proofs and the full local battery. Canonical review evidence is in
+  `.agents/review/index.md`. No push was performed or authorized.
 - **Audited-harness Slice 3 is complete locally.** Final
   integrated code head `b78d9c6` completes structured foreground routing,
   audited RTK/Bash dispatch, bounded preference-independent RTK capture,
@@ -68,9 +70,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue audited-harness Slice 4 with the next independently reviewed
-   sub-slice: make legacy `raw=true` non-routing and non-bypass behavior and
-   land the plan's intentional raw-guard amendments.
+1. Run the final fixed-SHA integrated review of audited-harness Slice 4 across
+   output storage, same-invocation capture/recovery, and legacy-`raw`
+   retirement. Do not start Slice 5 until that gate is accepted and recorded.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.

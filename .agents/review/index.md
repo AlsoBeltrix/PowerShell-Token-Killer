@@ -1620,3 +1620,37 @@ temporary-absent in one eventual assertion. Windows delete-pending/link-count
 proof was reviewed statically on macOS; live Windows execution remains a later
 platform gate. Acceptance authorizes the remaining approved Slice 4 work, not
 push or history rewriting.
+
+---
+
+**SLICE 4C LEGACY-RAW RETIREMENT CLAUDE REVIEW — ACCEPTED** (Claude Code
+2.1.207, model `claude-opus-4-8`, isolated disposable worktree), reviewed
+head `76d4f0c85252b65d20b7ecb41c3d605835a767d1` against base
+`4477412546d563487f0436ccfa617acac24cce3f`, `guard_confirmed=true`,
+2026-07-13T19:00:32Z. The one-shot JSON envelope exited zero; its result and
+structured payload matched exactly, and both fixed SHAs matched the dispatch.
+Claude found no material defect in legacy-`raw` inertness, foreground or
+background dialect enforcement, `route=pwsh` consent, the ephemeral
+`PowerShellDirect` background start fact, or the separate unshaped state-probe
+path. The planned Slice 5 routing/persistence work and Slice 10 guidance
+surfaces remain outside this sub-slice.
+
+Claude independently proved seven policy boundaries red then green: planner
+input independence from `raw`; foreground shaping/capture independence;
+foreground and background dialect refusal; both the assertion and pre-start
+validation teeth of the background `PowerShellDirect` fact; complete
+self-formatted state-probe output; and the recovery/schema descriptions.
+Exact restoration passed all 1,085 .NET tests, 141 Pester tests with two
+platform skips, and the stdio handshake. A one-time restore populated the
+fresh worktree's ignored build assets before the required `--no-restore`
+battery. The detached review worktree was clean at the reviewed SHA and
+removed.
+
+Two explicitly non-blocking reviewer observations remain: the now-unused
+public shaped `TryInvokeIfIdleAsync` surface can wait for the planned session
+runtime cleanup, and two private-renderer fixtures retain a semantically inert
+`raw: true` argument while using an explicit missing-module path for their
+actual no-shaper setup. Neither changes production behavior or weakens the
+fixtures, so no material finding was admitted. Acceptance authorizes the
+final fixed-SHA integrated Slice 4 review, not Slice 5 implementation, push,
+or history rewriting.

@@ -2,9 +2,9 @@
 
 **Severity**: HIGH — ambient warm-session native error preferences can discard
 valid routed stdout and pollute persistent `$Error` state.
-**Status**: Open
+**Status**: Verified
 **Branch**: `fix/s3-rtk-preference-isolation`
-**Commit**: pending
+**Commit**: `40923784601bf8063d9461188b04be3940374c7d`
 
 ## Evidence
 
@@ -33,21 +33,57 @@ preference-independent capture.
 
 ## Approach
 
-Pending implementation. Move RTK execution to preference-independent host
-process capture while preserving the audited plan/dispatch barrier, exact
-argument semantics, startup-frozen identity, cwd, deadline, streams, exit
-code, bounded output, and pre-start-only fallback rules.
+The immutable RTK plan now carries a typed argument vector and audited working
+directory instead of executable PowerShell text. Eligibility preserves exact
+PowerShell argument behavior by retaining submitted numeric spellings and
+attached-parameter forms while leaving unsupported native-argument-passing,
+stop-parsing, tilde-expansion, and wildcard-shaped submissions on the exact
+PowerShell route.
+
+After the durable dispatch barrier, `RtkProcessRunner` starts the pinned RTK
+identity directly with `ProcessStartInfo.ArgumentList`, independent of warm
+PowerShell preferences. It captures and drains bounded UTF-8 stdout/stderr,
+enforces the remaining deadline, preserves the direct exit code, and never
+retries after `Process.Start` succeeds. A proven identity, preparation, or
+start failure carries a typed pre-start reason; the host must authorize a
+second durable dispatch before running the plan's exact-original fallback
+once. Captured stdout enters only the already authorized trusted compression
+function with `rtk_unknown` provenance, so it receives ANSI/bound cleanup
+without a second RTK pass or ambient `$Error` mutation.
 
 ## Files changed
 
-- Pending.
+- `server/PtkMcpServer/Execution/ExecutionPlan.cs`
+- `server/PtkMcpServer/Execution/ExecutionPlanner.cs`
+- `server/PtkMcpServer/Execution/RtkProcessRunner.cs`
+- `server/PtkMcpServer/RunspaceHost.cs`
+- `server/PtkMcpServer.Tests/AuditCallContextTests.cs`
+- `server/PtkMcpServer.Tests/ExecutionDispatchTests.cs`
+- `server/PtkMcpServer.Tests/ExecutionPlannerTests.cs`
+- `server/PtkMcpServer.Tests/InvokeToolTests.cs`
+- `server/PtkMcpServer.Tests/RtkProcessRunnerTests.cs`
+- `server/PtkMcpServer.Tests/PtkMcpServer.Tests.csproj`
+- `server/PtkRtkTestFixture/Program.cs`
+- `server/PtkRtkTestFixture/PtkRtkTestFixture.csproj`
+- `server/PtkMcpServer.slnx`
 
 ## Guard proof
 
-- Pending: set both native/error preferences in the warm session, route a
-  controlled nonzero RTK result with stdout/stderr, and assert stdout/exit/
-  stderr are preserved while `$Error` remains unchanged. Reverting the host
-  capture correction must fail the guard.
+- The coder replaced the direct runner leg with the former warm native
+  invocation. `Rtk_capture_ignores_warm_native_error_preferences_and_preserves_error_state`
+  then failed with the expected terminating exit-7 preference error and
+  passed after byte-exact restoration.
+- Independently removing the typed start-failure handoff made
+  `Proven_rtk_start_failure_uses_the_audited_exact_fallback_once` fail because
+  the exact original never ran. Removing the wildcard/tilde exclusion failed
+  the four corresponding planner cases, and substituting AST extent text for
+  string values failed exact quote/empty-argument cases. Restoration passed
+  the combined focused 27/27 guard.
+- Claude independently repeated the direct-capture, proven-pre-start, and
+  argument-expansion red-to-green mutations in a disposable exact-head
+  worktree. The restored head passed 1,030/1,030 .NET tests, 139 Pester tests
+  with two platform skips, and the zero-warning stdio handshake; both coder
+  and reviewer trees were clean and the review worktree was removed.
 
 ## Coder dispute (if any)
 
@@ -55,11 +91,43 @@ None. The finding was independently reproduced and admitted.
 
 ## Known gaps
 
-The fix must not weaken audit ordering, exact pinned identity, deadlines, or
-the no-retry-after-start contract.
+The immediate identity recheck cannot bind an OS executable across the final
+check/start window, dynamically loaded code, Windows ACL changes, or macOS
+xattrs/quarantine. The installed payload therefore remains an
+administrator-protected dependency. Root-process kill and stream completion
+also cannot prove every descendant or remote effect; terminal wording keeps
+that coverage unknown. Eliminating the residual identity race requires a
+future execution-bound Unix/Windows handle, not another path check.
+
+The wildcard exclusion is deliberately conservative: PowerShell 7 passes
+native wildcards literally, so those submissions retain exact behavior but
+skip RTK compression. Raw RTK shaping is safe because the planner cannot
+produce an RTK plan when `raw=true`; that coupling remains implicit. The new
+Windows fixture and Windows/Legacy argument branches were statically reviewed
+on macOS, with exact-archive Windows checkout validation still required before
+the repeated integrated review.
 
 ## Reviewer comments
 
 Coder integrated RTK audit against fixed head `669ce6e`, recorded
 2026-07-13T01:48:24Z. This finding is non-duplicate of Claude's RTK output
 bounding finding.
+
+Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
+`e766866a65469dad93384a95d572288ba96e1381..40923784601bf8063d9461188b04be3940374c7d`
+with `guard_confirmed=true` and verdict `accepted`, recorded
+2026-07-13T04:55:03Z. Claude independently reproduced the exact warm
+preference failure, the missing-fallback failure, and the tilde/wildcard
+eligibility failures, then restored each mutation byte-exactly. It also
+validated numeric, empty, quoted, and attached argument behavior against a
+real PowerShell 7 native probe; confirmed second-dispatch-before-fallback,
+single-use fallback, pinned-identity, deadline/stream bounds, truthful
+`LASTEXITCODE`, and provenance-aware single-pass shaping; passed the restored
+full battery; and removed its clean disposable worktree without touching the
+clean coder tree.
+
+One intermediate restored-head run timed out in four unchanged child-process
+tests under load; the same clean tree passed 1,030/1,030 immediately before
+and after. Claude classified this as existing timing flakiness rather than a
+diff defect. Its conservative-wildcard and implicit-raw-coupling observations
+remain recorded above as non-blocking residuals.

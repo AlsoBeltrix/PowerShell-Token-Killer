@@ -1412,7 +1412,7 @@ clean and removed.
 | s3-rtk-output-bounds | HIGH | Default RTK output bypasses ANSI cleanup and all passthrough bounds | `[x]` | `fix/s3-rtk-output-bounds` |
 | s3-block-fidelity | MEDIUM | Clean/dynamicparam blocks can be silently dropped by RTK routing | `[x]` | `fix/s3-block-fidelity` |
 | s3-background-operator | MEDIUM | A trailing background operator becomes synchronous RTK execution | `[x]` | `fix/s3-background-operator` |
-| s3-rtk-preference-isolation | HIGH | Warm native preferences can discard routed stdout and pollute `$Error` | `[ ]` | `fix/s3-rtk-preference-isolation` |
+| s3-rtk-preference-isolation | HIGH | Warm native preferences can discard routed stdout and pollute `$Error` | `[x]` | `fix/s3-rtk-preference-isolation` |
 | s3-wrapper-context | MEDIUM | Context-changing wrappers are routed despite the exact-original contract | `[x]` | `fix/s3-wrapper-context` |
 | s3-using-statement-fidelity | MEDIUM | A top-level using statement can be omitted from routed execution | `[x]` | `fix/s3-using-statement-fidelity` |
 | s3-background-bash-parity | MEDIUM | Background Bash parity is assigned to later Slice 5 | `[-]` | |
@@ -1475,3 +1475,17 @@ failed on a second-shaping marker. Restoration passed the focused guard and
 the exact head passed 1,018/1,018 .NET tests, 139 Pester tests with two skips,
 and the handshake. Direct observation produced 401 bounded lines with no ANSI
 or second RTK invocation. Both review trees were clean and removed.
+
+**s3-rtk-preference-isolation CLAUDE REVIEW — ACCEPTED** (Claude Code 2.1.207,
+model `claude-opus-4-8`, isolated disposable worktree), reviewed head
+`40923784601bf8063d9461188b04be3940374c7d` against base
+`e766866a65469dad93384a95d572288ba96e1381`, `guard_confirmed=true`,
+2026-07-13T04:55:03Z. Claude independently proved the direct host capture,
+typed pre-start fallback, and tilde/wildcard argument exclusions load-bearing,
+validated exact argument spelling and quoting against PowerShell 7, and
+confirmed audit ordering, no retry after start, identity/deadline/stream
+bounds, truthful exit state, and single-pass provenance-aware shaping. The
+restored exact head passed 1,030/1,030 .NET tests, 139 Pester tests with two
+platform skips, and the zero-warning handshake. The clean disposable
+worktree was removed and the coder tree remained clean. Windows execution of
+the new fixture remains the next slice-level validation gate.

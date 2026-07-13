@@ -19,10 +19,12 @@ post-success mixed-domain guidance and bind it to the canonical built-in
 `Set-Content`; Claude accepted that fixed sub-slice at `669ce6e` with both
 independent mutation guards and the restored macOS battery passing. The exact
 same code head passed the Windows checkout battery on 2026-07-12. The
-integrated Slice 3 fixed-SHA review reopened with material findings; see the
-canonical finding table in `.agents/review/index.md`. Resolve exactly
-one finding per commit and review before repeating the integrated review. No
-push was performed or authorized.
+integrated Slice 3 fixed-SHA review reopened with material findings; all
+admitted findings are now individually corrected and accepted through code
+head `4092378`, with canonical evidence in `.agents/review/index.md`.
+Exact-head cross-platform verification and a repeated integrated fixed-SHA
+review remain required before Slice 3 completion. No push was performed or
+authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

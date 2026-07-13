@@ -1698,3 +1698,10 @@ The reviewer kept cold background planning/recovery and persisted metadata in
 Slice 5, and installer/README/decisions reconciliation in Slice 10. Acceptance
 authorizes the delegated local fast-forward of the feature branch, not Slice 5
 implementation, push, or history rewriting.
+
+**SLICE 4 LOCAL LANDING RECORDED.** Local `master` was fast-forwarded through
+accepted feature tip `67e4043185fa2da8d22536569223f5bb29af3993` after the
+fixed-head verdict. `master` and `feat/audited-harness-slice4` had identical
+content and identical tips after the fast-forward; content arrival was
+verified separately from ancestry before the feature branch was deleted. No
+push was performed or authorized.

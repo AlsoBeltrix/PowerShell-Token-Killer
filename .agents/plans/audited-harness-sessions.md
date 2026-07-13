@@ -1,15 +1,16 @@
 # Plan: mandatory audit, harness-scoped sessions, and internal RTK routing
 
 **Status:** IMPLEMENTING — owner-approved 2026-07-11 after Claude and Grok
-reviewloop convergence. Slices 0-3 are complete on local `master`. Slice 4
+reviewloop convergence. Slices 0-4 are complete on local `master`. Slice 4
 product head `76d4f0c` integrates the supervisor output store and audited
 `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
 retained artifacts, truthful recovery hints, and behaviorally inert legacy
 `raw`. Claude accepted the final fixed-SHA integrated range
 `9c89abf..76d4f0c` with `guard_confirmed=true` after eight independent
-cross-slice mutation proofs and the full local battery on 2026-07-13. Slice 4
-is accepted pending the delegated local fast-forward; Slice 5 is next. No push
-was performed or authorized.
+cross-slice mutation proofs and the full local battery on 2026-07-13. The
+accepted feature history was fast-forwarded to local `master`, verified by
+content diff, and its feature branch removed. Slice 5 is next. No push was
+performed or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

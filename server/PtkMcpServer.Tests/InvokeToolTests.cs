@@ -465,7 +465,7 @@ public sealed class InvokeToolTests : IDisposable
         var body = OperatingSystem.IsWindows()
             ? $">>\"%{logName}%\" echo %*\n" +
               "echo ROUTED_STDOUT\n" +
-              "echo ROUTED_STDERR 1>&2\n" +
+              "echo ROUTED_STDERR>&2\n" +
               "exit /b 7"
             : $"printf '%s\\n' \"$*\" >> \"${logName}\"\n" +
               "printf '%s\\n' ROUTED_STDOUT\n" +

@@ -402,6 +402,7 @@ public sealed class InvokeToolTests : IDisposable
             Assert.Equal(ExecutionPath.Rtk, observed.ExecutionPath);
             Assert.Equal(OutputProvenance.RtkUnknown, observed.OutputProvenance);
             Assert.DoesNotContain("SECOND_RTK_LOG_PASS", result.Output);
+            Assert.DoesNotContain("[ptk:log", result.Output, StringComparison.Ordinal);
             Assert.DoesNotContain("[ptk:log via rtk]", result.Output);
             Assert.DoesNotContain('\u001b', result.Output);
             Assert.Contains("lines elided", result.Output, StringComparison.Ordinal);

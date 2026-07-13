@@ -1705,3 +1705,33 @@ fixed-head verdict. `master` and `feat/audited-harness-slice4` had identical
 content and identical tips after the fast-forward; content arrival was
 verified separately from ancestry before the feature branch was deleted. No
 push was performed or authorized.
+
+---
+
+**SLICE 5A COLD-BACKGROUND ADMISSION CLAUDE REVIEW — ACCEPTED** (Claude Code
+2.1.207, model `claude-opus-4-8`, isolated disposable worktree), reviewed head
+`ed7c7826dfd26380e50ca6ad5ace40ba23ad71dd` against base
+`1a2f3e9b64c1ba101ba1d3f71e435f3219601a7f`, `guard_confirmed=true`,
+2026-07-13T20:19:30Z. The one-shot JSON envelope exited zero; its structured
+payload matched the verdict schema and both fixed SHAs matched the dispatch.
+Claude found no material defect in the default-on immutable admission fact,
+false-policy audit lifecycle, no-effect ordering, audit-failure behavior, or
+the direct-commit backstop.
+
+Claude independently proved five guards red then green: bypassing the early
+tool gate reached the cwd probe; removing the manager backstop admitted a
+direct process commit; using the ordinary refusal path invented execution
+validation events; weakening proved no-root coverage falsified the audit
+guard; and swallowing final `call.not_started` persistence failure returned a
+non-error response with a lost terminal record. Exact restoration was clean
+and passed 1,094/1,094 .NET tests, 141 Pester tests with two platform skips,
+and the stdio handshake. The detached review worktree was removed and the
+feature worktree remained clean.
+
+One nonblocking future-scope observation remains: ordinary events currently
+carry the truthful reserved-default `allow_cold_background=true` literal.
+When Slice 8 introduces named session binding, the supervisor audit context
+must carry the same frozen effective policy as the runtime so a false-policy
+event cannot contradict its session fact. No public session surface or later
+Slice 5 routing/recovery work was pulled into this sub-slice. Acceptance
+authorizes the next approved Slice 5 sub-slice, not push or history rewriting.

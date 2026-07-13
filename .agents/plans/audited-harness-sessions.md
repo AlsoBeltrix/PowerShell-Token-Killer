@@ -1,33 +1,14 @@
 # Plan: mandatory audit, harness-scoped sessions, and internal RTK routing
 
 **Status:** IMPLEMENTING — owner-approved 2026-07-11 after Claude and Grok
-reviewloop convergence. Slices 0-1 are complete locally. Slice 2's final
-integrated code head `3d3739a` includes current-server job/control/retrieval
-lifecycle facts, local-only and anchored startup, closed/live/orphan chain
-export with durable checkpoints and retention, audited evidence administration
-and automatic retention, complete operator-disposition facts, and the strict
-`ptk.audit/2` extension. It passed exact-head macOS and Windows verification
-and the required fixed-SHA Claude reviewloop with `guard_confirmed=true` on
-2026-07-12. Slice 2 is complete on local `master`. Slice 3 is active: commits
-`6fb256c`, `6e604c1`, and `f3790ec` carry the immutable foreground plan through
-separate durable plan/dispatch barriers, enforce strict RTK eligibility and
-exact-original pre-start fallback, and prevent second-pass RTK shaping. The
-`412ce60` adds the audited parse-fatal/detector/syntax gate,
-startup-frozen executable identities, bounded direct process lifecycle, and
-pre-authorized RTK log shaping. Commits `dd945cf` and `669ce6e` add the
-post-success mixed-domain guidance and bind it to the canonical built-in
-`Set-Content`; Claude accepted that fixed sub-slice at `669ce6e` with both
-independent mutation guards and the restored macOS battery passing. The exact
-same code head passed the Windows checkout battery on 2026-07-12. The
-integrated Slice 3 fixed-SHA review reopened with material findings. The
-individual corrections were accepted on macOS through code head `4092378`,
-but its first exact-archive Windows validation reopened
-`s3-rtk-preference-isolation`. Its corrective head `c100ba1` now passes the
-load-bearing Windows exact-archive battery; canonical evidence is in
-`.agents/review/index.md` and `.agents/machines.md`. The fixed-SHA correction
-review is accepted at `64eb767`; all individual findings are verified, and the
-repeated integrated fixed-SHA review remains before Slice 3 completion. No
-push was performed or authorized.
+reviewloop convergence. Slices 0-2 are complete on local `master`. Slice 3
+final integrated head `b78d9c6` implements immutable foreground planning,
+separate durable plan/dispatch barriers, strict RTK/Bash routing with bounded
+preference-independent capture, exact-original pre-start fallback, and
+post-success mixed-domain guidance. The final code tree passed macOS and
+Windows validation, and Claude accepted the fixed-SHA integrated review with
+`guard_confirmed=true` on 2026-07-13. Slice 3 is accepted pending the delegated
+local fast-forward; Slice 4 is next. No push was performed or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

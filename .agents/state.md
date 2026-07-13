@@ -5,35 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slice 3 is active on
-  `feat/audited-harness-slice3`.** Commit `6fb256c` introduced the immutable
-  foreground plan, `6e604c1` made forced RTK a strict terminal-Application
-  assertion, and `f3790ec` separates audited plan and dispatch barriers,
-  enforces exact-original pre-start fallback without model retry, labels forced
-  fallbacks, and prevents every RTK provenance from entering a second generic
-  `rtk log` shaping pass. Commit `412ce60` adds the audited three-part Bash
-  gate, startup-frozen/bounded RTK and Bash identities, exact no-profile
-  delegation, deadline-bounded root/stream handling, typed terminal facts,
-  and pre-authorized foreground/job `rtk log` shaping. Its mutation guards,
-  full 1,001-test managed battery, 139-pass Pester battery (2 platform skips),
-  and zero-warning stdio handshake pass on macOS. OS-protected installation
-  remains required for the final check/start race, Windows ACL/macOS xattr
-  changes, dynamic dependencies, and other facts a byte/mode snapshot cannot
-  bind. Commits `dd945cf` and `669ce6e` add post-success mixed-domain guidance
-  and bind it to the canonical built-in `Set-Content`. Claude accepted fixed
-  scope `f311fe2..669ce6e` with both mutation guards confirmed; the restored
-  exact head passed 1,010/1,010 .NET tests, 139 Pester tests (2 platform skips),
-  and the stdio handshake on macOS. A SHA-verified Windows archive of the same
-  code head passed 1,010/1,010 .NET tests, 140 Pester tests (1 skip), and the
-  zero-warning handshake in a disposable checkout. The final integrated Slice
-  3 fixed-SHA review reopened. Its individual corrections were accepted on
-  macOS through code head `4092378`, but the first exact-archive Windows
-  validation reopened `s3-rtk-preference-isolation` with ten .NET failures.
-  Corrective head `c100ba1` passes a load-bearing exact-archive Windows proof.
-  Canonical finding/review and platform evidence is in
-  `.agents/review/index.md` and `.agents/machines.md`. Claude accepted the
-  fixed-SHA correction review at `64eb767`; all individual findings are
-  verified, and the repeated integrated review remains.
+- **Audited-harness Slice 3 is accepted pending local landing.** Final
+  integrated code head `b78d9c6` completes structured foreground routing,
+  audited RTK/Bash dispatch, bounded preference-independent RTK capture,
+  exact-original pre-start fallback, and post-success mixed-domain guidance.
+  Claude accepted the exact fixed head with `guard_confirmed=true`; all six
+  admitted material findings are closed. Canonical review and platform
+  evidence is in `.agents/review/index.md` and `.agents/machines.md`.
 - **Audited-harness Slice 2 is complete locally.** The final
   integrated code head `3d3739a` completes job/control audit, local-only and
   anchored OTLP export, evidence administration and retention, permanent
@@ -46,7 +24,8 @@ short and update it when important repo facts change.
   implementation** (owner, 2026-07-11): create, switch, merge, and delete local
   implementation/review branches without per-merge confirmation. Push remains
   separately ask-first.
-- **Audited-harness slices 0-2 are complete locally.** Slice 1 commit
+- **Audited-harness slices 0-2 are complete locally; accepted Slice 3 is the
+  next delegated local fast-forward.** Slice 1 commit
   `460c106` adds the mandatory current-server audit foundation, exact-script
   evidence, capacity reservation, protected local storage, and fail-closed
   pre-effect guards. Claude accepted the fixed-SHA implementation after an
@@ -79,9 +58,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Repeat the audited-harness Slice 3 integrated fixed-SHA Claude reviewloop.
-   Canonical finding and platform evidence is in `.agents/review/index.md` and
-   `.agents/machines.md`.
+1. Fast-forward accepted `feat/audited-harness-slice3` into local `master`,
+   verify content arrival separately from ancestry, delete the feature branch,
+   and record the landing. Canonical evidence is in `.agents/review/index.md`
+   and `.agents/machines.md`.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
@@ -127,9 +107,10 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- Audited-session slices 0-2 are complete locally. Slice 2's exact fixed-head
-  Claude acceptance, cross-platform verification, and local landing record
-  live in `.agents/review/index.md` and `.agents/machines.md`.
+- Audited-session slices 0-2 are complete locally. Slice 3's exact fixed-head
+  Claude acceptance and cross-platform verification are complete; delegated
+  local landing is its only remaining action. Canonical records live in
+  `.agents/review/index.md` and `.agents/machines.md`.
 
 ## Active Sources
 

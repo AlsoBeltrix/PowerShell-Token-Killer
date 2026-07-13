@@ -77,17 +77,17 @@ validation, not an installed-payload update._
 
 ### Audited-harness Slice 3 checkout validation
 
-_Verified 2026-07-12 at fixed code head `669ce6e` in Claude's disposable
+_Verified 2026-07-13 at final integrated head `b78d9c6` in Claude's disposable
 worktree; this was checkout validation, not an installed-payload update._
 
-- The exact code head passed 1,010/1,010 .NET tests, 139 PowerShell module
-  tests with two platform skips, and the stdio handshake. The handshake build
-  had zero warnings.
-- Claude independently removed the positive mixed-guidance behavior and saw
-  exactly two focused guards fail, then removed the canonical `Set-Content`
-  identity/source checks and saw the noncanonical-sink guard fail. Both
-  restorations passed focused 9/9, left the exact head byte-clean, and the
-  disposable worktree was removed.
+- The exact head passed 1,030/1,030 .NET tests, 139 PowerShell module tests
+  with two platform skips, and the stdio handshake with a zero-warning build.
+- Claude independently proved five integrated guard classes load-bearing:
+  durable dispatch, preference-independent RTK capture, RTK provenance/bounds,
+  AST fidelity, and Bash validation ordering. Every mutation failed for its
+  intended reason, restored byte-exactly, and passed afterward.
+- The clean disposable worktree and all proof artifacts were removed; an
+  independent probe found no local residue and the coder tree remained clean.
 - This checkout battery does not replace the later installed/OS-protected live
   validation needed for executable check/start races, dynamic dependencies,
   ACL/xattr mutation, and other properties a source snapshot cannot bind.
@@ -244,6 +244,14 @@ changed._
   full Windows battery. The reviewer corrected one no-effect cleanup-command
   quoting error, then it and the coder independently confirmed zero remaining
   `ptkrev-*` artifacts under `F:\dev`; no persistent host state changed.
+- The final integrated head `b78d9c6f176cb42771f823a6b1bdc2b3e6561f07`
+  passed a separately hashed exact-current-head Windows checkout at SHA-256
+  `8C547113682979E02F0CF0FA0C05A722DEBCC8A5CB388645FF1415C1F4B5DA90`:
+  1,030/1,030 .NET, 140 Pester with one skip, and the zero-warning handshake.
+  `src/`, `server/`, and `tests/` are byte-identical from corrective head
+  `c100ba1` through the final head, so the independent forwarding red-to-green
+  proof covers this final code tree. All review archives, scripts, and the
+  remote checkout were removed; independent probes found no residue.
 
 ## Disposable Ubuntu 26.04 ARM64 validation
 

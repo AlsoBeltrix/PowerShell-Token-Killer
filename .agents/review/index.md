@@ -1522,3 +1522,31 @@ and used a separately hashed exact-head Windows archive. Removing only fixture
 stream forwarding failed exactly the eight RTK-route guards; byte-exact
 restoration passed the full Windows .NET/Pester/handshake battery. All local
 and remote review artifacts were removed and the coder tree remained clean.
+
+---
+
+**SLICE 3 FINAL INTEGRATED CLAUDE REVIEW — ACCEPTED / LOOP CLOSED** (Claude
+Code 2.1.207, model `claude-opus-4-8`, isolated disposable macOS and Windows
+worktrees), reviewed head `b78d9c6f176cb42771f823a6b1bdc2b3e6561f07`
+against base `0c08379a02c796b8ea0e1779c196840c6a9b1269`,
+`guard_confirmed=true`, 2026-07-13T05:58:53Z. The one-shot JSON envelope
+exited zero; its result and structured payload matched, and both fixed SHAs
+matched the dispatch. Claude found no material defect after independently
+proving the durable dispatch barrier, preference-independent RTK capture, both
+RTK output provenance/bounds legs, background/wrapper AST exclusions, and
+Bash validation ordering load-bearing. Every mutation failed for its intended
+reason and passed after byte-exact restoration.
+
+The restored exact head passed the full macOS battery. A separately hashed
+exact-current-head archive passed the full Windows battery, and the reviewer
+confirmed the final code tree is identical to the independently Windows
+red-to-green-reviewed correction. Both review worktrees and every local/remote
+transfer or proof artifact were removed; independent probes found no residue
+and the coder tree remained clean. Canonical platform counts and residual
+installed/OS-protected caveats are in `.agents/machines.md`.
+
+All six admitted material integrated-review findings are `Verified`; their
+individual guard proofs and fixed-SHA verdicts remain in the canonical finding
+files. `s3-background-bash-parity` remains the recorded Slice 5 intake decline,
+not an open Slice 3 finding. Acceptance authorizes local landing under the
+owner's delegated branch authority, not push or history rewrite.

@@ -75,6 +75,7 @@ internal enum ExecutionFallbackReason
     RtkSelfInvocation,
     RtkResolutionNotApplication,
     RtkFidelityExclusion,
+    RtkExecutionPreparationFailed,
 }
 
 internal enum OutputProvenance
@@ -177,10 +178,15 @@ internal sealed record ExecutionPlan
         BashExecutableIdentity? bashExecutableIdentity = null,
         string? workingDirectory = null,
         RtkExecutableIdentity? outputShapingRtkIdentity = null,
-        PostSuccessGuidance? postSuccessGuidance = null)
+        PostSuccessGuidance? postSuccessGuidance = null,
+        ImmutableArray<string> rtkArgumentVector = default)
     {
         ArgumentNullException.ThrowIfNull(originalScript);
         var isBash = executionPath == ExecutionPath.BashViaRtk;
+        var isRtk = executionPath == ExecutionPath.Rtk;
+        var normalizedRtkArguments = rtkArgumentVector.IsDefault
+            ? ImmutableArray<string>.Empty
+            : rtkArgumentVector;
         if (isBash)
         {
             if (executionScript is not null ||
@@ -191,19 +197,36 @@ internal sealed record ExecutionPlan
                 string.IsNullOrWhiteSpace(bashExecutableIdentity.ExecutablePath) ||
                 !Path.IsPathFullyQualified(bashExecutableIdentity.ExecutablePath) ||
                 string.IsNullOrWhiteSpace(workingDirectory) ||
-                !Path.IsPathFullyQualified(workingDirectory))
+                !Path.IsPathFullyQualified(workingDirectory) ||
+                normalizedRtkArguments.Length != 0)
             {
                 throw new ArgumentException(
                     "Bash delegation requires a typed pinned identity, filesystem cwd, and no constructed script.");
             }
         }
+        else if (isRtk)
+        {
+            if (executionScript is not null ||
+                bashExecutableIdentity is not null ||
+                preExecutionValidation != PreExecutionValidation.None ||
+                string.IsNullOrWhiteSpace(workingDirectory) ||
+                !Path.IsPathFullyQualified(workingDirectory) ||
+                normalizedRtkArguments.Length == 0 ||
+                string.IsNullOrWhiteSpace(normalizedRtkArguments[0]) ||
+                normalizedRtkArguments.Any(argument => argument is null))
+            {
+                throw new ArgumentException(
+                    "RTK execution requires a typed argument vector, filesystem cwd, and no constructed script.");
+            }
+        }
         else if (executionScript is null ||
                  bashExecutableIdentity is not null ||
                  workingDirectory is not null ||
+                 normalizedRtkArguments.Length != 0 ||
                  preExecutionValidation != PreExecutionValidation.None)
         {
             throw new ArgumentException(
-                "Only Bash delegation may carry Bash validation facts.",
+                "Only typed external execution may carry validation, cwd, or argument-vector facts.",
                 nameof(bashExecutableIdentity));
         }
         if (permittedFallbacks.IsDefault)
@@ -287,6 +310,7 @@ internal sealed record ExecutionPlan
         WorkingDirectory = workingDirectory;
         OutputShapingRtkIdentity = outputShapingRtkIdentity;
         PostSuccessGuidance = postSuccessGuidance;
+        RtkArgumentVector = normalizedRtkArguments;
     }
 
     internal string OriginalScript { get; }
@@ -304,6 +328,7 @@ internal sealed record ExecutionPlan
     internal string? WorkingDirectory { get; }
     internal RtkExecutableIdentity? OutputShapingRtkIdentity { get; }
     internal PostSuccessGuidance? PostSuccessGuidance { get; }
+    internal ImmutableArray<string> RtkArgumentVector { get; }
 
     internal string EffectiveRoute => ExecutionPath.ToMachineCode();
 }
@@ -369,6 +394,10 @@ internal sealed record ExecutionDispatch
     internal OutputProvenance OutputProvenance { get; }
     internal ExecutionFallbackReason? FallbackReason { get; }
     internal RtkExecutableIdentity? RtkExecutableIdentity { get; }
+    internal ImmutableArray<string> RtkArgumentVector =>
+        ExecutionPath == ExecutionPath.Rtk
+            ? Plan.RtkArgumentVector
+            : ImmutableArray<string>.Empty;
     internal BashExecutableIdentity? BashExecutableIdentity => Plan.BashExecutableIdentity;
     internal string? WorkingDirectory => Plan.WorkingDirectory;
     internal RtkExecutableIdentity? OutputShapingRtkIdentity =>
@@ -397,6 +426,13 @@ internal sealed record ExecutionDispatch
     }
 
     internal static ExecutionDispatch RtkUnavailableFallback(ExecutionPlan plan)
+        => RtkPreStartFallback(
+            plan,
+            ExecutionFallbackReason.RtkExecutableBecameUnavailable);
+
+    internal static ExecutionDispatch RtkPreStartFallback(
+        ExecutionPlan plan,
+        ExecutionFallbackReason reason)
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (plan.ExecutionPath != ExecutionPath.Rtk ||
@@ -405,13 +441,20 @@ internal sealed record ExecutionDispatch
             throw new InvalidOperationException(
                 "Only an RTK plan with an authorized direct fallback may fall back.");
         }
+        if (reason is not (
+                ExecutionFallbackReason.RtkExecutableBecameUnavailable or
+                ExecutionFallbackReason.RtkExecutionPreparationFailed))
+        {
+            throw new InvalidOperationException(
+                "Only a proven pre-start RTK failure may consume the exact fallback.");
+        }
 
         return new ExecutionDispatch(
             plan,
             plan.OriginalScript,
             ExecutionPath.PowerShellDirect,
             OutputProvenance.PowerShellObjects,
-            ExecutionFallbackReason.RtkExecutableBecameUnavailable,
+            reason,
             rtkExecutableIdentity: null);
     }
 }
@@ -462,6 +505,7 @@ internal static class ExecutionPlanMachineCodes
         ExecutionFallbackReason.RtkSelfInvocation => "rtk_self_invocation",
         ExecutionFallbackReason.RtkResolutionNotApplication => "rtk_resolution_not_application",
         ExecutionFallbackReason.RtkFidelityExclusion => "rtk_fidelity_exclusion",
+        ExecutionFallbackReason.RtkExecutionPreparationFailed => "rtk_execution_preparation_failed",
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 }

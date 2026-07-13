@@ -9,16 +9,16 @@ public sealed class ExecutionPlannerTests
         Path.GetFullPath(Path.Combine(Path.GetTempPath(), "trusted", "rtk"));
 
     [Fact]
-    public void Plans_one_application_through_pinned_rtk_and_preserves_constant_text()
+    public void Plans_one_application_through_pinned_rtk_with_typed_arguments()
     {
         var commands = Application("git", "/usr/bin/git");
 
         var plan = Plan("git commit -m \"hello world\"", "auto", RtkPath, commands);
 
         Assert.Equal("git commit -m \"hello world\"", plan.OriginalScript);
-        Assert.Equal(
-            $"& '{RtkPath.Replace("'", "''")}' git commit -m \"hello world\"",
-            plan.ExecutionScript);
+        Assert.Null(plan.ExecutionScript);
+        Assert.Equal(["git", "commit", "-m", "hello world"], plan.RtkArgumentVector.ToArray());
+        Assert.Equal(Path.GetFullPath(Path.GetTempPath()), plan.WorkingDirectory);
         Assert.Equal(ExecutionDomain.NativeTerminal, plan.Domain);
         Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
         Assert.Equal("rtk", plan.EffectiveRoute);
@@ -36,10 +36,23 @@ public sealed class ExecutionPlannerTests
         var apostrophePath =
             Path.GetFullPath(Path.Combine(Path.GetTempPath(), "trusted", "o'brien", "rtk"));
         var apostrophe = Plan("git status", "auto", apostrophePath, commands);
-        Assert.Equal(
-            $"& '{apostrophePath.Replace("'", "''")}' git status",
-            apostrophe.ExecutionScript);
+        Assert.Null(apostrophe.ExecutionScript);
+        Assert.Equal(["git", "status"], apostrophe.RtkArgumentVector.ToArray());
         Assert.Equal(apostrophePath, apostrophe.RtkExecutableIdentity?.ExecutablePath);
+    }
+
+    [Fact]
+    public void Rtk_argument_vector_preserves_constant_native_semantics()
+    {
+        var plan = Plan(
+            "git \"\" \"hello world\" \"*.md\" 001 0x10 -x:'joined value' -- foo",
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"));
+
+        Assert.Equal(
+            ["git", "", "hello world", "*.md", "001", "0x10", "-x:joined value", "--", "foo"],
+            plan.RtkArgumentVector.ToArray());
     }
 
     [Theory]
@@ -58,12 +71,36 @@ public sealed class ExecutionPlannerTests
     [InlineData("/opt/RTK.EXE gain")]
     [InlineData("git commit -m \"$msg\"")]
     [InlineData("git -flag:$value")]
+    [InlineData("git --% -x \"a b\"")]
+    [InlineData("git ~/repo")]
+    [InlineData("git -C:~/repo status")]
+    [InlineData("git *.md")]
+    [InlineData("git file?.md")]
     [InlineData("git status ||| (")]
     public void Keeps_every_non_single_constant_command_shape_on_PowerShell(string script)
     {
         var plan = Plan(script, "auto", RtkPath, Application("git", "/usr/bin/git"));
 
         AssertDirect(plan, script, RequestedExecutionRoute.Auto);
+    }
+
+    [Fact]
+    public void Legacy_native_argument_passing_keeps_the_exact_PowerShell_path()
+    {
+        var commands = Application("git", "/usr/bin/git");
+        var plan = ExecutionPlanner.Create(
+            "git status",
+            "rtk",
+            new RtkExecutableIdentity(RtkPath),
+            commands,
+            raw: false,
+            compressAvailable: true,
+            ResolutionContext.Warm,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: "Legacy");
+
+        AssertDirect(plan, "git status", RequestedExecutionRoute.Rtk);
+        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
     }
 
     [Theory]
@@ -306,6 +343,7 @@ public sealed class ExecutionPlannerTests
                 "rtk_self_invocation",
                 "rtk_resolution_not_application",
                 "rtk_fidelity_exclusion",
+                "rtk_execution_preparation_failed",
             ],
             Enum.GetValues<ExecutionFallbackReason>().Select(value => value.ToMachineCode()));
     }
@@ -522,7 +560,9 @@ public sealed class ExecutionPlannerTests
             raw: false,
             compressAvailable: true,
             ResolutionContext.Warm,
-            allowFileSystemGuidance: true);
+            allowFileSystemGuidance: true,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: "Standard");
 
     private static void AssertDirect(
         ExecutionPlan plan,

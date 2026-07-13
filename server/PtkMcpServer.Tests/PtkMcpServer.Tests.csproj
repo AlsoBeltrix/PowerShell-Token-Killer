@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PtkMcpServer\PtkMcpServer.csproj" />
+    <ProjectReference Include="..\PtkRtkTestFixture\PtkRtkTestFixture.csproj" />
   </ItemGroup>
 
 </Project>

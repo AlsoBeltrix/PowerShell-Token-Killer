@@ -22,7 +22,9 @@ internal static class ExecutionPlanner
         bool raw,
         bool compressAvailable,
         ResolutionContext resolutionContext,
-        bool allowFileSystemGuidance = false)
+        bool allowFileSystemGuidance = false,
+        string? workingDirectory = null,
+        string? nativeArgumentPassing = null)
     {
         ArgumentNullException.ThrowIfNull(script);
         ArgumentNullException.ThrowIfNull(commands);
@@ -161,10 +163,31 @@ internal static class ExecutionPlanner
                 postSuccessGuidance);
         }
 
-        var escapedRtk = effectiveRtkIdentity.ExecutablePath.Replace("'", "''");
+        if (string.IsNullOrWhiteSpace(workingDirectory) ||
+            !Path.IsPathFullyQualified(workingDirectory) ||
+            !SupportsDirectArgumentPassing(
+                nativeArgumentPassing,
+                effectiveRtkIdentity.ExecutablePath) ||
+            !TryCreateRtkArgumentVector(command, out var rtkArgumentVector))
+        {
+            return Direct(
+                script,
+                raw,
+                compressAvailable,
+                resolutionContext,
+                requestedRoute,
+                domain,
+                noFallbacks,
+                requestedRoute == RequestedExecutionRoute.Rtk
+                    ? ExecutionFallbackReason.RtkFidelityExclusion
+                    : null,
+                effectiveRtkIdentity,
+                postSuccessGuidance);
+        }
+
         return new ExecutionPlan(
             script,
-            $"& '{escapedRtk}' {command.Extent.Text}",
+            executionScript: null,
             domain,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -173,7 +196,9 @@ internal static class ExecutionPlanner
             OutputProvenance.RtkUnknown,
             ImmutableArray.Create(ExecutionPath.PowerShellDirect),
             fallbackReason: null,
-            effectiveRtkIdentity);
+            effectiveRtkIdentity,
+            workingDirectory: workingDirectory,
+            rtkArgumentVector: rtkArgumentVector);
     }
 
     internal static ExecutionPlan CreateDirect(
@@ -296,6 +321,11 @@ internal static class ExecutionPlanner
 
         foreach (var element in elements.Skip(1))
         {
+            if (element is StringConstantExpressionAst stopParsing &&
+                stopParsing.Extent.Text.Equals("--%", StringComparison.Ordinal))
+            {
+                return null;
+            }
             var isConstant = element is ConstantExpressionAst ||
                 element is CommandParameterAst parameter &&
                 (parameter.Argument is null || parameter.Argument is ConstantExpressionAst);
@@ -303,6 +333,103 @@ internal static class ExecutionPlanner
         }
 
         return command;
+    }
+
+    private static bool SupportsDirectArgumentPassing(
+        string? nativeArgumentPassing,
+        string rtkExecutablePath)
+    {
+        if (string.Equals(
+                nativeArgumentPassing,
+                "Standard",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (!OperatingSystem.IsWindows() ||
+            !string.Equals(
+                nativeArgumentPassing,
+                "Windows",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        // PowerShell's Windows mode uses legacy argument passing only for
+        // document/shell launchers. Ordinary native images receive the same
+        // argv semantics as ProcessStartInfo.ArgumentList.
+        return Path.GetExtension(rtkExecutablePath).ToLowerInvariant() is not
+            (".bat" or ".cmd" or ".js" or ".vbs" or ".wsf");
+    }
+
+    private static bool TryCreateRtkArgumentVector(
+        CommandAst command,
+        out ImmutableArray<string> arguments)
+    {
+        var builder = ImmutableArray.CreateBuilder<string>(command.CommandElements.Count);
+        foreach (var element in command.CommandElements)
+        {
+            switch (element)
+            {
+                case StringConstantExpressionAst text:
+                    if (RequiresPowerShellArgumentExpansion(text))
+                    {
+                        arguments = ImmutableArray<string>.Empty;
+                        return false;
+                    }
+                    builder.Add(text.Value);
+                    break;
+                case ConstantExpressionAst:
+                    // Native invocation preserves the submitted spelling for
+                    // numeric constants (001, 0x10, 1kb), not Value.ToString().
+                    builder.Add(element.Extent.Text);
+                    break;
+                case CommandParameterAst { Argument: null } parameter:
+                    builder.Add(parameter.Extent.Text);
+                    break;
+                case CommandParameterAst { Argument: ConstantExpressionAst argument }
+                    parameter:
+                {
+                    if (argument is StringConstantExpressionAst stringValue &&
+                        RequiresPowerShellArgumentExpansion(stringValue))
+                    {
+                        arguments = ImmutableArray<string>.Empty;
+                        return false;
+                    }
+                    var prefixLength =
+                        argument.Extent.StartOffset - parameter.Extent.StartOffset;
+                    if (prefixLength < 0 || prefixLength > parameter.Extent.Text.Length)
+                    {
+                        arguments = ImmutableArray<string>.Empty;
+                        return false;
+                    }
+                    var value = argument is StringConstantExpressionAst stringArgument
+                        ? stringArgument.Value
+                        : argument.Extent.Text;
+                    builder.Add(parameter.Extent.Text[..prefixLength] + value);
+                    break;
+                }
+                default:
+                    arguments = ImmutableArray<string>.Empty;
+                    return false;
+            }
+        }
+
+        arguments = builder.MoveToImmutable();
+        return arguments.Length > 0 && !string.IsNullOrWhiteSpace(arguments[0]);
+    }
+
+    private static bool RequiresPowerShellArgumentExpansion(
+        StringConstantExpressionAst expression)
+    {
+        if (expression.StringConstantType != StringConstantType.BareWord)
+            return false;
+        var text = expression.Extent.Text;
+        return text.Equals("~", StringComparison.Ordinal) ||
+               text.StartsWith("~/", StringComparison.Ordinal) ||
+               text.StartsWith("~\\", StringComparison.Ordinal) ||
+               text.IndexOfAny(['*', '?', '[', ']']) >= 0;
     }
 
     private static bool IsContextChangingWrapper(CommandAst command)

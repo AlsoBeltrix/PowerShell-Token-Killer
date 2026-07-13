@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using PtkMcpServer.Tools;
+using PtkRtkTestFixture;
 
 namespace PtkMcpServer.Tests;
 
@@ -149,9 +150,13 @@ public sealed class InvokeToolTests : IDisposable
             : Directory.CreateDirectory(Path.Combine(
                 parentDirectory,
                 "ptk-rtk-route-" + Guid.NewGuid().ToString("N")));
+        var requestedName = fileName ??
+            (OperatingSystem.IsWindows() ? "rtk-stub.exe" : "rtk-stub.sh");
         var path = Path.Combine(
             dir.FullName,
-            fileName ?? (OperatingSystem.IsWindows() ? "rtk-stub.cmd" : "rtk-stub.sh"));
+            OperatingSystem.IsWindows()
+                ? Path.ChangeExtension(requestedName, ".exe")
+                : requestedName);
         WriteRtkStub(path, body);
         return (dir, path);
     }
@@ -160,7 +165,10 @@ public sealed class InvokeToolTests : IDisposable
     {
         if (OperatingSystem.IsWindows())
         {
-            File.WriteAllText(path, "@echo off\r\n" + body.Replace("\n", "\r\n") + "\r\n");
+            InstallOrMutateWindowsRtkFixture(path, body);
+            File.WriteAllText(
+                Path.ChangeExtension(path, ".cmd"),
+                "@echo off\r\n" + body.Replace("\n", "\r\n") + "\r\n");
             return;
         }
 
@@ -168,6 +176,36 @@ public sealed class InvokeToolTests : IDisposable
             "#!/bin/sh\n" + body.Replace("%*", "\"$@\"").Replace("exit /b ", "exit ") + "\n");
         File.SetUnixFileMode(path,
             UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+    }
+
+    private static void InstallOrMutateWindowsRtkFixture(string path, string body)
+    {
+        if (File.Exists(path))
+        {
+            // PE loaders permit an overlay after the image. Appending a body
+            // digest leaves the native fixture runnable while making the
+            // same-path replacement visible to the production identity hash.
+            using var executable = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
+            executable.Write(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body)));
+            return;
+        }
+
+        var fixtureAssembly = typeof(FixtureMarker).Assembly.Location;
+        var fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)
+            ?? throw new InvalidOperationException("RTK fixture assembly directory is unavailable.");
+        var fixtureBaseName = Path.GetFileNameWithoutExtension(fixtureAssembly);
+        var fixtureAppHost = Path.Combine(fixtureDirectory, fixtureBaseName + ".exe");
+        if (!File.Exists(fixtureAppHost))
+            throw new FileNotFoundException("RTK fixture apphost is unavailable.", fixtureAppHost);
+
+        File.Copy(fixtureAppHost, path);
+        foreach (var extension in new[] { ".dll", ".deps.json", ".runtimeconfig.json" })
+        {
+            var source = Path.Combine(fixtureDirectory, fixtureBaseName + extension);
+            if (!File.Exists(source))
+                throw new FileNotFoundException("RTK fixture runtime file is unavailable.", source);
+            File.Copy(source, Path.Combine(Path.GetDirectoryName(path)!, fixtureBaseName + extension));
+        }
     }
 
     [Fact]
@@ -421,11 +459,73 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Rtk_capture_ignores_warm_native_error_preferences_and_preserves_error_state()
+    {
+        const string logName = "PTK_RTK_PREFERENCE_TEST_LOG";
+        var body = OperatingSystem.IsWindows()
+            ? $">>\"%{logName}%\" echo %*\n" +
+              "echo ROUTED_STDOUT\n" +
+              "echo ROUTED_STDERR 1>&2\n" +
+              "exit /b 7"
+            : $"printf '%s\\n' \"$*\" >> \"${logName}\"\n" +
+              "printf '%s\\n' ROUTED_STDOUT\n" +
+              "printf '%s\\n' ROUTED_STDERR 1>&2\n" +
+              "exit 7";
+        var (dir, stub) = CreateRtkStub(body);
+        var invocationLog = Path.Combine(dir.FullName, "preference-invocations.log");
+        var savedLog = Environment.GetEnvironmentVariable(logName);
+        try
+        {
+            Environment.SetEnvironmentVariable(logName, invocationLog);
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                rtkPathOverride: stub);
+            var setup = await host.InvokeAsync(
+                "$global:PSNativeCommandUseErrorActionPreference = $true; " +
+                "$global:ErrorActionPreference = 'Stop'; " +
+                "$global:Error.Clear(); 'ready'",
+                raw: true,
+                route: "pwsh");
+            Assert.True(setup.Success, string.Join(Environment.NewLine, setup.Errors));
+
+            var result = await host.InvokeAsync("git status", route: "auto");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(InvokeDisposition.Completed, result.Disposition);
+            Assert.True(result.UserExecutionStarted);
+            Assert.Contains("ROUTED_STDOUT", result.Output);
+            Assert.NotNull(result.Stderr);
+            Assert.Contains("ROUTED_STDERR", result.Stderr);
+            Assert.Empty(result.Errors);
+            Assert.Equal(7, result.ExitCode);
+            Assert.Equal(["git status"], File.ReadAllLines(invocationLog));
+
+            var state = await host.InvokeAsync(
+                "'native=' + $PSNativeCommandUseErrorActionPreference; " +
+                "'action=' + $ErrorActionPreference; " +
+                "'errors=' + $Error.Count",
+                raw: true,
+                route: "pwsh");
+            Assert.True(state.Success, string.Join(Environment.NewLine, state.Errors));
+            Assert.Contains("native=True", state.Output);
+            Assert.Contains("action=Stop", state.Output);
+            Assert.Contains("errors=0", state.Output);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(logName, savedLog);
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Relative_rtk_override_is_bound_before_the_warm_cwd_changes()
     {
         var processCwd = Directory.GetCurrentDirectory();
         var (rtkDir, stub) = CreateRtkStub(
-            "echo RTKROUTE %*\nexit /b 0",
+            OperatingSystem.IsWindows()
+                ? "echo RTKROUTE %*\n>rtk-cwd-marker.txt echo ran\nexit /b 0"
+                : "echo RTKROUTE \"$@\"\n: > rtk-cwd-marker.txt\nexit 0",
             AppContext.BaseDirectory);
         var warmCwd = Directory.CreateTempSubdirectory("ptk-relative-rtk-cwd-");
         var relativeStub = Path.GetRelativePath(processCwd, stub);
@@ -454,6 +554,8 @@ public sealed class InvokeToolTests : IDisposable
             Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
             Assert.Contains("RTKROUTE git status", result.Output);
             Assert.Equal(Path.GetFullPath(stub), observed?.RtkExecutableIdentity?.ExecutablePath);
+            Assert.Equal(warmCwd.FullName, observed?.WorkingDirectory);
+            Assert.True(File.Exists(Path.Combine(warmCwd.FullName, "rtk-cwd-marker.txt")));
         }
         finally
         {
@@ -492,8 +594,9 @@ public sealed class InvokeToolTests : IDisposable
             Assert.Equal(1, authorizationCalls);
             Assert.NotNull(observed);
             Assert.Equal("git status", observed.OriginalScript);
-            Assert.NotEqual(observed.OriginalScript, observed.ExecutionScript);
-            Assert.Contains(stub, observed.ExecutionScript, StringComparison.Ordinal);
+            Assert.Null(observed.ExecutionScript);
+            Assert.Equal(["git", "status"], observed.RtkArgumentVector.ToArray());
+            Assert.Equal(Directory.GetCurrentDirectory(), observed.WorkingDirectory);
             Assert.Equal(ExecutionDomain.NativeTerminal, observed.Domain);
             Assert.Equal(ExecutionPath.Rtk, observed.ExecutionPath);
             Assert.Equal("rtk", observed.EffectiveRoute);
@@ -559,6 +662,68 @@ public sealed class InvokeToolTests : IDisposable
         finally
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", saved);
+            dir.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Proven_rtk_start_failure_uses_the_audited_exact_fallback_once()
+    {
+        var (dir, stub) = CreateRtkStub("echo RTK_MUST_NOT_RUN %*\nexit /b 0");
+        var originalCount = Path.Combine(dir.FullName, "start-fallback-count.txt");
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                File.WriteAllText(stub, "not a Windows executable");
+            }
+            else
+            {
+                File.SetUnixFileMode(
+                    stub,
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite);
+            }
+            var escapedCount = originalCount.Replace("'", "''");
+            var original =
+                "pwsh -NoProfile -NonInteractive -Command \"" +
+                $"[IO.File]::AppendAllText('{escapedCount}', '1'); " +
+                "'EXACT_START_FAILURE_FALLBACK'\"";
+            using var host = new RunspaceHost(
+                callTimeout: TimeSpan.FromSeconds(60),
+                rtkPathOverride: stub);
+            var dispatches = new List<ExecutionDispatch>();
+            var authorizer = new TestInvocationAuthorizer(
+                (_, _) => ValueTask.FromResult(true),
+                (dispatch, _) =>
+                {
+                    dispatches.Add(dispatch);
+                    return ValueTask.FromResult(true);
+                });
+
+            var result = await host.InvokeAsync(original, authorizer, route: "rtk");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Contains("EXACT_START_FAILURE_FALLBACK", result.Output);
+            Assert.Equal("1", File.ReadAllText(originalCount));
+            Assert.Collection(
+                dispatches,
+                first => Assert.Equal(ExecutionPath.Rtk, first.ExecutionPath),
+                second =>
+                {
+                    Assert.Equal(ExecutionPath.PowerShellDirect, second.ExecutionPath);
+                    Assert.Equal(original, second.ExecutionScript);
+                    Assert.Empty(second.RtkArgumentVector);
+                    Assert.Equal(
+                        ExecutionFallbackReason.RtkExecutionPreparationFailed,
+                        second.FallbackReason);
+                });
+            Assert.Equal(ExecutionPath.PowerShellDirect, result.Routing?.EffectivePath);
+            Assert.Equal(
+                ExecutionFallbackReason.RtkExecutionPreparationFailed,
+                result.Routing?.FallbackReason);
+        }
+        finally
+        {
             dir.Delete(recursive: true);
         }
     }
@@ -1319,35 +1484,20 @@ public sealed class InvokeToolTests : IDisposable
     [Fact]
     public async Task Rtk_install_nag_is_filtered_but_real_stderr_survives()
     {
-        // Per-OS stubs built explicitly: sh's echo may process the backslash
-        // in the nag's /!\ marker, so the Unix leg uses printf with a quoted
-        // literal (same pattern as the log-shaping stub above).
-        var dir = Directory.CreateTempSubdirectory("ptk-rtk-nag-");
-        string stub;
-        if (OperatingSystem.IsWindows())
-        {
-            stub = Path.Combine(dir.FullName, "rtk-stub.cmd");
-            File.WriteAllText(stub,
-                "@echo off\r\n" +
-                "echo [rtk] /!\\ No hook installed - run rtk init 1>&2\r\n" +
-                "echo [rtk] /!\\ unexpected-real-diagnostic 1>&2\r\n" +
-                "echo real-stderr-detail 1>&2\r\n" +
-                "echo RTKROUTE %*\r\n" +
-                "exit /b 0\r\n");
-        }
-        else
-        {
-            stub = Path.Combine(dir.FullName, "rtk-stub.sh");
-            File.WriteAllText(stub,
-                "#!/bin/sh\n" +
-                "printf '%s\\n' '[rtk] /!\\ No hook installed - run rtk init' 1>&2\n" +
-                "printf '%s\\n' '[rtk] /!\\ unexpected-real-diagnostic' 1>&2\n" +
-                "echo real-stderr-detail 1>&2\n" +
-                "echo \"RTKROUTE $@\"\n" +
-                "exit 0\n");
-            File.SetUnixFileMode(stub,
-                UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
+        // sh's echo may process the backslash in the nag's /!\ marker, so the
+        // Unix sidecar uses printf with a quoted literal.
+        var body = OperatingSystem.IsWindows()
+            ? "echo [rtk] /!\\ No hook installed - run rtk init 1>&2\n" +
+              "echo [rtk] /!\\ unexpected-real-diagnostic 1>&2\n" +
+              "echo real-stderr-detail 1>&2\n" +
+              "echo RTKROUTE %*\n" +
+              "exit /b 0"
+            : "printf '%s\\n' '[rtk] /!\\ No hook installed - run rtk init' 1>&2\n" +
+              "printf '%s\\n' '[rtk] /!\\ unexpected-real-diagnostic' 1>&2\n" +
+              "echo real-stderr-detail 1>&2\n" +
+              "echo \"RTKROUTE $@\"\n" +
+              "exit 0";
+        var (dir, stub) = CreateRtkStub(body);
         var saved = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
         try
         {

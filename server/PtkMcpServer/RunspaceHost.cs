@@ -82,6 +82,7 @@ public sealed record InvokeResult(
     internal string? AuditDetailCode { get; init; }
     internal OutputShapingSummary? OutputShaping { get; init; }
     internal bool PipelineHadErrors { get; init; }
+    internal ExecutionFallbackReason? ProvenPreStartFallbackReason { get; init; }
 }
 
 internal sealed record ExecutionRouteSummary(
@@ -963,6 +964,17 @@ public sealed class RunspaceHost : IDisposable
         catch { /* bookkeeping only */ }
     }
 
+    private static void SetExitCode(Runspace runspace, int exitCode)
+    {
+        try
+        {
+            // SessionStateProxy writes the global session value directly; it
+            // does not run a PowerShell pipeline or touch the warm $Error list.
+            runspace.SessionStateProxy.SetVariable("LASTEXITCODE", exitCode);
+        }
+        catch { /* bookkeeping only */ }
+    }
+
     private static int ReadExitCode(Runspace runspace)
     {
         try
@@ -1111,6 +1123,17 @@ public sealed class RunspaceHost : IDisposable
             return !string.IsNullOrWhiteSpace(path) && Path.IsPathFullyQualified(path)
                 ? path
                 : null;
+        }
+        catch { return null; }
+    }
+
+    private static string? TryCaptureNativeArgumentPassing(Runspace runspace)
+    {
+        try
+        {
+            return runspace.SessionStateProxy
+                .GetVariable("PSNativeCommandArgumentPassing")
+                ?.ToString();
         }
         catch { return null; }
     }
@@ -1648,6 +1671,95 @@ public sealed class RunspaceHost : IDisposable
         return (text, new OutputShapingSummary(status, authorizedDigest));
     }
 
+    private async Task<InvokeResult> ShapeRtkOutputGateHeldAsync(
+        InvokeResult processResult,
+        PrimedRunspace primed,
+        Runspace runspace,
+        DateTimeOffset callDeadline,
+        CancellationToken cancellationToken)
+    {
+        if (processResult.Disposition != InvokeDisposition.Completed ||
+            processResult.Output.Length == 0 ||
+            primed.CompressCommand is null)
+        {
+            return processResult;
+        }
+
+        var ps = PowerShell.Create();
+        var handedOff = false;
+        try
+        {
+            ps.Runspace = runspace;
+            ps.AddScript(
+                    "$input | & $args[0] -InputProvenance $args[1] -EmitRoutingEnvelope",
+                    useLocalScope: true)
+              .AddArgument(primed.CompressCommand)
+              .AddArgument(OutputProvenance.RtkUnknown.ToMachineCode());
+            var input = new PSDataCollection<object> { processResult.Output };
+            input.Complete();
+
+            var invokeTask = InvokeAsyncWithoutAmbientAudit(ps, input);
+            var outcome = await WaitForDeadlineAsync(
+                invokeTask,
+                callDeadline,
+                cancellationToken);
+            if (outcome == WaitOutcome.Completed)
+            {
+                var results = await invokeTask;
+                var (output, shaping) = CaptureInvocationOutput(
+                    results,
+                    authorizedShapingRtk: null);
+                return processResult with
+                {
+                    Output = output,
+                    OutputShaping = shaping,
+                };
+            }
+
+            if (outcome == WaitOutcome.Canceled &&
+                await TryStopPipelineAsync(ps, invokeTask))
+            {
+                return processResult with
+                {
+                    Success = false,
+                    Output = string.Empty,
+                    Errors = [.. processResult.Errors,
+                        "Call canceled after RTK completed; trusted output shaping stopped and no retry was attempted."],
+                    TimedOut = false,
+                    Disposition = InvokeDisposition.Canceled,
+                };
+            }
+
+            handedOff = true;
+            AbandonAndRecycle(ps, invokeTask, runspace);
+            return processResult with
+            {
+                Success = false,
+                Output = string.Empty,
+                Errors = [.. processResult.Errors,
+                    "RTK completed, but trusted output shaping did not stop within the call budget; the runspace was recycled, no unbounded output was returned, and PTK did not retry the command."],
+                TimedOut = outcome == WaitOutcome.TimedOut,
+                Disposition = InvokeDisposition.Failed,
+                WarmStateLost = true,
+            };
+        }
+        catch
+        {
+            return processResult with
+            {
+                Success = false,
+                Output = string.Empty,
+                Errors = [.. processResult.Errors,
+                    "RTK completed, but trusted output shaping failed; no unbounded output was returned and PTK did not retry the command."],
+                Disposition = InvokeDisposition.Failed,
+            };
+        }
+        finally
+        {
+            if (!handedOff) ps.Dispose();
+        }
+    }
+
     private sealed class TrustedPreflightIsolationException(
         string message,
         Exception? innerException = null) : Exception(message, innerException);
@@ -1698,6 +1810,8 @@ public sealed class RunspaceHost : IDisposable
                     var commands = CaptureForegroundCommandFacts(runspace, script);
                     var workingDirectory =
                         TryCaptureCurrentFileSystemLocation(runspace);
+                    var nativeArgumentPassing =
+                        TryCaptureNativeArgumentPassing(runspace);
                     var allowFileSystemGuidance =
                         IsCurrentLocationFileSystem(runspace) &&
                         AllowsAdvisoryFileWriteGuidance(runspace);
@@ -1748,7 +1862,9 @@ public sealed class RunspaceHost : IDisposable
                         raw,
                         compressAvailable: !raw && primed.CompressCommand is not null,
                         ResolutionContext.Warm,
-                        allowFileSystemGuidance);
+                        allowFileSystemGuidance,
+                        workingDirectory,
+                        nativeArgumentPassing);
                 }
                 return (Refusal: (string?)null, Plan: plan);
             }, CancellationToken.None);
@@ -1999,6 +2115,47 @@ public sealed class RunspaceHost : IDisposable
             // session mutation (the stale-LASTEXITCODE guard still precedes
             // every actual user pipeline).
             ResetExitCode(runspace);
+
+            if (dispatch.ExecutionPath == ExecutionPath.Rtk)
+            {
+                var processResult = await RtkProcessRunner.ExecuteAsync(
+                    dispatch,
+                    callDeadline,
+                    cancellationToken);
+                if (processResult.ProvenPreStartFallbackReason is { } fallbackReason)
+                {
+                    var fallbackDispatch = ExecutionDispatch.RtkPreStartFallback(
+                        plan,
+                        fallbackReason);
+                    if (authorizer is not null)
+                    {
+                        if (!await InvokeAuthorizationBarrierAsync(() =>
+                                authorizer.AuthorizeDispatchAsync(
+                                    fallbackDispatch,
+                                    CancellationToken.None)))
+                        {
+                            return AuthorizationFailureResult(timedOut: false);
+                        }
+                        if (cancellationToken.IsCancellationRequested)
+                            return AuthorizationFailureResult(timedOut: false);
+                        if (DateTimeOffset.UtcNow >= callDeadline)
+                            return AuthorizationFailureResult(timedOut: true);
+                    }
+                    dispatch = fallbackDispatch;
+                }
+                else
+                {
+                    if (processResult.Disposition == InvokeDisposition.Completed)
+                        SetExitCode(runspace, processResult.ExitCode ?? 0);
+                    var shaped = await ShapeRtkOutputGateHeldAsync(
+                        processResult,
+                        primed,
+                        runspace,
+                        callDeadline,
+                        cancellationToken);
+                    return WithDispatchRouting(shaped, dispatch);
+                }
+            }
 
             ps.Runspace = runspace;
             // useLocalScope: false — assignments land in the runspace's session

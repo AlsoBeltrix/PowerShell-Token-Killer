@@ -12,13 +12,16 @@ public sealed class ExecutionDispatchTests
     {
         var plan = RtkPlan(
             "git commit -m \"exact original\"",
-            $"& '{RtkPath.Replace("'", "''")}' git commit -m \"exact original\"",
             [ExecutionPath.PowerShellDirect]);
 
         var dispatch = ExecutionDispatch.FromPlan(plan);
 
         Assert.Same(plan, dispatch.Plan);
-        Assert.Equal(plan.ExecutionScript, dispatch.ExecutionScript);
+        Assert.Null(dispatch.ExecutionScript);
+        Assert.Equal(
+            ["git", "commit", "-m", "exact original"],
+            dispatch.RtkArgumentVector.ToArray());
+        Assert.Equal(Path.GetFullPath(Path.GetTempPath()), dispatch.WorkingDirectory);
         Assert.Equal(ExecutionDomain.NativeTerminal, dispatch.Domain);
         Assert.Equal(ExecutionPath.Rtk, dispatch.ExecutionPath);
         Assert.Equal("rtk", dispatch.EffectiveRoute);
@@ -37,7 +40,6 @@ public sealed class ExecutionDispatchTests
         const string original = "git commit -m \"$literal; still exact\"";
         var plan = RtkPlan(
             original,
-            $"& '{RtkPath.Replace("'", "''")}' git commit -m \"$literal; still exact\"",
             [ExecutionPath.PowerShellDirect]);
 
         var dispatch = ExecutionDispatch.RtkUnavailableFallback(plan);
@@ -56,6 +58,7 @@ public sealed class ExecutionDispatchTests
             ExecutionFallbackReason.RtkExecutableBecameUnavailable,
             dispatch.FallbackReason);
         Assert.Null(dispatch.RtkExecutableIdentity);
+        Assert.Empty(dispatch.RtkArgumentVector);
     }
 
     [Fact]
@@ -63,7 +66,6 @@ public sealed class ExecutionDispatchTests
     {
         var plan = RtkPlan(
             "git status",
-            $"& '{RtkPath.Replace("'", "''")}' git status",
             []);
 
         Assert.Throws<InvalidOperationException>(
@@ -92,11 +94,10 @@ public sealed class ExecutionDispatchTests
 
     private static ExecutionPlan RtkPlan(
         string originalScript,
-        string executionScript,
         ImmutableArray<ExecutionPath> permittedFallbacks) =>
         new(
             originalScript,
-            executionScript,
+            executionScript: null,
             ExecutionDomain.NativeTerminal,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -105,5 +106,9 @@ public sealed class ExecutionDispatchTests
             OutputProvenance.RtkUnknown,
             permittedFallbacks,
             fallbackReason: null,
-            new RtkExecutableIdentity(RtkPath));
+            new RtkExecutableIdentity(RtkPath),
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            rtkArgumentVector: originalScript.StartsWith("git commit", StringComparison.Ordinal)
+                ? ["git", "commit", "-m", "exact original"]
+                : ["git", "status"]);
 }

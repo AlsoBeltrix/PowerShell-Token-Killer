@@ -142,7 +142,7 @@ public sealed class AuditCallContextTests : IDisposable
         var rtkPath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "audit-rtk"));
         var plan = new ExecutionPlan(
             script,
-            "rtk git status",
+            executionScript: null,
             ExecutionDomain.NativeTerminal,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -151,7 +151,9 @@ public sealed class AuditCallContextTests : IDisposable
             OutputProvenance.RtkUnknown,
             ImmutableArray.Create(ExecutionPath.PowerShellDirect),
             fallbackReason: null,
-            new RtkExecutableIdentity(rtkPath));
+            new RtkExecutableIdentity(rtkPath),
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            rtkArgumentVector: ["git", "status"]);
 
         Assert.True(await fixture.Context.AuthorizePlanAsync(
             plan,
@@ -219,7 +221,7 @@ public sealed class AuditCallContextTests : IDisposable
         Assert.True(fixture.Context.BeginValidation());
         var plan = new ExecutionPlan(
             script,
-            "rtk git status",
+            executionScript: null,
             ExecutionDomain.NativeTerminal,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -229,7 +231,9 @@ public sealed class AuditCallContextTests : IDisposable
             ImmutableArray.Create(ExecutionPath.PowerShellDirect),
             fallbackReason: null,
             new RtkExecutableIdentity(
-                Path.GetFullPath(Path.Combine(Path.GetTempPath(), "audit-rtk"))));
+                Path.GetFullPath(Path.Combine(Path.GetTempPath(), "audit-rtk"))),
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            rtkArgumentVector: ["git", "status"]);
 
         Assert.True(await fixture.Context.AuthorizePlanAsync(plan, CancellationToken.None));
         Assert.True(await fixture.Context.AuthorizeDispatchAsync(
@@ -518,7 +522,7 @@ public sealed class AuditCallContextTests : IDisposable
         var rtkPath = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "audit-rtk"));
         var plan = new ExecutionPlan(
             script,
-            "rtk git status",
+            executionScript: null,
             ExecutionDomain.NativeTerminal,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -527,7 +531,9 @@ public sealed class AuditCallContextTests : IDisposable
             OutputProvenance.RtkUnknown,
             ImmutableArray.Create(ExecutionPath.PowerShellDirect),
             fallbackReason: null,
-            new RtkExecutableIdentity(rtkPath));
+            new RtkExecutableIdentity(rtkPath),
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            rtkArgumentVector: ["git", "status"]);
 
         Assert.True(await fixture.Context.AuthorizePlanAsync(
             plan,

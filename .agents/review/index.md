@@ -1411,7 +1411,7 @@ clean and removed.
 |----|----------|-------------------|--------|--------|
 | s3-rtk-output-bounds | HIGH | Default RTK output bypasses ANSI cleanup and all passthrough bounds | `[ ]` | `fix/s3-rtk-output-bounds` |
 | s3-block-fidelity | MEDIUM | Clean/dynamicparam blocks can be silently dropped by RTK routing | `[x]` | `fix/s3-block-fidelity` |
-| s3-background-operator | MEDIUM | A trailing background operator becomes synchronous RTK execution | `[ ]` | `fix/s3-background-operator` |
+| s3-background-operator | MEDIUM | A trailing background operator becomes synchronous RTK execution | `[x]` | `fix/s3-background-operator` |
 | s3-rtk-preference-isolation | HIGH | Warm native preferences can discard routed stdout and pollute `$Error` | `[ ]` | `fix/s3-rtk-preference-isolation` |
 | s3-wrapper-context | MEDIUM | Context-changing wrappers are routed despite the exact-original contract | `[ ]` | `fix/s3-wrapper-context` |
 | s3-using-statement-fidelity | MEDIUM | A top-level using statement can be omitted from routed execution | `[x]` | `fix/s3-using-statement-fidelity` |
@@ -1444,3 +1444,12 @@ model `claude-opus-4-8`, isolated disposable worktree), reviewed head
 specific assertion when independently removed, restored focused 39/39, and
 the exact head passed 1,013/1,013 .NET, 139 Pester with two skips, and the
 handshake. No material issue remained; the worktree was clean and removed.
+
+**s3-background-operator CLAUDE REVIEW — ACCEPTED** (Claude Code 2.1.207,
+model `claude-opus-4-8`, isolated disposable worktree), reviewed head
+`923f8a522b4e662c83ad3fa8351cb1f88e2dbd6f` against base
+`66f22fac482f242e1d70c24763ef8c01eb49d97d`, `guard_confirmed=true`,
+2026-07-13T03:21:14Z. Independently removing the eligibility and domain checks
+failed their exact assertions; restoration passed the focused guard and the
+full 1,014-test .NET/Pester/handshake battery. No material issue remained; the
+worktree was clean and removed.

@@ -3,9 +3,9 @@
 **Severity**: MEDIUM — an asynchronous native submission is silently changed
 into synchronous RTK execution with different timing, output, job, and timeout
 semantics.
-**Status**: Open
+**Status**: Verified
 **Branch**: `fix/s3-background-operator`
-**Commit**: pending
+**Commit**: `923f8a522b4e662c83ad3fa8351cb1f88e2dbd6f`
 
 ## Evidence
 
@@ -32,20 +32,25 @@ then constructs routed text from an extent that cannot preserve that flag.
 
 ## Approach
 
-Pending implementation. Reject background pipelines from RTK eligibility and
-classify them as `MixedDataflow`, so the exact original text including `&`
-executes once in PowerShell.
+`GetEligibleCommand` now rejects `pipeline.Background`, while
+`ClassifyDomain` labels the shape `MixedDataflow`. Auto and forced RTK requests
+therefore execute the exact original text, with forced routing returning the
+truthful `RtkIneligibleShape` label.
 
 ## Files changed
 
-- Pending.
+- `server/PtkMcpServer/Execution/ExecutionPlanner.cs` — exclude background
+  pipelines from RTK and label their dataflow honestly.
+- `server/PtkMcpServer.Tests/ExecutionPlannerTests.cs` — guard auto and forced
+  route behavior, exact text, and fallback reason.
 
 ## Guard proof
 
-- Pending: an Application-backed background pipeline plan must be
-  `PowerShellDirect`, `MixedDataflow`, carry the exact original including `&`,
-  and have no RTK provenance. Removing the background check must fail the
-  guard.
+- `Keeps_a_background_native_pipeline_on_the_exact_PowerShell_path` failed
+  before the production correction and passed afterward.
+- Claude independently removed the eligibility check and observed the exact
+  route/text assertion fail, then removed the domain check and observed the
+  `MixedDataflow` assertion fail. Both restorations passed.
 
 ## Coder dispute (if any)
 
@@ -60,3 +65,9 @@ None currently.
 Coder integrated audit against fixed head `669ce6e`, recorded
 2026-07-13T01:48:24Z. This finding is independent of Claude's two integrated
 findings and blocks Slice 3 acceptance under the same review loop.
+
+Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
+`66f22fac482f242e1d70c24763ef8c01eb49d97d..923f8a522b4e662c83ad3fa8351cb1f88e2dbd6f`
+with `guard_confirmed=true` and verdict `accepted`, recorded
+2026-07-13T03:21:14Z. The exact head passed 1,014/1,014 .NET, 139 Pester with
+two skips, and the handshake; its worktree was clean and removed.

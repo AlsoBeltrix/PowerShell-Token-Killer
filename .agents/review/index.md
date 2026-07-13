@@ -1410,10 +1410,11 @@ clean and removed.
 | ID | Severity | Impact (one line) | Status | Branch |
 |----|----------|-------------------|--------|--------|
 | s3-rtk-output-bounds | HIGH | Default RTK output bypasses ANSI cleanup and all passthrough bounds | `[ ]` | `fix/s3-rtk-output-bounds` |
-| s3-block-fidelity | MEDIUM | Clean/dynamicparam blocks can be silently dropped by RTK routing | `[ ]` | `fix/s3-block-fidelity` |
+| s3-block-fidelity | MEDIUM | Clean/dynamicparam blocks can be silently dropped by RTK routing | `[x]` | `fix/s3-block-fidelity` |
 | s3-background-operator | MEDIUM | A trailing background operator becomes synchronous RTK execution | `[ ]` | `fix/s3-background-operator` |
 | s3-rtk-preference-isolation | HIGH | Warm native preferences can discard routed stdout and pollute `$Error` | `[ ]` | `fix/s3-rtk-preference-isolation` |
 | s3-wrapper-context | MEDIUM | Context-changing wrappers are routed despite the exact-original contract | `[ ]` | `fix/s3-wrapper-context` |
+| s3-using-statement-fidelity | MEDIUM | A top-level using statement can be omitted from routed execution | `[ ]` | `fix/s3-using-statement-fidelity` |
 | s3-background-bash-parity | MEDIUM | Background Bash parity is assigned to later Slice 5 | `[-]` | |
 
 Claude returned the first two material findings. Separate coder audits
@@ -1424,3 +1425,13 @@ and required guards are in the finding files. The remaining integrated
 contracts were accepted, and the recorded installed/OS-protected and live
 Windows/Bash caveats remain honest later validation obligations rather than
 Slice 3 blockers. No finding authorizes push or history rewrite.
+
+**s3-block-fidelity CLAUDE REVIEW — ACCEPTED** (Claude Code 2.1.207, model
+`claude-opus-4-8`, isolated disposable worktree), reviewed head
+`561c56136bfb895d7278ad1a320cfcc3c8cb9dcc` against base
+`7758c8cf5864ffcaebab9dad70a1ecbd5ccf0df4`, `guard_confirmed=true`,
+2026-07-13T02:50:35Z. Claude independently proved both the eligibility and
+domain exclusions load-bearing, restored focused 38/38, and passed the full
+1,012-test .NET/Pester/handshake battery. No material defect remained in the
+named fix; its worktree was clean and removed. The review separately admitted
+`s3-using-statement-fidelity`, which does not reopen this accepted finding.

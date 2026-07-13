@@ -2,9 +2,9 @@
 
 **Severity**: MEDIUM — an eligible-looking end block can cause other submitted
 PowerShell blocks, including cleanup, to be silently omitted.
-**Status**: Open
+**Status**: Verified
 **Branch**: `fix/s3-block-fidelity`
-**Commit**: pending
+**Commit**: `561c56136bfb895d7278ad1a320cfcc3c8cb9dcc`
 
 ## Evidence
 
@@ -34,19 +34,26 @@ other executable blocks.
 
 ## Approach
 
-Pending implementation. Reject `CleanBlock` and `DynamicParamBlock` in RTK
-eligibility and classify either as `MixedDataflow`, preserving the exact
-original PowerShell text.
+`ExecutionPlanner.GetEligibleCommand` now rejects `CleanBlock` and
+`DynamicParamBlock`, while `ClassifyDomain` returns `MixedDataflow` for either.
+The exact original script therefore stays on `PowerShellDirect`; the end block
+is never extracted away from its sibling blocks.
 
 ## Files changed
 
-- Pending.
+- `server/PtkMcpServer/Execution/ExecutionPlanner.cs` — complete the
+  supplemental-block fidelity exclusions in eligibility and domain metadata.
+- `server/PtkMcpServer.Tests/ExecutionPlannerTests.cs` — guard clean and
+  dynamicparam submissions independently.
 
 ## Guard proof
 
-- Pending: planner guards for clean and dynamicparam submissions must assert
-  `PowerShellDirect`, `MixedDataflow`, and byte-exact original execution text.
-  Removing either production exclusion must fail its case.
+- `Keeps_clean_and_dynamicparam_blocks_on_the_exact_PowerShell_path` failed
+  both cases before the production correction and passed 2/2 after it.
+- Claude independently removed the eligibility exclusions and observed both
+  exact-text guards fail, then separately removed the domain exclusions and
+  observed both `MixedDataflow` guards fail. Each restoration passed focused
+  38/38.
 
 ## Coder dispute (if any)
 
@@ -54,9 +61,8 @@ None. The finding is independently admitted.
 
 ## Known gaps
 
-The older trusted preflight parser has a related block-set omission, but this
-finding is scoped to Slice 3's execution planner and its observable routing
-failure.
+The accepted review found the distinct top-level using-statement omission;
+that is tracked separately as `s3-using-statement-fidelity`.
 
 ## Reviewer comments
 
@@ -64,3 +70,10 @@ Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
 `0c08379a02c796b8ea0e1779c196840c6a9b1269..669ce6ea47c520a9c3bb73411192630d56ed519b`
 with `guard_confirmed=true` and verdict `reopened`, recorded
 2026-07-13T01:48:24Z.
+
+Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
+`7758c8cf5864ffcaebab9dad70a1ecbd5ccf0df4..561c56136bfb895d7278ad1a320cfcc3c8cb9dcc`
+with `guard_confirmed=true` and verdict `accepted`, recorded
+2026-07-13T02:50:35Z. The restored exact head passed 1,012/1,012 .NET, 139
+Pester with two platform skips, and the zero-warning handshake; its detached
+worktree was clean and removed.

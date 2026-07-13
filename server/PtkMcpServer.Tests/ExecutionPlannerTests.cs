@@ -67,6 +67,17 @@ public sealed class ExecutionPlannerTests
     }
 
     [Theory]
+    [InlineData("clean { 'cleanup' } end { git status }")]
+    [InlineData("dynamicparam { } end { git status }")]
+    public void Keeps_clean_and_dynamicparam_blocks_on_the_exact_PowerShell_path(string script)
+    {
+        var plan = Plan(script, "auto", RtkPath, Application("git", "/usr/bin/git"));
+
+        AssertDirect(plan, script, RequestedExecutionRoute.Auto);
+        Assert.Equal(ExecutionDomain.MixedDataflow, plan.Domain);
+    }
+
+    [Theory]
     [InlineData(CommandTypes.Alias, null, null)]
     [InlineData(CommandTypes.Function, null, null)]
     [InlineData(CommandTypes.Cmdlet, null, null)]

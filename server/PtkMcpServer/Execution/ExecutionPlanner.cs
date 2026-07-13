@@ -257,7 +257,9 @@ internal static class ExecutionPlanner
     {
         var ast = Parser.ParseInput(script, out _, out var parseErrors);
         if (parseErrors.Length > 0) return null;
-        if (ast.ParamBlock is not null || ast.BeginBlock is not null || ast.ProcessBlock is not null)
+        if (ast.ParamBlock is not null || ast.DynamicParamBlock is not null ||
+            ast.BeginBlock is not null || ast.ProcessBlock is not null ||
+            ast.CleanBlock is not null)
             return null;
         if (ast.EndBlock is null || ast.EndBlock.Statements.Count != 1) return null;
         if (ast.EndBlock.Statements[0] is not PipelineAst pipeline) return null;
@@ -413,7 +415,9 @@ internal static class ExecutionPlanner
     {
         var ast = Parser.ParseInput(script, out _, out var parseErrors);
         if (parseErrors.Length > 0) return null;
-        if (ast.ParamBlock is not null || ast.BeginBlock is not null || ast.ProcessBlock is not null)
+        if (ast.ParamBlock is not null || ast.DynamicParamBlock is not null ||
+            ast.BeginBlock is not null || ast.ProcessBlock is not null ||
+            ast.CleanBlock is not null)
             return ExecutionDomain.MixedDataflow;
         if (ast.EndBlock is null || ast.EndBlock.Statements.Count == 0)
             return ExecutionDomain.PowerShell;

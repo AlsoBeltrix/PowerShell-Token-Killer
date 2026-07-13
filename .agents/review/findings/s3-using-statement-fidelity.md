@@ -2,9 +2,9 @@
 
 **Severity**: MEDIUM — a submitted module/assembly import can be silently
 omitted when the end block looks like an eligible native command.
-**Status**: Open
+**Status**: Verified
 **Branch**: `fix/s3-using-statement-fidelity`
-**Commit**: pending
+**Commit**: `b7ab1a3c164a5aaf8957fe7725d8c9bd113f53bc`
 
 ## Evidence
 
@@ -27,19 +27,24 @@ top-level using statements as a fidelity exclusion.
 
 ## Approach
 
-Pending implementation. Reject any nonempty `UsingStatements` collection from
-RTK eligibility and classify it as `MixedDataflow`, preserving the byte-exact
-PowerShell submission.
+`GetEligibleCommand` rejects any nonempty `UsingStatements` collection, and
+`ClassifyDomain` labels the shape `MixedDataflow`. Both routes retain the
+byte-exact original PowerShell submission.
 
 ## Files changed
 
-- Pending.
+- `server/PtkMcpServer/Execution/ExecutionPlanner.cs` — exclude using
+  statements from RTK eligibility and native-terminal classification.
+- `server/PtkMcpServer.Tests/ExecutionPlannerTests.cs` — guard exact execution
+  text and truthful domain metadata.
 
 ## Guard proof
 
-- Pending: a parse-valid using-module submission with an Application-backed
-  end command must plan `PowerShellDirect`, `MixedDataflow`, and exact original
-  execution text. Removing either production check must fail its assertion.
+- `Keeps_top_level_using_statements_on_the_exact_PowerShell_path` failed before
+  the production correction and passed afterward.
+- Claude independently removed the eligibility check and observed the
+  byte-exact execution guard fail, then removed the domain check and observed
+  the `MixedDataflow` assertion fail. Each restoration passed focused 39/39.
 
 ## Coder dispute (if any)
 
@@ -55,3 +60,10 @@ None currently.
 Claude Code 2.1.207 (`claude-opus-4-8`) identified this separate material
 case while accepting `s3-block-fidelity` at fixed head `561c561`, recorded
 2026-07-13T02:50:35Z. It does not reopen the accepted clean/dynamicparam fix.
+
+Claude Code 2.1.207 (`claude-opus-4-8`) reviewed
+`2b9b28cb4f187a72803811c252de2637bfa340ea..b7ab1a3c164a5aaf8957fe7725d8c9bd113f53bc`
+with `guard_confirmed=true` and verdict `accepted`, recorded
+2026-07-13T03:11:12Z. The restored exact head passed 1,013/1,013 .NET, 139
+Pester with two platform skips, and the handshake; the worktree was clean and
+removed.

@@ -1414,7 +1414,7 @@ clean and removed.
 | s3-background-operator | MEDIUM | A trailing background operator becomes synchronous RTK execution | `[ ]` | `fix/s3-background-operator` |
 | s3-rtk-preference-isolation | HIGH | Warm native preferences can discard routed stdout and pollute `$Error` | `[ ]` | `fix/s3-rtk-preference-isolation` |
 | s3-wrapper-context | MEDIUM | Context-changing wrappers are routed despite the exact-original contract | `[ ]` | `fix/s3-wrapper-context` |
-| s3-using-statement-fidelity | MEDIUM | A top-level using statement can be omitted from routed execution | `[ ]` | `fix/s3-using-statement-fidelity` |
+| s3-using-statement-fidelity | MEDIUM | A top-level using statement can be omitted from routed execution | `[x]` | `fix/s3-using-statement-fidelity` |
 | s3-background-bash-parity | MEDIUM | Background Bash parity is assigned to later Slice 5 | `[-]` | |
 
 Claude returned the first two material findings. Separate coder audits
@@ -1435,3 +1435,12 @@ domain exclusions load-bearing, restored focused 38/38, and passed the full
 1,012-test .NET/Pester/handshake battery. No material defect remained in the
 named fix; its worktree was clean and removed. The review separately admitted
 `s3-using-statement-fidelity`, which does not reopen this accepted finding.
+
+**s3-using-statement-fidelity CLAUDE REVIEW — ACCEPTED** (Claude Code 2.1.207,
+model `claude-opus-4-8`, isolated disposable worktree), reviewed head
+`b7ab1a3c164a5aaf8957fe7725d8c9bd113f53bc` against base
+`2b9b28cb4f187a72803811c252de2637bfa340ea`, `guard_confirmed=true`,
+2026-07-13T03:11:12Z. The eligibility and domain checks each failed their
+specific assertion when independently removed, restored focused 39/39, and
+the exact head passed 1,013/1,013 .NET, 139 Pester with two skips, and the
+handshake. No material issue remained; the worktree was clean and removed.

@@ -1550,3 +1550,10 @@ individual guard proofs and fixed-SHA verdicts remain in the canonical finding
 files. `s3-background-bash-parity` remains the recorded Slice 5 intake decline,
 not an open Slice 3 finding. Acceptance authorizes local landing under the
 owner's delegated branch authority, not push or history rewrite.
+
+**SLICE 3 LOCAL LANDING RECORDED.** Local `master` was fast-forwarded through
+accepted feature tip `bd34715972dfaf41d021bc2377b723ff2bf55cf8` after the
+fixed-head verdict. `master` and `feat/audited-harness-slice3` had identical
+content and identical tips after the fast-forward; content arrival was
+verified separately from ancestry before the feature branch was deleted. No
+push was performed or authorized.

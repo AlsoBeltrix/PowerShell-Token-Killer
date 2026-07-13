@@ -7,8 +7,8 @@ separate durable plan/dispatch barriers, strict RTK/Bash routing with bounded
 preference-independent capture, exact-original pre-start fallback, and
 post-success mixed-domain guidance. The final code tree passed macOS and
 Windows validation, and Claude accepted the fixed-SHA integrated review with
-`guard_confirmed=true` on 2026-07-13. Slice 3 is accepted pending the delegated
-local fast-forward; Slice 4 is next. No push was performed or authorized.
+`guard_confirmed=true` on 2026-07-13. Slice 3 is complete on local `master`;
+Slice 4 is next. No push was performed or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

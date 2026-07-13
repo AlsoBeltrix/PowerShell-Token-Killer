@@ -5,13 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slice 3 is accepted pending local landing.** Final
+- **Audited-harness Slice 3 is complete locally.** Final
   integrated code head `b78d9c6` completes structured foreground routing,
   audited RTK/Bash dispatch, bounded preference-independent RTK capture,
   exact-original pre-start fallback, and post-success mixed-domain guidance.
   Claude accepted the exact fixed head with `guard_confirmed=true`; all six
-  admitted material findings are closed. Canonical review and platform
-  evidence is in `.agents/review/index.md` and `.agents/machines.md`.
+  admitted material findings are closed. The accepted feature history was
+  fast-forwarded to local `master`, content arrival was verified independently,
+  and the feature branch was removed. Canonical review and platform evidence
+  is in `.agents/review/index.md` and `.agents/machines.md`.
 - **Audited-harness Slice 2 is complete locally.** The final
   integrated code head `3d3739a` completes job/control audit, local-only and
   anchored OTLP export, evidence administration and retention, permanent
@@ -24,8 +26,7 @@ short and update it when important repo facts change.
   implementation** (owner, 2026-07-11): create, switch, merge, and delete local
   implementation/review branches without per-merge confirmation. Push remains
   separately ask-first.
-- **Audited-harness slices 0-2 are complete locally; accepted Slice 3 is the
-  next delegated local fast-forward.** Slice 1 commit
+- **Audited-harness slices 0-3 are complete locally.** Slice 1 commit
   `460c106` adds the mandatory current-server audit foundation, exact-script
   evidence, capacity reservation, protected local storage, and fail-closed
   pre-effect guards. Claude accepted the fixed-SHA implementation after an
@@ -58,10 +59,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Fast-forward accepted `feat/audited-harness-slice3` into local `master`,
-   verify content arrival separately from ancestry, delete the feature branch,
-   and record the landing. Canonical evidence is in `.agents/review/index.md`
-   and `.agents/machines.md`.
+1. Begin audited-harness Slice 4 — same-invocation output recovery and raw
+   retirement — under `.agents/plans/audited-harness-sessions.md`.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before slice 4.
@@ -107,10 +106,9 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- Audited-session slices 0-2 are complete locally. Slice 3's exact fixed-head
-  Claude acceptance and cross-platform verification are complete; delegated
-  local landing is its only remaining action. Canonical records live in
-  `.agents/review/index.md` and `.agents/machines.md`.
+- Audited-session slices 0-3 are complete locally. Slice 3's exact fixed-head
+  Claude acceptance, cross-platform verification, and local landing record
+  live in `.agents/review/index.md` and `.agents/machines.md`.
 
 ## Active Sources
 

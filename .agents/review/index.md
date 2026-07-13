@@ -1768,3 +1768,34 @@ Production invoke planning and operational fallback, persisted-provenance
 polling, opaque output handles, and model-facing path removal remain later
 Slice 5 work. Acceptance authorizes that next approved sub-slice, not push or
 history rewriting.
+
+---
+
+**SLICE 5C PROVENANCE-AWARE BACKGROUND POLLING CLAUDE REVIEW — ACCEPTED**
+(Claude Code 2.1.207, model `claude-opus-4-8`, isolated disposable worktree),
+reviewed head `c93686698fcf0485923769fcb07816db800a426d` against base
+`5d122055fef0178e64517ded7076b2a3ac0fb439`, `guard_confirmed=true`,
+2026-07-13T23:46:04Z. The one-shot JSON envelope exited zero; its result and
+structured payload matched exactly, both fixed SHAs matched the dispatch, and
+Claude found no material defect in provenance-aware job polling or access
+audit.
+
+Claude independently proved four boundaries red then green: treating
+`RtkUnknown` as direct text ran generic `rtk log` a second time and leaked
+ANSI; projecting the legacy compatibility plan invented source routing;
+dropping the RTK input provenance changed a cleanup-failure audit to
+`direct_text`; and removing or making unconditional the seam-absent recovery
+suffix broke the RTK positive or direct negative control. Exact restoration
+passed the zero-warning build, 1,129/1,129 .NET tests, 141 Pester tests with
+two platform skips, and the stdio handshake. The detached worktree was clean
+at the reviewed SHA and removed.
+
+Three nonblocking observations remain. The reviewer's first full .NET run hit
+the unchanged 500 ms setup timing in
+`RunspaceHostTests.Post_start_module_file_mutation_cannot_execute_during_repriming`;
+the test passed 3/3 in isolation and the restored full suite reran clean.
+Model-facing job paths remain intentionally present until the approved
+handle/path-free sub-slice lands. The new Windows fixture branches were
+reviewed statically on macOS and remain covered by the existing CI matrix.
+Acceptance authorizes the next approved Slice 5 sub-slice, not push or history
+rewriting.

@@ -15,9 +15,12 @@ range `1a2f3e9..ed7c782` with `guard_confirmed=true`. Slice 5b code head
 `bbcb1b7` adds the typed cold-background dispatch/JobManager foundation;
 Claude accepted exact range `ff42447..bbcb1b7` with
 `guard_confirmed=true` after independent mutation proofs and the full local
-battery on 2026-07-13. Remaining Slice 5 production planning, persistence,
-polling, and recovery-interface wiring is next. No push was performed or
-authorized.
+battery on 2026-07-13. Slice 5c code head `c936866` makes polling and its
+audit facts provenance-aware; Claude accepted exact range
+`5d12205..c936866` with `guard_confirmed=true` after four independent
+mutation proofs and the full battery. Remaining Slice 5 production planning,
+operational fallback, output handles, and path-free recovery-interface wiring
+is next. No push was performed or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

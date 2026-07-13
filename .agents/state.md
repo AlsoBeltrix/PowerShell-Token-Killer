@@ -11,11 +11,15 @@ short and update it when important repo facts change.
   adds the typed cold-background dispatch/JobManager foundation: immutable
   launch provenance, one-shot proved-no-start fallback, bounded containment,
   owned concurrent output capture, and separate start/root/execution/output
-  certainty. Claude accepted exact range `ff42447..bbcb1b7` with
-  `guard_confirmed=true`; canonical guard and verification evidence is in
-  `.agents/review/index.md`. Production invoke planning/fallback, persisted
-  provenance and handles, provenance-aware polling, and path-free recovery
-  remain unwired. No push was performed or authorized.
+  certainty. Sub-slice 5c code head `c936866` makes typed-job polling and
+  access audit provenance-aware: seam-absent `RtkUnknown` output stays
+  ANSI-cleaned and bounded without a second `rtk log`, carries explicit unavailable
+  recovery, preserves source routing through cleanup failure, and leaves
+  legacy placeholder routing neutral. Claude accepted exact range
+  `5d12205..c936866` with `guard_confirmed=true`; canonical guard and
+  verification evidence is in `.agents/review/index.md`. Production invoke
+  planning/fallback, output handles, and path-free recovery remain unwired.
+  No push was performed or authorized.
 - **Audited-harness Slice 4 is complete locally.** Final product
   head `76d4f0c` integrates the supervisor-owned output store and audited
   `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
@@ -83,8 +87,8 @@ short and update it when important repo facts change.
 ## Next
 
 1. Continue audited-harness Slice 5 by wiring production cold planning and
-   proved-no-start fallback into invoke, then persist route/provenance/output
-   handles and make polling/recovery provenance-aware and path-free under
+   proved-no-start fallback into invoke, then add supervisor-owned output
+   handles and make recovery path-free under
    `.agents/plans/audited-harness-sessions.md`.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present

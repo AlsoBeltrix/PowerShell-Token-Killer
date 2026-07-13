@@ -1735,3 +1735,36 @@ must carry the same frozen effective policy as the runtime so a false-policy
 event cannot contradict its session fact. No public session surface or later
 Slice 5 routing/recovery work was pulled into this sub-slice. Acceptance
 authorizes the next approved Slice 5 sub-slice, not push or history rewriting.
+
+---
+
+**SLICE 5B TYPED COLD-BACKGROUND DISPATCH FOUNDATION CLAUDE REVIEW —
+ACCEPTED** (Claude Code 2.1.207, model `claude-opus-4-8`, isolated disposable
+worktree), reviewed head `bbcb1b73adeaa8cb9a6ae24f9ef588be40de459b`
+against base `ff4244792f68a802c5e57dd546d44d388eae3eed`,
+`guard_confirmed=true`, 2026-07-13T22:49:00Z. The one-shot JSON envelope
+exited zero; its result and structured payload matched exactly, both fixed
+SHAs matched the dispatch, and Claude found no material defect in the typed
+cold-background dispatch/JobManager foundation.
+
+Claude independently proved two high-risk boundaries red then green. Removing
+the fallback-first refusal let an unproved fallback reach a real process-start
+attempt, and misclassifying an indeterminate start as proved-no-start broke
+three no-retry/retained-outcome guards. Exact restoration passed 1,125/1,125
+.NET tests and 141 Pester tests with two platform skips in the review
+worktree. The coder's same-content local tree also passed the zero-warning
+build and stdio handshake. The detached worktree was clean at the reviewed
+SHA and removed.
+
+Two explicitly non-blocking observations remain. The start-attempt ledger
+retains one small entry per retained job, matching the existing unbounded job
+table; prune them together when job-record retention arrives. A kill request
+in the narrow interval after process exit but before terminal observation can
+transiently report `Failed` rather than `AlreadyExited`; termination reason is
+rolled back and no false side effect is claimed. Neither observation is a
+present material defect.
+
+Production invoke planning and operational fallback, persisted-provenance
+polling, opaque output handles, and model-facing path removal remain later
+Slice 5 work. Acceptance authorizes that next approved sub-slice, not push or
+history rewriting.

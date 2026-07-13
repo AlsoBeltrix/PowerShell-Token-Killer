@@ -11,9 +11,13 @@ cross-slice mutation proofs and the full local battery on 2026-07-13. The
 accepted feature history was fast-forwarded to local `master`, verified by
 content diff, and its feature branch removed. Slice 5a code head `ed7c782`
 adds the audited cold-background admission barrier; Claude accepted exact
-range `1a2f3e9..ed7c782` with `guard_confirmed=true` after five independent
-mutation proofs and the full battery on 2026-07-13. Remaining Slice 5 routing,
-provenance, and recovery work is next. No push was performed or authorized.
+range `1a2f3e9..ed7c782` with `guard_confirmed=true`. Slice 5b code head
+`bbcb1b7` adds the typed cold-background dispatch/JobManager foundation;
+Claude accepted exact range `ff42447..bbcb1b7` with
+`guard_confirmed=true` after independent mutation proofs and the full local
+battery on 2026-07-13. Remaining Slice 5 production planning, persistence,
+polling, and recovery-interface wiring is next. No push was performed or
+authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

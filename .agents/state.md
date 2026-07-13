@@ -7,14 +7,15 @@ short and update it when important repo facts change.
 
 - **Audited-harness Slice 5 is in progress on
   `feat/audited-harness-slice5`.** Sub-slice 5a code head `ed7c782` adds the
-  immutable, default-on cold-background admission fact, an audited false-policy
-  lifecycle with proved no-root coverage and fail-closed persistence faults,
-  and a `JobManager.CommitStart` bypass backstop. Claude accepted exact range
-  `1a2f3e9..ed7c782` with `guard_confirmed=true` after five independent
-  red-to-green proofs and the full local battery. The nonblocking future audit
-  note is explicit: when named session binding arrives, replace the current
-  truthful default-session `allow_cold_background=true` literal with that
-  binding's frozen effective value. No push was performed or authorized.
+  audited cold-background admission barrier. Sub-slice 5b code head `bbcb1b7`
+  adds the typed cold-background dispatch/JobManager foundation: immutable
+  launch provenance, one-shot proved-no-start fallback, bounded containment,
+  owned concurrent output capture, and separate start/root/execution/output
+  certainty. Claude accepted exact range `ff42447..bbcb1b7` with
+  `guard_confirmed=true`; canonical guard and verification evidence is in
+  `.agents/review/index.md`. Production invoke planning/fallback, persisted
+  provenance and handles, provenance-aware polling, and path-free recovery
+  remain unwired. No push was performed or authorized.
 - **Audited-harness Slice 4 is complete locally.** Final product
   head `76d4f0c` integrates the supervisor-owned output store and audited
   `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
@@ -81,8 +82,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue audited-harness Slice 5 with typed cold planning, final background
-   dispatch/provenance persistence, and provenance-aware polling/recovery under
+1. Continue audited-harness Slice 5 by wiring production cold planning and
+   proved-no-start fallback into invoke, then persist route/provenance/output
+   handles and make polling/recovery provenance-aware and path-free under
    `.agents/plans/audited-harness-sessions.md`.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present

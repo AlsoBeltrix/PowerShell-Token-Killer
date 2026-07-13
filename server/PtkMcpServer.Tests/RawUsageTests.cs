@@ -4,9 +4,9 @@ using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
 
-// Raw-usage visibility and posture (shell-dialect plan D2, slice 3): raw=true
-// is counted at the ptk_invoke user-call boundary only, surfaces in
-// ptk_state, and every model-visible description reads as recovery-only.
+// Deprecated raw compatibility telemetry: raw=true is inert but remains
+// counted at the ptk_invoke user boundary and visible in ptk_state until the
+// next breaking tool-schema revision removes it.
 public sealed class RawUsageTests : IDisposable
 {
     private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
@@ -59,9 +59,8 @@ public sealed class RawUsageTests : IDisposable
     [Fact]
     public async Task Internal_probes_never_inflate_the_raw_counter()
     {
-        // ptk_state's own probes and the cwd probe before a background job
-        // pass raw:true to the host — plumbing, not a user raw call (plan
-        // D2: counted at the user-call boundary only).
+        // State/cwd probes are internal implementation work, not compatibility
+        // requests. Only an explicit user raw=true reaches this counter.
         await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
         Assert.Equal(0, _rawUsage.Count);
 
@@ -77,10 +76,10 @@ public sealed class RawUsageTests : IDisposable
     [Fact]
     public async Task Oversized_job_poll_names_the_log_as_the_recovery_not_raw()
     {
-        // sd3-2: the elision marker advises raw=true, which ptk_job does not
-        // have; an elided poll must name the honest recovery — the raw log —
-        // in-band. This also pins the JobTool↔marker wording coupling: a
-        // marker reword that silently drops the note fails here.
+        // sd3-2: an elided poll must override the foreground marker default
+        // with its honest existing recovery — the job log — in-band. This
+        // also pins the JobTool↔marker wording coupling: a marker reword that
+        // silently drops the note fails here.
         var started = await InvokeTool.Invoke(
             _host, _jobs, _rawUsage,
             "1..3000 | ForEach-Object { \"job line $_ \" + ('z' * 20) }",
@@ -140,16 +139,18 @@ public sealed class RawUsageTests : IDisposable
         ((DescriptionAttribute)member.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
 
     [Fact]
-    public void Invoke_descriptions_teach_recovery_only_raw_and_the_pwsh_pairing()
+    public void Invoke_descriptions_teach_same_invocation_recovery_and_inert_legacy_raw()
     {
-        // The D2 reword is all-or-nothing: a surface drifting back to
-        // "returns full uncompressed output" wins over the quieter ones
-        // (plan D2 — partial rewording leaves the louder surface winning).
         var invoke = typeof(InvokeTool).GetMethod(nameof(InvokeTool.Invoke))!;
         var tool = DescriptionOf(invoke);
-        Assert.Contains("recovering detail the compressed form lost", tool);
-        Assert.Contains("not as a default", tool);
-        Assert.Contains("route=pwsh with raw=false", tool);
+        Assert.Contains("Output is normally shaped", tool);
+        Assert.Contains("ptk_output handle", tool);
+        Assert.Contains("same invocation", tool);
+        Assert.Contains("never reruns", tool);
+        Assert.Contains("legacy raw is deprecated", tool);
+        Assert.Contains("does not change interpreter, routing, capture, or shaping", tool);
+        Assert.DoesNotContain("Recovery hatch", tool);
+        Assert.DoesNotContain("route=pwsh with raw=false", tool);
         Assert.DoesNotContain("full uncompressed output", tool);
         Assert.Contains("outside the runspace", tool);
         Assert.Contains("delegated Bash state is process-local", tool);
@@ -160,11 +161,24 @@ public sealed class RawUsageTests : IDisposable
 
         var rawParam = invoke.GetParameters().Single(p => p.Name == "raw");
         var raw = ((DescriptionAttribute)rawParam.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
-        Assert.Contains("Recovery hatch, not a default", raw);
-        // sd3-1: the FULL pairing, both halves — "route=pwsh" alone leaves
-        // the raw=false half untaught on the one surface aimed squarely at
-        // the fidelity habit.
-        Assert.Contains("route=pwsh with raw=false", raw);
+        Assert.Equal(typeof(bool), rawParam.ParameterType);
+        Assert.True(rawParam.HasDefaultValue);
+        Assert.Equal(false, rawParam.DefaultValue);
+        Assert.Contains("Deprecated compatibility flag", raw);
+        Assert.Contains(
+            "no effect on dialect handling, interpreter/routing, process choice, capture, or shaping",
+            raw);
+        Assert.Contains("Use ptk_output when a handle is returned", raw);
+        Assert.DoesNotContain("Recovery hatch", raw);
+        Assert.DoesNotContain("route=pwsh with raw=false", raw);
         Assert.DoesNotContain("full uncompressed output", raw);
+
+        var routeParam = invoke.GetParameters().Single(p => p.Name == "route");
+        var route = DescriptionOf(routeParam);
+        Assert.Contains(
+            "explicit consent to interpret the exact original text as PowerShell",
+            route);
+        Assert.Contains("normal capture and shaping still apply", route);
+        Assert.DoesNotContain("raw=false", route);
     }
 }

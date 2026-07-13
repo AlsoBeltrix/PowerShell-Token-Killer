@@ -1,13 +1,10 @@
 namespace PtkMcpServer;
 
 /// <summary>
-/// Raw-usage visibility (shell-dialect plan D2): counts raw=true calls at the
-/// ptk_invoke user-call boundary ONLY, so the owner can see escape-hatch
-/// pressure in ptk_state and the server log. Internal probes that pass
-/// raw:true straight to RunspaceHost (ptk_state's own probes, the cwd probe
-/// before every background job) measure implementation plumbing, not the
-/// model's habit, and must never inflate this — which is why the increment
-/// lives in InvokeTool and nothing below it.
+/// Compatibility-usage visibility: counts raw=true calls at the ptk_invoke
+/// user boundary only. The deprecated flag is inert but remains observable in
+/// ptk_state and the server log until the next breaking tool-schema revision
+/// removes it. Internal probes never touch this counter.
 /// </summary>
 public sealed class RawUsageCounter
 {

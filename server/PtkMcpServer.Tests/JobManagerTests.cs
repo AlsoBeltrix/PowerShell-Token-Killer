@@ -256,7 +256,7 @@ public sealed class JobManagerTests : IDisposable
     {
         using var commitEntered = new ManualResetEventSlim();
         using var releaseCommit = new ManualResetEventSlim();
-        _jobs.BeforeProcessStartForTests = () =>
+        _jobs.BeforeProcessStartForTests = _ =>
         {
             commitEntered.Set();
             if (!releaseCommit.Wait(TimeSpan.FromSeconds(10)))

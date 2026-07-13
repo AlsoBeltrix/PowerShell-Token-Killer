@@ -410,25 +410,37 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task Raw_true_bypasses_detection_as_consent()
+    public async Task Legacy_raw_cannot_bypass_detection()
     {
-        var result = await _host.InvokeAsync("export X=1", raw: true);
+        var text = await InvokeTool.Invoke(
+            _host,
+            _jobs,
+            _rawUsage,
+            "export X=1",
+            CancellationToken.None,
+            raw: true);
 
-        // Executed exactly as written: today's late CommandNotFound failure,
-        // never a refusal.
-        Assert.DoesNotContain("[ptk:dialect]", result.Output);
-        Assert.Contains(result.Errors, e => e.Contains("export"));
+        Assert.Contains("[ptk:dialect] not executed", text);
+        Assert.DoesNotContain("[errors]", text);
     }
 
     [Fact]
     public async Task Route_pwsh_bypasses_detection_as_consent()
     {
-        var text = await InvokeTool.Invoke(
-            _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, route: "pwsh");
+        ExecutionPlan? observed = null;
+        var result = await _host.InvokeAsync(
+            "export X=1",
+            new TestInvocationAuthorizer((plan, _) =>
+            {
+                observed = plan;
+                return ValueTask.FromResult(true);
+            }),
+            route: "pwsh");
 
-        Assert.DoesNotContain("[ptk:dialect]", text);
-        Assert.Contains("[errors]", text);
-        Assert.Contains("export", text);
+        Assert.DoesNotContain("[ptk:dialect]", result.Output);
+        Assert.Contains(result.Errors, error => error.Contains("export"));
+        Assert.Equal(RequestedExecutionRoute.PowerShell, observed?.RequestedRoute);
+        Assert.Equal(ExecutionPath.PowerShellDirect, observed?.ExecutionPath);
     }
 
     [Fact]
@@ -491,14 +503,14 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task Background_raw_bypasses_detection_and_starts_the_job()
+    public async Task Background_legacy_raw_cannot_bypass_detection()
     {
         var text = await InvokeTool.Invoke(
             _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, raw: true, background: true);
 
-        Assert.DoesNotContain("[ptk:dialect]", text);
-        Assert.Contains("[job 1 started]", text);
-        Assert.Single(_jobs.List());
+        Assert.Contains("[ptk:dialect] job not started", text);
+        Assert.DoesNotContain("[job 1 started]", text);
+        Assert.Empty(_jobs.List());
     }
 
     [Fact]
@@ -508,12 +520,16 @@ public sealed class ShellDialectWiringTests : IDisposable
         // this also pins that route normalization sits ABOVE the background
         // branch — its pre-slice-2 position would leave "PWSH" unnormalized
         // here and refuse a consented call.
+        JobStartPlan? observed = null;
+        _jobs.BeforeProcessStartForTests = plan => observed = plan;
         var text = await InvokeTool.Invoke(
             _host, _jobs, _rawUsage, "export X=1", CancellationToken.None, route: "PWSH", background: true);
 
         Assert.DoesNotContain("[ptk:dialect]", text);
         Assert.Contains("[job 1 started]", text);
         Assert.Single(_jobs.List());
+        Assert.NotNull(observed);
+        Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
     }
 
     [Fact]
@@ -633,8 +649,8 @@ public sealed class ShellDialectWiringTests : IDisposable
 
             // ...and must actually work when re-issued through the normal
             // path (sd2-1: the old POSIX-idiom note parse-failed at the
-            // PowerShell layer). Running it non-raw also proves the
-            // recovery wrapper is never itself refused (plan slice 1(iv)).
+            // PowerShell layer). The wrapper itself must never be refused
+            // by dialect detection (plan slice 1(iv)).
             var executed = await _host.InvokeAsync(example);
             Assert.True(executed.Success);
             Assert.DoesNotContain("[ptk:dialect]", executed.Output);

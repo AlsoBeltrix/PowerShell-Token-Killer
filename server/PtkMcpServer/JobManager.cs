@@ -116,7 +116,14 @@ public sealed record JobStartPlan(
     string Script,
     string? WorkingDirectory,
     string OutputPath,
-    string EncodedCommand);
+    string EncodedCommand)
+{
+    // Ephemeral typed fact for the exact descriptor crossing Process.Start.
+    // Slice 5 will replace this fixed current path with a computed cold plan
+    // and persist its route/provenance in job metadata.
+    internal ExecutionPath ExecutionPath { get; init; } =
+        PtkMcpServer.ExecutionPath.PowerShellDirect;
+}
 
 /// <summary>
 /// Owns background jobs (greenfield-design D3): each job is a child pwsh process
@@ -138,7 +145,7 @@ public sealed class JobManager : IDisposable
     private bool _resetting;
     private long _generation;
     internal Func<Task>? ShutdownOverrideForTests { get; set; }
-    internal Action? BeforeProcessStartForTests { get; set; }
+    internal Action<JobStartPlan>? BeforeProcessStartForTests { get; set; }
     internal Action<Process>? BeforeKillForTests { get; set; }
 
     private sealed class JobEntry
@@ -243,6 +250,11 @@ public sealed class JobManager : IDisposable
         Func<JobSnapshot, Task>? onTerminal = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
+        if (plan.ExecutionPath != ExecutionPath.PowerShellDirect)
+        {
+            throw new InvalidOperationException(
+                "The current background runner only supports direct PowerShell execution.");
+        }
         var pwshExecutablePath = _pwshExecutable.RequireAvailable();
         lock (_shutdownGate)
         {
@@ -296,7 +308,7 @@ public sealed class JobManager : IDisposable
             var processStarted = false;
             try
             {
-                BeforeProcessStartForTests?.Invoke();
+                BeforeProcessStartForTests?.Invoke(plan);
                 if (!process.Start()) throw new InvalidOperationException("pwsh did not start");
                 processStarted = true;
                 try { process.StandardInput.Close(); } catch { /* EOF is best effort after a confirmed start */ }

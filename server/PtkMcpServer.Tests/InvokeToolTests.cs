@@ -88,8 +88,11 @@ public sealed class InvokeToolTests : IDisposable
         Assert.Contains("42", text);
     }
 
-    [Fact]
-    public async Task PowerShell_capture_shapes_and_recovers_the_same_single_execution()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PowerShell_capture_is_raw_invariant_and_recovers_the_same_single_execution(
+        bool raw)
     {
         using var store = CreateOutputStore();
         await _host.InvokeAsync(
@@ -108,6 +111,7 @@ public sealed class InvokeToolTests : IDisposable
             _rawUsage,
             script,
             CancellationToken.None,
+            raw: raw,
             route: "pwsh",
             outputStore: store);
 
@@ -134,6 +138,7 @@ public sealed class InvokeToolTests : IDisposable
             raw: true,
             route: "pwsh");
         Assert.Equal("1", count.Output.Trim());
+        Assert.Equal(raw ? 1 : 0, _rawUsage.Count);
     }
 
     [Fact]
@@ -1846,10 +1851,34 @@ public sealed class InvokeToolTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Route_pwsh_explicit_direct_consent_permits_no_fallback()
+    {
+        ExecutionPlan? observed = null;
+
+        var result = await _host.InvokeAsync(
+            "'direct execution'",
+            new TestInvocationAuthorizer((preparation, cancellationToken) =>
+            {
+                observed = preparation;
+                return ValueTask.FromResult(true);
+            }),
+            route: "pwsh");
+
+        Assert.True(result.Success);
+        Assert.NotNull(observed);
+        Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
+        Assert.Equal(
+            RequestedExecutionRoute.PowerShell,
+            observed.RequestedRoute);
+        Assert.Empty(observed.PermittedFallbacks);
+        Assert.Null(observed.FallbackReason);
+    }
+
     [Theory]
-    [InlineData(true, "rtk")]
-    [InlineData(false, "pwsh")]
-    public async Task Explicit_direct_consent_permits_no_fallback(bool raw, string route)
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Forced_rtk_fallback_metadata_is_raw_invariant(bool raw)
     {
         ExecutionPlan? observed = null;
 
@@ -1861,18 +1890,16 @@ public sealed class InvokeToolTests : IDisposable
                 return ValueTask.FromResult(true);
             }),
             raw: raw,
-            route: route);
+            route: "rtk");
 
         Assert.True(result.Success);
         Assert.NotNull(observed);
+        Assert.Equal(ExecutionDomain.PowerShell, observed.Domain);
         Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
-        Assert.Equal(
-            route == "pwsh"
-                ? RequestedExecutionRoute.PowerShell
-                : RequestedExecutionRoute.Rtk,
-            observed.RequestedRoute);
+        Assert.Equal(RequestedExecutionRoute.Rtk, observed.RequestedRoute);
+        Assert.Equal(OutputProvenance.PowerShellObjects, observed.OutputProvenance);
         Assert.Empty(observed.PermittedFallbacks);
-        Assert.Null(observed.FallbackReason);
+        Assert.Equal(ExecutionFallbackReason.RtkIneligibleShape, observed.FallbackReason);
     }
 
     [Fact]
@@ -2001,8 +2028,10 @@ public sealed class InvokeToolTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Seam_absent_rtk_route_reports_recovery_unavailable_without_a_handle()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Seam_absent_rtk_route_is_raw_invariant_and_reports_no_handle(bool raw)
     {
         var body = OperatingSystem.IsWindows()
             ? ">>\"%PTK_RTK_TEST_LOG%\" echo %*\necho RTKROUTE %*\nexit /b 0"
@@ -2022,6 +2051,7 @@ public sealed class InvokeToolTests : IDisposable
                 _rawUsage,
                 "git status",
                 CancellationToken.None,
+                raw: raw,
                 outputStore: store);
 
             Assert.Contains("RTKROUTE git status", text, StringComparison.Ordinal);
@@ -2220,17 +2250,17 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
-    public async Task Native_stderr_labeling_is_consistent_across_raw_and_route()
+    public async Task Native_stderr_labeling_is_raw_invariant()
     {
         var raw = await InvokeTool.Invoke(
             _host, _jobs, _rawUsage, NativeStderr("raw diagnostic"), CancellationToken.None, raw: true);
         Assert.Contains("[stderr]", raw);
         Assert.DoesNotContain("[errors]", raw);
 
-        var routed = await InvokeTool.Invoke(
-            _host, _jobs, _rawUsage, NativeStderr("routed diagnostic"), CancellationToken.None, route: "pwsh");
-        Assert.Contains("[stderr]", routed);
-        Assert.DoesNotContain("[errors]", routed);
+        var ordinary = await InvokeTool.Invoke(
+            _host, _jobs, _rawUsage, NativeStderr("ordinary diagnostic"), CancellationToken.None);
+        Assert.Contains("[stderr]", ordinary);
+        Assert.DoesNotContain("[errors]", ordinary);
     }
 
     [Fact]

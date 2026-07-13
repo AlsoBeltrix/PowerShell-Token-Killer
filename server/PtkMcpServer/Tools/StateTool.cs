@@ -50,9 +50,8 @@ public static class StateTool
         // Zero-wait acquire: the health check must never queue behind the
         // workload it exists to diagnose (issue #6). Null = busy; the failed
         // acquire IS the busy signal — no snapshot-then-queue race window.
-        var result = await host.TryInvokeIfIdleAsync(
+        var result = await host.TryInvokeStateProbeIfIdleAsync(
             script,
-            raw: true, // this tool formats its own lines; never shape them
             cancellationToken: cancellationToken);
         if (result?.WarmStateLost == true && audit is not null)
         {
@@ -82,8 +81,8 @@ public static class StateTool
         }
 
         var sb = new StringBuilder();
-        // raw count: user-level raw=true calls only (shell-dialect plan D2) —
-        // this tool's own raw:true probes are plumbing and never counted.
+        // Raw count is compatibility telemetry for user-level raw=true calls
+        // only. Internal state probes never touch the compatibility flag.
         sb.AppendLine(
             $"ptk server: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
             $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
@@ -167,11 +166,10 @@ public static class StateTool
                     // Independently zero-wait: a long call can win the runspace
                     // between the first probe and this one, and queueing here
                     // would reintroduce the blocked health check (issue #6).
-                    var available = await host.TryInvokeIfIdleAsync(
+                    var available = await host.TryInvokeStateProbeIfIdleAsync(
                         "Microsoft.PowerShell.Core\\Get-Module -ListAvailable | " +
                         "Microsoft.PowerShell.Utility\\Sort-Object Name -Unique | " +
                         "Microsoft.PowerShell.Core\\ForEach-Object { '  {0} {1}' -f $_.Name, $_.Version }",
-                        raw: true, // this tool formats its own lines; never shape them
                         cancellationToken: cancellationToken);
                     if (available?.WarmStateLost == true && audit is not null && !runspaceLossRecorded)
                     {

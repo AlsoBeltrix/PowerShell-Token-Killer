@@ -19,7 +19,6 @@ internal static class ExecutionPlanner
         string? route,
         RtkExecutableIdentity? effectiveRtkIdentity,
         TrustedCommandSnapshot commands,
-        bool raw,
         bool compressAvailable,
         ResolutionContext resolutionContext,
         bool allowFileSystemGuidance = false,
@@ -37,11 +36,10 @@ internal static class ExecutionPlanner
 
         var requestedRoute = NormalizeRoute(route);
         var noFallbacks = ImmutableArray<ExecutionPath>.Empty;
-        if (raw || requestedRoute == RequestedExecutionRoute.PowerShell)
+        if (requestedRoute == RequestedExecutionRoute.PowerShell)
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -61,7 +59,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -79,7 +76,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -98,7 +94,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -116,7 +111,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -134,7 +128,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -150,7 +143,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -172,7 +164,6 @@ internal static class ExecutionPlanner
         {
             return Direct(
                 script,
-                raw,
                 compressAvailable,
                 resolutionContext,
                 requestedRoute,
@@ -204,13 +195,11 @@ internal static class ExecutionPlanner
     internal static ExecutionPlan CreateDirect(
         string script,
         string? route,
-        bool raw,
         bool compressAvailable,
         ResolutionContext resolutionContext,
         RtkExecutableIdentity? outputShapingRtkIdentity = null) =>
         Direct(
             script,
-            raw,
             compressAvailable,
             resolutionContext,
             NormalizeRoute(route),
@@ -260,7 +249,6 @@ internal static class ExecutionPlanner
 
     private static ExecutionPlan Direct(
         string script,
-        bool raw,
         bool compressAvailable,
         ResolutionContext resolutionContext,
         RequestedExecutionRoute requestedRoute,
@@ -277,18 +265,16 @@ internal static class ExecutionPlanner
             PreExecutionValidation.None,
             resolutionContext,
             requestedRoute,
-            raw || !compressAvailable
+            !compressAvailable
                 ? OutputProvenance.DirectText
                 : OutputProvenance.PowerShellObjects,
             fallbacks,
             fallbackReason,
             rtkExecutableIdentity: null,
-            outputShapingRtkIdentity: raw || !compressAvailable
+            outputShapingRtkIdentity: !compressAvailable
                 ? null
                 : outputShapingRtkIdentity,
-            postSuccessGuidance: raw
-                ? null
-                : postSuccessGuidance);
+            postSuccessGuidance: postSuccessGuidance);
 
     private static RequestedExecutionRoute NormalizeRoute(string? route) =>
         route?.ToLowerInvariant() switch

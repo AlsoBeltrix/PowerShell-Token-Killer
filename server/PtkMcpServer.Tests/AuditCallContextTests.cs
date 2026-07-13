@@ -48,7 +48,6 @@ public sealed class AuditCallContextTests : IDisposable
             ExecutionPlanner.CreateDirect(
                 "'terminal-matrix'",
                 "auto",
-                raw: false,
                 compressAvailable: true,
                 ResolutionContext.Warm),
             CancellationToken.None));

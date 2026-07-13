@@ -1460,10 +1460,12 @@ public sealed class RunspaceHost : IDisposable
         UserExecutionStarted: userExecutionStarted,
         WarmStateLost: true);
 
+    // The raw parameter remains only for source compatibility with existing
+    // host callers during the MCP schema's compatibility interval. It is
+    // deliberately not forwarded into private execution decisions.
     public Task<InvokeResult> InvokeAsync(string script, bool raw = false, CancellationToken cancellationToken = default, string route = "auto", int timeoutSeconds = 0, DateTimeOffset? deadline = null) =>
         InvokeCoreAsync(
             script,
-            raw,
             cancellationToken,
             route,
             timeoutSeconds,
@@ -1483,7 +1485,6 @@ public sealed class RunspaceHost : IDisposable
         DateTimeOffset? deadline = null) =>
         InvokeCoreAsync(
             script,
-            raw,
             cancellationToken,
             route,
             timeoutSeconds,
@@ -1504,7 +1505,6 @@ public sealed class RunspaceHost : IDisposable
         ForegroundOutputCapture? outputCapture = null) =>
         InvokeCoreAsync(
             script,
-            raw,
             cancellationToken,
             route,
             timeoutSeconds,
@@ -1514,7 +1514,6 @@ public sealed class RunspaceHost : IDisposable
 
     private async Task<InvokeResult> InvokeCoreAsync(
         string script,
-        bool raw,
         CancellationToken cancellationToken,
         string route,
         int timeoutSeconds,
@@ -1534,8 +1533,8 @@ public sealed class RunspaceHost : IDisposable
         }
         return await InvokeGateHeldAsync(
             script,
-            raw,
             route,
+            shapeOutput: true,
             callDeadline,
             budget,
             cancellationToken,
@@ -1548,7 +1547,23 @@ public sealed class RunspaceHost : IDisposable
     /// health check never queues behind the workload it exists to diagnose
     /// (issue #6) — the failed zero-wait acquire IS the busy signal, with no
     /// check-then-queue window for a new call to slip into.</summary>
-    public async Task<InvokeResult?> TryInvokeIfIdleAsync(string script, bool raw = false, CancellationToken cancellationToken = default)
+    public Task<InvokeResult?> TryInvokeIfIdleAsync(
+        string script,
+        CancellationToken cancellationToken = default) =>
+        TryInvokeIfIdleCoreAsync(script, shapeOutput: true, cancellationToken);
+
+    /// <summary>Zero-wait state-probe path. StateTool owns its final report and
+    /// must not cache a bounded/elided module inventory, so this narrowly skips
+    /// output shaping without changing dialect handling or execution routing.</summary>
+    internal Task<InvokeResult?> TryInvokeStateProbeIfIdleAsync(
+        string script,
+        CancellationToken cancellationToken = default) =>
+        TryInvokeIfIdleCoreAsync(script, shapeOutput: false, cancellationToken);
+
+    private async Task<InvokeResult?> TryInvokeIfIdleCoreAsync(
+        string script,
+        bool shapeOutput,
+        CancellationToken cancellationToken)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         // A served busy report is user activity (the sd2-3 class; plan finding
@@ -1572,7 +1587,12 @@ public sealed class RunspaceHost : IDisposable
         MarkGateAcquired();
         var budget = _callTimeout;
         return await InvokeGateHeldAsync(
-            script, raw, "auto", DateTimeOffset.UtcNow + budget, budget, cancellationToken,
+            script,
+            "auto",
+            shapeOutput,
+            DateTimeOffset.UtcNow + budget,
+            budget,
+            cancellationToken,
             authorizer: null,
             outputCapture: null);
     }
@@ -3213,8 +3233,8 @@ public sealed class RunspaceHost : IDisposable
 
     private async Task<InvokeResult> InvokeGateHeldAsync(
         string script,
-        bool raw,
         string route,
+        bool shapeOutput,
         DateTimeOffset callDeadline,
         TimeSpan budget,
         CancellationToken cancellationToken,
@@ -3235,10 +3255,10 @@ public sealed class RunspaceHost : IDisposable
             // Trusted preflight executes no PowerShell. Read-only CLR pattern
             // enumeration captures plain facts without entering lookup hooks
             // or auto-import and without mutating any ambient user state; the
-            // C# classifier then decides over those values only. raw skips
-            // routing and shaping; route=pwsh bypasses by explicit consent.
+            // C# classifier then decides over those values only. route=pwsh
+            // bypasses dialect and automatic execution routing by explicit
+            // interpreter consent; legacy raw never participates here.
             var checkDialect = primed.ModuleLoaded &&
-                               !raw &&
                                !string.Equals(route, "pwsh", StringComparison.OrdinalIgnoreCase);
             var preflightDelay = PreflightDelayForTests;
             var preflight = Task.Run(() =>
@@ -3249,8 +3269,7 @@ public sealed class RunspaceHost : IDisposable
                 var plan = ExecutionPlanner.CreateDirect(
                     script,
                     route,
-                    raw,
-                    compressAvailable: !raw && primed.CompressCommand is not null,
+                    compressAvailable: shapeOutput && primed.CompressCommand is not null,
                     ResolutionContext.Warm,
                     effectiveRtkIdentity);
                 if (checkDialect)
@@ -3307,8 +3326,7 @@ public sealed class RunspaceHost : IDisposable
                         route,
                         effectiveRtkIdentity,
                         commands,
-                        raw,
-                        compressAvailable: !raw && primed.CompressCommand is not null,
+                        compressAvailable: shapeOutput && primed.CompressCommand is not null,
                         ResolutionContext.Warm,
                         allowFileSystemGuidance,
                         workingDirectory,
@@ -3846,7 +3864,7 @@ public sealed class RunspaceHost : IDisposable
                 pipeline => pipeline.AddCommand("Microsoft.PowerShell.Utility\\Out-String"),
                 authorizedShapingRtk: null,
                 decodeRoutingEnvelope: false,
-                followupProcessorExpected: !raw && primed.CompressCommand is not null);
+                followupProcessorExpected: shapeOutput && primed.CompressCommand is not null);
             var unshaped = rendered.Status == InternalOutputPipelineStatus.Completed
                 ? rendered.Output
                 : RenderCapturedPrefixWithoutPipeline(passive.Output);
@@ -3931,7 +3949,7 @@ public sealed class RunspaceHost : IDisposable
 
             var output = unshaped;
             OutputShapingSummary? outputShaping = null;
-            if (!raw && primed.CompressCommand is not null)
+            if (shapeOutput && primed.CompressCommand is not null)
             {
                 var authorizedShapingRtk = dispatch.OutputShapingRtkIdentity;
                 var hint = RecoveryElisionHint(recovery);

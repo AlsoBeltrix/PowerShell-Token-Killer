@@ -93,7 +93,6 @@ public sealed class ExecutionPlannerTests
             "rtk",
             new RtkExecutableIdentity(RtkPath),
             commands,
-            raw: false,
             compressAvailable: true,
             ResolutionContext.Warm,
             workingDirectory: Path.GetFullPath(Path.GetTempPath()),
@@ -233,23 +232,30 @@ public sealed class ExecutionPlannerTests
     }
 
     [Fact]
-    public void Raw_is_an_explicit_direct_plan_without_fallbacks()
+    public void Planner_has_no_legacy_raw_policy_input()
     {
-        var plan = ExecutionPlanner.Create(
+        var create = typeof(ExecutionPlanner).GetMethod(
+            nameof(ExecutionPlanner.Create),
+            System.Reflection.BindingFlags.Static |
+            System.Reflection.BindingFlags.NonPublic)!;
+
+        Assert.DoesNotContain(
+            create.GetParameters(),
+            parameter => parameter.Name == "raw");
+
+        var plan = Plan(
             "git status",
             "rtk",
-            new RtkExecutableIdentity(RtkPath),
-            Application("git", "/usr/bin/git"),
-            raw: true,
-            compressAvailable: true,
-            ResolutionContext.Warm);
+            RtkPath,
+            Application("git", "/usr/bin/git"));
 
-        AssertDirect(
-            plan,
-            "git status",
-            RequestedExecutionRoute.Rtk,
-            OutputProvenance.DirectText);
-        Assert.Null(plan.Domain);
+        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
+        Assert.Equal(OutputProvenance.RtkUnknown, plan.OutputProvenance);
+        Assert.Equal(RequestedExecutionRoute.Rtk, plan.RequestedRoute);
+        Assert.Equal(["git", "status"], plan.RtkArgumentVector.ToArray());
+        Assert.Collection(
+            plan.PermittedFallbacks,
+            fallback => Assert.Equal(ExecutionPath.PowerShellDirect, fallback));
         Assert.Null(plan.FallbackReason);
     }
 
@@ -259,7 +265,6 @@ public sealed class ExecutionPlannerTests
         var plan = ExecutionPlanner.CreateDirect(
             "'plain text'",
             "auto",
-            raw: false,
             compressAvailable: false,
             ResolutionContext.Warm);
 
@@ -457,7 +462,6 @@ public sealed class ExecutionPlannerTests
             "auto",
             new RtkExecutableIdentity(RtkPath),
             commands,
-            raw: false,
             compressAvailable: true,
             ResolutionContext.Warm,
             allowFileSystemGuidance: false).PostSuccessGuidance);
@@ -557,7 +561,6 @@ public sealed class ExecutionPlannerTests
             route,
             rtkPath is null ? null : new RtkExecutableIdentity(rtkPath),
             commands,
-            raw: false,
             compressAvailable: true,
             ResolutionContext.Warm,
             allowFileSystemGuidance: true,

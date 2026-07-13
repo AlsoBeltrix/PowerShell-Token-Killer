@@ -53,13 +53,12 @@ public sealed class OutputShapingTests : IDisposable
     }
 
     [Fact]
-    public async Task Raw_skips_compression()
+    public async Task Legacy_raw_does_not_skip_compression()
     {
         var result = await _host.InvokeAsync("[pscustomobject]@{ Name = 'a'; Value = 1 }", raw: true);
 
         Assert.True(result.Success);
-        Assert.DoesNotContain("objects:", result.Output);
-        Assert.Contains("Name", result.Output); // Out-String table header
+        Assert.StartsWith("objects: 1", result.Output.Trim());
     }
 
     [Fact]

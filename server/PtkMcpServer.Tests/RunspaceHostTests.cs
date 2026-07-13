@@ -34,6 +34,23 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     [Fact]
+    public async Task State_probe_path_preserves_complete_self_formatted_output()
+    {
+        var result = await _host.TryInvokeStateProbeIfIdleAsync(
+            "1..700 | ForEach-Object { 'STATE_PROBE_LINE_{0:D4}' -f $_ }");
+
+        Assert.NotNull(result);
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Contains("STATE_PROBE_LINE_0700", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("elided", result.Output, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(
+            700,
+            result.Output.Split(
+                '\n',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Length);
+    }
+
+    [Fact]
     public async Task Two_stage_capture_and_shaping_preserve_user_runspace_state()
     {
         var workingDirectory = Directory.CreateTempSubdirectory("ptk-capture-state-");
@@ -905,7 +922,11 @@ public sealed class RunspaceHostTests : IDisposable
     [Fact]
     public async Task Private_output_stop_is_joined_before_disposal_and_guard_release()
     {
-        var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(1));
+        var host = new RunspaceHost(
+            callTimeout: TimeSpan.FromSeconds(1),
+            modulePathOverride: Path.Combine(
+                Path.GetTempPath(),
+                "missing-private-output-module-" + Guid.NewGuid().ToString("N") + ".psd1"));
         var pendingInvocation = new TaskCompletionSource<
             System.Management.Automation.PSDataCollection<
                 System.Management.Automation.PSObject>>(
@@ -964,7 +985,11 @@ public sealed class RunspaceHostTests : IDisposable
     [Fact]
     public async Task Private_output_disposal_is_bounded_and_holds_the_singleflight_guard()
     {
-        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(10));
+        using var host = new RunspaceHost(
+            callTimeout: TimeSpan.FromSeconds(10),
+            modulePathOverride: Path.Combine(
+                Path.GetTempPath(),
+                "missing-private-output-module-" + Guid.NewGuid().ToString("N") + ".psd1"));
         using var disposing = new ManualResetEventSlim();
         using var releaseDisposal = new ManualResetEventSlim();
         var openingCount = 0;

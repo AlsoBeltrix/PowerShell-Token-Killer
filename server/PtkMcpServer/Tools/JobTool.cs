@@ -102,12 +102,12 @@ public static class JobTool
                     nextOffset: nextOffset,
                     bytesReturnedOverride: bytesRead,
                     outputShapingRtkIdentity: authorizedShapingRtk);
-                // sd3-2..sd3-4: the marker's default advice (raw=true) is a
-                // ptk_invoke control this tool does not have — re-running
-                // the JOB duplicates side-effecting work and the offset has
-                // already moved past the middle. The recovery hint rides
-                // INTO shaping, so the marker itself names the honest
-                // recovery (the raw log) exactly when the module elides;
+                // sd3-2..sd3-4: the marker's foreground default cannot name
+                // this job's existing output. Re-running the job would
+                // duplicate side-effecting work and the offset has already
+                // moved past the middle. The recovery hint rides INTO
+                // shaping, so the marker itself names the honest recovery
+                // (the raw log) exactly when the module elides;
                 // two downstream inference heuristics both proved unsound
                 // (ANSI stripping shortens without eliding, near-boundary
                 // elision lengthens).

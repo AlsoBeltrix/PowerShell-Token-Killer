@@ -1139,8 +1139,8 @@ function Compress-PtcOutput {
         # already came from RTK.
         [ValidateSet('powershell_objects', 'direct_text', 'rtk_unknown', 'rtk_filtered', 'rtk_passthrough')]
         [string]$InputProvenance,
-        # Overrides the elision markers' recovery advice for callers whose
-        # recovery path is not raw=true (see Limit-PtcPassthrough).
+        # Overrides the elision markers' recovery advice with the caller's
+        # same-invocation artifact status (see Limit-PtcPassthrough).
         [string]$ElisionHint,
         # The MCP host always supplies its startup-frozen RTK identity. Direct
         # module consumers that omit these retain standalone PATH behavior.
@@ -1183,8 +1183,8 @@ function Compress-PtcOutput {
                 # Strip ANSI/control sequences at ingest, BEFORE classification:
                 # they are pure token waste to a model, and a color prefix
                 # defeats Test-PtcLogShaped's line-start timestamp anchor, so a
-                # colored log would dodge the rtk dedup leg. raw=true calls
-                # never reach shaping (they return complete Out-String text).
+                # colored log would dodge the rtk dedup leg. Legacy raw is
+                # inert, so every capturable call follows this shaping path.
                 $text = Remove-PtcAnsi (@($array | Microsoft.PowerShell.Core\ForEach-Object { "$_" }) -join [Environment]::NewLine)
                 if (-not $skipRtkLog -and (Test-PtcLogShaped -Text $text)) {
                     $rtkArgs = @{ Text = $text }

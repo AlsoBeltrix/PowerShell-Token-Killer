@@ -20,10 +20,12 @@ public static class InvokeTool
         "passes through with terminal color codes stripped (oversized text is elided " +
         "with a labeled marker). PowerShell variables, imported modules, and established " +
         "connections persist across runspace-routed calls; delegated Bash state is " +
-        "process-local. Compressed output preserves errors, " +
-        "exit codes, and structure; raw=true exists for recovering detail the " +
-        "compressed form lost, not as a default - for exact execution with shaped " +
-        "output use route=pwsh with raw=false. Calls run serially, and the timeout " +
+        "process-local. Output is normally shaped and preserves errors, exit codes, " +
+        "and structure. When the response includes a ptk_output handle, use ptk_output " +
+        "to read the captured unshaped snapshot from that same invocation; PTK never " +
+        "reruns the command for recovery. The legacy raw is deprecated and accepted " +
+        "only for compatibility; it does not change interpreter, routing, capture, or " +
+        "shaping. Calls run serially, and the timeout " +
         "is a total wall-clock budget covering queue wait plus execution: a call " +
         "still waiting when its budget expires fails fast WITHOUT executing (warm " +
         "state intact - just retry or go background). A PowerShell execution overrun " +
@@ -37,16 +39,16 @@ public static class InvokeTool
         [Description("The command to execute: a PowerShell script or a native command line (git, npm, ...).")] string script,
         CancellationToken cancellationToken,
         [Description(
-            "Recovery hatch, not a default: skip output compression only to recover " +
-            "detail the compressed form lost (errors, exit codes, and structure are " +
-            "already preserved compressed). For exact execution with shaped output " +
-            "use route=pwsh with raw=false instead.")]
+            "Deprecated compatibility flag: true has no effect on dialect handling, " +
+            "interpreter/routing, process choice, capture, or shaping. Use ptk_output " +
+            "when a handle is returned.")]
         bool raw = false,
         [Description(
             "Routing override: 'auto' (default) runs a single native command " +
-            "through rtk's filters; 'pwsh' forces plain execution in the warm " +
-            "runspace; 'rtk' asserts RTK only for an eligible terminal native " +
-            "application. An ineligible assertion executes the exact original " +
+            "through rtk's filters; 'pwsh' is explicit consent to interpret the exact " +
+            "original text as PowerShell and bypass automatic dialect/Bash/RTK routing; " +
+            "normal capture and shaping still apply; 'rtk' asserts RTK only for an " +
+            "eligible terminal native application. An ineligible assertion executes the exact original " +
             "once and returns a labeled effective route without asking for a retry.")]
         string route = "auto",
         [Description(
@@ -71,11 +73,10 @@ public static class InvokeTool
         if (!background && audit is not null && !audit.BeginValidation())
             return AuditCallContext.NotStartedMessage;
 
-        // Raw-usage visibility (shell-dialect plan D2): counted here at the
-        // user-call boundary only — internal raw:true probes below this
-        // layer (ptk_state, the background cwd probe) must not inflate the
-        // signal. The log line gives the owner per-call visibility on
-        // stderr; the counter surfaces in ptk_state.
+        // Deprecated-flag visibility is counted at the user-call boundary
+        // only. The flag is intentionally not forwarded into planning or
+        // execution; the log and ptk_state count show remaining compatibility
+        // usage until the next breaking schema revision removes it.
         if (raw)
         {
             Console.Error.WriteLine($"ptk: raw=true call #{rawUsage.Increment()} this session");
@@ -107,11 +108,11 @@ public static class InvokeTool
 
                 // Dialect check BEFORE the job starts (shell-dialect plan,
                 // slice 2): a detected bash-only script is refused fast, never
-                // started as a job that dies in its log. Same consent bypasses
-                // as the foreground path (raw=true, route=pwsh); the check
-                // resolves against a cold command table because that is where
-                // the job will run.
-                if (!raw && route != "pwsh")
+                // started as a job that dies in its log. route=pwsh is the
+                // only interpreter-consent bypass; legacy raw is inert. The
+                // check resolves against a cold command table because that
+                // is where the job will run.
+                if (route != "pwsh")
                 {
                     var refusal = await host.TryGetBackgroundDialectRefusalAsync(script, cancellationToken, deadline);
                     if (refusal is not null)
@@ -222,23 +223,25 @@ public static class InvokeTool
             : new ForegroundOutputCapture(outputStore);
         var result = audit is null
             ? outputCapture is null
-                ? await host.InvokeAsync(script, raw, cancellationToken, route, timeoutSeconds)
+                ? await host.InvokeAsync(
+                    script,
+                    cancellationToken: cancellationToken,
+                    route: route,
+                    timeoutSeconds: timeoutSeconds)
                 : await host.InvokeWithOutputCaptureAsync(
                     script,
                     outputCapture,
-                    raw,
-                    cancellationToken,
-                    route,
-                    timeoutSeconds)
+                    cancellationToken: cancellationToken,
+                    route: route,
+                    timeoutSeconds: timeoutSeconds)
             : await host.InvokeAsync(
                 script,
                 audit,
-                raw,
-                cancellationToken,
-                route,
-                timeoutSeconds,
-                audit.Metadata.Request.DeadlineUtc,
-                outputCapture);
+                cancellationToken: cancellationToken,
+                route: route,
+                timeoutSeconds: timeoutSeconds,
+                deadline: audit.Metadata.Request.DeadlineUtc,
+                outputCapture: outputCapture);
 
         var sb = new StringBuilder();
         var output = result.Output.TrimEnd();

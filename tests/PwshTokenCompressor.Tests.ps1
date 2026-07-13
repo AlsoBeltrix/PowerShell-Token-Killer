@@ -1116,9 +1116,9 @@ Describe 'Compress-PtcOutput' {
     }
 
     It 'composes the elision marker with a caller-supplied recovery hint' {
-        # sd3-2..sd3-4: callers whose recovery is not raw=true (ptk_job
-        # polls) pass their own advice; the marker is composed BY the
-        # elision, never inferred downstream.
+        # sd3-2..sd3-4: callers with their own retained artifact (ptk_job
+        # polls) pass its advice; the marker is composed BY the elision,
+        # never inferred downstream.
         $lines = 1..1000 | ForEach-Object { "line $_" }
         $result = $lines | Compress-PtcOutput -ElisionHint 'read the job log instead'
 

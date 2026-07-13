@@ -320,21 +320,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         // fallback already bounded by the same plan; terminal routing below
         // then inherits this actual dispatch.
 
-        var dispatchedRtk =
-            dispatch.RtkExecutableIdentity ?? dispatch.OutputShapingRtkIdentity;
-        _routing = _routing with
-        {
-            Domain = dispatch.Domain?.ToMachineCode(),
-            RequestedRoute = dispatch.RequestedRoute.ToMachineCode(),
-            EffectiveRoute = dispatch.EffectiveRoute,
-            PermittedFallbacks = dispatch.PermittedFallbacks
-                .Select(path => path.ToMachineCode())
-                .ToArray(),
-            RtkVersion = dispatchedRtk?.Verified?.Version,
-            RtkBinaryDigest = dispatchedRtk?.AuditBinaryDigest,
-            Provenance = dispatch.OutputProvenance.ToMachineCode(),
-            FallbackReason = dispatch.FallbackReason?.ToMachineCode(),
-        };
+        ProjectDispatchRouting(dispatch, includePermittedFallbacks: true);
 
         try
         {
@@ -719,16 +705,26 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             rootCoverage: "not_applicable");
     }
 
-    internal void RecordOutputShaping(OutputShapingSummary shaping)
+    internal void RecordOutputShaping(
+        OutputShapingSummary shaping,
+        OutputProvenance? inputProvenance = null)
     {
         ArgumentNullException.ThrowIfNull(shaping);
         EnsureActive();
+        var preserveRtkSource = inputProvenance is
+            OutputProvenance.RtkUnknown or
+            OutputProvenance.RtkFiltered or
+            OutputProvenance.RtkPassthrough;
         _routing = _routing with
         {
-            RtkBinaryDigest = shaping.RtkBinaryDigest,
-            Provenance = shaping.UsedRtk
-                ? OutputProvenance.RtkFiltered.ToMachineCode()
-                : OutputProvenance.DirectText.ToMachineCode(),
+            RtkBinaryDigest = preserveRtkSource
+                ? _routing.RtkBinaryDigest
+                : shaping.RtkBinaryDigest,
+            Provenance = preserveRtkSource
+                ? inputProvenance!.Value.ToMachineCode()
+                : shaping.UsedRtk
+                    ? OutputProvenance.RtkFiltered.ToMachineCode()
+                    : OutputProvenance.DirectText.ToMachineCode(),
         };
         TryAppend(
             shaping.UsedRtk ? "output.shaped" : "output.shaping_failed",
@@ -758,9 +754,20 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         long? jobId = null,
         long? nextOffset = null,
         long? bytesReturnedOverride = null,
-        RtkExecutableIdentity? outputShapingRtkIdentity = null)
+        RtkExecutableIdentity? outputShapingRtkIdentity = null,
+        JobExecutionMetadata? jobExecution = null)
     {
         EnsureActive();
+        if (jobExecution is not null)
+        {
+            // This access call has no correlation.plan_id for the earlier
+            // job-start plan. The frozen schema therefore requires an empty
+            // fallback set even though the source dispatch retains its own
+            // historical permitted-fallback facts.
+            ProjectDispatchRouting(
+                jobExecution.Dispatch,
+                includePermittedFallbacks: false);
+        }
         if (outputShapingRtkIdentity is not null)
         {
             _routing = _routing with
@@ -778,6 +785,29 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             nextOffset: nextOffset,
             terminationCertainty: "not_applicable",
             rootCoverage: "not_applicable");
+    }
+
+    private void ProjectDispatchRouting(
+        ExecutionDispatch dispatch,
+        bool includePermittedFallbacks)
+    {
+        var dispatchedRtk =
+            dispatch.RtkExecutableIdentity ?? dispatch.OutputShapingRtkIdentity;
+        _routing = _routing with
+        {
+            Domain = dispatch.Domain?.ToMachineCode(),
+            RequestedRoute = dispatch.RequestedRoute.ToMachineCode(),
+            EffectiveRoute = dispatch.EffectiveRoute,
+            PermittedFallbacks = includePermittedFallbacks
+                ? dispatch.PermittedFallbacks
+                    .Select(path => path.ToMachineCode())
+                    .ToArray()
+                : [],
+            RtkVersion = dispatchedRtk?.Verified?.Version,
+            RtkBinaryDigest = dispatchedRtk?.AuditBinaryDigest,
+            Provenance = dispatch.OutputProvenance.ToMachineCode(),
+            FallbackReason = dispatch.FallbackReason?.ToMachineCode(),
+        };
     }
 
     internal string HealthStatusLine()

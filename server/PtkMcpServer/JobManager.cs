@@ -155,6 +155,7 @@ public sealed record JobSnapshot(
     public bool KillRequested => TerminationReason != JobTerminationReason.None;
 
     internal JobExecutionMetadata Execution { get; init; } = null!;
+    internal bool ExecutionRoutingAuthoritative { get; init; }
     internal bool? OutputCaptureComplete { get; init; }
     internal string? OutputFailureCode { get; init; }
     internal bool RootTerminationConfirmed { get; init; } = true;
@@ -1381,6 +1382,7 @@ public sealed class JobManager : IDisposable
             (JobTerminationReason)Volatile.Read(ref entry.TerminationReason))
         {
             Execution = entry.Execution,
+            ExecutionRoutingAuthoritative = entry.StartPlan.DispatchBound,
             OutputCaptureComplete = Volatile.Read(ref entry.OutputCaptureState) switch
             {
                 0 => null,

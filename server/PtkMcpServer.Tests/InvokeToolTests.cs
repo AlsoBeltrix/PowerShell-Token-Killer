@@ -2650,4 +2650,87 @@ public sealed class InvokeToolTests : IDisposable
         Assert.Contains("exited 0", poll);
         Assert.Contains("next offset:", poll);
     }
+
+    [Fact]
+    public async Task Rtk_unknown_job_poll_is_bounded_without_a_second_rtk_invocation()
+    {
+        var invocationLog = Path.Combine(
+            Path.GetTempPath(),
+            "ptk-job-rtk-poll-" + Guid.NewGuid().ToString("N") + ".log");
+        var body = OperatingSystem.IsWindows()
+            ? ">>\"%PTK_RTK_TEST_LOG%\" echo %*\n" +
+              "echo \u001b[31m2026-07-13 10:00:00 INFO worker: ANSI\u001b[0m\n" +
+              "for /L %%i in (1,1,600) do @echo 2026-07-13 10:00:00 INFO worker: step %%i\n" +
+              "exit /b 0"
+            : "printf '%s\\n' \"$*\" >> \"$PTK_RTK_TEST_LOG\"\n" +
+              "printf '\\033[31m2026-07-13 10:00:00 INFO worker: ANSI\\033[0m\\n'\n" +
+              "i=1\n" +
+              "while [ \"$i\" -le 600 ]; do\n" +
+              "  echo \"2026-07-13 10:00:00 INFO worker: step $i\"\n" +
+              "  i=$((i + 1))\n" +
+              "done\n" +
+              "exit 0";
+        var (dir, stub) = CreateRtkStub(body);
+        var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
+        var savedLog = Environment.GetEnvironmentVariable("PTK_RTK_TEST_LOG");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
+            Environment.SetEnvironmentVariable("PTK_RTK_TEST_LOG", invocationLog);
+            var identity = RtkExecutableIdentity.TryCapture(stub);
+            Assert.NotNull(identity);
+            var plan = new ExecutionPlan(
+                originalScript: "typed RTK polling fixture",
+                executionScript: null,
+                ExecutionDomain.NativeTerminal,
+                ExecutionPath.Rtk,
+                PreExecutionValidation.None,
+                ResolutionContext.Cold,
+                RequestedExecutionRoute.Auto,
+                OutputProvenance.RtkUnknown,
+                [ExecutionPath.PowerShellDirect],
+                fallbackReason: null,
+                identity,
+                workingDirectory: dir.FullName,
+                rtkArgumentVector: ["fixture-native"],
+                directFallbackProvenance: OutputProvenance.DirectText);
+            var start = _jobs.PrepareStart(ExecutionDispatch.FromPlan(plan), dir.FullName);
+
+            var started = _jobs.CommitStart(start);
+            Assert.True(_jobs.ConfirmStartRecorded(started.Id));
+            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(60);
+            while (_jobs.Snapshot(started.Id)?.Running == true)
+            {
+                Assert.True(DateTimeOffset.UtcNow < deadline, "typed RTK job did not exit");
+                await Task.Delay(50);
+            }
+
+            var final = _jobs.Snapshot(started.Id)!;
+            var poll = await JobTool.Job(
+                _host,
+                _jobs,
+                "output",
+                CancellationToken.None,
+                id: started.Id,
+                offset: 0);
+
+            Assert.Equal(OutputProvenance.RtkUnknown, final.Execution.OutputProvenance);
+            Assert.Contains("step 1", poll, StringComparison.Ordinal);
+            Assert.Contains("step 600", poll, StringComparison.Ordinal);
+            Assert.Contains("INFO worker: ANSI", poll, StringComparison.Ordinal);
+            Assert.DoesNotContain("\u001b", poll, StringComparison.Ordinal);
+            Assert.Contains(
+                "lines elided - recovery=unavailable: rtk capture unsupported",
+                poll,
+                StringComparison.Ordinal);
+            Assert.Equal(["fixture-native"], File.ReadAllLines(invocationLog));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_RTK_PATH", savedRtk);
+            Environment.SetEnvironmentVariable("PTK_RTK_TEST_LOG", savedLog);
+            try { File.Delete(invocationLog); } catch { }
+            dir.Delete(recursive: true);
+        }
+    }
 }

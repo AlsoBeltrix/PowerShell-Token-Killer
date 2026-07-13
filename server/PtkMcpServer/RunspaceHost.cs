@@ -4165,7 +4165,23 @@ public sealed class RunspaceHost : IDisposable
             text,
             cancellationToken,
             elisionHint,
+            OutputProvenance.DirectText,
             EffectiveRtkIdentity(),
+            runspaceRecycled: null)).Text;
+
+    internal async Task<string> ShapeJobTextAsync(
+        string text,
+        OutputProvenance inputProvenance,
+        CancellationToken cancellationToken,
+        string elisionHint) =>
+        (await ShapeTextCoreAsync(
+            text,
+            cancellationToken,
+            elisionHint,
+            inputProvenance,
+            inputProvenance == OutputProvenance.DirectText
+                ? EffectiveRtkIdentity()
+                : null,
             runspaceRecycled: null)).Text;
 
     internal RtkExecutableIdentity? CaptureOutputShapingRtkIdentity() =>
@@ -4175,12 +4191,14 @@ public sealed class RunspaceHost : IDisposable
         string text,
         CancellationToken cancellationToken,
         string? elisionHint,
+        OutputProvenance inputProvenance,
         RtkExecutableIdentity? authorizedShapingRtk,
         Action runspaceRecycled) =>
         ShapeTextCoreAsync(
             text,
             cancellationToken,
             elisionHint,
+            inputProvenance,
             authorizedShapingRtk,
             runspaceRecycled);
 
@@ -4188,6 +4206,7 @@ public sealed class RunspaceHost : IDisposable
         string text,
         CancellationToken cancellationToken,
         string? elisionHint,
+        OutputProvenance inputProvenance,
         RtkExecutableIdentity? authorizedShapingRtk,
         Action? runspaceRecycled)
     {
@@ -4211,11 +4230,12 @@ public sealed class RunspaceHost : IDisposable
             var runspace = primed.Runspace;
             ps.Runspace = runspace;
             ps.AddScript(
-                    "if ($args.Count -gt 4) { " +
-                    "$input | & $args[0] -PinnedRtkPath $args[1] -PinnedRtkDigest $args[2] -PinnedRtkUnixMode $args[3] -ElisionHint $args[4] -EmitRoutingEnvelope " +
-                    "} else { $input | & $args[0] -PinnedRtkPath $args[1] -PinnedRtkDigest $args[2] -PinnedRtkUnixMode $args[3] -EmitRoutingEnvelope }",
+                    "if ($args.Count -gt 5) { " +
+                    "$input | & $args[0] -InputProvenance $args[1] -PinnedRtkPath $args[2] -PinnedRtkDigest $args[3] -PinnedRtkUnixMode $args[4] -ElisionHint $args[5] -EmitRoutingEnvelope " +
+                    "} else { $input | & $args[0] -InputProvenance $args[1] -PinnedRtkPath $args[2] -PinnedRtkDigest $args[3] -PinnedRtkUnixMode $args[4] -EmitRoutingEnvelope }",
                     useLocalScope: true)
               .AddArgument(primed.CompressCommand)
+              .AddArgument(inputProvenance.ToMachineCode())
               .AddArgument(authorizedShapingRtk?.ExecutablePath)
               .AddArgument(authorizedShapingRtk?.AuditBinaryDigest)
               .AddArgument(authorizedShapingRtk?.CapturedUnixFileMode);

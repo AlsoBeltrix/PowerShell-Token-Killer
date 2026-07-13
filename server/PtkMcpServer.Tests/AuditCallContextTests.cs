@@ -861,6 +861,54 @@ public sealed class AuditCallContextTests : IDisposable
     }
 
     [Fact]
+    public void Read_outcome_projects_the_jobs_persisted_source_routing()
+    {
+        using var fixture = CreateFixture(
+            Call("ptk_job", ("action", "output"), ("id", 17L), ("offset", 0L)),
+            exactScript: null);
+        Assert.True(fixture.Context.AuthorizeControl("job.output_requested", 17));
+        var identity = new RtkExecutableIdentity(
+            Path.Combine(Path.GetTempPath(), "rtk-audit-fixture"),
+            new RtkVerifiedBinaryIdentity("fixture-1", new string('a', 64)));
+        var plan = new ExecutionPlan(
+            originalScript: "typed RTK audit fixture",
+            executionScript: null,
+            ExecutionDomain.NativeTerminal,
+            ExecutionPath.Rtk,
+            PreExecutionValidation.None,
+            ResolutionContext.Cold,
+            RequestedExecutionRoute.Rtk,
+            OutputProvenance.RtkUnknown,
+            [ExecutionPath.PowerShellDirect],
+            fallbackReason: null,
+            identity,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            rtkArgumentVector: ["fixture-native"],
+            directFallbackProvenance: OutputProvenance.DirectText);
+        var execution = new JobExecutionMetadata(ExecutionDispatch.FromPlan(plan));
+
+        fixture.Context.CommitReadOutcome(
+            "job.output_accessed",
+            "completed",
+            "already shaped",
+            jobId: 17,
+            nextOffset: 14,
+            jobExecution: execution);
+        fixture.Context.CompleteCall("completed", "response");
+
+        var access = fixture.Events().Single(value => EventType(value) == "job.output_accessed");
+        var routing = access.GetProperty("routing");
+        Assert.Equal("native_terminal", routing.GetProperty("domain").GetString());
+        Assert.Equal("rtk", routing.GetProperty("requested_route").GetString());
+        Assert.Equal("rtk", routing.GetProperty("effective_route").GetString());
+        Assert.Empty(routing.GetProperty("permitted_fallbacks").EnumerateArray());
+        Assert.Equal("fixture-1", routing.GetProperty("rtk_version").GetString());
+        Assert.Equal(new string('a', 64), routing.GetProperty("rtk_binary_digest").GetString());
+        Assert.Equal("rtk_unknown", routing.GetProperty("provenance").GetString());
+        Assert.Equal(JsonValueKind.Null, routing.GetProperty("fallback_reason").ValueKind);
+    }
+
+    [Fact]
     public void Read_outcome_persistence_failure_is_not_swallowed()
     {
         using var fixture = CreateFixture(

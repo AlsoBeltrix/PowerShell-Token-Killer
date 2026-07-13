@@ -69,6 +69,7 @@ public sealed class JobManagerTests : IDisposable
         Assert.Equal(reservation.OutputPath, plan.OutputPath);
         Assert.Same(dispatch, plan.Dispatch);
         Assert.Same(dispatch, plan.Execution.Dispatch);
+        Assert.True(plan.DispatchBound);
         Assert.Equal(ExecutionPath.Rtk, plan.Execution.ExecutionPath);
         Assert.Equal(OutputProvenance.RtkUnknown, plan.Execution.OutputProvenance);
         Assert.Equal(ResolutionContext.Cold, plan.Execution.ResolutionContext);

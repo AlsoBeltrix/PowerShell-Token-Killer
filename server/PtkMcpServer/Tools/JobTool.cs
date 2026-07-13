@@ -44,7 +44,10 @@ public static class JobTool
                     "job.status_accessed",
                     snapshot is null ? "not_found" : "completed",
                     response,
-                    jobId: id);
+                    jobId: id,
+                    jobExecution: snapshot?.ExecutionRoutingAuthoritative == true
+                        ? snapshot.Execution
+                        : null);
                 return response;
             }
             case "kill":
@@ -89,7 +92,17 @@ public static class JobTool
                 // "running" one poll late rather than losing tail output.
                 var chunk = jobs.ReadOutput(id, offset)!;
                 var (text, nextOffset, bytesRead) = chunk.Value;
-                var authorizedShapingRtk = text.Length == 0
+                var provenance = snapshot.Execution.OutputProvenance;
+                var shapeDirectText = provenance switch
+                {
+                    OutputProvenance.DirectText => true,
+                    OutputProvenance.RtkUnknown or
+                        OutputProvenance.RtkFiltered or
+                        OutputProvenance.RtkPassthrough => false,
+                    _ => throw new InvalidOperationException(
+                        "Cold background output cannot carry PowerShell object provenance."),
+                };
+                var authorizedShapingRtk = text.Length == 0 || !shapeDirectText
                     ? null
                     : host.CaptureOutputShapingRtkIdentity();
                 audit?.CommitReadOutcome(
@@ -102,7 +115,10 @@ public static class JobTool
                     jobId: id,
                     nextOffset: nextOffset,
                     bytesReturnedOverride: bytesRead,
-                    outputShapingRtkIdentity: authorizedShapingRtk);
+                    outputShapingRtkIdentity: authorizedShapingRtk,
+                    jobExecution: snapshot.ExecutionRoutingAuthoritative
+                        ? snapshot.Execution
+                        : null);
                 // sd3-2..sd3-4: the marker's foreground default cannot name
                 // this job's existing output. Re-running the job would
                 // duplicate side-effecting work and the offset has already
@@ -112,24 +128,24 @@ public static class JobTool
                 // two downstream inference heuristics both proved unsound
                 // (ANSI stripping shortens without eliding, near-boundary
                 // elision lengthens).
-                var logDescription = snapshot.OutputCaptureComplete switch
-                {
-                    true => "complete captured log",
-                    false => "available partial captured log",
-                    _ => "available captured log (completeness unknown)",
-                };
-                var elisionHint =
-                    $"read the {logDescription} at {snapshot.OutputPath} if the elided middle matters";
+                var elisionHint = shapeDirectText
+                    ? DirectTextElisionHint(snapshot)
+                    : "recovery=unavailable: rtk capture unsupported";
                 var shapedResult = text.Length == 0
                     ? new ShapedTextResult("(no new output)", null)
                     : audit is null
                         ? new ShapedTextResult(
-                            await host.ShapeTextAsync(text, cancellationToken, elisionHint),
+                            await host.ShapeJobTextAsync(
+                                text,
+                                provenance,
+                                cancellationToken,
+                                elisionHint),
                             null)
                         : await host.ShapeTextAuditedAsync(
                             text,
                             cancellationToken,
                             elisionHint,
+                            provenance,
                             authorizedShapingRtk,
                             () => audit.RecordControlOutcome(
                                 "runspace.recycled",
@@ -137,10 +153,13 @@ public static class JobTool
                                 detailCode: "job_output_shaping_timed_out",
                                 warmStateLost: true));
                 if (shapedResult.Shaping is { } shaping)
-                    audit?.RecordOutputShaping(shaping);
+                    audit?.RecordOutputShaping(shaping, provenance);
                 var shaped = shapedResult.Text;
                 var capture = CaptureState(snapshot);
-                return $"{shaped}\n[job {id} {State(snapshot)}{capture}] next offset: {nextOffset}";
+                var recoveryStatus = provenance == OutputProvenance.RtkUnknown
+                    ? "\nrecovery=unavailable: rtk capture unsupported"
+                    : string.Empty;
+                return $"{shaped}{recoveryStatus}\n[job {id} {State(snapshot)}{capture}] next offset: {nextOffset}";
             }
             default:
                 return "[unknown action - use status | output | kill | list]";
@@ -186,4 +205,15 @@ public static class JobTool
             null when !snapshot.Running => ", output completeness unknown",
             _ => string.Empty,
         };
+
+    private static string DirectTextElisionHint(JobSnapshot snapshot)
+    {
+        var logDescription = snapshot.OutputCaptureComplete switch
+        {
+            true => "complete captured log",
+            false => "available partial captured log",
+            _ => "available captured log (completeness unknown)",
+        };
+        return $"read the {logDescription} at {snapshot.OutputPath} if the elided middle matters";
+    }
 }

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
@@ -1052,6 +1053,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 fixture.AuditContext)));
 
         Assert.Contains("AUDITED_JOB_RTK_LOG", ResultText(result), StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "rtk capture unsupported",
+            ResultText(result),
+            StringComparison.Ordinal);
         Assert.Equal("1", File.ReadAllText(invocationMarker));
         var eventTypes = fixture.EventTypes();
         Assert.True(
@@ -1066,10 +1071,142 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             expectedDigest,
             access.GetProperty("routing").GetProperty("rtk_binary_digest").GetString());
         Assert.Equal(
+            JsonValueKind.Null,
+            access.GetProperty("routing").GetProperty("domain").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            access.GetProperty("routing").GetProperty("requested_route").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            access.GetProperty("routing").GetProperty("effective_route").ValueKind);
+        Assert.Equal(
+            JsonValueKind.Null,
+            access.GetProperty("routing").GetProperty("provenance").ValueKind);
+        Assert.Equal(
             "rtk_log_authorized",
             access.GetProperty("outcome").GetProperty("detail_code").GetString());
         Assert.Equal("rtk_log_used", shaped.GetProperty("outcome").GetProperty("detail_code").GetString());
         Assert.Equal("rtk_filtered", shaped.GetProperty("routing").GetProperty("provenance").GetString());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Rtk_unknown_job_output_preserves_source_route_without_second_rtk(
+        bool shapingFails)
+    {
+        var dependencyRoot = Directory.CreateTempSubdirectory("ptk-job-rtk-poll-audit-").FullName;
+        _roots.Add(dependencyRoot);
+        var shapingMarker = Path.Combine(dependencyRoot, "rtk-log-must-not-run");
+        var shapingStub = Path.Combine(dependencyRoot, "rtk-log.ps1");
+        File.WriteAllText(
+            shapingStub,
+            "param($verb, $path)\n" +
+            $"[IO.File]::AppendAllText('{shapingMarker.Replace("'", "''")}', '1')\n" +
+            "'SECOND_RTK_MUST_NOT_RUN'\n");
+        using var fixture = CreateFixture(rtkPathOverride: shapingStub);
+        if (shapingFails)
+        {
+            fixture.Host.OutputShapingFailureForTests = () =>
+                throw new InvalidOperationException("forced RTK cleanup failure");
+        }
+        var executable = OperatingSystem.IsWindows()
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe")
+            : File.Exists("/bin/sh") ? "/bin/sh" : "/usr/bin/sh";
+        var identity = RtkExecutableIdentity.TryCapture(executable);
+        Assert.NotNull(identity);
+        var command = OperatingSystem.IsWindows()
+            ? "for /L %i in (1,1,8) do @echo 2026-07-13 10:00:00 INFO worker: step %i"
+            : "i=1; while [ \"$i\" -le 8 ]; do echo \"2026-07-13 10:00:00 INFO worker: step $i\"; i=$((i + 1)); done";
+        var arguments = OperatingSystem.IsWindows()
+            ? ImmutableArray.Create("/d", "/s", "/c", command)
+            : ImmutableArray.Create("-c", command);
+        var plan = new ExecutionPlan(
+            originalScript: "typed RTK audit polling fixture",
+            executionScript: null,
+            ExecutionDomain.NativeTerminal,
+            ExecutionPath.Rtk,
+            PreExecutionValidation.None,
+            ResolutionContext.Cold,
+            RequestedExecutionRoute.Auto,
+            OutputProvenance.RtkUnknown,
+            [ExecutionPath.PowerShellDirect],
+            fallbackReason: null,
+            identity,
+            workingDirectory: dependencyRoot,
+            rtkArgumentVector: arguments,
+            directFallbackProvenance: OutputProvenance.DirectText);
+        var start = fixture.Jobs.PrepareStart(
+            ExecutionDispatch.FromPlan(plan),
+            dependencyRoot);
+        var job = fixture.Jobs.CommitStart(start);
+        Assert.True(fixture.Jobs.ConfirmStartRecorded(job.Id));
+        await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
+
+        var result = await fixture.Filter(
+            Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "output",
+                token,
+                job.Id,
+                0,
+                fixture.AuditContext)));
+
+        var response = ResultText(result);
+        Assert.Contains("step 8", response, StringComparison.Ordinal);
+        Assert.Contains(
+            "recovery=unavailable: rtk capture unsupported",
+            response,
+            StringComparison.Ordinal);
+        Assert.False(File.Exists(shapingMarker), "generic rtk log ran on already-RTK output");
+        Assert.DoesNotContain("output.shaped", fixture.EventTypes());
+        var outputEvents = fixture.Events();
+        if (shapingFails)
+        {
+            Assert.Contains("[ptk: shaping failed; raw text returned]", response, StringComparison.Ordinal);
+            var failure = outputEvents.Single(value =>
+                value.GetProperty("event_type").GetString() == "output.shaping_failed");
+            AssertSourceRouting(failure);
+        }
+        else
+        {
+            Assert.DoesNotContain("output.shaping_failed", fixture.EventTypes());
+        }
+        var access = outputEvents.Single(value =>
+            value.GetProperty("event_type").GetString() == "job.output_accessed");
+        AssertSourceRouting(access);
+        Assert.Equal(
+            JsonValueKind.Null,
+            access.GetProperty("outcome").GetProperty("detail_code").ValueKind);
+        AssertSourceRouting(outputEvents.Last(value =>
+            value.GetProperty("event_type").GetString() == "call.completed"));
+
+        _ = await fixture.Filter(
+            Call("ptk_job", ("action", "status"), ("id", job.Id)),
+            async token => Text(await JobTool.Job(
+                fixture.Host,
+                fixture.Jobs,
+                "status",
+                token,
+                job.Id,
+                auditContext: fixture.AuditContext)));
+        var status = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "job.status_accessed");
+        AssertSourceRouting(status);
+
+        void AssertSourceRouting(JsonElement auditEvent)
+        {
+            var routing = auditEvent.GetProperty("routing");
+            Assert.Equal("native_terminal", routing.GetProperty("domain").GetString());
+            Assert.Equal("auto", routing.GetProperty("requested_route").GetString());
+            Assert.Equal("rtk", routing.GetProperty("effective_route").GetString());
+            Assert.Equal("rtk_unknown", routing.GetProperty("provenance").GetString());
+            Assert.Equal(
+                identity.AuditBinaryDigest,
+                routing.GetProperty("rtk_binary_digest").GetString());
+        }
     }
 
     [Fact]

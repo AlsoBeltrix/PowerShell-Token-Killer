@@ -18,8 +18,10 @@ internal static class AuditCallFilter
     internal static McpRequestFilter<CallToolRequestParams, CallToolResult> Create(
         TimeSpan defaultTimeout,
         TimeSpan maximumTimeout,
+        AuditOutputRequestProtector outputProtector,
         Func<DateTimeOffset>? utcNow = null)
     {
+        ArgumentNullException.ThrowIfNull(outputProtector);
         var clock = utcNow ?? (() => DateTimeOffset.UtcNow);
         return next => (request, cancellationToken) => InvokeAsync(
             request.Params,
@@ -29,7 +31,8 @@ internal static class AuditCallFilter
             defaultTimeout,
             maximumTimeout,
             clock,
-            cancellationToken);
+            cancellationToken,
+            outputProtector);
     }
 
     /// <summary>
@@ -45,7 +48,8 @@ internal static class AuditCallFilter
         TimeSpan defaultTimeout,
         TimeSpan maximumTimeout,
         Func<DateTimeOffset> utcNow,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AuditOutputRequestProtector? outputProtector = null)
     {
         ArgumentNullException.ThrowIfNull(next);
         ArgumentNullException.ThrowIfNull(utcNow);
@@ -66,7 +70,8 @@ internal static class AuditCallFilter
                     utcNow(),
                     out metadata,
                     out submittedScript,
-                    out captureFailure))
+                    out captureFailure,
+                    outputProtector))
             {
                 return Refusal(captureFailure);
             }

@@ -1054,6 +1054,183 @@ public sealed class AuditPreEffectGuardTests : IDisposable
     }
 
     [Fact]
+    public async Task Output_read_is_durable_before_captured_bytes_are_released()
+    {
+        using var fixture = CreateFixture();
+        var sealedArtifact = SealOutput(fixture.OutputStore, "audited recovery");
+
+        var result = await fixture.Filter(
+            Call(
+                "ptk_output",
+                ("handle", sealedArtifact.Handle!),
+                ("action", "read"),
+                ("offset", 0L),
+                ("maxBytes", 64)),
+            token => ValueTask.FromResult(Text(OutputTool.Output(
+                fixture.OutputStore,
+                sealedArtifact.Handle!,
+                "read",
+                0,
+                64,
+                cancellationToken: token,
+                auditContext: fixture.AuditContext))));
+
+        Assert.Contains("audited recovery", ResultText(result), StringComparison.Ordinal);
+        Assert.Equal(
+            ["call.accepted", "output.read_accessed", "call.completed"],
+            fixture.EventTypes());
+        var access = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.read_accessed");
+        var request = access.GetProperty("request");
+        Assert.Equal(
+            fixture.OutputProtector.HandleDigest(sealedArtifact.Handle!),
+            request.GetProperty("output_handle_digest").GetString());
+        Assert.Equal(JsonValueKind.Null, request.GetProperty("pattern_fingerprint").ValueKind);
+        var outcome = access.GetProperty("outcome");
+        Assert.Equal(sealedArtifact.Bytes, outcome.GetProperty("bytes_returned").GetInt64());
+        Assert.Equal(sealedArtifact.Bytes, outcome.GetProperty("next_offset").GetInt64());
+        var auditText = string.Concat(fixture.Sink.Lines);
+        Assert.DoesNotContain(sealedArtifact.Handle!, auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain("audited recovery", auditText, StringComparison.Ordinal);
+        Assert.DoesNotContain(fixture.OutputStore.RootPathForTests, auditText, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Output_search_audits_only_the_domain_separated_pattern_fingerprint()
+    {
+        using var fixture = CreateFixture();
+        var sealedArtifact = SealOutput(fixture.OutputStore, "alpha needle omega");
+        const string pattern = "needle";
+
+        var result = await fixture.Filter(
+            Call(
+                "ptk_output",
+                ("handle", sealedArtifact.Handle!),
+                ("action", "search"),
+                ("pattern", pattern),
+                ("offset", 0L),
+                ("maxBytes", 64)),
+            token => ValueTask.FromResult(Text(OutputTool.Output(
+                fixture.OutputStore,
+                sealedArtifact.Handle!,
+                "search",
+                0,
+                64,
+                pattern,
+                token,
+                fixture.AuditContext))));
+
+        Assert.Contains("offset=6", ResultText(result), StringComparison.Ordinal);
+        Assert.Equal(
+            ["call.accepted", "output.search_accessed", "call.completed"],
+            fixture.EventTypes());
+        var access = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.search_accessed");
+        Assert.Equal(
+            fixture.OutputProtector.PatternFingerprint(pattern),
+            access.GetProperty("request").GetProperty("pattern_fingerprint").GetString());
+        Assert.Equal(
+            sealedArtifact.Bytes,
+            access.GetProperty("outcome").GetProperty("next_offset").GetInt64());
+        Assert.DoesNotContain(pattern, string.Concat(fixture.Sink.Lines), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Output_status_is_durable_before_availability_is_released()
+    {
+        using var fixture = CreateFixture();
+        var sealedArtifact = SealOutput(fixture.OutputStore, "status snapshot");
+
+        var result = await fixture.Filter(
+            Call("ptk_output", ("handle", sealedArtifact.Handle!), ("action", "status")),
+            token => ValueTask.FromResult(Text(OutputTool.Output(
+                fixture.OutputStore,
+                sealedArtifact.Handle!,
+                "status",
+                cancellationToken: token,
+                auditContext: fixture.AuditContext))));
+
+        Assert.Contains("state=available", ResultText(result), StringComparison.Ordinal);
+        Assert.Equal(
+            ["call.accepted", "output.status_accessed", "call.completed"],
+            fixture.EventTypes());
+        var access = fixture.Events().Single(value =>
+            value.GetProperty("event_type").GetString() == "output.status_accessed");
+        Assert.Equal(
+            fixture.OutputProtector.HandleDigest(sealedArtifact.Handle!),
+            access.GetProperty("request").GetProperty("output_handle_digest").GetString());
+    }
+
+    [Fact]
+    public async Task Output_access_persistence_failure_releases_no_recovery_result()
+    {
+        using var fixture = CreateFixture(
+            journalFault: (point, append) => point == AuditSinkFaultPoint.Flush && append == 2);
+        var sealedArtifact = SealOutput(fixture.OutputStore, "must-not-be-released");
+
+        await Assert.ThrowsAsync<AuditUnavailableException>(async () =>
+            await fixture.Filter(
+                Call("ptk_output", ("handle", sealedArtifact.Handle!)),
+                token => ValueTask.FromResult(Text(OutputTool.Output(
+                    fixture.OutputStore,
+                    sealedArtifact.Handle!,
+                    cancellationToken: token,
+                    auditContext: fixture.AuditContext)))));
+
+        // The failed disclosure consumed no artifact cursor and never removed
+        // the immutable snapshot; a later healthy supervisor call could read it.
+        Assert.Contains(
+            "must-not-be-released",
+            fixture.OutputStore.Read(sealedArtifact.Handle!, 0, 64).Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Output_admission_failure_never_enters_the_handler()
+    {
+        using var fixture = CreateFixture(
+            journalFault: (point, append) => point == AuditSinkFaultPoint.BeforeAppend && append == 1);
+        var sealedArtifact = SealOutput(fixture.OutputStore, "withheld");
+        var handlerCalled = false;
+
+        var result = await fixture.Filter(
+            Call("ptk_output", ("handle", sealedArtifact.Handle!)),
+            _ =>
+            {
+                handlerCalled = true;
+                return ValueTask.FromResult(Text("leaked"));
+            });
+
+        Assert.False(handlerCalled);
+        Assert.True(result.IsError);
+        AssertNoStartRefusal(result);
+    }
+
+    [Fact]
+    public async Task Output_capacity_refusal_cannot_use_the_emergency_state_path()
+    {
+        using var fixture = CreateFixture();
+        Assert.True(fixture.Journal.TryReserve(28, out var pressure, out var reserveFailure), reserveFailure);
+        using (pressure)
+        {
+            var handlerCalled = false;
+            var result = await fixture.Filter(
+                Call("ptk_output", ("handle", "ptko_capacity-test")),
+                _ =>
+                {
+                    handlerCalled = true;
+                    return ValueTask.FromResult(Text("leaked"));
+                });
+
+            Assert.False(handlerCalled);
+            Assert.True(result.IsError);
+            AssertNoStartRefusal(result);
+            Assert.DoesNotContain("audit emergency state", ResultText(result), StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(["audit.degraded"], fixture.EventTypes());
+        }
+    }
+
+    [Fact]
     public async Task Read_only_job_and_state_calls_emit_specific_access_outcomes()
     {
         using var fixture = CreateFixture();
@@ -1321,6 +1498,14 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         var runtime = AuditRuntimeGate.CreateOperationalForTests(
             options, health, journal, evidence);
         var auditContext = new AuditCallContextAccessor();
+        var outputStore = new OutputStore(new OutputStoreOptions(
+            Path.Combine(root, "output"),
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 1024,
+            MaximumSessionBytes: 2048,
+            MaximumAggregateBytes: 4096));
+        var outputProtector = new AuditOutputRequestProtector();
         var provider = new ServiceCollection()
             .AddSingleton(health)
             .AddSingleton(journal)
@@ -1340,7 +1525,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 rtkPathOverride: rtkPathOverride),
             new JobManager(Path.Combine(root, "jobs")),
             new RawUsageCounter(),
-            auditContext);
+            auditContext,
+            outputStore,
+            outputProtector);
     }
 
     private static async Task WaitUntilAsync(Func<bool> predicate)
@@ -1379,6 +1566,21 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
     private static string Literal(string value) => "'" + value.Replace("'", "''") + "'";
 
+    private static OutputSealResult SealOutput(OutputStore store, string text)
+    {
+        Assert.True(store.TryReserve("default", out var reservation, out var failure), failure);
+        using (reservation)
+        {
+            return reservation!.Seal(new OutputArtifactContent(
+                text,
+                [],
+                [],
+                [],
+                null,
+                OutputProvenance.PowerShellObjects));
+        }
+    }
+
     private sealed record GuardFixture(
         string Root,
         InMemoryAuditJournalSink Sink,
@@ -1387,7 +1589,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         RunspaceHost Host,
         JobManager Jobs,
         RawUsageCounter RawUsage,
-        AuditCallContextAccessor AuditContext) : IDisposable
+        AuditCallContextAccessor AuditContext,
+        OutputStore OutputStore,
+        AuditOutputRequestProtector OutputProtector) : IDisposable
     {
         internal async ValueTask<CallToolResult> Filter(
             CallToolRequestParams call,
@@ -1402,7 +1606,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 TimeSpan.FromSeconds(10),
                 TimeSpan.FromSeconds(30),
                 () => DateTimeOffset.UtcNow,
-                CancellationToken.None);
+                CancellationToken.None,
+                OutputProtector);
         }
 
         internal List<string> EventTypes()
@@ -1422,6 +1627,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         public void Dispose()
         {
+            OutputProtector.Dispose();
+            OutputStore.Dispose();
             Jobs.Dispose();
             Host.Dispose();
             Provider.Dispose();

@@ -143,7 +143,7 @@ try {
     Send-Rpc @{ jsonrpc = '2.0'; id = 2; method = 'tools/list' }
     $tools = Read-RpcResponse -Id 2
     $names = @($tools.result.tools.name)
-    foreach ($required in @('ptk_invoke', 'ptk_job', 'ptk_state', 'ptk_reset')) {
+    foreach ($required in @('ptk_invoke', 'ptk_job', 'ptk_state', 'ptk_reset', 'ptk_output')) {
         if ($names -notcontains $required) {
             throw "$required missing from tools/list; got: $($names -join ', ')"
         }
@@ -152,6 +152,36 @@ try {
         if (@($tool.inputSchema.properties.PSObject.Properties.Name) -contains 'auditContext') {
             throw "host-only auditContext leaked into the $($tool.name) MCP input schema"
         }
+    }
+    $outputTool = @($tools.result.tools | Where-Object name -EQ 'ptk_output')
+    if ($outputTool.Count -ne 1) {
+        throw "tools/list returned $($outputTool.Count) ptk_output definitions"
+    }
+    $outputSchema = $outputTool[0].inputSchema
+    if (@($outputSchema.required) -notcontains 'handle') {
+        throw 'ptk_output input schema does not require handle'
+    }
+    $outputFields = @($outputSchema.properties.PSObject.Properties.Name | Sort-Object)
+    if (($outputFields -join ',') -ne 'action,handle,maxBytes,offset,pattern') {
+        throw "ptk_output input fields drifted: $($outputFields -join ', ')"
+    }
+    $actions = @($outputSchema.properties.action.enum)
+    if (($actions -join ',') -ne 'read,search,status') {
+        throw "ptk_output action enum drifted: $($actions -join ', ')"
+    }
+    if ($outputSchema.properties.offset.minimum -ne 0) {
+        throw "ptk_output offset minimum drifted: $($outputSchema.properties.offset.minimum)"
+    }
+    if ($outputSchema.properties.maxBytes.minimum -ne 1 -or
+        $outputSchema.properties.maxBytes.maximum -ne 65536) {
+        throw 'ptk_output maxBytes bounds drifted'
+    }
+    if ($outputSchema.properties.action.default -ne 'read' -or
+        $outputSchema.properties.offset.default -ne 0 -or
+        $outputSchema.properties.maxBytes.default -ne 16384 -or
+        -not $outputSchema.properties.pattern.PSObject.Properties['default'] -or
+        $null -ne $outputSchema.properties.pattern.default) {
+        throw 'ptk_output defaults drifted'
     }
     Write-Host "tools/list ok: $($names -join ', ')"
 

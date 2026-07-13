@@ -46,6 +46,8 @@ internal static class AuditCallMetadataCapture
         new(["script", "raw", "route", "background", "timeoutSeconds"], StringComparer.Ordinal);
     private static readonly HashSet<string> JobFields =
         new(["action", "id", "offset"], StringComparer.Ordinal);
+    private static readonly HashSet<string> OutputFields =
+        new(["handle", "action", "offset", "maxBytes", "pattern"], StringComparer.Ordinal);
     private static readonly HashSet<string> StateFields =
         new(["listAvailable"], StringComparer.Ordinal);
     private static readonly HashSet<string> NoFields = new(StringComparer.Ordinal);
@@ -58,7 +60,8 @@ internal static class AuditCallMetadataCapture
         DateTimeOffset utcNow,
         out AuditCallMetadata? metadata,
         out string? exactSubmittedScript,
-        out string? sanitizedFailure)
+        out string? sanitizedFailure,
+        AuditOutputRequestProtector? outputProtector = null)
     {
         metadata = null;
         exactSubmittedScript = null;
@@ -105,6 +108,15 @@ internal static class AuditCallMetadataCapture
 
             case "ptk_job":
                 return TryCaptureJob(arguments, providedFields, actor, out metadata, out sanitizedFailure);
+
+            case "ptk_output":
+                return TryCaptureOutput(
+                    arguments,
+                    providedFields,
+                    actor,
+                    outputProtector,
+                    out metadata,
+                    out sanitizedFailure);
 
             case "ptk_state":
                 return TryCaptureState(arguments, providedFields, actor, out metadata, out sanitizedFailure);
@@ -292,6 +304,132 @@ internal static class AuditCallMetadataCapture
             actor,
             BaseRequest("ptk_state", "state", providedFields) with { ListAvailable = listAvailable },
             new AuditOperationProfile(5, 0, RequiresScriptEvidence: false, MayHaveSideEffects: true));
+        return true;
+    }
+
+    private static bool TryCaptureOutput(
+        IDictionary<string, JsonElement> arguments,
+        string[] providedFields,
+        AuditActor actor,
+        AuditOutputRequestProtector? protector,
+        out AuditCallMetadata? metadata,
+        out string? failure)
+    {
+        metadata = null;
+        failure = null;
+        if (protector is null)
+            return Fail("audit_boundary_invalid: output request protection is unavailable", out failure);
+        if (!TryRejectUnknownFields(arguments, OutputFields, "ptk_output", out failure) ||
+            !TryRequiredString(arguments, "handle", out var handle, out failure) ||
+            !TryStrictUtf8Length(handle, 256))
+        {
+            return failure is not null
+                ? false
+                : Fail("audit_boundary_invalid: ptk_output.arguments.handle is not representable", out failure);
+        }
+
+        var action = "read";
+        if (arguments.TryGetValue("action", out var actionElement))
+        {
+            if (actionElement.ValueKind == JsonValueKind.String)
+                action = actionElement.GetString()!.ToLowerInvariant();
+            else if (actionElement.ValueKind != JsonValueKind.Null)
+                return Fail("audit_boundary_invalid: ptk_output.arguments.action has the wrong JSON kind", out failure);
+        }
+        if (action is not ("read" or "search" or "status"))
+            return Fail("audit_boundary_invalid: ptk_output.arguments.action is unsupported", out failure);
+
+        long offset = 0;
+        if (arguments.TryGetValue("offset", out var offsetElement))
+        {
+            if (offsetElement.ValueKind != JsonValueKind.Number ||
+                !offsetElement.TryGetInt64(out offset) ||
+                offset < 0)
+            {
+                return Fail("audit_boundary_invalid: ptk_output.arguments.offset must be a nonnegative int64", out failure);
+            }
+        }
+
+        var maximumBytes = OutputStore.DefaultReadBytes;
+        if (arguments.TryGetValue("maxBytes", out var maximumElement))
+        {
+            if (maximumElement.ValueKind != JsonValueKind.Number ||
+                !maximumElement.TryGetInt32(out maximumBytes) ||
+                maximumBytes is < 1 or > OutputStore.MaximumReadBytes)
+            {
+                return Fail(
+                    $"audit_boundary_invalid: ptk_output.arguments.maxBytes must be 1..{OutputStore.MaximumReadBytes}",
+                    out failure);
+            }
+        }
+
+        string? pattern = null;
+        if (arguments.TryGetValue("pattern", out var patternElement))
+        {
+            if (patternElement.ValueKind == JsonValueKind.String)
+                pattern = patternElement.GetString();
+            else if (patternElement.ValueKind != JsonValueKind.Null)
+                return Fail("audit_boundary_invalid: ptk_output.arguments.pattern has the wrong JSON kind", out failure);
+        }
+
+        if (action == "status")
+        {
+            if (arguments.ContainsKey("offset") ||
+                arguments.ContainsKey("maxBytes") ||
+                arguments.ContainsKey("pattern"))
+            {
+                return Fail("audit_boundary_invalid: ptk_output status contains an inapplicable argument", out failure);
+            }
+        }
+        else if (action == "read")
+        {
+            if (arguments.ContainsKey("pattern"))
+                return Fail("audit_boundary_invalid: ptk_output read contains an inapplicable argument", out failure);
+        }
+        else
+        {
+            if (pattern is null || pattern.Length == 0 ||
+                !TryStrictUtf8Length(pattern, OutputStore.MaximumPatternBytes))
+            {
+                return Fail("audit_boundary_invalid: ptk_output search requires a bounded pattern", out failure);
+            }
+            if (StrictUtf8.GetByteCount(pattern) > maximumBytes)
+            {
+                return Fail(
+                    "audit_boundary_invalid: ptk_output search maxBytes cannot contain its pattern",
+                    out failure);
+            }
+        }
+
+        string handleDigest;
+        string? patternFingerprint;
+        try
+        {
+            handleDigest = protector.HandleDigest(handle);
+            patternFingerprint = pattern is null
+                ? null
+                : protector.PatternFingerprint(pattern);
+        }
+        catch (Exception exception) when (exception is EncoderFallbackException or ObjectDisposedException)
+        {
+            return Fail("audit_boundary_invalid: ptk_output sensitive fields are not representable", out failure);
+        }
+
+        var request = BaseRequest("ptk_output", action, providedFields) with
+        {
+            Offset = action == "status" ? null : offset,
+            MaxBytes = action == "status" ? null : maximumBytes,
+            PatternFingerprint = patternFingerprint,
+            OutputHandleDigest = handleDigest,
+        };
+        metadata = new AuditCallMetadata(
+            actor,
+            request,
+            new AuditOperationProfile(
+                MaximumCallRecordSlots: 3,
+                PersistentJobTerminalSlots: 0,
+                RequiresScriptEvidence: false,
+                MayHaveSideEffects: false));
         return true;
     }
 

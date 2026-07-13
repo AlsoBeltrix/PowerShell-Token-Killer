@@ -31,6 +31,7 @@ var jobPwshExecutable = JobPwshExecutable.ResolveFromPath();
 // explicit anchored intent: its complete protected configuration must validate
 // before the host exists, and there is no endpoint or credential fallback.
 using var auditStartup = AuditStartupConfiguration.LoadFromEnvironment();
+using var outputRequestProtector = new AuditOutputRequestProtector();
 var auditOptions = auditStartup.AuditOptions;
 var producerVersion = typeof(RunspaceHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
 using var auditExporter = auditStartup.ExportOptions is null
@@ -67,6 +68,9 @@ builder.Services.AddSingleton(sp =>
     sp.GetRequiredService<AuditRuntimeGate>().RunRunspaceHostAfterStarted(
         () => new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout)));
 builder.Services.AddSingleton(new RawUsageCounter());
+// Harness-lifetime recovery belongs to the supervisor service provider, not
+// a request scope or the replaceable runspace host.
+builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
 // Factory registration so the container disposes it on graceful shutdown,
 // killing running jobs. A hard-killed server can leave jobs orphaned - the
 // trade-off of process-based jobs, documented in server/README.md.
@@ -88,7 +92,10 @@ builder.Services
     .AddMcpServer(options => options.ScopeRequests = true)
     .WithStreamServerTransport(mcpIn, mcpOut)
     .WithRequestFilters(filters =>
-        filters.AddCallToolFilter(AuditCallFilter.Create(callTimeout, maxCallTimeout)))
+        filters.AddCallToolFilter(AuditCallFilter.Create(
+            callTimeout,
+            maxCallTimeout,
+            outputRequestProtector)))
     .WithToolsFromAssembly();
 
 await builder.Build().RunAsync();

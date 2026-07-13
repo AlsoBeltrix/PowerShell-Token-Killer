@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
@@ -142,6 +144,110 @@ public sealed class AuditCallMetadataTests
     }
 
     [Fact]
+    public void Output_capture_validates_shape_and_records_only_protected_fields()
+    {
+        var key = Enumerable.Range(0, 32).Select(value => (byte)value).ToArray();
+        using var protector = new AuditOutputRequestProtector(key);
+        const string handle = "ptko_super-secret-capability";
+        const string pattern = "token=secret";
+        var call = Call(
+            "ptk_output",
+            ("pattern", pattern),
+            ("handle", handle),
+            ("maxBytes", 512),
+            ("action", "SEARCH"),
+            ("offset", 7L));
+
+        Assert.True(Capture(
+            call,
+            new(),
+            out var metadata,
+            out var script,
+            out var failure,
+            protector));
+
+        Assert.Null(script);
+        Assert.Null(failure);
+        Assert.Equal("ptk_output", metadata!.Request.Tool);
+        Assert.Equal("search", metadata.Request.Action);
+        Assert.Equal(7, metadata.Request.Offset);
+        Assert.Equal(512, metadata.Request.MaxBytes);
+        Assert.Equal(["action", "handle", "maxBytes", "offset", "pattern"], metadata.Request.ProvidedFields);
+        Assert.Equal(
+            Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(handle))).ToLowerInvariant(),
+            metadata.Request.OutputHandleDigest);
+        var hmacInput = Encoding.UTF8.GetBytes("ptk.output-pattern/1\0" + pattern);
+        Assert.Equal(
+            Convert.ToHexString(HMACSHA256.HashData(key, hmacInput)).ToLowerInvariant(),
+            metadata.Request.PatternFingerprint);
+        Assert.Equal(3, metadata.OperationProfile.MaximumCallRecordSlots);
+        Assert.False(metadata.OperationProfile.MayHaveSideEffects);
+        Assert.False(metadata.OperationProfile.RequiresScriptEvidence);
+        Assert.DoesNotContain(handle, metadata.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(pattern, metadata.ToString(), StringComparison.Ordinal);
+
+        Assert.True(Capture(
+            Call("ptk_output", ("handle", handle)),
+            new(),
+            out var read,
+            out _,
+            out _,
+            protector));
+        Assert.Equal("read", read!.Request.Action);
+        Assert.Equal(0, read.Request.Offset);
+        Assert.Equal(OutputStore.DefaultReadBytes, read.Request.MaxBytes);
+        Assert.Null(read.Request.PatternFingerprint);
+    }
+
+    [Fact]
+    public void Output_capture_rejects_inapplicable_or_unbounded_fields_without_echoing_them()
+    {
+        using var protector = new AuditOutputRequestProtector(new byte[32]);
+        AssertOutputRejected(Call("ptk_output"), "handle is missing", protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "secret-handle"), ("action", "future")),
+            "action is unsupported",
+            protector,
+            "secret-handle");
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("offset", -1L)),
+            "nonnegative int64",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("maxBytes", OutputStore.MaximumReadBytes + 1)),
+            "maxBytes",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("action", "search")),
+            "requires a bounded pattern",
+            protector);
+        AssertOutputRejected(
+            Call(
+                "ptk_output",
+                ("handle", "h"),
+                ("action", "search"),
+                ("maxBytes", 3),
+                ("pattern", "needle")),
+            "maxBytes cannot contain its pattern",
+            protector,
+            "needle");
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("pattern", "secret-pattern")),
+            "inapplicable argument",
+            protector,
+            "secret-pattern");
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("action", "status"), ("offset", 0L)),
+            "inapplicable argument",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("script", "Remove-Item secret")),
+            "unknown argument field",
+            protector,
+            "Remove-Item secret");
+    }
+
+    [Fact]
     public void Unknown_tools_fields_and_actions_fail_closed_without_partial_metadata()
     {
         AssertRejected(Call("ptk_future"), "unknown tool");
@@ -255,7 +361,8 @@ public sealed class AuditCallMetadataTests
         AuditClientContext client,
         out AuditCallMetadata? metadata,
         out string? script,
-        out string? failure) =>
+        out string? failure,
+        AuditOutputRequestProtector? outputProtector = null) =>
         AuditCallMetadataCapture.TryCapture(
             call,
             client,
@@ -264,7 +371,28 @@ public sealed class AuditCallMetadataTests
             Now,
             out metadata,
             out script,
-            out failure);
+            out failure,
+            outputProtector);
+
+    private static void AssertOutputRejected(
+        CallToolRequestParams call,
+        string expectedFailure,
+        AuditOutputRequestProtector protector,
+        string? forbiddenValue = null)
+    {
+        Assert.False(Capture(
+            call,
+            new(),
+            out var metadata,
+            out var script,
+            out var failure,
+            protector));
+        Assert.Null(metadata);
+        Assert.Null(script);
+        Assert.Contains(expectedFailure, failure);
+        if (forbiddenValue is not null)
+            Assert.DoesNotContain(forbiddenValue, failure, StringComparison.Ordinal);
+    }
 
     private static void AssertRejected(
         CallToolRequestParams call,

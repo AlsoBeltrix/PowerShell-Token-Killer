@@ -10,7 +10,7 @@ public static class FixtureMarker
 
 internal static class Program
 {
-    private static int Main(string[] args)
+    private static async Task<int> Main(string[] args)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -41,13 +41,23 @@ internal static class Program
             Arguments = "/d /s /c " + BuildCommand(sidecar, args),
             UseShellExecute = false,
             CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
         };
 
         try
         {
             using var process = Process.Start(startInfo);
             if (process is null) return 126;
-            process.WaitForExit();
+
+            await using var outerStdout = Console.OpenStandardOutput();
+            await using var outerStderr = Console.OpenStandardError();
+            var stdoutForward = process.StandardOutput.BaseStream.CopyToAsync(outerStdout);
+            var stderrForward = process.StandardError.BaseStream.CopyToAsync(outerStderr);
+
+            await process.WaitForExitAsync();
+            await Task.WhenAll(stdoutForward, stderrForward);
+            await Task.WhenAll(outerStdout.FlushAsync(), outerStderr.FlushAsync());
             return process.ExitCode;
         }
         catch (Exception exception) when (exception is not (

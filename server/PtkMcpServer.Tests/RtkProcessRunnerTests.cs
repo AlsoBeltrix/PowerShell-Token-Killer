@@ -37,7 +37,7 @@ public sealed class RtkProcessRunnerTests
             ? new[]
             {
                 "/d", "/s", "/c",
-                "echo DIRECT_STDOUT & echo DIRECT_STDERR 1>&2 & exit /b 7",
+                "echo DIRECT_STDOUT&echo DIRECT_STDERR>&2&exit /b 7",
             }
             : new[]
             {
@@ -76,7 +76,7 @@ public sealed class RtkProcessRunnerTests
                 ? new[]
                 {
                     "/d", "/s", "/c",
-                    $"echo x>>\"{marker}\" & ping -n 30 127.0.0.1 >nul",
+                    "echo x>>starts.txt&ping -n 30 127.0.0.1>nul",
                 }
                 : new[]
                 {
@@ -86,10 +86,13 @@ public sealed class RtkProcessRunnerTests
                     marker,
                 };
             var dispatch = Dispatch(identity, dir.FullName, [.. arguments]);
+            var executionBudget = OperatingSystem.IsWindows()
+                ? TimeSpan.FromSeconds(5)
+                : TimeSpan.FromMilliseconds(500);
 
             var result = await RtkProcessRunner.ExecuteAsync(
                 dispatch,
-                DateTimeOffset.UtcNow.AddMilliseconds(500),
+                DateTimeOffset.UtcNow.Add(executionBudget),
                 CancellationToken.None);
 
             Assert.False(result.Success);

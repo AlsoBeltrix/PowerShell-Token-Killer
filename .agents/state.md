@@ -5,6 +5,14 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Audited-harness Slice 4 is in progress; reviewed sub-slice 4a is
+  complete.** Commit `bee983d` adds the supervisor-owned output artifact
+  store, bounded protected retention, opaque handles, stable UTF-8
+  read/search/status, explicit incomplete/expired/evicted states, and
+  fail-closed audited `ptk_output` disclosure. The full local battery passed;
+  Claude accepted exact head `bee983d` against base `9c89abf` with
+  `guard_confirmed=true`. Canonical review evidence is in
+  `.agents/review/index.md`. No push was performed or authorized.
 - **Audited-harness Slice 3 is complete locally.** Final
   integrated code head `b78d9c6` completes structured foreground routing,
   audited RTK/Bash dispatch, bounded preference-independent RTK capture,
@@ -59,11 +67,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Begin audited-harness Slice 4 — same-invocation output recovery and raw
-   retirement — under `.agents/plans/audited-harness-sessions.md`.
+1. Continue audited-harness Slice 4 with the next independently reviewed
+   sub-slice: two-stage foreground capture and shaping from the same
+   invocation, under `.agents/plans/audited-harness-sessions.md`.
 2. Do not infer approval as a push go; push remains separately ask-first.
 3. Execute release-distribution slice 3 under its approved plan. Re-present
-   the hook-default choice before slice 4.
+   the hook-default choice before release-distribution slice 4.
 4. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
@@ -106,9 +115,10 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- Audited-session slices 0-3 are complete locally. Slice 3's exact fixed-head
-  Claude acceptance, cross-platform verification, and local landing record
-  live in `.agents/review/index.md` and `.agents/machines.md`.
+- Audited-session slices 0-3 are complete locally; Slice 4a is complete on its
+  implementation branch. Exact fixed-head Claude acceptance and verification
+  records live in `.agents/review/index.md`; prior cross-platform evidence
+  lives in `.agents/machines.md`.
 
 ## Active Sources
 

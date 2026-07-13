@@ -1557,3 +1557,30 @@ fixed-head verdict. `master` and `feat/audited-harness-slice3` had identical
 content and identical tips after the fast-forward; content arrival was
 verified separately from ancestry before the feature branch was deleted. No
 push was performed or authorized.
+
+---
+
+**SLICE 4A OUTPUT-STORE CLAUDE REVIEW — ACCEPTED** (Claude Code 2.1.207,
+model `claude-opus-4-8`, isolated disposable worktree), reviewed head
+`bee983d76d89090755f9a7b70a7a47a48275c924` against base
+`9c89abf1d7c45435dd48b56b1fde1fec3b87c9fa`, `guard_confirmed=true`,
+2026-07-13T14:04:57Z. The one-shot JSON envelope exited zero; its result and
+structured payload matched exactly, and both fixed SHAs matched the dispatch.
+Claude found no material defect in the supervisor-owned output store,
+protected quota/retention behavior, audited retrieval ordering/secrecy, or
+the bounded five-field `ptk_output` schema.
+
+Claude independently proved four guards red then green: retained artifact
+identity under path substitution, mandatory durable `output.read_accessed`
+before content release, UTF-8 scalar-safe artifact capping, and the audited
+`maxBytes` bound. Exact restoration passed 1,048/1,048 .NET tests, 139 Pester
+tests with two platform skips, and the stdio handshake. The detached review
+worktree was clean at the reviewed SHA and removed.
+
+One explicitly non-blocking reviewer observation remains: a read offset past
+the artifact end uses detail `offset_not_utf8_boundary`, while search uses the
+more precise `offset_past_end`. The machine state remains correctly
+`invalid_offset`; no audit, quota, disclosure, or consumer behavior is
+affected, so the reviewer did not reopen the sub-slice and no material
+finding was admitted. Acceptance authorizes the next approved Slice 4
+sub-slice, not push or history rewriting.

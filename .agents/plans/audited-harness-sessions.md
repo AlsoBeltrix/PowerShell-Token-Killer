@@ -1,14 +1,13 @@
 # Plan: mandatory audit, harness-scoped sessions, and internal RTK routing
 
 **Status:** IMPLEMENTING — owner-approved 2026-07-11 after Claude and Grok
-reviewloop convergence. Slices 0-2 are complete on local `master`. Slice 3
-final integrated head `b78d9c6` implements immutable foreground planning,
-separate durable plan/dispatch barriers, strict RTK/Bash routing with bounded
-preference-independent capture, exact-original pre-start fallback, and
-post-success mixed-domain guidance. The final code tree passed macOS and
-Windows validation, and Claude accepted the fixed-SHA integrated review with
-`guard_confirmed=true` on 2026-07-13. Slice 3 is complete on local `master`;
-Slice 4 is next. No push was performed or authorized.
+reviewloop convergence. Slices 0-3 are complete on local `master`. Slice 4a
+head `bee983d` adds the supervisor output store, bounded protected retention,
+the `ptk_output` read/search/status surface, and fail-closed audited retrieval.
+The full local battery passed and Claude accepted the exact fixed head against
+base `9c89abf` with `guard_confirmed=true` on 2026-07-13. Slice 4 remains in
+progress; two-stage foreground capture/shaping is next. No push was performed
+or authorized.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

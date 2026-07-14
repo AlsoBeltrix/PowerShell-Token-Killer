@@ -5,7 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slices 7a-7d are complete locally at code head `bbc2a0e`.**
+- **Audited-harness Slices 7a-7d and the first Windows wiring prerequisite are
+  complete locally at code head `d1cca1b`.**
   The strict bounded v1 worker protocol freezes all nine wire kinds, enforces
   strict UTF-8 NDJSON with duplicate/unknown/version rejection, caps encoded
   frames at 1 MiB and JSON depth at 32, preserves fragmented and coalesced
@@ -28,10 +29,13 @@ short and update it when important repo facts change.
   direct runnable/pre-resume/tree-death Windows fixtures. Claude accepted exact
   range `3348167..bbc2a0e` with `guard_confirmed=true` after seven mutations
   and the full battery; the exact tree also passed direct `NETWATCH-01`
-  validation. Canonical evidence is in `.agents/review/index.md` and
-  `.agents/machines.md`. Before wiring, replace the borrowed cancellable
-  process wait with an owning duplicated handle and ensure the supervisor has
-  no concurrent generic inheriting spawn outside the same creation discipline.
+  validation. Code head `d1cca1b` closes cancellable-wait ownership using a
+  per-wait noninheritable duplicated process handle, with guards covering both
+  the owning constructor and active async call path. The preliminary `5ea7d60`
+  review was reopened after independent preflight found its active-path guard
+  vacuous; only the corrected fixed-SHA acceptance is final. Canonical review
+  and Windows evidence is in `.agents/review/index.md` and
+  `.agents/machines.md`.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
@@ -147,13 +151,15 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue Slice 7 on its feature branch with Windows worker entry/wiring
-   under `.agents/plans/audited-harness-sessions.md`. First close the two
-   recorded wiring prerequisites: use an owning duplicated process handle for
-   cancellable waits, and eliminate or coordinate every generic supervisor-side
-   inheriting spawn while worker child handles are inheritable. Keep the Unix
-   broker behind its separately recorded contract blockers. Each sub-slice
-   requires fixed-SHA review acceptance before the next begins.
+1. Continue Slice 7 on its feature branch. First freeze the missing managed
+   worker-entry/dispatch contracts in an approved plan amendment. Then add the
+   bounded `--worker` private-handle entry and lifecycle smoke without routing
+   default tools. Before real wiring coverage, isolate Windows containment
+   tests from parallel process-spawning tests. Default-session wiring must be a
+   hard role cutover with supervisor-owned audit/output, worker-owned runtime/
+   process creation, and no in-process fallback. Keep the Unix broker behind
+   its separately recorded contract blockers. Each sub-slice still requires
+   fixed-SHA acceptance before the next begins.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected
@@ -177,6 +183,24 @@ short and update it when important repo facts change.
 
 ## Blockers
 
+- **Managed worker-entry/dispatch contract is incomplete.** At `d1cca1b`,
+  `Program.cs` has no `--worker` branch and still constructs the supervisor-
+  side `SessionRuntime`; `WorkerServer` accepts only initialize/shutdown after
+  ready. Before affected code, freeze worker-exit-to-process-exit mapping,
+  private bootstrap handle/environment identifiers and cleanup, diagnostic
+  stream ownership/termination, and exact operation DTO/dispatch/cancel/
+  response contracts. Preserve supervisor-only audit/output capability.
+- **Windows wiring requires a hard supervisor/worker role cutover.**
+  `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still
+  permit supervisor-side runtime or generic process creation. Those paths
+  cannot race the Windows launcher's temporarily inheritable selected handles.
+  The wired supervisor must not retain an in-process user-runtime or generic-
+  spawn fallback.
+- **Live wired Windows tests need process-spawn isolation.**
+  `WindowsContainmentIntegrationTests` can currently overlap other xUnit
+  fixtures that call `Process.Start`. Use a dedicated nonparallel process/
+  project or an assembly-level parallelism rule before exercising the wired
+  launcher.
 - **Unix containment contract is incomplete; Windows work is not blocked:**
   the canonical audited-harness plan fixes `START_FAILED` as a stage byte plus
   errno but does not enumerate stage values, and it requires bounded broker

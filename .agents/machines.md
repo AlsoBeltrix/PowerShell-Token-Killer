@@ -362,6 +362,24 @@ existing checkout changed._
   archive, disposable directory, and matching process were removed. No
   persistent host configuration changed.
 
+#### Owning-wait prerequisite follow-up — 2026-07-14
+
+_Verified for exact code tree `d1cca1b5fc69be61c7102843ab3ceb645cd362eb`
+in a disposable GUID-named directory under `F:\dev`; no installed payload or
+existing checkout changed._
+
+- The 274-file exact-head archive matched SHA-256
+  `7D60831481B56D72D5640D6C01F5EB548AB7ABE9EB98490628A6632179AD434A`
+  before expansion.
+- The focused Windows launcher/containment set passed 29/29, the complete .NET
+  suite passed 1,309/1,309, Pester passed 142 tests with one expected platform
+  skip, and the stdio handshake passed with a zero-warning, zero-error build.
+- The live case canceled its sole outstanding native wait while the independent
+  process witness remained alive, disposed the contained owner before awaiting
+  the canceled task, then observed cancellation and worker exit.
+- The final residue check found zero matching processes. The remote checkout
+  and archive plus the local transfer archive were removed.
+
 ## Disposable Ubuntu 26.04 ARM64 validation
 
 _Focused verification 2026-07-11 for the Slice 1 secure-storage implementation

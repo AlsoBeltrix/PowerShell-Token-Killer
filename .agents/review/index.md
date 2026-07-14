@@ -2236,3 +2236,52 @@ worktree. Two denied redundant reviewer status probes contributed no evidence;
 the orchestrator repeated those checks directly. This acceptance authorizes the
 next approved Slice 7 sub-slice; it does not authorize push, history rewriting,
 or landing.
+
+---
+
+**AUDITED-HARNESS SLICE 7 WINDOWS WAIT-OWNERSHIP PREREQUISITE — ACCEPTED.**
+Claude Code 2.1.209 (model `claude-opus-4-8[1m]`, isolated disposable
+worktree) reviewed exact committed range
+`4578e6f6b29e89751a2940a6a94b98b7f8fe73a0..d1cca1b5fc69be61c7102843ab3ceb645cd362eb`
+and returned the required structured `accepted` verdict with
+`guard_confirmed=true` at 2026-07-14T18:25:25Z. The range replaces borrowed
+cancellable process waits with per-wait, noninheritable `DuplicateHandle`
+copies owned through `SafeWaitHandle`, with immediate Win32 error capture and
+explicit ownership transfer. It adds no worker entry, launcher wiring, tool
+routing, or Unix containment.
+
+A preliminary structured review ending at
+`5ea7d602a9809ab1a38f2b15ba3cfc2a87036147` also returned formal `accepted`
+with `guard_confirmed=true`, but that verdict was immediately reopened and is
+explicitly superseded rather than treated as final acceptance. Independent
+preflight showed the guard could pass with an unused owning helper while the
+active async path still borrowed the canonical handle; its two-wait live
+fixture could also mask the race because the other waiter retained the
+canonical handle. Corrective commit `d1cca1b` pins the compiled
+`WaitForExitAsync` state machine's direct construction of
+`OwnedProcessWaitHandle`, globally rejects the borrowed helper, and changes the
+live Windows sequence to cancel the sole wait, dispose the contained owner
+before awaiting cancellation, then observe cancellation and process death
+through an independent witness.
+
+The final reviewer independently repeated both guard mutations. Replacing the
+owning constructor with the old raw borrowed handle failed the compiled direct-
+call assertion; separately leaving the owning helper intact while switching
+only the active wait path to a borrowed helper failed the async-state-machine
+construction assertion with expected one and actual zero. Exact restoration
+passed the named guard after each mutation, then passed 1,309/1,309 .NET tests,
+141 Pester tests with two expected platform skips, the full stdio handshake,
+scoped formatting, both diff checks, and exact-head cleanliness. The reviewer
+confirmed that the sole-wait order removes the former second-wait masking
+condition while correctly noting that scheduling still makes the live race a
+complementary rather than deterministic ownership proof. Direct Windows
+execution and cleanup evidence is canonical in `.agents/machines.md`.
+
+Four observations were nonblocking: the source assertion for
+`desiredAccess: 0` is looser than its wording, though `DUPLICATE_SAME_ACCESS`
+makes that mask ignored; the audited class-body slice relies on textual
+adjacency; the live test is intentionally a no-op on non-Windows review hosts;
+and duplication failure now surfaces `Win32Exception` rather than the launch-
+stage exception type. None is a material defect in this prerequisite. This
+acceptance closes only owning wait handles; it does not authorize default-
+session wiring, push, history rewriting, or landing.

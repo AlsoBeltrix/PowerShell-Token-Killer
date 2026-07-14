@@ -53,8 +53,16 @@ phases, strict identity and correlation, one absolute startup deadline,
 explicit host-cancellation races, and exactly-once owned-lifetime cleanup.
 Claude accepted exact range `cfaee5f..56734e3` with
 `guard_confirmed=true` after seven independent mutation proofs and the full
-battery on 2026-07-14. Slice 7 continues with production worker launch and
-creation-time containment.
+battery on 2026-07-14. Slice 7d code head `bbc2a0e` adds the deliberately
+unwired Windows creation-time containment primitive; Claude accepted exact
+range `3348167..bbc2a0e` with `guard_confirmed=true`, and direct Windows
+validation passed. Wait-ownership prerequisite head `d1cca1b` replaces the
+borrowed cancellable wait with an owning duplicated process handle; Claude
+accepted exact range `4578e6f..d1cca1b` with `guard_confirmed=true` after the
+corrected two-mutation proof. On 2026-07-14 the owner approved the staged Slice
+7e boundary below: add a Windows-only lifecycle worker entry while leaving
+default MCP routing unchanged. Exact bootstrap ownership and process-exit
+contracts remain to be frozen before Slice 7e code begins.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -1571,6 +1579,33 @@ inventing a code sabotage.
 - Move the authoritative audit writer to the supervisor and use pre-effect
   dispatch before worker commit.
 - Preserve the existing MCP handshake/tool names and default outputs.
+
+#### Slice 7e staging boundary — owner-approved 2026-07-14
+
+- Land the managed worker entry as a separate fixed-SHA-reviewed sub-slice
+  before operation dispatch or default-session cutover. Recognize exact
+  `--worker` mode before host, audit, output-store, MCP, or supervisor-runtime
+  construction; extra worker arguments fail closed.
+- This sub-slice is Windows-only. It opens the two existing private protocol
+  handles named by `PTK_WORKER_REQUEST_HANDLE` and
+  `PTK_WORKER_EVENT_HANDLE`, removes those bootstrap identifiers from the
+  worker environment, and makes both protocol handles noninheritable before
+  constructing `WorkerServer` or any session runtime. Standard input remains
+  launcher-provided NUL; standard output and error remain diagnostics and are
+  never protocol.
+- Exercise only lifecycle hello, initialize, ready, shutdown/EOF, cleanup, and
+  process-exit behavior in a real subprocess. Construct `SessionRuntime` only
+  from the validated initialize factory. Do not add operation DTOs or route an
+  MCP tool through this worker in Slice 7e.
+- Normal supervisor mode retains the current in-process default
+  `ISessionOperations` registration during this sub-slice. The later cutover
+  replaces it atomically with the supervisor proxy only after dispatch,
+  cancellation, audit, output, diagnostics, and compatibility guards exist;
+  no in-process fallback remains after that cutover.
+- Before implementation, freeze the still-open exact handle parsing,
+  validation, ownership/cleanup order, managed process-exit mapping, and
+  bounded abnormal diagnostic contract. These are part of Slice 7e's plan
+  amendment, not implementation-time choices.
 
 ### Slice 8 — named harness-scoped sessions
 

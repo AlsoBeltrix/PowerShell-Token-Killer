@@ -151,15 +151,17 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue Slice 7 on its feature branch. First freeze the missing managed
-   worker-entry/dispatch contracts in an approved plan amendment. Then add the
-   bounded `--worker` private-handle entry and lifecycle smoke without routing
-   default tools. Before real wiring coverage, isolate Windows containment
-   tests from parallel process-spawning tests. Default-session wiring must be a
-   hard role cutover with supervisor-owned audit/output, worker-owned runtime/
-   process creation, and no in-process fallback. Keep the Unix broker behind
-   its separately recorded contract blockers. Each sub-slice still requires
-   fixed-SHA acceptance before the next begins.
+1. Continue Slice 7 on its feature branch. The owner approved a separate
+   Windows-only `--worker` lifecycle-entry sub-slice on 2026-07-14, with the
+   existing default MCP tools left in-process until the later atomic cutover.
+   Next freeze its exact bootstrap ownership, process-exit, and abnormal-
+   diagnostic contracts in the plan amendment, then implement it without
+   operation DTOs or default routing. Before real wiring coverage, isolate
+   Windows containment tests from parallel process-spawning tests. The final
+   default-session cutover must keep supervisor-owned audit/output, worker-
+   owned runtime/process creation, and no in-process fallback. Keep the Unix
+   broker behind its separately recorded contract blockers. Each sub-slice
+   still requires fixed-SHA acceptance before the next begins.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected
@@ -183,13 +185,15 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- **Managed worker-entry/dispatch contract is incomplete.** At `d1cca1b`,
-  `Program.cs` has no `--worker` branch and still constructs the supervisor-
-  side `SessionRuntime`; `WorkerServer` accepts only initialize/shutdown after
-  ready. Before affected code, freeze worker-exit-to-process-exit mapping,
-  private bootstrap handle/environment identifiers and cleanup, diagnostic
-  stream ownership/termination, and exact operation DTO/dispatch/cancel/
-  response contracts. Preserve supervisor-only audit/output capability.
+- **Managed worker-entry/dispatch contract is incomplete.** The owner approved
+  the Windows-only lifecycle-entry staging boundary on 2026-07-14, but exact
+  bootstrap handle parsing/ownership/cleanup, worker-exit-to-process-exit
+  mapping, and abnormal diagnostic termination remain open before that code.
+  Operation DTO/dispatch/cancel/response and supervisor audit/output transfer
+  remain a later contract required before default-session cutover. At
+  `d1cca1b`, `Program.cs` still has no `--worker` branch and constructs the
+  supervisor-side `SessionRuntime`; `WorkerServer` accepts only initialize/
+  shutdown after ready.
 - **Windows wiring requires a hard supervisor/worker role cutover.**
   `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still
   permit supervisor-side runtime or generic process creation. Those paths

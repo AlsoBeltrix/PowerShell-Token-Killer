@@ -15,7 +15,8 @@ short and update it when important repo facts change.
   surfaces expose no internal path. Claude Code 2.1.208 and Grok 0.2.93 each
   accepted exact range `ee21f16..fc61be6` with `guard_confirmed=true` in clean
   detached worktrees after independent guard proofs and the full verification
-  battery. Canonical evidence is in `.agents/review/index.md`.
+  battery. Completion records are committed at `bbb1742`; canonical evidence
+  is in `.agents/review/index.md`.
 - **Audited-harness Slice 4 is complete locally.** Final product
   head `76d4f0c` integrates the supervisor-owned output store and audited
   `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
@@ -80,8 +81,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Begin audited-harness Slice 6 by extracting `SessionRuntime` without a
-   behavior change under `.agents/plans/audited-harness-sessions.md`.
+1. Land the accepted Slice 5 branch locally: fast-forward `master` to the
+   current `feat/audited-harness-slice5` tip, verify content arrival with an
+   empty branch-to-`master` diff, and delete the feature branch under the
+   delegated local branch authority. Then create the Slice 6 feature branch
+   and begin the behavior-preserving `SessionRuntime` extraction under
+   `.agents/plans/audited-harness-sessions.md`.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected

@@ -316,6 +316,22 @@ intended test files differed._
   platform skip, and the full stdio handshake with zero build warnings and
   errors.
 
+#### Concurrent evidence recovery scoping — 2026-07-14
+
+_Verified from the clean `F:\dev\PowerShell-Token-Killer` checkout by applying
+the exact stable server patch from `24c7958..6193ae4`; local and Windows patch
+IDs matched `a2a198e539ce0c6a494e42508751e50bf3e7116a`, and only
+`AuditRuntimeGateTests.cs` differed._
+
+- Temporarily changing the target fixture from scoped back to singleton made
+  its deterministic overlap guard fail after twenty seconds with exactly one
+  of the first two handlers admitted. Exact restoration passed the focused
+  test 10/10 at roughly 439-445 ms each.
+- The complete battery passed 1,207/1,207 .NET tests in 1m32s, 142 Pester tests
+  with one expected platform skip, and the full stdio handshake with zero
+  build warnings and errors. `git diff --check` passed and no unrelated or
+  untracked files were present.
+
 ## Disposable Ubuntu 26.04 ARM64 validation
 
 _Focused verification 2026-07-11 for the Slice 1 secure-storage implementation

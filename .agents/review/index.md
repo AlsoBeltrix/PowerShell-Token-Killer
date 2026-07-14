@@ -2055,3 +2055,24 @@ expected skips, and the full handshake. The matching server patch passed
 1,207/1,207 .NET tests, 142 Pester tests with one expected skip, and the full
 zero-warning handshake on `NETWATCH-01`. A new hosted three-platform matrix
 remains the completion gate.
+
+---
+
+**CI CONCURRENT RECOVERY SCOPING — CODE ACCEPTED, HOSTED PENDING.** An
+independent `slice10_review` agent reviewed exact committed range
+`24c7958..6193ae4` on 2026-07-14 and found no material issue. The range changes
+only `AuditRuntimeGateTests.cs` plus plan/state documentation; no production
+files. The recovery fixture now matches production's request-scoped
+`AuditCallContextAccessor`, with one disposed scope for the initial failed
+request and each of eight recovery contenders. Its additive first-two-handler
+overlap reuses the original twenty-second contender budget, and both test-owned
+gates release in `finally`. All original recovery, health, handler/event-count,
+and final shutdown assertions remain.
+
+The singleton mutation deterministically admitted only one handler and failed
+the overlap checkpoint on macOS and Windows. Restored scopes passed 10/10 on
+both. The complete local battery passed 1,207/1,207 .NET tests, 141 Pester
+tests with two expected skips, and the full handshake. The matching Windows
+patch passed 1,207/1,207 .NET tests, 142 Pester tests with one expected skip,
+and the full zero-warning handshake. Hosted matrix verification remains the
+completion gate.

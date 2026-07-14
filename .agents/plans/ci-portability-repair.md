@@ -1,11 +1,12 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** REOPENED FOR APPROVED SLICE 10 after GitHub Actions run
+**Status:** SLICE 10 IMPLEMENTED AND DIRECTLY VERIFIED at test-only code head
+`6193ae4`; hosted verification remains pending. GitHub Actions run
 `29318333860` passed Ubuntu and macOS at `24c7958` but exposed the same shared
 singleton request-context flaw in a second concurrent Windows fixture. The
-owner approved the production-faithful test-only repair on 2026-07-14. Commits
-`adaffd2` and `6193129` remain directly verified; Slice 10 is in progress. The
-work does not change
+production-faithful scoped repair, deterministic guard, complete local and
+direct Windows batteries, and independent review all passed. The work does not
+change
 production runtime behavior, install RTK into ordinary unit-test jobs, or
 decide whether a future PTK release bundles a pinned RTK binary.
 
@@ -194,6 +195,17 @@ Direct Windows focused runs passed 10/10 in isolation, confirming the same
 load-sensitive harness race previously corrected in Slice 8 rather than a
 deterministic runtime-recovery defect. The owner approved Slice 10's scoped
 fixture and deterministic two-handler guard on 2026-07-14.
+
+Completed direct Slice 10 evidence: changing only the fixture registration
+back to singleton made its two-handler overlap checkpoint fail with exactly
+one admitted handler on both macOS and Windows. Restored request scopes passed
+10/10 on each machine. The exact committed range `24c7958..6193ae4` changes
+only this test plus plan/state documentation and was independently accepted
+with no material finding. The complete local battery passed 1,207 .NET tests,
+141 Pester tests with two expected skips, and the full handshake. The matching
+patch passed 1,207 .NET tests, 142 Pester tests with one expected skip, and the
+full zero-warning handshake on `NETWATCH-01`. A new hosted matrix remains the
+completion gate.
 
 ## Non-goals
 

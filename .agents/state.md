@@ -5,7 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **CI portability repair is reopened for approved test-only Slice 10.**
+- **CI portability repair Slice 10 is implemented and directly verified at
+  test-only code head `6193ae4`; hosted verification remains pending.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
   failed Ubuntu in two older eight-way rendezvous fixtures; its server and
@@ -20,9 +21,11 @@ short and update it when important repo facts change.
   issue. Hosted run `29318333860` then passed Ubuntu and macOS at `24c7958`
   but failed one Windows result in a second concurrent recovery fixture that
   still shared a singleton request context. Production has always scoped that
-  holder; the owner approved one scope per synthetic request plus a
-  deterministic two-handler overlap guard using the existing completion
-  budget. No production files changed. Canonical evidence is in
+  holder. Slice 10 now gives every synthetic request its own scope and
+  deterministically overlaps two handlers using the existing completion
+  budget. Singleton ownership failed the guard on macOS and Windows; restored
+  scopes passed 10/10, both complete batteries passed, and independent review
+  found no material issue. No production files changed. Canonical evidence is in
   `.agents/plans/ci-portability-repair.md`, `.agents/review/index.md`, and
   `.agents/machines.md`; RTK distribution remains a separate decision.
 - **Audited-harness Slice 6 is complete locally.** Code

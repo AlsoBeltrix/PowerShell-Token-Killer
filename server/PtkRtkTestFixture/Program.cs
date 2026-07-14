@@ -6,6 +6,7 @@ namespace PtkRtkTestFixture;
 /// native apphost and its managed runtime files.</summary>
 public static class FixtureMarker
 {
+    public const string PassthroughSidecarMarker = ":: ptk-native-passthrough";
 }
 
 internal static class Program
@@ -26,24 +27,40 @@ internal static class Program
         }
 
         var sidecar = Path.ChangeExtension(executable, ".cmd");
-        var commandProcessor = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.System),
-            "cmd.exe");
-        if (!File.Exists(sidecar) || !File.Exists(commandProcessor))
+        if (!File.Exists(sidecar))
         {
             Console.Error.WriteLine("The RTK native fixture sidecar is unavailable.");
             return 126;
         }
 
-        var startInfo = new ProcessStartInfo
+        ProcessStartInfo startInfo;
+        if (string.Equals(
+                File.ReadLines(sidecar).FirstOrDefault(),
+                FixtureMarker.PassthroughSidecarMarker,
+                StringComparison.Ordinal))
         {
-            FileName = commandProcessor,
-            Arguments = "/d /s /c " + BuildCommand(sidecar, args),
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
+            if (args.Length == 0)
+            {
+                Console.Error.WriteLine("The RTK passthrough fixture requires a target.");
+                return 126;
+            }
+            startInfo = CreateRedirectedStartInfo(args[0]);
+            foreach (var argument in args.Skip(1))
+                startInfo.ArgumentList.Add(argument);
+        }
+        else
+        {
+            var commandProcessor = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "cmd.exe");
+            if (!File.Exists(commandProcessor))
+            {
+                Console.Error.WriteLine("The RTK fixture command processor is unavailable.");
+                return 126;
+            }
+            startInfo = CreateRedirectedStartInfo(commandProcessor);
+            startInfo.Arguments = "/d /s /c " + BuildCommand(sidecar, args);
+        }
 
         try
         {
@@ -67,6 +84,15 @@ internal static class Program
             return 126;
         }
     }
+
+    private static ProcessStartInfo CreateRedirectedStartInfo(string fileName) => new()
+    {
+        FileName = fileName,
+        UseShellExecute = false,
+        CreateNoWindow = true,
+        RedirectStandardOutput = true,
+        RedirectStandardError = true,
+    };
 
     private static string BuildCommand(string sidecar, IReadOnlyList<string> args)
     {

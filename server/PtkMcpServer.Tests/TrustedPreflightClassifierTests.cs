@@ -125,6 +125,22 @@ public sealed class TrustedPreflightClassifierTests
         Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding("export X=1", commands));
     }
 
+    [Fact]
+    public void Uncertain_cold_resolution_suppresses_a_false_refusal_without_claiming_application()
+    {
+        var commands = StockCommands();
+        commands.Set(
+            "export",
+            CommandTypes.All,
+            new ResolvedCommand((CommandTypes)0, ResolutionUncertain: true));
+
+        var resolved = commands.Resolve("export", CommandTypes.All);
+        Assert.NotNull(resolved);
+        Assert.True(resolved.ResolutionUncertain);
+        Assert.NotEqual(CommandTypes.Application, resolved.CommandType);
+        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding("export X=1", commands));
+    }
+
     [Theory]
     [InlineData("function export { param($Assignment) $Assignment }; export X=1")]
     [InlineData("Set-Alias export Write-Output; export X=1")]

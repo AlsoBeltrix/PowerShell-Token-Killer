@@ -76,6 +76,7 @@ internal enum ExecutionFallbackReason
     RtkResolutionNotApplication,
     RtkFidelityExclusion,
     RtkExecutionPreparationFailed,
+    RtkTargetResolutionChanged,
 }
 
 internal enum OutputProvenance
@@ -180,7 +181,8 @@ internal sealed record ExecutionPlan
         RtkExecutableIdentity? outputShapingRtkIdentity = null,
         PostSuccessGuidance? postSuccessGuidance = null,
         ImmutableArray<string> rtkArgumentVector = default,
-        OutputProvenance? directFallbackProvenance = null)
+        OutputProvenance? directFallbackProvenance = null,
+        ColdCommandTargetIdentity? coldCommandTargetIdentity = null)
     {
         ArgumentNullException.ThrowIfNull(originalScript);
         var isBash = executionPath == ExecutionPath.BashViaRtk;
@@ -294,6 +296,38 @@ internal sealed record ExecutionPlan
                 "Only RTK execution may carry RTK identity or provenance.",
                 nameof(rtkExecutableIdentity));
         }
+        if (isRtk && resolutionContext == ResolutionContext.Cold &&
+            coldCommandTargetIdentity is null)
+        {
+            throw new ArgumentException(
+                "Cold RTK execution requires a revalidatable target identity.",
+                nameof(coldCommandTargetIdentity));
+        }
+        if (coldCommandTargetIdentity is not null &&
+            (!isRtk || resolutionContext != ResolutionContext.Cold))
+        {
+            throw new ArgumentException(
+                "A cold target identity belongs only to cold RTK execution.",
+                nameof(coldCommandTargetIdentity));
+        }
+        if (coldCommandTargetIdentity is not null &&
+            (!string.Equals(
+                 coldCommandTargetIdentity.CommandName,
+                 normalizedRtkArguments[0],
+                 StringComparison.Ordinal) ||
+             !Path.IsPathFullyQualified(
+                 coldCommandTargetIdentity.Executable.ExecutablePath) ||
+             !string.Equals(
+                 coldCommandTargetIdentity.WorkingDirectory,
+                 Path.GetFullPath(workingDirectory!),
+                 OperatingSystem.IsWindows()
+                     ? StringComparison.OrdinalIgnoreCase
+                     : StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "A cold target identity must bind the RTK command and cwd.",
+                nameof(coldCommandTargetIdentity));
+        }
         if (resolutionContext == ResolutionContext.Cold &&
             executionPath == ExecutionPath.PowerShellDirect &&
             outputProvenance != OutputProvenance.DirectText)
@@ -346,6 +380,7 @@ internal sealed record ExecutionPlan
         PostSuccessGuidance = postSuccessGuidance;
         RtkArgumentVector = normalizedRtkArguments;
         DirectFallbackProvenance = directFallbackProvenance;
+        ColdCommandTargetIdentity = coldCommandTargetIdentity;
     }
 
     internal string OriginalScript { get; }
@@ -365,6 +400,7 @@ internal sealed record ExecutionPlan
     internal PostSuccessGuidance? PostSuccessGuidance { get; }
     internal ImmutableArray<string> RtkArgumentVector { get; }
     internal OutputProvenance? DirectFallbackProvenance { get; }
+    internal ColdCommandTargetIdentity? ColdCommandTargetIdentity { get; }
 
     internal string EffectiveRoute => ExecutionPath.ToMachineCode();
 }
@@ -434,6 +470,10 @@ internal sealed record ExecutionDispatch
         ExecutionPath == ExecutionPath.Rtk
             ? Plan.RtkArgumentVector
             : ImmutableArray<string>.Empty;
+    internal ColdCommandTargetIdentity? ColdCommandTargetIdentity =>
+        ExecutionPath == ExecutionPath.Rtk
+            ? Plan.ColdCommandTargetIdentity
+            : null;
     internal BashExecutableIdentity? BashExecutableIdentity => Plan.BashExecutableIdentity;
     internal string? WorkingDirectory => Plan.WorkingDirectory;
     internal RtkExecutableIdentity? OutputShapingRtkIdentity =>
@@ -479,7 +519,8 @@ internal sealed record ExecutionDispatch
         }
         if (reason is not (
                 ExecutionFallbackReason.RtkExecutableBecameUnavailable or
-                ExecutionFallbackReason.RtkExecutionPreparationFailed))
+                ExecutionFallbackReason.RtkExecutionPreparationFailed or
+                ExecutionFallbackReason.RtkTargetResolutionChanged))
         {
             throw new InvalidOperationException(
                 "Only a proven pre-start RTK failure may consume the exact fallback.");
@@ -543,6 +584,7 @@ internal static class ExecutionPlanMachineCodes
         ExecutionFallbackReason.RtkResolutionNotApplication => "rtk_resolution_not_application",
         ExecutionFallbackReason.RtkFidelityExclusion => "rtk_fidelity_exclusion",
         ExecutionFallbackReason.RtkExecutionPreparationFailed => "rtk_execution_preparation_failed",
+        ExecutionFallbackReason.RtkTargetResolutionChanged => "rtk_target_resolution_changed",
         _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),
     };
 }

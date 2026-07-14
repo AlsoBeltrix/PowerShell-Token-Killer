@@ -12,8 +12,13 @@ public sealed class JobManagerTests : IDisposable
     private readonly string _fixtureDir =
         Path.Combine(Path.GetTempPath(), "ptk-job-fixture-" + Guid.NewGuid().ToString("N"));
     private readonly JobManager _jobs;
+    private readonly string _rtkFixturePath;
 
-    public JobManagerTests() => _jobs = new JobManager(_dir);
+    public JobManagerTests()
+    {
+        _jobs = new JobManager(_dir);
+        _rtkFixturePath = RtkTestStub.CreatePassthrough(_fixtureDir).Path;
+    }
 
     public void Dispose()
     {
@@ -1490,14 +1495,24 @@ public sealed class JobManagerTests : IDisposable
             "the parse error must land in the job log, not vanish on the child's stderr");
     }
 
-    private static ExecutionDispatch CreateRtkDispatch(
+    private ExecutionDispatch CreateRtkDispatch(
         string workingDirectory,
         ImmutableArray<string> arguments,
         RtkExecutableIdentity? identity = null,
         string originalScript = "fixture command")
     {
-        identity ??= RtkExecutableIdentity.TryCapture(ResolveCommandProcessor());
+        identity ??= RtkExecutableIdentity.TryCapture(_rtkFixturePath);
         Assert.NotNull(identity);
+        Assert.NotEmpty(arguments);
+        Assert.True(Path.IsPathFullyQualified(arguments[0]));
+        var targetIdentity = ColdCommandTargetIdentity.TryCapture(
+            arguments[0],
+            new ResolvedCommand(
+                System.Management.Automation.CommandTypes.Application,
+                arguments[0],
+                arguments[0]),
+            workingDirectory);
+        Assert.NotNull(targetIdentity);
         var plan = new ExecutionPlan(
             originalScript: originalScript,
             executionScript: null,
@@ -1512,14 +1527,15 @@ public sealed class JobManagerTests : IDisposable
             identity,
             workingDirectory: workingDirectory,
             rtkArgumentVector: arguments,
-            directFallbackProvenance: OutputProvenance.DirectText);
+            directFallbackProvenance: OutputProvenance.DirectText,
+            coldCommandTargetIdentity: targetIdentity);
         return ExecutionDispatch.FromPlan(plan);
     }
 
     private static ImmutableArray<string> DirectCommand(string command) =>
         OperatingSystem.IsWindows()
-            ? ["/d", "/s", "/c", command]
-            : ["-c", command];
+            ? [ResolveCommandProcessor(), "/d", "/s", "/c", command]
+            : [ResolveCommandProcessor(), "-c", command];
 
     private static string ResolveCommandProcessor() =>
         OperatingSystem.IsWindows()

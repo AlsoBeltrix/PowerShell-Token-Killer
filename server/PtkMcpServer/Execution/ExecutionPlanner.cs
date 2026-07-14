@@ -123,8 +123,7 @@ internal static class ExecutionPlanner
                 postSuccessGuidance);
         }
         var extension = Path.GetExtension(resolved.Source ?? string.Empty);
-        if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
-            extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        if (IsAlwaysExcludedLauncherExtension(extension))
         {
             return Direct(
                 script,
@@ -157,10 +156,38 @@ internal static class ExecutionPlanner
 
         if (string.IsNullOrWhiteSpace(workingDirectory) ||
             !Path.IsPathFullyQualified(workingDirectory) ||
+            !TryCreateRtkArgumentVector(command, out var rtkArgumentVector) ||
             !SupportsDirectArgumentPassing(
                 nativeArgumentPassing,
-                effectiveRtkIdentity.ExecutablePath) ||
-            !TryCreateRtkArgumentVector(command, out var rtkArgumentVector))
+                resolved.Source,
+                rtkArgumentVector,
+                allowUnknownModeInvariant:
+                    resolutionContext == ResolutionContext.Cold))
+        {
+            return Direct(
+                script,
+                compressAvailable,
+                resolutionContext,
+                requestedRoute,
+                domain,
+                noFallbacks,
+                requestedRoute == RequestedExecutionRoute.Rtk
+                    ? ExecutionFallbackReason.RtkFidelityExclusion
+                    : null,
+                effectiveRtkIdentity,
+                postSuccessGuidance);
+        }
+
+        // Hash only after every cheap eligibility check. Cold planning shares
+        // the call deadline, so an ineligible command must not spend it reading
+        // a large target that will never be dispatched through RTK.
+        var coldTargetIdentity = resolutionContext == ResolutionContext.Cold
+            ? ColdCommandTargetIdentity.TryCapture(
+                name,
+                resolved,
+                workingDirectory)
+            : null;
+        if (resolutionContext == ResolutionContext.Cold && coldTargetIdentity is null)
         {
             return Direct(
                 script,
@@ -193,7 +220,8 @@ internal static class ExecutionPlanner
             directFallbackProvenance:
                 resolutionContext == ResolutionContext.Cold || !compressAvailable
                     ? OutputProvenance.DirectText
-                    : OutputProvenance.PowerShellObjects);
+                    : OutputProvenance.PowerShellObjects,
+            coldCommandTargetIdentity: coldTargetIdentity);
     }
 
     internal static ExecutionPlan CreateDirect(
@@ -328,7 +356,9 @@ internal static class ExecutionPlanner
 
     private static bool SupportsDirectArgumentPassing(
         string? nativeArgumentPassing,
-        string rtkExecutablePath)
+        string? targetExecutablePath,
+        ImmutableArray<string> arguments,
+        bool allowUnknownModeInvariant)
     {
         if (string.Equals(
                 nativeArgumentPassing,
@@ -338,20 +368,58 @@ internal static class ExecutionPlanner
             return true;
         }
 
-        if (!OperatingSystem.IsWindows() ||
-            !string.Equals(
+        if (string.Equals(
                 nativeArgumentPassing,
                 "Windows",
                 StringComparison.OrdinalIgnoreCase))
         {
-            return false;
+            return !UsesWindowsLegacyArgumentPassing(targetExecutablePath);
         }
 
-        // PowerShell's Windows mode uses legacy argument passing only for
-        // document/shell launchers. Ordinary native images receive the same
-        // argv semantics as ProcessStartInfo.ArgumentList.
-        return Path.GetExtension(rtkExecutablePath).ToLowerInvariant() is not
-            (".bat" or ".cmd" or ".js" or ".vbs" or ".wsf");
+        // The frozen cold pwsh may not be the hosted SMA version. When its
+        // mode was not actually captured, route only the small argv subset
+        // whose spelling is invariant between legacy and standard passing.
+        // An explicit Legacy or unrecognized mode remains direct.
+        return nativeArgumentPassing is null &&
+               allowUnknownModeInvariant &&
+               !UsesWindowsLegacyArgumentPassing(targetExecutablePath) &&
+               arguments.All(IsModeInvariantArgument);
+    }
+
+    private static bool UsesWindowsLegacyArgumentPassing(string? executablePath)
+    {
+        var fileName = Path.GetFileName(executablePath ?? string.Empty);
+        if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("cscript.exe", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("find.exe", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("sqlcmd.exe", StringComparison.OrdinalIgnoreCase) ||
+            fileName.Equals("wscript.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        return Path.GetExtension(fileName).ToLowerInvariant() is
+            ".bat" or ".cmd" or ".js" or ".vbs" or ".wsf";
+    }
+
+    private static bool IsAlwaysExcludedLauncherExtension(string extension) =>
+        extension.ToLowerInvariant() is ".bat" or ".cmd";
+
+    internal static bool IsModeInvariantArgument(string argument)
+    {
+        if (argument.Length == 0) return false;
+        foreach (var character in argument)
+        {
+            if (character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
+                >= '0' and <= '9' ||
+                character is '_' or '-' or '.' or '/' or ':' or '=' or '+' or
+                    ',' or '%' or '@')
+            {
+                continue;
+            }
+            return false;
+        }
+        return true;
     }
 
     private static bool TryCreateRtkArgumentVector(

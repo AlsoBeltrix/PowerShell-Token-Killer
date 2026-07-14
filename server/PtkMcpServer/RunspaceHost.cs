@@ -832,8 +832,8 @@ public sealed class RunspaceHost : IDisposable
             extensionQueryTypes != 0)
         {
             var pathExtensions = (Environment.GetEnvironmentVariable("PATHEXT") ??
-                                  ".COM;.EXE;.BAT;.CMD")
-                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                                  string.Empty)
+                .Split(';', StringSplitOptions.RemoveEmptyEntries);
             command = invocation
                 .GetCommands($"{escapedName}.*", extensionQueryTypes, nameIsPattern: true)
                 .FirstOrDefault(candidate =>
@@ -916,106 +916,9 @@ public sealed class RunspaceHost : IDisposable
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
             if (snapshot.Resolve(name, CommandTypes.All) is not null) continue;
-            snapshot.Set(name, CommandTypes.All, ResolveCurrentPathCommand(name));
+            snapshot.Set(name, CommandTypes.All, ColdPathCommandResolver.Resolve(name));
         }
         return snapshot;
-    }
-
-    private static ResolvedCommand? ResolveCurrentPathCommand(string name)
-    {
-        // Dialect classification only asks about literal command names. A name
-        // containing a path separator is not a bash builtin/shadow candidate,
-        // and its relative base belongs to the later audited CWD probe.
-        if (string.IsNullOrWhiteSpace(name) ||
-            name.Contains(Path.DirectorySeparatorChar) ||
-            name.Contains(Path.AltDirectorySeparatorChar))
-        {
-            return null;
-        }
-
-        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        var pathExtensions = OperatingSystem.IsWindows()
-            ? (Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD")
-                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            : Array.Empty<string>();
-
-        foreach (var entry in path.Split(Path.PathSeparator))
-        {
-            var directory = entry.Trim().Trim('"');
-            // Empty/relative PATH entries resolve against the future job's warm
-            // working directory, which is intentionally probed only after this
-            // detector. Never substitute the server process CWD. Conservatively
-            // treat the name as a non-Application collision: avoid a false bash
-            // refusal, but do not offer bash-wrap guidance we cannot prove.
-            if (directory.Length == 0 || !Path.IsPathFullyQualified(directory))
-                return new ResolvedCommand(CommandTypes.ExternalScript);
-
-            if (OperatingSystem.IsWindows())
-            {
-                if (Path.HasExtension(name))
-                {
-                    var exact = Path.Combine(directory, name);
-                    var resolved = ClassifyPathCommand(exact, pathExtensions);
-                    if (resolved is not null) return resolved;
-                }
-                else
-                {
-                    foreach (var extension in pathExtensions)
-                    {
-                        var resolved = ClassifyPathCommand(
-                            Path.Combine(directory, name + extension),
-                            pathExtensions);
-                        if (resolved is not null) return resolved;
-                    }
-                    var script = ClassifyPathCommand(
-                        Path.Combine(directory, name + ".ps1"),
-                        pathExtensions);
-                    if (script is not null) return script;
-                }
-            }
-            else
-            {
-                var exact = Path.Combine(directory, name);
-                if (File.Exists(exact))
-                {
-                    if (Path.GetExtension(exact).Equals(".ps1", StringComparison.OrdinalIgnoreCase))
-                        return PathCommand(exact, CommandTypes.ExternalScript);
-                    try
-                    {
-                        var mode = File.GetUnixFileMode(exact);
-                        var executable = UnixFileMode.UserExecute |
-                                         UnixFileMode.GroupExecute |
-                                         UnixFileMode.OtherExecute;
-                        if ((mode & executable) != 0)
-                            return PathCommand(exact, CommandTypes.Application);
-                    }
-                    catch { /* An unreadable candidate is not safely resolvable. */ }
-                }
-                var script = Path.Combine(directory, name + ".ps1");
-                if (File.Exists(script))
-                    return PathCommand(script, CommandTypes.ExternalScript);
-            }
-        }
-        return null;
-    }
-
-    private static ResolvedCommand? ClassifyPathCommand(
-        string path,
-        IReadOnlyList<string> pathExtensions)
-    {
-        if (!File.Exists(path)) return null;
-        var extension = Path.GetExtension(path);
-        if (extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase))
-            return PathCommand(path, CommandTypes.ExternalScript);
-        return pathExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase)
-            ? PathCommand(path, CommandTypes.Application)
-            : null;
-    }
-
-    private static ResolvedCommand PathCommand(string path, CommandTypes type)
-    {
-        var fullPath = Path.GetFullPath(path);
-        return new ResolvedCommand(type, fullPath, fullPath);
     }
 
     private static TrustedCommandSnapshot CaptureForegroundCommandFacts(

@@ -870,6 +870,15 @@ public sealed class AuditCallContextTests : IDisposable
         var identity = new RtkExecutableIdentity(
             Path.Combine(Path.GetTempPath(), "rtk-audit-fixture"),
             new RtkVerifiedBinaryIdentity("fixture-1", new string('a', 64)));
+        var targetPath = typeof(AuditCallContextTests).Assembly.Location;
+        var targetIdentity = ColdCommandTargetIdentity.TryCapture(
+            targetPath,
+            new ResolvedCommand(
+                System.Management.Automation.CommandTypes.Application,
+                targetPath,
+                targetPath),
+            Path.GetFullPath(Path.GetTempPath()));
+        Assert.NotNull(targetIdentity);
         var plan = new ExecutionPlan(
             originalScript: "typed RTK audit fixture",
             executionScript: null,
@@ -883,8 +892,9 @@ public sealed class AuditCallContextTests : IDisposable
             fallbackReason: null,
             identity,
             workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            rtkArgumentVector: ["fixture-native"],
-            directFallbackProvenance: OutputProvenance.DirectText);
+            rtkArgumentVector: [targetPath],
+            directFallbackProvenance: OutputProvenance.DirectText,
+            coldCommandTargetIdentity: targetIdentity);
         var execution = new JobExecutionMetadata(ExecutionDispatch.FromPlan(plan));
 
         fixture.Context.CommitReadOutcome(

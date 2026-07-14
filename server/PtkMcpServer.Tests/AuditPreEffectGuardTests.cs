@@ -1113,14 +1113,23 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         var executable = OperatingSystem.IsWindows()
             ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe")
             : File.Exists("/bin/sh") ? "/bin/sh" : "/usr/bin/sh";
-        var identity = RtkExecutableIdentity.TryCapture(executable);
+        var rtkExecutable = RtkTestStub.CreatePassthrough(dependencyRoot).Path;
+        var identity = RtkExecutableIdentity.TryCapture(rtkExecutable);
         Assert.NotNull(identity);
+        var targetIdentity = ColdCommandTargetIdentity.TryCapture(
+            executable,
+            new ResolvedCommand(
+                System.Management.Automation.CommandTypes.Application,
+                executable,
+                executable),
+            dependencyRoot);
+        Assert.NotNull(targetIdentity);
         var command = OperatingSystem.IsWindows()
             ? "for /L %i in (1,1,8) do @echo 2026-07-13 10:00:00 INFO worker: step %i"
             : "i=1; while [ \"$i\" -le 8 ]; do echo \"2026-07-13 10:00:00 INFO worker: step $i\"; i=$((i + 1)); done";
         var arguments = OperatingSystem.IsWindows()
-            ? ImmutableArray.Create("/d", "/s", "/c", command)
-            : ImmutableArray.Create("-c", command);
+            ? ImmutableArray.Create(executable, "/d", "/s", "/c", command)
+            : ImmutableArray.Create(executable, "-c", command);
         var plan = new ExecutionPlan(
             originalScript: "typed RTK audit polling fixture",
             executionScript: null,
@@ -1135,7 +1144,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             identity,
             workingDirectory: dependencyRoot,
             rtkArgumentVector: arguments,
-            directFallbackProvenance: OutputProvenance.DirectText);
+            directFallbackProvenance: OutputProvenance.DirectText,
+            coldCommandTargetIdentity: targetIdentity);
         var start = fixture.Jobs.PrepareStart(
             ExecutionDispatch.FromPlan(plan),
             dependencyRoot);

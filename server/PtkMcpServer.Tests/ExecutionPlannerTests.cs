@@ -75,7 +75,7 @@ public sealed class ExecutionPlannerTests
             "git status",
             "auto",
             new RtkExecutableIdentity(RtkPath),
-            Application("git", "/usr/bin/git"),
+            Application("git", typeof(ExecutionPlannerTests).Assembly.Location),
             compressAvailable: true,
             ResolutionContext.Cold,
             workingDirectory: Path.GetFullPath(Path.GetTempPath()),
@@ -83,6 +83,7 @@ public sealed class ExecutionPlannerTests
 
         Assert.Equal(OutputProvenance.DirectText, direct.OutputProvenance);
         Assert.Null(direct.OutputShapingRtkIdentity);
+        Assert.NotNull(rtk.ColdCommandTargetIdentity);
         Assert.Equal(OutputProvenance.DirectText, rtk.DirectFallbackProvenance);
         Assert.Equal(
             OutputProvenance.DirectText,
@@ -148,6 +149,218 @@ public sealed class ExecutionPlannerTests
 
         AssertDirect(plan, "git status", RequestedExecutionRoute.Rtk);
         Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
+    }
+
+    [Theory]
+    [InlineData("cmd.exe")]
+    [InlineData("cscript.exe")]
+    [InlineData("find.exe")]
+    [InlineData("sqlcmd.exe")]
+    [InlineData("wscript.exe")]
+    [InlineData("fixture.js")]
+    [InlineData("fixture.vbs")]
+    [InlineData("fixture.wsf")]
+    public void Windows_argument_mode_keeps_legacy_targets_on_PowerShell(
+        string executableName)
+    {
+        var commandName = Path.GetFileNameWithoutExtension(executableName);
+        var source = Path.Combine(Path.GetTempPath(), executableName);
+        var plan = ExecutionPlanner.Create(
+            $"{commandName} status",
+            "rtk",
+            new RtkExecutableIdentity(RtkPath),
+            Application(commandName, source),
+            compressAvailable: true,
+            ResolutionContext.Warm,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: "Windows");
+
+        AssertDirect(plan, $"{commandName} status", RequestedExecutionRoute.Rtk);
+        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
+    }
+
+    [Fact]
+    public void Windows_argument_mode_routes_an_ordinary_native_image()
+    {
+        var plan = ExecutionPlanner.Create(
+            "fixture status",
+            "auto",
+            new RtkExecutableIdentity(RtkPath),
+            Application("fixture", Path.Combine(Path.GetTempPath(), "fixture.exe")),
+            compressAvailable: true,
+            ResolutionContext.Warm,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: "Windows");
+
+        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
+    }
+
+    [Theory]
+    [InlineData("fixture.js")]
+    [InlineData("fixture.vbs")]
+    [InlineData("fixture.wsf")]
+    public void Standard_argument_mode_preserves_non_batch_launcher_routing(
+        string executableName)
+    {
+        var plan = ExecutionPlanner.Create(
+            "fixture status",
+            "auto",
+            new RtkExecutableIdentity(RtkPath),
+            Application("fixture", Path.Combine(Path.GetTempPath(), executableName)),
+            compressAvailable: true,
+            ResolutionContext.Warm,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: "Standard");
+
+        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
+    }
+
+    [Fact]
+    public void Cold_unknown_argument_mode_routes_only_mode_invariant_arguments()
+    {
+        var source = typeof(ExecutionPlannerTests).Assembly.Location;
+        var commands = Application("fixture", source);
+        var safe = ExecutionPlanner.Create(
+            "fixture status --porcelain=v1",
+            "auto",
+            new RtkExecutableIdentity(RtkPath),
+            commands,
+            compressAvailable: true,
+            ResolutionContext.Cold,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: null);
+        var uncertain = ExecutionPlanner.Create(
+            "fixture status 'two words'",
+            "rtk",
+            new RtkExecutableIdentity(RtkPath),
+            commands,
+            compressAvailable: true,
+            ResolutionContext.Cold,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: null);
+
+        Assert.Equal(ExecutionPath.Rtk, safe.ExecutionPath);
+        Assert.NotNull(safe.ColdCommandTargetIdentity);
+        Assert.Equal(ExecutionPath.PowerShellDirect, uncertain.ExecutionPath);
+        Assert.Equal(
+            ExecutionFallbackReason.RtkFidelityExclusion,
+            uncertain.FallbackReason);
+    }
+
+    [Theory]
+    [InlineData("simple", true)]
+    [InlineData("aZ09_-./:=+,%@", true)]
+    [InlineData("", false)]
+    [InlineData("two words", false)]
+    [InlineData("quote\"", false)]
+    [InlineData("back\\slash", false)]
+    [InlineData("*.md", false)]
+    [InlineData("file?.md", false)]
+    [InlineData("$value", false)]
+    [InlineData("semi;colon", false)]
+    public void Cold_unknown_argument_mode_allowlist_is_deliberately_narrow(
+        string argument,
+        bool expected)
+    {
+        Assert.Equal(expected, ExecutionPlanner.IsModeInvariantArgument(argument));
+    }
+
+    [Theory]
+    [InlineData("Legacy")]
+    [InlineData("Unrecognized")]
+    public void Cold_explicitly_unusable_argument_mode_stays_direct(string mode)
+    {
+        var source = typeof(ExecutionPlannerTests).Assembly.Location;
+        var plan = ExecutionPlanner.Create(
+            "fixture status",
+            "rtk",
+            new RtkExecutableIdentity(RtkPath),
+            Application("fixture", source),
+            compressAvailable: true,
+            ResolutionContext.Cold,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: mode);
+
+        Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
+        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
+    }
+
+    [Fact]
+    public void Cold_cheap_fidelity_exclusion_does_not_hash_the_target()
+    {
+        var hashes = 0;
+        ExecutableFileIdentity.BeforeHashForTests = _ => hashes++;
+        try
+        {
+            var plan = ExecutionPlanner.Create(
+                "fixture status",
+                "rtk",
+                new RtkExecutableIdentity(RtkPath),
+                Application("fixture", typeof(ExecutionPlannerTests).Assembly.Location),
+                compressAvailable: true,
+                ResolutionContext.Cold,
+                workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+                nativeArgumentPassing: "Legacy");
+
+            Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
+            Assert.Equal(0, hashes);
+        }
+        finally
+        {
+            ExecutableFileIdentity.BeforeHashForTests = null;
+        }
+    }
+
+    [Fact]
+    public void Cold_Windows_legacy_target_is_rejected_before_hash()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-cold-windows-target-");
+        var source = Path.Combine(directory.FullName, "cmd.exe");
+        File.WriteAllText(source, "fixture");
+        var hashes = 0;
+        ExecutableFileIdentity.BeforeHashForTests = _ => hashes++;
+        try
+        {
+            var plan = ExecutionPlanner.Create(
+                "fixture status",
+                "rtk",
+                new RtkExecutableIdentity(RtkPath),
+                Application("fixture", source),
+                compressAvailable: true,
+                ResolutionContext.Cold,
+                workingDirectory: directory.FullName,
+                nativeArgumentPassing: "Windows");
+
+            Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
+            Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
+            Assert.Equal(0, hashes);
+        }
+        finally
+        {
+            ExecutableFileIdentity.BeforeHashForTests = null;
+            directory.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Cold_unidentifiable_target_stays_on_exact_PowerShell()
+    {
+        var missing = Path.Combine(
+            Path.GetTempPath(),
+            "ptk-missing-target-" + Guid.NewGuid().ToString("N"));
+        var plan = ExecutionPlanner.Create(
+            "fixture status",
+            "rtk",
+            new RtkExecutableIdentity(RtkPath),
+            Application("fixture", missing),
+            compressAvailable: true,
+            ResolutionContext.Cold,
+            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
+            nativeArgumentPassing: null);
+
+        Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
+        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
+        Assert.Null(plan.ColdCommandTargetIdentity);
     }
 
     [Theory]
@@ -397,6 +610,7 @@ public sealed class ExecutionPlannerTests
                 "rtk_resolution_not_application",
                 "rtk_fidelity_exclusion",
                 "rtk_execution_preparation_failed",
+                "rtk_target_resolution_changed",
             ],
             Enum.GetValues<ExecutionFallbackReason>().Select(value => value.ToMachineCode()));
     }
@@ -583,6 +797,40 @@ public sealed class ExecutionPlannerTests
             postSuccessGuidance: new PostSuccessGuidance(
                 PostSuccessGuidance.PreferNativeRedirection,
                 "git status > status.txt")));
+    }
+
+    [Fact]
+    public void Plan_constructor_binds_cold_target_identity_to_command_and_cwd()
+    {
+        var cwd = Path.GetFullPath(Path.GetTempPath());
+        var otherCwd = Path.Combine(cwd, "ptk-other-cwd");
+        var targetPath = typeof(ExecutionPlannerTests).Assembly.Location;
+        var target = ColdCommandTargetIdentity.TryCapture(
+            "fixture",
+            new ResolvedCommand(CommandTypes.Application, targetPath, targetPath),
+            cwd);
+        Assert.NotNull(target);
+
+        ExecutionPlan Create(string commandName, string workingDirectory) => new(
+            "fixture status",
+            executionScript: null,
+            ExecutionDomain.NativeTerminal,
+            ExecutionPath.Rtk,
+            PreExecutionValidation.None,
+            ResolutionContext.Cold,
+            RequestedExecutionRoute.Auto,
+            OutputProvenance.RtkUnknown,
+            [ExecutionPath.PowerShellDirect],
+            fallbackReason: null,
+            new RtkExecutableIdentity(RtkPath),
+            workingDirectory: workingDirectory,
+            rtkArgumentVector: [commandName, "status"],
+            directFallbackProvenance: OutputProvenance.DirectText,
+            coldCommandTargetIdentity: target);
+
+        Assert.Throws<ArgumentException>(() => Create("other", cwd));
+        Assert.Throws<ArgumentException>(() => Create("fixture", otherCwd));
+        Assert.NotNull(Create("fixture", cwd));
     }
 
     [Theory]

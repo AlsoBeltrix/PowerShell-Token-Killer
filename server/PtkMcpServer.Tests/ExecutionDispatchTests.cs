@@ -124,8 +124,20 @@ public sealed class ExecutionDispatchTests
     private static ExecutionPlan RtkPlan(
         string originalScript,
         ImmutableArray<ExecutionPath> permittedFallbacks,
-        ResolutionContext resolutionContext = ResolutionContext.Warm) =>
-        new(
+        ResolutionContext resolutionContext = ResolutionContext.Warm)
+    {
+        var workingDirectory = Path.GetFullPath(Path.GetTempPath());
+        var targetPath = typeof(ExecutionDispatchTests).Assembly.Location;
+        var coldTarget = resolutionContext == ResolutionContext.Cold
+            ? ColdCommandTargetIdentity.TryCapture(
+                targetPath,
+                new ResolvedCommand(
+                    System.Management.Automation.CommandTypes.Application,
+                    targetPath,
+                    targetPath),
+                workingDirectory)
+            : null;
+        return new ExecutionPlan(
             originalScript,
             executionScript: null,
             ExecutionDomain.NativeTerminal,
@@ -137,14 +149,18 @@ public sealed class ExecutionDispatchTests
             permittedFallbacks,
             fallbackReason: null,
             new RtkExecutableIdentity(RtkPath),
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            rtkArgumentVector: originalScript.StartsWith("git commit", StringComparison.Ordinal)
-                ? ["git", "commit", "-m", "exact original"]
-                : ["git", "status"],
+            workingDirectory: workingDirectory,
+            rtkArgumentVector: resolutionContext == ResolutionContext.Cold
+                ? [targetPath]
+                : originalScript.StartsWith("git commit", StringComparison.Ordinal)
+                    ? ["git", "commit", "-m", "exact original"]
+                    : ["git", "status"],
             directFallbackProvenance:
                 permittedFallbacks.Contains(ExecutionPath.PowerShellDirect)
                     ? resolutionContext == ResolutionContext.Cold
                         ? OutputProvenance.DirectText
                         : OutputProvenance.PowerShellObjects
-                    : null);
+                    : null,
+            coldCommandTargetIdentity: coldTarget);
+    }
 }

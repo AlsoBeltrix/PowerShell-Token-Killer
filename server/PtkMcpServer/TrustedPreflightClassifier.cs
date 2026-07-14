@@ -11,7 +11,8 @@ internal sealed record ResolvedCommand(
     CommandTypes CommandType,
     string? Source = null,
     string? Definition = null,
-    bool IsCanonicalManagementSetContent = false);
+    bool IsCanonicalManagementSetContent = false,
+    bool ResolutionUncertain = false);
 
 internal sealed record ShellDialectAssessment(
     bool PowerShellParseFatal,

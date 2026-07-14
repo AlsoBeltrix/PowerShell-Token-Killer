@@ -1,7 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using PtkMcpServer.Tools;
-using PtkRtkTestFixture;
 
 namespace PtkMcpServer.Tests;
 
@@ -735,70 +734,10 @@ public sealed class InvokeToolTests : IDisposable
     private static (DirectoryInfo dir, string path) CreateRtkStub(
         string body,
         string? parentDirectory = null,
-        string? fileName = null)
-    {
-        var dir = parentDirectory is null
-            ? Directory.CreateTempSubdirectory("ptk-rtk-route-")
-            : Directory.CreateDirectory(Path.Combine(
-                parentDirectory,
-                "ptk-rtk-route-" + Guid.NewGuid().ToString("N")));
-        var requestedName = fileName ??
-            (OperatingSystem.IsWindows() ? "rtk-stub.exe" : "rtk-stub.sh");
-        var path = Path.Combine(
-            dir.FullName,
-            OperatingSystem.IsWindows()
-                ? Path.ChangeExtension(requestedName, ".exe")
-                : requestedName);
-        WriteRtkStub(path, body);
-        return (dir, path);
-    }
+        string? fileName = null) => RtkTestStub.Create(body, parentDirectory, fileName);
 
-    private static void WriteRtkStub(string path, string body)
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            InstallOrMutateWindowsRtkFixture(path, body);
-            File.WriteAllText(
-                Path.ChangeExtension(path, ".cmd"),
-                "@echo off\r\n" + body.Replace("\n", "\r\n") + "\r\n");
-            return;
-        }
-
-        File.WriteAllText(path,
-            "#!/bin/sh\n" + body.Replace("%*", "\"$@\"").Replace("exit /b ", "exit ") + "\n");
-        File.SetUnixFileMode(path,
-            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-    }
-
-    private static void InstallOrMutateWindowsRtkFixture(string path, string body)
-    {
-        if (File.Exists(path))
-        {
-            // PE loaders permit an overlay after the image. Appending a body
-            // digest leaves the native fixture runnable while making the
-            // same-path replacement visible to the production identity hash.
-            using var executable = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.Read);
-            executable.Write(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body)));
-            return;
-        }
-
-        var fixtureAssembly = typeof(FixtureMarker).Assembly.Location;
-        var fixtureDirectory = Path.GetDirectoryName(fixtureAssembly)
-            ?? throw new InvalidOperationException("RTK fixture assembly directory is unavailable.");
-        var fixtureBaseName = Path.GetFileNameWithoutExtension(fixtureAssembly);
-        var fixtureAppHost = Path.Combine(fixtureDirectory, fixtureBaseName + ".exe");
-        if (!File.Exists(fixtureAppHost))
-            throw new FileNotFoundException("RTK fixture apphost is unavailable.", fixtureAppHost);
-
-        File.Copy(fixtureAppHost, path);
-        foreach (var extension in new[] { ".dll", ".deps.json", ".runtimeconfig.json" })
-        {
-            var source = Path.Combine(fixtureDirectory, fixtureBaseName + extension);
-            if (!File.Exists(source))
-                throw new FileNotFoundException("RTK fixture runtime file is unavailable.", source);
-            File.Copy(source, Path.Combine(Path.GetDirectoryName(path)!, fixtureBaseName + extension));
-        }
-    }
+    private static void WriteRtkStub(string path, string body) =>
+        RtkTestStub.Write(path, body);
 
     [Fact]
     public async Task Operator_pinned_rtk_identity_survives_warm_environment_poisoning()
@@ -2679,6 +2618,14 @@ public sealed class InvokeToolTests : IDisposable
             Environment.SetEnvironmentVariable("PTK_RTK_TEST_LOG", invocationLog);
             var identity = RtkExecutableIdentity.TryCapture(stub);
             Assert.NotNull(identity);
+            var targetIdentity = ColdCommandTargetIdentity.TryCapture(
+                stub,
+                new ResolvedCommand(
+                    System.Management.Automation.CommandTypes.Application,
+                    stub,
+                    stub),
+                dir.FullName);
+            Assert.NotNull(targetIdentity);
             var plan = new ExecutionPlan(
                 originalScript: "typed RTK polling fixture",
                 executionScript: null,
@@ -2692,8 +2639,9 @@ public sealed class InvokeToolTests : IDisposable
                 fallbackReason: null,
                 identity,
                 workingDirectory: dir.FullName,
-                rtkArgumentVector: ["fixture-native"],
-                directFallbackProvenance: OutputProvenance.DirectText);
+                rtkArgumentVector: [stub],
+                directFallbackProvenance: OutputProvenance.DirectText,
+                coldCommandTargetIdentity: targetIdentity);
             var start = _jobs.PrepareStart(ExecutionDispatch.FromPlan(plan), dir.FullName);
 
             var started = _jobs.CommitStart(start);
@@ -2723,7 +2671,7 @@ public sealed class InvokeToolTests : IDisposable
                 "lines elided - recovery=unavailable: rtk capture unsupported",
                 poll,
                 StringComparison.Ordinal);
-            Assert.Equal(["fixture-native"], File.ReadAllLines(invocationLog));
+            Assert.Equal([stub], File.ReadAllLines(invocationLog));
         }
         finally
         {

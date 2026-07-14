@@ -2080,3 +2080,33 @@ exact docs descendant `ccee469`; Ubuntu, macOS, and Windows each passed Pester,
 all 1,207 server tests, the stdio handshake, and cleanup. This completes the
 CI portability and master-landing stabilization follow-up without production
 changes.
+
+---
+
+**AUDITED-HARNESS SLICE 7A BOUNDED WORKER PROTOCOL — ACCEPTED.** Claude Code
+2.1.209 (model `claude-opus-4-8[1m]`, isolated disposable worktree) reviewed
+exact committed range `a88d6050ade9e972a0cee6cb9a22e5e188895f30..f86de26a6a2d3b3bc52928c0ee0254873aba7863`
+on 2026-07-14 and returned the required structured `accepted` verdict with
+`guard_confirmed=true`. The range adds the strict bounded v1 worker protocol
+foundation and its tests: nine frozen message kinds, strict UTF-8 NDJSON,
+duplicate/unknown/version rejection, a 1 MiB encoded-frame cap, depth 32,
+incremental fragmented/coalesced reads, serialized writes, terminal writer
+fault latching, and clearing of pooled buffers that may contain script data.
+
+The reviewer independently repeated six required mutations. Frame-cap drift,
+dropping coalesced read-ahead, bypassing the writer gate, returning uncleared
+pooled data, relaxing the depth check, and removing the terminal writer-fault
+latch each failed for its intended reason; restoring the exact reviewed head
+returned the focused and complete suites green. The restored battery passed
+1,248/1,248 .NET tests, 141 Pester tests with two expected skips, and the full
+stdio handshake. The orchestrator independently confirmed the coder and
+review trees were both clean at the exact reviewed SHA, then removed the
+disposable worktree.
+
+Payload-specific script/result/diagnostic caps remain owned by the later
+worker/dispatch layers. A future single-reader worker loop must tear down on
+reader cancellation or error, and dispatch remains responsible for request-id
+applicability. These are non-blocking obligations for later approved Slice 7
+sub-slices, not protocol-code defects. This acceptance authorizes the next
+approved Slice 7 sub-slice; it does not authorize push, history rewriting, or
+landing.

@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Audited-harness Slice 7a is complete locally at code head `f86de26`.**
+  The strict bounded v1 worker protocol freezes all nine wire kinds, enforces
+  strict UTF-8 NDJSON with duplicate/unknown/version rejection, caps encoded
+  frames at 1 MiB and JSON depth at 32, preserves fragmented and coalesced
+  input, serializes writes, latches ambiguous writer failure, and clears
+  pooled script-bearing buffers. Claude Code 2.1.209 accepted exact range
+  `a88d605..f86de26` with `guard_confirmed=true` after six independent
+  mutations and the full battery. Canonical evidence is in
+  `.agents/review/index.md`. Slice 7 continues with the behavior-preserving
+  session-operations/lifetime seam before internal worker hosting and
+  containment.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
@@ -120,8 +131,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Create the Slice 7 feature branch and begin worker mode under
-   `.agents/plans/audited-harness-sessions.md`.
+1. Continue Slice 7 on its feature branch with the behavior-preserving
+   session-operations/lifetime seam, then internal worker hosting and
+   containment under `.agents/plans/audited-harness-sessions.md`; each
+   sub-slice requires fixed-SHA review acceptance before the next begins.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected

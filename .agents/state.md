@@ -5,8 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **CI portability repair is implemented and directly verified at test-only
-  code head `6193129`; hosted verification remains pending.**
+- **CI portability repair is reopened for approved test-only Slice 10.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
   failed Ubuntu in two older eight-way rendezvous fixtures; its server and
@@ -18,7 +17,12 @@ short and update it when important repo facts change.
   collision and cleanup assertions. Both collision mutations failed for the
   intended losing publish, the paired tests passed 10/10, the complete local
   and direct Windows batteries passed, and independent review found no code
-  issue. No production files changed. Canonical evidence is in
+  issue. Hosted run `29318333860` then passed Ubuntu and macOS at `24c7958`
+  but failed one Windows result in a second concurrent recovery fixture that
+  still shared a singleton request context. Production has always scoped that
+  holder; the owner approved one scope per synthetic request plus a
+  deterministic two-handler overlap guard using the existing completion
+  budget. No production files changed. Canonical evidence is in
   `.agents/plans/ci-portability-repair.md`, `.agents/review/index.md`, and
   `.agents/machines.md`; RTK distribution remains a separate decision.
 - **Audited-harness Slice 6 is complete locally.** Code

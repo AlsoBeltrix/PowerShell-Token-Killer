@@ -1,13 +1,11 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** IMPLEMENTED AND DIRECTLY VERIFIED at test-only code head
-`6193129`; hosted verification remains pending. GitHub Actions run
-`29316766579` at docs-only descendant `e3b1dfd` exposed three scheduling
-failures in an otherwise identical server tree. Commit `adaffd2` restores the
-Slice 8 overlap checkpoint's original fifteen-second contender budget, and
-Slice 9 at `6193129` gives both blocking eight-way rendezvous fixtures
-dedicated threads. Deterministic guards, the complete local and direct Windows
-batteries, and independent review all passed. The work does not change
+**Status:** REOPENED FOR APPROVED SLICE 10 after GitHub Actions run
+`29318333860` passed Ubuntu and macOS at `24c7958` but exposed the same shared
+singleton request-context flaw in a second concurrent Windows fixture. The
+owner approved the production-faithful test-only repair on 2026-07-14. Commits
+`adaffd2` and `6193129` remain directly verified; Slice 10 is in progress. The
+work does not change
 production runtime behavior, install RTK into ordinary unit-test jobs, or
 decide whether a future PTK release bundles a pinned RTK binary.
 
@@ -114,6 +112,16 @@ Each numbered slice is one finding and one commit.
    rendezvous pattern and failed together under parallel xUnit load. Prove the
    stabilized fixtures still reject broken collision convergence, then run
    both focused tests together before the complete battery.
+10. **Use production-faithful request scopes in concurrent evidence
+    recovery.** Register `AuditCallContextAccessor` as scoped, create and
+    dispose one service scope for the initial failed request and each recovery
+    contender, and deterministically overlap only the first two handlers.
+    Reuse the fixture's existing twenty-second contender budget for the
+    overlap checkpoint and total completion; do not introduce a tighter
+    intermediate deadline. Preserve all eight requests, one degraded/recovered
+    pair, handler and accepted/completed counts, healthy final state, and final
+    stop assertion. Mutating the accessor back to singleton must fail the
+    two-handler checkpoint; restored request scopes must pass on Windows.
 
 ## Verification
 
@@ -174,6 +182,18 @@ battery passed 1,207 .NET tests, 141 Pester tests with two expected skips, and
 the full handshake. The matching server patch passed 1,207 .NET tests, 142
 Pester tests with one expected skip, and the full zero-warning handshake on
 `NETWATCH-01`. Hosted matrix evidence is still required before completion.
+
+Hosted run `29318333860` tested exact head `24c7958`: Ubuntu and macOS passed
+Pester, all 1,207 server tests, the handshake, and cleanup. Windows failed only
+`Concurrent_evidence_recovery_closes_one_outage_without_resurrecting_it` when
+one of eight results returned `audit_boundary_invalid`. That fixture has
+shared one singleton `AuditCallContextAccessor` since `460c106`, while
+production has always registered the mutable holder per request. The exact
+failure follows when one overlapping call observes another call's `Current`.
+Direct Windows focused runs passed 10/10 in isolation, confirming the same
+load-sensitive harness race previously corrected in Slice 8 rather than a
+deterministic runtime-recovery defect. The owner approved Slice 10's scoped
+fixture and deterministic two-handler guard on 2026-07-14.
 
 ## Non-goals
 

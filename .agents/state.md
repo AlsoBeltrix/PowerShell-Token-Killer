@@ -5,15 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slice 6 is complete on the accepted feature branch.** Code
+- **Audited-harness Slice 6 is complete locally.** Code
   head `7999328` moves invoke/job/state/reset behavior and session-lifetime
   caches behind one owning `SessionRuntime`, leaves audit and output
   capabilities per operation, keeps MCP adapters thin and schema-compatible,
   and preserves jobs-before-runspace audited shutdown. Claude Code 2.1.208
   accepted exact range `aca20a6..7999328` with `guard_confirmed=true` in a
   clean detached worktree after independent cache-isolation, ownership,
-  adapter, and reset-lifetime mutation proofs plus the full battery. Canonical
-  evidence is in `.agents/review/index.md`.
+  adapter, and reset-lifetime mutation proofs plus the full battery. Completion
+  records are committed at `67b900d`. The accepted feature history was
+  fast-forwarded to local `master`, content arrival was verified independently,
+  and the feature branch was removed. Canonical evidence is in
+  `.agents/review/index.md`.
 - **Audited-harness Slice 5 is complete locally.** Final code head
   `fc61be6` completes audited cold-background planning, typed exactly-once
   dispatch/fallback, provenance-
@@ -92,8 +95,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Land the accepted Slice 6 branch on the next owner go, then begin Slice 7
-   worker mode under `.agents/plans/audited-harness-sessions.md`.
+1. Create the Slice 7 feature branch and begin worker mode under
+   `.agents/plans/audited-harness-sessions.md`.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected

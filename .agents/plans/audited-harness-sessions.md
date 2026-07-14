@@ -40,8 +40,7 @@ proofs and the full battery on 2026-07-14. Slice 6 code head `7999328`
 extracts the behavior-preserving `SessionRuntime`; Claude accepted exact range
 `aca20a6..7999328` with `guard_confirmed=true` after independent ownership,
 cache-isolation, adapter, and reset-lifetime mutation proofs plus the full
-battery. Slice 6 is complete locally; Slice 7 worker mode is next after the
-accepted branch lands.
+battery. Slice 6 is complete and landed locally; Slice 7 worker mode is next.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

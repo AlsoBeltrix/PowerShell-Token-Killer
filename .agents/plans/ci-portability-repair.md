@@ -1,13 +1,13 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** SLICE 10 IMPLEMENTED AND DIRECTLY VERIFIED at test-only code head
-`6193ae4`; hosted verification remains pending. GitHub Actions run
+**Status:** COMPLETED at test-only code head `6193ae4`. GitHub Actions run
 `29318333860` passed Ubuntu and macOS at `24c7958` but exposed the same shared
 singleton request-context flaw in a second concurrent Windows fixture. The
 production-faithful scoped repair, deterministic guard, complete local and
-direct Windows batteries, and independent review all passed. The work does not
-change
-production runtime behavior, install RTK into ordinary unit-test jobs, or
+direct Windows batteries, and independent review all passed. GitHub Actions
+run `29331077331` then passed Ubuntu, macOS, and Windows at docs descendant
+`ccee469`, including every Pester/server/handshake/cleanup step. The work does
+not change production runtime behavior, install RTK into ordinary unit-test jobs, or
 decide whether a future PTK release bundles a pinned RTK binary.
 
 ## Evidence and problem
@@ -204,8 +204,9 @@ only this test plus plan/state documentation and was independently accepted
 with no material finding. The complete local battery passed 1,207 .NET tests,
 141 Pester tests with two expected skips, and the full handshake. The matching
 patch passed 1,207 .NET tests, 142 Pester tests with one expected skip, and the
-full zero-warning handshake on `NETWATCH-01`. A new hosted matrix remains the
-completion gate.
+full zero-warning handshake on `NETWATCH-01`. GitHub Actions run `29331077331`
+passed Ubuntu, macOS, and Windows at exact head `ccee469`; every matrix job
+completed Pester, all 1,207 server tests, the stdio handshake, and cleanup.
 
 ## Non-goals
 

@@ -2032,7 +2032,7 @@ history rewriting or unrelated work.
 
 ---
 
-**CI FINAL-TIP SCHEDULING FOLLOW-UP — CODE ACCEPTED, HOSTED PENDING.** An
+**CI FINAL-TIP SCHEDULING FOLLOW-UP — CODE ACCEPTED; SISTER FIXTURE EXPOSED.** An
 independent `ci_final_review` agent reviewed exact committed range
 `e3b1dfd..6193129` on 2026-07-14. The range changes only three test files plus
 plan/state documentation; no production file changes. The reviewer confirmed
@@ -2053,12 +2053,13 @@ restoration returned both green, and the pair passed together 10/10. The
 complete local battery passed 1,207/1,207 .NET tests, 141 Pester tests with two
 expected skips, and the full handshake. The matching server patch passed
 1,207/1,207 .NET tests, 142 Pester tests with one expected skip, and the full
-zero-warning handshake on `NETWATCH-01`. A new hosted three-platform matrix
-remains the completion gate.
+zero-warning handshake on `NETWATCH-01`. Hosted run `29318333860` passed
+Ubuntu and macOS but exposed the separate
+concurrent-recovery singleton fixture on Windows; Slice 10 below closes it.
 
 ---
 
-**CI CONCURRENT RECOVERY SCOPING — CODE ACCEPTED, HOSTED PENDING.** An
+**CI CONCURRENT RECOVERY SCOPING — ACCEPTED.** An
 independent `slice10_review` agent reviewed exact committed range
 `24c7958..6193ae4` on 2026-07-14 and found no material issue. The range changes
 only `AuditRuntimeGateTests.cs` plus plan/state documentation; no production
@@ -2074,5 +2075,8 @@ the overlap checkpoint on macOS and Windows. Restored scopes passed 10/10 on
 both. The complete local battery passed 1,207/1,207 .NET tests, 141 Pester
 tests with two expected skips, and the full handshake. The matching Windows
 patch passed 1,207/1,207 .NET tests, 142 Pester tests with one expected skip,
-and the full zero-warning handshake. Hosted matrix verification remains the
-completion gate.
+and the full zero-warning handshake. GitHub Actions run `29331077331` tested
+exact docs descendant `ccee469`; Ubuntu, macOS, and Windows each passed Pester,
+all 1,207 server tests, the stdio handshake, and cleanup. This completes the
+CI portability and master-landing stabilization follow-up without production
+changes.

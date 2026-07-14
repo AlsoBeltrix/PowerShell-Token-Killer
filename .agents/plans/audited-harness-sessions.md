@@ -23,14 +23,21 @@ platform-faithful guard correction at reviewed head `36e0f49`, adds cold PATH
 and PATHEXT resolution, target identity/revalidation, target-aware native
 argument mode, and cold-plan fidelity gates. Claude accepted exact range
 `43d1307..36e0f49` with `guard_confirmed=true` after an independent
-trailing-space mutation proof and the full coder battery. Remaining Slice 5
-production-activation code head `d3ff115` wires one post-cwd cold plan into
-invoke, splits durable plan/dispatch authorization, revalidates frozen launch
-facts at commit, permits one exact-original fallback only after typed proved
-no-start, and preserves actual terminal routing. Claude accepted exact range
+trailing-space mutation proof and the full coder battery. The production
+activation code head `d3ff115` wires one post-cwd cold plan into invoke,
+splits durable plan/dispatch authorization, revalidates frozen launch facts
+at commit, permits one exact-original fallback only after typed proved-no-start,
+and preserves actual terminal routing. Claude accepted exact range
 `79b1d3e..d3ff115` with `guard_confirmed=true` after independent PATH
 re-resolution and audit-route rollback mutation proofs plus the full battery.
-Opaque output handles and path-free recovery-interface wiring remain next.
+Final Slice 5 code head `fc61be6` adds path-free background output recovery:
+eligible direct-text jobs reserve before start, seal one immutable bounded
+artifact through the supervisor output store, publish its opaque handle before
+terminal notification, keep RTK seam-absent output explicitly unrecoverable,
+and expose no internal path. Claude and Grok independently accepted exact
+range `ee21f16..fc61be6` with `guard_confirmed=true` after independent guard
+proofs and the full battery on 2026-07-14. Slice 5 is complete; Slice 6
+`SessionRuntime` extraction is next.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

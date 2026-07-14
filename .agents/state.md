@@ -5,28 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slice 5 is in progress on
-  `feat/audited-harness-slice5`.** Sub-slice 5a code head `ed7c782` adds the
-  audited cold-background admission barrier. Sub-slice 5b code head `bbcb1b7`
-  adds the typed cold-background dispatch/JobManager foundation: immutable
-  launch provenance, one-shot proved-no-start fallback, bounded containment,
-  owned concurrent output capture, and separate start/root/execution/output
-  certainty. Sub-slice 5c code head `c936866` makes typed-job polling and
-  access audit provenance-aware: seam-absent `RtkUnknown` output stays
-  ANSI-cleaned and bounded without a second `rtk log`, carries explicit unavailable
-  recovery, preserves source routing through cleanup failure, and leaves
-  legacy placeholder routing neutral. Sub-slice 5d code head `f7d5940`, with
-  its platform-faithful test correction at reviewed head `36e0f49`, adds
-  PowerShell-faithful cold PATH/PATHEXT resolution, frozen target identity and
-  revalidation, target-aware native argument mode, and conservative fidelity
-  gates. Production-activation code head `d3ff115` now drives one post-cwd
-  cold plan through split durable plan/dispatch barriers, final launch-fact
-  revalidation, and one exact-original fallback permitted only by typed proved
-  no-start; indeterminate or confirmed starts are never retried, and terminal
-  audit routing follows the actual dispatch. Claude accepted exact range
-  `79b1d3e..d3ff115` with `guard_confirmed=true`; canonical guard and
-  verification evidence is in `.agents/review/index.md`. Opaque output handles
-  and path-free recovery remain unwired.
+- **Audited-harness Slice 5 is complete on
+  `feat/audited-harness-slice5`.** Final code head `fc61be6` completes audited
+  cold-background planning, typed exactly-once dispatch/fallback, provenance-
+  aware polling, and path-free output recovery. Eligible direct-text jobs
+  reserve output capacity before start, seal one immutable bounded supervisor
+  artifact, and publish its opaque handle before terminal notification;
+  seam-absent RTK jobs remain explicitly unrecoverable, and model-facing job
+  surfaces expose no internal path. Claude Code 2.1.208 and Grok 0.2.93 each
+  accepted exact range `ee21f16..fc61be6` with `guard_confirmed=true` in clean
+  detached worktrees after independent guard proofs and the full verification
+  battery. Canonical evidence is in `.agents/review/index.md`.
 - **Audited-harness Slice 4 is complete locally.** Final product
   head `76d4f0c` integrates the supervisor-owned output store and audited
   `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
@@ -91,9 +80,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue audited-harness Slice 5 by adding supervisor-owned output handles
-   and making recovery path-free under
-   `.agents/plans/audited-harness-sessions.md`.
+1. Begin audited-harness Slice 6 by extracting `SessionRuntime` without a
+   behavior change under `.agents/plans/audited-harness-sessions.md`.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected
@@ -137,11 +125,11 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- Audited-session slices 0-4 are complete locally. Slice 4's exact integrated
+- Audited-session slices 0-5 are complete locally. Slice 4's exact integrated
   fixed-head Claude acceptance and independently verified local landing are
   recorded in `.agents/review/index.md`; host-specific verification records
-  live in `.agents/machines.md`. Slice 5's production-activation acceptance is
-  recorded in the same review index; output-handle work remains open.
+  live in `.agents/machines.md`. Slice 5's final path-free output-recovery
+  acceptance by both Claude and Grok is recorded in the same review index.
 
 ## Active Sources
 

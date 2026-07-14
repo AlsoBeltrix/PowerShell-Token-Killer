@@ -1868,3 +1868,51 @@ could mask a return if its invariant unexpectedly threw, but the attempt ledger
 always transitions before that cleanup and terminal-lease release is protected
 by an inner `finally`. Opaque output handles and path-free recovery remain the
 next approved Slice 5 scope.
+
+---
+
+**SLICE 5 PATH-FREE BACKGROUND OUTPUT RECOVERY REVIEWS — ACCEPTED.** Claude
+Code 2.1.208 (model `claude-opus-4-8`) completed at
+2026-07-14T04:33:35Z; Grok 0.2.93 (`f00f96316d4b`, default configured model)
+completed at 2026-07-14T04:35:04Z. Each ran headless and one-shot in a separate
+isolated disposable worktree, reviewed head
+`fc61be661aff876e13c022a016a39d64ccb0a48c` against base
+`ee21f16218122e9e8de3b2c93deb13c82d807328`, returned an exact schema-
+constrained `accepted` payload with `guard_confirmed=true`, and named the
+dispatched SHAs. Claude's outer envelope and inner structured payload matched
+exactly. Grok's authoritative `structuredOutput` matched the schema and had an
+empty comments array. The orchestrator independently confirmed both detached
+trees clean at the reviewed SHA before recording either verdict.
+
+Claude independently proved seven production boundaries red then green:
+terminal handle publication; direct-text versus seam-absent `RtkUnknown`
+eligibility; poll-read path sanitization; no-start reservation cleanup; use of
+the shared output-store lane for terminal sealing; bounded UTF-8 scalar
+completion; and the real MCP background `ptk_job` to `ptk_output` path. It also
+confirmed the fallback output-store call site with its focused no-start guard
+after an initial handshake mutation correctly demonstrated that the handshake
+exercises only the primary dispatch path. Every mutation was restored before
+its focused guard returned green.
+
+The exact restored Claude tree passed 1,202/1,202 .NET tests, 141 Pester tests
+with two platform skips, and the expanded stdio handshake, including retrieval
+of one background direct-text invocation through the path-free handle. The
+coder's exact committed tree had already passed the same full battery and a
+zero-warning build, with focused red-to-green proofs covering publication,
+capacity cleanup and timing, anti-wedge sealing, UTF-8 boundaries, provenance,
+path isolation, exception sanitization, stable/incomplete wording, kill
+semantics, invoke wiring, descriptions, generated guidance, and the real MCP
+path. Grok's independent schema verdict attested to the same required guard
+and restored-battery gate and reported no material finding.
+
+Two Claude observations are nonblocking and remain recorded here rather than
+silently discarded. Four concurrent long-lived direct-text jobs can reserve
+the default session's full 32 MB output quota (8 MB each), making later capture
+truthfully unavailable until a reservation releases; execution remains exact-
+once and the degraded reason is explicit, as the approved plan permits. Also,
+`.agents/repo-guidance.md` retains stale 2026-07-03 test counts while this
+head's observed counts are 1,202 .NET and 141 Pester; that out-of-range docs
+drift belongs to a future deliberate `drift` pass. Neither reviewer found a
+material observable defect. Acceptance completes Slice 5 and authorizes the
+approved Slice 6 implementation next; it does not authorize push or history
+rewriting.

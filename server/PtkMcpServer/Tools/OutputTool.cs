@@ -12,15 +12,16 @@ public static class OutputTool
 {
     [McpServerTool(Name = "ptk_output")]
     [Description(
-        "Read output captured from a completed ptk_invoke without executing or " +
-        "rerunning anything. action=read returns a bounded UTF-8 byte chunk and " +
+        "Read an immutable output snapshot captured from a completed ptk_invoke or " +
+        "finalized direct background job without executing or rerunning anything. " +
+        "action=read returns a bounded UTF-8 byte chunk and " +
         "next offset; action=search performs a bounded ordinal literal search; " +
         "action=status reports availability, completeness, provenance, size, and " +
         "expiry. Handles are harness-local and may be expired, evicted, incomplete, " +
         "or unavailable. This tool accepts no script and never starts a session or worker.")]
     public static string Output(
         OutputStore store,
-        [Description("Opaque ptk_output handle returned by the original ptk_invoke.")]
+        [Description("Opaque ptk_output handle returned by ptk_invoke or ptk_job.")]
         [Required, MaxLength(256)]
         string handle,
         [Description("read | search | status")]

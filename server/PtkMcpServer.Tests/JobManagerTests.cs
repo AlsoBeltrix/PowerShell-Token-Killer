@@ -13,6 +13,7 @@ public sealed class JobManagerTests : IDisposable
         Path.Combine(Path.GetTempPath(), "ptk-job-fixture-" + Guid.NewGuid().ToString("N"));
     private readonly JobManager _jobs;
     private readonly string _rtkFixturePath;
+    private readonly List<string> _outputRoots = [];
 
     public JobManagerTests()
     {
@@ -25,6 +26,10 @@ public sealed class JobManagerTests : IDisposable
         _jobs.Dispose();
         try { Directory.Delete(_dir, recursive: true); } catch { /* logs may lag a beat */ }
         try { Directory.Delete(_fixtureDir, recursive: true); } catch { }
+        foreach (var root in _outputRoots)
+        {
+            try { Directory.Delete(root, recursive: true); } catch { }
+        }
     }
 
     private async Task<JobSnapshot> WaitForExitAsync(long id, int timeoutSeconds = 60)
@@ -43,6 +48,32 @@ public sealed class JobManagerTests : IDisposable
             Assert.True(DateTime.UtcNow < deadline, $"job {id} did not exit within {timeoutSeconds}s");
             await Task.Delay(200);
         }
+    }
+
+    private OutputStore CreateOutputStore(
+        string scenario,
+        Action<string>? artifactCreateStartingForTests = null,
+        bool singleReservationCapacity = false,
+        Action? reservationStartingForTests = null,
+        long maximumArtifactBytes = OutputStore.MaximumReadBytes)
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "job-manager-output-tests",
+            $"{scenario}-{Guid.NewGuid():N}");
+        _outputRoots.Add(root);
+        return new OutputStore(new OutputStoreOptions(
+            root,
+            TimeSpan.FromMinutes(5),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: maximumArtifactBytes,
+            MaximumSessionBytes: maximumArtifactBytes *
+                (singleReservationCapacity ? 1L : 2L),
+            MaximumAggregateBytes: maximumArtifactBytes *
+                (singleReservationCapacity ? 1L : 4L),
+            ArtifactCreateStartingForTests: artifactCreateStartingForTests,
+            ReservationStartingForTests: reservationStartingForTests));
     }
 
     [Fact]
@@ -307,6 +338,445 @@ public sealed class JobManagerTests : IDisposable
         Assert.Equal(started.Id, published.Id);
         Assert.False(published.Running);
         Assert.False(_jobs.ConfirmStartRecorded(started.Id));
+    }
+
+    [Fact]
+    public async Task Direct_job_seals_one_stable_recovery_handle_before_terminal_callback()
+    {
+        using var store = CreateOutputStore("terminal");
+        const string marker = "DIRECT_JOB_RECOVERY_MARKER";
+        var terminal = new TaskCompletionSource<JobSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        string? callbackHandle = null;
+        string? callbackArtifact = null;
+        var terminalCalls = 0;
+        var plan = _jobs.PrepareStart($"'{marker}'", Path.GetTempPath());
+
+        var started = _jobs.CommitStart(
+            plan,
+            snapshot =>
+            {
+                try
+                {
+                    Assert.Equal(1, Interlocked.Increment(ref terminalCalls));
+                    Assert.True(snapshot.OutputRecoveryFinalized);
+                    var recovery = Assert.IsType<OutputRecoverySummary>(snapshot.OutputRecovery);
+                    Assert.True(recovery.Advertise);
+                    Assert.Equal(OutputArtifactState.Available, recovery.State);
+                    callbackHandle = Assert.IsType<string>(recovery.Handle);
+
+                    var read = store.Read(
+                        callbackHandle,
+                        offset: 0,
+                        maximumBytes: OutputStore.MaximumReadBytes);
+                    Assert.Equal(OutputArtifactState.Available, read.State);
+                    Assert.True(read.Complete);
+                    Assert.Equal(OutputProvenance.DirectText, read.Provenance);
+                    Assert.Contains(marker, read.Text, StringComparison.Ordinal);
+                    callbackArtifact = read.Text;
+                    terminal.TrySetResult(snapshot);
+                }
+                catch (Exception exception)
+                {
+                    terminal.TrySetException(exception);
+                }
+                return Task.CompletedTask;
+            },
+            outputStore: store);
+        Assert.True(_jobs.ConfirmStartRecorded(started.Id));
+
+        var final = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(1, terminalCalls);
+        Assert.NotNull(callbackHandle);
+        Assert.NotNull(callbackArtifact);
+        Assert.Equal(callbackHandle, final.OutputRecovery!.Handle);
+        Assert.True(File.Exists(final.OutputPath));
+        var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+        Assert.Contains($"ptk_output handle={callbackHandle}", recoveryStatus, StringComparison.Ordinal);
+        Assert.Contains("recovery=handle", recoveryStatus, StringComparison.Ordinal);
+        Assert.Contains("ptk_output reports current availability", recoveryStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain("recovery=available", recoveryStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain(final.OutputPath, recoveryStatus, StringComparison.OrdinalIgnoreCase);
+
+        File.WriteAllText(final.OutputPath, "MUTATED_INTERNAL_JOB_SPOOL");
+        File.Delete(final.OutputPath);
+
+        var recoveredAfterSpoolRemoval = store.Read(
+            callbackHandle,
+            offset: 0,
+            maximumBytes: OutputStore.MaximumReadBytes);
+        Assert.Equal(callbackArtifact, recoveredAfterSpoolRemoval.Text);
+        Assert.DoesNotContain(
+            "MUTATED_INTERNAL_JOB_SPOOL",
+            recoveredAfterSpoolRemoval.Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Killed_direct_job_seals_an_incomplete_recovery_prefix()
+    {
+        using var store = CreateOutputStore("killed-prefix");
+        const string prefix = "DIRECT_JOB_PREFIX_BEFORE_KILL";
+        var terminal = new TaskCompletionSource<JobSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var plan = _jobs.PrepareStart(
+            $"Write-Output '{prefix}'; Start-Sleep -Seconds 300",
+            Path.GetTempPath());
+        var started = _jobs.CommitStart(
+            plan,
+            snapshot =>
+            {
+                terminal.TrySetResult(snapshot);
+                return Task.CompletedTask;
+            },
+            outputStore: store);
+        Assert.True(_jobs.ConfirmStartRecorded(started.Id));
+
+        try
+        {
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(10);
+            while (true)
+            {
+                var captured = _jobs.ReadOutput(started.Id, 0)!.Value.Text;
+                if (captured.Contains(prefix, StringComparison.Ordinal)) break;
+                Assert.True(
+                    DateTimeOffset.UtcNow < deadline,
+                    "the direct job did not publish its guarded prefix before the kill deadline");
+                await Task.Delay(25);
+            }
+
+            Assert.True(_jobs.Kill(started.Id));
+            var final = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.False(final.Running);
+            Assert.True(final.KillRequested);
+            Assert.True(final.OutputRecoveryFinalized);
+            var recovery = Assert.IsType<OutputRecoverySummary>(final.OutputRecovery);
+            Assert.True(recovery.Advertise);
+            Assert.Equal(OutputArtifactState.Incomplete, recovery.State);
+            var handle = Assert.IsType<string>(recovery.Handle);
+
+            var status = store.Status(handle);
+            Assert.Equal(OutputArtifactState.Incomplete, status.State);
+            Assert.False(status.Complete);
+            Assert.Equal(OutputProvenance.DirectText, status.Provenance);
+            var read = store.Read(handle, 0, OutputStore.MaximumReadBytes);
+            Assert.Equal(OutputArtifactState.Incomplete, read.State);
+            Assert.False(read.Complete);
+            Assert.Equal(OutputProvenance.DirectText, read.Provenance);
+            Assert.Contains(prefix, read.Text, StringComparison.Ordinal);
+            var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+            Assert.Contains($"ptk_output handle={handle}", recoveryStatus, StringComparison.Ordinal);
+            Assert.Contains("artifact incomplete", recoveryStatus, StringComparison.Ordinal);
+            Assert.DoesNotContain(final.OutputPath, recoveryStatus, StringComparison.OrdinalIgnoreCase);
+            using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(10));
+            var toolStatus = await Tools.JobTool.Job(
+                host,
+                _jobs,
+                "status",
+                CancellationToken.None,
+                id: started.Id);
+            Assert.Contains("recovery artifact incomplete", toolStatus, StringComparison.Ordinal);
+            Assert.DoesNotContain(", output incomplete", toolStatus, StringComparison.Ordinal);
+            Assert.Contains(handle, toolStatus, StringComparison.Ordinal);
+            Assert.DoesNotContain(final.OutputPath, toolStatus, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            _jobs.Kill(started.Id);
+        }
+    }
+
+    [Fact]
+    public async Task Direct_job_recovery_seal_failure_never_reexecutes_or_advertises_a_handle()
+    {
+        using var store = CreateOutputStore(
+            "seal-failure",
+            _ => throw new IOException("injected job recovery seal failure"));
+        var executionMarker = Path.Combine(_fixtureDir, "recovery-seal-executions.txt");
+        Directory.CreateDirectory(_fixtureDir);
+        var escapedMarker = executionMarker.Replace("'", "''", StringComparison.Ordinal);
+        var plan = _jobs.PrepareStart(
+            $"Add-Content -LiteralPath '{escapedMarker}' -Value x; 'SEALED_ONCE'",
+            Path.GetTempPath());
+
+        var started = _jobs.CommitStart(plan, outputStore: store);
+        Assert.True(_jobs.ConfirmStartRecorded(started.Id));
+        var final = await WaitForExitAsync(started.Id);
+
+        Assert.Equal(["x"], File.ReadAllLines(executionMarker));
+        Assert.True(final.OutputRecoveryFinalized);
+        var recovery = Assert.IsType<OutputRecoverySummary>(final.OutputRecovery);
+        Assert.Null(recovery.Handle);
+        Assert.Equal(OutputArtifactState.NotFound, recovery.State);
+        Assert.Equal("storage_unavailable", recovery.DetailCode);
+        Assert.True(recovery.Advertise);
+        var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+        Assert.Equal(
+            "recovery=unavailable: output capture unavailable; command was not rerun",
+            recoveryStatus);
+        Assert.DoesNotContain(final.OutputPath, recoveryStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain("ptko_", recoveryStatus, StringComparison.Ordinal);
+
+        Assert.True(
+            store.TryReserve("default", out var replacement, out var failure),
+            failure);
+        replacement!.Dispose();
+    }
+
+    [Fact]
+    public void Direct_job_proved_no_start_releases_its_output_reservation()
+    {
+        using var store = CreateOutputStore(
+            "proved-no-start",
+            singleReservationCapacity: true);
+        _jobs.ProcessStartOverrideForTests = _ => false;
+        var plan = _jobs.PrepareStart("'must not execute'", Path.GetTempPath());
+
+        var error = Assert.Throws<JobStartException>(() =>
+            _jobs.CommitStart(plan, outputStore: store));
+
+        Assert.False(error.ProcessStarted);
+        Assert.Empty(_jobs.List());
+        Assert.True(
+            store.TryReserve("default", out var replacement, out var failure),
+            failure);
+        replacement!.Dispose();
+    }
+
+    [Fact]
+    public void Direct_job_unassociated_start_unknown_releases_recovery_capacity()
+    {
+        using var store = CreateOutputStore(
+            "unassociated-start",
+            singleReservationCapacity: true);
+        // This manager intentionally retains an unassociated, root-unconfirmed
+        // tombstone. Disposing it would correctly refuse to claim a clean
+        // shutdown; it owns no associated process or remaining store capacity.
+        var jobs = new JobManager(Path.Combine(_dir, "direct-unassociated-start"));
+        jobs.ProcessStartOverrideForTests = _ =>
+            throw new IOException("injected unassociated start uncertainty");
+        var plan = jobs.PrepareStart("'start outcome unknown'", Path.GetTempPath());
+
+        var error = Assert.Throws<JobStartException>(() =>
+            jobs.CommitStart(plan, outputStore: store));
+
+        Assert.Null(error.ProcessStarted);
+        var tombstone = Assert.Single(jobs.List());
+        Assert.True(tombstone.StartOutcomeUnknown);
+        Assert.True(tombstone.OutputRecoveryFinalized);
+        Assert.Null(tombstone.OutputRecovery?.Handle);
+        Assert.Equal(
+            "process_start_outcome_unknown",
+            tombstone.OutputRecovery?.DetailCode);
+        Assert.True(
+            store.TryReserve("default", out var replacement, out var failure),
+            failure);
+        replacement!.Dispose();
+    }
+
+    [Fact]
+    public async Task Blocked_output_reservation_is_bounded_and_job_executes_once_without_recovery()
+    {
+        using var reservationEntered = new ManualResetEventSlim();
+        using var releaseReservation = new ManualResetEventSlim();
+        using var store = CreateOutputStore(
+            "blocked-reservation",
+            singleReservationCapacity: true,
+            reservationStartingForTests: () =>
+            {
+                reservationEntered.Set();
+                releaseReservation.Wait(TimeSpan.FromSeconds(10));
+            });
+        using var jobs = new JobManager(
+            JobPwshExecutable.ResolveFromPath(),
+            Path.Combine(_dir, "blocked-output-reservation"),
+            abortedOutputDrainGrace: TimeSpan.FromMilliseconds(100));
+        Directory.CreateDirectory(_fixtureDir);
+        var executionMarker = Path.Combine(_fixtureDir, "blocked-reservation-executions.txt");
+        var escapedMarker = executionMarker.Replace("'", "''", StringComparison.Ordinal);
+        var plan = jobs.PrepareStart(
+            $"Add-Content -LiteralPath '{escapedMarker}' -Value x; 'RAN_ONCE'",
+            Path.GetTempPath());
+
+        try
+        {
+            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+            var started = jobs.CommitStart(plan, outputStore: store);
+            stopwatch.Stop();
+
+            Assert.True(jobs.ConfirmStartRecorded(started.Id));
+            Assert.True(reservationEntered.IsSet);
+            Assert.True(
+                stopwatch.Elapsed < TimeSpan.FromSeconds(2),
+                $"blocked recovery reservation delayed start for {stopwatch.Elapsed}");
+            releaseReservation.Set();
+            var final = await WaitForExitAsync(jobs, started.Id, timeoutSeconds: 10);
+
+            Assert.Equal(["x"], File.ReadAllLines(executionMarker));
+            Assert.True(final.OutputRecoveryFinalized);
+            Assert.Null(final.OutputRecovery?.Handle);
+            Assert.Equal(
+                "output_store_prepare_timed_out",
+                final.OutputRecovery?.DetailCode);
+
+            OutputCaptureReservation? replacement = null;
+            string? failure = null;
+            Assert.True(
+                SpinWait.SpinUntil(
+                    () => store.TryReserve("default", out replacement, out failure),
+                    TimeSpan.FromSeconds(5)),
+                failure ?? "the timed-out reservation did not release output-store capacity");
+            replacement!.Dispose();
+        }
+        finally
+        {
+            releaseReservation.Set();
+        }
+    }
+
+    [Fact]
+    public async Task Blocked_terminal_seal_uses_one_store_lane_and_second_job_fails_busy()
+    {
+        using var artifactCreateEntered = new ManualResetEventSlim();
+        using var releaseArtifactCreate = new ManualResetEventSlim();
+        var artifactCreateCalls = 0;
+        using var store = CreateOutputStore(
+            "blocked-terminal-seal",
+            artifactCreateStartingForTests: _ =>
+            {
+                Interlocked.Increment(ref artifactCreateCalls);
+                artifactCreateEntered.Set();
+                releaseArtifactCreate.Wait(TimeSpan.FromSeconds(10));
+            });
+        using var jobs = new JobManager(
+            JobPwshExecutable.ResolveFromPath(),
+            Path.Combine(_dir, "blocked-terminal-seal"),
+            postExitOutputDrainGrace: TimeSpan.FromSeconds(2),
+            abortedOutputDrainGrace: TimeSpan.FromMilliseconds(100));
+        Directory.CreateDirectory(_fixtureDir);
+        var firstGate = Path.Combine(_fixtureDir, "first-seal.gate");
+        var secondGate = Path.Combine(_fixtureDir, "second-seal.gate");
+        var escapedFirstGate = firstGate.Replace("'", "''", StringComparison.Ordinal);
+        var escapedSecondGate = secondGate.Replace("'", "''", StringComparison.Ordinal);
+        var firstTerminal = new TaskCompletionSource<JobSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondTerminal = new TaskCompletionSource<JobSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstPlan = jobs.PrepareStart(
+            $"while (-not (Test-Path -LiteralPath '{escapedFirstGate}')) {{ " +
+            "Start-Sleep -Milliseconds 10 }; 'FIRST_SEAL'",
+            Path.GetTempPath());
+        var secondPlan = jobs.PrepareStart(
+            $"while (-not (Test-Path -LiteralPath '{escapedSecondGate}')) {{ " +
+            "Start-Sleep -Milliseconds 10 }; 'SECOND_SEAL'",
+            Path.GetTempPath());
+        var first = jobs.CommitStart(
+            firstPlan,
+            snapshot =>
+            {
+                firstTerminal.TrySetResult(snapshot);
+                return Task.CompletedTask;
+            },
+            outputStore: store);
+        var second = jobs.CommitStart(
+            secondPlan,
+            snapshot =>
+            {
+                secondTerminal.TrySetResult(snapshot);
+                return Task.CompletedTask;
+            },
+            outputStore: store);
+        Assert.True(jobs.ConfirmStartRecorded(first.Id));
+        Assert.True(jobs.ConfirmStartRecorded(second.Id));
+
+        try
+        {
+            File.WriteAllText(firstGate, string.Empty);
+            Assert.True(
+                artifactCreateEntered.Wait(TimeSpan.FromSeconds(10)),
+                "the first job never entered the guarded artifact-create seam");
+            var sealing = Assert.IsType<JobSnapshot>(jobs.Snapshot(first.Id));
+            Assert.True(sealing.Running);
+            Assert.False(sealing.OutputRecoveryFinalized);
+            Assert.Contains(
+                "recovery=pending",
+                Tools.JobTool.RecoveryStatus(sealing),
+                StringComparison.Ordinal);
+
+            File.WriteAllText(secondGate, string.Empty);
+            var secondFinal = await secondTerminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var firstFinal = await firstTerminal.Task.WaitAsync(TimeSpan.FromSeconds(10));
+
+            Assert.Equal(1, Volatile.Read(ref artifactCreateCalls));
+            Assert.Null(firstFinal.OutputRecovery?.Handle);
+            Assert.Equal(
+                "output_store_seal_timed_out",
+                firstFinal.OutputRecovery?.DetailCode);
+            Assert.Null(secondFinal.OutputRecovery?.Handle);
+            Assert.Equal("output_store_busy", secondFinal.OutputRecovery?.DetailCode);
+        }
+        finally
+        {
+            releaseArtifactCreate.Set();
+            jobs.Kill(first.Id);
+            jobs.Kill(second.Id);
+        }
+
+        Task<int>? laneProbe = null;
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => store.TryStartForegroundOperation(() => 1, out laneProbe),
+                TimeSpan.FromSeconds(5)),
+            "the timed-out terminal seal did not release the shared storage lane");
+        Assert.Equal(1, await laneProbe!);
+        Assert.Equal(1, Volatile.Read(ref artifactCreateCalls));
+        Assert.True(
+            store.TryReserve("default", out var replacement, out var failure),
+            failure);
+        replacement!.Dispose();
+    }
+
+    [Fact]
+    public async Task Direct_job_snapshot_cap_preserves_a_complete_utf8_scalar_boundary()
+    {
+        const int artifactBytes = 64;
+        using var store = CreateOutputStore("utf8-cap");
+        _jobs.OutputRecoverySnapshotMaximumBytesForTests = artifactBytes;
+        var plan = _jobs.PrepareStart(
+            "Write-Output (('a' * 63) + [char]::ConvertFromUtf32(0x1F600) + 'TAIL')",
+            Path.GetTempPath());
+
+        var started = _jobs.CommitStart(plan, outputStore: store);
+        Assert.True(_jobs.ConfirmStartRecorded(started.Id));
+        var final = await WaitForExitAsync(started.Id);
+
+        var recovery = Assert.IsType<OutputRecoverySummary>(final.OutputRecovery);
+        Assert.Equal(OutputArtifactState.Incomplete, recovery.State);
+        Assert.Equal("artifact_cap_exceeded", recovery.DetailCode);
+        var handle = Assert.IsType<string>(recovery.Handle);
+        var read = store.Read(handle, 0, OutputStore.MaximumReadBytes);
+        Assert.Equal(OutputArtifactState.Incomplete, read.State);
+        Assert.Equal(
+            new string('a', 63),
+            read.Text.Split('\n', StringSplitOptions.None)[0].TrimEnd('\r'));
+        Assert.Contains("[exit] 0", read.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain('\ufffd', read.Text);
+        Assert.DoesNotContain("TAIL", read.Text, StringComparison.Ordinal);
+        var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+        Assert.Contains("artifact incomplete", recoveryStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain("output incomplete", recoveryStatus, StringComparison.Ordinal);
+        using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(10));
+        var toolStatus = await Tools.JobTool.Job(
+            host,
+            _jobs,
+            "status",
+            CancellationToken.None,
+            id: started.Id);
+        Assert.Contains("recovery artifact incomplete", toolStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain(", output incomplete", toolStatus, StringComparison.Ordinal);
+        Assert.Contains(handle, toolStatus, StringComparison.Ordinal);
+        Assert.DoesNotContain(final.OutputPath, toolStatus, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

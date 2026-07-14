@@ -2647,6 +2647,12 @@ public sealed class InvokeToolTests : IDisposable
             var output = _jobs.ReadOutput(started.Id, 0)!.Value.Text;
 
             Assert.NotNull(observed);
+            Assert.Contains(
+                "recovery=unavailable: rtk capture unsupported",
+                response,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("ptko_", response, StringComparison.Ordinal);
+            Assert.DoesNotContain(observed.OutputPath, response, StringComparison.Ordinal);
             Assert.Equal(ExecutionPath.Rtk, observed.ExecutionPath);
             Assert.Equal(ResolutionContext.Cold, observed.Execution.ResolutionContext);
             Assert.Equal(OutputProvenance.RtkUnknown, observed.Execution.OutputProvenance);
@@ -2688,6 +2694,10 @@ public sealed class InvokeToolTests : IDisposable
         var savedPathExt = Environment.GetEnvironmentVariable("PATHEXT");
         var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
         var savedMarker = Environment.GetEnvironmentVariable("PTK_COLD_TARGET_MARKER");
+        var recoveryReservations = 0;
+        using var store = CreateOutputStore(
+            reservationStartingForTests: () =>
+                Interlocked.Increment(ref recoveryReservations));
         try
         {
             Environment.SetEnvironmentVariable(
@@ -2718,7 +2728,8 @@ public sealed class InvokeToolTests : IDisposable
                 "ptk-cold-fallback-target ARG",
                 CancellationToken.None,
                 route: "rtk",
-                background: true);
+                background: true,
+                outputStore: store);
 
             Assert.Contains("[job 1 started]", response, StringComparison.Ordinal);
             Assert.Contains(
@@ -2742,6 +2753,16 @@ public sealed class InvokeToolTests : IDisposable
             Assert.Contains("COLD_FALLBACK_TARGET ARG", output, StringComparison.Ordinal);
             Assert.Equal(ExecutionPath.PowerShellDirect, final.Execution.ExecutionPath);
             Assert.Equal(OutputProvenance.DirectText, final.Execution.OutputProvenance);
+            Assert.Equal(1, recoveryReservations);
+            Assert.True(final.OutputRecoveryFinalized);
+            var recovery = Assert.IsType<OutputRecoverySummary>(final.OutputRecovery);
+            Assert.Equal(OutputArtifactState.Available, recovery.State);
+            var handle = Assert.IsType<string>(recovery.Handle);
+            var recovered = OutputTool.Output(
+                store,
+                handle,
+                maxBytes: OutputStore.MaximumReadBytes);
+            Assert.Contains("COLD_FALLBACK_TARGET ARG", recovered, StringComparison.Ordinal);
             Assert.Equal(
                 ExecutionFallbackReason.RtkExecutionPreparationFailed,
                 final.Execution.FallbackReason);
@@ -2914,6 +2935,10 @@ public sealed class InvokeToolTests : IDisposable
         var (dir, stub) = CreateRtkStub(body);
         var savedRtk = Environment.GetEnvironmentVariable("PTK_RTK_PATH");
         var savedLog = Environment.GetEnvironmentVariable("PTK_RTK_TEST_LOG");
+        var recoveryReservations = 0;
+        using var store = CreateOutputStore(
+            reservationStartingForTests: () =>
+                Interlocked.Increment(ref recoveryReservations));
         try
         {
             Environment.SetEnvironmentVariable("PTK_RTK_PATH", stub);
@@ -2946,7 +2971,7 @@ public sealed class InvokeToolTests : IDisposable
                 coldCommandTargetIdentity: targetIdentity);
             var start = _jobs.PrepareStart(ExecutionDispatch.FromPlan(plan), dir.FullName);
 
-            var started = _jobs.CommitStart(start);
+            var started = _jobs.CommitStart(start, outputStore: store);
             Assert.True(_jobs.ConfirmStartRecorded(started.Id));
             var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(60);
             while (_jobs.Snapshot(started.Id)?.Running == true)
@@ -2965,6 +2990,10 @@ public sealed class InvokeToolTests : IDisposable
                 offset: 0);
 
             Assert.Equal(OutputProvenance.RtkUnknown, final.Execution.OutputProvenance);
+            Assert.Equal(0, recoveryReservations);
+            Assert.True(final.OutputRecoveryFinalized);
+            Assert.Null(final.OutputRecovery?.Handle);
+            Assert.Equal("rtk_capture_unsupported", final.OutputRecovery?.DetailCode);
             Assert.Contains("step 1", poll, StringComparison.Ordinal);
             Assert.Contains("step 600", poll, StringComparison.Ordinal);
             Assert.Contains("INFO worker: ANSI", poll, StringComparison.Ordinal);
@@ -2973,6 +3002,8 @@ public sealed class InvokeToolTests : IDisposable
                 "lines elided - recovery=unavailable: rtk capture unsupported",
                 poll,
                 StringComparison.Ordinal);
+            Assert.DoesNotContain("ptko_", poll, StringComparison.Ordinal);
+            Assert.DoesNotContain(final.OutputPath, poll, StringComparison.Ordinal);
             Assert.Equal([stub], File.ReadAllLines(invocationLog));
         }
         finally

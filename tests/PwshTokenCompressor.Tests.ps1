@@ -717,11 +717,19 @@ Describe 'redirect hook and installer' {
             ([regex]::Matches($text, [regex]::Escape('<!-- ptk-guidance -->'))).Count | Should -Be 1
             $text | Should -Match 'keep me'
             $text | Should -Match 'ptk_invoke'
-            # D2 raw posture (shell-dialect slice 3): the nudge teaches raw
-            # as a recovery hatch plus the route=pwsh + raw=false pairing; a
-            # drift back to inviting wording must fail the battery here.
-            $text | Should -Match 'recovery hatch'
-            $text | Should -Match 'route=pwsh with raw=false'
+            # Audited-harness Slice 4/5 posture: raw is inert compatibility
+            # telemetry, route=pwsh is independent exact-PowerShell consent,
+            # and immutable same-invocation recovery uses ptk_output only when
+            # the response actually supplies a handle.
+            $text | Should -Match 'raw=true is deprecated compatibility telemetry'
+            $text | Should -Match 'does not change execution or shaping'
+            $text | Should -Match 'route=pwsh is exact PowerShell consent'
+            $text | Should -Match 'independent of raw, with normal capture and shaping'
+            $text | Should -Match 'ptk_output handle'
+            $text | Should -Match 'immutable same-invocation artifact'
+            $text | Should -Match 'without rerunning the command'
+            $text | Should -Not -Match 'recovery hatch'
+            $text | Should -Not -Match 'route=pwsh with raw=false'
             $text | Should -Not -Match 'returns full uncompressed'
             # D3 dialect line (shell-dialect slice 4). sd4-2: pin the FULL
             # qualified phrase, mirroring the hook-deny guard - dropping the

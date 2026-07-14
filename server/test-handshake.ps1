@@ -208,6 +208,9 @@ $escapedOutputToken = [regex]::Escape($outputToken)
 $quotedOutputToken = "'" + $outputToken.Replace("'", "''") + "'"
 $warmSeedScript = '$warm = ' + $quotedOutputToken
 $warmReadScript = '$warm'
+$backgroundToken = 'ptk-background-' + [guid]::NewGuid().ToString('N')
+$escapedBackgroundToken = [regex]::Escape($backgroundToken)
+$backgroundScript = "Write-Output '" + $backgroundToken.Replace("'", "''") + "'"
 $mainExitedGracefully = $false
 $failed = $false
 try {
@@ -323,6 +326,69 @@ try {
         throw "ptk_output did not retrieve the advertised invocation: '$outputText'."
     }
     Write-Host 'ptk_output recovery ok: advertised handle returned the runtime token with PowerShell-object provenance'
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 7; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = $backgroundScript; route = 'pwsh'; background = $true }
+        }
+    }
+    $backgroundStart = (Read-RpcResponse -Id 7).result
+    $backgroundStartText = $backgroundStart.content[0].text
+    $jobMatch = [regex]::Match($backgroundStartText, '\[job (\d+) started\]')
+    if ($backgroundStart.isError -or -not $jobMatch.Success -or
+        $backgroundStartText -notmatch 'recovery=pending' -or
+        $backgroundStartText -match 'ptko_[A-Za-z0-9_-]+' -or
+        $backgroundStartText -match '(?i)\blog:') {
+        throw "background invoke did not return one path-free pending job: '$backgroundStartText'."
+    }
+    $backgroundJobId = [long]$jobMatch.Groups[1].Value
+    $rpcId = 8
+    $statusDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
+    do {
+        Send-Rpc @{
+            jsonrpc = '2.0'; id = $rpcId; method = 'tools/call'
+            params = @{
+                name = 'ptk_job'
+                arguments = @{ action = 'status'; id = $backgroundJobId }
+            }
+        }
+        $backgroundStatus = (Read-RpcResponse -Id $rpcId).result
+        $backgroundStatusText = $backgroundStatus.content[0].text
+        $backgroundHandles = [regex]::Matches(
+            $backgroundStatusText,
+            'ptk_output handle=(ptko_[A-Za-z0-9_-]+)')
+        if ($backgroundStatus.isError) {
+            throw "background ptk_job status failed: '$backgroundStatusText'."
+        }
+        if ($backgroundHandles.Count -eq 1) { break }
+        if ([DateTimeOffset]::UtcNow -ge $statusDeadline) {
+            throw "background job did not publish one recovery handle: '$backgroundStatusText'."
+        }
+        $rpcId++
+        Start-Sleep -Milliseconds 50
+    } while ($true)
+
+    $backgroundHandle = $backgroundHandles[0].Groups[1].Value
+    if ($backgroundStatusText -notmatch 'recovery=handle:' -or
+        $backgroundStatusText -match '(?i)\blog:') {
+        throw "background status did not publish one path-free stable handle: '$backgroundStatusText'."
+    }
+    $rpcId++
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = $rpcId; method = 'tools/call'
+        params = @{ name = 'ptk_output'; arguments = @{ handle = $backgroundHandle } }
+    }
+    $backgroundRead = (Read-RpcResponse -Id $rpcId).result
+    $backgroundOutputText = $backgroundRead.content[0].text
+    $backgroundHeader = ($backgroundOutputText -split '\r?\n', 2)[0]
+    if ($backgroundRead.isError -or
+        $backgroundHeader -notmatch '^\[ptk output\] action=read state=available complete=true bytes=\d+ provenance=direct_text offset=0 next_offset=\d+ bytes_returned=\d+$' -or
+        $backgroundOutputText -notmatch "(?m)^$escapedBackgroundToken\r?$") {
+        throw "ptk_output did not retrieve the advertised background invocation: '$backgroundOutputText'."
+    }
+    Write-Host 'background recovery ok: ptk_job published a path-free handle and ptk_output returned the same direct invocation'
     Assert-LiveOutputRoot -Parent $outputParent -Label 'main server'
 
 }
@@ -368,16 +434,19 @@ finally {
             $invokeAccepted = @($events | Where-Object {
                 $_.event_type -eq 'call.accepted' -and $_.request.tool -eq 'ptk_invoke'
             })
-            if ($invokeAccepted.Count -ne 2) {
-                throw "expected two accepted invoke audit events; got $($invokeAccepted.Count)"
+            if ($invokeAccepted.Count -ne 3) {
+                throw "expected three accepted invoke audit events; got $($invokeAccepted.Count)"
+            }
+            $providedFieldSets = @($invokeAccepted | ForEach-Object {
+                (@($_.request.provided_fields) | Sort-Object) -join ','
+            })
+            if (@($providedFieldSets | Where-Object { $_ -eq 'script' }).Count -ne 2 -or
+                @($providedFieldSets | Where-Object { $_ -eq 'background,route,script' }).Count -ne 1) {
+                throw "provided_fields did not preserve the three exact invoke boundaries: $($providedFieldSets -join '; ')"
             }
             foreach ($accepted in $invokeAccepted) {
                 if ($accepted.actor.client_name -ne 'ptk-handshake') {
                     throw 'MCP client attribution was not captured at the boundary'
-                }
-                if (@($accepted.request.provided_fields).Count -ne 1 -or
-                    $accepted.request.provided_fields[0] -ne 'script') {
-                    throw 'provided_fields did not preserve the exact invoke boundary'
                 }
                 if (-not $accepted.request.script_evidence_id -or
                     -not $accepted.request.original_script_digest) {
@@ -385,39 +454,60 @@ finally {
                 }
             }
             if ($rawAudit.Contains($outputToken) -or
+                $rawAudit.Contains($backgroundToken) -or
                 $rawAudit.Contains($warmSeedScript) -or
-                $rawAudit.Contains($warmReadScript)) {
+                $rawAudit.Contains($warmReadScript) -or
+                $rawAudit.Contains($backgroundScript)) {
                 throw 'runtime output token or exact script text leaked into the core audit stream'
             }
             $outputAccepted = @($events | Where-Object {
                 $_.event_type -eq 'call.accepted' -and $_.request.tool -eq 'ptk_output'
             })
-            if ($outputAccepted.Count -ne 1) {
-                throw "expected one accepted output audit event; got $($outputAccepted.Count)"
+            if ($outputAccepted.Count -ne 2) {
+                throw "expected two accepted output audit events; got $($outputAccepted.Count)"
             }
-            $outputCallId = $outputAccepted[0].correlation.call_id
-            $outputEvents = @($events | Where-Object {
-                $_.correlation.call_id -eq $outputCallId
-            } | Sort-Object sequence)
-            $outputEventTypes = @($outputEvents.event_type)
-            if (($outputEventTypes -join ',') -ne 'call.accepted,output.read_accessed,call.completed') {
-                throw "output audit lifecycle drifted: $($outputEventTypes -join ', ')"
+            foreach ($acceptedOutput in $outputAccepted) {
+                $outputCallId = $acceptedOutput.correlation.call_id
+                $outputEvents = @($events | Where-Object {
+                    $_.correlation.call_id -eq $outputCallId
+                } | Sort-Object sequence)
+                $outputEventTypes = @($outputEvents.event_type)
+                if (($outputEventTypes -join ',') -ne 'call.accepted,output.read_accessed,call.completed') {
+                    throw "output audit lifecycle drifted: $($outputEventTypes -join ', ')"
+                }
+                $outputAccess = @($outputEvents | Where-Object event_type -EQ 'output.read_accessed')
+                if ($outputAccess.Count -ne 1 -or
+                    $outputAccess[0].outcome.state -ne 'available' -or
+                    $outputAccess[0].outcome.bytes_returned -le 0 -or
+                    $outputAccess[0].outcome.next_offset -le 0 -or
+                    -not $outputAccess[0].request.output_handle_digest) {
+                    throw 'output read audit facts were incomplete or incorrect'
+                }
             }
-            $outputAccess = @($outputEvents | Where-Object event_type -EQ 'output.read_accessed')
-            if ($outputAccess.Count -ne 1 -or
-                $outputAccess[0].outcome.state -ne 'available' -or
-                $outputAccess[0].outcome.bytes_returned -le 0 -or
-                $outputAccess[0].outcome.next_offset -le 0 -or
-                -not $outputAccess[0].request.output_handle_digest) {
-                throw 'output read audit facts were incomplete or incorrect'
+            $jobStatusAccepted = @($events | Where-Object {
+                $_.event_type -eq 'call.accepted' -and $_.request.tool -eq 'ptk_job'
+            })
+            if ($jobStatusAccepted.Count -lt 1) {
+                throw 'background recovery produced no accepted ptk_job status call'
             }
-            if ($rawAudit.Contains($recoveryHandle)) {
+            foreach ($acceptedStatus in $jobStatusAccepted) {
+                $statusEvents = @($events | Where-Object {
+                    $_.correlation.call_id -eq $acceptedStatus.correlation.call_id
+                } | Sort-Object sequence)
+                if ((@($statusEvents.event_type) -join ',') -ne
+                    'call.accepted,job.status_accessed,call.completed') {
+                    throw "job status audit lifecycle drifted: $(@($statusEvents.event_type) -join ', ')"
+                }
+            }
+            if ($rawAudit.Contains($recoveryHandle) -or $rawAudit.Contains($backgroundHandle)) {
                 throw 'raw output handle leaked into the core audit stream'
             }
             $evidence = @(Get-ChildItem -LiteralPath (Join-Path $auditRoot 'evidence') -Filter '*.script')
-            if ($evidence.Count -ne 2) { throw "expected two evidence payloads; got $($evidence.Count)" }
+            if ($evidence.Count -ne 3) { throw "expected three evidence payloads; got $($evidence.Count)" }
             $payloads = @($evidence | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName })
-            if ($payloads -notcontains $warmSeedScript -or $payloads -notcontains $warmReadScript) {
+            if ($payloads -notcontains $warmSeedScript -or
+                $payloads -notcontains $warmReadScript -or
+                $payloads -notcontains $backgroundScript) {
                 throw 'evidence payloads did not preserve the exact submitted scripts'
             }
             Write-Host 'audit ok: boundary attribution, provided fields, evidence references, and core secrecy verified'

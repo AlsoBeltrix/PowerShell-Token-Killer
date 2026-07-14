@@ -54,8 +54,9 @@ Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `ptk_invoke` | `script`, optional `raw`, `route`, `background`, `timeoutSeconds` | Run shell work through PTK: persistent PowerShell execution, eligible terminal-native RTK routing, or bounded validated Bash delegation; `background: true` starts a cold PowerShell job, and `timeoutSeconds` overrides the capped per-call timeout. |
-| `ptk_job` | `action` (`status`/`output`/`kill`/`list`), `id`, `offset` | Manage background jobs: `output` returns new output since `offset`, shaped and bounded, ending with the next offset to pass; the complete raw log path is in `status`. |
+| `ptk_invoke` | `script`, optional `raw`, `route`, `background`, `timeoutSeconds` | Run shell work through PTK: persistent PowerShell execution, eligible terminal-native RTK routing, or bounded validated Bash delegation; `background: true` starts a separate cold child whose plan selects direct PowerShell or eligible RTK routing, and `timeoutSeconds` overrides the capped per-call timeout. The legacy `raw` flag is deprecated and inert except for compatibility telemetry. |
+| `ptk_job` | `action` (`status`/`output`/`kill`/`list`), `id`, `offset` | Manage background jobs: `output` returns new output since `offset`, shaped and bounded, ending with the next offset to pass. After a direct job finalizes, status/output report a stable opaque `ptk_output` handle only when its immutable recovery artifact sealed successfully. Capture/storage failure and seam-absent RTK jobs report recovery unavailable; this does not guarantee that the distinct internal polling spool remains readable. Internal spool paths are never exposed. |
+| `ptk_output` | `handle`, `action` (`read`/`search`/`status`), `offset`, `maxBytes`, optional `pattern` | Read, search, or inspect an immutable same-invocation artifact named by `ptk_invoke` or `ptk_job`. It never starts a session or worker and never executes or reruns a command; handles may be incomplete, expired, evicted, or unavailable. |
 | `ptk_state` | optional `listAvailable` | Session introspection and health check: engine, server PID/uptime, cwd, loaded modules, and drift — env vars changed since server start, PATH as an entry diff, variable count. With `listAvailable: true`, also enumerate installed modules once and cache the result. Never queues: while another call holds the runspace it answers promptly with host-level facts plus a busy line (active-call age, waiter count), marking runspace-dependent details unavailable. |
 | `ptk_reset` | none | Recycle the runspace to factory state: discards variables, loaded modules, current directory, default parameters, and connections, and restores environment variables to their server-start values. |
 
@@ -184,8 +185,9 @@ Routing rules:
   remains explicitly unknown.
 - A clean-parsing detector finding retains the fast `[ptk:dialect]` refusal.
   `route=pwsh` bypasses the detector/delegation path as explicit PowerShell
-  consent. `raw=true` retains its current routing bypass until its documented
-  recovery-only transition lands.
+  consent; normal capture and shaping still apply. The deprecated `raw=true`
+  flag is inert compatibility telemetry and does not affect dialect handling,
+  interpreter, routing, process choice, capture, or shaping.
 - High-confidence mixed file capture remains advisory: the exact original
   `<native application> | Set-Content <constant non-wildcard path>` pipeline
   runs first in PowerShell. Only the exact built-in
@@ -204,8 +206,10 @@ Output shaping:
 - Object output compresses with `Compress-PtcObject`.
 - Plain strings and primitive scalars pass through with ANSI/control
   sequences stripped, otherwise unaltered; pathologically large text is
-  elided to a labeled head+tail window (the marker names `raw=true`, the
-  recovery hatch if the elided middle matters).
+  elided to a labeled head+tail window. When PTK successfully seals a
+  same-invocation snapshot, the response names an opaque `ptk_output` handle
+  that can recover the elided middle without rerunning the command; otherwise
+  it explicitly reports recovery unavailable.
 - Log-shaped text routes through `rtk log` when possible.
 - Log-shaped text falls back to labeled raw text if `rtk` is absent or fails.
 - The host passes the exact startup-frozen identity into shaping, bounds the
@@ -220,25 +224,32 @@ Output shaping:
 
 Overrides:
 
-- `raw=true` skips routing and shaping — a recovery hatch for detail the
-  compressed form lost, not a default; compressed output already preserves
-  errors, exit codes, and structure.
-- `route=pwsh` forces execution exactly as PowerShell; with `raw=false`
-  that pairing is exact execution with shaped output.
+- `raw=true` is accepted only as deprecated compatibility telemetry. It does
+  not change dialect handling, interpreter, routing, process choice, capture,
+  or shaping.
+- `route=pwsh`, independently of `raw`, is explicit consent to interpret the
+  exact original text as PowerShell; normal capture and shaping still apply.
 - `route=rtk` asserts the `rtk` rewrite only for the safe single-application
   shape. Ineligible or unavailable routing is labeled and executes the exact
   original once through PowerShell.
+- When a response supplies a `ptk_output` handle, use it to read the immutable
+  same-invocation artifact. `ptk_output` never executes or reruns the command.
 
 Long-running work (two paths, by workload):
 
-- `background=true` starts the script as a **cold child `pwsh` process** and
-  returns a job id immediately. The job does not see warm session state; it
-  starts in the session's current directory and writes all output to a log
-  under `~/.ptk/jobs/`. Poll with `ptk_job action=output` (pass the returned
-  next offset each time); output polls are shaped and bounded like foreground
-  output, and the complete raw log path is in `action=status`. Use this for
-  builds, watchers, deploys — stateless work that could exceed the call
-  timeout.
+- `background=true` starts the script as a **separate cold child process** and
+  returns a job id immediately. The cold plan selects direct PowerShell or
+  eligible RTK routing. The job does not see warm session state; it
+  starts in the session's current directory and writes output to an internal
+  supervisor spool. Poll with `ptk_job action=output` (pass the returned next
+  offset each time); output polls are shaped and bounded like foreground
+  output. Once a direct job terminates and capture succeeds, `ptk_job` reports
+  a stable `ptk_output` handle for the immutable same-invocation snapshot;
+  otherwise it reports recovery unavailable without rerunning. Recovery
+  sealing and live polling use distinct storage, so seal failure does not
+  guarantee that the polling spool remains readable. The internal spool path
+  is never model-facing. Use this for builds, watchers, deploys — stateless
+  work that could exceed the call timeout.
 - `timeoutSeconds` raises the per-call timeout (capped by
   `PTK_MAX_CALL_TIMEOUT_SECONDS`) for long work that **needs** the warm
   session — live connections, imported modules. A background job would

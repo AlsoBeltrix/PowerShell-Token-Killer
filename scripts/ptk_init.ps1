@@ -127,9 +127,11 @@ bash script whole as bash -lc '...' where bash exists. Long
 stateless work: background=true, then poll ptk_job; long work that needs
 the warm session: raise timeoutSeconds. ptk_state diagnoses session drift;
 ptk_reset restores factory state. Compressed output preserves errors, exit
-codes, and structure - raw=true is a recovery hatch for detail the
-compressed form lost, not a default; route=pwsh with raw=false gives exact
-execution with shaped output. When the ptk tools are not available in this
+codes, and structure - raw=true is deprecated compatibility telemetry and
+does not change execution or shaping. route=pwsh is exact PowerShell consent
+independent of raw, with normal capture and shaping. If a response returns a
+ptk_output handle, use it to read the immutable same-invocation artifact
+without rerunning the command. When the ptk tools are not available in this
 session, use the normal shell tools.
 $nudgeEnd
 "@

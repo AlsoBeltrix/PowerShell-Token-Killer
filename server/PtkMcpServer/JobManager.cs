@@ -162,6 +162,10 @@ public sealed record JobSnapshot(
     internal bool StartOutcomeUnknown { get; init; }
     internal bool ExecutionOutcomeUnknown { get; init; }
     internal string? ExecutionOutcomeFailureCode { get; init; }
+    /// <summary>Supervisor recovery state for the immutable terminal snapshot.
+    /// The internal spool path remains separate and is never a read capability.</summary>
+    internal OutputRecoverySummary? OutputRecovery { get; init; }
+    internal bool OutputRecoveryFinalized { get; init; }
 }
 
 /// <summary>
@@ -217,6 +221,8 @@ public sealed class JobManager : IDisposable
     internal Action<JobStartPlan>? BeforeOutputWriteForTests { get; set; }
     internal Func<JobStartPlan, Task>? BeforeOutputReadForTests { get; set; }
     internal Func<JobStartPlan, Task>? BeforeOutputDrainCompletesForTests { get; set; }
+    internal Action<long>? BeforePollingOutputReadForTests { get; set; }
+    internal long? OutputRecoverySnapshotMaximumBytesForTests { get; set; }
 
     private enum JobStartAttemptState
     {
@@ -261,11 +267,22 @@ public sealed class JobManager : IDisposable
         public int OutputFinalized;
         public string? OutputFailureCode;
         public string? ExecutionOutcomeFailureCode;
+        public OutputCaptureReservation? OutputRecoveryReservation;
+        public OutputStore? OutputRecoveryStore;
+        public OutputRecoverySummary? OutputRecovery;
+        public int OutputRecoveryFinalized;
+        public long OutputRecoveryMaximumBytes;
         public Task OutputTask { get; set; } = Task.CompletedTask;
         public Stream? StandardOutputStream { get; set; }
         public Stream? StandardErrorStream { get; set; }
         public JobOutputWriter? OutputWriter { get; init; }
     }
+
+    private sealed record JobOutputRecoveryPreparation(
+        OutputCaptureReservation? Reservation,
+        OutputRecoverySummary Summary,
+        bool Finalized,
+        long MaximumBytes);
 
     private sealed class JobOutputWriter : IDisposable
     {
@@ -638,7 +655,8 @@ public sealed class JobManager : IDisposable
         JobStartPlan plan,
         Func<JobSnapshot, Task>? onTerminal = null,
         DateTimeOffset? deadline = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        OutputStore? outputStore = null)
     {
         ArgumentNullException.ThrowIfNull(plan);
         if (!_allowColdBackground)
@@ -654,7 +672,8 @@ public sealed class JobManager : IDisposable
                 plan,
                 onTerminal,
                 deadline,
-                cancellationToken);
+                cancellationToken,
+                outputStore);
             FinishStartAttempt(plan, provenFallbackReason: null);
             return snapshot;
         }
@@ -678,7 +697,8 @@ public sealed class JobManager : IDisposable
         JobStartPlan plan,
         Func<JobSnapshot, Task>? onTerminal,
         DateTimeOffset? deadline,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        OutputStore? outputStore)
     {
         ThrowIfStartBudgetExpired(deadline, cancellationToken);
         ProcessStartInfo startInfo;
@@ -744,6 +764,11 @@ public sealed class JobManager : IDisposable
         {
             StartInfo = startInfo,
         };
+        var recovery = PrepareOutputRecovery(
+            plan,
+            outputStore,
+            deadline,
+            cancellationToken);
         entry = new JobEntry
         {
             Process = process,
@@ -754,6 +779,11 @@ public sealed class JobManager : IDisposable
             Execution = plan.Execution,
             OnTerminal = onTerminal,
             OutputWriter = outputWriter,
+            OutputRecoveryReservation = recovery.Reservation,
+            OutputRecoveryStore = recovery.Reservation is null ? null : outputStore,
+            OutputRecovery = recovery.Summary,
+            OutputRecoveryFinalized = recovery.Finalized ? 1 : 0,
+            OutputRecoveryMaximumBytes = recovery.MaximumBytes,
         };
 
         lock (_shutdownGate)
@@ -833,6 +863,135 @@ public sealed class JobManager : IDisposable
                     processStarted,
                     innerException: exception);
             }
+        }
+    }
+
+    private JobOutputRecoveryPreparation PrepareOutputRecovery(
+        JobStartPlan plan,
+        OutputStore? outputStore,
+        DateTimeOffset? deadline,
+        CancellationToken cancellationToken)
+    {
+        // Current RTK output is already wrapper-processed. Without the
+        // negotiated upstream raw-capture seam it must never be relabeled as a
+        // raw artifact merely because JobManager also owns a polling spool.
+        if (plan.Execution.OutputProvenance != OutputProvenance.DirectText)
+        {
+            return new JobOutputRecoveryPreparation(
+                null,
+                OutputRecoverySummary.Unavailable("rtk_capture_unsupported"),
+                Finalized: true,
+                MaximumBytes: 0);
+        }
+
+        if (outputStore is null)
+        {
+            return new JobOutputRecoveryPreparation(
+                null,
+                OutputRecoverySummary.Unavailable(
+                    "output_store_unavailable",
+                    advertise: true),
+                Finalized: true,
+                MaximumBytes: 0);
+        }
+
+        var attemptState = 0;
+        try
+        {
+            // Reservation can touch retention storage. Reuse the store's
+            // single anti-wedge lane so a filesystem stall consumes at most
+            // one worker across foreground and background capture.
+            if (!outputStore.TryStartForegroundOperation(
+                    () =>
+                    {
+                        if (!outputStore.TryReserve(
+                                "default",
+                                out var reservation,
+                                out var failure))
+                        {
+                            return new JobOutputRecoveryPreparation(
+                                null,
+                                OutputRecoverySummary.Unavailable(
+                                    failure is null
+                                        ? "output_store_unavailable"
+                                        : $"output_store_{failure}",
+                                    advertise: true),
+                                Finalized: true,
+                                MaximumBytes: 0);
+                        }
+
+                        if (Interlocked.CompareExchange(
+                                ref attemptState,
+                                2,
+                                0) == 0)
+                        {
+                            return new JobOutputRecoveryPreparation(
+                                reservation,
+                                OutputRecoverySummary.Unavailable("capture_pending"),
+                                Finalized: false,
+                                OutputRecoverySnapshotMaximumBytesForTests is { } testMaximum
+                                    ? Math.Min(testMaximum, outputStore.MaximumArtifactBytes)
+                                    : outputStore.MaximumArtifactBytes);
+                        }
+
+                        reservation!.Dispose();
+                        return new JobOutputRecoveryPreparation(
+                            null,
+                            OutputRecoverySummary.Unavailable(
+                                "output_store_prepare_timed_out",
+                                advertise: true),
+                            Finalized: true,
+                            MaximumBytes: 0);
+                    },
+                    out var preparationTask))
+            {
+                return new JobOutputRecoveryPreparation(
+                    null,
+                    OutputRecoverySummary.Unavailable(
+                        "output_store_busy",
+                        advertise: true),
+                    Finalized: true,
+                    MaximumBytes: 0);
+            }
+
+            var maximumWait = _abortedOutputDrainGrace;
+            if (deadline is { } absoluteDeadline)
+            {
+                var remaining = absoluteDeadline - DateTimeOffset.UtcNow;
+                if (remaining < maximumWait) maximumWait = remaining;
+            }
+            if (maximumWait <= TimeSpan.Zero)
+                maximumWait = TimeSpan.FromMilliseconds(1);
+            var delayTask = cancellationToken.CanBeCanceled
+                ? Task.Delay(maximumWait, cancellationToken)
+                : Task.Delay(maximumWait);
+            if (Task.WhenAny(preparationTask!, delayTask)
+                    .GetAwaiter().GetResult() != preparationTask &&
+                Interlocked.CompareExchange(ref attemptState, 1, 0) == 0)
+            {
+                ObserveLateOutputRecovery(preparationTask!);
+                return new JobOutputRecoveryPreparation(
+                    null,
+                    OutputRecoverySummary.Unavailable(
+                        cancellationToken.IsCancellationRequested
+                            ? "output_store_prepare_canceled"
+                            : "output_store_prepare_timed_out",
+                        advertise: true),
+                    Finalized: true,
+                    MaximumBytes: 0);
+            }
+
+            return preparationTask!.GetAwaiter().GetResult();
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return new JobOutputRecoveryPreparation(
+                null,
+                OutputRecoverySummary.Unavailable(
+                    "output_store_unavailable",
+                    advertise: true),
+                Finalized: true,
+                MaximumBytes: 0);
         }
     }
 
@@ -1121,6 +1280,7 @@ public sealed class JobManager : IDisposable
         entry.TerminalCompleted.TrySetResult(true);
         ((ICollection<KeyValuePair<long, JobEntry>>)_jobs).Remove(
             new KeyValuePair<long, JobEntry>(plan.Id, entry));
+        Interlocked.Exchange(ref entry.OutputRecoveryReservation, null)?.Dispose();
         entry.OutputWriter?.Dispose();
         entry.Process.Dispose();
         if (plan.ExecutionPath == ExecutionPath.Rtk)
@@ -1158,6 +1318,7 @@ public sealed class JobManager : IDisposable
         }
 
         Volatile.Write(ref entry.StartOutcomeUnknown, 1);
+        AbandonOutputRecovery(entry, "process_start_outcome_unknown");
         try
         {
             entry.OutputWriter?.CompleteAsync(_abortedOutputDrainGrace)
@@ -1170,6 +1331,15 @@ public sealed class JobManager : IDisposable
         entry.Process.Dispose();
         entry.TerminalCompleted.TrySetResult(true);
         return false;
+    }
+
+    private static void AbandonOutputRecovery(JobEntry entry, string detailCode)
+    {
+        Interlocked.Exchange(ref entry.OutputRecoveryReservation, null)?.Dispose();
+        Volatile.Write(
+            ref entry.OutputRecovery,
+            OutputRecoverySummary.Unavailable(detailCode, advertise: true));
+        Volatile.Write(ref entry.OutputRecoveryFinalized, 1);
     }
 
     /// <summary>
@@ -1385,8 +1555,226 @@ public sealed class JobManager : IDisposable
         {
             entry.OutputFailureCode = null;
         }
+        await FinalizeOutputRecoveryAsync(entry).ConfigureAwait(false);
         Volatile.Write(ref entry.OutputFinalized, 1);
     }
+
+    private async Task FinalizeOutputRecoveryAsync(JobEntry entry)
+    {
+        var reservation = Interlocked.Exchange(
+            ref entry.OutputRecoveryReservation,
+            null);
+        if (reservation is null)
+        {
+            if (Volatile.Read(ref entry.OutputRecoveryFinalized) == 0)
+            {
+                PublishOutputRecovery(
+                    entry,
+                    OutputRecoverySummary.Unavailable(
+                        "output_store_unavailable",
+                        advertise: true));
+            }
+            return;
+        }
+
+        // Copy only a configured-cap snapshot. The polling spool stays in
+        // place so existing ptk_job offsets remain valid; OutputStore renders
+        // and retains a distinct immutable artifact for ptk_output. The
+        // anti-wedge lane bounds stalled filesystem work to one worker across
+        // foreground and background seals; a concurrent capture degrades
+        // truthfully instead of queueing terminal publication indefinitely.
+        var store = entry.OutputRecoveryStore;
+        if (store is null ||
+            !store.TryStartForegroundOperation(
+                () =>
+                {
+                    var content = CaptureJobOutputArtifact(entry);
+                    return reservation.Seal(content);
+                },
+                out var sealTask))
+        {
+            _ = reservation.TryCancel();
+            PublishOutputRecovery(
+                entry,
+                OutputRecoverySummary.Unavailable(
+                    "output_store_busy",
+                    advertise: true));
+            return;
+        }
+        if (await Task.WhenAny(
+                sealTask!,
+                Task.Delay(_postExitOutputDrainGrace)).ConfigureAwait(false) != sealTask &&
+            reservation.TryCancel())
+        {
+            ObserveLateOutputRecovery(sealTask!);
+            PublishOutputRecovery(
+                entry,
+                OutputRecoverySummary.Unavailable(
+                    "output_store_seal_timed_out",
+                    advertise: true));
+            return;
+        }
+
+        OutputSealResult result;
+        try
+        {
+            result = await sealTask!.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            _ = reservation.TryCancel();
+            PublishOutputRecovery(
+                entry,
+                OutputRecoverySummary.Unavailable(
+                    "output_store_unavailable",
+                    advertise: true));
+            return;
+        }
+        finally
+        {
+            reservation.CompleteObserved();
+        }
+
+        PublishOutputRecovery(
+            entry,
+            result.Success
+                ? OutputRecoverySummary.FromSeal(result)
+                : OutputRecoverySummary.Unavailable(
+                    result.DetailCode ?? "output_store_unavailable",
+                    advertise: true));
+    }
+
+    private static OutputArtifactContent CaptureJobOutputArtifact(JobEntry entry)
+    {
+        var complete = Volatile.Read(ref entry.RootTerminationConfirmed) != 0 &&
+                       Volatile.Read(ref entry.StartOutcomeUnknown) == 0 &&
+                       Volatile.Read(ref entry.OutputCaptureState) != 2 &&
+                       (JobTerminationReason)Volatile.Read(ref entry.TerminationReason) ==
+                           JobTerminationReason.None;
+        string? incompleteReason = complete
+            ? null
+            : entry.OutputFailureCode ??
+              (Volatile.Read(ref entry.RootTerminationConfirmed) == 0
+                  ? "root_termination_unconfirmed"
+                  : (JobTerminationReason)Volatile.Read(ref entry.TerminationReason) ==
+                        JobTerminationReason.None
+                      ? "job_output_incomplete"
+                      : "job_terminated");
+        string output;
+        try
+        {
+            var snapshot = ReadBoundedUtf8Snapshot(
+                entry.OutputPath,
+                entry.OutputRecoveryMaximumBytes);
+            output = snapshot.Text;
+            if (snapshot.Truncated)
+            {
+                complete = false;
+                incompleteReason = "artifact_cap_exceeded";
+            }
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            output = string.Empty;
+            complete = false;
+            incompleteReason = "job_output_snapshot_failed";
+        }
+
+        return new OutputArtifactContent(
+            output,
+            StandardError: [],
+            Errors: [],
+            Warnings: [],
+            entry.ExitCode,
+            entry.Execution.OutputProvenance,
+            Complete: complete,
+            IncompleteReason: incompleteReason);
+    }
+
+    private static (string Text, bool Truncated) ReadBoundedUtf8Snapshot(
+        string path,
+        long maximumBytes)
+    {
+        if (maximumBytes < 1)
+            throw new InvalidOperationException("The output recovery bound is unavailable.");
+        var limit = (int)Math.Min(maximumBytes, int.MaxValue - 1L);
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        using var snapshot = new MemoryStream(Math.Min(limit, 64 * 1024));
+        var buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+        try
+        {
+            var remaining = limit;
+            while (remaining > 0)
+            {
+                var read = stream.Read(buffer, 0, Math.Min(buffer.Length, remaining));
+                if (read == 0) break;
+                snapshot.Write(buffer, 0, read);
+                remaining -= read;
+            }
+            var truncated = stream.ReadByte() >= 0;
+            var bytes = snapshot.ToArray();
+            // A byte cap may bisect the last UTF-8 scalar. Drop only that
+            // incomplete suffix so the retained artifact never invents U+FFFD
+            // for otherwise valid job output.
+            var prefixLength = CompleteUtf8PrefixLength(bytes);
+            if (prefixLength != bytes.Length) truncated = true;
+            return (
+                Encoding.UTF8.GetString(bytes, 0, prefixLength),
+                truncated);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static int CompleteUtf8PrefixLength(ReadOnlySpan<byte> bytes)
+    {
+        if (bytes.IsEmpty) return 0;
+        var continuationBytes = 0;
+        for (var index = bytes.Length - 1;
+             index >= 0 && continuationBytes < 3 &&
+             (bytes[index] & 0xc0) == 0x80;
+             index--)
+        {
+            continuationBytes++;
+        }
+
+        var leadIndex = bytes.Length - continuationBytes - 1;
+        if (leadIndex < 0) return 0;
+        var lead = bytes[leadIndex];
+        var expectedLength = lead switch
+        {
+            <= 0x7f => 1,
+            >= 0xc2 and <= 0xdf => 2,
+            >= 0xe0 and <= 0xef => 3,
+            >= 0xf0 and <= 0xf4 => 4,
+            _ => 1,
+        };
+        return expectedLength > continuationBytes + 1
+            ? leadIndex
+            : bytes.Length;
+    }
+
+    private static void PublishOutputRecovery(
+        JobEntry entry,
+        OutputRecoverySummary recovery)
+    {
+        Volatile.Write(ref entry.OutputRecovery, recovery);
+        Volatile.Write(ref entry.OutputRecoveryFinalized, 1);
+    }
+
+    private static void ObserveLateOutputRecovery(Task task) =>
+        _ = task.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted |
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
 
     private static void MarkOutputIncomplete(JobEntry entry, string detailCode)
     {
@@ -1495,6 +1883,12 @@ public sealed class JobManager : IDisposable
     {
         var running = Volatile.Read(ref entry.RootExited) == 0 ||
                       Volatile.Read(ref entry.OutputFinalized) == 0;
+        // Publication stores the immutable summary before this release flag.
+        // Read the flag first so a true acquire cannot pair with the older
+        // capture_pending summary during the terminal transition.
+        var outputRecoveryFinalized =
+            Volatile.Read(ref entry.OutputRecoveryFinalized) != 0;
+        var outputRecovery = Volatile.Read(ref entry.OutputRecovery);
         return new JobSnapshot(
             id,
             entry.ProcessId,
@@ -1521,6 +1915,8 @@ public sealed class JobManager : IDisposable
             ExecutionOutcomeUnknown =
                 Volatile.Read(ref entry.ExecutionOutcomeUnknown) != 0,
             ExecutionOutcomeFailureCode = entry.ExecutionOutcomeFailureCode,
+            OutputRecovery = outputRecovery,
+            OutputRecoveryFinalized = outputRecoveryFinalized,
         };
     }
 
@@ -1654,6 +2050,7 @@ public sealed class JobManager : IDisposable
         int maxBytes = 131072)
     {
         if (!_jobs.TryGetValue(id, out var entry)) return null;
+        BeforePollingOutputReadForTests?.Invoke(id);
         if (!File.Exists(entry.OutputPath)) return (string.Empty, Math.Max(0, offset), 0);
 
         using var stream = new FileStream(

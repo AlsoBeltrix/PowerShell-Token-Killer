@@ -21,8 +21,9 @@ public static class InvokeTool
         "with a labeled marker). PowerShell variables, imported modules, and established " +
         "connections persist across runspace-routed calls; delegated Bash state is " +
         "process-local. Output is normally shaped and preserves errors, exit codes, " +
-        "and structure. When the response includes a ptk_output handle, use ptk_output " +
-        "to read the captured unshaped snapshot from that same invocation; PTK never " +
+        "and structure. When this response or a later ptk_job response includes a " +
+        "ptk_output handle, use ptk_output to read the captured unshaped snapshot " +
+        "from that same invocation; PTK never " +
         "reruns the command for recovery. The legacy raw is deprecated and accepted " +
         "only for compatibility; it does not change interpreter, routing, capture, or " +
         "shaping. Calls run serially, and the timeout " +
@@ -52,11 +53,11 @@ public static class InvokeTool
             "once and returns a labeled effective route without asking for a retry.")]
         string route = "auto",
         [Description(
-            "Run the script as a background job in a separate cold pwsh process and " +
-            "return a job id immediately. Use for long stateless work (builds, " +
+            "Run the script as a background job in a separate cold child process and " +
+            "return a job id immediately. The cold execution plan selects direct " +
+            "PowerShell or eligible RTK routing. Use for long stateless work (builds, " +
             "watchers, deploys) that could exceed the call timeout. The job does NOT " +
-            "see warm session state (variables, modules, connections); poll it with " +
-            "ptk_job.")]
+            "see warm session state (variables, modules, connections); poll it with ptk_job.")]
         bool background = false,
         [Description(
             "Per-call timeout override in seconds, capped by the server maximum. A " +
@@ -279,7 +280,8 @@ public static class InvokeTool
                         activePlan,
                         onTerminal,
                         deadline,
-                        cancellationToken);
+                        cancellationToken,
+                        outputStore);
                 }
                 catch (JobStartException exception) when (
                     exception.ProcessStarted is false &&
@@ -325,17 +327,19 @@ public static class InvokeTool
                         activePlan,
                         onTerminal,
                         deadline,
-                        cancellationToken);
+                        cancellationToken,
+                        outputStore);
                 }
                 terminalCallbackOwnedByJob = true;
 
-                var started = $"[job {job.Id} started] pid {job.Pid}, cold process (no warm session state), log: {job.OutputPath}\n" +
+                var started = $"[job {job.Id} started] pid {job.Pid}, cold process (no warm session state)\n" +
                     (job.Execution.FallbackReason is { } actualFallback
                         ? $"[route] requested={job.Execution.RequestedRoute.ToMachineCode()} " +
                           $"effective={job.Execution.ExecutionPath.ToMachineCode()} " +
                           $"fallback={actualFallback.ToMachineCode()}; the original script was dispatched once " +
                           "and PTK did not retry it.\n"
                         : string.Empty) +
+                    $"{JobTool.RecoveryStatus(job)}\n" +
                     $"Poll with ptk_job action=output id={job.Id} (then pass the returned next offset); " +
                     $"ptk_job action=status id={job.Id} for exit state.";
                 var startRecorded = audit?.RecordJobStarted(job.Id, started) ?? true;

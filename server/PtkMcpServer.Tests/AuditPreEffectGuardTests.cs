@@ -1548,7 +1548,20 @@ public sealed class AuditPreEffectGuardTests : IDisposable
     [Fact]
     public async Task Started_job_writes_one_terminal_event_without_any_poll_call()
     {
-        using var fixture = CreateFixture();
+        GuardFixture? observedFixture = null;
+        var reservations = 0;
+        var reservationSawDispatch = false;
+        using var fixture = CreateFixture(
+            outputReservationStartingForTests: () =>
+            {
+                Interlocked.Increment(ref reservations);
+                reservationSawDispatch = observedFixture!.EventTypes()
+                    .Contains("execution.dispatched", StringComparer.Ordinal);
+            });
+        observedFixture = fixture;
+        var processStartSawReservation = false;
+        fixture.Jobs.BeforeProcessStartForTests = _ =>
+            processStartSawReservation = Volatile.Read(ref reservations) == 1;
         const string script = "Start-Sleep -Milliseconds 100; 'finished'";
 
         var result = await fixture.Filter(
@@ -1567,14 +1580,30 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 raw: true,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext)));
+                auditContext: fixture.AuditContext,
+                outputStore: fixture.OutputStore)));
 
         Assert.False(result.IsError ?? false);
         var job = Assert.Single(fixture.Jobs.List());
         await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
         await WaitUntilAsync(() => fixture.EventTypes().Count(type => type == "job.completed") == 1);
 
-        var events = fixture.EventTypes();
+        var final = fixture.Jobs.Snapshot(job.Id)!;
+        Assert.Equal(1, reservations);
+        Assert.True(reservationSawDispatch);
+        Assert.True(processStartSawReservation);
+        Assert.True(final.OutputRecoveryFinalized);
+        var recovery = Assert.IsType<OutputRecoverySummary>(final.OutputRecovery);
+        var handle = Assert.IsType<string>(recovery.Handle);
+        Assert.Equal(OutputArtifactState.Available, recovery.State);
+        Assert.Contains(
+            "finished",
+            fixture.OutputStore.Read(handle, 0, OutputStore.MaximumReadBytes).Text,
+            StringComparison.Ordinal);
+
+        var eventValues = fixture.Events();
+        var events = eventValues.Select(value =>
+            value.GetProperty("event_type").GetString()!).ToArray();
         Assert.Equal(
             [
                 "call.accepted",
@@ -1589,6 +1618,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 "job.completed",
             ],
             events);
+        var serializedAudit = string.Join('\n', eventValues.Select(value => value.GetRawText()));
+        Assert.DoesNotContain(handle, serializedAudit, StringComparison.Ordinal);
+        Assert.DoesNotContain(final.OutputPath, serializedAudit, StringComparison.Ordinal);
+        Assert.DoesNotContain("finished", serializedAudit, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -40,8 +40,9 @@ Each call is classified and shaped through one of four legs:
 4. **Passthrough.** Plain strings and scalars are returned with
    ANSI/terminal escape sequences stripped, otherwise unaltered.
    Pathologically large text is elided to a labeled head+tail window;
-   the marker names `raw=true`, the recovery hatch for the rare case
-   the elided middle matters.
+   when PTK successfully seals a same-invocation snapshot, the response names
+   an opaque `ptk_output` handle that can recover the elided middle without
+   rerunning the command. Otherwise it explicitly reports recovery unavailable.
 
 Anything that is not a safe single native command — pipelines, chains,
 cmdlets, variables, redirections — runs as ordinary PowerShell in the warm
@@ -54,8 +55,10 @@ The dialect is PowerShell 7, not bash. A probed set of bash-only constructs
 bash-style `if/for` blocks, and friends) gets a fast `[ptk:dialect]` refusal
 naming the construct instead of a confusing late failure — rewrite in
 PowerShell, or run a bash script whole with `bash -lc '...'`, a first-class
-compressed path where bash exists. `route=pwsh` and `raw=true` bypass the
-check as explicit consent. Undetected shapes run exactly as before:
+compressed path where bash exists. `route=pwsh` bypasses the check as explicit
+consent to interpret the exact original text as PowerShell; normal capture and
+shaping still apply. The deprecated `raw=true` flag is inert compatibility
+telemetry and does not bypass dialect handling. Undetected shapes run exactly as before:
 detection favors precision over recall, so shared-dialect syntax (`&&`,
 pipes, redirects) never trips it.
 
@@ -67,14 +70,15 @@ it up automatically. ptk degrades gracefully if it is missing — native
 commands run unchanged and log-shaped text comes back raw — but that is a
 fallback, not the intended setup.
 
-Per-call overrides: compressed output already preserves errors, exit codes,
-and structure, so `raw=true` — which skips routing and shaping and executes
-exactly as written — is a recovery hatch for detail the compressed form
-lost, not a default. `route=pwsh` forces plain PowerShell execution; with
-`raw=false` that pairing is the fidelity path — exact execution, shaped
-output. `route=rtk` asserts RTK routing only for an eligible terminal native
-application; an unavailable or ineligible RTK leg is labeled and the exact
-original runs once without a model retry.
+Per-call overrides: `raw=true` is accepted only as deprecated compatibility
+telemetry; it does not change dialect handling, interpreter, routing, process
+choice, capture, or shaping. `route=pwsh`, independently of `raw`, is explicit
+consent to interpret the exact original text as PowerShell; normal capture and
+shaping still apply. `route=rtk` asserts RTK routing only for an eligible
+terminal native application; an unavailable or ineligible RTK leg is labeled
+and the exact original runs once without a model retry. When a response supplies
+a `ptk_output` handle, use it to read the immutable same-invocation artifact;
+that read never executes or reruns the command.
 
 Mixed native/PowerShell dataflow also runs exactly once as submitted. For the
 narrow successful shape `<native command> | Set-Content <constant path>` in a
@@ -93,8 +97,9 @@ the per-call limit for long work that needs the warm session itself.
 
 | Tool | Purpose |
 | --- | --- |
-| `ptk_invoke` | Run shell work through PTK: persistent PowerShell state, internal RTK routing for eligible terminal commands, and bounded startup-pinned Bash delegation for independently proven parse-fatal Bash syntax. |
-| `ptk_job` | Poll, read (shaped), or kill background jobs started with `background=true`. |
+| `ptk_invoke` | Run shell work through PTK: persistent PowerShell state, internal RTK routing for eligible terminal commands, and bounded startup-pinned Bash delegation for independently proven parse-fatal Bash syntax. The legacy `raw` flag is deprecated and inert except for compatibility telemetry. |
+| `ptk_job` | Poll, read (shaped), or kill background jobs started with `background=true`. A finalized direct job reports a stable `ptk_output` handle only when its immutable recovery artifact sealed successfully; failure to seal does not promise that the distinct internal polling spool remains readable. No spool path is exposed. |
+| `ptk_output` | Read, search, or inspect an immutable same-invocation artifact named by `ptk_invoke` or `ptk_job`; it never executes or reruns a command. Handles may be incomplete, expired, evicted, or unavailable. |
 | `ptk_state` | Session introspection and health check: engine, uptime, cwd, loaded modules, jobs, and drift (env/PATH/variable changes since server start). |
 | `ptk_reset` | Recycle the runspace to factory state: server-start environment restored, background jobs killed. |
 
@@ -214,9 +219,11 @@ and stays silent where it is not. Suggested text, adapt freely:
 > long work that needs the warm session: raise `timeoutSeconds`.
 > `ptk_state` diagnoses session drift; `ptk_reset` restores factory
 > state. Compressed output preserves errors, exit codes, and structure —
-> `raw=true` is a recovery hatch for detail the compressed form lost,
-> not a default; `route=pwsh` with `raw=false` gives exact execution
-> with shaped output.
+> `raw=true` is deprecated compatibility telemetry and does not change
+> execution or shaping. `route=pwsh` is exact PowerShell consent independent
+> of `raw`, with normal capture and shaping. If a response returns a
+> `ptk_output` handle, use it to read the immutable same-invocation artifact
+> without rerunning the command.
 
 Known user-level homes: `~/.claude/CLAUDE.md` (Claude Code),
 `~/.codex/AGENTS.md` (codex), `~/.gemini/GEMINI.md` (agy/gemini). Keep

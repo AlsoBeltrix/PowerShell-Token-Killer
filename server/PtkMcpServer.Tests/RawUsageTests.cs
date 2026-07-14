@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Reflection;
+using System.Text.RegularExpressions;
 using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
@@ -13,11 +14,32 @@ public sealed class RawUsageTests : IDisposable
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-rawusage-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
+    private readonly string _outputRoot;
+    private readonly OutputStore _outputStore;
+
+    public RawUsageTests()
+    {
+        _outputRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "rawusage-output-tests",
+            Guid.NewGuid().ToString("N"));
+        _outputStore = new OutputStore(new OutputStoreOptions(
+            _outputRoot,
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 2 * 1024 * 1024,
+            MaximumSessionBytes: 4 * 1024 * 1024,
+            MaximumAggregateBytes: 8 * 1024 * 1024));
+    }
 
     public void Dispose()
     {
         _host.Dispose();
         _jobs.Dispose();
+        _outputStore.Dispose();
+        try { Directory.Delete(_outputRoot, recursive: true); }
+        catch { }
     }
 
     [Fact]
@@ -74,35 +96,124 @@ public sealed class RawUsageTests : IDisposable
     }
 
     [Fact]
-    public async Task Oversized_job_poll_names_the_log_as_the_recovery_not_raw()
+    public async Task Oversized_job_poll_uses_one_stable_path_free_ptk_output_handle()
     {
-        // sd3-2: an elided poll must override the foreground marker default
-        // with its honest existing recovery — the job log — in-band. This
-        // also pins the JobTool↔marker wording coupling: a marker reword that
-        // silently drops the note fails here.
+        const string middleToken = "JOB_HANDLE_ELIDED_MIDDLE_1500";
         var started = await InvokeTool.Invoke(
             _host, _jobs, _rawUsage,
-            "1..3000 | ForEach-Object { \"job line $_ \" + ('z' * 20) }",
-            CancellationToken.None, background: true);
+            "1..3000 | ForEach-Object { " +
+            "if ($_ -eq 1500) { 'JOB_HANDLE_ELIDED_MIDDLE_1500' } " +
+            "else { \"job line $_ \" + ('z' * 20) } }",
+            CancellationToken.None,
+            background: true,
+            outputStore: _outputStore);
         Assert.Contains("[job 1 started]", started);
+        Assert.Contains("recovery=pending", started, StringComparison.Ordinal);
+        Assert.Contains("ptk_output handle", started, StringComparison.Ordinal);
+        Assert.Contains("recovery-unavailable", started, StringComparison.Ordinal);
+        Assert.DoesNotContain("ptko_", started, StringComparison.Ordinal);
 
         var deadline = DateTime.UtcNow.AddSeconds(60);
-        string status;
+        var status = string.Empty;
         do
         {
             await Task.Delay(250);
             status = await JobTool.Job(_host, _jobs, "status", CancellationToken.None, id: 1);
-        } while (status.Contains("running") && DateTime.UtcNow < deadline);
+        } while ((status.Contains("running", StringComparison.OrdinalIgnoreCase) ||
+                  !ContainsOutputHandle(status)) &&
+                 DateTime.UtcNow < deadline);
 
         var poll = await JobTool.Job(_host, _jobs, "output", CancellationToken.None, id: 1, offset: 0);
+        var list = await JobTool.Job(_host, _jobs, "list", CancellationToken.None);
+        var snapshot = Assert.IsType<JobSnapshot>(_jobs.Snapshot(1));
+        Assert.False(snapshot.Running);
 
-        // The marker itself carries the job-context recovery (sd3-2..sd3-4:
-        // the hint rides into shaping; nothing is inferred downstream).
+        // The marker and every discovery surface publish the same opaque
+        // supervisor-owned capability, never the job spool's filesystem path.
+        var handle = AssertSingleOutputHandle(poll);
+        Assert.Equal(handle, AssertSingleOutputHandle(status));
+        Assert.Equal(handle, AssertSingleOutputHandle(list));
         Assert.Contains(
-            "elided - read the available captured log (completeness unknown) at",
-            poll);
-        Assert.Contains("job-", poll); // the captured log path is named
+            $"lines elided - recovery=handle: ptk_output handle={handle}",
+            poll,
+            StringComparison.Ordinal);
+        foreach (var response in new[] { poll, status, list })
+        {
+            Assert.Contains("recovery=handle", response, StringComparison.Ordinal);
+            Assert.Contains("ptk_output reports current availability", response, StringComparison.Ordinal);
+            Assert.DoesNotContain("recovery=available", response, StringComparison.Ordinal);
+        }
+        Assert.DoesNotContain(middleToken, poll, StringComparison.Ordinal);
         Assert.DoesNotContain("rerun with raw=true", poll);
+
+        var recovered = OutputTool.Output(
+            _outputStore,
+            handle,
+            maxBytes: OutputStore.MaximumReadBytes);
+        Assert.Contains(middleToken, recovered, StringComparison.Ordinal);
+
+        var jobsRoot = Assert.IsType<string>(Path.GetDirectoryName(snapshot.OutputPath));
+        foreach (var response in new[] { started, poll, status, list, recovered })
+        {
+            Assert.DoesNotContain(snapshot.OutputPath, response, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(jobsRoot, response, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(_outputRoot, response, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("log:", response, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
+    [Fact]
+    public async Task Job_poll_spool_failure_is_path_free_and_never_reruns_the_job()
+    {
+        var executionMarker = Path.Combine(
+            Path.GetTempPath(),
+            $"ptk-job-poll-once-{Guid.NewGuid():N}.txt");
+        var escapedMarker = executionMarker.Replace("'", "''", StringComparison.Ordinal);
+        try
+        {
+            var started = await InvokeTool.Invoke(
+                _host,
+                _jobs,
+                _rawUsage,
+                $"Add-Content -LiteralPath '{escapedMarker}' -Value x; 'POLLABLE'",
+                CancellationToken.None,
+                background: true,
+                outputStore: _outputStore);
+            Assert.Contains("[job 1 started]", started, StringComparison.Ordinal);
+
+            var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+            JobSnapshot snapshot;
+            do
+            {
+                await Task.Delay(25);
+                snapshot = Assert.IsType<JobSnapshot>(_jobs.Snapshot(1));
+            } while (snapshot.Running && DateTimeOffset.UtcNow < deadline);
+            Assert.False(snapshot.Running);
+            var handle = Assert.IsType<string>(snapshot.OutputRecovery?.Handle);
+
+            _jobs.BeforePollingOutputReadForTests = _ =>
+                throw new IOException($"injected read failure at {snapshot.OutputPath}");
+            var response = await JobTool.Job(
+                _host,
+                _jobs,
+                "output",
+                CancellationToken.None,
+                id: 1,
+                offset: 17);
+
+            Assert.Contains("output unavailable", response, StringComparison.Ordinal);
+            Assert.Contains("command was not rerun", response, StringComparison.Ordinal);
+            Assert.Contains(handle, response, StringComparison.Ordinal);
+            Assert.Contains("next offset: 17", response, StringComparison.Ordinal);
+            Assert.DoesNotContain(snapshot.OutputPath, response, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("injected read failure", response, StringComparison.Ordinal);
+            Assert.Equal(["x"], File.ReadAllLines(executionMarker));
+        }
+        finally
+        {
+            _jobs.BeforePollingOutputReadForTests = null;
+            try { File.Delete(executionMarker); } catch { }
+        }
     }
 
     [Fact]
@@ -139,6 +250,15 @@ public sealed class RawUsageTests : IDisposable
 
     private static string DescriptionOf(ICustomAttributeProvider member) =>
         ((DescriptionAttribute)member.GetCustomAttributes(typeof(DescriptionAttribute), false).Single()).Description;
+
+    private static bool ContainsOutputHandle(string response) =>
+        Regex.IsMatch(response, @"ptko_[A-Za-z0-9_-]+");
+
+    private static string AssertSingleOutputHandle(string response) =>
+        Assert.Single(
+            Regex.Matches(response, @"ptko_[A-Za-z0-9_-]+")
+                .Select(match => match.Value)
+                .Distinct(StringComparer.Ordinal));
 
     [Fact]
     public void Invoke_descriptions_teach_same_invocation_recovery_and_inert_legacy_raw()
@@ -182,5 +302,32 @@ public sealed class RawUsageTests : IDisposable
             route);
         Assert.Contains("normal capture and shaping still apply", route);
         Assert.DoesNotContain("raw=false", route);
+
+        var backgroundParam = invoke.GetParameters().Single(p => p.Name == "background");
+        var background = DescriptionOf(backgroundParam);
+        Assert.Contains("separate cold child process", background, StringComparison.Ordinal);
+        Assert.Contains("direct PowerShell or eligible RTK routing", background, StringComparison.Ordinal);
+        Assert.DoesNotContain("cold pwsh process", background, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Job_and_output_descriptions_teach_path_free_background_recovery()
+    {
+        var job = DescriptionOf(typeof(JobTool).GetMethod(nameof(JobTool.Job))!);
+        Assert.Contains("path-free output recovery", job, StringComparison.Ordinal);
+        Assert.Contains("ptk_output snapshot", job, StringComparison.Ordinal);
+        Assert.Contains("seam-absent RTK", job, StringComparison.Ordinal);
+        Assert.Contains("failures are reported path-free", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("polled output remains available", job, StringComparison.Ordinal);
+        Assert.DoesNotContain("log path", job, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("log file", job, StringComparison.OrdinalIgnoreCase);
+
+        var output = DescriptionOf(typeof(OutputTool).GetMethod(nameof(OutputTool.Output))!);
+        Assert.Contains("finalized direct background job", output, StringComparison.Ordinal);
+        Assert.Contains("without executing or rerunning", output, StringComparison.Ordinal);
+        var handle = typeof(OutputTool).GetMethod(nameof(OutputTool.Output))!
+            .GetParameters()
+            .Single(parameter => parameter.Name == "handle");
+        Assert.Contains("ptk_job", DescriptionOf(handle), StringComparison.Ordinal);
     }
 }

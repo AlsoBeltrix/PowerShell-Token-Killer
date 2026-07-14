@@ -12,10 +12,12 @@ public static class JobTool
         "Manage background jobs started by ptk_invoke background=true. " +
         "action=output returns new output since the given offset, shaped and " +
         "bounded, and ends with the next offset to pass on the following poll; " +
-        "action=status reports run state, exit code, and the log path; kill stops " +
+        "action=status reports run state, exit code, and path-free output recovery; kill stops " +
         "a job (and its process tree); list shows all jobs. Jobs are cold child " +
-        "processes with no warm session state; captured output lives in the job's " +
-        "log file and status reports whether its completeness is known. Jobs are " +
+        "processes with no warm session state. After termination PTK attempts to " +
+        "seal direct job output into a supervisor-owned ptk_output snapshot. " +
+        "Recovery sealing is separate from the internal polling spool: failures " +
+        "are reported path-free, and seam-absent RTK jobs have no raw recovery. Jobs are " +
         "killed by ptk_reset and at server shutdown.")]
     public static async Task<string> Job(
         RunspaceHost host,
@@ -90,7 +92,44 @@ public static class JobTool
                 }
                 // Snapshot BEFORE reading: a job that exits mid-poll reports
                 // "running" one poll late rather than losing tail output.
-                var chunk = jobs.ReadOutput(id, offset)!;
+                (string Text, long NextOffset, int BytesRead)? chunk;
+                try
+                {
+                    chunk = jobs.ReadOutput(id, offset);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    var unchangedOffset = Math.Max(0, offset);
+                    var unavailable =
+                        $"[job {id} output unavailable: internal polling spool could not be read; " +
+                        "command was not rerun]\n" +
+                        $"{RecoveryStatus(snapshot)}\n" +
+                        $"[job {id} {State(snapshot)}{CaptureState(snapshot)}] " +
+                        $"next offset: {unchangedOffset}";
+                    audit?.CommitReadOutcome(
+                        "job.output_accessed",
+                        "failed",
+                        unavailable,
+                        detailCode: "job_output_read_failed",
+                        jobId: id,
+                        nextOffset: unchangedOffset,
+                        bytesReturnedOverride: 0,
+                        jobExecution: snapshot.ExecutionRoutingAuthoritative
+                            ? snapshot.Execution
+                            : null);
+                    return unavailable;
+                }
+                if (chunk is null)
+                {
+                    var missing = $"[no such job: {id}]";
+                    audit?.CommitReadOutcome(
+                        "job.output_accessed",
+                        "not_found",
+                        missing,
+                        jobId: id,
+                        nextOffset: offset);
+                    return missing;
+                }
                 var (text, nextOffset, bytesRead) = chunk.Value;
                 var provenance = snapshot.Execution.OutputProvenance;
                 var shapeDirectText = provenance switch
@@ -120,17 +159,15 @@ public static class JobTool
                         ? snapshot.Execution
                         : null);
                 // sd3-2..sd3-4: the marker's foreground default cannot name
-                // this job's existing output. Re-running the job would
-                // duplicate side-effecting work and the offset has already
-                // moved past the middle. The recovery hint rides INTO
-                // shaping, so the marker itself names the honest recovery
-                // (the captured log) exactly when the module elides;
+                // this job's recovery. Re-running the job would duplicate
+                // side-effecting work and the offset has already moved past
+                // the middle. The persisted recovery hint rides INTO shaping,
+                // so the marker itself names the honest opaque capability
+                // exactly when the module elides;
                 // two downstream inference heuristics both proved unsound
                 // (ANSI stripping shortens without eliding, near-boundary
                 // elision lengthens).
-                var elisionHint = shapeDirectText
-                    ? DirectTextElisionHint(snapshot)
-                    : "recovery=unavailable: rtk capture unsupported";
+                var elisionHint = RecoveryElisionHint(snapshot);
                 var shapedResult = text.Length == 0
                     ? new ShapedTextResult("(no new output)", null)
                     : audit is null
@@ -156,10 +193,8 @@ public static class JobTool
                     audit?.RecordOutputShaping(shaping, provenance);
                 var shaped = shapedResult.Text;
                 var capture = CaptureState(snapshot);
-                var recoveryStatus = provenance == OutputProvenance.RtkUnknown
-                    ? "\nrecovery=unavailable: rtk capture unsupported"
-                    : string.Empty;
-                return $"{shaped}{recoveryStatus}\n[job {id} {State(snapshot)}{capture}] next offset: {nextOffset}";
+                return $"{shaped}\n{RecoveryStatus(snapshot)}\n" +
+                       $"[job {id} {State(snapshot)}{capture}] next offset: {nextOffset}";
             }
             default:
                 return "[unknown action - use status | output | kill | list]";
@@ -171,7 +206,8 @@ public static class JobTool
         var script = snapshot.Script.Replace('\r', ' ').Replace('\n', ' ');
         if (script.Length > 100) script = script[..97] + "...";
         return $"job {snapshot.Id}: {State(snapshot)}{CaptureState(snapshot)}, " +
-               $"started {snapshot.StartedUtc:HH:mm:ss}Z, log: {snapshot.OutputPath}\n  script: {script}";
+               $"started {snapshot.StartedUtc:HH:mm:ss}Z, {RecoveryStatus(snapshot)}\n" +
+               $"  script: {script}";
     }
 
     private static string State(JobSnapshot snapshot)
@@ -198,22 +234,58 @@ public static class JobTool
         return $"exited {snapshot.ExitCode}";
     }
 
-    private static string CaptureState(JobSnapshot snapshot) =>
-        snapshot.OutputCaptureComplete switch
+    private static string CaptureState(JobSnapshot snapshot)
+    {
+        if (snapshot.OutputRecovery is { Handle: not null } recovery)
+        {
+            return recovery.State == OutputArtifactState.Incomplete
+                ? $", recovery artifact incomplete ({recovery.DetailCode ?? "unknown"})"
+                : string.Empty;
+        }
+
+        return snapshot.OutputCaptureComplete switch
         {
             false => $", output incomplete ({snapshot.OutputFailureCode ?? "unknown"})",
             null when !snapshot.Running => ", output completeness unknown",
             _ => string.Empty,
         };
-
-    private static string DirectTextElisionHint(JobSnapshot snapshot)
-    {
-        var logDescription = snapshot.OutputCaptureComplete switch
-        {
-            true => "complete captured log",
-            false => "available partial captured log",
-            _ => "available captured log (completeness unknown)",
-        };
-        return $"read the {logDescription} at {snapshot.OutputPath} if the elided middle matters";
     }
+
+    internal static string RecoveryStatus(JobSnapshot snapshot)
+    {
+        if (snapshot.OutputRecovery is { Handle: { } handle } recovery &&
+            recovery.State is OutputArtifactState.Available or OutputArtifactState.Incomplete)
+        {
+            var incomplete = recovery.State == OutputArtifactState.Incomplete
+                ? $"; artifact incomplete (detail={recovery.DetailCode ?? "capture_incomplete"})"
+                : string.Empty;
+            return $"recovery=handle: ptk_output handle={handle}{incomplete}; " +
+                   "ptk_output reports current availability";
+        }
+
+        if (!snapshot.OutputRecoveryFinalized && snapshot.Running)
+        {
+            return "recovery=pending: output capture finalizes after job exit; " +
+                   "a later ptk_job status/output response will report either a " +
+                   "ptk_output handle or explicit recovery-unavailable state";
+        }
+
+        if (string.Equals(
+                snapshot.OutputRecovery?.DetailCode,
+                "rtk_capture_unsupported",
+                StringComparison.Ordinal) ||
+            snapshot.Execution?.OutputProvenance == OutputProvenance.RtkUnknown)
+        {
+            return "recovery=unavailable: rtk capture unsupported";
+        }
+
+        return "recovery=unavailable: output capture unavailable; command was not rerun";
+    }
+
+    private static string RecoveryElisionHint(JobSnapshot snapshot) =>
+        RecoveryStatus(snapshot);
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or StackOverflowException or
+            AccessViolationException or AppDomainUnloadedException;
 }

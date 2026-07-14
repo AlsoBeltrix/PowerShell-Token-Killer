@@ -1,14 +1,16 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** IMPLEMENTED LOCALLY at code head `1066de1`. The owner approved the
-test-only scope on 2026-07-14 ("continue" after the exact `69bd0d5` CI
-diagnosis); an independent review of `e775a1d..1066de1` accepted the repair
-without material findings, and the complete local battery is green. The
-Windows branches remain provisional until an explicitly approved push runs
-the hosted matrix. This plan repairs the failing verification harness only.
-It does not change production runtime behavior, install RTK into the ordinary
-unit-test jobs, or decide whether a future PTK release bundles a pinned RTK
-binary.
+**Status:** COMPLETED at code head `3c61886`. The owner approved the test-only
+scope on 2026-07-14 ("continue" after the exact `69bd0d5` CI diagnosis); an
+independent review of `e775a1d..1066de1` accepted the initial repair without
+material findings. The first hosted follow-up exposed one final assertion-only
+Windows path-casing assumption, which two independent diagnoses and a
+candidate-order mutation proof confirmed before the one-line correction.
+GitHub Actions run `29313220388` passed the Ubuntu, macOS, and Windows jobs at
+the final head, including each server suite and stdio handshake. This plan
+repairs the failing verification harness only. It does not change production
+runtime behavior, install RTK into the ordinary unit-test jobs, or decide
+whether a future PTK release bundles a pinned RTK binary.
 
 ## Evidence and problem
 
@@ -65,7 +67,8 @@ Each numbered slice is one finding and one commit.
    on different Windows volumes. Preserve the subsequent PATH re-resolution
    and content-identity assertions.
 6. **Singular live PowerShell resolution probe.** Select the first live
-   `Get-Command` result before serializing command type and source. Preserve
+   `Get-Command` result before serializing command type and source, and compare
+   Windows source paths with Windows path-identity casing semantics. Preserve
    all three candidate-order comparisons against the cold resolver.
 
 ## Verification
@@ -81,6 +84,9 @@ After all slices:
 5. Push only after separate owner approval. The Windows branches remain
    provisionally verified until the pushed matrix is green; record the exact
    run rather than claiming local macOS proves Windows behavior.
+
+Completed evidence: owner-approved GitHub Actions run `29313220388` passed all
+three matrix jobs at exact head `3c618867adbe1c172f0b95fed53cc7425280a3f1`.
 
 ## Non-goals
 

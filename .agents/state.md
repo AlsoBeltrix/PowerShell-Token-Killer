@@ -5,14 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **CI portability repair is complete locally and independently accepted.**
-  Code head `1066de1` fixes the ambient-RTK-dependent test and five Windows
-  harness assumptions exposed by GitHub Actions run `29310719880`, without
-  changing production files. The exact range `e775a1d..1066de1` passed the
-  complete local battery, including all 1,207 .NET tests with ambient RTK
-  forced missing, and an independent review found no material defect. Windows
-  remains provisionally verified until an explicitly approved push runs the
-  hosted matrix. The scope and evidence are canonical in
+- **CI portability repair is complete and hosted-matrix green as of
+  `3c61886`.** The test-only range fixes the ambient-RTK dependency, five
+  Windows harness assumptions, and the final Windows path-casing assertion
+  exposed by the first follow-up run, without changing production files. The
+  complete local battery passed, including all 1,207 .NET tests with ambient
+  RTK forced missing. Initial independent review found no material defect; two
+  independent follow-up diagnoses and a candidate-order mutation proof
+  validated the final one-line correction. GitHub Actions run `29313220388`
+  passed Ubuntu, macOS, and Windows at the exact final head, including all
+  server suites and stdio handshakes. Canonical evidence is in
   `.agents/plans/ci-portability-repair.md` and `.agents/review/index.md`; RTK
   distribution remains a separate decision.
 - **Audited-harness Slice 6 is complete locally.** Code
@@ -105,8 +107,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Obtain explicit push approval for the CI portability repair's Windows
-   matrix proof.
+1. Obtain owner direction on landing the validated CI portability repair.
 2. Create the Slice 7 feature branch and begin worker mode under
    `.agents/plans/audited-harness-sessions.md`.
 3. Execute release-distribution slice 3 under its approved plan. Re-present

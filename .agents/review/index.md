@@ -1971,6 +1971,29 @@ two expected platform skips, and the full stdio handshake. A second complete
 1,207/1,207. Independent red-to-green mutation proofs showed that removing
 the output-buffer ownership copy loses the first canary and that removing the
 fully-qualified cold-target guard captures the deliberately relative file.
-The Windows-specific branches remain provisional until an explicitly
-approved push runs the hosted GitHub Actions matrix; acceptance does not
-authorize that push.
+At this reviewed head the Windows-specific branches remained provisional
+until an explicitly approved push could run the hosted GitHub Actions matrix.
+The hosted follow-up below records the final correction and closes that proof.
+
+---
+
+**CI PORTABILITY HOSTED FOLLOW-UP — ACCEPTED.** Owner-approved GitHub Actions
+run `29312600445` tested `c710702` and passed Ubuntu and macOS completely. Its
+Windows job improved from the original seven failures to 1,206/1,207 server
+tests: the sole remaining assertion compared the fixture spelling
+`fixture.EXE` with the resolver's equivalent `fixture.exe` spelling. Two
+independent agents confirmed that the resolver intentionally preserves the
+requested candidate spelling, production Windows path identity is case-
+insensitive, and the neighboring live-PowerShell comparisons already use the
+same semantics. Commit `3c61886` changes only that expected-source assertion;
+no production file changes.
+
+A deliberate mutation prioritizing the appended `.ps1` candidate made the
+existing exact-extension guard fail with `ExternalScript` instead of
+`Application`; restoring production ordering returned both focused tests
+green. This proves the casing correction does not mask a real candidate-order
+regression. Owner-approved GitHub Actions run `29313220388` then tested exact
+head `3c618867adbe1c172f0b95fed53cc7425280a3f1`: Ubuntu, macOS, and Windows all
+passed checkout, SDK setup, Pester, the full server suite, the stdio handshake,
+and cleanup. This closes the hosted portability proof; it does not authorize
+landing or history rewriting.

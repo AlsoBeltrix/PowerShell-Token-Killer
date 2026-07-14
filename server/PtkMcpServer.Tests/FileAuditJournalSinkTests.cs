@@ -172,21 +172,25 @@ public sealed class FileAuditJournalSinkTests : IDisposable
         using var start = new ManualResetEventSlim(initialState: false);
         using var destinationChecked = new Barrier(participantCount: 8);
         var factories = Enumerable.Range(0, 8)
-            .Select(_ => Task.Run(() =>
-            {
-                start.Wait();
-                using var journal = AuditJournalFactory.Open(
-                    options,
-                    new AuditHealth(options, () => BaseTime),
-                    "test-version",
-                    utcNow: () => BaseTime,
-                    hostIdentityDestinationCheckedForTests: () =>
-                    {
-                        if (!destinationChecked.SignalAndWait(TimeSpan.FromSeconds(10)))
-                            throw new TimeoutException("Concurrent host identity publishers did not rendezvous.");
-                    });
-                return journal.HostId;
-            }))
+            .Select(_ => Task.Factory.StartNew(
+                () =>
+                {
+                    start.Wait();
+                    using var journal = AuditJournalFactory.Open(
+                        options,
+                        new AuditHealth(options, () => BaseTime),
+                        "test-version",
+                        utcNow: () => BaseTime,
+                        hostIdentityDestinationCheckedForTests: () =>
+                        {
+                            if (!destinationChecked.SignalAndWait(TimeSpan.FromSeconds(10)))
+                                throw new TimeoutException("Concurrent host identity publishers did not rendezvous.");
+                        });
+                    return journal.HostId;
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default))
             .ToArray();
 
         start.Set();

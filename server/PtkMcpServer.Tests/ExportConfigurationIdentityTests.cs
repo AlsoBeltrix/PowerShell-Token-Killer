@@ -140,17 +140,21 @@ public sealed class ExportConfigurationIdentityTests : IDisposable
         using var start = new ManualResetEventSlim(initialState: false);
         using var destinationChecked = new Barrier(contenderCount);
         var tasks = Enumerable.Range(0, contenderCount)
-            .Select(_ => Task.Run(() =>
-            {
-                start.Wait();
-                return ExportConfigurationKeyStore.LoadOrCreate(
-                    root,
-                    () =>
-                    {
-                        if (!destinationChecked.SignalAndWait(TimeSpan.FromSeconds(10)))
-                            throw new TimeoutException("Concurrent key publishers did not rendezvous.");
-                    });
-            }))
+            .Select(_ => Task.Factory.StartNew(
+                () =>
+                {
+                    start.Wait();
+                    return ExportConfigurationKeyStore.LoadOrCreate(
+                        root,
+                        () =>
+                        {
+                            if (!destinationChecked.SignalAndWait(TimeSpan.FromSeconds(10)))
+                                throw new TimeoutException("Concurrent key publishers did not rendezvous.");
+                        });
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default))
             .ToArray();
         start.Set();
         var keys = await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(30));

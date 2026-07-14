@@ -936,7 +936,11 @@ public sealed class RunspaceHostTests : IDisposable
         using var releaseStop = new ManualResetEventSlim();
         try
         {
-            var warm = await host.InvokeAsync("'warm'", raw: true, route: "pwsh");
+            var warm = await host.InvokeAsync(
+                "'warm'",
+                raw: true,
+                route: "pwsh",
+                timeoutSeconds: 10);
             Assert.True(warm.Success, string.Join(Environment.NewLine, warm.Errors));
             host.PrivateOutputInvocationOverrideForTests = (_, _) => pendingInvocation.Task;
             host.PrivateOutputInvocationStartedForTests = () => invocationStarted.Set();

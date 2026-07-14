@@ -1,16 +1,14 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** COMPLETED at code head `3c61886`. The owner approved the test-only
-scope on 2026-07-14 ("continue" after the exact `69bd0d5` CI diagnosis); an
-independent review of `e775a1d..1066de1` accepted the initial repair without
-material findings. The first hosted follow-up exposed one final assertion-only
-Windows path-casing assumption, which two independent diagnoses and a
-candidate-order mutation proof confirmed before the one-line correction.
-GitHub Actions run `29313220388` passed the Ubuntu, macOS, and Windows jobs at
-the final head, including each server suite and stdio handshake. This plan
-repairs the failing verification harness only. It does not change production
-runtime behavior, install RTK into the ordinary unit-test jobs, or decide
-whether a future PTK release bundles a pinned RTK binary.
+**Status:** MASTER-LANDING FOLLOW-UP APPROVED by the owner on 2026-07-14
+(`go` after the exact `00e74d2` failure diagnosis and two-commit test-only
+proposal). The original repair completed at code head `3c61886`; GitHub
+Actions run `29313220388` passed Ubuntu, macOS, and Windows, including each
+server suite and stdio handshake. Master run `29314404462` then exposed two
+pre-existing harness flakes under identical server and workflow trees. Slices
+7-8 below stabilize those tests without changing production runtime behavior,
+installing RTK into ordinary unit-test jobs, or deciding whether a future PTK
+release bundles a pinned RTK binary.
 
 ## Evidence and problem
 
@@ -35,6 +33,26 @@ server suite failed, so the handshake step was skipped:
 The production code is not changed merely to satisfy these failures. Each
 test must establish its own preconditions and retain the behavioral assertion
 that originally guarded the accepted audited-harness slice.
+
+## Master-landing follow-up evidence
+
+Master run `29314404462` tested `00e74d2`: Ubuntu and macOS passed, while
+Windows failed two tests. Exact tree comparison shows `3c61886..00e74d2`
+changes only `.agents/` documentation; the entire `server/` tree and workflow
+are identical to green run `29313220388`.
+
+- `Private_output_stop_is_joined_before_disposal_and_guard_release` failed in
+  its setup-only warm invocation before installing any stop/join hooks. The
+  test gives cold runspace readiness, execution, and recovery-renderer startup
+  one second. The same failure is already recorded in review history, followed
+  by repeated isolated and full-suite passes.
+- `Concurrent_startup_repair_opens_and_publishes_one_runtime` shares one
+  singleton `AuditCallContextAccessor` across eight synthetic concurrent
+  requests even though production registers that mutable holder per request.
+  Overlap makes one request observe another's current context and return the
+  exact `audit_boundary_invalid` seen in this run and an earlier Windows run.
+  The failure reproduced immediately in the clean `NETWATCH-01` checkout at
+  exact master head `00e74d2`.
 
 ## Slices
 
@@ -70,6 +88,20 @@ Each numbered slice is one finding and one commit.
    `Get-Command` result before serializing command type and source, and compare
    Windows source paths with Windows path-identity casing semantics. Preserve
    all three candidate-order comparisons against the cold resolver.
+7. **Separate setup warm-up from the tested timeout.** Give only the setup
+   warm invocation an explicit ten-second call budget. Keep the host default
+   and the subject invocation at one second so the test still drives the
+   timeout, blocked stop, joined cleanup, and guard-release path it names.
+   Prove the old budget fails under a deterministic delayed private-output
+   opening, the new setup reaches the subject, and removing the production
+   stop join still makes the stabilized test fail.
+8. **Use production-faithful request scopes in the startup race.** Register
+   `AuditCallContextAccessor` as scoped, create and dispose one service scope
+   per contender, and hold all eight handlers at a barrier so request overlap
+   is deterministic. Preserve the exactly-two open attempts, single recovery
+   and startup, eight handler calls, eight accepted/completed pairs, and final
+   stop assertions. Mutating the accessor back to singleton must fail under
+   the barrier; restoring scoped ownership must pass on Windows.
 
 ## Verification
 
@@ -87,6 +119,12 @@ After all slices:
 
 Completed evidence: owner-approved GitHub Actions run `29313220388` passed all
 three matrix jobs at exact head `3c618867adbe1c172f0b95fed53cc7425280a3f1`.
+
+For slices 7-8, run each focused red/green proof on `NETWATCH-01` from a clean
+exact checkout, then repeat both focused tests there before the complete local
+battery and a new owner-approved hosted matrix. Commit the two findings
+separately. A green rerun without the stabilizing changes is insufficient
+because it merely resamples both races.
 
 ## Non-goals
 

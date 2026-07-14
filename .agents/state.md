@@ -5,18 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **CI portability repair is complete and hosted-matrix green as of
-  `3c61886`.** The test-only range fixes the ambient-RTK dependency, five
-  Windows harness assumptions, and the final Windows path-casing assertion
-  exposed by the first follow-up run, without changing production files. The
-  complete local battery passed, including all 1,207 .NET tests with ambient
-  RTK forced missing. Initial independent review found no material defect; two
-  independent follow-up diagnoses and a candidate-order mutation proof
-  validated the final one-line correction. GitHub Actions run `29313220388`
-  passed Ubuntu, macOS, and Windows at the exact final head, including all
-  server suites and stdio handshakes. The validated repair history was
-  fast-forwarded to local `master`, and an exact branch-to-master diff verified
-  content arrival. Canonical evidence is in
+- **CI portability master-landing follow-up is approved and in flight.** The
+  original test-only repair remains validated by green three-platform run
+  `29313220388` at `3c61886` and was fast-forwarded to local `master` with
+  content arrival verified. Master run `29314404462` at docs-only descendant
+  `00e74d2` passed Ubuntu/macOS but exposed two pre-existing Windows harness
+  flakes under an identical server tree: a one-second setup warm-up budget and
+  a singleton request-context holder shared across concurrent synthetic calls.
+  The latter reproduced immediately on the clean `NETWATCH-01` checkout. The
+  owner approved two test-only stabilization commits on 2026-07-14; no
+  production changes or unchanged-code rerun are authorized as substitutes.
+  Canonical scope and proof requirements are in
   `.agents/plans/ci-portability-repair.md` and `.agents/review/index.md`; RTK
   distribution remains a separate decision.
 - **Audited-harness Slice 6 is complete locally.** Code
@@ -109,11 +108,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Create the Slice 7 feature branch and begin worker mode under
+1. Complete, independently review, and host-verify CI portability follow-up
+   slices 7-8.
+2. Create the Slice 7 feature branch and begin worker mode under
    `.agents/plans/audited-harness-sessions.md`.
-2. Execute release-distribution slice 3 under its approved plan. Re-present
+3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
-3. When the owner releases the decisions hold, reconcile the rejected
+4. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
 

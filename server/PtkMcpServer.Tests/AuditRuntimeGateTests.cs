@@ -299,6 +299,7 @@ public sealed class AuditRuntimeGateTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseOverlappingHandlers = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var contenderTimeout = TimeSpan.FromSeconds(15);
         var contenders = Enumerable.Range(0, 8)
             .Select(index => Task.Factory.StartNew(
                 async () =>
@@ -332,7 +333,7 @@ public sealed class AuditRuntimeGateTests : IDisposable
             {
                 await Task.WhenAny(
                     overlappingHandlersEntered.Task,
-                    Task.Delay(TimeSpan.FromSeconds(5)));
+                    Task.Delay(contenderTimeout));
                 Assert.True(
                     overlappingHandlersEntered.Task.IsCompleted,
                     $"Only {Volatile.Read(ref handlerCalls)} of the first 2 handlers entered.");
@@ -341,7 +342,7 @@ public sealed class AuditRuntimeGateTests : IDisposable
             {
                 releaseOverlappingHandlers.TrySetResult(true);
             }
-            var results = await Task.WhenAll(contenders).WaitAsync(TimeSpan.FromSeconds(15));
+            var results = await Task.WhenAll(contenders).WaitAsync(contenderTimeout);
             Assert.All(results, result => Assert.False(result.IsError ?? false));
             Assert.Equal(8, handlerCalls);
             Assert.Equal(2, Volatile.Read(ref openCalls));

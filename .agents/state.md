@@ -19,10 +19,14 @@ short and update it when important repo facts change.
   its platform-faithful test correction at reviewed head `36e0f49`, adds
   PowerShell-faithful cold PATH/PATHEXT resolution, frozen target identity and
   revalidation, target-aware native argument mode, and conservative fidelity
-  gates. Claude accepted exact range `43d1307..36e0f49` with
-  `guard_confirmed=true`; canonical guard and verification evidence is in
-  `.agents/review/index.md`. Production invoke activation/fallback, output
-  handles, and path-free recovery remain unwired.
+  gates. Production-activation code head `d3ff115` now drives one post-cwd
+  cold plan through split durable plan/dispatch barriers, final launch-fact
+  revalidation, and one exact-original fallback permitted only by typed proved
+  no-start; indeterminate or confirmed starts are never retried, and terminal
+  audit routing follows the actual dispatch. Claude accepted exact range
+  `79b1d3e..d3ff115` with `guard_confirmed=true`; canonical guard and
+  verification evidence is in `.agents/review/index.md`. Opaque output handles
+  and path-free recovery remain unwired.
 - **Audited-harness Slice 4 is complete locally.** Final product
   head `76d4f0c` integrates the supervisor-owned output store and audited
   `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
@@ -53,8 +57,7 @@ short and update it when important repo facts change.
   in `.agents/review/index.md` and `.agents/machines.md`.
 - **Local branch management is delegated for the remaining audited-harness
   implementation** (owner, 2026-07-11): create, switch, merge, and delete local
-  implementation/review branches without per-merge confirmation. Push remains
-  separately ask-first.
+  implementation/review branches without per-merge confirmation.
 - **Audited-harness slices 0-4 are complete locally.** Slice 1 commit
   `460c106` adds the mandatory current-server audit foundation, exact-script
   evidence, capacity reservation, protected local storage, and fail-closed
@@ -84,21 +87,18 @@ short and update it when important repo facts change.
   The deliberately open hook-default choice blocks slice 4 only.
 - **Standing GitHub authority:** the owner granted persistent permission on
   2026-07-10 to comment, close, and triage issues in this repository as
-  appropriate without per-action asks. Pushes remain ask-first.
+  appropriate without per-action asks.
 
 ## Next
 
-1. Continue audited-harness Slice 5 by wiring production cold planning and
-   proved-no-start fallback into invoke, then add supervisor-owned output
-   handles and make recovery path-free under
+1. Continue audited-harness Slice 5 by adding supervisor-owned output handles
+   and making recovery path-free under
    `.agents/plans/audited-harness-sessions.md`.
-2. Do not infer approval as a push go; push remains separately ask-first.
-3. Execute release-distribution slice 3 under its approved plan. Re-present
+2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
-4. When the owner releases the decisions hold, reconcile the rejected
+3. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
-5. Push remains ask-first; no push is authorized by plan/review completion.
 
 ## Open / Parked
 
@@ -140,7 +140,8 @@ short and update it when important repo facts change.
 - Audited-session slices 0-4 are complete locally. Slice 4's exact integrated
   fixed-head Claude acceptance and independently verified local landing are
   recorded in `.agents/review/index.md`; host-specific verification records
-  live in `.agents/machines.md`.
+  live in `.agents/machines.md`. Slice 5's production-activation acceptance is
+  recorded in the same review index; output-handle work remains open.
 
 ## Active Sources
 

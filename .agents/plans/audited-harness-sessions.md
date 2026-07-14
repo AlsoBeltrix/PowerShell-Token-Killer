@@ -24,8 +24,13 @@ and PATHEXT resolution, target identity/revalidation, target-aware native
 argument mode, and cold-plan fidelity gates. Claude accepted exact range
 `43d1307..36e0f49` with `guard_confirmed=true` after an independent
 trailing-space mutation proof and the full coder battery. Remaining Slice 5
-production activation/fallback, output handles, and path-free
-recovery-interface wiring is next. No push was performed or authorized.
+production-activation code head `d3ff115` wires one post-cwd cold plan into
+invoke, splits durable plan/dispatch authorization, revalidates frozen launch
+facts at commit, permits one exact-original fallback only after typed proved
+no-start, and preserves actual terminal routing. Claude accepted exact range
+`79b1d3e..d3ff115` with `guard_confirmed=true` after independent PATH
+re-resolution and audit-route rollback mutation proofs plus the full battery.
+Opaque output handles and path-free recovery-interface wiring remain next.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

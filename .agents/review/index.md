@@ -1830,3 +1830,41 @@ unconditionally use `StringComparison.OrdinalIgnoreCase`, so PTK matches the
 behavior it models. Production invoke activation/revalidation/fallback and
 output-handle wiring remain the next approved Slice 5 scope. Acceptance does
 not authorize push or history rewriting.
+
+---
+
+**SLICE 5 PRODUCTION COLD-BACKGROUND ACTIVATION CLAUDE REVIEW — ACCEPTED**
+(Claude Code 2.1.208, model `claude-opus-4-8`, isolated disposable worktree),
+reviewed head `d3ff11517ed266b18b0021b7f49425e7a536e20d` against base
+`79b1d3e377bc1c8383e81d836b53e49f65c99db3`, `guard_confirmed=true`,
+2026-07-14T03:11:29Z. The first one-shot envelope exited zero and completed
+the review, but its result wrapped the required JSON object in explanatory
+prose, so the orchestrator rejected it fail-closed. The single permitted
+schema-only retry exited zero and returned an exact payload: both fixed SHAs
+matched, the guard flag was literal true, and the verdict was `accepted`.
+Claude found no material defect in the post-cwd cold plan, split durable audit
+barriers, commit-time launch revalidation, one-shot proved-no-start fallback,
+deadline gates, or terminal-route transfer.
+
+Claude independently proved two high-risk boundaries red then green. Replacing
+literal command re-resolution with a hash check of only the captured target
+let a changed PATH reach process start and changed the expected
+`rtk_target_resolution_changed` failure to `rtk_process_start_failed`.
+Removing transactional `_routing` rollback after a failed fallback append
+left the unaudited `powershell_direct` projection in memory. Exact restoration
+passed the zero-warning build, 1,192/1,192 .NET tests, 141 Pester tests with
+two platform skips, and the stdio handshake. The detached worktree was clean
+at the reviewed SHA and removed; the coder worktree remained untouched.
+The coder's first canonical solution rerun hit the unchanged one-second warmup
+budget in `Private_output_stop_is_joined_before_disposal_and_guard_release`;
+that test passed 3/3 in isolation and the clean canonical rerun passed
+1,192/1,192.
+
+Two reviewer observations were adjudicated as nonblocking. A failure to attach
+the already-started process handle after `Process.Start()` returned true can
+conservatively surface `ProcessStarted=null`; it still forbids retry, and the
+reviewer considered the path effectively unreachable. `AbandonFallback`
+could mask a return if its invariant unexpectedly threw, but the attempt ledger
+always transitions before that cleanup and terminal-lease release is protected
+by an inner `finally`. Opaque output handles and path-free recovery remain the
+next approved Slice 5 scope.

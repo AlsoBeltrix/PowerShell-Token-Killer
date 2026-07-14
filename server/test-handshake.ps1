@@ -238,9 +238,36 @@ try {
             throw "$required missing from tools/list; got: $($names -join ', ')"
         }
     }
+    $expectedInputFields = @{
+        ptk_invoke = @('script', 'raw', 'route', 'background', 'timeoutSeconds')
+        ptk_job    = @('action', 'id', 'offset')
+        ptk_state  = @('listAvailable')
+        ptk_reset  = @()
+        ptk_output = @('handle', 'action', 'offset', 'maxBytes', 'pattern')
+    }
+    $expectedRequiredFields = @{
+        ptk_invoke = @('script')
+        ptk_job    = @('action')
+        ptk_state  = @()
+        ptk_reset  = @()
+        ptk_output = @('handle')
+    }
     foreach ($tool in @($tools.result.tools)) {
-        $inputFields = @($tool.inputSchema.properties.PSObject.Properties.Name)
-        foreach ($hostOnlyField in @('auditContext', 'outputStore')) {
+        $inputFields = @($tool.inputSchema.properties.PSObject.Properties.Name | Where-Object { $null -ne $_ })
+        $expectedFields = @($expectedInputFields[$tool.name] | Where-Object { $null -ne $_ })
+        $missingFields = @($expectedFields | Where-Object { $inputFields -cnotcontains $_ })
+        $unexpectedFields = @($inputFields | Where-Object { $expectedFields -cnotcontains $_ })
+        if ($missingFields.Count -gt 0 -or $unexpectedFields.Count -gt 0) {
+            throw "$($tool.name) MCP input fields changed; missing=$($missingFields -join ','); unexpected=$($unexpectedFields -join ',')"
+        }
+        $requiredFields = @($tool.inputSchema.required | Where-Object { $null -ne $_ })
+        $expectedRequired = @($expectedRequiredFields[$tool.name] | Where-Object { $null -ne $_ })
+        $missingRequired = @($expectedRequired | Where-Object { $requiredFields -cnotcontains $_ })
+        $unexpectedRequired = @($requiredFields | Where-Object { $expectedRequired -cnotcontains $_ })
+        if ($missingRequired.Count -gt 0 -or $unexpectedRequired.Count -gt 0) {
+            throw "$($tool.name) MCP required fields changed; missing=$($missingRequired -join ','); unexpected=$($unexpectedRequired -join ',')"
+        }
+        foreach ($hostOnlyField in @('auditContext', 'outputStore', 'runtime')) {
             if ($inputFields -contains $hostOnlyField) {
                 throw "host-only $hostOnlyField leaked into the $($tool.name) MCP input schema"
             }

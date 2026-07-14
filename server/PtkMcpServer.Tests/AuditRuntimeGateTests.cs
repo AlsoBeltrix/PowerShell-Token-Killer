@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
+using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tests;
 
@@ -457,8 +458,10 @@ public sealed class AuditRuntimeGateTests : IDisposable
         var health = new AuditHealth(options);
         using var runtime = CreateRuntime(options, health);
         await runtime.StartAsync(CancellationToken.None);
-        var jobs = runtime.RunJobManagerAfterStarted(() =>
-            new JobManager(Path.Combine(root, "jobs")));
+        var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5));
+        var jobs = new JobManager(Path.Combine(root, "jobs"));
+        using var session = runtime.RunSessionRuntimeAfterStarted(() =>
+            new SessionRuntime(host, jobs, new RawUsageCounter()));
         var callbackEntered = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseCallback = new TaskCompletionSource<bool>(
@@ -500,7 +503,6 @@ public sealed class AuditRuntimeGateTests : IDisposable
             releaseCallback.TrySetResult(true);
             await stop.WaitAsync(TimeSpan.FromSeconds(15));
             runtime.Dispose();
-            jobs.Dispose();
         }
         finally
         {
@@ -531,8 +533,10 @@ public sealed class AuditRuntimeGateTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseShutdown = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var host = runtime.RunRunspaceHostAfterStarted(() =>
-            new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5)));
+        var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5));
+        var jobs = new JobManager(Path.Combine(root, "jobs"));
+        using var session = runtime.RunSessionRuntimeAfterStarted(() =>
+            new SessionRuntime(host, jobs, new RawUsageCounter()));
         host.TrackOwnedBackgroundWorkForTests(Task.Run(async () =>
         {
             shutdownEntered.TrySetResult(true);
@@ -557,7 +561,6 @@ public sealed class AuditRuntimeGateTests : IDisposable
             {
                 try { await stop.WaitAsync(TimeSpan.FromSeconds(15)); } catch { /* preserve primary failure */ }
             }
-            host.Dispose();
         }
 
         Assert.Equal(
@@ -581,11 +584,13 @@ public sealed class AuditRuntimeGateTests : IDisposable
             TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseShutdown = new TaskCompletionSource<bool>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var construction = Task.Run(() => runtime.RunJobManagerAfterStarted(() =>
+        JobManager? manager = null;
+        var construction = Task.Run(() => runtime.RunSessionRuntimeAfterStarted(() =>
         {
             factoryEntered.TrySetResult(true);
             releaseFactory.Task.GetAwaiter().GetResult();
-            return new JobManager(Path.Combine(root, "tracked-jobs"))
+            var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5));
+            manager = new JobManager(Path.Combine(root, "tracked-jobs"))
             {
                 ShutdownOverrideForTests = async () =>
                 {
@@ -593,9 +598,10 @@ public sealed class AuditRuntimeGateTests : IDisposable
                     await releaseShutdown.Task;
                 },
             };
+            return new SessionRuntime(host, manager, new RawUsageCounter());
         }));
         Task? stop = null;
-        JobManager? manager = null;
+        SessionRuntime? session = null;
         try
         {
             await factoryEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -605,9 +611,9 @@ public sealed class AuditRuntimeGateTests : IDisposable
             Assert.False(stop.IsCompleted, "shutdown entered the construction/tracking transaction");
 
             releaseFactory.TrySetResult(true);
-            manager = await construction.WaitAsync(TimeSpan.FromSeconds(10));
+            session = await construction.WaitAsync(TimeSpan.FromSeconds(10));
             await shutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.False(stop.IsCompleted, "shutdown failed to track the constructed manager");
+            Assert.False(stop.IsCompleted, "shutdown failed to track the constructed runtime");
             releaseShutdown.TrySetResult(true);
             await stop.WaitAsync(TimeSpan.FromSeconds(10));
             runtime.Dispose();
@@ -616,12 +622,12 @@ public sealed class AuditRuntimeGateTests : IDisposable
         {
             releaseFactory.TrySetResult(true);
             releaseShutdown.TrySetResult(true);
-            try { manager ??= await construction.WaitAsync(TimeSpan.FromSeconds(10)); } catch { }
+            try { session ??= await construction.WaitAsync(TimeSpan.FromSeconds(10)); } catch { }
             if (stop is not null)
             {
                 try { await stop.WaitAsync(TimeSpan.FromSeconds(10)); } catch { }
             }
-            manager?.Dispose();
+            session?.Dispose();
         }
 
         Assert.Equal(
@@ -737,21 +743,30 @@ public sealed class AuditRuntimeGateTests : IDisposable
         var health = new AuditHealth(options);
         var runtime = CreateRuntime(options, health);
         await runtime.StartAsync(CancellationToken.None);
-        var jobs = runtime.RunJobManagerAfterStarted(() =>
-            new JobManager(Path.Combine(root, "jobs"))
-            {
-                ShutdownOverrideForTests = () =>
-                    Task.FromException(new IOException("injected drain failure")),
-            });
+        var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5));
+        var jobs = new JobManager(Path.Combine(root, "jobs"))
+        {
+            ShutdownOverrideForTests = () =>
+                Task.FromException(new IOException("injected drain failure")),
+        };
+        var session = runtime.RunSessionRuntimeAfterStarted(() =>
+            new SessionRuntime(host, jobs, new RawUsageCounter()));
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() =>
+                runtime.StopAsync(CancellationToken.None));
+            Assert.Throws<IOException>(() => runtime.Dispose());
 
-        await Assert.ThrowsAsync<IOException>(() =>
-            runtime.StopAsync(CancellationToken.None));
-        Assert.Throws<IOException>(() => runtime.Dispose());
-
-        var eventTypes = ReadEvents(options).Select(EventType).ToArray();
-        Assert.Equal(["server.started"], eventTypes);
-        Assert.DoesNotContain("server.stopped", eventTypes);
-        jobs.ShutdownOverrideForTests = null;
+            var eventTypes = ReadEvents(options).Select(EventType).ToArray();
+            Assert.Equal(["server.started"], eventTypes);
+            Assert.DoesNotContain("server.stopped", eventTypes);
+        }
+        finally
+        {
+            jobs.ShutdownOverrideForTests = null;
+            try { session.Dispose(); }
+            catch (IOException) { /* the intentionally faulted shutdown task is cached */ }
+        }
     }
 
     [Fact]
@@ -762,8 +777,10 @@ public sealed class AuditRuntimeGateTests : IDisposable
         var health = new AuditHealth(options);
         var runtime = CreateRuntime(options, health);
         await runtime.StartAsync(CancellationToken.None);
-        var host = runtime.RunRunspaceHostAfterStarted(() =>
-            new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5)));
+        var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(5));
+        var jobs = new JobManager(Path.Combine(root, "jobs"));
+        var session = runtime.RunSessionRuntimeAfterStarted(() =>
+            new SessionRuntime(host, jobs, new RawUsageCounter()));
         host.TrackOwnedBackgroundWorkForTests(
             Task.FromException(new IOException("injected teardown failure")));
 
@@ -774,7 +791,7 @@ public sealed class AuditRuntimeGateTests : IDisposable
         var eventTypes = ReadEvents(options).Select(EventType).ToArray();
         Assert.Equal(["server.started"], eventTypes);
         Assert.DoesNotContain("server.stopped", eventTypes);
-        host.Dispose();
+        session.Dispose();
     }
 
     [Fact]

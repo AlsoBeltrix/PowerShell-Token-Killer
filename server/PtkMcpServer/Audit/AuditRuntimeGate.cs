@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting;
+using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Audit;
 
@@ -23,8 +24,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
     private AuditRuntimeResources? _resources;
     private AuditJournal? _journal;
     private AuditServerLifecycle? _lifecycle;
-    private RunspaceHost? _runspaceHost;
-    private JobManager? _jobManager;
+    private SessionRuntime? _sessionRuntime;
     private Task? _stopTask;
     private TaskCompletionSource<bool>? _activeCallsDrained;
     private int _activeCalls;
@@ -270,11 +270,9 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
         }
     }
 
-    internal JobManager RunJobManagerAfterStarted(Func<JobManager> downstreamFactory)
-        => RunAfterStarted(downstreamFactory, manager => _jobManager = manager);
-
-    internal RunspaceHost RunRunspaceHostAfterStarted(Func<RunspaceHost> downstreamFactory)
-        => RunAfterStarted(downstreamFactory, host => _runspaceHost = host);
+    internal SessionRuntime RunSessionRuntimeAfterStarted(
+        Func<SessionRuntime> downstreamFactory)
+        => RunAfterStarted(downstreamFactory, runtime => _sessionRuntime = runtime);
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -304,8 +302,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
                         : _activeCallsDrained!.Task;
                     _stopTask = StopCoreAsync(
                         activeCalls,
-                        _runspaceHost,
-                        _jobManager,
+                        _sessionRuntime,
                         _lifecycle,
                         _resources);
                     return _stopTask;
@@ -351,16 +348,13 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
 
     private async Task StopCoreAsync(
         Task activeCalls,
-        RunspaceHost? runspaceHost,
-        JobManager? jobs,
+        SessionRuntime? sessionRuntime,
         AuditServerLifecycle? lifecycle,
         AuditRuntimeResources? resources)
     {
         await activeCalls.ConfigureAwait(false);
-        if (jobs is not null)
-            await jobs.ShutdownAsync().ConfigureAwait(false);
-        if (runspaceHost is not null)
-            await runspaceHost.ShutdownAsync().ConfigureAwait(false);
+        if (sessionRuntime is not null)
+            await sessionRuntime.ShutdownAsync().ConfigureAwait(false);
         if (resources is not null)
             await resources.StopExporterAsync().ConfigureAwait(false);
         lifecycle?.Stop();

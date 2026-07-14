@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tests;
 
@@ -391,7 +392,7 @@ public sealed class JobManagerTests : IDisposable
         Assert.NotNull(callbackArtifact);
         Assert.Equal(callbackHandle, final.OutputRecovery!.Handle);
         Assert.True(File.Exists(final.OutputPath));
-        var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+        var recoveryStatus = SessionRuntime.RecoveryStatus(final);
         Assert.Contains($"ptk_output handle={callbackHandle}", recoveryStatus, StringComparison.Ordinal);
         Assert.Contains("recovery=handle", recoveryStatus, StringComparison.Ordinal);
         Assert.Contains("ptk_output reports current availability", recoveryStatus, StringComparison.Ordinal);
@@ -465,14 +466,12 @@ public sealed class JobManagerTests : IDisposable
             Assert.False(read.Complete);
             Assert.Equal(OutputProvenance.DirectText, read.Provenance);
             Assert.Contains(prefix, read.Text, StringComparison.Ordinal);
-            var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+            var recoveryStatus = SessionRuntime.RecoveryStatus(final);
             Assert.Contains($"ptk_output handle={handle}", recoveryStatus, StringComparison.Ordinal);
             Assert.Contains("artifact incomplete", recoveryStatus, StringComparison.Ordinal);
             Assert.DoesNotContain(final.OutputPath, recoveryStatus, StringComparison.OrdinalIgnoreCase);
             using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(10));
-            var toolStatus = await Tools.JobTool.Job(
-                host,
-                _jobs,
+            var toolStatus = await (new SessionRuntime(host, _jobs, new RawUsageCounter())).JobAsync(
                 "status",
                 CancellationToken.None,
                 id: started.Id);
@@ -511,7 +510,7 @@ public sealed class JobManagerTests : IDisposable
         Assert.Equal(OutputArtifactState.NotFound, recovery.State);
         Assert.Equal("storage_unavailable", recovery.DetailCode);
         Assert.True(recovery.Advertise);
-        var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+        var recoveryStatus = SessionRuntime.RecoveryStatus(final);
         Assert.Equal(
             "recovery=unavailable: output capture unavailable; command was not rerun",
             recoveryStatus);
@@ -701,7 +700,7 @@ public sealed class JobManagerTests : IDisposable
             Assert.False(sealing.OutputRecoveryFinalized);
             Assert.Contains(
                 "recovery=pending",
-                Tools.JobTool.RecoveryStatus(sealing),
+                SessionRuntime.RecoveryStatus(sealing),
                 StringComparison.Ordinal);
 
             File.WriteAllText(secondGate, string.Empty);
@@ -763,13 +762,11 @@ public sealed class JobManagerTests : IDisposable
         Assert.Contains("[exit] 0", read.Text, StringComparison.Ordinal);
         Assert.DoesNotContain('\ufffd', read.Text);
         Assert.DoesNotContain("TAIL", read.Text, StringComparison.Ordinal);
-        var recoveryStatus = Tools.JobTool.RecoveryStatus(final);
+        var recoveryStatus = SessionRuntime.RecoveryStatus(final);
         Assert.Contains("artifact incomplete", recoveryStatus, StringComparison.Ordinal);
         Assert.DoesNotContain("output incomplete", recoveryStatus, StringComparison.Ordinal);
         using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(10));
-        var toolStatus = await Tools.JobTool.Job(
-            host,
-            _jobs,
+        var toolStatus = await (new SessionRuntime(host, _jobs, new RawUsageCounter())).JobAsync(
             "status",
             CancellationToken.None,
             id: started.Id);

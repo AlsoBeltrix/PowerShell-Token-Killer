@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
+using PtkMcpServer.Sessions;
 using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
@@ -41,13 +42,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             async token =>
             {
                 handlerCalled = true;
-                return Text(await InvokeTool.Invoke(
-                    fixture.Host,
-                    fixture.Jobs,
-                    fixture.RawUsage,
-                    "Set-Content -LiteralPath ignored -Value ran",
+                return Text(await fixture.Session.InvokeAsync("Set-Content -LiteralPath ignored -Value ran",
                     token,
-                    auditContext: fixture.AuditContext));
+                    audit: fixture.AuditContext.Current));
             });
 
         Assert.False(handlerCalled);
@@ -96,13 +93,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(File.Exists(marker));
         Assert.True(result.IsError);
@@ -147,13 +140,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(File.Exists(rtkMarker));
         Assert.False(File.Exists(userMarker));
@@ -193,13 +182,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Equal("1", File.ReadAllText(rtkCount));
@@ -266,13 +251,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Equal("1", File.ReadAllText(rtkCount));
@@ -292,15 +273,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script), ("raw", true), ("route", "pwsh")),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 raw: true,
                 route: "pwsh",
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Equal(
@@ -335,13 +312,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Contains("AUDITED_RTK_LOG", ResultText(result), StringComparison.Ordinal);
@@ -402,13 +375,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Contains("[ptk:log rtk not found", ResultText(result), StringComparison.Ordinal);
@@ -448,15 +417,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", script), ("raw", true), ("route", "pwsh")),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 raw: true,
                 route: "pwsh",
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Contains("AUDIT_CAPABILITY_HIDDEN", ResultText(result), StringComparison.Ordinal);
@@ -502,13 +467,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         {
             var result = await fixture.Filter(
                 Call("ptk_invoke", ("script", "export FOO=1")),
-                async token => Text(await InvokeTool.Invoke(
-                    fixture.Host,
-                    fixture.Jobs,
-                    fixture.RawUsage,
-                    "export FOO=1",
+                async token => Text(await fixture.Session.InvokeAsync("export FOO=1",
                     token,
-                    auditContext: fixture.AuditContext)));
+                    audit: fixture.AuditContext.Current)));
 
             Assert.NotEqual(true, result.IsError);
             Assert.Contains("[ptk:dialect]", ResultText(result), StringComparison.Ordinal);
@@ -551,13 +512,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             route: "pwsh");
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", "'safe-output'")),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                "'safe-output'",
+            async token => Text(await fixture.Session.InvokeAsync("'safe-output'",
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
         var modeAfter = await fixture.Host.InvokeAsync(
             "([runspace]::DefaultRunspace).Debugger.DebugMode.ToString()",
             raw: true,
@@ -636,13 +593,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 : "git --version";
             var result = await fixture.Filter(
                 Call("ptk_invoke", ("script", submittedScript)),
-                async token => Text(await InvokeTool.Invoke(
-                    fixture.Host,
-                    fixture.Jobs,
-                    fixture.RawUsage,
-                    submittedScript,
+                async token => Text(await fixture.Session.InvokeAsync(submittedScript,
                     token,
-                    auditContext: fixture.AuditContext)));
+                    audit: fixture.AuditContext.Current)));
 
             Assert.False(
                 File.Exists(marker),
@@ -695,13 +648,9 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_invoke", ("script", "'safe-output'")),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                "'safe-output'",
+            async token => Text(await fixture.Session.InvokeAsync("'safe-output'",
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.False(result.IsError ?? false);
         Assert.Contains("safe-output", ResultText(result), StringComparison.Ordinal);
@@ -740,16 +689,12 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("raw", true),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 raw: true,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.Empty(fixture.Jobs.List());
         Assert.False(File.Exists(marker));
@@ -784,15 +729,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("script", "'must not run'"),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                "'must not run'",
+            async token => Text(await fixture.Session.InvokeAsync("'must not run'",
                 token,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext,
+                audit: fixture.AuditContext.Current,
                 outputStore: fixture.OutputStore)));
 
         Assert.False(result.IsError ?? false);
@@ -863,15 +804,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("script", "'must not run'"),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                "'must not run'",
+            async token => Text(await fixture.Session.InvokeAsync("'must not run'",
                 token,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext,
+                audit: fixture.AuditContext.Current,
                 outputStore: fixture.OutputStore)));
 
         Assert.True(result.IsError);
@@ -897,11 +834,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_reset"),
-            async token => Text(await ResetTool.Reset(
-                fixture.Host,
-                fixture.Jobs,
-                token,
-                fixture.AuditContext)));
+            async token => Text(await fixture.Session.ResetAsync(token,
+                fixture.AuditContext.Current)));
 
         var after = await fixture.Host.InvokeAsync("$auditResetGuard", raw: true, route: "pwsh");
         Assert.Contains("42", after.Output, StringComparison.Ordinal);
@@ -920,11 +854,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         {
             var result = await fixture.Filter(
                 Call("ptk_reset"),
-                async token => Text(await ResetTool.Reset(
-                    fixture.Host,
-                    fixture.Jobs,
-                    token,
-                    fixture.AuditContext)));
+                async token => Text(await fixture.Session.ResetAsync(token,
+                    fixture.AuditContext.Current)));
 
             Assert.Contains("1 kill request(s) failed", ResultText(result), StringComparison.Ordinal);
             Assert.True(fixture.Jobs.Snapshot(job.Id)!.Running);
@@ -954,11 +885,8 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 Call("ptk_reset"),
                 _ => new ValueTask<CallToolResult>(ResetAndWrapAsync())));
 
-        async Task<CallToolResult> ResetAndWrapAsync() => Text(await ResetTool.Reset(
-            fixture.Host,
-            fixture.Jobs,
-            canceled.Token,
-            fixture.AuditContext));
+        async Task<CallToolResult> ResetAndWrapAsync() => Text(await fixture.Session.ResetAsync(canceled.Token,
+            fixture.AuditContext.Current));
 
         await WaitUntilAsync(() => fixture.Jobs.Snapshot(job.Id)?.Running == false);
         var events = fixture.Events();
@@ -984,13 +912,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_job", ("action", "kill"), ("id", job.Id)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "kill",
+            async token => Text(await fixture.Session.JobAsync("kill",
                 token,
                 job.Id,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.True(fixture.Jobs.Snapshot(job.Id)?.Running);
         Assert.True(result.IsError);
@@ -1006,14 +931,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "output",
+            async token => Text(await fixture.Session.JobAsync("output",
                 token,
                 job.Id,
                 0,
-                fixture.AuditContext)));
+                fixture.AuditContext.Current)));
 
         Assert.Contains("audited-output", ResultText(result), StringComparison.Ordinal);
         var access = fixture.Events().Single(value =>
@@ -1043,14 +965,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "output",
+            async token => Text(await fixture.Session.JobAsync("output",
                 token,
                 job.Id,
                 0,
-                fixture.AuditContext)));
+                fixture.AuditContext.Current)));
 
         Assert.Contains("AUDITED_JOB_RTK_LOG", ResultText(result), StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1155,14 +1074,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "output",
+            async token => Text(await fixture.Session.JobAsync("output",
                 token,
                 job.Id,
                 0,
-                fixture.AuditContext)));
+                fixture.AuditContext.Current)));
 
         var response = ResultText(result);
         Assert.Contains("step 8", response, StringComparison.Ordinal);
@@ -1195,13 +1111,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         _ = await fixture.Filter(
             Call("ptk_job", ("action", "status"), ("id", job.Id)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "status",
+            async token => Text(await fixture.Session.JobAsync("status",
                 token,
                 job.Id,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
         var status = fixture.Events().Single(value =>
             value.GetProperty("event_type").GetString() == "job.status_accessed");
         AssertSourceRouting(status);
@@ -1235,14 +1148,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         var result = await fixture.Filter(
             Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "output",
+            async token => Text(await fixture.Session.JobAsync("output",
                 token,
                 job.Id,
                 0,
-                fixture.AuditContext)));
+                fixture.AuditContext.Current)));
 
         Assert.Contains("step 8", ResultText(result), StringComparison.Ordinal);
         Assert.Contains(
@@ -1282,14 +1192,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         _ = await fixture.Filter(
             Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "output",
+            async token => Text(await fixture.Session.JobAsync("output",
                 token,
                 job.Id,
                 0,
-                fixture.AuditContext)));
+                fixture.AuditContext.Current)));
 
         Assert.True(
             File.Exists(invocationMarker),
@@ -1317,14 +1224,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         await Assert.ThrowsAsync<AuditUnavailableException>(async () =>
             await fixture.Filter(
                 Call("ptk_job", ("action", "output"), ("id", job.Id), ("offset", 0L)),
-                async token => Text(await JobTool.Job(
-                    fixture.Host,
-                    fixture.Jobs,
-                    "output",
+                async token => Text(await fixture.Session.JobAsync("output",
                     token,
                     job.Id,
                     0,
-                    fixture.AuditContext))));
+                    fixture.AuditContext.Current))));
     }
 
     [Fact]
@@ -1511,30 +1415,20 @@ public sealed class AuditPreEffectGuardTests : IDisposable
 
         _ = await fixture.Filter(
             Call("ptk_job", ("action", "list")),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "list",
+            async token => Text(await fixture.Session.JobAsync("list",
                 token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
         _ = await fixture.Filter(
             Call("ptk_job", ("action", "status"), ("id", 999L)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "status",
+            async token => Text(await fixture.Session.JobAsync("status",
                 token,
                 999,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
         _ = await fixture.Filter(
             Call("ptk_state"),
-            async token => Text(await StateTool.State(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                listAvailable: false,
+            async token => Text(await fixture.Session.StateAsync(listAvailable: false,
                 cancellationToken: token,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         var events = fixture.Events();
         Assert.Single(events, value => value.GetProperty("event_type").GetString() == "job.list_accessed");
@@ -1571,16 +1465,12 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("raw", true),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 raw: true,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext,
+                audit: fixture.AuditContext.Current,
                 outputStore: fixture.OutputStore)));
 
         Assert.False(result.IsError ?? false);
@@ -1660,15 +1550,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                     ("script", script),
                     ("route", "rtk"),
                     ("background", true)),
-                async token => Text(await InvokeTool.Invoke(
-                    fixture.Host,
-                    fixture.Jobs,
-                    fixture.RawUsage,
-                    script,
+                async token => Text(await fixture.Session.InvokeAsync(script,
                     token,
                     route: "rtk",
                     background: true,
-                    auditContext: fixture.AuditContext)));
+                    audit: fixture.AuditContext.Current)));
 
             Assert.False(result.IsError ?? false);
             Assert.Contains("[job 1 started]", ResultText(result), StringComparison.Ordinal);
@@ -1765,15 +1651,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                     ("script", script),
                     ("route", "rtk"),
                     ("background", true)),
-                async token => Text(await InvokeTool.Invoke(
-                    fixture.Host,
-                    fixture.Jobs,
-                    fixture.RawUsage,
-                    script,
+                async token => Text(await fixture.Session.InvokeAsync(script,
                     token,
                     route: "rtk",
                     background: true,
-                    auditContext: fixture.AuditContext)));
+                    audit: fixture.AuditContext.Current)));
 
             Assert.False(result.IsError ?? false);
             Assert.Contains(
@@ -1885,15 +1767,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                     ("script", script),
                     ("route", "rtk"),
                     ("background", true)),
-                async token => Text(await InvokeTool.Invoke(
-                    fixture.Host,
-                    fixture.Jobs,
-                    fixture.RawUsage,
-                    script,
+                async token => Text(await fixture.Session.InvokeAsync(script,
                     token,
                     route: "rtk",
                     background: true,
-                    auditContext: fixture.AuditContext)));
+                    audit: fixture.AuditContext.Current)));
 
             Assert.True(result.IsError);
             AssertNoStartRefusal(result);
@@ -1957,15 +1835,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("script", script),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         Assert.Contains("started; outcome unknown", ResultText(result), StringComparison.Ordinal);
         var job = Assert.Single(fixture.Jobs.List());
@@ -2024,28 +1898,21 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("raw", true),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 raw: true,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
         Assert.False(start.IsError ?? false);
         var job = Assert.Single(fixture.Jobs.List());
 
         var kill = await fixture.Filter(
             Call("ptk_job", ("action", "kill"), ("id", job.Id)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "kill",
+            async token => Text(await fixture.Session.JobAsync("kill",
                 token,
                 job.Id,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
         Assert.Contains("kill requested", ResultText(kill), StringComparison.Ordinal);
         await WaitUntilAsync(() => fixture.EventTypes().Count(type => type == "job.killed") == 1);
 
@@ -2076,13 +1943,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         const long missingId = 999;
         _ = await fixture.Filter(
             Call("ptk_job", ("action", "kill"), ("id", missingId)),
-            async token => Text(await JobTool.Job(
-                fixture.Host,
-                fixture.Jobs,
-                "kill",
+            async token => Text(await fixture.Session.JobAsync("kill",
                 token,
                 missingId,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         var job = fixture.Jobs.Start("Start-Sleep -Seconds 300");
         fixture.Jobs.BeforeKillForTests = _ =>
@@ -2091,13 +1955,10 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         {
             _ = await fixture.Filter(
                 Call("ptk_job", ("action", "kill"), ("id", job.Id)),
-                async token => Text(await JobTool.Job(
-                    fixture.Host,
-                    fixture.Jobs,
-                    "kill",
+                async token => Text(await fixture.Session.JobAsync("kill",
                     token,
                     job.Id,
-                    auditContext: fixture.AuditContext)));
+                    audit: fixture.AuditContext.Current)));
         }
         finally
         {
@@ -2125,24 +1986,17 @@ public sealed class AuditPreEffectGuardTests : IDisposable
                 ("raw", true),
                 ("route", "pwsh"),
                 ("background", true)),
-            async token => Text(await InvokeTool.Invoke(
-                fixture.Host,
-                fixture.Jobs,
-                fixture.RawUsage,
-                script,
+            async token => Text(await fixture.Session.InvokeAsync(script,
                 token,
                 raw: true,
                 route: "pwsh",
                 background: true,
-                auditContext: fixture.AuditContext)));
+                audit: fixture.AuditContext.Current)));
 
         _ = await fixture.Filter(
             Call("ptk_reset"),
-            async token => Text(await ResetTool.Reset(
-                fixture.Host,
-                fixture.Jobs,
-                token,
-                fixture.AuditContext)));
+            async token => Text(await fixture.Session.ResetAsync(token,
+                fixture.AuditContext.Current)));
         await WaitUntilAsync(() => fixture.EventTypes().Count(type => type == "job.killed") == 1);
 
         var terminal = fixture.Events().Single(value =>
@@ -2294,6 +2148,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         OutputStore OutputStore,
         AuditOutputRequestProtector OutputProtector) : IDisposable
     {
+        private SessionRuntime? _session;
+
+        internal SessionRuntime Session =>
+            _session ??= new SessionRuntime(Host, Jobs, RawUsage);
+
         internal async ValueTask<CallToolResult> Filter(
             CallToolRequestParams call,
             Func<CancellationToken, ValueTask<CallToolResult>> next)
@@ -2329,9 +2188,16 @@ public sealed class AuditPreEffectGuardTests : IDisposable
         public void Dispose()
         {
             OutputProtector.Dispose();
+            if (_session is not null)
+            {
+                _session.Dispose();
+            }
+            else
+            {
+                Jobs.Dispose();
+                Host.Dispose();
+            }
             OutputStore.Dispose();
-            Jobs.Dispose();
-            Host.Dispose();
             Provider.Dispose();
             Journal.Dispose();
         }

@@ -1,16 +1,13 @@
 using System.ComponentModel;
-using System.Text;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Audit;
+using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tools;
 
 [McpServerToolType]
 public static class StateTool
 {
-    private static readonly SemaphoreSlim CacheGate = new(1, 1);
-    private static string? _availableCache;
-
     [McpServerTool(Name = "ptk_state")]
     [Description(
         "Session introspection and health check for the ptk warm runspace: engine, " +
@@ -24,220 +21,14 @@ public static class StateTool
         "another call holds the runspace it reports host-level facts plus a " +
         "busy line (active-call age, waiter count) instead of queueing, and " +
         "marks runspace-dependent details unavailable.")]
-    public static async Task<string> State(
-        RunspaceHost host,
-        JobManager jobs,
-        RawUsageCounter rawUsage,
+    public static Task<string> State(
+        SessionRuntime runtime,
         [Description("Also enumerate every installed module instead of only loaded ones.")]
         bool listAvailable = false,
         CancellationToken cancellationToken = default,
         AuditCallContextAccessor? auditContext = null)
-    {
-        var audit = auditContext?.Current;
-        if (audit is not null && !audit.AuthorizeControl("state.probe_requested"))
-            return AuditCallContext.NotStartedMessage;
-        var runspaceLossRecorded = false;
-
-        // No assignments in this script: probing the session must not add
-        // variables to it (the report would perturb its own drift numbers).
-        var script = string.Join('\n',
-            "\"engine: $($PSVersionTable.PSVersion)\"",
-            "\"cwd: $((Microsoft.PowerShell.Management\\Get-Location).Path)\"",
-            $"\"variables: $(@(Microsoft.PowerShell.Utility\\Get-Variable).Count) (baseline {host.BaselineVariableCount})\"",
-            "$(if (@(Microsoft.PowerShell.Core\\Get-Module).Count -eq 0) { 'modules loaded: (none)' } else { 'modules loaded:' })",
-            "Microsoft.PowerShell.Core\\Get-Module | Microsoft.PowerShell.Utility\\Sort-Object Name | " +
-            "Microsoft.PowerShell.Core\\ForEach-Object { '  ' + $_.Name + ' ' + $_.Version }");
-        // Zero-wait acquire: the health check must never queue behind the
-        // workload it exists to diagnose (issue #6). Null = busy; the failed
-        // acquire IS the busy signal — no snapshot-then-queue race window.
-        var result = await host.TryInvokeStateProbeIfIdleAsync(
-            script,
-            cancellationToken: cancellationToken);
-        if (result?.WarmStateLost == true && audit is not null)
-        {
-            audit.RecordControlOutcome(
-                "runspace.recycled",
-                "completed",
-                detailCode: "state_probe_timed_out",
-                warmStateLost: true);
-            runspaceLossRecorded = true;
-        }
-
-        var probeState = result is not null && (!result.Success || result.Errors.Length > 0)
-            ? "partial"
-            : "completed";
-        string? probeDetailCode = result is null
-            ? "runspace_busy"
-            : probeState == "partial" ? "probe_errors" : null;
-
-        string Finish(string response)
-        {
-            audit?.CommitReadOutcome(
-                "state.probe_completed",
-                probeState,
-                response,
-                detailCode: probeDetailCode);
-            return response;
-        }
-
-        var sb = new StringBuilder();
-        // Raw count is compatibility telemetry for user-level raw=true calls
-        // only. Internal state probes never touch the compatibility flag.
-        sb.AppendLine(
-            $"ptk server: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
-            $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
-        if (audit is not null) sb.AppendLine(audit.HealthStatusLine());
-        var busyLineEmitted = false;
-        if (result is null)
-        {
-            busyLineEmitted = true;
-            sb.AppendLine(FormatBusyLine(host));
-            sb.AppendLine("runspace-dependent details (engine, cwd, variables, loaded modules) unavailable while busy.");
-        }
-        else
-        {
-            if (result.Output.TrimEnd().Length > 0) sb.AppendLine(result.Output.TrimEnd());
-            // A probe can still fail (provider/module faults, cancellation, or
-            // non-terminating errors): surface that instead of silently
-            // reporting partial state as the truth.
-            if (!result.Success || result.Errors.Length > 0)
-            {
-                sb.AppendLine("[state probe errors]");
-                foreach (var error in result.Errors) sb.AppendLine(error);
-            }
-        }
-
-        var allJobs = jobs.List();
-        if (allJobs.Length == 0)
-        {
-            sb.AppendLine("jobs: (none)");
-        }
-        else
-        {
-            sb.AppendLine("jobs:");
-            foreach (var job in allJobs)
-            {
-                sb.AppendLine($"  job {job.Id}: {(job.Running ? $"running (pid {job.Pid})" : $"exited {job.ExitCode}")}");
-            }
-        }
-
-        var drift = host.GetEnvironmentDrift();
-        sb.AppendLine("[env drift since server start]");
-        if (drift.IsEmpty)
-        {
-            sb.AppendLine("(none)");
-        }
-        else
-        {
-            if (drift.Added.Length > 0) sb.AppendLine("added: " + string.Join(", ", drift.Added));
-            if (drift.Modified.Length > 0) sb.AppendLine("modified: " + string.Join(", ", drift.Modified));
-            if (drift.Removed.Length > 0) sb.AppendLine("removed: " + string.Join(", ", drift.Removed));
-            if (drift.PathEntriesAdded.Length > 0) sb.AppendLine("PATH entries added: " + string.Join("; ", drift.PathEntriesAdded));
-            if (drift.PathEntriesRemoved.Length > 0) sb.AppendLine("PATH entries removed: " + string.Join("; ", drift.PathEntriesRemoved));
-        }
-
-        if (listAvailable)
-        {
-            // A populated cache renders without touching the gate: a caller
-            // merely reading the cache must not make a concurrent call claim
-            // an enumeration is running (codex finding i56-15). The cache is
-            // written once per session; a stale null read just falls through
-            // to the gate path.
-            if (_availableCache is string cachedFast)
-            {
-                sb.AppendLine("modules available:");
-                sb.AppendLine(cachedFast.Length > 0 ? cachedFast : "  (none)");
-                return Finish(sb.ToString().TrimEnd());
-            }
-            // Zero-wait like every other status probe (codex finding i56-7):
-            // a second state call must not block for minutes behind another
-            // caller's slow first enumeration - that would withhold even the
-            // host-level facts this tool promises to always deliver.
-            if (!CacheGate.Wait(0))
-            {
-                sb.AppendLine("modules available: enumeration already in progress in another state call (not cached)");
-                probeDetailCode ??= "module_enumeration_in_progress";
-                return Finish(sb.ToString().TrimEnd());
-            }
-            try
-            {
-                if (_availableCache is null)
-                {
-                    // Independently zero-wait: a long call can win the runspace
-                    // between the first probe and this one, and queueing here
-                    // would reintroduce the blocked health check (issue #6).
-                    var available = await host.TryInvokeStateProbeIfIdleAsync(
-                        "Microsoft.PowerShell.Core\\Get-Module -ListAvailable | " +
-                        "Microsoft.PowerShell.Utility\\Sort-Object Name -Unique | " +
-                        "Microsoft.PowerShell.Core\\ForEach-Object { '  {0} {1}' -f $_.Name, $_.Version }",
-                        cancellationToken: cancellationToken);
-                    if (available?.WarmStateLost == true && audit is not null && !runspaceLossRecorded)
-                    {
-                        audit.RecordControlOutcome(
-                            "runspace.recycled",
-                            "completed",
-                            detailCode: "module_probe_timed_out",
-                            warmStateLost: true);
-                        runspaceLossRecorded = true;
-                    }
-                    // Cache only a clean probe: a failed/canceled enumeration must
-                    // not masquerade as "(none)", and Success=true still carries
-                    // non-terminating errors can accompany fake/partial data,
-                    // so both must be clear before caching.
-                    if (available is null)
-                    {
-                        probeDetailCode ??= "module_probe_busy";
-                        sb.AppendLine("modules available: unavailable while the runspace is busy (not cached)");
-                        // A long call can win the gate BETWEEN the main probe
-                        // and this one; the promised busy snapshot must not
-                        // vanish just because the main leg was idle (i56-8).
-                        if (!busyLineEmitted) sb.AppendLine(FormatBusyLine(host));
-                    }
-                    else if (available.Success && available.Errors.Length == 0)
-                    {
-                        _availableCache = available.Output.TrimEnd();
-                    }
-                    else
-                    {
-                        probeState = "partial";
-                        probeDetailCode = "module_probe_errors";
-                        sb.AppendLine("modules available: probe reported errors (not cached)");
-                        foreach (var error in available.Errors) sb.AppendLine("  " + error);
-                    }
-                }
-                if (_availableCache is not null)
-                {
-                    sb.AppendLine("modules available:");
-                    sb.AppendLine(_availableCache.Length > 0 ? _availableCache : "  (none)");
-                }
-            }
-            finally
-            {
-                CacheGate.Release();
-            }
-        }
-
-        return Finish(sb.ToString().TrimEnd());
-    }
-
-    /// <summary>Test hook: the available-module cache is process-static, so cache
-    /// semantics are untestable without clearing it between cases.</summary>
-    internal static void ClearAvailableCacheForTests() => _availableCache = null;
-
-    // Queue-wait and execution age are independently observable (issue #6):
-    // this line carries the active call's age and the waiter count; the
-    // queue-expiry failure on ptk_invoke carries the wait it spent.
-    private static string FormatBusyLine(RunspaceHost host)
-    {
-        var (_, age, waiters, recovering) = host.GetGateStatus();
-        if (recovering) return $"runspace: busy (rebuilding after a recycle, {waiters} waiting)";
-        return age is not null
-            ? $"runspace: busy (active call running {age.Value.TotalSeconds:0}s, {waiters} waiting)"
-            : $"runspace: busy ({waiters} waiting)";
-    }
-
-    private static string FormatUptime(TimeSpan up) =>
-        up.TotalHours >= 1 ? $"{(int)up.TotalHours}h{up.Minutes:00}m"
-        : up.TotalMinutes >= 1 ? $"{(int)up.TotalMinutes}m{up.Seconds:00}s"
-        : $"{Math.Max(0, (int)up.TotalSeconds)}s";
+        => runtime.StateAsync(
+            listAvailable,
+            cancellationToken,
+            auditContext?.Current);
 }

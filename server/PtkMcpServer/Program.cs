@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PtkMcpServer;
 using PtkMcpServer.Audit;
+using PtkMcpServer.Sessions;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -64,19 +65,30 @@ builder.Services.AddSingleton(sp =>
 });
 builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AuditRuntimeGate>());
 
-builder.Services.AddSingleton(sp =>
-    sp.GetRequiredService<AuditRuntimeGate>().RunRunspaceHostAfterStarted(
-        () => new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout)));
-builder.Services.AddSingleton(new RawUsageCounter());
 // Harness-lifetime recovery belongs to the supervisor service provider, not
 // a request scope or the replaceable runspace host.
 builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
-// Factory registration so the container disposes it on graceful shutdown,
-// killing running jobs. A hard-killed server can leave jobs orphaned - the
-// trade-off of process-based jobs, documented in server/README.md.
+// The default session is one owned runtime. Audit startup must be durable
+// before either the runspace or the job manager can be constructed. The
+// runtime preserves shutdown order (jobs, then runspace), and the output store
+// remains supervisor-owned so recovery handles outlive session replacement.
 builder.Services.AddSingleton(sp =>
-    sp.GetRequiredService<AuditRuntimeGate>().RunJobManagerAfterStarted(
-        () => new JobManager(jobPwshExecutable)));
+    sp.GetRequiredService<AuditRuntimeGate>().RunSessionRuntimeAfterStarted(() =>
+    {
+        var host = new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout);
+        try
+        {
+            return new SessionRuntime(
+                host,
+                new JobManager(jobPwshExecutable),
+                new RawUsageCounter());
+        }
+        catch
+        {
+            host.Dispose();
+            throw;
+        }
+    }));
 builder.Services.AddHostedService(sp => new IdleWatchdog(
     idleExit,
     () => sp.GetRequiredService<AuditRuntimeGate>().LastActivityUtc,

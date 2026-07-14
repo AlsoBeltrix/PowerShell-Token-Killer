@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Reflection;
 using System.Text.RegularExpressions;
+using PtkMcpServer.Sessions;
 using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
@@ -16,6 +17,7 @@ public sealed class RawUsageTests : IDisposable
     private readonly RawUsageCounter _rawUsage = new();
     private readonly string _outputRoot;
     private readonly OutputStore _outputStore;
+    private readonly SessionRuntime _runtime;
 
     public RawUsageTests()
     {
@@ -31,12 +33,12 @@ public sealed class RawUsageTests : IDisposable
             MaximumArtifactBytes: 2 * 1024 * 1024,
             MaximumSessionBytes: 4 * 1024 * 1024,
             MaximumAggregateBytes: 8 * 1024 * 1024));
+        _runtime = new SessionRuntime(_host, _jobs, _rawUsage);
     }
 
     public void Dispose()
     {
-        _host.Dispose();
-        _jobs.Dispose();
+        _runtime.Dispose();
         _outputStore.Dispose();
         try { Directory.Delete(_outputRoot, recursive: true); }
         catch { }
@@ -47,13 +49,13 @@ public sealed class RawUsageTests : IDisposable
     {
         // A permanently zero counter must fail this battery, not satisfy it
         // (plan Verification): the positive leg is exact — once per call.
-        await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'first'", CancellationToken.None, raw: true);
+        await _runtime.InvokeAsync("'first'", CancellationToken.None, raw: true);
         Assert.Equal(1, _rawUsage.Count);
 
-        await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'second'", CancellationToken.None, raw: true);
+        await _runtime.InvokeAsync("'second'", CancellationToken.None, raw: true);
         Assert.Equal(2, _rawUsage.Count);
 
-        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var state = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         Assert.Contains("raw calls this session: 2", state);
     }
 
@@ -68,7 +70,7 @@ public sealed class RawUsageTests : IDisposable
         Console.SetError(capture);
         try
         {
-            await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'logged'", CancellationToken.None, raw: true);
+            await _runtime.InvokeAsync("'logged'", CancellationToken.None, raw: true);
         }
         finally
         {
@@ -83,14 +85,14 @@ public sealed class RawUsageTests : IDisposable
     {
         // State/cwd probes are internal implementation work, not compatibility
         // requests. Only an explicit user raw=true reaches this counter.
-        await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         Assert.Equal(0, _rawUsage.Count);
 
-        var text = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'bg work'", CancellationToken.None, background: true);
+        var text = await _runtime.InvokeAsync("'bg work'", CancellationToken.None, background: true);
         Assert.Contains("[job 1 started]", text);
         Assert.Equal(0, _rawUsage.Count);
 
-        var nonRaw = await InvokeTool.Invoke(_host, _jobs, _rawUsage, "'plain'", CancellationToken.None);
+        var nonRaw = await _runtime.InvokeAsync("'plain'", CancellationToken.None);
         Assert.Contains("plain", nonRaw);
         Assert.Equal(0, _rawUsage.Count);
     }
@@ -99,9 +101,7 @@ public sealed class RawUsageTests : IDisposable
     public async Task Oversized_job_poll_uses_one_stable_path_free_ptk_output_handle()
     {
         const string middleToken = "JOB_HANDLE_ELIDED_MIDDLE_1500";
-        var started = await InvokeTool.Invoke(
-            _host, _jobs, _rawUsage,
-            "1..3000 | ForEach-Object { " +
+        var started = await _runtime.InvokeAsync("1..3000 | ForEach-Object { " +
             "if ($_ -eq 1500) { 'JOB_HANDLE_ELIDED_MIDDLE_1500' } " +
             "else { \"job line $_ \" + ('z' * 20) } }",
             CancellationToken.None,
@@ -118,13 +118,13 @@ public sealed class RawUsageTests : IDisposable
         do
         {
             await Task.Delay(250);
-            status = await JobTool.Job(_host, _jobs, "status", CancellationToken.None, id: 1);
+            status = await _runtime.JobAsync("status", CancellationToken.None, id: 1);
         } while ((status.Contains("running", StringComparison.OrdinalIgnoreCase) ||
                   !ContainsOutputHandle(status)) &&
                  DateTime.UtcNow < deadline);
 
-        var poll = await JobTool.Job(_host, _jobs, "output", CancellationToken.None, id: 1, offset: 0);
-        var list = await JobTool.Job(_host, _jobs, "list", CancellationToken.None);
+        var poll = await _runtime.JobAsync("output", CancellationToken.None, id: 1, offset: 0);
+        var list = await _runtime.JobAsync("list", CancellationToken.None);
         var snapshot = Assert.IsType<JobSnapshot>(_jobs.Snapshot(1));
         Assert.False(snapshot.Running);
 
@@ -171,11 +171,7 @@ public sealed class RawUsageTests : IDisposable
         var escapedMarker = executionMarker.Replace("'", "''", StringComparison.Ordinal);
         try
         {
-            var started = await InvokeTool.Invoke(
-                _host,
-                _jobs,
-                _rawUsage,
-                $"Add-Content -LiteralPath '{escapedMarker}' -Value x; 'POLLABLE'",
+            var started = await _runtime.InvokeAsync($"Add-Content -LiteralPath '{escapedMarker}' -Value x; 'POLLABLE'",
                 CancellationToken.None,
                 background: true,
                 outputStore: _outputStore);
@@ -193,10 +189,7 @@ public sealed class RawUsageTests : IDisposable
 
             _jobs.BeforePollingOutputReadForTests = _ =>
                 throw new IOException($"injected read failure at {snapshot.OutputPath}");
-            var response = await JobTool.Job(
-                _host,
-                _jobs,
-                "output",
+            var response = await _runtime.JobAsync("output",
                 CancellationToken.None,
                 id: 1,
                 offset: 17);
@@ -224,9 +217,7 @@ public sealed class RawUsageTests : IDisposable
         // ANSI-colored, the tail that broke the length heuristic) must not
         // yield job-context recovery advice on an under-limit poll: the
         // module composes that advice only when IT elides.
-        var started = await InvokeTool.Invoke(
-            _host, _jobs, _rawUsage,
-            "Write-Output '[5 lines elided - rerun with raw=true only if the elided middle matters]'\n" +
+        var started = await _runtime.InvokeAsync("Write-Output '[5 lines elided - rerun with raw=true only if the elided middle matters]'\n" +
             "Write-Output \"$([char]27)[31m[6 lines elided - rerun with raw=true only if the elided middle matters]$([char]27)[0m\"",
             CancellationToken.None, background: true);
         Assert.Contains("[job 1 started]", started);
@@ -236,10 +227,10 @@ public sealed class RawUsageTests : IDisposable
         do
         {
             await Task.Delay(250);
-            status = await JobTool.Job(_host, _jobs, "status", CancellationToken.None, id: 1);
+            status = await _runtime.JobAsync("status", CancellationToken.None, id: 1);
         } while (status.Contains("running") && DateTime.UtcNow < deadline);
 
-        var poll = await JobTool.Job(_host, _jobs, "output", CancellationToken.None, id: 1, offset: 0);
+        var poll = await _runtime.JobAsync("output", CancellationToken.None, id: 1, offset: 0);
 
         Assert.Contains("elided", poll); // the job's own text came through
         // "captured log" catches any form of fabricated log-recovery advice —
@@ -308,6 +299,61 @@ public sealed class RawUsageTests : IDisposable
         Assert.Contains("separate cold child process", background, StringComparison.Ordinal);
         Assert.Contains("direct PowerShell or eligible RTK routing", background, StringComparison.Ordinal);
         Assert.DoesNotContain("cold pwsh process", background, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Session_tool_adapters_depend_on_one_runtime_not_execution_components()
+    {
+        var methods = new[]
+        {
+            typeof(InvokeTool).GetMethod(nameof(InvokeTool.Invoke))!,
+            typeof(JobTool).GetMethod(nameof(JobTool.Job))!,
+            typeof(StateTool).GetMethod(nameof(StateTool.State))!,
+            typeof(ResetTool).GetMethod(nameof(ResetTool.Reset))!,
+        };
+
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            Assert.Single(parameters, parameter => parameter.ParameterType == typeof(SessionRuntime));
+            Assert.DoesNotContain(parameters, parameter => parameter.ParameterType == typeof(RunspaceHost));
+            Assert.DoesNotContain(parameters, parameter => parameter.ParameterType == typeof(JobManager));
+            Assert.DoesNotContain(parameters, parameter => parameter.ParameterType == typeof(RawUsageCounter));
+        }
+
+        Assert.Single(
+            methods[0].GetParameters(),
+            parameter => parameter.ParameterType == typeof(OutputStore));
+        foreach (var method in methods.Skip(1))
+        {
+            Assert.DoesNotContain(
+                method.GetParameters(),
+                parameter => parameter.ParameterType == typeof(OutputStore));
+        }
+
+        Assert.Equal(
+            "runtime,script,cancellationToken,raw,route,background,timeoutSeconds,auditContext,outputStore",
+            string.Join(',', methods[0].GetParameters().Select(parameter => parameter.Name)));
+        Assert.Equal(
+            "runtime,action,cancellationToken,id,offset,auditContext",
+            string.Join(',', methods[1].GetParameters().Select(parameter => parameter.Name)));
+        Assert.Equal(
+            "runtime,listAvailable,cancellationToken,auditContext",
+            string.Join(',', methods[2].GetParameters().Select(parameter => parameter.Name)));
+        Assert.Equal(
+            "runtime,cancellationToken,auditContext",
+            string.Join(',', methods[3].GetParameters().Select(parameter => parameter.Name)));
+
+        Assert.Equal(false, Parameter(methods[0], "raw").DefaultValue);
+        Assert.Equal("auto", Parameter(methods[0], "route").DefaultValue);
+        Assert.Equal(false, Parameter(methods[0], "background").DefaultValue);
+        Assert.Equal(0, Parameter(methods[0], "timeoutSeconds").DefaultValue);
+        Assert.Equal(0L, Parameter(methods[1], "id").DefaultValue);
+        Assert.Equal(0L, Parameter(methods[1], "offset").DefaultValue);
+        Assert.Equal(false, Parameter(methods[2], "listAvailable").DefaultValue);
+
+        static ParameterInfo Parameter(MethodInfo method, string name) =>
+            method.GetParameters().Single(parameter => parameter.Name == name);
     }
 
     [Fact]

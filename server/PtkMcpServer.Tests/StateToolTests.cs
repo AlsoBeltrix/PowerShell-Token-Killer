@@ -1,3 +1,4 @@
+using PtkMcpServer.Sessions;
 using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
@@ -12,11 +13,16 @@ public sealed class StateToolTests : IDisposable
     private readonly JobManager _jobs = new(
         Path.Combine(Path.GetTempPath(), "ptk-state-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
+    private readonly SessionRuntime _runtime;
+
+    public StateToolTests()
+    {
+        _runtime = new SessionRuntime(_host, _jobs, _rawUsage);
+    }
 
     public void Dispose()
     {
-        _host.Dispose();
-        _jobs.Dispose();
+        _runtime.Dispose();
     }
 
     [Fact]
@@ -26,7 +32,7 @@ public sealed class StateToolTests : IDisposable
         await Task.Delay(500); // let the slow call own the gate
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var state = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         sw.Stop();
 
         // The health check must not queue behind the workload it diagnoses
@@ -46,12 +52,12 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Busy_listAvailable_leg_reports_unavailable_without_queueing()
     {
-        StateTool.ClearAvailableCacheForTests();
+        _runtime.ClearAvailableCacheForTests();
         var slow = _host.InvokeAsync("Start-Sleep -Seconds 6");
         await Task.Delay(500);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+        var state = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
         sw.Stop();
 
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"ptk_state took {sw.Elapsed}");
@@ -68,7 +74,7 @@ public sealed class StateToolTests : IDisposable
     {
         // A slow first enumeration holds the cache gate; a second state call
         // must report and return, not block behind it (i56-7).
-        StateTool.ClearAvailableCacheForTests();
+        _runtime.ClearAvailableCacheForTests();
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         _host.IdleInvocationOverrideForTests = script =>
@@ -90,11 +96,11 @@ public sealed class StateToolTests : IDisposable
         try
         {
             first = Task.Run(() =>
-                StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None));
+                _runtime.StateAsync(listAvailable: true, CancellationToken.None));
             Assert.True(entered.Wait(TimeSpan.FromSeconds(5)), "first enumeration never took the cache gate");
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
-            var second = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+            var second = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
             sw.Stop();
 
             Assert.True(sw.Elapsed < TimeSpan.FromSeconds(3), $"second state call took {sw.Elapsed}");
@@ -112,14 +118,91 @@ public sealed class StateToolTests : IDisposable
                 try { await first.WaitAsync(TimeSpan.FromSeconds(10)); }
                 catch { /* preserve the primary assertion failure */ }
             }
-            StateTool.ClearAvailableCacheForTests();
+            _runtime.ClearAvailableCacheForTests();
         }
+    }
+
+    [Fact]
+    public async Task Available_module_cache_and_gate_are_runtime_local()
+    {
+        _runtime.ClearAvailableCacheForTests();
+        using var firstEnumerationEntered = new ManualResetEventSlim();
+        using var releaseFirstEnumeration = new ManualResetEventSlim();
+        _host.IdleInvocationOverrideForTests = script =>
+        {
+            if (!script.Contains("-ListAvailable", StringComparison.Ordinal)) return null;
+            firstEnumerationEntered.Set();
+            if (!releaseFirstEnumeration.Wait(TimeSpan.FromSeconds(10)))
+                throw new TimeoutException("test did not release runtime A module enumeration");
+            return SuccessfulModuleEnumeration("RuntimeA");
+        };
+
+        var secondHost = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        var secondJobs = new JobManager(
+            Path.Combine(Path.GetTempPath(), "ptk-state-runtime-b-jobs-" + Guid.NewGuid().ToString("N")));
+        using var secondRuntime = new SessionRuntime(secondHost, secondJobs, new RawUsageCounter());
+        secondHost.IdleInvocationOverrideForTests = script =>
+            script.Contains("-ListAvailable", StringComparison.Ordinal)
+                ? SuccessfulModuleEnumeration("RuntimeB")
+                : null;
+
+        Task<string>? first = null;
+        try
+        {
+            first = Task.Run(() =>
+                _runtime.StateAsync(listAvailable: true, CancellationToken.None));
+            Assert.True(
+                firstEnumerationEntered.Wait(TimeSpan.FromSeconds(5)),
+                "runtime A enumeration never took its cache gate");
+
+            var second = await secondRuntime.StateAsync(
+                listAvailable: true,
+                CancellationToken.None);
+            Assert.Contains("RuntimeB 1.0", second);
+            Assert.DoesNotContain("enumeration already in progress", second);
+
+            releaseFirstEnumeration.Set();
+            var firstResult = await first.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Contains("RuntimeA 1.0", firstResult);
+
+            var firstCached = await _runtime.StateAsync(
+                listAvailable: true,
+                CancellationToken.None);
+            var secondCached = await secondRuntime.StateAsync(
+                listAvailable: true,
+                CancellationToken.None);
+            Assert.Contains("RuntimeA 1.0", firstCached);
+            Assert.DoesNotContain("RuntimeB", firstCached);
+            Assert.Contains("RuntimeB 1.0", secondCached);
+            Assert.DoesNotContain("RuntimeA", secondCached);
+        }
+        finally
+        {
+            releaseFirstEnumeration.Set();
+            _host.IdleInvocationOverrideForTests = null;
+            secondHost.IdleInvocationOverrideForTests = null;
+            if (first is not null)
+            {
+                try { await first.WaitAsync(TimeSpan.FromSeconds(10)); }
+                catch { /* preserve the primary assertion failure */ }
+            }
+            _runtime.ClearAvailableCacheForTests();
+        }
+
+        static InvokeResult SuccessfulModuleEnumeration(string moduleName) => new(
+            Success: true,
+            Output: $"  {moduleName} 1.0",
+            Errors: [],
+            Warnings: [],
+            TimedOut: false,
+            Disposition: InvokeDisposition.Completed,
+            UserExecutionStarted: true);
     }
 
     [Fact]
     public async Task Global_GetModule_shadow_cannot_replace_state_probes()
     {
-        StateTool.ClearAvailableCacheForTests();
+        _runtime.ClearAvailableCacheForTests();
         try
         {
             var setup = await _host.InvokeAsync(
@@ -131,15 +214,14 @@ public sealed class StateToolTests : IDisposable
             Assert.Empty(setup.Errors);
             Assert.Contains("Get-Module", setup.Output);
 
-            var state = await StateTool.State(
-                _host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+            var state = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
             Assert.DoesNotContain("USER GET-MODULE SHADOW RAN", state);
             Assert.DoesNotContain("[state probe errors]", state);
             Assert.Contains("Microsoft.PowerShell.Utility", state);
         }
         finally
         {
-            StateTool.ClearAvailableCacheForTests();
+            _runtime.ClearAvailableCacheForTests();
         }
     }
 
@@ -153,7 +235,7 @@ public sealed class StateToolTests : IDisposable
         var before = _host.LastActivityUtc;
         await Task.Delay(300);
 
-        await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
 
         Assert.True(_host.LastActivityUtc > before, "busy-path ptk_state did not stamp LastActivityUtc");
         await slow;
@@ -162,7 +244,7 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task State_reports_server_and_session_basics()
     {
-        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var state = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
 
         Assert.Contains($"pid {Environment.ProcessId}", state);
         Assert.Contains("engine: 7", state);
@@ -175,20 +257,20 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Loaded_module_list_grows_after_an_import()
     {
-        var before = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var before = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         Assert.DoesNotContain("PtkWarmTest", before);
 
         await _host.InvokeAsync(
             "New-Module -Name PtkWarmTest -ScriptBlock { function Get-Warm { 'warm' } } | Import-Module");
 
-        var after = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var after = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         Assert.Contains("PtkWarmTest", after);
     }
 
     [Fact]
     public async Task Available_list_contains_shipped_modules()
     {
-        var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+        var state = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
 
         Assert.Contains("Microsoft.PowerShell.Utility", state);
     }
@@ -196,8 +278,8 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Probing_state_does_not_perturb_the_variable_count()
     {
-        var first = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
-        var second = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var first = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
+        var second = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
 
         static string VariablesLine(string state) =>
             state.Split('\n').First(l => l.StartsWith("variables: ")).Trim();
@@ -207,13 +289,13 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Running_jobs_appear_in_the_state_report()
     {
-        var before = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+        var before = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         Assert.Contains("jobs: (none)", before);
 
         var job = _jobs.Start("Start-Sleep -Seconds 300");
         try
         {
-            var during = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+            var during = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
             Assert.Contains($"job {job.Id}: running", during);
         }
         finally
@@ -225,7 +307,7 @@ public sealed class StateToolTests : IDisposable
     [Fact]
     public async Task Probe_failure_is_surfaced_and_not_cached()
     {
-        StateTool.ClearAvailableCacheForTests();
+        _runtime.ClearAvailableCacheForTests();
         try
         {
             // A failed trusted enumeration must be surfaced rather than
@@ -239,27 +321,27 @@ public sealed class StateToolTests : IDisposable
                 Disposition: InvokeDisposition.Failed,
                 UserExecutionStarted: true);
 
-            var poisoned = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+            var poisoned = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
             Assert.Contains("[state probe errors]", poisoned);
             Assert.Contains("injected module enumeration failure", poisoned);
             Assert.Contains("probe reported errors (not cached)", poisoned);
 
             _host.IdleInvocationOverrideForTests = null;
 
-            var healthy = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+            var healthy = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
             Assert.DoesNotContain("[state probe errors]", healthy);
             Assert.Contains("Microsoft.PowerShell.Utility", healthy);
         }
         finally
         {
-            StateTool.ClearAvailableCacheForTests();
+            _runtime.ClearAvailableCacheForTests();
         }
     }
 
     [Fact]
     public async Task NonTerminating_probe_errors_also_block_the_cache()
     {
-        StateTool.ClearAvailableCacheForTests();
+        _runtime.ClearAvailableCacheForTests();
         try
         {
             // Success=true may still carry non-terminating errors alongside
@@ -273,18 +355,18 @@ public sealed class StateToolTests : IDisposable
                 Disposition: InvokeDisposition.Completed,
                 UserExecutionStarted: true);
 
-            var poisoned = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+            var poisoned = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
             Assert.Contains("not cached", poisoned);
 
             _host.IdleInvocationOverrideForTests = null;
 
-            var healthy = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: true, CancellationToken.None);
+            var healthy = await _runtime.StateAsync(listAvailable: true, CancellationToken.None);
             Assert.DoesNotContain("FakeModule", healthy);
             Assert.Contains("Microsoft.PowerShell.Utility", healthy);
         }
         finally
         {
-            StateTool.ClearAvailableCacheForTests();
+            _runtime.ClearAvailableCacheForTests();
         }
     }
 
@@ -293,11 +375,11 @@ public sealed class StateToolTests : IDisposable
     {
         try
         {
-            var before = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+            var before = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
             Assert.DoesNotContain("PTK_STATE_DRIFT_PROBE", before);
 
             await _host.InvokeAsync("$env:PTK_STATE_DRIFT_PROBE = 'polluted'");
-            var after = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+            var after = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
 
             Assert.Contains("added: ", after);
             Assert.Contains("PTK_STATE_DRIFT_PROBE", after);
@@ -317,7 +399,7 @@ public sealed class StateToolTests : IDisposable
             await _host.InvokeAsync(
                 "$env:PATH = 'ptk-fake-shim-dir' + [System.IO.Path]::PathSeparator + $env:PATH");
 
-            var state = await StateTool.State(_host, _jobs, _rawUsage, listAvailable: false, CancellationToken.None);
+            var state = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
 
             Assert.Contains("PATH entries added: ptk-fake-shim-dir", state);
             Assert.DoesNotContain("PATH entries removed:", state);

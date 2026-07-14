@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
+using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tests;
 
@@ -151,16 +152,14 @@ public sealed class AuditCallFilterTests : IDisposable
         var result = await Invoke(fixture, Call("ptk_state"), cancellationToken =>
         {
             handlerCalled = true;
-            fixture.Services.GetRequiredService<RunspaceHost>();
-            fixture.Services.GetRequiredService<JobManager>();
+            fixture.Services.GetRequiredService<SessionRuntime>();
             return ValueTask.FromResult(Text("full state"));
         });
         blocker!.Release();
 
         Assert.False(handlerCalled);
         Assert.False(result.IsError);
-        Assert.Equal(0, fixture.ToolDependencies.HostResolutions);
-        Assert.Equal(0, fixture.ToolDependencies.JobResolutions);
+        Assert.Equal(0, fixture.ToolDependencies.RuntimeResolutions);
         var diagnostic = ResultText(result);
         Assert.Contains("audit=unavailable", diagnostic, StringComparison.Ordinal);
         Assert.Contains("unrecorded=true", diagnostic, StringComparison.Ordinal);
@@ -386,15 +385,10 @@ public sealed class AuditCallFilterTests : IDisposable
             .AddSingleton(accessor);
         if (includeToolDependencySentinels)
         {
-            collection.AddSingleton(_ =>
+            collection.AddSingleton<SessionRuntime>(_ =>
             {
-                touches.HostResolutions++;
-                return new RunspaceHost();
-            });
-            collection.AddSingleton(_ =>
-            {
-                touches.JobResolutions++;
-                return new JobManager();
+                touches.RuntimeResolutions++;
+                throw new InvalidOperationException("Session runtime must not be resolved.");
             });
         }
         var provider = collection.BuildServiceProvider();
@@ -435,8 +429,7 @@ public sealed class AuditCallFilterTests : IDisposable
 
     private sealed class ToolDependencyTouches
     {
-        internal int HostResolutions { get; set; }
-        internal int JobResolutions { get; set; }
+        internal int RuntimeResolutions { get; set; }
     }
 
     private sealed record FilterFixture(

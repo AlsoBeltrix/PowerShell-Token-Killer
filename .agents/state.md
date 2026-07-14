@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Stop point:** no implementation or review work is in flight; resume with
+  `## Next` item 1.
 - **Audited-harness Slice 6 is complete locally.** Code
   head `7999328` moves invoke/job/state/reset behavior and session-lifetime
   caches behind one owning `SessionRuntime`, leaves audit and output

@@ -281,6 +281,26 @@ changed._
   proof covers this final code tree. All review archives, scripts, and the
   remote checkout were removed; independent probes found no residue.
 
+### CI flake stabilization validation — 2026-07-14
+
+_Verified in the existing clean `F:\dev\PowerShell-Token-Killer` checkout at
+exact follow-up head `d30bbf3701c484aeb81ab59616f6aa074687e95c`._
+
+- The host reported Windows NT 10.0.26200.0, PowerShell 7.6.3, and .NET SDK
+  10.0.301. The checkout was fast-forwarded from `00e74d2` with the owner's
+  explicit permission; the installed PTK payload was not changed.
+- At the old head, the singleton audit accessor race reproduced on the first
+  focused run. A deterministic first-two-handler barrier admitted only one
+  handler under the singleton mutation; restored scoped ownership passed
+  10/10 with all original recovery, event-count, and shutdown assertions.
+- A deterministic 1.5-second private-output opening delay made the old setup
+  warm-up budget fail before the named invariant. The explicit setup-only
+  budget passed the same delay. Removing the production `StopCompleted` join
+  then made the stabilized test fail; exact restoration passed.
+- The final direct battery passed 1,207/1,207 .NET tests, 142 Pester tests with
+  one platform skip, and the complete stdio handshake with a zero-warning,
+  zero-error build. The checkout was clean at the exact head afterward.
+
 ## Disposable Ubuntu 26.04 ARM64 validation
 
 _Focused verification 2026-07-11 for the Slice 1 secure-storage implementation

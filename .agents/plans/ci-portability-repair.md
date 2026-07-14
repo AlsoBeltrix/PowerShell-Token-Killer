@@ -1,14 +1,13 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** MASTER-LANDING FOLLOW-UP APPROVED by the owner on 2026-07-14
-(`go` after the exact `00e74d2` failure diagnosis and two-commit test-only
-proposal). The original repair completed at code head `3c61886`; GitHub
-Actions run `29313220388` passed Ubuntu, macOS, and Windows, including each
-server suite and stdio handshake. Master run `29314404462` then exposed two
-pre-existing harness flakes under identical server and workflow trees. Slices
-7-8 below stabilize those tests without changing production runtime behavior,
-installing RTK into ordinary unit-test jobs, or deciding whether a future PTK
-release bundles a pinned RTK binary.
+**Status:** COMPLETED at test-only follow-up head `d30bbf3`. The owner approved
+the master-landing follow-up on 2026-07-14 (`go` after the exact `00e74d2`
+failure diagnosis and two-commit proposal). Independent review accepted exact
+range `00e74d2..d30bbf3`; the complete local and direct Windows batteries
+passed, and GitHub Actions run `29316181542` passed Ubuntu, macOS, and Windows,
+including each server suite and stdio handshake. The work does not change
+production runtime behavior, install RTK into ordinary unit-test jobs, or
+decide whether a future PTK release bundles a pinned RTK binary.
 
 ## Evidence and problem
 
@@ -127,6 +126,12 @@ exact checkout, then repeat both focused tests there before the complete local
 battery and a new owner-approved hosted matrix. Commit the two findings
 separately. A green rerun without the stabilizing changes is insufficient
 because it merely resamples both races.
+
+Completed follow-up evidence: direct `NETWATCH-01` validation and owner-
+approved GitHub Actions run `29316181542` passed exact head
+`d30bbf3701c484aeb81ab59616f6aa074687e95c`. Canonical mutation, battery, and
+independent-review details are recorded in `.agents/review/index.md` and
+`.agents/machines.md`.
 
 ## Non-goals
 

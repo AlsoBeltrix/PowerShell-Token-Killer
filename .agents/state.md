@@ -5,17 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **CI portability master-landing follow-up is approved and in flight.** The
-  original test-only repair remains validated by green three-platform run
-  `29313220388` at `3c61886` and was fast-forwarded to local `master` with
-  content arrival verified. Master run `29314404462` at docs-only descendant
-  `00e74d2` passed Ubuntu/macOS but exposed two pre-existing Windows harness
-  flakes under an identical server tree: a one-second setup warm-up budget and
-  a singleton request-context holder shared across concurrent synthetic calls.
-  The latter reproduced immediately on the clean `NETWATCH-01` checkout. The
-  owner approved two test-only stabilization commits on 2026-07-14; no
-  production changes or unchanged-code rerun are authorized as substitutes.
-  Canonical scope and proof requirements are in
+- **CI portability repair and master-landing stabilization are complete as of
+  `d30bbf3`.** The original repair passed three-platform run `29313220388` at
+  `3c61886`. After docs-only master descendant `00e74d2` exposed two
+  pre-existing Windows harness flakes, two further test-only commits separated
+  setup warm-up from the named one-second timeout and gave each concurrent
+  synthetic request its production-faithful scoped audit holder. Independent
+  review accepted exact range `00e74d2..d30bbf3` with no material findings.
+  Deterministic Windows mutations proved both guards; the complete local and
+  direct `NETWATCH-01` batteries passed; GitHub Actions run `29316181542`
+  passed Ubuntu, macOS, and Windows at the exact follow-up head. No production
+  files changed. Canonical evidence is in
   `.agents/plans/ci-portability-repair.md` and `.agents/review/index.md`; RTK
   distribution remains a separate decision.
 - **Audited-harness Slice 6 is complete locally.** Code
@@ -108,13 +108,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Complete, independently review, and host-verify CI portability follow-up
-   slices 7-8.
-2. Create the Slice 7 feature branch and begin worker mode under
+1. Create the Slice 7 feature branch and begin worker mode under
    `.agents/plans/audited-harness-sessions.md`.
-3. Execute release-distribution slice 3 under its approved plan. Re-present
+2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
-4. When the owner releases the decisions hold, reconcile the rejected
+3. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
 

@@ -1997,3 +1997,35 @@ head `3c618867adbe1c172f0b95fed53cc7425280a3f1`: Ubuntu, macOS, and Windows all
 passed checkout, SDK setup, Pester, the full server suite, the stdio handshake,
 and cleanup. This closes the hosted portability proof; it does not authorize
 landing or history rewriting.
+
+---
+
+**CI MASTER-LANDING FLAKE STABILIZATION — ACCEPTED.** An independent
+`ci_repair_review` agent reviewed exact range `00e74d2..d30bbf3` on
+2026-07-14 and found no material defect. The range changes only the approved
+plan/state and two test files. The setup warm invocation alone receives a
+ten-second override; the subject retains the one-second host timeout and every
+timeout, stop/join, unavailable-guard, shutdown, and eventual-release
+assertion. The concurrent startup test now mirrors production request scoping,
+uses one disposed scope per contender, and deterministically overlaps its
+first two handlers without exceeding journal reservation capacity. Exactly two
+opens, one recovery/startup, eight handlers, eight accepted/completed pairs,
+and final stop ordering remain asserted. Barrier cleanup is fail-safe, and no
+production file changes.
+
+The focused Windows proofs were red then green. A 1.5-second private-output
+opening delay exhausted the old setup budget but passed with the explicit
+setup-only override; removing the production `StopCompleted` join still broke
+the stabilized test. The old singleton audit holder reproduced immediately on
+`NETWATCH-01`, and under the deterministic barrier only one of the first two
+handlers entered; restored scoped ownership passed 10/10. The exact restored
+head passed 1,207/1,207 local .NET tests, 141 Pester tests with two platform
+skips, and the full local handshake. Direct Windows validation passed
+1,207/1,207 .NET tests, 142 Pester tests with one platform skip, and the full
+zero-warning handshake.
+
+Owner-approved GitHub Actions run `29316181542` tested exact head
+`d30bbf3701c484aeb81ab59616f6aa074687e95c`; Ubuntu, macOS, and Windows each
+passed setup, Pester, the complete server suite, the stdio handshake, and
+cleanup. This closes the master-landing flake follow-up. It does not authorize
+history rewriting or unrelated work.

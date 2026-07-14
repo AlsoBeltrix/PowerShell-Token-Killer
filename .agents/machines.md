@@ -332,6 +332,36 @@ IDs matched `a2a198e539ce0c6a494e42508751e50bf3e7116a`, and only
   build warnings and errors. `git diff --check` passed and no unrelated or
   untracked files were present.
 
+### Audited-harness Slice 7d Windows containment validation
+
+_Verified 2026-07-14 for exact code tree `bbc2a0e2b116280ceebaab5442014286671aefe2`
+in disposable GUID-named directories under `F:\dev`; no installed payload or
+existing checkout changed._
+
+- The final 274-file archive matched SHA-256
+  `1F521058547342CC3C9F0798FEF77F09A751D6797C4A6CFC313CABD834068EF9`
+  before expansion and contained no AppleDouble sidecars. The focused Windows
+  launcher/containment set passed 29/29, the complete .NET suite passed
+  1,309/1,309, Pester passed 142 with one expected platform skip, and the full
+  stdio handshake passed with zero build warnings or errors.
+- The live runnable fixture proved the production mode is not suspended, NUL
+  stdin and private request/event plus diagnostic pipes are mapped, Unicode
+  quoting and the caller-frozen environment survive while a post-freeze ambient
+  variable does not leak. The proof-mode fixture observed no marker before
+  exact-job membership verification and explicit resume; the returned owner
+  survived forced GC, then closing its sole job handle killed both worker and
+  ordinary descendant while independent process witnesses remained open.
+- A separate archive with SHA-256
+  `ACBE3C61921F32C7B6567DE84D19F7B66630C5FE5A187B4C2E404B5C1D0CC405`
+  changed only runnable flags to include `CREATE_SUSPENDED`. The live runnable
+  guard failed at its intended fifteen-second read checkpoint. Cleanup found no
+  matching process residue; the local production file was restored to its
+  pre-mutation SHA-256 before the final archive and green runs.
+- One preliminary transfer was stopped before execution when macOS archive
+  metadata doubled the extracted file count. It and every later mutation/final
+  archive, disposable directory, and matching process were removed. No
+  persistent host configuration changed.
+
 ## Disposable Ubuntu 26.04 ARM64 validation
 
 _Focused verification 2026-07-11 for the Slice 1 secure-storage implementation

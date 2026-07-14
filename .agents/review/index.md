@@ -2184,3 +2184,55 @@ matched the JSON `result` and `structured_output`, verified exit zero, exact
 base/head, literal guard confirmation, and clean coder/reviewer trees, then
 removed the disposable worktree. This acceptance authorizes the next approved
 Slice 7 sub-slice; it does not authorize push, history rewriting, or landing.
+
+---
+
+**AUDITED-HARNESS SLICE 7D WINDOWS CREATION-TIME CONTAINMENT — ACCEPTED.**
+Claude Code 2.1.209 (model `claude-opus-4-8`, isolated disposable worktree)
+reviewed exact committed range
+`3348167530024d0543abad973ed3178a9c95b3e7..bbc2a0e2b116280ceebaab5442014286671aefe2`
+and returned the required structured `accepted` verdict with
+`guard_confirmed=true` at 2026-07-14T17:35:31Z. The range adds the deliberately
+unwired Windows launch primitive: an unnamed noninheritable Job Object with
+exact queried-back `KILL_ON_JOB_CLOSE`, five explicit child handles, one
+`CreateProcessW`/`STARTUPINFOEX` call with exactly `JOB_LIST` plus
+`HANDLE_LIST`, a sorted closed Unicode environment, proof-only suspension,
+exact membership verification, and job-first rollback/ownership cleanup. It
+does not add worker entry, DI/tool routing, Unix containment, or a fallback
+spawn path.
+
+The reviewer independently repeated seven required mutations. Removing the
+post-membership cancellation check, changing the exact job limit, suspending a
+runnable launch, dropping the environment block's final NUL, breaking trailing
+backslash quoting, adding a generic `Process.Start` fallback, and adding an
+alternate `CreateProcessA` import each failed only its intended guard. An extra
+attribute-binding mutation demonstrated that the live `JOB_LIST` binding is a
+Windows-only proof on the reviewer host. Restoring the exact reviewed head
+returned 1,309/1,309 .NET tests, 141 Pester tests with two expected skips, the
+full stdio handshake, `git diff --check`, and a clean worktree.
+
+Independent direct validation on `NETWATCH-01` covered the reviewer's platform
+limit. A hash-matched exact-tree archive passed all 29 focused Windows guards,
+1,309/1,309 .NET tests, 142 Pester tests with one expected skip, and the full
+zero-warning handshake. A separate mutation making runnable creation suspended
+failed the live checkpoint after fifteen seconds, then job-first cleanup left
+no process residue; exact restoration passed. Host-specific archive hashes and
+cleanup evidence are in `.agents/machines.md`.
+
+The reviewer recorded three nonblocking obligations for the wiring slice.
+Cross-platform source guards pin the attribute constants but not their
+call-site adjacency; live Windows integration owns that proof. Before a caller
+uses cancellable native process waits, replace the borrowed nonowning wait
+handle with an owning duplicated process handle so unregister/dispose cannot
+race handle reuse. Before wiring this launcher, eliminate or coordinate generic
+supervisor-side inheriting spawns because the five selected child ends are
+temporarily inheritable process-wide. These are later integration obligations,
+not defects in the unwired range.
+
+The orchestrator independently parsed and matched the JSON `result` and
+`structured_output`, verified exit zero, exact base/head, literal guard
+confirmation, and clean coder/reviewer trees, then removed the disposable
+worktree. Two denied redundant reviewer status probes contributed no evidence;
+the orchestrator repeated those checks directly. This acceptance authorizes the
+next approved Slice 7 sub-slice; it does not authorize push, history rewriting,
+or landing.

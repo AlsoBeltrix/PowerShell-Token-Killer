@@ -5,7 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slices 7a-7c are complete locally at code head `56734e3`.**
+- **Audited-harness Slices 7a-7d are complete locally at code head `bbc2a0e`.**
   The strict bounded v1 worker protocol freezes all nine wire kinds, enforces
   strict UTF-8 NDJSON with duplicate/unknown/version rejection, caps encoded
   frames at 1 MiB and JSON depth at 32, preserves fragmented and coalesced
@@ -20,9 +20,18 @@ short and update it when important repo facts change.
   lifecycle core with strict boot/phase/correlation checks, deadline and host
   cancellation races, and exactly-once lifetime cleanup; Claude accepted
   exact range `cfaee5f..56734e3` with `guard_confirmed=true` after seven
-  independent mutations and the full battery. Canonical evidence is in
-  `.agents/review/index.md`. Slice 7 continues with production worker launch
-  and creation-time containment.
+  independent mutations and the full battery. Code head `bbc2a0e` then adds
+  the deliberately unwired Windows creation-time containment primitive:
+  exact `KILL_ON_JOB_CLOSE` Job Object configuration, one five-handle
+  `CreateProcessW`/`STARTUPINFOEX` launch with `JOB_LIST` and `HANDLE_LIST`,
+  closed Unicode environment, proof-only suspension, job-first rollback, and
+  direct runnable/pre-resume/tree-death Windows fixtures. Claude accepted exact
+  range `3348167..bbc2a0e` with `guard_confirmed=true` after seven mutations
+  and the full battery; the exact tree also passed direct `NETWATCH-01`
+  validation. Canonical evidence is in `.agents/review/index.md` and
+  `.agents/machines.md`. Before wiring, replace the borrowed cancellable
+  process wait with an owning duplicated handle and ensure the supervisor has
+  no concurrent generic inheriting spawn outside the same creation discipline.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
@@ -138,9 +147,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue Slice 7 on its feature branch with production worker launch and
-   creation-time containment under `.agents/plans/audited-harness-sessions.md`;
-   each sub-slice requires fixed-SHA review acceptance before the next begins.
+1. Continue Slice 7 on its feature branch with Windows worker entry/wiring
+   under `.agents/plans/audited-harness-sessions.md`. First close the two
+   recorded wiring prerequisites: use an owning duplicated process handle for
+   cancellable waits, and eliminate or coordinate every generic supervisor-side
+   inheriting spawn while worker child handles are inheritable. Keep the Unix
+   broker behind its separately recorded contract blockers. Each sub-slice
+   requires fixed-SHA review acceptance before the next begins.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected

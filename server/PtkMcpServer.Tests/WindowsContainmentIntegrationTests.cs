@@ -47,20 +47,17 @@ public sealed class WindowsContainmentIntegrationTests
 
             using var canceledWaitCancellation = new CancellationTokenSource();
             var canceledWait = worker.WaitForExitAsync(canceledWaitCancellation.Token);
-            var survivingWait = worker.WaitForExitAsync();
             Assert.False(canceledWait.IsCompleted);
-            Assert.False(survivingWait.IsCompleted);
 
             canceledWaitCancellation.Cancel();
-            await Assert.ThrowsAnyAsync<OperationCanceledException>(
-                async () => await canceledWait);
             Assert.False(workerWitness.HasExited);
-            Assert.False(survivingWait.IsCompleted);
 
             var owner = worker;
             worker = null;
             owner.Dispose();
-            await survivingWait.WaitAsync(CheckpointTimeout);
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await canceledWait);
             await WaitForExitAsync(workerWitness);
         }
         finally

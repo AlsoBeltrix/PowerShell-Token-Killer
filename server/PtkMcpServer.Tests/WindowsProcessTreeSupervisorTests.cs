@@ -360,9 +360,26 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.Equal(1, CountDirectCalls(ownedWaitConstructor, duplicateHandlePInvoke));
         Assert.Equal(1, CountDirectCalls(ownedWaitConstructor, getCurrentProcessPInvoke));
 
+        var nativeProcessHandle = typeof(WindowsWorkerNative).GetNestedType(
+            "NativeProcessHandle",
+            BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("The native process handle is unavailable.");
+        var waitForExit = nativeProcessHandle.GetMethod(
+            nameof(IWindowsProcessHandle.WaitForExitAsync),
+            BindingFlags.Instance | BindingFlags.Public) ??
+            throw new InvalidOperationException("The native process wait method is unavailable.");
+        var waitStateMachine = waitForExit.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType ??
+            throw new InvalidOperationException("The native process wait state machine is unavailable.");
+        var waitMoveNext = waitStateMachine.GetMethod(
+            "MoveNext",
+            BindingFlags.Instance | BindingFlags.NonPublic) ??
+            throw new InvalidOperationException("The native process wait state machine cannot advance.");
+        Assert.Equal(1, CountDirectConstructions(waitMoveNext, ownedWaitConstructor));
+
         var source = File.ReadAllText(NativeSourcePath());
         var executableSource = RemoveComments(source);
         Assert.DoesNotContain("LibraryImport", executableSource, StringComparison.Ordinal);
+        Assert.DoesNotContain("BorrowedProcessWaitHandle", executableSource, StringComparison.Ordinal);
         Assert.Matches(
             new Regex(
                 @"ProcThreadAttributeHandleList\s*=\s*0x00020002\s*;",
@@ -451,7 +468,6 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.Contains("inheritHandle: false", executableWaitBody, StringComparison.Ordinal);
         Assert.Contains("options: DuplicateSameAccess", executableWaitBody, StringComparison.Ordinal);
         Assert.Contains("SafeWaitHandle = duplicate", executableWaitBody, StringComparison.Ordinal);
-        Assert.DoesNotContain("BorrowedProcessWaitHandle", executableWaitBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DangerousAddRef", executableWaitBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DangerousRelease", executableWaitBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DangerousGetHandle", executableWaitBody, StringComparison.Ordinal);
@@ -625,6 +641,20 @@ public sealed class WindowsProcessTreeSupervisorTests
         for (var index = 0; index <= il.Length - token.Length - 1; index++)
         {
             if (il[index] != 0x28) continue; // call <metadata-token>
+            if (il.AsSpan(index + 1, token.Length).SequenceEqual(token)) count++;
+        }
+        return count;
+    }
+
+    private static int CountDirectConstructions(MethodInfo caller, ConstructorInfo callee)
+    {
+        var il = caller.GetMethodBody()?.GetILAsByteArray() ??
+            throw new InvalidOperationException($"{caller.Name} has no managed method body.");
+        var token = BitConverter.GetBytes(callee.MetadataToken);
+        var count = 0;
+        for (var index = 0; index <= il.Length - token.Length - 1; index++)
+        {
+            if (il[index] != 0x73) continue; // newobj <metadata-token>
             if (il.AsSpan(index + 1, token.Length).SequenceEqual(token)) count++;
         }
         return count;

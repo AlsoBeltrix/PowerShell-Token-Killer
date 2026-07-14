@@ -1,263 +1,365 @@
 # PowerShell Token Killer (`ptk`)
 
-A warm PowerShell shell for coding agents, with token-compressed output.
+[![CI](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/workflows/ci.yml/badge.svg)](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/workflows/ci.yml)
 
-The primary way to use ptk is the **MCP server**: register it with your agent
-harness (for example Claude Code) and route shell work through the `ptk_invoke`
-tool instead of the harness's own Bash/PowerShell tool. Every call runs in one
-long-lived PowerShell runspace, and every result comes back compressed by
-shape before it reaches the model's context.
+PTK is an audited, token-efficient PowerShell execution service for AI agent
+harnesses. In the approved architecture, each harness owns a private PTK
+supervisor and one or more isolated warm PowerShell worker sessions. Modules,
+variables, working directory, and authenticated connections persist inside the
+selected session—and disappear with the harness.
 
-Two things make that worth doing:
+The agent submits the original command once. PTK owns PowerShell state,
+internal RTK/Bash routing, output shaping and recovery, worker lifecycle, and a
+mandatory pre-effect audit trail.
 
-- **Warm state.** Variables, imported modules, the current directory, and
-  established connections survive across calls for the whole session. Heavy
-  imports like `ActiveDirectory` or a cloud SDK happen once, not per command.
-- **Token compression.** Output is shaped by what it is, not blindly
-  truncated: single native commands route through
-  [rtk](https://github.com/rtk-ai/rtk)'s per-command filters,
-  PowerShell objects become compact typed summaries, log-shaped text is
-  deduplicated, and plain text passes through cleaned of terminal escape
-  codes, bounded only at pathological sizes.
+> [!IMPORTANT]
+> **This README describes the approved end-state contract.** Current `master`
+> already ships mandatory audit, single-execution routing, cold background
+> jobs, same-invocation `ptk_output` recovery, and one in-process default
+> `SessionRuntime`. The worker-process supervisor, named sessions, hardened
+> containment, and public release installers are approved work still being
+> built. See [`.agents/state.md`](.agents/state.md) for the exact implementation
+> boundary.
 
-This is not a sandbox. Commands run with the same authority as the MCP client
-or shell that calls them.
+## Why PTK
 
-## How `ptk_invoke` Compresses Output
+- **Warm, explicit state.** Foreground calls run in a selected PowerShell 7
+  session. Heavy modules and connections load once per session, not once per
+  command.
+- **Shape-aware output.** PowerShell objects become compact typed summaries,
+  eligible native commands use RTK's filters, log-shaped text is deduplicated,
+  and ordinary text is cleaned and bounded.
+- **Single-execution semantics.** Routing may fall back before user work
+  starts. Once work starts, PTK never retries it and never asks the model to
+  reconstruct the command.
+- **Recoverable context.** When PTK captures a same-invocation artifact,
+  `ptk_output` can retrieve an elided middle without rerunning the operation.
+- **Mandatory audit.** PTK reserves capacity and persists acceptance, intent,
+  and dispatch evidence before effects. It then records job lifecycle facts;
+  if the required local evidence cannot be persisted, new effectful work does
+  not start.
+- **Contained sessions.** In the target architecture, each warm session is a
+  separate worker process. Reset, timeout, or loss of one session does not
+  silently replace or corrupt another.
 
-Each call is classified and shaped through one of four legs:
+PTK is not a sandbox or authorization boundary. Commands inherit the identity,
+privileges, network access, and upstream RBAC of the harness that launched PTK.
 
-1. **Native command routing (rtk).** A script that is exactly one bare native
-   command with constant arguments — `git status --short`, `npm ls`,
-   `docker ps` — is rewritten to run through `rtk`, an external CLI whose
-   per-command filters compress the output of common tools at the source.
-   Commands rtk does not know pass through it unchanged.
-2. **Object compression.** PowerShell commands that emit objects
-   (`Get-ChildItem`, `Get-Process`, `Get-Service`, custom objects) are
-   compressed into typed summaries before they are ever formatted to text.
-3. **Log shaping.** Text output that looks like a log (timestamps, level tags)
-   is deduplicated through `rtk log`.
-4. **Passthrough.** Plain strings and scalars are returned with
-   ANSI/terminal escape sequences stripped, otherwise unaltered.
-   Pathologically large text is elided to a labeled head+tail window;
-   when PTK successfully seals a same-invocation snapshot, the response names
-   an opaque `ptk_output` handle that can recover the elided middle without
-   rerunning the command. Otherwise it explicitly reports recovery unavailable.
+## Target Architecture
 
-Anything that is not a safe single native command — pipelines, chains,
-cmdlets, variables, redirections — runs as ordinary PowerShell in the warm
-runspace, and only its *output* is shaped (legs 2–4). Routing and shaping can
-never fail a call: any internal failure falls back to labeled, unshaped
-output.
+```mermaid
+flowchart LR
+    H[Agent harness] --> S[PTK MCP supervisor]
+    S --> D[default worker]
+    S --> N[named worker processes]
+    D --> E[PowerShell / RTK / validated Bash]
+    N --> E
+    S --> A[protected audit journal<br/>optional anchored export]
+    S --> O[bounded output store<br/>ptk_output]
+```
 
-The dialect is PowerShell 7, not bash. A probed set of bash-only constructs
-(`export X=`, heredocs, `[ ... ]` tests, backtick substitution, `set -e`,
-bash-style `if/for` blocks, and friends) gets a fast `[ptk:dialect]` refusal
-naming the construct instead of a confusing late failure — rewrite in
-PowerShell, or run a bash script whole with `bash -lc '...'`, a first-class
-compressed path where bash exists. `route=pwsh` bypasses the check as explicit
-consent to interpret the exact original text as PowerShell; normal capture and
-shaping still apply. The deprecated `raw=true` flag is inert compatibility
-telemetry and does not bypass dialect handling. Undetected shapes run exactly as before:
-detection favors precision over recall, so shared-dialect syntax (`&&`,
-pipes, redirects) never trips it.
+One harness owns one supervisor. Each session owns one serial PowerShell
+runspace inside its own worker process; different sessions can progress
+independently. The supervisor owns audit, public job IDs, output artifacts,
+deadlines, and worker containment.
 
-Install `rtk` — the largest savings live there. Its native-command filters
-are where tools like `git`, `npm`, and `docker` get compressed, and it powers
-the log-shaping leg too; ptk without it only gets you object compression.
-Put it on `PATH` (or pin an exact binary via `PTK_RTK_PATH`) and routing picks
-it up automatically. ptk degrades gracefully if it is missing — native
-commands run unchanged and log-shaped text comes back raw — but that is a
-fallback, not the intended setup.
+Sessions are deliberately harness-scoped. There is no daemon, reattachment,
+cross-harness session, shared runspace, or durable session key in this design.
 
-Per-call overrides: `raw=true` is accepted only as deprecated compatibility
-telemetry; it does not change dialect handling, interpreter, routing, process
-choice, capture, or shaping. `route=pwsh`, independently of `raw`, is explicit
-consent to interpret the exact original text as PowerShell; normal capture and
-shaping still apply. `route=rtk` asserts RTK routing only for an eligible
-terminal native application; an unavailable or ineligible RTK leg is labeled
-and the exact original runs once without a model retry. When a response supplies
-a `ptk_output` handle, use it to read the immutable same-invocation artifact;
-that read never executes or reruns the command.
+## Sessions
 
-Mixed native/PowerShell dataflow also runs exactly once as submitted. For the
-narrow successful shape `<native command> | Set-Content <constant path>` in a
-filesystem location, PTK may append a text-only suggestion to prefer `>` for
-direct file capture next time. It never rewrites, refuses, or asks the model
-to resubmit the command. Dynamic or provider-qualified paths, shadowed
-cmdlets, ambient WhatIf/default-parameter semantics, and error-producing cases
-stay silent.
+The reserved `default` session preserves today's unqualified tool calls:
 
-Long work has two paths, by workload: `background=true` runs the script as a
-cold background job polled through `ptk_job` (builds, watchers — anything
-stateless that could exceed the call timeout), while `timeoutSeconds` raises
-the per-call limit for long work that needs the warm session itself.
+```text
+ptk_invoke(script="Import-Module ActiveDirectory")
+ptk_invoke(script="Get-ADUser alice")
+```
 
-## Server Tools
+Named sessions make independent warm contexts explicit:
+
+```text
+ptk_session(action="open", name="ad")
+ptk_invoke(session="ad", script="Import-Module ActiveDirectory")
+
+ptk_session(action="open", name="exo")
+ptk_invoke(session="exo", script="Connect-ExchangeOnline ...")
+
+ptk_state(session="ad")
+ptk_reset(session="exo")
+```
+
+Target session rules:
+
+- Names are harness-local semantic aliases such as `ad`, `exo`, or `build`.
+  Every non-default operation names its session; there is no mutable `select`.
+- Unknown or closed named sessions never fall back to `default` and never
+  auto-create after a typo.
+- `reset` and `restart` replace the entire target worker and increment its
+  generation. They do not affect another session.
+- An optional `expectedGeneration` prevents a stale caller from acting on a
+  replacement worker.
+- Optional templates loaded from `~/.ptk/profiles.json` can freeze a bootstrap
+  script, startup limit, labels, and cold-background policy for the harness
+  lifetime. Templates are operational configuration, not authorization, and
+  must not contain inline secrets.
+- Closing `default` leaves its reserved slot cold; the next unqualified
+  effectful call starts a new generation. Closed named sessions require an
+  explicit `open`.
+
+### Long-running work
+
+Long work has two distinct paths:
+
+- Raise `timeoutSeconds` when work needs the selected warm foreground session.
+- Use `background=true`, then poll `ptk_job`, for cold stateless work such as
+  builds and watchers.
+
+Cold background jobs do not borrow a session's modules, variables, or
+authenticated connections. `default` permits cold jobs for compatibility;
+named sessions deny them unless their first binding or template explicitly
+allows them. Warm asynchronous session jobs are outside this design.
+
+## MCP Tools
+
+The target public surface keeps the current tools and adds session lifecycle:
 
 | Tool | Purpose |
 | --- | --- |
-| `ptk_invoke` | Run shell work through PTK: persistent PowerShell state, internal RTK routing for eligible terminal commands, and bounded startup-pinned Bash delegation for independently proven parse-fatal Bash syntax. The legacy `raw` flag is deprecated and inert except for compatibility telemetry. |
-| `ptk_job` | Poll, read (shaped), or kill background jobs started with `background=true`. A finalized direct job reports a stable `ptk_output` handle only when its immutable recovery artifact sealed successfully; failure to seal does not promise that the distinct internal polling spool remains readable. No spool path is exposed. |
-| `ptk_output` | Read, search, or inspect an immutable same-invocation artifact named by `ptk_invoke` or `ptk_job`; it never executes or reruns a command. Handles may be incomplete, expired, evicted, or unavailable. |
-| `ptk_state` | Session introspection and health check: engine, uptime, cwd, loaded modules, jobs, and drift (env/PATH/variable changes since server start). |
-| `ptk_reset` | Recycle the runspace to factory state: server-start environment restored, background jobs killed. |
+| `ptk_invoke` | Execute the original script once in the selected warm session, or start an explicitly allowed cold background job. |
+| `ptk_job` | Read status/output or kill a cold job using a supervisor-owned, non-reused public job ID. |
+| `ptk_output` | Read, search, or inspect an immutable same-invocation artifact. It accepts no script and never executes work. |
+| `ptk_state` | Report supervisor/session health, lifecycle, engine, loaded modules, jobs, cwd, and environment/PATH/variable drift. |
+| `ptk_reset` | Replace one session worker, terminate its managed jobs, and restore its frozen baseline. |
+| `ptk_session` | List sessions, open named sessions, and close or restart named/default sessions. |
+
+Target signatures, shown compactly:
+
+```text
+ptk_invoke(script, route="auto", background=false, timeoutSeconds=0,
+           raw=false, session="default")
+ptk_job(action, id, offset=0, session="default")
+ptk_state(listAvailable=false, session="default")
+ptk_reset(session="default", expectedGeneration=0, force=false,
+          timeoutSeconds=0)
+ptk_session(action, name=null, template=null, allowColdBackground=null,
+            expectedGeneration=0, force=false, timeoutSeconds=0)
+ptk_output(handle, action="read", offset=0, maxBytes=<bounded>, pattern=null)
+```
+
+`ptk_session` and the `session` arguments arrive with the worker/named-session
+slices; they are not yet present on current `master`.
+
+## Routing and Output
+
+The dialect is PowerShell 7. With `route="auto"`, PTK plans from the exact
+submitted text. Foreground calls resolve against the selected session's
+already-loaded command state; cold background jobs resolve against a pristine
+cold command table:
+
+1. Cmdlets, aliases, functions, scripts, variables, PowerShell object
+   pipelines, and mixed dataflow execute unchanged in PowerShell: the selected
+   warm runspace for foreground work or the cold child for background work.
+2. A semantically eligible terminal native application is offered to RTK.
+   RTK chooses a specialized filter or passthrough.
+3. A narrow parse-fatal Bash shape may run through startup-suppressed Bash only
+   after PTK's detector and an independently bounded validation both accept
+   the exact bytes. Clean-parsing Bash-like mistakes receive a labeled dialect
+   refusal instead.
+4. Missing RTK, an ineligible route assertion, or another optimization failure
+   may fall back to the exact original only while PTK can prove no user process
+   started. There is never a post-start retry.
+
+Overrides are deliberately narrow:
+
+- `route="pwsh"` consents to interpret the exact original text as PowerShell
+  and bypasses dialect/Bash/RTK execution routing. Normal capture and shaping
+  still apply.
+- `route="rtk"` asserts RTK routing for an eligible terminal native command.
+  A safe pre-start failure is labeled and falls back exactly once.
+- `raw=true` is deprecated compatibility telemetry. It does not change the
+  interpreter, route, process, capture, bounds, or shaping, and it is not an
+  output-recovery mechanism.
+
+Output is shaped by provenance:
+
+- PowerShell objects become compact typed summaries before formatting.
+- RTK-routed native output is treated as already RTK-processed and is never
+  sent through `rtk log` a second time.
+- Direct log-shaped text may be deduplicated through RTK.
+- Plain text has terminal control sequences removed and is bounded by a
+  labeled head/tail window.
+
+When PTK owns a capture, the result may include a `ptk_output` handle for the
+immutable artifact. Handles remain readable across reset/restart/close until
+ordinary TTL or quota eviction, but never outlive the harness supervisor.
+Expired, evicted, unavailable, and incomplete artifacts are reported
+explicitly.
+
+The end-state design was frozen against adjacent RTK commit `5d32d07` and an
+independent RTK 0.43.0 runtime probe; neither exposed the trustworthy
+machine-readable capture seam PTK needs for raw recovery. Under that
+seam-absent contract, RTK-routed work remains single-execution but reports
+`recovery=unavailable`; PTK never parses a human tee-path hint or reruns the
+command. A future negotiated seam can add a truthful handle without changing
+execution routing.
 
 ## Mandatory Audit
 
-PTK records every accepted tool operation and spawned-job lifecycle in its own
-protected audit journal. The default is local-only under `~/.ptk/audit`: it
-requires no SIEM, collector, endpoint, credentials, or network service. Anchored
-OTLP/HTTP export is an optional startup configuration, not a requirement for
-local logging.
+The supervisor records every accepted PTK operation and spawned-job lifecycle
+in a protected journal. The default local-only mode writes under
+`~/.ptk/audit` and requires no collector, credentials, or network service.
+Anchored mode adds authenticated OTLP/HTTP export with durable local spooling.
 
-Internal RTK use is part of that trail. A foreground dispatch or job-output
-access durably authorizes the startup-pinned RTK digest before `rtk log` can
-start, followed by a typed shaping success/failure fact. Bash validator and
-delegated execution lifecycle facts are recorded under the same call plan.
+Important boundaries:
 
-Core records contain bounded metadata and hashes, while the exact submitted
-script is persisted separately as owner-only evidence. Scripts can contain
-credentials, tokens, or other secrets, so treat the audit root and its backups
-as sensitive. See the [mandatory local audit](server/README.md#mandatory-local-audit)
-and [optional anchored export](server/AUDIT-EXPORT.md) documentation for
-retention limits, failure behavior, administration, and SIEM routing.
+- Exact submitted script evidence is protected separately and flushed before
+  dispatch. If required evidence or journal persistence fails, effectful work
+  does not start.
+- A SIEM outage does not immediately block while the durable spool remains
+  healthy. Capacity exhaustion stops new calls rather than silently deleting
+  unacknowledged evidence.
+- A narrow unrecorded `ptk_state` health diagnostic remains available when the
+  audit boundary itself is unavailable.
+- Local hash chaining exposes gaps and corruption; it is not same-user tamper
+  resistance. External anchoring supplies the independent trust boundary.
+- Scripts and output artifacts can contain passwords, tokens, customer data,
+  or other secrets. Restrict and retain `~/.ptk` accordingly.
+- PTK audits operations PTK accepts. It cannot claim complete-host coverage
+  for alternate shells, detached processes, services, schedulers, SSH/WMI, or
+  effects inside remote systems.
 
-## Setup
+See [mandatory local audit](server/README.md#mandatory-local-audit) and
+[anchored export](server/AUDIT-EXPORT.md) for schemas, retention, failure
+behavior, evidence administration, and SIEM routing.
 
-Verify the server builds and answers the MCP handshake:
+## Security and Containment
 
-```powershell
-dotnet test server/PtkMcpServer.slnx
-pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
-```
+Worker processes isolate warm state and reduce reset/crash blast radius. They
+do not make hostile code safe and do not replace OS identity or upstream RBAC.
 
-Then install and register it user-wide (builds a self-contained binary
-into `~/.ptk` and registers it with Claude Code):
+The target supervisor owns each worker's process tree and treats confirmed
+termination as a prerequisite for replacement. If containment cannot be
+confirmed, the session becomes visibly quarantined and refuses restart rather
+than running two generations under one name. Harness EOF tears down every
+worker and managed job.
 
-```powershell
-pwsh -File scripts/dev-install.ps1
-```
+Install and run PTK as the ordinary user who runs the agent harness. The public
+installer refuses root/Administrator installation; launching the harness
+elevated still launches PTK elevated.
 
-Or register the checkout directly instead of installing:
+## Installation
 
-```powershell
-claude mcp add ptk --scope user -- dotnet run -v q --project <path-to-repo>/server/PtkMcpServer
-```
+### Target v0.2.0 public install — not released yet
 
-(The committed `.mcp.json` is deliberately empty — a checkout has no
-project-scope registration; pick one of the two paths above.)
-
-Then use `ptk_invoke` for shell work. Calls are ordinary PowerShell or native
-command lines:
-
-```powershell
-Get-ChildItem . -Recurse
-Import-Module ActiveDirectory
-git status --short
-```
-
-Prerequisites, configuration (timeouts, module/rtk paths), and operational
-behavior (call serialization, timeout recycling, stdin handling) are in
-[server/README.md](server/README.md).
-
-## Claude Code Hook (Optional)
-
-The hook makes the redirect automatic: it intercepts ordinary Bash/PowerShell
-tool calls and steers the agent toward `ptk_invoke` instead. Adoption
-evidence says this matters: harnesses hide MCP tools behind deferred
-discovery, and instruction-only nudges decay — the hook is the mechanism
-that actually holds.
+The approved release flow installs self-contained binaries without cloning
+this repository or requiring the .NET SDK:
 
 ```powershell
-pwsh -File scripts/ptk_init.ps1              # user-level install (default)
+# Windows
+irm https://raw.githubusercontent.com/AlsoBeltrix/PowerShell-Token-Killer/master/install.ps1 | iex
 ```
 
-One bare run installs the full state for every detected harness: the hook
-plus a guidance block in `~/.claude/CLAUDE.md` (which grok also reads —
-no flags to remember).
+```sh
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/AlsoBeltrix/PowerShell-Token-Killer/master/install.sh | sh
+```
 
-Installs **user-level by default** (`~/.claude/settings.json`): one install
-per machine, covers every repo, invisible to repo-level tooling. `-Local` is
-the explicit per-repo opt-in and edits the repo's `.claude/settings.json` —
-if anything in that repo tracks the file by content (governance tooling,
-dotfile managers, a hash-checking refresh), the edit reads as an owner
-modification forever after; the installer warns about exactly this.
+These URLs become usable when v0.2.0 is published; `install.ps1`, `install.sh`,
+release assets, and the release workflow are not present yet.
 
-The installer refuses to install the hook while no server is installed at
-`~/.ptk` (run `scripts/dev-install.ps1` first): a redirect hook without a
-server would steer every shell call at a tool that cannot answer. It
-registers the **installed** hook copy (`~/.ptk/scripts/ptk-hook.ps1`), so
-moving or renaming a checkout cannot strand the registration; a stale
-entry (registered file gone — it fails open silently) is flagged by
-`-Show` and healed by re-running the installer.
+The target installer:
 
-When a command genuinely needs the harness shell — interactive or
-TTY-dependent tools, or the ptk server being down — include `PTK_DIRECT` in a
-command comment to bypass the hook. When no ptk server process is running,
-the deny guidance says so and points at `PTK_DIRECT` up front. Install
-options and details are in
-[server/README.md](server/README.md#claude-code-hook).
+- selects a smoke-tested `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
+  or `osx-arm64` asset and verifies it against `SHA256SUMS`;
+- installs per-user under `~/.ptk` and preserves user-owned configuration on
+  upgrade/uninstall;
+- registers Claude Code when the `claude` CLI is available, otherwise prints
+  its registration command, and prints Codex registration guidance;
+- can install the redirect hook, whose public-installer default remains an
+  explicit release decision; and
+- supports uninstall, with destructive purge kept explicit.
 
-## Nudging Other Harnesses
+The server is self-contained and does not require an installed PowerShell.
+The optional hook does require `pwsh`. Winget packaging is a post-v0.2.0
+follow-up, not a currently working install path.
 
-`scripts/ptk_init.ps1` covers all four supported harnesses (claude, codex,
-grok, agy — registration, enforcement where verified, the guidance block
-as a standard layer), and `scripts/dev-install.ps1` chains it by default:
-**one command per machine** produces the whole state — see
-[docs/harness-support.md](docs/harness-support.md) for what each harness
-gets. For any other harness, a short note in its **user-level** guidance
-file — not a repo file — teaches the preference wherever ptk is registered
-and stays silent where it is not. Suggested text, adapt freely:
+The v0.2.0 binaries are not publisher-signed or Apple-notarized. The official
+one-line paths are the tested install route; browser-downloaded or repackaged
+archives may trigger SmartScreen or Gatekeeper warnings.
 
-> When the ptk MCP server is available, use `ptk_invoke` for shell
-> commands instead of the built-in shell: one warm PowerShell session
-> (imports, connections, variables persist across calls), compressed
-> output. The dialect is PowerShell 7, not bash: translate bash-only
-> syntax, or wrap a bash script whole as `bash -lc '...'` where bash
-> exists. Long stateless work: `background=true`, then poll `ptk_job`;
-> long work that needs the warm session: raise `timeoutSeconds`.
-> `ptk_state` diagnoses session drift; `ptk_reset` restores factory
-> state. Compressed output preserves errors, exit codes, and structure —
-> `raw=true` is deprecated compatibility telemetry and does not change
-> execution or shaping. `route=pwsh` is exact PowerShell consent independent
-> of `raw`, with normal capture and shaping. If a response returns a
-> `ptk_output` handle, use it to read the immutable same-invocation artifact
-> without rerunning the command.
+### Current development install
 
-Known user-level homes: `~/.claude/CLAUDE.md` (Claude Code),
-`~/.codex/AGENTS.md` (codex), `~/.gemini/GEMINI.md` (agy/gemini). Keep
-the note conditional ("when available") so the same text is safe on
-machines without ptk.
+To publish the current checkout into the canonical `~/.ptk` layout and
+register detected harnesses:
 
-## The Module
+```powershell
+pwsh -NoProfile -File scripts/dev-install.ps1
+```
 
-`src/PwshTokenCompressor.psd1` is the server's shaping library — the MCP
-server imports it into the warm runspace; runspace output and polled job text
-flow through it, while delegated Bash/RTK streams are captured and bounded by
-the host directly.
-It exports `Compress-PtcObject`, `Compress-PtcOutput`, and
-`Resolve-PtcInvokeScript` for the server (and for local experiments); there
-is no separate CLI face — `ptk_invoke` is the product surface.
+This is a developer path and requires PowerShell 7 plus the .NET SDK. You can
+also register the checkout directly:
 
-## Verification
+```powershell
+claude mcp add ptk --scope user -- dotnet run -v q --project <repo>/server/PtkMcpServer
+```
+
+The committed `.mcp.json` is intentionally empty; a checkout does not install
+itself into project scope.
+
+## RTK Integration
+
+[RTK](https://github.com/rtk-ai/rtk), the Rust Token Killer, owns native-command
+filtering and log compression. PTK pins the selected executable identity at
+startup and resolves it from `PTK_RTK_PATH` or `PATH`.
+
+The current approved release contract recommends RTK but does not bundle or
+silently download it. Without RTK, PTK still provides warm PowerShell state,
+object compression, terminal cleanup, bounded text, same-invocation recovery
+where PTK captured the bytes, and mandatory audit. Eligible native commands
+fall back visibly to exact execution.
+
+## Harness Integration and Hook
+
+The currently shipped and live-verified redirect hook intercepts Claude Code
+shell calls and points the agent at `ptk_invoke`. It is an adoption aid, not a
+security control or an audited execution boundary. `PTK_DIRECT` in a command
+comment is the explicit escape hatch when PTK is unavailable or the command
+needs a real TTY. Other harnesses receive only the capabilities recorded in
+the support matrix below.
+
+For current live-verified registration, hook, and guidance behavior by
+harness, see [the harness support matrix](docs/harness-support.md). The
+developer installer runs the implemented per-harness initialization after a
+successful install.
+
+## Repository Layout and Verification
+
+- `server/PtkMcpServer/` — MCP supervisor/server and current runtime.
+- `server/PtkMcpServer.Tests/` — server, audit, routing, and lifecycle tests.
+- `src/PwshTokenCompressor.psd1` — PowerShell object/text shaping library.
+- `scripts/` — development install and harness integration tooling.
+
+The module is a library, not a separate CLI face. `ptk_invoke` is the product
+surface.
+
+Run the complete local verification battery:
 
 ```powershell
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 dotnet test server/PtkMcpServer.slnx
-pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
+pwsh -NoProfile -File server/test-handshake.ps1
 ```
 
-## More Docs
+## More Documentation
 
 - [MCP server setup, configuration, and operations](server/README.md)
 - [Local audit and optional anchored/SIEM export](server/AUDIT-EXPORT.md)
+- [Harness capability matrix](docs/harness-support.md)
+- [Current implementation state](.agents/state.md)
 
 ## Credits
 
 PowerShell Token Killer is named after, and heavily inspired by,
-[rtk](https://github.com/rtk-ai/rtk) — the Rust Token Killer — which proved
-the idea that agent shell output should be compressed at the source. rtk owns
-the native-command side of that idea; ptk extends it to PowerShell — object
-pipelines, warm runspace state — and routes back through rtk wherever rtk
-does it better.
+[RTK](https://github.com/rtk-ai/rtk). RTK proved that agent shell output should
+be compressed at the source; PTK extends that idea to PowerShell objects, warm
+session state, supervised execution, recoverable output, and mandatory audit.

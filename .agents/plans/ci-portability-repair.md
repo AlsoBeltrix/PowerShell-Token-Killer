@@ -97,11 +97,13 @@ Each numbered slice is one finding and one commit.
    stop join still makes the stabilized test fail.
 8. **Use production-faithful request scopes in the startup race.** Register
    `AuditCallContextAccessor` as scoped, create and dispose one service scope
-   per contender, and hold all eight handlers at a barrier so request overlap
-   is deterministic. Preserve the exactly-two open attempts, single recovery
-   and startup, eight handler calls, eight accepted/completed pairs, and final
-   stop assertions. Mutating the accessor back to singleton must fail under
-   the barrier; restoring scoped ownership must pass on Windows.
+   per contender, and hold the first two handlers at a barrier so request
+   overlap is deterministic without exhausting the test journal's concurrent
+   reservation capacity. Release that pair before all eight calls complete.
+   Preserve the exactly-two open attempts, single recovery and startup, eight
+   handler calls, eight accepted/completed pairs, and final stop assertions.
+   Mutating the accessor back to singleton must fail under the barrier;
+   restoring scoped ownership must pass on Windows.
 
 ## Verification
 

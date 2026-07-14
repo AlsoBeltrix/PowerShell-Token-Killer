@@ -292,24 +292,55 @@ public sealed class AuditRuntimeGateTests : IDisposable
         await runtime.StartAsync(CancellationToken.None);
         using var services = new ServiceCollection()
             .AddSingleton(runtime)
-            .AddSingleton(new AuditCallContextAccessor())
+            .AddScoped<AuditCallContextAccessor>()
             .BuildServiceProvider();
         var handlerCalls = 0;
+        var overlappingHandlersEntered = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOverlappingHandlers = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var contenders = Enumerable.Range(0, 8)
-            .Select(index => Task.Run(async () => await Filter(
-                services,
-                Call("ptk_invoke", ("script", $"'startup contender {index}'")),
-                _ =>
+            .Select(index => Task.Factory.StartNew(
+                async () =>
                 {
-                    Interlocked.Increment(ref handlerCalls);
-                    return ValueTask.FromResult(Text("handled"));
-                })))
+                    using var scope = services.CreateScope();
+                    return await Filter(
+                        scope.ServiceProvider,
+                        Call("ptk_invoke", ("script", $"'startup contender {index}'")),
+                        async _ =>
+                        {
+                            var entered = Interlocked.Increment(ref handlerCalls);
+                            if (entered <= 2)
+                            {
+                                if (entered == 2)
+                                    overlappingHandlersEntered.TrySetResult(true);
+                                await releaseOverlappingHandlers.Task;
+                            }
+                            return Text("handled");
+                        });
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap())
             .ToArray();
         try
         {
             Assert.True(repairEntered.Wait(TimeSpan.FromSeconds(5)), "repair did not enter the journal factory");
             releaseRepair.Set();
 
+            try
+            {
+                await Task.WhenAny(
+                    overlappingHandlersEntered.Task,
+                    Task.Delay(TimeSpan.FromSeconds(5)));
+                Assert.True(
+                    overlappingHandlersEntered.Task.IsCompleted,
+                    $"Only {Volatile.Read(ref handlerCalls)} of the first 2 handlers entered.");
+            }
+            finally
+            {
+                releaseOverlappingHandlers.TrySetResult(true);
+            }
             var results = await Task.WhenAll(contenders).WaitAsync(TimeSpan.FromSeconds(15));
             Assert.All(results, result => Assert.False(result.IsError ?? false));
             Assert.Equal(8, handlerCalls);
@@ -320,6 +351,7 @@ public sealed class AuditRuntimeGateTests : IDisposable
         finally
         {
             releaseRepair.Set();
+            releaseOverlappingHandlers.TrySetResult(true);
         }
 
         var events = ReadEvents(options);

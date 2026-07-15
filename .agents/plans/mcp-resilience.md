@@ -53,11 +53,14 @@ exactly one truthful terminal result for every call that overlapped failure.
   signed-64-bit generation allocated per alias by the guardian. Worker
   generations never reset when the host restarts.
 
-Allocate a host or worker generation immediately before its OS process-create
-attempt. A refusal before OS creation need not consume a generation; every
-attempt reaching OS creation consumes one even when creation, initialization,
-or bootstrap fails. No value is reused, duplicate death signals consume
-nothing, and signed-64-bit exhaustion fails closed without wraparound.
+The guardian allocates a host generation immediately before its own host
+process-create attempt. For a worker, the guardian advances and irreversibly
+consumes the alias generation when it grants the host one single-use worker-
+create capability, before the host can reach OS creation. A refusal before a
+grant consumes nothing; a granted capability consumes its value even when the
+host dies without using it or creation/initialization/bootstrap fails. Gaps are
+therefore valid. No value is reused, duplicate death signals consume nothing,
+and signed-64-bit exhaustion fails closed without wraparound.
 
 ## Explicit non-goals and hard boundary
 
@@ -248,6 +251,16 @@ before releasing a worker's creation gate. Late frames are rejected
 independently on guardian boot ID, host boot ID, host generation, private
 request ID, session transition version, worker boot ID/generation, plan ID,
 and operation correlation.
+
+Every worker launch first requests a capability from the guardian. The strict
+capability binds one random opaque token to guardian boot ID, host boot ID/
+generation, canonical alias, alias transition version, consumed worker
+generation, frozen binding/profile digest, and absolute startup deadline. Only
+that host generation may present it, exactly once, for that alias transition;
+duplicate, stale, expired, mismatched, or already-consumed presentation starts
+no process. Guardian grant is the authoritative harness-lifetime high-water
+mark: host loss between grant and OS creation never permits reuse, and the
+replacement host must ask for a later generation.
 
 Only the guardian writes public stdout. Guardian diagnostics use stderr. Host,
 worker, user, RTK, Bash, and native stdout/stderr are bounded private
@@ -596,7 +609,8 @@ or history rewriting.
 ### Generation and state restoration
 
 - Host generations never reuse across failed starts. Worker generations remain
-  monotonic across host restart and change only for affected/recreated aliases.
+  monotonic across host restart. A granted-but-unused worker-create capability
+  leaves a visible generation gap; the next attempt uses a greater value.
 - No replacement begins before confirmed old-tree death. Unconfirmed death
   keeps state/output reads available but blocks effects and generation advance.
 - Exact frozen bootstrap bytes/digest are used once per recovered generation

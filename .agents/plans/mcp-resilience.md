@@ -392,10 +392,13 @@ outcome-unknown terminal is reserved and durably recorded under the existing
 pre-effect rules. The host cannot start work until the guardian's dispatch
 authorization is committed.
 
-The existing audit `supervisor_boot_id` becomes the guardian boot ID and stays
-stable across host replacement. Product cutover introduces `ptk.audit/3`.
-Version 3 preserves every v2 field, meaning, order, and bound, then adds one
-always-present `host` object immediately after `server` with exact keys:
+The existing audit `producer.supervisor_boot_id` continues to identify the
+one public MCP acceptance supervisor for the harness. The guardian assumes that
+same role, so its boot ID stays stable across private-host replacement without
+changing the field's meaning or the per-supervisor sequence contract. Product
+cutover introduces `ptk.audit/3`. Version 3 preserves every v2 field, meaning,
+order, and bound, then adds one always-present top-level `host` object
+immediately after `producer` with exact keys:
 
 ```text
 host:

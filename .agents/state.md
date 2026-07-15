@@ -84,8 +84,8 @@ short and update it when important repo facts change.
   `.agents/review/index.md`.
 - **The two-layer MCP resilience planning boundary is owner-approved; its
   complete reconciled draft passed final independent fixed-SHA review at
-  `b4a2c0c` on `plan/mcp-resilience-guardian`; implementation is not
-  authorized.** The
+  `b4a2c0c` and is landed on local `master` at review-record head `6ed0167`;
+  implementation is not authorized.** The
   target keeps one public stdio guardian alive while it
   restarts an exact-version private host, and makes a healthy host replace an
   unexpectedly lost session worker. It never replays ambiguous work, changes
@@ -231,9 +231,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Present the accepted resilience planning branch for its owner-gated local
-   merge; only after it lands, present R0 contract/feasibility for a separate
-   code go.
+1. Present resilience R0 contract/feasibility for a separate code go; do not
+   begin implementation before that explicit authorization.
 2. Release-distribution slice 3 is ordered after resilience R7 and consumes
    only its matched guardian layout; there is no legacy migration path. Do not
    execute it before R7 lands. Re-present the hook-default choice before release

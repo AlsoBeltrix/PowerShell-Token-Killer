@@ -1839,9 +1839,13 @@ inventing a code sabotage.
   identity, current-time, reservation, or replay lookup.
 - Every payload rejects duplicate, unknown, missing, explicit-null,
   wrong-kind, nonintegral, out-of-range, empty, noncanonical, or mismatched
-  values as applicable. Stable failures contain no script, digest, identifier,
-  or inner-exception content. Direct guards cover nested duplicate arguments
-  independently of the outer envelope decoder.
+  values as applicable. Codec shape failures use exactly `duplicate_field`,
+  `unknown_prepared_field`, `missing_prepared_field`,
+  `invalid_prepared_field`, `unsupported_prepared_operation`, or
+  `prepared_script_digest_mismatch`; comparison mismatch is not an exception.
+  Failures contain no script, digest, identifier, or inner-exception content.
+  Direct guards cover nested duplicate arguments independently of the outer
+  envelope decoder.
 - Extend the staging boundary over every new codec and DTO type. No production
   type may construct or call the prepared-operation codec, and its type graph
   may not carry `ISessionOperations`, `ISessionLifetime`, `SessionRuntime`,

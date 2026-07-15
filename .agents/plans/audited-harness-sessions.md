@@ -1799,31 +1799,32 @@ inventing a code sabotage.
   deliberately unwired. The codecs accept and create payload objects only:
   they do not bind a `WorkerEnvelope`, classify a frame, allocate a request ID,
   register with `WorkerServer`, or execute any operation.
-- A `prepare` payload has exactly positive signed-64-bit `generation`, positive
-  valid-UTC millisecond `deadlineUnixTimeMilliseconds`, a 64-character
-  lowercase hexadecimal SHA-256 `scriptDigest`, exact operation name `invoke`,
-  and `arguments` in the existing foreground-only `WorkerInvokeArguments`
-  shape. Both parse and create recompute the digest from that exact script and
-  reject a mismatch. Background job start and bootstrap prepare shapes remain
-  later separately approved work.
+- A `prepare` payload has exactly canonical lowercase RFC 4122 UUIDv4
+  `planId`, positive signed-64-bit `generation`, positive valid-UTC millisecond
+  `deadlineUnixTimeMilliseconds`, a 64-character lowercase hexadecimal SHA-256
+  `scriptDigest`, exact operation name `invoke`, and `arguments` in the
+  existing foreground-only `WorkerInvokeArguments` shape. The supervisor
+  generates the plan ID before the durable prepare-authorization record; the
+  codec validates but never generates it. Both parse and create recompute the
+  digest from that exact script and reject a mismatch. Background job start and
+  bootstrap prepare shapes remain later separately approved work.
 - `scriptDigest` is SHA-256 over the strict UTF-8 bytes of the exact original
   script with no normalization, BOM, or domain prefix, matching the audit
   evidence digest. The deadline is the original absolute operation deadline,
   not a new budget. Creation requires UTC whole-millisecond precision so
   serialization is lossless; parsing does not reject an otherwise valid
   deadline merely because it has already expired.
-- A prepared-correlation fragment contains exactly canonical lowercase RFC
-  4122 UUIDv4 `planId`, `scriptDigest`, `generation`, and
-  `deadlineUnixTimeMilliseconds`. It is not the final prepared descriptor or a
-  live response: execution-plan and permitted-fallback fields remain for a
-  later approved codec. This slice validates values supplied by its caller and
-  never generates a plan ID.
+- A prepared-correlation fragment echoes exactly `planId`, `scriptDigest`,
+  `generation`, and `deadlineUnixTimeMilliseconds`. It is not the final
+  prepared descriptor or a live response: execution-plan and
+  permitted-fallback fields remain for a later approved codec. This slice
+  validates values supplied by its caller and never generates a plan ID.
 - A `commit` payload and an `abort` payload each contain exactly the same four
   correlation fields and have distinct DTO types despite their identical wire
-  shapes. Stateless validators require the prepared fragment to match the
-  prepare digest/generation/deadline and require commit or abort to match all
-  four prepared values exactly. Worker boot and request IDs remain solely in
-  the future outer-envelope binding and are not duplicated in these payloads.
+  shapes. Stateless validators require the prepared fragment to match all four
+  prepare correlation values and require commit or abort to match all four
+  prepared values exactly. Worker boot and request IDs remain solely in the
+  future outer-envelope binding and are not duplicated in these payloads.
 - Commit and abort contain no script, operation, arguments, result, abort
   reason, retry flag, or timeout override. The codecs perform no current-worker
   identity, current-time, reservation, or replay lookup.

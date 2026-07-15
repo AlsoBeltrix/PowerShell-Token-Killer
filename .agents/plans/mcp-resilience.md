@@ -30,6 +30,12 @@ same host executable digest, private protocol, and public tool contract for its
 entire MCP session; upgraded or mixed-version components are refused until a
 new guardian/client session.
 
+The owner approved `ptk.audit/3` on 2026-07-15 conditional on preserving the
+existing Splunk, Microsoft Sentinel, and proposed mini-SIEM routes. The
+compatibility contract below keeps OTLP/HTTP stable, uses destination adapters
+for current vendor APIs, and makes any future PTK receiver consume that same
+OTLP stream; the separate mini-SIEM build decision remains open.
+
 Claude Code 2.1.210 using `claude-fable-5` at maximum effort accepted exact
 fixed range `5ae154c..ab54fe1` with `guard_confirmed=true` and no material
 comment on 2026-07-15. This is plan review only; implementation remains
@@ -552,6 +558,34 @@ shape `worker.recovery_scheduled`, `worker.recovered`, and
 reserialize older bytes. Worker/session generation fields are never overloaded
 with host identity, and dynamic identity never enters a detail-code string.
 
+Audit v3 does not create a new SIEM transport. Anchored mode retains the exact
+one-record OTLP/HTTP protobuf request, acknowledgment, retry, checkpoint, and
+durable-anchor contract in `server/AUDIT-EXPORT.md`. The `LogRecord` body is
+the exact v3 JSONL record; every existing resource/query attribute retains its
+name, type, and meaning, including `ptk.audit.schema_version`. The mapper adds
+only these typed query attributes:
+
+```text
+ptk.host.boot_id: string                 # omitted when null
+ptk.host.generation: int64               # omitted when null
+ptk.host.state: string                   # always present
+ptk.host.recovery_attempt: int64         # always present
+```
+
+PTK remains vendor-neutral. The supported Splunk route is PTK to a durable
+OTLP gateway, then the gateway's Splunk HEC logs exporter to Splunk Enterprise
+or Splunk Cloud. The supported Microsoft Sentinel route is PTK to a durable
+OTLP gateway/adapter, then JSON to the Azure Monitor Logs Ingestion API under a
+DCR that preserves the PTK event ID, chain, schema, guardian, host, session,
+and outcome fields in a supported or custom Log Analytics table. Neither
+vendor hop changes what PTK treats as its acknowledged durable boundary.
+
+If the separately gated mini-SIEM decision later chooses a PTK receiver, that
+receiver must implement this same authenticated one-record OTLP/HTTP contract,
+validate exact v1/v2/v3 bodies, durably commit before a nonrejecting `200`, and
+tolerate duplicate event IDs with identical hashes. Audit v3 requires no
+receiver-specific PTK protocol and does not itself authorize that receiver.
+
 Guardian death may leave accepted calls without terminals. Existing startup
 reconciliation records those as outcome-unknown on the next guardian boot, but
 the new process is a new harness and cannot restore its public connection or
@@ -650,7 +684,10 @@ or history rewriting.
   audit credentials or public handles. Shared factories may serve the legacy
   path, but no installed registration points at `--host` or the guardian yet.
 - Reconcile audit schema/event evolution and package both exact-version
-  apphosts, but keep registration cutover separately guarded.
+  apphosts, but keep registration cutover separately guarded. Extend the OTLP
+  mapper with the four host attributes while preserving exact v1/v2 mapping,
+  and add Splunk-HEC, Sentinel-DCR, and generic durable-OTLP adapter fixtures;
+  no vendor credential or SDK enters PTK.
 
 ### R5 — automatic host recovery and declared-state restoration
 
@@ -743,6 +780,26 @@ or history rewriting.
 - Recovery never starts after intentional public EOF, and idle policy never
   creates a restart loop.
 
+### Audit export compatibility
+
+- The same fake durable OTLP receiver accepts exact v1, v2, and v3 bodies. V3
+  preserves every prior OTLP attribute and adds exactly the four typed
+  `ptk.host.*` attributes; null host identity fields are omitted.
+- A Collector fixture receives PTK OTLP logs and maps the exact body, stable
+  event/chain identifiers, schema, and host fields into a Splunk HEC request.
+  A Sentinel adapter fixture maps the same record into the Azure Monitor Logs
+  Ingestion JSON/DCR shape without truncation or type loss.
+- Destination adapters tolerate identical at-least-once duplicates and fail
+  their compatibility gate if event ID, event hash, previous hash, schema,
+  host identity/generation/state, timestamp precision, or Unicode changes.
+- Current supported adapter versions are revalidated during R0 and R7 rather
+  than assumed from documentation. PTK's anchor advances only at its configured
+  durable OTLP endpoint, never merely because a downstream adapter accepted a
+  transient queue.
+- A future mini-SIEM conformance fixture can replace the fake receiver without
+  changing PTK bytes. The receiver itself remains unimplemented and separately
+  owner-gated.
+
 ### Platform, security, and compatibility
 
 - Common deterministic suites pass on Windows, Linux, and macOS. Native tests
@@ -792,7 +849,11 @@ fails before final fixed-SHA acceptance:
 21. set `retryable=true` or a nonnull retry delay on `outcome_unknown`;
 22. emit a retryable error without a proved-no-start state;
 23. retain or later dispatch a backend call after its recovery terminal; and
-24. add a state-capture/profile-writing tool or infer bootstrap from warm state.
+24. add a state-capture/profile-writing tool or infer bootstrap from warm state;
+25. change the OTLP wire/envelope by destination or audit schema version;
+26. drop or mistype one prior or `ptk.host.*` OTLP query attribute; and
+27. let a vendor/mini-SIEM adapter acknowledgment replace PTK's configured
+    durable OTLP anchor semantics.
 
 ## Documentation and release dependency
 
@@ -809,6 +870,8 @@ R7; operator docs must never imply that guardian death itself is recoverable.
   except where this plan narrowly supersedes recovery/topology.
 - `.agents/repo-guidance.md` — verification entry points.
 - `.agents/playbooks/reviewloop.md` — fixed-SHA implementation review.
+- `server/AUDIT-EXPORT.md` — retained OTLP transport, acknowledgment, and
+  destination-adapter boundary.
 - `server/PtkMcpServer/Program.cs` — current single-process insertion point.
 - Codex MCP configuration — `https://learn.chatgpt.com/docs/extend/mcp.md`.
 - MCP lifecycle —

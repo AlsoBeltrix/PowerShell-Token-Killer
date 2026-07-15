@@ -245,6 +245,13 @@ closed pipe gate, and executes the managed worker only after containment is
 armed. Broker and child both perform the race-safe `setpgid` checks; the broker
 retains reaper parentage and places no user code before the gate.
 
+The final resilience topology does not change this per-worker parentage: each
+worker broker remains a child of the private host. Its separate Unix
+`PtkGuardianBroker` is parent/reaper only for that host; it identity-kills and
+confirms registered descendant broker/groups after host death and relies on the
+platform system reaper for those nonchildren, as frozen in
+`.agents/plans/mcp-resilience.md`.
+
 The broker arms supervisor liveness and group ownership, then sends a bounded
 containment-armed acknowledgment. The supervisor tells the broker to release;
 only then does the child `execve` the worker, complete its private-protocol

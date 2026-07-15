@@ -429,3 +429,17 @@ _Not verified by the 2026-07-11 containment probe._
   PTK files. The former combined Mac/Windows reinstall claim was falsified on
   the Mac and is not evidence for any Windows host; verify the target payload
   directly before taking install action.
+
+## mini-SIEM S1 baseline (Mac, 2026-07-15)
+
+_Fresh transcripted baseline of the existing battery, captured at S1 start of
+`.agents/plans/mini-siem-implementation.md` (plan Verification; the
+predecessor's author-reported counts are not baseline evidence)._
+
+- Head `8b6d3bb`, worktree `mini-siem`, branch `plan/mini-siem-discovery`,
+  clean tree. Darwin 25.5.0 arm64, dotnet 10.0.301, pwsh 7.6.3.
+- Exact repo-guidance commands: Pester 141 passed / 0 failed / 2 skipped;
+  `dotnet test server/PtkMcpServer.slnx` 1484/1484 passed; handshake
+  `HANDSHAKE PASSED`. All three exit codes 0.
+- Full transcript: `.agents/review/baselines/2026-07-15-mini-siem-s1.log`
+  (verbatim copy of the ptk job log for the run).

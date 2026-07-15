@@ -211,6 +211,38 @@ public sealed class WorkerServerTests
         Assert.Equal(2, (await output.FramesAsync()).Count);
     }
 
+    [Theory]
+    [InlineData((int)WorkerMessageKind.Prepare)]
+    [InlineData((int)WorkerMessageKind.Commit)]
+    [InlineData((int)WorkerMessageKind.Abort)]
+    [InlineData((int)WorkerMessageKind.Request)]
+    [InlineData((int)WorkerMessageKind.Cancel)]
+    public async Task Operation_frames_remain_unwired_after_ready(
+        int kindValue)
+    {
+        var kind = (WorkerMessageKind)kindValue;
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var lifetime = new RecordingLifetime();
+        input.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(kind, 2, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            new WorkerServerExit(WorkerServerExitKind.ProtocolError, "unsupported_message"),
+            exit);
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
+        Assert.Equal(2, (await output.FramesAsync()).Count);
+    }
+
     [Fact]
     public async Task Eof_before_initialize_never_constructs_a_runtime()
     {

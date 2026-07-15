@@ -1814,6 +1814,11 @@ inventing a code sabotage.
   not a new budget. Creation requires UTC whole-millisecond precision so
   serialization is lossless; parsing does not reject an otherwise valid
   deadline merely because it has already expired.
+- Before live binding, the MCP deadline boundary must floor `utcNow + budget`
+  once to its positive Unix-millisecond value, never extending authority, and
+  use that same aligned UTC instant in audit metadata and every protocol
+  payload. This Slice 7h codec neither changes current audit capture nor rounds
+  independently; until that prerequisite lands, it remains unwired.
 - A prepared-correlation fragment echoes exactly `planId`, `scriptDigest`,
   `generation`, and `deadlineUnixTimeMilliseconds`. It is not the final
   prepared descriptor or a live response: execution-plan and

@@ -284,10 +284,9 @@ short and update it when important repo facts change.
   is released.
 - **Plan-record drift, reported but not edited in this narrow state pass:**
   the warm-runspace plan still says slice 7 is paused behind the already
-  decided GO; the release plan retains stale CI/push/policy references; and
-  the shared-runspace idea still assumes the rejected policy gate. Explicit
-  owner calls, uncontested decisions, and live repo evidence named above
-  control.
+  decided GO, and the shared-runspace idea still assumes the rejected policy
+  gate. Explicit owner calls, uncontested decisions, and live repo evidence
+  named above control.
 
 ## Verification
 

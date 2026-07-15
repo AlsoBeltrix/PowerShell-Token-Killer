@@ -84,8 +84,10 @@ section).
   (`-ServerCommand` — see the probe results below).
 - **Repo is PUBLIC** (verified 2026-07-04 via `gh repo view`): anonymous
   release-asset downloads and raw.githubusercontent.com installer URLs work.
-- **No CI exists** (recorded in `.agents/repo-guidance.md`); release
-  automation requires building it, and workflow iteration only runs on pushed
+- **Test CI exists; release CI does not.** `.github/workflows/ci.yml` is the
+  landed slice-2 cross-platform verification workflow recorded in
+  `.agents/repo-guidance.md`. `.github/workflows/release.yml` remains slice 3
+  and is ordered after resilience R7; workflow iteration still requires pushed
   refs — see Owner logistics.
 
 ## Design commitments
@@ -263,9 +265,9 @@ section).
    discovery, and the elevated-harness sentence in the security posture
    (the runspace inherits the harness's privileges — root/Admin harness
    means root/Admin shell); release-notes draft; `ModuleVersion` bumped to
-   0.2.0 to match the release; `.agents/repo-guidance.md` "No CI" statement
-   and `.agents/repo-map.json` verification entries updated (drift fix rides
-   in the same slice that creates the drift).
+   0.2.0 to match the release; `.agents/repo-guidance.md` and
+   `.agents/repo-map.json` verification entries updated for the packaged
+   guardian and release workflow in the same slice that creates that drift.
 7. **RC rehearsal + release (owner-gated).** After every prerequisite lands:
    rc tag → draft release → one-line installs exercised on the owner's machines
    (hardware exists for every shipped RID), any runner-unsmokable ARM artifact

@@ -1,0 +1,228 @@
+using PtkMcpServer.Sessions;
+
+namespace PtkMcpServer.Worker;
+
+internal static class WorkerProcessEntry
+{
+    private const string WorkerArgument = "--worker";
+
+    internal static bool IsWorkerInvocation(IReadOnlyList<string> arguments) =>
+        arguments.Any(argument => string.Equals(
+            argument,
+            WorkerArgument,
+            StringComparison.Ordinal));
+
+    internal static async Task<int> RunAsync(IReadOnlyList<string> arguments)
+    {
+        WorkerBootstrapValues values;
+        try
+        {
+            values = WorkerBootstrapCapture.CaptureAndRemove();
+        }
+        catch (WorkerBootstrapException exception)
+        {
+            return CompleteBootstrapFailure(
+                exception.DetailCode,
+                Console.OpenStandardError);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return CompleteBootstrapFailure(
+                "bootstrap_failure",
+                Console.OpenStandardError);
+        }
+
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        // These delegates are deliberately created only after both bootstrap
+        // identifiers have been removed from the process environment.
+        return await RunCapturedAsync(
+            arguments,
+            values,
+            openBootstrap: captured => WindowsWorkerBootstrap.Open(captured),
+            runtimeFactory: CreateRuntimeAsync,
+            bootIdFactory: Guid.NewGuid,
+            standardErrorFactory: Console.OpenStandardError).ConfigureAwait(false);
+    }
+
+    internal static async Task<int> RunAsync(
+        IReadOnlyList<string> arguments,
+        IWorkerBootstrapEnvironmentSource? environment,
+        Func<WorkerBootstrapValues, IWorkerBootstrapStreams> openBootstrap,
+        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> runtimeFactory,
+        Func<Guid> bootIdFactory,
+        Func<Stream> standardErrorFactory)
+    {
+        WorkerBootstrapValues values;
+        try
+        {
+            values = WorkerBootstrapCapture.CaptureAndRemove(environment);
+        }
+        catch (WorkerBootstrapException exception)
+        {
+            return CompleteBootstrapFailure(
+                exception.DetailCode,
+                standardErrorFactory);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return CompleteBootstrapFailure("bootstrap_failure", standardErrorFactory);
+        }
+
+        ArgumentNullException.ThrowIfNull(arguments);
+        ArgumentNullException.ThrowIfNull(openBootstrap);
+        ArgumentNullException.ThrowIfNull(runtimeFactory);
+        ArgumentNullException.ThrowIfNull(bootIdFactory);
+        ArgumentNullException.ThrowIfNull(standardErrorFactory);
+
+        return await RunCapturedAsync(
+            arguments,
+            values,
+            openBootstrap,
+            runtimeFactory,
+            bootIdFactory,
+            standardErrorFactory).ConfigureAwait(false);
+    }
+
+    private static async Task<int> RunCapturedAsync(
+        IReadOnlyList<string> arguments,
+        WorkerBootstrapValues values,
+        Func<WorkerBootstrapValues, IWorkerBootstrapStreams> openBootstrap,
+        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> runtimeFactory,
+        Func<Guid> bootIdFactory,
+        Func<Stream> standardErrorFactory)
+    {
+        if (arguments.Count != 1 ||
+            !string.Equals(arguments[0], WorkerArgument, StringComparison.Ordinal))
+        {
+            return CompleteInvocationFailure(standardErrorFactory);
+        }
+
+        IWorkerBootstrapStreams? bootstrap = null;
+        WorkerServerExit finalExit;
+        var serverConstructed = false;
+        try
+        {
+            bootstrap = openBootstrap(values) ?? throw new InvalidOperationException(
+                "Worker bootstrap returned no stream owner.");
+            var workerBootId = bootIdFactory();
+            var server = new WorkerServer(
+                bootstrap.RequestStream,
+                bootstrap.EventStream,
+                runtimeFactory,
+                workerBootId);
+            serverConstructed = true;
+            finalExit = await server.RunAsync().ConfigureAwait(false);
+        }
+        catch (WorkerBootstrapException exception)
+        {
+            return CompleteBootstrapFailure(
+                exception.DetailCode,
+                standardErrorFactory,
+                bootstrap);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            if (!serverConstructed)
+            {
+                return CompleteBootstrapFailure(
+                    "bootstrap_failure",
+                    standardErrorFactory,
+                    bootstrap);
+            }
+            finalExit = new WorkerServerExit(
+                WorkerServerExitKind.RuntimeFailure,
+                "runtime_failure");
+        }
+
+        try
+        {
+            bootstrap!.Dispose();
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            finalExit = new WorkerServerExit(
+                WorkerServerExitKind.RuntimeFailure,
+                "cleanup_failed");
+        }
+
+        return CompleteServerExit(finalExit, standardErrorFactory);
+    }
+
+    private static Task<ISessionLifetime> CreateRuntimeAsync(
+        WorkerInitializeRequest initialize,
+        CancellationToken cancellationToken)
+    {
+        _ = initialize;
+        cancellationToken.ThrowIfCancellationRequested();
+        var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
+        var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
+        var jobPwshExecutable = JobPwshExecutable.ResolveFromPath();
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<ISessionLifetime>(
+            DefaultSessionRuntimeFactory.Create(
+                callTimeout,
+                maxCallTimeout,
+                jobPwshExecutable,
+                cancellationToken));
+    }
+
+    private static int CompleteInvocationFailure(Func<Stream> standardErrorFactory) =>
+        CompleteWithStream(
+            64,
+            standardErrorFactory,
+            WorkerProcessExit.WriteInvocationFailure);
+
+    private static int CompleteBootstrapFailure(
+        string detailCode,
+        Func<Stream> standardErrorFactory,
+        IWorkerBootstrapStreams? bootstrap = null)
+    {
+        if (bootstrap is not null)
+        {
+            try
+            {
+                bootstrap.Dispose();
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                detailCode = "bootstrap_failure";
+            }
+        }
+        return CompleteWithStream(
+            80,
+            standardErrorFactory,
+            stream => WorkerProcessExit.WriteBootstrapFailure(detailCode, stream));
+    }
+
+    private static int CompleteServerExit(
+        WorkerServerExit exit,
+        Func<Stream> standardErrorFactory)
+    {
+        var fallbackCode = WorkerProcessExit.MapCode(exit);
+        if (fallbackCode == 0) return 0;
+        return CompleteWithStream(
+            fallbackCode,
+            standardErrorFactory,
+            stream => WorkerProcessExit.WriteServerExit(exit, stream));
+    }
+
+    private static int CompleteWithStream(
+        int fallbackCode,
+        Func<Stream> standardErrorFactory,
+        Func<Stream, int> complete)
+    {
+        try
+        {
+            return complete(standardErrorFactory());
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return fallbackCode;
+        }
+    }
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or StackOverflowException or
+            AccessViolationException or AppDomainUnloadedException;
+}

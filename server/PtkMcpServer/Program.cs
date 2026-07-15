@@ -4,24 +4,27 @@ using Microsoft.Extensions.Logging;
 using PtkMcpServer;
 using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
+using PtkMcpServer.Worker;
+
+// Worker classification is the first executable action. An internal worker
+// attempt must never enter supervisor host, audit, output, or MCP startup.
+if (WorkerProcessEntry.IsWorkerInvocation(args))
+{
+    Environment.ExitCode = await WorkerProcessEntry.RunAsync(args).ConfigureAwait(false);
+    return;
+}
 
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout carries the JSON-RPC transport; every log line must go to stderr.
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
-var callTimeout = TimeSpan.FromSeconds(
-    double.TryParse(Environment.GetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS"), out var s) && s > 0
-        ? s
-        : 300);
+var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
 var idleExit = TimeSpan.FromSeconds(
     double.TryParse(Environment.GetEnvironmentVariable("PTK_IDLE_EXIT_SECONDS"), out var i) && i > 0
         ? i
         : 14400); // 4h backstop for orphaned servers; Claude Code normally kills the child itself.
-var maxCallTimeout = TimeSpan.FromSeconds(
-    double.TryParse(Environment.GetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS"), out var m) && m > 0
-        ? m
-        : 3600); // caps the per-call timeoutSeconds override on ptk_invoke
+var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
 // Resolve once before serving. Warm-session scripts can mutate the process
 // PATH, but background jobs must keep using the executable selected at server
 // startup. A failed lookup is also frozen so a later PATH cannot supply one.
@@ -75,19 +78,10 @@ builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production
 builder.Services.AddSingleton<ISessionOperations>(sp =>
     sp.GetRequiredService<AuditRuntimeGate>().RunSessionAfterStarted(() =>
     {
-        var host = new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout);
-        try
-        {
-            return new SessionRuntime(
-                host,
-                new JobManager(jobPwshExecutable),
-                new RawUsageCounter());
-        }
-        catch
-        {
-            host.Dispose();
-            throw;
-        }
+        return DefaultSessionRuntimeFactory.Create(
+            callTimeout,
+            maxCallTimeout,
+            jobPwshExecutable);
     }));
 builder.Services.AddHostedService(sp => new IdleWatchdog(
     idleExit,

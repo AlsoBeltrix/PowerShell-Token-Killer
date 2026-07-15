@@ -3,23 +3,25 @@
 [![CI](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/workflows/ci.yml/badge.svg)](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/workflows/ci.yml)
 
 PTK is an audited, token-efficient PowerShell execution service for AI agent
-harnesses. In the approved architecture, each harness owns a private PTK
-supervisor and one or more isolated warm PowerShell worker sessions. Modules,
-variables, working directory, and authenticated connections persist inside the
-selected session—and disappear with the harness.
+harnesses. In the approved architecture, each harness owns one public-pipe
+guardian, one replaceable private host, and one or more isolated warm
+PowerShell worker sessions. Modules, variables, working directory, and
+authenticated connections persist inside the selected session—and disappear
+with the harness.
 
 The agent submits the original command once. PTK owns PowerShell state,
 internal RTK/Bash routing, output shaping and recovery, worker lifecycle, and a
 mandatory pre-effect audit trail.
 
 > [!IMPORTANT]
-> **This README describes the approved end-state contract.** Current `master`
-> already ships mandatory audit, single-execution routing, cold background
-> jobs, same-invocation `ptk_output` recovery, and one in-process default
-> `SessionRuntime`. The worker-process supervisor, named sessions, hardened
+> **This README describes the approved end-state contract.** The current
+> development tree already implements mandatory audit, single-execution
+> routing, cold background jobs, same-invocation `ptk_output` recovery, and one
+> in-process default `SessionRuntime`. The guardian/private-host split,
+> worker-process sessions, automatic recovery, named sessions, hardened
 > containment, and public release installers are approved work still being
 > built. See [`.agents/state.md`](.agents/state.md) for the exact implementation
-> boundary.
+> boundary. PTK has not had a public release.
 
 ## Why PTK
 
@@ -49,19 +51,27 @@ privileges, network access, and upstream RBAC of the harness that launched PTK.
 
 ```mermaid
 flowchart LR
-    H[Agent harness] --> S[PTK MCP supervisor]
+    H[Agent harness] --> G[PTK MCP guardian]
+    G --> S[replaceable private host]
     S --> D[default worker]
     S --> N[named worker processes]
     D --> E[PowerShell / RTK / validated Bash]
     N --> E
-    S --> A[protected audit journal<br/>optional anchored export]
-    S --> O[bounded output store<br/>ptk_output]
+    G --> A[protected audit journal<br/>optional anchored export]
+    G --> O[bounded output store<br/>ptk_output]
 ```
 
-One harness owns one supervisor. Each session owns one serial PowerShell
-runspace inside its own worker process; different sessions can progress
-independently. The supervisor owns audit, public job IDs, output artifacts,
-deadlines, and worker containment.
+One harness owns one guardian and one replaceable private host. Each session
+owns one serial PowerShell runspace inside its own worker process; different
+sessions can progress independently. The guardian owns audit, public IDs,
+output artifacts, frozen bootstrap metadata, and recovery generations. The
+host coordinates workers without owning the public MCP pipe.
+
+While that pipe remains open, inactivity never recycles the guardian, host, or
+warm workers. A failed worker or host is replaced automatically with a new
+generation and only its declared frozen baseline; uncertain work is never
+replayed. Guardian failure still ends the MCP connection and requires the
+client to start a new session.
 
 Sessions are deliberately harness-scoped. There is no daemon, reattachment,
 cross-harness session, shared runspace, or durable session key in this design.
@@ -126,9 +136,9 @@ The target public surface keeps the current tools and adds session lifecycle:
 | Tool | Purpose |
 | --- | --- |
 | `ptk_invoke` | Execute the original script once in the selected warm session, or start an explicitly allowed cold background job. |
-| `ptk_job` | Read status/output or kill a cold job using a supervisor-owned, non-reused public job ID. |
+| `ptk_job` | Read status/output or kill a cold job using a guardian-owned, non-reused public job ID. |
 | `ptk_output` | Read, search, or inspect an immutable same-invocation artifact. It accepts no script and never executes work. |
-| `ptk_state` | Report supervisor/session health, lifecycle, engine, loaded modules, jobs, cwd, and environment/PATH/variable drift. |
+| `ptk_state` | Report guardian, host, and session health plus lifecycle, engine, jobs, cwd, and environment/PATH/variable drift where available. |
 | `ptk_reset` | Replace one session worker, terminate its managed jobs, and restore its frozen baseline. |
 | `ptk_session` | List sessions, open named sessions, and close or restart named/default sessions. |
 
@@ -191,7 +201,7 @@ Output is shaped by provenance:
 
 When PTK owns a capture, the result may include a `ptk_output` handle for the
 immutable artifact. Handles remain readable across reset/restart/close until
-ordinary TTL or quota eviction, but never outlive the harness supervisor.
+ordinary TTL or quota eviction, but never outlive the harness guardian.
 Expired, evicted, unavailable, and incomplete artifacts are reported
 explicitly.
 
@@ -205,7 +215,7 @@ execution routing.
 
 ## Mandatory Audit
 
-The supervisor records every accepted PTK operation and spawned-job lifecycle
+The guardian records every accepted PTK operation and spawned-job lifecycle
 in a protected journal. The default local-only mode writes under
 `~/.ptk/audit` and requires no collector, credentials, or network service.
 Anchored mode adds authenticated OTLP/HTTP export with durable local spooling.
@@ -237,11 +247,12 @@ behavior, evidence administration, and SIEM routing.
 Worker processes isolate warm state and reduce reset/crash blast radius. They
 do not make hostile code safe and do not replace OS identity or upstream RBAC.
 
-The target supervisor owns each worker's process tree and treats confirmed
-termination as a prerequisite for replacement. If containment cannot be
-confirmed, the session becomes visibly quarantined and refuses restart rather
-than running two generations under one name. Harness EOF tears down every
-worker and managed job.
+The guardian and private host own their respective containment layers and treat
+confirmed process-tree termination as a prerequisite for replacement. If
+containment cannot be confirmed, the affected scope becomes visibly
+quarantined and refuses replacement rather than running overlapping
+generations. Harness EOF tears down the host, every worker, and every managed
+job.
 
 Install and run PTK as the ordinary user who runs the agent harness. The public
 installer refuses root/Administrator installation; launching the harness
@@ -271,17 +282,20 @@ The target installer:
 
 - selects a smoke-tested `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
   or `osx-arm64` asset and verifies it against `SHA256SUMS`;
+- installs one exact matched guardian, private host, contracts, and containment
+  helper set; partial or mixed-version payloads fail before initialization;
 - installs per-user under `~/.ptk` and preserves user-owned configuration on
   upgrade/uninstall;
-- registers Claude Code when the `claude` CLI is available, otherwise prints
-  its registration command, and prints Codex registration guidance;
+- registers only the public guardian with Claude Code when the `claude` CLI is
+  available, otherwise prints its registration command, and prints Codex
+  registration guidance;
 - can install the redirect hook, whose public-installer default remains an
   explicit release decision; and
 - supports uninstall, with destructive purge kept explicit.
 
-The server is self-contained and does not require an installed PowerShell.
-The optional hook does require `pwsh`. Winget packaging is a post-v0.2.0
-follow-up, not a currently working install path.
+The matched payload is self-contained and does not require an installed
+PowerShell. The optional hook does require `pwsh`. Winget packaging is a
+post-v0.2.0 follow-up, not a currently working install path.
 
 The v0.2.0 binaries are not publisher-signed or Apple-notarized. The official
 one-line paths are the tested install route; browser-downloaded or repackaged
@@ -296,12 +310,17 @@ register detected harnesses:
 pwsh -NoProfile -File scripts/dev-install.ps1
 ```
 
-This is a developer path and requires PowerShell 7 plus the .NET SDK. You can
-also register the checkout directly:
+This is a developer path and requires PowerShell 7 plus the .NET SDK. Before
+the guardian cutover lands, you can also register the checkout directly:
 
 ```powershell
 claude mcp add ptk --scope user -- dotnet run -v q --project <repo>/server/PtkMcpServer
 ```
+
+That direct no-argument server command is temporary development state, not a
+released compatibility surface. Resilience R7 changes the development
+installer and every future release registration to launch only the guardian,
+then removes direct public server mode without a migration layer.
 
 The committed `.mcp.json` is intentionally empty; a checkout does not install
 itself into project scope.
@@ -320,12 +339,12 @@ fall back visibly to exact execution.
 
 ## Harness Integration and Hook
 
-The currently shipped and live-verified redirect hook intercepts Claude Code
-shell calls and points the agent at `ptk_invoke`. It is an adoption aid, not a
-security control or an audited execution boundary. `PTK_DIRECT` in a command
-comment is the explicit escape hatch when PTK is unavailable or the command
-needs a real TTY. Other harnesses receive only the capabilities recorded in
-the support matrix below.
+The currently implemented and live-verified redirect hook intercepts Claude
+Code shell calls and points the agent at `ptk_invoke`. It is an adoption aid,
+not a security control or an audited execution boundary. `PTK_DIRECT` in a
+command comment is the explicit escape hatch when PTK is unavailable or the
+command needs a real TTY. Other harnesses receive only the capabilities
+recorded in the support matrix below.
 
 For current live-verified registration, hook, and guidance behavior by
 harness, see [the harness support matrix](docs/harness-support.md). The
@@ -334,7 +353,7 @@ successful install.
 
 ## Repository Layout and Verification
 
-- `server/PtkMcpServer/` — MCP supervisor/server and current runtime.
+- `server/PtkMcpServer/` — current pre-guardian MCP server/runtime.
 - `server/PtkMcpServer.Tests/` — server, audit, routing, and lifecycle tests.
 - `src/PwshTokenCompressor.psd1` — PowerShell object/text shaping library.
 - `scripts/` — development install and harness integration tooling.

@@ -100,7 +100,13 @@ short and update it when important repo facts change.
   Claude Code 2.1.210 accepted exact range `5ae154c..ab54fe1` with
   `guard_confirmed=true` and no comments; its result metadata reported
   `claude-fable-5` plus CLI helper usage and no Opus model. Canonical review
-  evidence is in `.agents/review/index.md`.
+  evidence is in `.agents/review/index.md`. Later owner-approved amendments are
+  recorded in the canonical plan and still require one final fixed-SHA review
+  before any implementation ask. For packaging, the owner confirmed nothing
+  has shipped and only this development environment is in use, then delegated
+  the choice: keep the current registration usable through R6, perform one R7
+  cutover to the matched guardian package, and preserve no direct-server
+  migration or compatibility layer.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
@@ -210,8 +216,9 @@ short and update it when important repo facts change.
   mini-SIEM receiver question to the end of its open queue; that scoped addition
   does not release the broader hold.
 - **Release distribution remains approved work.** Slices 0-2 are landed;
-  slice 3 is queued and `.github/workflows/release.yml` is still absent.
-  The deliberately open hook-default choice blocks slice 4 only.
+  slice 3 is blocked behind resilience R7 and `.github/workflows/release.yml`
+  is still absent. The old 2026-07-25 calendar is superseded with no replacement
+  date approved. The deliberately open hook-default choice also blocks slice 4.
 - **Standing GitHub authority:** the owner granted persistent permission on
   2026-07-10 to comment, close, and triage issues in this repository as
   appropriate without per-action asks.
@@ -221,10 +228,10 @@ short and update it when important repo facts change.
 1. Present the resilience draft's remaining owner-facing choices one at a time.
    After they are settled, land the planning branch only, then present its R0
    contract/feasibility slice for a separate code go.
-2. Do not execute release-distribution slice 3 until its single-process server
-   artifact/registration assumptions are reconciled with the approved guardian
-   packaging boundary. Re-present the hook-default choice before release slice
-   4.
+2. Release-distribution slice 3 is ordered after resilience R7 and consumes
+   only its matched guardian layout; there is no legacy migration path. Do not
+   execute it before R7 lands. Re-present the hook-default choice before release
+   slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.

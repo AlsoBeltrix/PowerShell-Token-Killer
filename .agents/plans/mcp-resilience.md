@@ -35,6 +35,14 @@ connection remains open, idle timeout cannot stop or recycle the guardian,
 host, or warm workers; only public EOF, explicit recycle, or failure replaces
 them.
 
+The owner delegated the packaging/cutover choice on 2026-07-15 after
+confirming PTK has not shipped and its only current user is this development
+environment. The chosen contract has no migration layer or backward-
+compatibility promise for direct public server launch. Keep the current
+development registration usable only until R7; then atomically install one
+matched guardian/host/helper package, register only the guardian, and remove
+the no-argument public server entry.
+
 The owner approved `ptk.audit/3` on 2026-07-15 conditional on preserving the
 existing Splunk, Microsoft Sentinel, and proposed mini-SIEM routes. The
 compatibility contract below keeps OTLP/HTTP stable, uses destination adapters
@@ -44,7 +52,9 @@ OTLP stream; the separate mini-SIEM build decision remains open.
 Claude Code 2.1.210 using `claude-fable-5` at maximum effort accepted exact
 fixed range `5ae154c..ab54fe1` with `guard_confirmed=true` and no material
 comment on 2026-07-15. This is plan review only; implementation remains
-separately gated.
+separately gated. That fixed review predates the subsequent owner-approved
+decision amendments above; the final planning head requires a fresh fixed-SHA
+review before any implementation ask.
 
 `.agents/decisions.md` remains under the owner's existing hold and is not
 amended by this plan. This plan is the canonical source for MCP transport and
@@ -52,8 +62,8 @@ backend recovery. It narrowly supersedes the target topology and the
 unexpected-worker-loss/manual-restart rules in
 `.agents/plans/audited-harness-sessions.md`; it does not supersede that plan's
 mandatory audit, containment, no-replay, prepared-operation, output-capability,
-or harness/session-isolation contracts. Shipped behavior remains unchanged
-until individually approved implementation slices land.
+or harness/session-isolation contracts. Current development behavior remains
+unchanged until individually approved implementation slices land.
 
 ## Outcome
 
@@ -160,9 +170,10 @@ PtkMcpServer --worker          # private host-managed session worker
 Direct `--host` or `--worker` use without valid inherited bootstrap channels
 fails before configuration, logging, audit, output, PowerShell, or MCP startup.
 The role list above is the post-cutover contract. During R4-R6 only, the
-existing no-argument `PtkMcpServer` public mode remains intact for installed
-registrations; R7 changes registration and removes that legacy public entry in
-one atomic slice.
+existing no-argument `PtkMcpServer` public mode keeps the development
+registration usable; it is operational continuity for this checkout, not a
+compatibility surface. R7 changes registration and removes that transitional
+public entry in one atomic slice.
 
 ## Target topology and ownership
 
@@ -302,8 +313,8 @@ guardian shutdown. Guardian mode has no idle watchdog:
 `PTK_IDLE_EXIT_SECONDS` cannot stop or recycle the guardian, host, or workers
 while public stdin remains open. Advancing an idle clock changes no PID,
 generation, desired binding, warm state, or audit lifecycle. During R4-R6 only,
-the retained legacy no-argument public server keeps its existing idle behavior;
-R7 documents the setting as inapplicable to the guardian entry. Public EOF,
+the transitional development entry keeps its existing idle behavior; R7
+documents the setting as inapplicable to the guardian entry. Public EOF,
 explicit operator recycle, and observed failure remain the only replacement
 triggers.
 
@@ -667,7 +678,7 @@ or history rewriting.
   and session-recovery state machines using injected launch/wait/clock/
   transport seams.
 - Add the private host server/client lifecycle and strict identity/correlation
-  checks without moving production MCP registration or executing a tool.
+  checks without moving the development MCP registration or executing a tool.
 - Guard all late-frame, duplicate-death, generation, deadline, cancellation,
   backoff, and shutdown races.
 
@@ -681,20 +692,22 @@ or history rewriting.
 - Freeze the model-facing retry instructions and exact error fields. Prove a
   fake model/client can poll state and submit a new request after a proved-
   no-start error, while no guardian-held call survives its terminal response.
-- Keep installed PTK registration pointed at the current server; this slice is
-  not the production cutover.
+- Keep the development PTK registration pointed at the current server; this
+  slice is not the final cutover.
 
 ### R4 — private real-host mode and control-plane transfer
 
 - Add the exact private `--host` entry and route the nondefault guardian
   apphost's tool adapters through it while preserving current in-process
-  `ISessionOperations` behavior. Keep the installed no-argument server mode and
-  its public MCP behavior byte-for-byte intact through R6.
+  `ISessionOperations` behavior. Keep the current development registration
+  usable through R6 and its existing public contract tests green, but add no
+  migration or dual-version compatibility layer.
 - In the guardian path, move audit admission, output capabilities, public IDs,
   frozen catalog, and public-pipe lifetime ownership outward atomically. Remove
   idle exit/recycle from the private host. The private host gets no audit
-  credentials or public handles. Shared factories may serve the legacy path,
-  but no installed registration points at `--host` or the guardian yet.
+  credentials or public handles. Shared factories may serve the transitional
+  development path, but no development registration points at `--host` or the
+  guardian yet.
 - Reconcile audit schema/event evolution and package both exact-version
   apphosts, but keep registration cutover separately guarded. Extend the OTLP
   mapper with the four host attributes while preserving exact v1/v2 mapping,
@@ -726,17 +739,30 @@ or history rewriting.
   and per-alias circuit state.
 - Prove one worker loss neither restarts the host nor affects another session.
 
-### R7 — registration, distribution, and end-to-end cutover
+### R7 — development registration, package fixture, and end-to-end cutover
 
-- In one commit, change every install/registration path to launch only the
-  guardian apphost and remove the legacy no-argument public server mode. Direct
-  server use then requires private bootstrap-gated `--host` or `--worker`.
+- In one cutover commit, change every existing development installer,
+  registration generator, handshake, and operator snippet to launch only the
+  guardian apphost, then remove the transitional no-argument public server
+  mode. Direct server use requires private bootstrap-gated `--host` or
+  `--worker`; there is no side-by-side registration or migration shim. Future
+  public release workflows/installers consume this frozen generator and layout
+  in release-distribution slices 3-4; R7 does not depend on those future files.
 - Package the guardian, exact pinned host, shared contracts, required Unix
   guardian/worker brokers, and platform containment artifacts together.
   Partial/mixed-version installation fails before public initialization.
+- Perform the development cutover between MCP sessions. Stage and validate the
+  full package and snapshot the prior installer-owned payload plus every
+  supported registration before changing external state; refuse an in-use
+  payload and mutate registrations last. If package activation or any
+  registration mutation fails, restore the entire prior payload and every
+  already-mutated registration before returning failure. A failed or
+  unconfirmed rollback is a loud cutover failure with bounded manual-recovery
+  facts, never a claimed atomic success.
 - Run the complete same-pipe crash matrix from a real MCP client, the full .NET
-  and Pester suites, handshake, release archive checks, and direct Windows plus
-  native Unix validation before making the guardian the default.
+  and Pester suites, handshake, local matched-package/archive-fixture checks,
+  registration rollback faults, and direct Windows plus native Unix validation
+  before making the guardian the development default.
 - Update README/server/operator guidance with the hard guardian-death boundary,
   state-loss semantics, recovery codes, and upgrade/new-session requirement.
 
@@ -792,7 +818,7 @@ or history rewriting.
   leaves no descendant.
 - Recovery never starts after intentional public EOF, and idle policy never
   creates a restart loop. With an open pipe, advance a fake clock beyond every
-  configured legacy idle interval and prove the same host/worker PIDs,
+  configured transitional idle interval and prove the same host/worker PIDs,
   generations, warm-state sentinel, and lifecycle-audit count remain.
 
 ### Audit export compatibility
@@ -834,6 +860,11 @@ or history rewriting.
 - Existing tool names/schemas/default successful outputs remain compatible;
   only frozen recovery/state fields and failures change. Existing .NET, Pester,
   handshake, audit, output, release, and platform batteries remain green.
+- A local R7 package fixture proves one successful guardian-only cutover and
+  failure at every payload-activation and per-harness registration boundary.
+  Each injected failure restores byte-identical prior installer-owned payload
+  and registrations; the new guardian is never registered against a partial or
+  mismatched package.
 
 ## Required mutation proofs
 
@@ -870,15 +901,18 @@ fails before final fixed-SHA acceptance:
 27. let a vendor/mini-SIEM adapter acknowledgment replace PTK's configured
     durable OTLP anchor semantics; and
 28. stop or recycle a guardian, host, or worker solely because an open MCP
-    connection was idle.
+    connection was idle; and
+29. leave a new payload or any changed harness registration behind after an
+    injected R7 cutover failure.
 
 ## Documentation and release dependency
 
-Release-distribution work that publishes or registers the MCP server must not
-freeze a single-process artifact layout that conflicts with this plan. Before
-release slice 3 packages the server, either land the guardian layout or amend
-that release slice explicitly. README end-state claims remain prospective until
-R7; operator docs must never imply that guardian death itself is recoverable.
+Release-distribution slice 3 is ordered after R7 and must package the complete
+matched guardian layout; it cannot publish or register the transitional public
+server. Because no prior release exists, there is no old public artifact,
+migration, or partial-upgrade path to preserve. README end-state claims remain
+prospective until R7; operator docs must never imply that guardian death itself
+is recoverable.
 
 ## Authoritative references
 

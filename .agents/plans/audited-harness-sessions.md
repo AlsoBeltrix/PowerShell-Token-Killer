@@ -93,7 +93,9 @@ final documentation slice must reconcile those older records rather than
 leaving competing contracts. The newer resilience plan narrowly supersedes
 this file's final process topology and unexpected-worker-loss recovery policy;
 all audit, containment, no-replay, session-isolation, and prepared-operation
-rules here remain controlling.
+rules here remain controlling. The resilience plan adds a distinct outer
+`hostContainmentGrace` for guardian-owned host-generation teardown; it does
+not broaden this plan's worker-only `timeoutContainmentGrace`.
 
 ## Outcome
 

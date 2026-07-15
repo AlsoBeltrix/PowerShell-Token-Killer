@@ -478,7 +478,13 @@ contract.
 
 Host EOF, process exit, protocol-fatal input, writer failure, and containment
 notification race through one exactly-once loss
-transition. The guardian:
+transition. Outer host-generation teardown uses a separate fixed startup-
+configured `hostContainmentGrace`; it begins when the guardian initiates host
+containment after loss, recycle, or terminal shutdown, permits no user work or
+replacement, and uses a monotonic deadline. R0 freezes its exact duration and
+the subordinate platform TERM/KILL/reap intervals before lifecycle wiring.
+It does not broaden or reuse the worker-only `timeoutContainmentGrace`, whose
+retained startup/execution-timeout meaning is unchanged. The guardian:
 
 1. blocks backend-dependent admission and freezes the old generation's request
    terminals;
@@ -490,7 +496,7 @@ transition. The guardian:
    never delays or cancels safety cleanup;
 4. waits for confirmed death of the host and every registered worker/broker/
    job containment identity;
-5. if confirmation fails within `timeoutContainmentGrace`, publishes
+5. if confirmation fails within `hostContainmentGrace`, publishes
    `host_containment_unconfirmed`, keeps state/output reads available, and
    starts no replacement;
 6. after confirmation, allocates one new host identity, applies backoff, starts
@@ -706,9 +712,9 @@ Public stdin EOF or explicit external guardian shutdown/cancellation atomically
 sets terminal shutdown before any child stop; it can never originate from an
 inactivity timer. This ends the harness rather than replacing children behind
 the same pipe. It disables every restart timer/half-open probe, closes host
-protocol, invokes containment for host/workers/jobs, waits the bounded grace,
-disposes audit/output resources in their approved order, and exits. No restart
-is scheduled after terminal shutdown.
+protocol, invokes containment for host/workers/jobs, waits
+`hostContainmentGrace`, disposes audit/output resources in their approved
+order, and exits. No restart is scheduled after terminal shutdown.
 
 An operator-requested host recycle uses the same containment and new-generation
 rules but is not a crash. It never changes the pinned build or public contract.
@@ -724,8 +730,9 @@ or history rewriting.
 ### R0 — freeze contracts and real-process feasibility
 
 - Freeze the public recovery result shape, exact audit evolution, host protocol
-  fields/limits, binary/contract digest computation, platform containment
-  design, and published artifact layout.
+  fields/limits, binary/contract digest computation, the exact
+  `hostContainmentGrace` and subordinate platform stop/reap intervals,
+  platform containment design, and published artifact layout.
 - Build disposable fake guardian/host fixtures. Prove one public initialize,
   same guardian PID/pipes after forcibly killing an otherwise-idle host,
   guardian-local state during recovery, exact one-terminal behavior for every
@@ -861,6 +868,10 @@ or history rewriting.
   domain, and initialization.
 - Host EOF, exit, reader, and writer failures racing together start
   exactly one recovery. Public stdout remains open and valid.
+- A fake clock and stuck-tree fixture prove host-loss/recycle containment
+  returns `host_containment_unconfirmed` at exactly `hostContainmentGrace`,
+  never borrows `timeoutContainmentGrace`, and starts no replacement before
+  later confirmed old-tree death.
 - Replacement contract/build mismatch is refused and never changes the live
   public tool catalog.
 - Complete decoded terminals are delivered once; partial responses and
@@ -1020,7 +1031,10 @@ fails before final fixed-SHA acceptance:
 36. let a recovery error's phase/attempt differ from the atomic state snapshot
     that produced it; and
 37. skip pre-write readiness/identity revalidation, or return safe-retry
-    guidance after any private request byte may have been written.
+    guidance after any private request byte may have been written; and
+38. reuse `timeoutContainmentGrace` for outer host teardown, remove or extend
+    the frozen `hostContainmentGrace`, or start replacement after that grace
+    without confirmed old-tree death.
 
 ## Documentation and release dependency
 

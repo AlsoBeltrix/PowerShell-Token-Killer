@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **mini-SIEM implementation is authorized and planned (2026-07-15).** The
+  owner selected Option 1 (PTK-maintained OTLP receiver as a separate product
+  under `siem/`), approved `.agents/plans/mini-siem-implementation.md` @
+  `87e4206` after a 3-round codex review loop (post-loop remediation of
+  msi-7, msi-15, msi-20..msi-24 recorded in-document with tradeoffs), and
+  authorized S1+ in-session; the S0 decision entry is recorded in
+  `.agents/decisions.md`. Work lives on worktree branch
+  `plan/mini-siem-discovery`. Authorized shared-tree edits are exhaustively:
+  the CI job addition in `.github/workflows/ci.yml` and one additive
+  test-only commit under `server/PtkMcpServer.Tests` (owner-approved before
+  merge).
 - **Audited-harness Slices 7a-7f and the Windows wait-ownership prerequisite
   are complete and landed on local `master`; Slice 7f code head is
   `a9e757e`.**
@@ -199,12 +210,18 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Present and freeze the next narrow post-7h boundary before code. Keep the
+1. Execute mini-SIEM slice S1 under the approved plan
+   (`.agents/plans/mini-siem-implementation.md` @ `87e4206`): scaffold
+   `siem/PtkSiem.slnx` (`PtkSiemReceiver` + tests) and capture the fresh
+   transcripted baseline of the existing battery (SHA + environment
+   recorded) per `.agents/repo-guidance.md` (Verification) before any
+   receiver code.
+2. Present and freeze the next narrow post-7h boundary before code. Keep the
    proposed pipe-owning MCP guardian and backend-recovery policy a distinct
    architecture slice; do not silently bundle it with live worker routing.
-2. Execute release-distribution slice 3 under its approved plan. Re-present
+3. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
-3. When the owner releases the decisions hold, reconcile the rejected
+4. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
 
@@ -277,6 +294,7 @@ short and update it when important repo facts change.
 - `.agents/plans/warm-runspace-mcp-server.md`
 - `.agents/plans/shared-persistent-runspace.md`
 - `.agents/plans/mini-siem-discovery.md`
+- `.agents/plans/mini-siem-implementation.md`
 - `.agents/review/index.md`
 - `.agents/machines.md`
 

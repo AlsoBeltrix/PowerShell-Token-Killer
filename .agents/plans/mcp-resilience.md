@@ -14,6 +14,13 @@ admission, sealed output, public IDs, frozen bootstrap metadata, and generation
 allocation while loading no PowerShell. Its own crash ending the stdio MCP
 connection is an acceptable residual boundary.
 
+The owner further accepted on 2026-07-15 that these slices add neither a
+server-side recovery queue nor an agent-authored saved-state tool. A call that
+provably started no effect returns machine-readable retry guidance; the model
+polls guardian-local state and submits a new request after readiness. An
+ambiguous call remains nonretryable. Declarative bootstrap profiles remain the
+only automatic state-restoration input.
+
 `.agents/decisions.md` remains under the owner's existing hold and is not
 amended by this plan. This plan is the canonical source for MCP transport and
 backend recovery. It narrowly supersedes the target topology and the
@@ -85,6 +92,12 @@ and signed-64-bit exhaustion fails closed without wraparound.
 - Recovery never serializes, checkpoints, or reconstructs arbitrary variables,
   functions, aliases, imported modules, cwd/environment drift, credentials,
   live connections, pipelines, jobs, or unsealed output.
+- No new tool captures a runspace into a profile, writes agent-authored recovery
+  configuration, or turns observed warm state into bootstrap. Such a
+  declarative saved-state authoring design is deferred beyond this plan;
+  existing operator-provided profiles remain frozen startup inputs.
+- The guardian holds no backend-dependent recovery queue. A terminal recovery
+  refusal leaves no delayed call that can execute later.
 - Recovery never resends a request or commit whose delivery or effects are
   uncertain. No optimization, retry library, or client duplicate can weaken
   this rule.
@@ -202,10 +215,11 @@ backoff, circuit-open, and session recovery:
   incomplete or unavailable and is never reconstructed by rerunning work.
 - `tools/list` and `ping` remain guardian-local protocol operations.
 
-Every backend-dependent tool call arriving while no healthy host generation is
-ready is admitted and terminally audited by the guardian, starts no host/worker
-effect, and returns one normalized tool error. Calls are not queued across a
-host-generation boundary. The stable detail codes are:
+Every backend-dependent tool call arriving while its required host or session
+is not ready is admitted and terminally audited by the guardian, starts no
+backend/user effect, and returns one normalized tool error. Calls are never
+queued for later dispatch. A terminal error means the guardian retains no call
+object capable of starting a later effect. The stable detail codes are:
 
 ```text
 host_recovering
@@ -220,10 +234,37 @@ backend_lost_before_dispatch
 outcome_unknown
 ```
 
-The result includes only bounded guardian/host/session generation and recovery
-facts. It contains no script, arguments, bootstrap content, paths, raw
-environment, exception text, or secret. Existing expected-generation checks
-remain pre-effect and reject a replacement generation.
+Every normalized recovery error includes exact fields:
+
+```text
+retryable: boolean
+retry_after_ms: integer 250..60000 | null
+```
+
+`retryable=true` is a proof that this public call started no host, worker, or
+user effect, not merely a suggestion that repetition is probably safe. It is
+true exactly for `host_recovering`, `session_recovering`, and
+`backend_lost_before_dispatch`. When the recovery scheduler has a next-attempt
+time, `retry_after_ms` is the ceiling of its remaining monotonic milliseconds
+clamped to `250..60000`; while an attempt/containment/bootstrap transition has
+no scheduled time, it is `250`. Every other code, especially
+`outcome_unknown`, has `retryable=false` and `retry_after_ms=null`.
+
+The result otherwise includes only bounded guardian/host/session generation
+and recovery facts. It contains no script, arguments, bootstrap content,
+paths, raw environment, exception text, or secret. Existing expected-
+generation checks remain pre-effect and reject a replacement generation.
+
+The frozen MCP server instructions and backend-dependent tool descriptions
+tell the model to use only those fields: after `retryable=true`, wait at least
+the suggested delay, call guardian-local `ptk_state`, and submit a new public
+request only after the required host/session reports ready. Each submission
+has a fresh request ID, receives normal audit admission, and is not PTK replay.
+Polling and new attempts remain bounded by the caller's original task/deadline.
+For `retryable=false`, and unconditionally for `outcome_unknown`, the model must
+not repeat the logical operation merely because of that terminal. It may
+inspect state/output and choose an explicit compensating action, which is a new
+decision rather than a retry.
 
 `ptk_state(listAvailable=true)` during recovery returns a labeled partial
 result and performs no module scan. State reads never launch a host/worker,
@@ -578,6 +619,9 @@ or history rewriting.
 - Prove automatic same-pipe host recovery, no public reinitialize, one response
   per request, no ambiguous replay, crash-loop bounds, and guardian EOF cleanup
   across all CI platforms.
+- Freeze the model-facing retry instructions and exact error fields. Prove a
+  fake model/client can poll state and submit a new request after a proved-
+  no-start error, while no guardian-held call survives its terminal response.
 - Keep installed PTK registration pointed at the current server; this slice is
   not the production cutover.
 
@@ -647,6 +691,11 @@ or history rewriting.
 - Complete decoded terminals are delivered once; partial responses and
   effect-before-response crashes are `outcome_unknown`; unwritten calls are
   definitely not started. None is resent.
+- Calls refused during recovery are never queued. The three proved-no-start
+  codes alone carry `retryable=true`; after the prescribed state poll a new
+  request can execute once on the ready generation. Every ambiguous/permanent
+  error is nonretryable, and `outcome_unknown` can never produce model retry
+  instructions.
 - Old-generation responses/events and forged diagnostic JSON cannot complete a
   public request or mutate current state.
 
@@ -725,7 +774,11 @@ fails before final fixed-SHA acceptance:
 18. leak a planted script/bootstrap/secret through state, audit failure, or
     diagnostics;
 19. let a changed host build/tool contract join the live guardian; and
-20. bypass guardian-owned audit admission before an effect.
+20. bypass guardian-owned audit admission before an effect;
+21. set `retryable=true` or a nonnull retry delay on `outcome_unknown`;
+22. emit a retryable error without a proved-no-start state;
+23. retain or later dispatch a backend call after its recovery terminal; and
+24. add a state-capture/profile-writing tool or infer bootstrap from warm state.
 
 ## Documentation and release dependency
 

@@ -5,17 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **mini-SIEM implementation is authorized and planned (2026-07-15).** The
-  owner selected Option 1 (PTK-maintained OTLP receiver as a separate product
-  under `siem/`), approved `.agents/plans/mini-siem-implementation.md` @
-  `87e4206` after a 3-round codex review loop (post-loop remediation of
-  msi-7, msi-15, msi-20..msi-24 recorded in-document with tradeoffs), and
-  authorized S1+ in-session; the S0 decision entry is recorded in
-  `.agents/decisions.md`. Work lives on worktree branch
-  `plan/mini-siem-discovery`. Authorized shared-tree edits are exhaustively:
-  the CI job addition in `.github/workflows/ci.yml` and one additive
-  test-only commit under `server/PtkMcpServer.Tests` (owner-approved before
-  merge).
+- **mini-SIEM S1 is complete at code head `e5dc1df` on
+  `plan/mini-siem-discovery`.** The owner selected Option 1 (PTK-maintained
+  OTLP receiver as a separate product under `siem/`), approved
+  `.agents/plans/mini-siem-implementation.md` @ `87e4206`, and authorized
+  S1+. S1 adds `siem/PtkSiem.slnx`, the receiver and test projects, a strict
+  startup configuration loader with 55 validation tests, and the approved
+  three-platform SIEM CI job. The pre-code existing-battery baseline is
+  recorded in `.agents/machines.md` with its tracked transcript under
+  `.agents/review/baselines/`. Authorized shared-tree edits remain exhaustive:
+  the landed CI job and one additive test-only commit under
+  `server/PtkMcpServer.Tests` for the S2/S4 producer conformance seam.
 - **Audited-harness Slices 7a-7f and the Windows wait-ownership prerequisite
   are complete and landed on local `master`; Slice 7f code head is
   `a9e757e`.**
@@ -93,6 +93,37 @@ short and update it when important repo facts change.
   content arrival was verified by direct branch diff, and the feature branch
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
+- **The two-layer MCP resilience planning boundary is owner-approved; its
+  complete reconciled draft passed final independent fixed-SHA review at
+  `b4a2c0c` and is landed on local `master` at review-record head `6ed0167`;
+  implementation is not authorized.** The
+  target keeps one public stdio guardian alive while it
+  restarts an exact-version private host, and makes a healthy host replace an
+  unexpectedly lost session worker. It never replays ambiguous work, changes
+  generation on every replacement, recreates only frozen declared bootstrap
+  state, and keeps guardian-local health/output surfaces usable. The canonical
+  draft is `.agents/plans/mcp-resilience.md`; it narrowly supersedes the older
+  explicit-restart target without weakening audit, containment, or session
+  isolation. The owner additionally accepted the guardian crash boundary and
+  fail-fast model-retry contract: no server queue or saved-state authoring tool
+  in this stage; only proved-no-start errors direct the model to poll state and
+  submit a new request, while `outcome_unknown` is never retried. The owner
+  requested a fresh Claude Fable 5 maximum-effort review of that update.
+  Claude Code 2.1.210 accepted the complete exact range
+  `5ae154c..b4a2c0c` with `guard_confirmed=true` and no comments; its result
+  metadata reported `claude-fable-5` plus CLI helper usage and no Opus model.
+  Canonical review evidence is in `.agents/review/index.md`. For packaging,
+  the owner confirmed nothing
+  has shipped and only this development environment is in use, then delegated
+  the choice: keep the current registration usable through R6, perform one R7
+  cutover to the matched guardian package, and preserve no direct-server
+  migration or compatibility layer. An eligible alias also recovers
+  automatically to its fresh declared baseline after an execution-timeout
+  terminal and confirmed old-tree death; the timed-out call is never replayed.
+  Retryable recovery refusals carry phase, attempt, poll delay, and an exact
+  readiness gate: delay expiry permits only `ptk_state`, and a fresh operation
+  waits for readiness plus pre-write dispatch revalidation. After private
+  write begins, the existing `outcome_unknown`/no-replay boundary still wins.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
@@ -202,25 +233,25 @@ short and update it when important repo facts change.
   mini-SIEM receiver question to the end of its open queue; that scoped addition
   does not release the broader hold.
 - **Release distribution remains approved work.** Slices 0-2 are landed;
-  slice 3 is queued and `.github/workflows/release.yml` is still absent.
-  The deliberately open hook-default choice blocks slice 4 only.
+  slice 3 is blocked behind resilience R7 and `.github/workflows/release.yml`
+  is still absent. The old 2026-07-25 calendar is superseded with no replacement
+  date approved. The deliberately open hook-default choice also blocks slice 4.
 - **Standing GitHub authority:** the owner granted persistent permission on
   2026-07-10 to comment, close, and triage issues in this repository as
   appropriate without per-action asks.
 
 ## Next
 
-1. Execute mini-SIEM slice S1 under the approved plan
-   (`.agents/plans/mini-siem-implementation.md` @ `87e4206`): scaffold
-   `siem/PtkSiem.slnx` (`PtkSiemReceiver` + tests) and capture the fresh
-   transcripted baseline of the existing battery (SHA + environment
-   recorded) per `.agents/repo-guidance.md` (Verification) before any
-   receiver code.
-2. Present and freeze the next narrow post-7h boundary before code. Keep the
-   proposed pipe-owning MCP guardian and backend-recovery policy a distinct
-   architecture slice; do not silently bundle it with live worker routing.
-3. Execute release-distribution slice 3 under its approved plan. Re-present
-   the hook-default choice before release-distribution slice 4.
+1. Execute mini-SIEM S2 under the approved implementation plan: add the strict
+   OTLP/HTTP protobuf ingest surface, mTLS policy and negative matrix, frozen
+   response table, and the authorized additive producer-test conformance seam.
+2. Complete resilience R0 on `impl/mcp-resilience-r0`; R1-R7 remain separately
+   gated and the SIEM worktree must not consume that worktree's uncommitted
+   files.
+3. Release-distribution slice 3 is ordered after resilience R7 and consumes
+   only its matched guardian layout; there is no legacy migration path. Do not
+   execute it before R7 lands. Re-present the hook-default choice before release
+   slice 4.
 4. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
@@ -252,11 +283,12 @@ short and update it when important repo facts change.
   the canonical audited-harness plan fixes `START_FAILED` as a stage byte plus
   errno but does not enumerate stage values, and it requires bounded broker
   TERM/KILL/reap without fixing those intervals or their relationship to
-  `timeoutContainmentGrace`. It also does not pin native macOS/Linux build
-  baselines, so moving runners could emit authenticated but incompatible
-  binaries. Freeze these values before the Unix broker/build sub-slices; do
-  not invent them during implementation. The independent Windows Job Object
-  sub-slice can proceed without them.
+  `timeoutContainmentGrace`. Resilience R0 must separately freeze outer-broker
+  intervals and `hostContainmentGrace`. The plan also does not pin native
+  macOS/Linux build baselines, so moving runners could emit authenticated but
+  incompatible binaries. Freeze these values before the Unix broker/build
+  sub-slices; do not invent them during implementation. The independent
+  Windows Job Object sub-slice can proceed without them.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in
@@ -267,10 +299,9 @@ short and update it when important repo facts change.
   is released.
 - **Plan-record drift, reported but not edited in this narrow state pass:**
   the warm-runspace plan still says slice 7 is paused behind the already
-  decided GO; the release plan retains stale CI/push/policy references; and
-  the shared-runspace idea still assumes the rejected policy gate. Explicit
-  owner calls, uncontested decisions, and live repo evidence named above
-  control.
+  decided GO, and the shared-runspace idea still assumes the rejected policy
+  gate. Explicit owner calls, uncontested decisions, and live repo evidence
+  named above control.
 
 ## Verification
 
@@ -290,6 +321,7 @@ short and update it when important repo facts change.
 - `.agents/plans/security-layer.md`
 - `.agents/plans/rtk-rewrite-routing.md`
 - `.agents/plans/audited-harness-sessions.md`
+- `.agents/plans/mcp-resilience.md`
 - `.agents/plans/release-distribution.md`
 - `.agents/plans/warm-runspace-mcp-server.md`
 - `.agents/plans/shared-persistent-runspace.md`

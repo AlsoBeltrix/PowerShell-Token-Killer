@@ -441,5 +441,6 @@ predecessor's author-reported counts are not baseline evidence)._
 - Exact repo-guidance commands: Pester 141 passed / 0 failed / 2 skipped;
   `dotnet test server/PtkMcpServer.slnx` 1484/1484 passed; handshake
   `HANDSHAKE PASSED`. All three exit codes 0.
-- Full transcript: `.agents/review/baselines/2026-07-15-mini-siem-s1.log`
-  (verbatim copy of the ptk job log for the run).
+- Full normalized transcript:
+  `.agents/review/baselines/2026-07-15-mini-siem-s1.txt` (tracked copy of the
+  ptk job log with terminal color escapes removed).

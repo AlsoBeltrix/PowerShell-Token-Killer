@@ -81,14 +81,21 @@ codec boundary below was owner-approved on 2026-07-15. Slice 7h code head
 deliberately unwired. Claude Code 2.1.210 accepted exact range
 `1179ed0..8f5c57c` with `guard_confirmed=true` after eleven independent
 mutation proofs and the full battery on 2026-07-15. Slice 7h is complete and
-landed on local `master`.
+landed on local `master`. The owner approved the distinct two-layer MCP
+resilience planning boundary on 2026-07-15; its canonical contract is
+`.agents/plans/mcp-resilience.md`, with implementation still separately gated.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
 reviewed-but-unapproved `rtk rewrite` draft. It does not amend
 `.agents/decisions.md` while the owner's hold on that file remains active. The
 final documentation slice must reconcile those older records rather than
-leaving competing contracts.
+leaving competing contracts. The newer resilience plan narrowly supersedes
+this file's final process topology and unexpected-worker-loss recovery policy;
+all audit, containment, no-replay, session-isolation, and prepared-operation
+rules here remain controlling. The resilience plan adds a distinct outer
+`hostContainmentGrace` for guardian-owned host-generation teardown; it does
+not broaden this plan's worker-only `timeoutContainmentGrace`.
 
 ## Outcome
 
@@ -191,23 +198,30 @@ As of the draft base:
 
 ## Target process architecture
 
+The diagram below is the private host/worker layer. The final public topology
+in `.agents/plans/mcp-resilience.md` inserts the stable stdio guardian above
+this host. In the final topology, guardian-owned audit/output/public-ID/catalog
+responsibilities named by that plan move outward; references to the supervisor
+below otherwise describe this private host layer.
+
 ```text
 Harness
-  └─ PtkMcpServer supervisor (private MCP stdio; harness lifetime)
+  └─ PtkMcpGuardian (public MCP stdio; harness lifetime)
        ├─ mandatory audit journal/exporter
-       ├─ output metadata and session registry
-       ├─ session default  ───────────────► worker process ─► SessionRuntime
-       ├─ session ad       ───────────────► worker process ─► SessionRuntime
-       ├─ session exop     ───────────────► worker process ─► SessionRuntime
-       └─ session exol     ───────────────► worker process ─► SessionRuntime
+       ├─ output metadata, public IDs, frozen session recovery manifest
+       └─ PtkMcpServer --host (private replaceable host)
+            ├─ session default ───────────► worker process ─► SessionRuntime
+            ├─ session ad ────────────────► worker process ─► SessionRuntime
+            ├─ session exop ──────────────► worker process ─► SessionRuntime
+            └─ session exol ──────────────► worker process ─► SessionRuntime
 ```
 
-The supervisor never hosts user PowerShell. A worker owns exactly one
+Neither guardian nor host executes user PowerShell. A worker owns exactly one
 `SessionRuntime` containing one `RunspaceHost`, one `JobManager`, output-capture
 staging, one module cache, and one authentication/environment context. The
-supervisor owns MCP, session lifecycle, worker process trees, the output-store
-handle table/artifact directory, audit persistence/export, and correlation
-IDs.
+guardian owns MCP, audit persistence/export, output capabilities, public IDs,
+and the frozen recovery manifest. The private host owns live session lifecycle
+and worker coordination under guardian generation/containment authority.
 
 All workers are harness-owned descendants of the supervisor and enter
 containment atomically at creation, before the worker executable or any
@@ -230,14 +244,27 @@ source built and shipped beside PTK for `linux-x64`, `linux-arm64`, and
 not the supervisor, forks the worker. The pre-exec child performs only
 async-signal-safe close/dup/group/gate/`execve` operations, blocks behind a
 closed pipe gate, and executes the managed worker only after containment is
-armed. Broker and child both perform the race-safe `setpgid` checks; the broker
-retains reaper parentage and places no user code before the gate.
+armed. Broker and child perform the race-safe `setpgid` checks only after the
+supervisor admits the gated identities; the broker retains reaper parentage
+and places no user code before the gate.
 
-The broker arms supervisor liveness and group ownership, then sends a bounded
-containment-armed acknowledgment. The supervisor tells the broker to release;
-only then does the child `execve` the worker, complete its private-protocol
-hello, and receive `initialize`. EOF before release kills/abandons the gated
-child; EOF later sends the group bounded TERM then KILL and the broker exits.
+The final resilience topology does not change this per-worker parentage: each
+worker broker remains a child of the private host. Its separate Unix
+`PtkGuardianBroker` is parent/reaper only for that host and owns the host's
+creation-time process group. A worker broker remains in that group. The outer
+broker's pending/armed registration gates the worker's move to its own group
+and later release, identity-kills and confirms those nonchildren after host
+death, and relies on the platform system reaper for them, as frozen in
+`.agents/plans/mcp-resilience.md`.
+
+The broker first proves supervisor liveness, forks the still-same-group gated
+child, and sends its bounded identity event. After the supervisor authorizes
+group arm, the broker performs and reports the group transition. The
+supervisor tells the broker to release only after every required local and
+outer acknowledgment; only then does the child `execve` the worker, complete
+its private-protocol hello, and receive `initialize`. EOF before release
+kills/abandons the gated child; EOF later sends the group bounded TERM then
+KILL and the broker exits.
 The ordinary protocol EOF watcher remains a graceful fast path, not the
 hard-death proof. Failure to build, locate, authenticate, launch, or arm the
 RID-matched broker refuses worker startup; the supervisor never spawns the
@@ -248,7 +275,7 @@ The broker contract is fixed and contains no user/script data:
 - Resolve `PtkContainmentBroker` from the published server's sibling directory,
   never PATH. A generated sibling
   `ptk-containment-broker.manifest.json` contains exactly
-  `schemaVersion:1`, `protocolVersion:1`, runtime `rid`, `fileName`, and
+  `schemaVersion:1`, `protocolVersion:2`, runtime `rid`, `fileName`, and
   lowercase SHA-256. Require the current RID, exact digest, a nonsymlink
   regular executable owned by the effective UID, and no group/world write
   bits before launch. A development/test override requires both an absolute
@@ -269,23 +296,27 @@ The broker contract is fixed and contains no user/script data:
   them; the supervisor continuously drains and applies the frozen per-boot
   caps to diagnostic stdout/stderr.
 - Control/event frames have an eight-byte header: ASCII `PTKB`, version byte
-  `1`, message-type byte, and unsigned two-byte big-endian payload length.
+  `2`, message-type byte, and unsigned two-byte big-endian payload length.
   Payload is at most 64 bytes. Readers loop through `EINTR`/short reads to read
   exactly one header and its declared payload; EOF/error before completion is
   protocol-fatal. Coalesced frames are parsed sequentially, never rejected as
   "extra" bytes. Unknown type/version, oversize length, or a type-specific
   payload-length mismatch is protocol-fatal.
   Integers below are unsigned big-endian. Supervisor commands are `START=1`,
-  `RELEASE=2`, and `SHUTDOWN=3`, all with empty payload. The exact absolute
-  worker exec vector (`PtkMcpServer --worker`, or pinned `dotnet` plus absolute
-  entry DLL under tests) is nonsecret broker argv fixed at launch, never a
-  control-frame string.
-- Broker events are `HELLO=1`, `ARMED=2`, `RELEASED=3`, and
-  `START_FAILED=4`. `HELLO` carries broker PID `u32` plus start identity
-  `(u64 high,u64 low)`. After `START`, `ARMED` carries broker PID/identity,
-  worker PID/identity, and PGID `u32`; the supervisor requires the spawned
-  broker PID, `PGID == worker PID`, and independently queried matching start
-  identities before `RELEASE`. Linux identity is `(0, /proc/<pid>/stat
+  `ARM_GROUP=2`, `RELEASE=3`, and `SHUTDOWN=4`, all with empty payload. The
+  exact absolute worker exec vector (`PtkMcpServer --worker`, or pinned
+  `dotnet` plus absolute entry DLL under tests) is nonsecret broker argv fixed
+  at launch, never a control-frame string.
+- Broker events are `HELLO=1`, `CHILD_GATED=2`, `ARMED=3`, `RELEASED=4`, and
+  `START_FAILED=5`. `HELLO` carries broker PID `u32` plus start identity
+  `(u64 high,u64 low)`. After `START`, `CHILD_GATED` carries broker PID/
+  identity and worker PID/identity while both still belong to the supervisor's
+  group. The supervisor requires the spawned broker PID and independently
+  queried matching identities. Under the final guardian topology it then
+  obtains the outer broker's `pending` acknowledgment before sending
+  `ARM_GROUP`. `ARMED` carries the same identities plus PGID `u32`; require
+  `PGID == worker PID` and the outer broker's independently validated `armed`
+  acknowledgment before `RELEASE`. Linux identity is `(0, /proc/<pid>/stat
   starttime ticks)`; Darwin identity is `(proc_bsdinfo start seconds, start
   microseconds)`. `RELEASED` is empty and is sent only after the child's
   CLOEXEC exec-error pipe proves successful `execve`. `START_FAILED` carries
@@ -418,14 +449,16 @@ Editing configuration cannot mutate a live supervisor catalog. Restart the
 harness to reload it. Template names and labels are operational metadata;
 the effective upstream identity remains authoritative.
 
-## Supervisor/worker protocol
+## Guardian/host/worker protocol
 
-Run the managed executable in two modes and ship the Unix-only native helper:
+The private host/worker layer retains the protocol below, while the resilience
+plan inserts a separate public guardian. The final exact roles are:
 
 ```text
-PtkMcpServer             # MCP supervisor
-PtkMcpServer --worker    # one internal session worker
-PtkContainmentBroker     # Unix direct child; forks/gates/reaps one worker
+PtkMcpGuardian              # public MCP stdio and durable control plane
+PtkMcpServer --host         # one private replaceable host
+PtkMcpServer --worker       # one private session worker
+PtkContainmentBroker        # Unix helper; forks/gates/reaps one worker
 ```
 
 Use two dedicated inherited anonymous-pipe handles for versioned
@@ -581,8 +614,11 @@ serializes scripts within the admitted generation.
   proceed. A synchronous runspace or bootstrap that ignores cancellation gets
   the same bounded response, and a late ready frame for that boot/transition
   is always discarded.
-- Unexpected process exit marks `lost`. Ordinary invocation never silently
-  starts a fresh context under the same generation.
+- Unexpected process exit marks `lost`/`recovering`. Ordinary invocation never
+  silently starts a fresh context under the same generation. After confirmed
+  old-tree death, the resilience controller automatically attempts the next
+  generation under the exact eligibility, ambiguity, bootstrap, and backoff
+  rules in `.agents/plans/mcp-resilience.md`.
 - `restart` replaces the whole worker process, reruns bootstrap, and
   increments generation.
 - `close` terminates the worker tree and leaves a non-default name closed for
@@ -617,12 +653,16 @@ serializes scripts within the admitted generation.
   3. Close protocol and invoke OS/reaper containment. No shaping or other user
      work runs after the original deadline. Wait at most
      `timeoutContainmentGrace` for confirmed worker/group death.
-  4. On confirmation, terminate its managed jobs, increment generation, and
-     leave a named alias `lost(reason=timeout)` pending explicit restart; leave
-     reserved `default` cold for its documented lazy next generation. On
-     grace expiry, return `timed_out, containment_unconfirmed`, publish
-     `quarantined` with no new admission/generation, and keep observing
-     containment; only confirmed death can unblock explicit recovery.
+  4. On confirmation, terminate its managed jobs, publish
+     `lost(reason=timeout)`, and return the original call's terminal. Only after
+     that terminal is delivered does the resilience controller automatically
+     allocate an otherwise eligible new generation and restore the exact
+     declared baseline under its backoff rules; recovery never extends or
+     replays the expired call. On grace expiry, return
+     `timed_out, containment_unconfirmed`, publish `quarantined` with no new
+     admission/generation, and keep observing containment; only confirmed death
+     later automatically starts otherwise eligible baseline recovery after the
+     already-returned terminal, with no explicit restart.
 
   The timeout response is returned after confirmation or grace expiry and
   labels session/job state loss plus containment certainty. PTK never tries to
@@ -636,6 +676,10 @@ serializes scripts within the admitted generation.
   death drives the documented faulted/lost/cold transition; idle shutdown may
   be reconsidered only after that observer and its reserved audit obligation
   are released.
+- That countdown applies only to the transitional development public server
+  through resilience R6. At the final guardian cutover, the newer resilience plan
+  supersedes ordinary idle shutdown: an open public MCP pipe keeps the guardian,
+  private host, and every warm worker alive regardless of elapsed inactivity.
 
 No worker, alias, boot ID, generation, job ID, or output handle is valid in a
 new harness.
@@ -836,8 +880,10 @@ be degraded by model reconstruction.
 
 ## Mandatory audit contract
 
-Audit begins at the MCP supervisor boundary. The hook is not an audit
-producer. The supervisor assigns stable event/call IDs and appends
+Audit begins at the public MCP acceptance boundary. Before resilience cutover
+that boundary is the current supervisor; afterward it is the stable guardian
+defined by `.agents/plans/mcp-resilience.md`. The hook is not an audit
+producer. The boundary owner assigns stable event/call IDs and appends
 `call.accepted` before routing or worker startup. Every accepted tool,
 including `ptk_state`, `ptk_session`, `ptk_output`, and every `ptk_job`
 action, receives a terminal event while the journal is healthy.
@@ -1414,19 +1460,24 @@ Tools/
   OutputTool.cs
 ```
 
-Existing ownership changes:
+Existing ownership changes, as superseded for the final process split by the
+resilience plan:
 
-- `Program.cs` selects supervisor/worker mode, loads audit/template options,
-  and registers only supervisor services in MCP mode. It excludes
-  `SessionTool` from reflection-only `.WithToolsFromAssembly()` discovery and
-  registers that tool with its explicit conditional schema/raw-JSON adapter.
-- `InvokeTool`, `JobTool`, `StateTool`, and `ResetTool` become thin session
-  routers and begin/finish supervisor audit scopes.
+- Guardian `Program.cs` owns public MCP, audit/template/output options, and
+  registers only guardian services/tools. Server `Program.cs` accepts exact
+  private `--host` or `--worker` roles before any other action. `SessionTool`
+  remains excluded from reflection-only `.WithToolsFromAssembly()` discovery
+  and uses its explicit conditional schema/raw-JSON adapter.
+- `InvokeTool`, `JobTool`, `StateTool`, and `ResetTool` become thin guardian
+  adapters, begin/finish guardian audit scopes, and route backend-dependent
+  work through the private host protocol.
 - `RunspaceHost` accepts absolute deadlines and structured execution/output
   contexts; it no longer owns string-only route inference.
 - `JobManager` stores correlation, route/provenance, session generation,
   output handle, and a polling-independent terminal continuation.
-- `IdleWatchdog` observes `SessionManager` aggregate activity/live work.
+- Through resilience R6, the transitional development server's `IdleWatchdog`
+  observes `SessionManager` aggregate activity/live work. The final guardian
+  entry has no idle watchdog and does not register this service.
 - `PwshTokenCompressor.psm1` retains PowerShell-object and log-text shaping,
   but receives provenance so every RTK-routed output, including `RtkUnknown`,
   is not shaped twice and all rerun-with-raw wording is removed.
@@ -1595,9 +1646,11 @@ inventing a code sabotage.
   forbids open/restart/next generation while observation continues. Only later
   confirmed death may transition to `faulted` and permit explicit restart.
 - Route only the reserved default session through one worker initially.
-- Move the authoritative audit writer to the supervisor and use pre-effect
-  dispatch before worker commit.
-- Preserve the existing MCP handshake/tool names and default outputs.
+- Move the authoritative audit writer to the final public guardian and use
+  pre-effect dispatch before host/worker commit. Intermediate unwired staging
+  may retain it in the current process but cannot cut over that ownership.
+- Preserve the existing MCP handshake/tool names and default outputs through
+  the guardian-owned public connection.
 
 #### Slice 7e staging boundary — owner-approved 2026-07-14
 
@@ -1896,9 +1949,13 @@ inventing a code sabotage.
 - Add bounded graceful shutdown plus proven tree kill.
 - Prove broker-loss teardown and quarantine separately from ordinary worker
   loss; no live generation may continue without its armed broker.
-- Aggregate idle activity/live-work semantics in the supervisor.
-- Count quarantined/unconfirmed-containment observers as live work so idle
-  shutdown cannot discard the recovery gate or its terminal audit obligation.
+- Aggregate idle activity/live-work semantics in the transitional development
+  supervisor, then
+  prove final guardian cutover disables its idle exit/recycle path while the
+  public pipe remains open.
+- Count quarantined/unconfirmed-containment observers as live work so the
+  transitional idle path cannot discard the recovery gate or terminal audit
+  obligation before cutover.
 - Prove ordinary MCP EOF removes every worker and managed job; classify hard
   death/outcome uncertainty honestly. Hard-kill the supervisor during worker
   launch, blocked bootstrap, ready idle, foreground native execution, and a
@@ -2452,15 +2509,19 @@ not a correctness guard, and rrp-10 remains documentation reconciliation.
   timeout/reset effects.
 - A template-less dynamic session establishes a process-scoped auth/module
   sentinel, then times out after execution starts. Its whole worker exits, its
-  generation changes, its managed jobs stop, and the alias requires explicit
-  restart before a new empty worker can exist; the sentinel is absent there
-  and the other session remains untouched.
+  original terminal is delivered, its managed jobs stop, and—only after
+  confirmed old-tree death—automatic recovery changes generation and creates
+  only a new empty declared baseline. The timed-out call is not replayed, the
+  sentinel is absent there, and the other session remains untouched.
 - Barrier tests expire a call while it owns the only operation lease and while
   other calls/jobs are queued. The slot enters timeout-resetting without
   self-deadlock, admits no new work, cancels the other generation leases, and
   never starts a replacement before confirmed old-group death. A stuck kill
   returns by deadline plus the fixed containment grace with the slot
-  quarantined and `containment_unconfirmed`.
+  quarantined and `containment_unconfirmed`. Releasing the fixture's death
+  confirmation later automatically starts the otherwise eligible baseline
+  generation without an explicit lifecycle call; the original timeout remains
+  the call's only terminal.
 - A barrier test, not timing alone, proves different sessions can progress
   concurrently while one session remains serial.
 - Concurrent open starts one worker; list/state on cold does not start it.
@@ -2509,7 +2570,10 @@ not a correctness guard, and rrp-10 remains documentation reconciliation.
   with no foreground/queued call, default `ptk_reset(force=false)` kills the
   running cold job and replaces the session; a separate foreground-busy case
   refuses until `force=true`.
-- Worker loss fails pending calls once and requires explicit restart.
+- Worker loss fails pending calls once, never replays an ambiguous call, and
+  automatically attempts one new generation under the resilience plan's
+  containment, eligibility, bootstrap, and circuit rules. Bootstrap/lifecycle
+  ambiguity remains `recovery_unknown` and is not automatically replayed.
 - Start a job, replace its worker, then start another job. The public IDs
   differ, and status/output/kill using the old ID cannot observe or affect the
   new job even when the worker's private counter reused its first value.
@@ -2517,10 +2581,11 @@ not a correctness guard, and rrp-10 remains documentation reconciliation.
   the next unqualified invoke starts exactly one new generation. Closing a
   named session never auto-reopens it and never redirects its calls to
   `default`.
-- Supervisor EOF/shutdown leaves no managed workers/jobs. Forced supervisor
-  death in starting, bootstrapping, ready, foreground-busy, and job-running
-  phases exercises the platform containment path and leaves none after its
-  bounded grace.
+- Private-host death in starting, bootstrapping, ready, foreground-busy, and
+  job-running phases preserves the guardian MCP pipes while exercising the
+  platform containment/recovery path. Guardian EOF/shutdown or forced guardian
+  death remains connection-fatal and leaves no host, worker, broker, managed
+  job, or native descendant after its bounded grace.
 - Launch tests stop at every barrier (before worker creation, during atomic
   creation, before Unix gate release, and immediately after release), kill the
   supervisor, and prove no runnable or suspended worker escapes containment.
@@ -2532,7 +2597,9 @@ not a correctness guard, and rrp-10 remains documentation reconciliation.
 - With idle timeout shorter than a delayed containment confirmation, a
   quarantined slot keeps the supervisor/observer alive and rejects new
   generations. Only after confirmed death and the resulting terminal audit
-  fact may the ordinary idle countdown resume.
+  fact may the transitional development path's ordinary idle countdown resume.
+  Under the final guardian entry, advancing past that timeout with an open
+  public pipe preserves the same host/worker generations and warm-state sentinel.
 
 ### Compatibility and live verification
 

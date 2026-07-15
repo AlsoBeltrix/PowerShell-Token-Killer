@@ -1,0 +1,147 @@
+# Plan: mini-SIEM discovery (decision support for the OPEN 2026-07-14 receiver question — NO BUILD AUTHORIZED)
+
+## STOP — read this before the rest of the file
+
+**Status: DISCOVERY ONLY. The underlying decision is OPEN** — appended by the
+owner to the end of the decision queue (2026-07-14; `.agents/decisions.md`,
+"Whether PTK should ship a mini SIEM receiver for external audit custody").
+**Nothing in this file authorizes implementation.** Producing, reviewing, or
+approving this discovery plan does not release the owner's hold on broader
+decision-log reconciliation and does not reopen any settled transport decision.
+
+Provenance: drafted 2026-07-15 on branch `plan/mini-siem-discovery`
+(worktree `.claude/worktrees/mini-siem`, cut from `master` @ `5ae154c`),
+deliberately independent of `plan/mcp-resilience-guardian`. The resilience
+compatibility contract is consumed read-only from commit `33d6a35`
+(`git show 33d6a35:.agents/plans/mcp-resilience.md`); this plan must track
+that contract as it lands on master — never fork or restate it authoritatively.
+
+Baseline evidence at draft time (this worktree, darwin): Pester 141 passed /
+2 Windows-only routing skips / 0 failed; `dotnet test server/PtkMcpServer.slnx`
+1484/1484 passed; `pwsh -NoProfile -File server/test-handshake.ps1` →
+HANDSHAKE PASSED. (`.agents/repo-guidance.md` Verification still records
+43/43 Pester from 2026-07-03 — stale count, flagged here, not edited by this
+plan.)
+
+## Binding inputs this discovery must not re-litigate
+
+1. **No new SIEM transport.** "Audit v3 does not create a new SIEM transport.
+   Anchored mode retains the exact one-record OTLP/HTTP protobuf request,
+   acknowledgment, retry, checkpoint" semantics (33d6a35, plan lines 561-562).
+   If the gated decision later chooses a PTK receiver, that receiver "must
+   implement this same authenticated one-record OTLP/HTTP contract"
+   (lines 583-584).
+2. **Contract prohibitions 25-27** (33d6a35, lines 853-856): never change the
+   OTLP wire/envelope by destination or audit schema version; never drop or
+   mistype one prior or `ptk.host.*` OTLP query attribute; never let a
+   vendor/mini-SIEM adapter acknowledgment replace PTK's configured durable
+   OTLP anchor semantics.
+3. **Anchor boundary** (`server/AUDIT-EXPORT.md`): the configured receiver is
+   the observable anchor boundary; success requires durable commit under a
+   separately administered principal before acknowledgment. Per the decision
+   entry: "A same-user sidecar or an in-memory collector is not a meaningful
+   anchor; a default in-memory OpenTelemetry pipeline therefore does not
+   answer this question."
+4. **Conformance seam**: "A future mini-SIEM conformance fixture can replace
+   the fake receiver without" altering guardian conformance semantics
+   (33d6a35, line 799). Discovery output must be expressible as criteria
+   pluggable into that seam.
+5. **Owner's standing recommendation** (decisions.md, end of the OPEN entry):
+   "discovery first, not implementation. Compare the smallest existing durable
+   OTLP deployment against a custom receiver using the criteria above. Build
+   PTK-specific receiver code only if no supportable existing shape provides
+   the required external boundary at acceptable operational cost."
+
+## The question and the options under assessment (from the OPEN entry)
+
+When Microsoft Sentinel, Splunk, or another robust SIEM is unavailable, should
+PTK ship or maintain a small external receiver so anchored audit records leave
+both the PowerShell runspace and the PTK source machine, receive secure durable
+custody, and remain useful for basic investigation and alerting?
+
+1. PTK-maintained minimal OTLP receiver: durable-before-ack storage,
+   authentication, chain/event validation, bounded query, retention, basic
+   alerts.
+2. Hardened deployment profile + validation harness for existing lightweight
+   components that together provide the same external durable boundary.
+3. No fallback receiver: anchored mode requires an independently operated SIEM
+   or durable OTLP service.
+
+## Discovery method: acceptance-question evidence matrix
+
+The owner listed eleven acceptance questions "before any build." Each becomes
+a matrix row; every option gets a cited answer per row — vendor documentation,
+configuration excerpt, or reproducible probe transcript. No cell may be filled
+by inference or model memory.
+
+| # | Acceptance question (owner's wording, condensed) | Evidence a cell must carry |
+|---|---|---|
+| 1 | Threat model and separate service identity | Written threat model; identity/principal design per option |
+| 2 | Durable-before-`200` semantics | Doc or probe proving ack is withheld until durable commit |
+| 3 | Duplicate handling for PTK's at-least-once delivery | Documented idempotence/dedup behavior on replay |
+| 4 | Event-ID / hash-chain validation | Where validation runs and what rejects a broken chain |
+| 5 | Crash, disk-full, backpressure, restart behavior | Failure-mode table; disk-full must reject, never false-ack |
+| 6 | mTLS or equivalent authentication | Supported authn, cert rotation story |
+| 7 | Receiver host storage protection | At-rest protection and OS-level access controls |
+| 8 | Retention and read authorization | Retention policy hooks; who can read, enforced how |
+| 9 | Minimum useful queries/alerts | The smallest query/alert set an investigation needs |
+| 10 | Upgrade/backup/recovery ownership | Named owner and procedure per option |
+| 11 | Security patch burden of a network service | Patch cadence/surface added by each option |
+
+## Work slices (documents and criteria only; any executable probe is a separately authorized change)
+
+- **D1 — candidate survey (feeds option 2).** Enumerate the smallest existing
+  deployments that plausibly provide durable-before-ack custody over the exact
+  authenticated one-record OTLP/HTTP contract, and score them against the
+  matrix. Must explicitly resolve the known trap with evidence: receiver-side
+  acknowledgment in a stock OpenTelemetry Collector pipeline is not obviously
+  gated on durable commit (exporter-side sending-queue persistence is not
+  receiver-side durability — see the Collector resiliency documentation
+  already cited by `server/AUDIT-EXPORT.md`). If no configuration can be shown
+  to satisfy Binding Input 3, option 2 candidates relying on it fail row 2.
+- **D2 — threat model and identity draft (rows 1, 6, 7).** Attacker profiles:
+  compromised PTK host user, network adversary, receiver-host tampering.
+  Separate-principal design consistent with the existing `PtkAuditAdmin`
+  separation; storage protection expectations per option.
+- **D3 — conformance criteria (rows 2-5).** Measurable pass/fail probes
+  written against the guardian fixture seam (Binding Input 4):
+  durable-before-`200` (kill between receive and ack ⇒ either the record
+  survives restart or the ack was never sent); duplicate replay idempotence;
+  event-ID/hash-chain validation rejects tampering; disk-full ⇒ rejection,
+  never a false `200`; backpressure signaling that PTK's existing retry
+  honors; restart/recovery re-advertisement.
+- **D4 — operational cost comparison (rows 8-11).** Include option 3
+  ("require an external SIEM") as the zero-code baseline every other option
+  must beat on total ownership cost, per the owner's standing recommendation.
+- **D5 — recommendation memo.** One page mapping matrix results to options
+  1/2/3, plus a drafted decision-entry update for the owner to accept or
+  reject. **Gate: owner sign-off. No build follows from this plan.**
+
+## Non-goals
+
+- No receiver code; no shipped deployment profile; no probe execution.
+- No changes to `server/AUDIT-EXPORT.md` semantics or the OTLP wire/envelope.
+- No edits to `.agents/decisions.md` while the reconciliation hold stands —
+  D5 *drafts* an update; only the owner lands it.
+- No edits to the resilience plan, its branch, or its conformance suite.
+
+## Verification (for the discovery itself)
+
+- Every matrix cell carries a citation (vendor doc, config excerpt, or probe
+  transcript). Cells without evidence stay empty and are listed as unknowns in
+  D5 rather than guessed.
+- D3 criteria must discriminate: the guardian fake durable receiver would
+  pass them; a deliberately non-durable configuration must fail at least the
+  durable-before-`200` probe. Executing that check belongs to the separately
+  authorized probe step, not this plan.
+- The standard battery (`.agents/repo-guidance.md` → Verification) stays green
+  on this branch; the branch adds documents only.
+
+## References
+
+- `.agents/decisions.md` — OPEN (2026-07-14) mini-SIEM entry: question,
+  options, acceptance questions, standing recommendation.
+- `git show 33d6a35:.agents/plans/mcp-resilience.md` — compatibility contract;
+  SIEM-relevant lines 34-37, 561-584, 680-700, 778-805, 845-880.
+- `server/AUDIT-EXPORT.md` — retained OTLP transport, acknowledgment, and
+  anchor-boundary semantics; Collector resiliency references.

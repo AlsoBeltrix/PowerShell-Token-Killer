@@ -276,6 +276,7 @@ short and update it when important repo facts change.
 - `.agents/plans/release-distribution.md`
 - `.agents/plans/warm-runspace-mcp-server.md`
 - `.agents/plans/shared-persistent-runspace.md`
+- `.agents/plans/mini-siem-discovery.md`
 - `.agents/review/index.md`
 - `.agents/machines.md`
 

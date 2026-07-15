@@ -2285,3 +2285,66 @@ and duplication failure now surfaces `Win32Exception` rather than the launch-
 stage exception type. None is a material defect in this prerequisite. This
 acceptance closes only owning wait handles; it does not authorize default-
 session wiring, push, history rewriting, or landing.
+
+---
+
+**AUDITED-HARNESS SLICE 7E WINDOWS WORKER ENTRY — ACCEPTED.** Claude Code
+2.1.209 (model `claude-opus-4-8[1m]`, isolated disposable worktree) reviewed
+exact committed range
+`eec7ed1ec1a17a0ae70d62895162864c637f8b42..12617ccb25a3f3ff8d9690d94ebe5cea4f141ee6`
+and returned the required structured `accepted` verdict with
+`guard_confirmed=true` at 2026-07-15T03:09:09Z. The range adds the Windows-only
+managed `--worker` lifecycle entry before supervisor infrastructure, captures
+and removes both bootstrap variables before validation or runtime creation,
+replaces inherited protocol handles with validated noninheritable pipe
+duplicates, and drives the existing lifecycle server through private request
+and event streams. It freezes managed exits `0`, `64`, and `80..84`, emits one
+bounded allow-listed stderr diagnostic only for nonzero exits, and leaves the
+default MCP `ISessionOperations` registration in-process.
+
+Independent preflight reopened preliminary code head `e2cbfb5` for two medium
+guard vacuities: the concrete process-environment adapter was never exercised,
+and managed exits `81..84` could write through global diagnostic destinations
+without failing a test. Test-only commits `e9421cc` and `12617cc` add a real
+process-environment removal guard plus entry-level global-console capture and
+direct-standard-output source guards. A first formal reviewer launch was
+discarded before verdict because its sandbox denied proof mutations; it
+contributed no acceptance evidence.
+
+The final reviewer independently repeated all eleven required mutations:
+retaining the event bootstrap variable, neutering the concrete environment
+removal, making an active duplicate inheritable, entering the runtime before
+validated initialize, leaking partial bootstrap ownership, passing through a
+hostile detail code, retrying or issuing a second diagnostic write, writing
+separately through global `Console.Out` and `Console.Error`, opening standard
+output directly, and removing the early worker return from `Program`. Each
+failed only its intended guard. Blob hashes confirmed exact production-file
+restoration; the restored tree passed 1,432/1,432 .NET tests, 141 Pester tests
+with two expected platform skips, the full stdio handshake, scoped formatting
+for every changed C# file, `git diff --check`, and exact-head cleanliness.
+
+Independent direct validation on `NETWATCH-01` covered the Windows-only path.
+The hash-matched final archive passed all 125 focused worker/bootstrap/
+containment guards, 1,432/1,432 .NET tests, 142 Pester tests with one expected
+platform skip, and the zero-warning handshake. A forced-build mutation
+disabling the `Program` worker branch discovered exactly one live test and
+failed at the first hello assertion in 254 ms. Exact source restoration left
+zero mismatches and zero relevant process residue; all disposable paths were
+removed. Host-specific archive, profile, and cleanup evidence is in
+`.agents/machines.md`.
+
+One reviewer observation was nonblocking and outside the reviewed range:
+`BashProcessRunnerTests.Execution_pipe_drains_cannot_outlive_the_call_deadline`
+is an older real-process 500 ms timing fixture that failed four of five cold
+isolated probes around 550 ms, passed with a warm two-second allowance, and
+passed in the final 1,432-test run. One denied initial `rtk`-prefixed status
+probe also contributed no evidence; ordinary commands and the orchestrator's
+independent checks confirmed both SHAs and clean trees. The orchestrator parsed
+and matched the JSON `result` and `structured_output`, verified exit zero,
+literal guard confirmation, and exact base/head, then removed the disposable
+worktree.
+
+Operation DTOs, dispatch/cancellation, supervisor audit/output transfer, and
+the atomic default-session proxy cutover remain later Slice 7 work. This
+acceptance authorizes only the next approved sub-slice; it does not authorize
+push, history rewriting, landing, or default-session cutover.

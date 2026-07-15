@@ -380,6 +380,36 @@ existing checkout changed._
 - The final residue check found zero matching processes. The remote checkout
   and archive plus the local transfer archive were removed.
 
+### Audited-harness Slice 7e Windows worker-entry validation
+
+_Verified 2026-07-14 for exact code tree
+`12617ccb25a3f3ff8d9690d94ebe5cea4f141ee6` in a disposable GUID-named
+directory under `F:\dev`; no installed PTK payload or existing checkout
+changed._
+
+- The exact-tree archive matched SHA-256
+  `CF6CCEF45D7E28682FF1FA649E5366B1981CFFBFB0D2E877662B87D7EDF595E2`,
+  contained 319 ZIP entries representing 284 source files, and contained no
+  AppleDouble sidecars.
+- A forced-build mutation disabling the early `Program` worker branch
+  discovered exactly one live lifecycle test and failed it at the first hello
+  `Assert.NotNull` in 254 ms. An earlier unforced mutation attempt returned
+  green and was rejected as vacuous; it contributed no proof and cleaned its
+  disposable paths before the forced-build rerun.
+- Exact restoration and rebuild passed 125/125 focused worker/bootstrap/
+  containment guards, 1,432/1,432 .NET tests, 142 Pester tests with one
+  expected platform skip under `pwsh -NoProfile`, and the full stdio handshake
+  with zero build warnings or errors.
+- Post-validation comparison found zero source-file mismatches and zero
+  relevant `dotnet`, `testhost`, or PTK worker process residue. The remote
+  archive and directory plus the local transfer archive were removed.
+- A prior profile-bearing SSH shell could not run the canonical Pester command
+  because PSProfile defines `source` as `Import-PythonVenv`; the required
+  no-profile run passed. During the earlier candidate validation, the host's
+  first .NET invocation also reported installing an ASP.NET Core HTTPS
+  development certificate. It was not removed because certificate-wide
+  cleanup could affect unrelated host state.
+
 ## Disposable Ubuntu 26.04 ARM64 validation
 
 _Focused verification 2026-07-11 for the Slice 1 secure-storage implementation

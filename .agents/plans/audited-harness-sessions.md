@@ -59,13 +59,13 @@ range `3348167..bbc2a0e` with `guard_confirmed=true`, and direct Windows
 validation passed. Wait-ownership prerequisite head `d1cca1b` replaces the
 borrowed cancellable wait with an owning duplicated process handle; Claude
 accepted exact range `4578e6f..d1cca1b` with `guard_confirmed=true` after the
-corrected two-mutation proof. On 2026-07-14 the owner approved the staged Slice
-7e boundary below: add a Windows-only lifecycle worker entry while leaving
-default MCP routing unchanged. The owner then approved the managed process-
-exit mapping, exact bootstrap ownership, and bounded abnormal-diagnostic
-contract below. Slice 7e's entry contract is fully frozen and implementation
-is authorized; operation dispatch and default-session cutover remain later
-sub-slices.
+corrected two-mutation proof. Slice 7e code head `12617cc` adds the Windows-only
+managed lifecycle entry, secure bootstrap ownership, stable process-exit
+mapping, and bounded abnormal diagnostics while leaving default MCP routing
+unchanged. Claude accepted exact range `eec7ed1..12617cc` with
+`guard_confirmed=true` after eleven independent mutation proofs, and direct
+Windows validation passed. Operation dispatch and default-session cutover
+remain later sub-slices.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the

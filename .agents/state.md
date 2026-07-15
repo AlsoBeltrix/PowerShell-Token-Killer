@@ -5,8 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Audited-harness Slices 7a-7d and the first Windows wiring prerequisite are
-  complete locally at code head `d1cca1b`.**
+- **Audited-harness Slices 7a-7e and the Windows wait-ownership prerequisite
+  are complete locally at code head `12617cc`.**
   The strict bounded v1 worker protocol freezes all nine wire kinds, enforces
   strict UTF-8 NDJSON with duplicate/unknown/version rejection, caps encoded
   frames at 1 MiB and JSON depth at 32, preserves fragmented and coalesced
@@ -33,8 +33,18 @@ short and update it when important repo facts change.
   per-wait noninheritable duplicated process handle, with guards covering both
   the owning constructor and active async call path. The preliminary `5ea7d60`
   review was reopened after independent preflight found its active-path guard
-  vacuous; only the corrected fixed-SHA acceptance is final. Canonical review
-  and Windows evidence is in `.agents/review/index.md` and
+  vacuous; only the corrected fixed-SHA acceptance is final. Code head
+  `12617cc` then adds the Windows-only managed `--worker` lifecycle entry,
+  exact bootstrap-variable removal and noninheritable pipe ownership, stable
+  managed exit mapping, and bounded allow-listed abnormal diagnostics while
+  leaving default MCP operations in-process. Independent preflight reopened
+  preliminary head `e2cbfb5` for two guard vacuities; test-only commits
+  `e9421cc` and `12617cc` close the concrete environment-removal and global
+  diagnostic-destination gaps. Claude accepted exact range
+  `eec7ed1..12617cc` with `guard_confirmed=true` after eleven independent
+  mutations and the full battery; the exact tree also passed direct
+  `NETWATCH-01` lifecycle and containment validation. Canonical review and
+  Windows evidence is in `.agents/review/index.md` and
   `.agents/machines.md`.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
@@ -153,30 +163,14 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue Slice 7 on its feature branch. The owner approved a separate
-   Windows-only `--worker` lifecycle-entry sub-slice on 2026-07-14, with the
-   existing default MCP tools left in-process until the later atomic cutover.
-   Managed exit codes are now frozen: `0` for cleaned-up shutdown/EOF/cancel,
-   `64` for malformed worker invocation, and `80..84` for bootstrap,
-   initialize, protocol, transport, and runtime/cleanup failure; supervisor
-   lifecycle state, not zero alone, decides whether a stop was expected. Exact
-   bootstrap ownership is also frozen: remove both variables before validation,
-   accept only canonical unsigned-decimal distinct pipe handles, replace the
-   inherited originals with owned noninheritable duplicates, construct no
-   runtime until both streams succeed, and close every partial acquisition.
-   Bounded diagnostics are now frozen too: PTK infrastructure writes nothing to
-   worker stdout; each nonzero exit makes one best-effort at-most-256-byte ASCII
-   stderr write using allow-listed kind/detail codes and no sensitive data;
-   zero exits are silent, and callers continuously drain both diagnostic
-   streams. Implement this fully approved Slice 7e entry without operation DTOs
-   or default routing, prove its new guards red then green, run the complete
-   local battery, validate the exact commit through the contained launcher on
-   `NETWATCH-01`, and obtain fixed-SHA review acceptance. Before real wiring,
-   isolate Windows containment tests from parallel process-spawning tests. The
-   final default-session cutover must keep supervisor-owned audit/output,
-   worker-owned runtime/process creation, and no in-process fallback. Keep the
-   Unix broker behind its separately recorded contract blockers. Each sub-
-   slice still requires fixed-SHA acceptance before the next begins.
+1. Continue Slice 7 by freezing and approving the next operation
+   DTO/dispatch/cancel/response sub-slice before implementation. Preserve
+   supervisor ownership of audit and output capabilities, worker ownership of
+   runtime and process creation, and the current in-process default registration
+   until the later atomic proxy cutover. That cutover must leave no in-process
+   or generic-spawn fallback. Keep the Unix broker behind its separately
+   recorded contract blockers, and require fixed-SHA acceptance before each
+   next sub-slice.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected
@@ -200,26 +194,12 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- **Default-session dispatch remains a later contract; Slice 7e is not
-  blocked.** The owner approved the Windows-only lifecycle-entry staging
-  boundary, worker process-exit mapping, exact bootstrap ownership, and bounded
-  abnormal diagnostics on 2026-07-14; the frozen contract lives in
-  `.agents/plans/audited-harness-sessions.md`. Operation DTO/dispatch/cancel/
-  response and supervisor audit/output transfer remain required before the
-  later default-session cutover. At `d1cca1b`, `Program.cs` still has no
-  `--worker` branch and constructs the supervisor-side `SessionRuntime`;
-  `WorkerServer` accepts only initialize/shutdown after ready.
 - **Windows wiring requires a hard supervisor/worker role cutover.**
   `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still
   permit supervisor-side runtime or generic process creation. Those paths
   cannot race the Windows launcher's temporarily inheritable selected handles.
   The wired supervisor must not retain an in-process user-runtime or generic-
   spawn fallback.
-- **Live wired Windows tests need process-spawn isolation.**
-  `WindowsContainmentIntegrationTests` can currently overlap other xUnit
-  fixtures that call `Process.Start`. Use a dedicated nonparallel process/
-  project or an assembly-level parallelism rule before exercising the wired
-  launcher.
 - **Unix containment contract is incomplete; Windows work is not blocked:**
   the canonical audited-harness plan fixes `START_FAILED` as a stage byte plus
   errno but does not enumerate stage values, and it requires bounded broker
@@ -249,12 +229,10 @@ short and update it when important repo facts change.
 - Automated verification entry point: `.agents/repo-guidance.md`
   (Verification). Review-loop evidence lives in `.agents/review/index.md`;
   do not duplicate volatile counts here.
-- Audited-session slices 0-6 are complete locally. Slice 4's exact integrated
-  fixed-head Claude acceptance and independently verified local landing are
-  recorded in `.agents/review/index.md`; host-specific verification records
-  live in `.agents/machines.md`. Slice 5's final path-free output-recovery
-  acceptance by both Claude and Grok and Slice 6's `SessionRuntime` acceptance
-  by Claude are recorded in the same review index.
+- Audited-session Slices 0-6, Slices 7a-7e, and the Windows wait-ownership
+  prerequisite are complete locally. Canonical fixed-head acceptance evidence
+  lives in `.agents/review/index.md`; host-specific verification records live
+  in `.agents/machines.md`.
 
 ## Active Sources
 

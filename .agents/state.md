@@ -5,17 +5,20 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **mini-SIEM S1 is complete at code head `e5dc1df` on
-  `plan/mini-siem-discovery`.** The owner selected Option 1 (PTK-maintained
-  OTLP receiver as a separate product under `siem/`), approved
-  `.agents/plans/mini-siem-implementation.md` @ `87e4206`, and authorized
-  S1+. S1 adds `siem/PtkSiem.slnx`, the receiver and test projects, a strict
-  startup configuration loader with 55 validation tests, and the approved
-  three-platform SIEM CI job. The pre-code existing-battery baseline is
-  recorded in `.agents/machines.md` with its tracked transcript under
-  `.agents/review/baselines/`. Authorized shared-tree edits remain exhaustive:
-  the landed CI job and one additive test-only commit under
-  `server/PtkMcpServer.Tests` for the S2/S4 producer conformance seam.
+- **mini-SIEM S1-S2 are complete on `plan/mini-siem-discovery`; S2 receiver
+  code head is `e761b75` and the authorized producer-test seam head is
+  `1f6d485`.** S1 supplies the solution skeleton and strict startup config.
+  S2 independently compiles the canonical proto and adds a bounded exact
+  one-record validator for v1/v2/v3 projections, real Kestrel mTLS with custom
+  CA-bundle trust and explicit revocation policy, and the frozen 200/400/503
+  protobuf response table. Production deliberately returns retryable 503 until
+  S3 supplies durable storage, so S2 cannot false-ack. The isolated producer
+  conformance project keeps the ordinary fake-receiver battery unchanged and,
+  under the CI-only environment gate, drives the real exporter into the live
+  receiver on all three configured CI platforms. Its producer-owned serializer
+  can emit current v1/v2 golden request bytes; v3 bytes remain absent and are
+  never invented before the producer implements v3. Local evidence and guard
+  proofs are recorded in `.agents/machines.md`.
 - **Audited-harness Slices 7a-7f and the Windows wait-ownership prerequisite
   are complete and landed on local `master`; Slice 7f code head is
   `a9e757e`.**
@@ -242,9 +245,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Execute mini-SIEM S2 under the approved implementation plan: add the strict
-   OTLP/HTTP protobuf ingest surface, mTLS policy and negative matrix, frozen
-   response table, and the authorized additive producer-test conformance seam.
+1. Execute mini-SIEM S3 under the approved implementation plan: add the SQLite
+   schema/migrations, serialized durable-before-ack transaction, duplicate and
+   fork handling, custody ledger, strict quarantine path, and verified
+   WAL/FULL writer policy. Keep the production S2 committer fail-closed until
+   the durable S3 path replaces it atomically.
 2. Complete resilience R0 on `impl/mcp-resilience-r0`; R1-R7 remain separately
    gated and the SIEM worktree must not consume that worktree's uncommitted
    files.
@@ -258,6 +263,12 @@ short and update it when important repo facts change.
 
 ## Open / Parked
 
+- Mini-SIEM S4's fixture gate remains intentionally closed: producer-owned
+  exact v1/v2/v3 OTLP byte corpora must all exist before S4 begins. The
+  producer-side serializer for current v1/v2 records is landed at `1f6d485`,
+  but audit v3 is still prospective resilience work; do not synthesize v3 in
+  the receiver or treat its hand-authored S2 structural test as a golden
+  producer fixture.
 - Warm-backend slice 7 is unblocked open work, currently unscheduled, and
   remains owner-run Windows validation: AD native import/warm reuse; Exchange
   implicit remoting with first-vs-repeated `Get-Queue` latency; EXO/Graph

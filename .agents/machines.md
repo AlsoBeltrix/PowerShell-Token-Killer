@@ -444,3 +444,32 @@ predecessor's author-reported counts are not baseline evidence)._
 - Full normalized transcript:
   `.agents/review/baselines/2026-07-15-mini-siem-s1.txt` (tracked copy of the
   ptk job log with terminal color escapes removed).
+
+## mini-SIEM S2 verification (Mac, 2026-07-15)
+
+_Local verification of S2 receiver code `e761b75` plus producer conformance
+head `1f6d485` on Darwin 25.5.0 arm64, dotnet 10.0.301, pwsh 7.6.3._
+
+- `dotnet test siem/PtkSiem.slnx`: 77/77 passed, including live TLS negatives
+  for missing certificate, wrong CA, expired certificate, wrong EKU, explicit
+  online-revocation refusal, and old/new CA rotation.
+- Producer conformance project: 2/2 passed both with the override unset and
+  with `PTK_SIEM_CONFORMANCE_MODE=in-process`; the latter drove the real
+  exporter into the live SIEM Kestrel endpoint. The scoped formatter checks
+  for the SIEM solution, conformance project, and changed producer integration
+  file passed.
+- Existing battery: Pester 141 passed / 0 failed / 2 skipped;
+  `dotnet test server/PtkMcpServer.slnx` 1485/1485 passed; handshake
+  `HANDSHAKE PASSED`.
+- Required guard discrimination was exercised and restored independently:
+  false-ack production default, optional rather than required client cert,
+  skipped event-hash recomputation, non-200 success response, and raw-JSON
+  rather than OTLP golden output each made its focused test fail. Restored
+  trees passed the complete local battery above.
+- One pre-existing scheduler timing assertion failed in an intermediate full
+  run while an extra redundant TLS test was present. The redundant load was
+  removed without touching scheduler code; the exact scheduler test then
+  passed 20/20 focused runs and the final complete 1485-test run passed.
+- Hosted ubuntu/windows/macos CI was not run from this local branch; the SIEM
+  job is configured to exercise both receiver and live producer conformance
+  legs on all three when the branch is published.

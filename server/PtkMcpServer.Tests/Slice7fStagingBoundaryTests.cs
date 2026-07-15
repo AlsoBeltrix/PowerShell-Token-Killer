@@ -121,18 +121,23 @@ public sealed class Slice7fStagingBoundaryTests
         {
             Assert.DoesNotContain(forbidden, preparedCodec, StringComparison.Ordinal);
         }
-        Assert.Contains(
-            "CryptographicOperations.ZeroMemory(bytes.AsSpan(0, byteCount));",
+        var digestMethod = SourceBlock(
             preparedCodec,
-            StringComparison.Ordinal);
+            "private static string ComputeScriptDigest");
+        var digestFinallyBlocks = FinallyBlocks(digestMethod);
         Assert.Contains(
-            "ArrayPool<byte>.Shared.Return(bytes, clearArray: true);",
-            preparedCodec,
-            StringComparison.Ordinal);
+            digestFinallyBlocks,
+            block => block.Contains(
+                    "CryptographicOperations.ZeroMemory(bytes.AsSpan(0, byteCount));",
+                    StringComparison.Ordinal) &&
+                block.Contains(
+                    "ArrayPool<byte>.Shared.Return(bytes, clearArray: true);",
+                    StringComparison.Ordinal));
         Assert.Contains(
-            "CryptographicOperations.ZeroMemory(hash);",
-            preparedCodec,
-            StringComparison.Ordinal);
+            digestFinallyBlocks,
+            block => block.Contains(
+                "CryptographicOperations.ZeroMemory(hash);",
+                StringComparison.Ordinal));
     }
 
     [Fact]
@@ -235,5 +240,51 @@ public sealed class Slice7fStagingBoundaryTests
         }
 
         throw new DirectoryNotFoundException("Could not locate the repository root.");
+    }
+
+    private static string SourceBlock(string source, string declaration)
+    {
+        var declarationOffset = source.IndexOf(declaration, StringComparison.Ordinal);
+        Assert.True(declarationOffset >= 0);
+        var openOffset = source.IndexOf('{', declarationOffset);
+        Assert.True(openOffset >= 0);
+        var closeOffset = MatchingBrace(source, openOffset);
+        return source[openOffset..(closeOffset + 1)];
+    }
+
+    private static string[] FinallyBlocks(string source)
+    {
+        var blocks = new List<string>();
+        var searchOffset = 0;
+        while (true)
+        {
+            var finallyOffset = source.IndexOf(
+                "finally",
+                searchOffset,
+                StringComparison.Ordinal);
+            if (finallyOffset < 0) return blocks.ToArray();
+            var openOffset = source.IndexOf('{', finallyOffset);
+            Assert.True(openOffset >= 0);
+            var closeOffset = MatchingBrace(source, openOffset);
+            blocks.Add(source[openOffset..(closeOffset + 1)]);
+            searchOffset = closeOffset + 1;
+        }
+    }
+
+    private static int MatchingBrace(string source, int openOffset)
+    {
+        var depth = 0;
+        for (var offset = openOffset; offset < source.Length; offset++)
+        {
+            depth += source[offset] switch
+            {
+                '{' => 1,
+                '}' => -1,
+                _ => 0,
+            };
+            if (depth == 0) return offset;
+        }
+
+        throw new InvalidOperationException("Source block has no matching close brace.");
     }
 }

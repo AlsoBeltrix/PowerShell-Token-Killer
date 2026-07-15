@@ -69,7 +69,9 @@ default-session cutover remain later sub-slices. Slice 7f code head `a9e757e`
 adds deliberately unwired strict request/cancel parsers, a response codec, and
 a standalone scheduler. Claude accepted exact range `3580e67..a9e757e` with
 `guard_confirmed=true` after independent mutation proof and the full battery
-on 2026-07-15.
+on 2026-07-15. The Slice 7g transport-neutral operation-codec boundary below
+was owner-approved on 2026-07-15; implementation has not started at this plan
+head.
 
 This plan is the canonical implementation contract replacing the still-open
 security response, the unapproved durable/shared-session idea, and the
@@ -1734,6 +1736,56 @@ inventing a code sabotage.
   owner-approved sub-slices. In particular, reset is never serialized as a
   worker runtime call, and the initialize/ready bootstrap contract must be
   reconciled before Slice 8 template work.
+
+#### Slice 7g staging boundary — owner-approved 2026-07-15
+
+- Land strict, standalone concrete operation-value codecs while leaving them
+  transport-kind-neutral and deliberately unwired. They do not register with
+  `WorkerOperationRequest`, `WorkerOperationScheduler`, `WorkerServer`, a
+  concrete executor, or any envelope kind. In particular, script-bearing
+  invocation remains inert payload data for the later `prepare`/`commit`
+  protocol and is never classified as an ordinary `request` by this slice.
+- Freeze the concrete operation names as `invoke`, `job_list`, `job_status`,
+  `job_output`, `job_kill`, and `state`. Each name has a distinct typed
+  argument and result DTO. Unknown names and a `reset` operation fail closed.
+- The foreground-only `invoke` arguments are exactly required `script`, `raw`,
+  and `route`. `script` is a nonnull, strict-UTF-8-representable logical string
+  of zero through 131,072 UTF-8 bytes; `raw` is a JSON boolean; and `route` is
+  exactly `auto`, `pwsh`, or `rtk`. `background` is not a field in this codec:
+  background job start remains a later prepared operation that also receives a
+  supervisor-issued public job ID before commit. `timeoutSeconds` is likewise
+  absent because the outer protocol's absolute deadline is the sole worker
+  budget.
+- Job-control argument objects are fully normalized and action-free:
+  `job_list` is exactly `{}`; `job_status` and `job_kill` are exactly a required
+  positive signed-64-bit `jobId`; and `job_output` is exactly that `jobId` plus
+  a required nonnegative signed-64-bit `offset`. The ID is an opaque future
+  supervisor-issued value. This slice neither allocates, maps, validates
+  ownership of, nor exposes any job ID through MCP, and no worker-local ID is
+  a source for this codec.
+- `state` arguments are exactly required boolean `listAvailable`. State remains
+  zero-wait only as a later runtime behavior; this codec executes no probe.
+- Each operation's successful-result DTO is exactly required nonnull `text`.
+  Its decoded logical value must be strict-UTF-8-representable and at most
+  131,072 UTF-8 bytes. Parse and create paths both enforce the script/result
+  limits without truncation or replacement fallback; the exact byte boundary
+  passes and one byte over fails. The outer 1 MiB encoded-frame and depth-32
+  bounds remain separate.
+- Every argument/result object rejects duplicate, unknown, missing,
+  explicit-null, wrong-kind, nonintegral, out-of-range, and noncanonical enum
+  values as applicable. Stable failures never echo script or result content.
+  Direct codec guards must exercise nested duplicate rejection independently
+  of the outer envelope decoder.
+- Extend the staging boundary guards over every new codec/DTO type and file.
+  No new type may carry or reference `ISessionOperations`, `ISessionLifetime`,
+  `SessionRuntime`, audit context, `OutputStore`, `RunspaceHost`, `JobManager`,
+  MCP tools, DI, or process lifecycle capabilities, and no production type may
+  construct or call the codecs in this slice.
+- Runtime execution, `prepare`/`commit`/`abort`/`event`, audit or output
+  capability transfer, background start/result handling, public job-ID
+  allocation or mapping, reset/process replacement, supervisor proxy wiring,
+  default-session cutover, and all MCP/schema/output behavior changes remain
+  separately owner-approved work.
 
 ### Slice 8 — named harness-scoped sessions
 

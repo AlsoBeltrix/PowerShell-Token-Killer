@@ -55,6 +55,14 @@ short and update it when important repo facts change.
   was fast-forwarded to local `master`, content arrival was verified by direct
   branch diff, and the feature branch was removed. Canonical review and Windows
   evidence is in `.agents/review/index.md` and `.agents/machines.md`.
+- **Audited-harness Slice 7g is owner-authorized and in progress on
+  `feat/audited-harness-slice7g-operation-codecs`.** Its frozen boundary adds
+  only strict transport-neutral value codecs for foreground invoke, job
+  controls, and state, with strict logical UTF-8 script/result limits. It does
+  not bind invoke to ordinary request transport or add runtime execution,
+  prepare/commit, background start, audit/output transfer, job-ID allocation,
+  reset, proxy wiring, or MCP behavior. The canonical technical boundary is
+  in `.agents/plans/audited-harness-sessions.md`.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
   Windows at Slice 8's newly introduced five-second overlap checkpoint and
@@ -172,13 +180,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Present and freeze the next post-7f Slice 7 boundary before implementation.
-   Prefer concrete invoke/job/state argument and result codecs as the smallest
-   next candidate; do not silently bundle real `SessionRuntime` dispatch,
-   prepare/commit/abort/event, supervisor audit/output transfer, reset/process
-   replacement, or the atomic proxy cutover. Keep the Unix broker behind its
-   separately recorded contract blockers, and require fixed-SHA acceptance
-   before each next sub-slice.
+1. Implement the frozen Slice 7g operation-value codecs and guards, prove the
+   new guards by mutation, run the full battery, and require fixed-SHA Claude
+   acceptance before landing. Keep all runtime, prepare/commit, background
+   start, capability-transfer, job-ID, reset, proxy, and MCP behavior out.
 2. Execute release-distribution slice 3 under its approved plan. Re-present
    the hook-default choice before release-distribution slice 4.
 3. When the owner releases the decisions hold, reconcile the rejected

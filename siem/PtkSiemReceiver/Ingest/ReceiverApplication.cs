@@ -252,15 +252,24 @@ internal static class ReceiverApplication
 
 internal interface IIngestCommitter
 {
+    // Compatibility seam for the isolated producer conformance fixture from S2.
+    Task<IngestCommitResult> CommitAsync(
+        ValidatedOtlpRecord record,
+        CancellationToken cancellationToken) =>
+        Task.FromException<IngestCommitResult>(
+            new NotSupportedException("Receipt metadata is required by the production store."));
+
     Task<IngestCommitResult> CommitAsync(
         ValidatedOtlpRecord record,
         IngestReceiptContext receipt,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken) =>
+        CommitAsync(record, cancellationToken);
 
     Task<IngestCommitResult> QuarantineAsync(
         RejectedOtlpAttempt attempt,
         IngestReceiptContext receipt,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken) =>
+        Task.FromResult(IngestCommitResult.Permanent(attempt.FailureCode));
 }
 
 internal sealed record IngestReceiptContext(

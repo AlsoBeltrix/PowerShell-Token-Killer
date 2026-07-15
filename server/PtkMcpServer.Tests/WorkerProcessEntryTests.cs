@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.Channels;
 using PtkMcpServer.Sessions;
 using PtkMcpServer.Worker;
@@ -399,6 +400,97 @@ public sealed class WorkerProcessEntryTests
     }
 
     [Fact]
+    public async Task Managed_failure_exits_write_once_only_to_injected_standard_error()
+    {
+        var originalOutput = Console.Out;
+        var originalError = Console.Error;
+        var directOutput = new StringWriter();
+        var directError = new StringWriter();
+
+        Console.SetOut(directOutput);
+        Console.SetError(directError);
+        try
+        {
+            foreach (var expected in new[]
+            {
+                new ManagedFailureExpectation(
+                    ManagedFailure.Initialize,
+                    81,
+                    "ptk_worker_exit kind=initialize_failed detail=initialize_failed\n"),
+                new ManagedFailureExpectation(
+                    ManagedFailure.Protocol,
+                    82,
+                    "ptk_worker_exit kind=protocol_error detail=initialize_required\n"),
+                new ManagedFailureExpectation(
+                    ManagedFailure.Transport,
+                    83,
+                    "ptk_worker_exit kind=transport_failure detail=event_transport_failure\n"),
+                new ManagedFailureExpectation(
+                    ManagedFailure.Runtime,
+                    84,
+                    "ptk_worker_exit kind=runtime_failure detail=shutdown_failed\n"),
+            })
+            {
+                using var diagnostic = new CountingWriteStream();
+
+                var exitCode = await DriveManagedFailureAsync(
+                    expected.Failure,
+                    diagnostic);
+
+                Assert.Equal(expected.ExitCode, exitCode);
+                Assert.Equal(1, diagnostic.WriteCalls);
+                var line = Encoding.ASCII.GetString(diagnostic.ToArray());
+                Assert.Equal(expected.Diagnostic, line);
+                Assert.Equal(1, line.Count(character => character == '\n'));
+            }
+        }
+        finally
+        {
+            Console.SetOut(originalOutput);
+            Console.SetError(originalError);
+        }
+
+        Assert.Equal(string.Empty, directOutput.ToString());
+        Assert.Equal(string.Empty, directError.ToString());
+    }
+
+    [Fact]
+    public void Worker_diagnostics_have_no_global_console_bypass()
+    {
+        var workerDirectory = Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "PtkMcpServer",
+            "Worker");
+        var exitSource = File.ReadAllText(Path.Combine(
+            workerDirectory,
+            "WorkerProcessExit.cs"));
+        var entrySource = File.ReadAllText(Path.Combine(
+            workerDirectory,
+            "WorkerProcessEntry.cs"));
+
+        Assert.Empty(FindConsoleMembers(exitSource));
+        Assert.DoesNotContain("System.Console", exitSource, StringComparison.Ordinal);
+
+        Assert.Equal(
+            ["OpenStandardError", "OpenStandardError", "OpenStandardError"],
+            FindConsoleMembers(entrySource));
+        Assert.DoesNotContain("System.Console", entrySource, StringComparison.Ordinal);
+        foreach (var bypass in new[]
+        {
+            "Console.Out",
+            "Console.Error",
+            "OpenStandardOutput",
+            "GetStdHandle",
+            "STD_OUTPUT_HANDLE",
+            "STD_ERROR_HANDLE",
+        })
+        {
+            Assert.DoesNotContain(bypass, entrySource, StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public void Program_worker_return_precedes_every_supervisor_startup_boundary()
     {
         var source = File.ReadAllText(Path.Combine(
@@ -506,6 +598,70 @@ public sealed class WorkerProcessEntryTests
             () => BootId,
             standardErrorFactory);
     }
+
+    private static async Task<int> DriveManagedFailureAsync(
+        ManagedFailure failure,
+        Stream diagnostic)
+    {
+        var streams = failure == ManagedFailure.Transport
+            ? new TestBootstrapStreams { EventStreamOverride = new ThrowingWriteStream() }
+            : new TestBootstrapStreams();
+        var lifetime = new RecordingLifetime
+        {
+            ThrowOnShutdown = failure == ManagedFailure.Runtime,
+        };
+        var run = StartEntry(
+            streams,
+            (_, _) => failure == ManagedFailure.Initialize
+                ? Task.FromException<ISessionLifetime>(
+                    new IOException("simulated runtime initialization failure"))
+                : Task.FromResult<ISessionLifetime>(lifetime),
+            () => diagnostic);
+
+        if (failure == ManagedFailure.Transport)
+            return await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var eventReader = new WorkerProtocolReader(streams.EventStream);
+        var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
+        _ = await ReadAsync(eventReader);
+
+        if (failure == ManagedFailure.Protocol)
+        {
+            await requestWriter.WriteAsync(new WorkerEnvelope(
+                WorkerProtocol.Version,
+                WorkerMessageKind.Shutdown,
+                BootId,
+                1,
+                JsonSerializer.SerializeToElement(new { })));
+            return await run.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        await WriteInitializeAsync(requestWriter);
+        var initialized = await ReadAsync(eventReader);
+        if (failure == ManagedFailure.Initialize)
+        {
+            Assert.Equal("failed", initialized.Payload.GetProperty("status").GetString());
+            Assert.Equal(
+                "initialize_failed",
+                initialized.Payload.GetProperty("detailCode").GetString());
+            return await run.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        Assert.Equal("ready", initialized.Payload.GetProperty("status").GetString());
+        await WriteShutdownAsync(requestWriter);
+        var stopped = await ReadAsync(eventReader);
+        Assert.Equal("failed", stopped.Payload.GetProperty("status").GetString());
+        Assert.Equal("shutdown_failed", stopped.Payload.GetProperty("detailCode").GetString());
+        return await run.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private static IReadOnlyList<string> FindConsoleMembers(string source) =>
+        Regex.Matches(
+                source,
+                @"(?<![A-Za-z0-9_])Console\s*\.\s*(?<member>[A-Za-z_][A-Za-z0-9_]*)",
+                RegexOptions.CultureInvariant)
+            .Select(match => match.Groups["member"].Value)
+            .ToArray();
 
     private static async Task WriteInitializeAsync(WorkerProtocolWriter writer)
     {
@@ -697,10 +853,11 @@ public sealed class WorkerProcessEntryTests
         internal bool Opened { get; set; }
         internal bool Disposed { get; private set; }
         internal bool ThrowOnDispose { get; set; }
+        internal Stream? EventStreamOverride { get; init; }
         internal List<string> DisposeOrder { get; } = [];
 
         public Stream RequestStream => RequestStreamPipe;
-        public Stream EventStream => EventStreamPipe;
+        public Stream EventStream => EventStreamOverride ?? EventStreamPipe;
 
         public void Dispose()
         {
@@ -709,11 +866,68 @@ public sealed class WorkerProcessEntryTests
             DisposeOrder.Add("request");
             RequestStreamPipe.Dispose();
             DisposeOrder.Add("event");
-            EventStreamPipe.Dispose();
+            EventStream.Dispose();
             if (ThrowOnDispose)
                 throw new IOException("simulated bootstrap stream cleanup failure");
         }
     }
+
+    private sealed class CountingWriteStream : MemoryStream
+    {
+        internal int WriteCalls { get; private set; }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            WriteCalls++;
+            base.Write(buffer, offset, count);
+        }
+    }
+
+    private sealed class ThrowingWriteStream : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new IOException("simulated initial event write failure");
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException(new IOException("simulated initial event write failure"));
+    }
+
+    private enum ManagedFailure
+    {
+        Initialize,
+        Protocol,
+        Transport,
+        Runtime,
+    }
+
+    private sealed record ManagedFailureExpectation(
+        ManagedFailure Failure,
+        int ExitCode,
+        string Diagnostic);
 
     private sealed class RecordingLifetime : ISessionLifetime
     {

@@ -3,5 +3,6 @@
   <Project Path="PtkMcpServer.Tests/PtkMcpServer.Tests.csproj" />
   <Project Path="PtkMcpServer/PtkMcpServer.csproj" />
   <Project Path="PtkAuditAdmin/PtkAuditAdmin.csproj" />
+  <Project Path="PtkResilienceTestFixture/PtkResilienceTestFixture.csproj" />
   <Project Path="PtkRtkTestFixture/PtkRtkTestFixture.csproj" />
 </Solution>

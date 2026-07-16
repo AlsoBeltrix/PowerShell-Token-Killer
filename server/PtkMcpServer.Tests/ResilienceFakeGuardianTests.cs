@@ -326,16 +326,28 @@ public sealed class ResilienceFakeGuardianTests
         var firstToken = Token();
         var first = await harness.CallBackendAsync("normal", firstToken);
         _ = await first.Response.WaitAsync(StepTimeout);
-        var firstRequestId = PrivateRequestId(harness, firstToken);
+        var firstPrivate = PrivateRequest(harness, firstToken);
+
+        var sameHostToken = Token();
+        var sameHost = await harness.CallBackendAsync("normal", sameHostToken);
+        _ = await sameHost.Response.WaitAsync(StepTimeout);
+        var sameHostPrivate = PrivateRequest(harness, sameHostToken);
+        Assert.True(sameHostPrivate.RequestId > firstPrivate.RequestId);
+        Assert.Equal(firstPrivate.WorkerBootId, sameHostPrivate.WorkerBootId);
+        Assert.Equal(firstPrivate.WorkerGeneration, sameHostPrivate.WorkerGeneration);
+        Assert.Equal(initialHost.Generation, firstPrivate.WorkerGeneration);
 
         await KillProcessAsync(initialHost.Pid);
         var replacement = await harness.WaitForReadyReplacementAsync(initialHost);
         var secondToken = Token();
         var second = await harness.CallBackendAsync("normal", secondToken);
         _ = await second.Response.WaitAsync(StepTimeout);
-        var secondRequestId = PrivateRequestId(harness, secondToken);
+        var secondPrivate = PrivateRequest(harness, secondToken);
 
-        Assert.True(secondRequestId > firstRequestId);
+        Assert.True(secondPrivate.RequestId > sameHostPrivate.RequestId);
+        Assert.NotEqual(firstPrivate.WorkerBootId, secondPrivate.WorkerBootId);
+        Assert.True(secondPrivate.WorkerGeneration > firstPrivate.WorkerGeneration);
+        Assert.Equal(replacement.Generation, secondPrivate.WorkerGeneration);
         Assert.True(replacement.Generation > initialHost.Generation);
         await harness.ShutdownAndAssertCleanAsync();
     }
@@ -437,11 +449,30 @@ public sealed class ResilienceFakeGuardianTests
 
     private static string Token() => Guid.NewGuid().ToString("N");
 
-    private static long PrivateRequestId(GuardianHarness harness, string token)
+    private static PrivateOperationRequest PrivateRequest(GuardianHarness harness, string token)
     {
         var received = Assert.Single(harness.ReceivedFiles(token));
         using var document = JsonDocument.Parse(File.ReadAllBytes(received));
-        return document.RootElement.GetProperty("request_id").GetInt64();
+        var root = document.RootElement;
+        Assert.Equal("operation", root.GetProperty("method").GetString());
+        Assert.Equal("default", root.GetProperty("session_alias").GetString());
+        var payload = root.GetProperty("payload");
+        Assert.Equal("job_list", payload.GetProperty("operation").GetString());
+        Assert.False(payload.TryGetProperty("barrier", out _));
+        var callId = payload.GetProperty("call_id").GetString()!;
+        Assert.Equal('7', callId[14]);
+        Assert.Equal(
+            callId,
+            payload.GetProperty("dispatch_capability").GetProperty("call_id").GetString());
+        Assert.Equal(
+            43,
+            payload.GetProperty("dispatch_capability").GetProperty("token").GetString()!.Length);
+        Assert.Equal(JsonValueKind.Null, payload.GetProperty("output_capability").ValueKind);
+        Assert.Empty(payload.GetProperty("arguments").EnumerateObject());
+        return new PrivateOperationRequest(
+            root.GetProperty("request_id").GetInt64(),
+            root.GetProperty("worker_boot_id").GetGuid(),
+            root.GetProperty("worker_generation").GetInt64());
     }
 
     private static string ControlFile(string root, string kind, string token) =>
@@ -455,6 +486,11 @@ public sealed class ResilienceFakeGuardianTests
     }
 
     private sealed record HostIdentity(int Pid, long Generation);
+
+    private sealed record PrivateOperationRequest(
+        long RequestId,
+        Guid WorkerBootId,
+        long WorkerGeneration);
 
     private sealed record PendingRequest(int Id, Task<JsonElement> Response);
 

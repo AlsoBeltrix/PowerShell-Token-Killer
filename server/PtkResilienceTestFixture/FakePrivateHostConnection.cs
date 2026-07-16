@@ -186,7 +186,19 @@ internal sealed class FakePrivateHostConnection : IDisposable
                     writer.WriteNumber("template_count", 0);
                 }),
                 cancellationToken).ConfigureAwait(false);
-            await ReadExpectedOkResponseAsync(headerRequestId, cancellationToken).ConfigureAwait(false);
+            var headerAccepted = await ReadExpectedOkPayloadAsync(
+                headerRequestId,
+                cancellationToken).ConfigureAwait(false);
+            if (headerAccepted.GetProperty("response_type").GetString() !=
+                    "manifest_header_accepted" ||
+                headerAccepted.GetProperty("manifest_id").GetGuid() != manifestId ||
+                headerAccepted.GetProperty("next_chunk_index").GetInt32() != 0 ||
+                headerAccepted.GetProperty("next_offset").GetInt32() != 0)
+            {
+                throw ProtocolFailure(
+                    "invalid_handshake_response",
+                    "The private host did not accept the exact manifest header.");
+            }
 
             var chunkRequestId = NextRequestId(nextGuardianRequestId);
             await WriteManifestRequestAsync(
@@ -197,11 +209,25 @@ internal sealed class FakePrivateHostConnection : IDisposable
                     writer.WriteString("manifest_id", manifestId.ToString("D"));
                     writer.WriteNumber("chunk_index", 0);
                     writer.WriteNumber("offset", 0);
+                    writer.WriteNumber("raw_bytes", manifest.Length);
                     writer.WriteString("raw_base64", Convert.ToBase64String(manifest));
                     writer.WriteString("raw_sha256", manifestSha256);
                 }),
                 cancellationToken).ConfigureAwait(false);
-            await ReadExpectedOkResponseAsync(chunkRequestId, cancellationToken).ConfigureAwait(false);
+            var chunkAccepted = await ReadExpectedOkPayloadAsync(
+                chunkRequestId,
+                cancellationToken).ConfigureAwait(false);
+            if (chunkAccepted.GetProperty("response_type").GetString() !=
+                    "manifest_chunk_accepted" ||
+                chunkAccepted.GetProperty("manifest_id").GetGuid() != manifestId ||
+                chunkAccepted.GetProperty("chunk_index").GetInt32() != 0 ||
+                chunkAccepted.GetProperty("next_chunk_index").GetInt32() != 1 ||
+                chunkAccepted.GetProperty("next_offset").GetInt32() != manifest.Length)
+            {
+                throw ProtocolFailure(
+                    "invalid_handshake_response",
+                    "The private host did not accept the exact manifest chunk.");
+            }
 
             var sealRequestId = NextRequestId(nextGuardianRequestId);
             await WriteManifestRequestAsync(
@@ -215,7 +241,21 @@ internal sealed class FakePrivateHostConnection : IDisposable
                     writer.WriteString("manifest_sha256", manifestSha256);
                 }),
                 cancellationToken).ConfigureAwait(false);
-            await ReadExpectedOkResponseAsync(sealRequestId, cancellationToken).ConfigureAwait(false);
+            var sealedManifest = await ReadExpectedOkPayloadAsync(
+                sealRequestId,
+                cancellationToken).ConfigureAwait(false);
+            if (sealedManifest.GetProperty("response_type").GetString() != "manifest_sealed" ||
+                sealedManifest.GetProperty("manifest_id").GetGuid() != manifestId ||
+                !string.Equals(
+                    sealedManifest.GetProperty("manifest_sha256").GetString(),
+                    manifestSha256,
+                    StringComparison.Ordinal) ||
+                sealedManifest.GetProperty("total_bytes").GetInt32() != manifest.Length)
+            {
+                throw ProtocolFailure(
+                    "invalid_handshake_response",
+                    "The private host did not seal the exact recovery manifest.");
+            }
 
             var ready = await ReadRequiredAsync("ready", cancellationToken).ConfigureAwait(false);
             ValidateIdentity(ready);
@@ -392,7 +432,7 @@ internal sealed class FakePrivateHostConnection : IDisposable
             ("payload", payload)), cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task<FakePrivateEnvelope> ReadExpectedOkResponseAsync(
+    private async Task<JsonElement> ReadExpectedOkPayloadAsync(
         long requestId,
         CancellationToken cancellationToken)
     {
@@ -402,14 +442,13 @@ internal sealed class FakePrivateHostConnection : IDisposable
             response.Value("request_id").GetInt64() != requestId ||
             response.Value("status").GetString() != "ok" ||
             response.Value("error").ValueKind != JsonValueKind.Null ||
-            response.Value("payload").ValueKind != JsonValueKind.Object ||
-            response.Value("payload").EnumerateObject().Any())
+            response.Value("payload").ValueKind != JsonValueKind.Object)
         {
             throw ProtocolFailure(
                 "invalid_handshake_response",
                 "The private host did not acknowledge the exact manifest request.");
         }
-        return response;
+        return response.Value("payload");
     }
 
     private async Task<FakePrivateEnvelope> ReadRequiredAsync(
@@ -596,7 +635,7 @@ internal sealed class FakePrivateHostConnection : IDisposable
             writer.WriteStartArray("worker_generation_high_watermarks");
             writer.WriteStartObject();
             writer.WriteString("alias", "default");
-            writer.WriteNumber("generation", 0);
+            writer.WriteNumber("generation", generation - 1);
             writer.WriteEndObject();
             writer.WriteEndArray();
             writer.WriteNumber("host_generation_high_watermark", generation);

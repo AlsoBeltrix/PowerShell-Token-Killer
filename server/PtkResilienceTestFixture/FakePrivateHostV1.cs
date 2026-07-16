@@ -43,9 +43,6 @@ internal static class FakePrivateHostV1
         MaxDepth = FakePrivateProtocol.MaximumJsonDepth,
     };
 
-    private static readonly JsonElement EmptyObject =
-        JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
-
     internal static async Task<int> RunAsync(
         string controlRoot,
         long generation,
@@ -151,7 +148,14 @@ internal static class FakePrivateHostV1
                 guardianBootId,
                 hostBootId,
                 generation,
-                lastGuardianRequestId).ConfigureAwait(false);
+                lastGuardianRequestId,
+                CreateObject(payloadWriter =>
+                {
+                    payloadWriter.WriteString("response_type", "manifest_header_accepted");
+                    payloadWriter.WriteString("manifest_id", manifestId.ToString("D"));
+                    payloadWriter.WriteNumber("next_chunk_index", 0);
+                    payloadWriter.WriteNumber("next_offset", 0);
+                })).ConfigureAwait(false);
 
             var receivedBytes = 0;
             for (var expectedChunkIndex = 0;
@@ -169,9 +173,12 @@ internal static class FakePrivateHostV1
                 lastGuardianRequestId = chunk.Value("request_id").GetInt64();
 
                 var payload = chunk.Value("payload");
+                var rawBytes = payload.GetProperty("raw_bytes").GetInt32();
+                var expectedRawBytes = Math.Min(524_288, totalBytes - receivedBytes);
                 if (payload.GetProperty("manifest_id").GetGuid() != manifestId ||
                     payload.GetProperty("chunk_index").GetInt32() != expectedChunkIndex ||
-                    payload.GetProperty("offset").GetInt32() != receivedBytes)
+                    payload.GetProperty("offset").GetInt32() != receivedBytes ||
+                    rawBytes != expectedRawBytes)
                 {
                     return ProtocolViolationExitCode;
                 }
@@ -181,7 +188,7 @@ internal static class FakePrivateHostV1
                         encodedChunk,
                         manifestBuffer.AsSpan(receivedBytes, totalBytes - receivedBytes),
                         out var decodedLength) ||
-                    decodedLength <= 0)
+                    decodedLength != rawBytes)
                 {
                     return ProtocolViolationExitCode;
                 }
@@ -192,7 +199,15 @@ internal static class FakePrivateHostV1
                     guardianBootId,
                     hostBootId,
                     generation,
-                    lastGuardianRequestId).ConfigureAwait(false);
+                    lastGuardianRequestId,
+                    CreateObject(payloadWriter =>
+                    {
+                        payloadWriter.WriteString("response_type", "manifest_chunk_accepted");
+                        payloadWriter.WriteString("manifest_id", manifestId.ToString("D"));
+                        payloadWriter.WriteNumber("chunk_index", expectedChunkIndex);
+                        payloadWriter.WriteNumber("next_chunk_index", expectedChunkIndex + 1);
+                        payloadWriter.WriteNumber("next_offset", receivedBytes);
+                    })).ConfigureAwait(false);
             }
 
             var seal = await ReadManifestRequestAsync(
@@ -237,7 +252,14 @@ internal static class FakePrivateHostV1
                 guardianBootId,
                 hostBootId,
                 generation,
-                lastGuardianRequestId).ConfigureAwait(false);
+                lastGuardianRequestId,
+                CreateObject(payloadWriter =>
+                {
+                    payloadWriter.WriteString("response_type", "manifest_sealed");
+                    payloadWriter.WriteString("manifest_id", manifestId.ToString("D"));
+                    payloadWriter.WriteString("manifest_sha256", manifestSha256);
+                    payloadWriter.WriteNumber("total_bytes", totalBytes);
+                })).ConfigureAwait(false);
 
             await writer.WriteAsync(FakePrivateProtocol.Create(
                 FakePrivateMessageKind.Ready,
@@ -279,13 +301,14 @@ internal static class FakePrivateHostV1
         FakePrivateProtocolWriter writer,
         Stream output)
     {
+        Guid? expectedWorkerBootId = null;
         while (true)
         {
             var request = await reader.ReadAsync().ConfigureAwait(false);
             if (request is null) return 0;
             if (!MatchesIdentity(request, guardianBootId, hostBootId, generation) ||
                 request.Kind != FakePrivateMessageKind.Request ||
-                !HasNullRequestCorrelations(request) ||
+                !MatchesFixtureOperationCorrelations(request, generation) ||
                 request.Value("method").GetString() != "operation")
             {
                 return ProtocolViolationExitCode;
@@ -296,19 +319,17 @@ internal static class FakePrivateHostV1
                 return ProtocolViolationExitCode;
             lastGuardianRequestId = requestId;
 
-            var payload = request.Value("payload");
-            var payloadProperties = payload.EnumerateObject().ToArray();
-            if (payloadProperties.Length != 2 ||
-                payloadProperties[0].Name != "barrier" ||
-                payloadProperties[0].Value.ValueKind != JsonValueKind.String ||
-                payloadProperties[1].Name != "token" ||
-                payloadProperties[1].Value.ValueKind != JsonValueKind.String)
-            {
+            var requestWorkerBootId = request.Value("worker_boot_id").GetGuid();
+            if (expectedWorkerBootId is null)
+                expectedWorkerBootId = requestWorkerBootId;
+            else if (expectedWorkerBootId.Value != requestWorkerBootId)
                 return ProtocolViolationExitCode;
-            }
 
-            var barrier = payloadProperties[0].Value.GetString()!;
-            var token = payloadProperties[1].Value.GetString()!;
+            var payload = request.Value("payload");
+            if (payload.GetProperty("operation").GetString() != "job_list")
+                return ProtocolViolationExitCode;
+
+            var (barrier, token) = ReadOperationControl(controlRoot, requestId);
             if (barrier is not (
                     "write_started" or
                     "terminal_decoded" or
@@ -367,7 +388,9 @@ internal static class FakePrivateHostV1
                     guardianBootId,
                     hostBootId,
                     wrongGeneration,
-                    requestId).ConfigureAwait(false);
+                    requestId,
+                    CreateOperationCompletedPayload("{}"))
+                    .ConfigureAwait(false);
                 continue;
             }
 
@@ -378,7 +401,7 @@ internal static class FakePrivateHostV1
                     hostBootId,
                     generation,
                     requestId,
-                    EmptyObject);
+                    CreateOperationCompletedPayload("{}"));
                 await writer.WriteAsync(duplicate).ConfigureAwait(false);
                 await writer.WriteAsync(duplicate).ConfigureAwait(false);
                 continue;
@@ -461,6 +484,52 @@ internal static class FakePrivateHostV1
         request.Value("plan_id").ValueKind == JsonValueKind.Null &&
         request.Value("operation_id").ValueKind == JsonValueKind.Null;
 
+    private static bool MatchesFixtureOperationCorrelations(
+        FakePrivateEnvelope request,
+        long generation) =>
+        request.Value("deadline_unix_time_milliseconds").ValueKind == JsonValueKind.Number &&
+        request.Value("deadline_unix_time_milliseconds").TryGetInt64(out var deadline) &&
+        deadline > 0 &&
+        request.Value("session_alias").ValueKind == JsonValueKind.String &&
+        request.Value("session_alias").GetString() == "default" &&
+        request.Value("session_transition_version").ValueKind == JsonValueKind.Number &&
+        request.Value("session_transition_version").TryGetInt64(out var transitionVersion) &&
+        transitionVersion == 1 &&
+        request.Value("worker_boot_id").ValueKind == JsonValueKind.String &&
+        request.Value("worker_boot_id").TryGetGuid(out _) &&
+        request.Value("worker_generation").ValueKind == JsonValueKind.Number &&
+        request.Value("worker_generation").TryGetInt64(out var workerGeneration) &&
+        workerGeneration == generation &&
+        request.Value("plan_id").ValueKind == JsonValueKind.Null &&
+        request.Value("operation_id").ValueKind == JsonValueKind.Null;
+
+    private static (string Barrier, string Token) ReadOperationControl(
+        string controlRoot,
+        long requestId)
+    {
+        var path = Program.ControlPath(
+            controlRoot,
+            "operation",
+            requestId.ToString(CultureInfo.InvariantCulture));
+        var encoded = File.ReadAllBytes(path);
+        _ = StrictUtf8.GetCharCount(encoded);
+        using var document = JsonDocument.Parse(encoded, ManifestDocumentOptions);
+        var properties = document.RootElement.EnumerateObject().ToArray();
+        if (properties.Length != 2 ||
+            properties[0].Name != "barrier" ||
+            properties[0].Value.ValueKind != JsonValueKind.String ||
+            properties[1].Name != "token" ||
+            properties[1].Value.ValueKind != JsonValueKind.String)
+        {
+            throw new InvalidDataException("The fixture operation control record is invalid.");
+        }
+
+        var barrier = properties[0].Value.GetString()!;
+        var token = properties[1].Value.GetString()!;
+        _ = Program.ControlPath(controlRoot, "validate", token);
+        return (barrier, token);
+    }
+
     private static bool ValidateManifestDocument(
         ReadOnlyMemory<byte> encodedManifest,
         Guid guardianBootId,
@@ -511,7 +580,8 @@ internal static class FakePrivateHostV1
             ValidateDefaultBinding(root.GetProperty("bindings"), aliasCount) &&
             ValidateWorkerHighWatermark(
                 root.GetProperty("worker_generation_high_watermarks"),
-                aliasCount) &&
+                aliasCount,
+                generation - 1) &&
             root.GetProperty("host_generation_high_watermark").ValueKind == JsonValueKind.Number &&
             root.GetProperty("host_generation_high_watermark").TryGetInt64(out var highWatermark) &&
             highWatermark == generation;
@@ -553,7 +623,10 @@ internal static class FakePrivateHostV1
                 FakePrivateFixtureIdentity.DefaultBindingSha256;
     }
 
-    private static bool ValidateWorkerHighWatermark(JsonElement highWatermarks, int aliasCount)
+    private static bool ValidateWorkerHighWatermark(
+        JsonElement highWatermarks,
+        int aliasCount,
+        long expectedGeneration)
     {
         if (highWatermarks.ValueKind != JsonValueKind.Array ||
             highWatermarks.GetArrayLength() != aliasCount ||
@@ -566,7 +639,7 @@ internal static class FakePrivateHostV1
         return HasExactProperties(highWatermark, ["alias", "generation"]) &&
             highWatermark.GetProperty("alias").GetString() == "default" &&
             highWatermark.GetProperty("generation").TryGetInt64(out var generation) &&
-            generation == 0;
+            generation == expectedGeneration;
     }
 
     private static bool HasExactProperties(JsonElement value, string[] expected)
@@ -625,14 +698,15 @@ internal static class FakePrivateHostV1
         Guid guardianBootId,
         Guid hostBootId,
         long generation,
-        long requestId)
+        long requestId,
+        JsonElement payload)
     {
         await writer.WriteAsync(CreateOkResponse(
             guardianBootId,
             hostBootId,
             generation,
             requestId,
-            EmptyObject)).ConfigureAwait(false);
+            payload)).ConfigureAwait(false);
     }
 
     private static FakePrivateEnvelope CreateOkResponse(
@@ -669,7 +743,8 @@ internal static class FakePrivateHostV1
         long requestId,
         string exactPayload)
     {
-        var payload = StrictUtf8.GetBytes(exactPayload);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            CreateOperationCompletedPayload(exactPayload));
         try
         {
             return BuildResponseFrame(
@@ -692,7 +767,8 @@ internal static class FakePrivateHostV1
         long generation,
         long requestId)
     {
-        var payload = "{}"u8.ToArray();
+        var payload = JsonSerializer.SerializeToUtf8Bytes(
+            CreateOperationCompletedPayload("{}"));
         try
         {
             return BuildResponseFrame(
@@ -707,6 +783,29 @@ internal static class FakePrivateHostV1
         {
             CryptographicOperations.ZeroMemory(payload);
         }
+    }
+
+    private static JsonElement CreateOperationCompletedPayload(string text) =>
+        CreateObject(writer =>
+        {
+            writer.WriteString("response_type", "operation_completed");
+            writer.WriteString("operation", "job_list");
+            writer.WriteStartObject("result");
+            writer.WriteString("text", text);
+            writer.WriteEndObject();
+        });
+
+    private static JsonElement CreateObject(Action<Utf8JsonWriter> writeProperties)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writeProperties(writer);
+            writer.WriteEndObject();
+        }
+        using var document = JsonDocument.Parse(stream.ToArray());
+        return document.RootElement.Clone();
     }
 
     private static byte[] BuildResponseFrame(

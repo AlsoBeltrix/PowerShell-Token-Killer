@@ -543,19 +543,39 @@ internal static class FakePrivateProtocol
         _ = RequirePositiveInt64(envelope.Value("request_id"), "request_id");
         var method = RequireString(envelope.Value("method"), "method");
         if (!RequestMethods.Contains(method)) throw InvalidField("method");
-        _ = RequireNullablePositiveInt64(
+        var deadline = RequireNullablePositiveInt64(
             envelope.Value("deadline_unix_time_milliseconds"),
             "deadline_unix_time_milliseconds");
-        _ = RequireNullableAlias(envelope.Value("session_alias"), "session_alias");
-        _ = RequireNullablePositiveInt64(
+        var alias = RequireNullableAlias(envelope.Value("session_alias"), "session_alias");
+        var transitionVersion = RequireNullablePositiveInt64(
             envelope.Value("session_transition_version"),
             "session_transition_version");
-        _ = RequireNullableUuid(envelope.Value("worker_boot_id"), "worker_boot_id");
-        _ = RequireNullablePositiveInt64(envelope.Value("worker_generation"), "worker_generation");
-        _ = RequireNullableUuid(envelope.Value("plan_id"), "plan_id");
-        _ = RequireNullableUuid(envelope.Value("operation_id"), "operation_id");
+        var workerBootId = RequireNullableUuid(envelope.Value("worker_boot_id"), "worker_boot_id");
+        var workerGeneration = RequireNullablePositiveInt64(
+            envelope.Value("worker_generation"),
+            "worker_generation");
+        var planId = RequireNullableUuid(envelope.Value("plan_id"), "plan_id");
+        var operationId = RequireNullableUuid(envelope.Value("operation_id"), "operation_id");
 
         var payload = RequireObject(envelope.Value("payload"), "payload");
+        if (method == "operation")
+        {
+            if (deadline is null || alias is null || transitionVersion is null ||
+                workerBootId is null || workerGeneration is null ||
+                planId is not null || operationId is not null)
+            {
+                throw InvalidField("operation_correlation");
+            }
+        }
+        else if (method is "manifest_header" or "manifest_chunk" or "manifest_seal")
+        {
+            if (deadline is not null || alias is not null || transitionVersion is not null ||
+                workerBootId is not null || workerGeneration is not null ||
+                planId is not null || operationId is not null)
+            {
+                throw InvalidField("manifest_correlation");
+            }
+        }
         ValidateRequestPayload(method, payload);
     }
 
@@ -610,7 +630,7 @@ internal static class FakePrivateProtocol
 
         if (status == "ok")
         {
-            _ = RequireObject(payload, "payload");
+            ValidateOkResponsePayload(RequireObject(payload, "payload"));
             if (error.ValueKind != JsonValueKind.Null) throw InvalidField("error");
             return;
         }
@@ -673,6 +693,7 @@ internal static class FakePrivateProtocol
                     "manifest_id",
                     "chunk_index",
                     "offset",
+                    "raw_bytes",
                     "raw_base64",
                     "raw_sha256");
                 _ = RequireUuid(payload.GetProperty("manifest_id"), "manifest_id");
@@ -727,9 +748,7 @@ internal static class FakePrivateProtocol
                 _ = RequirePositiveInt64(payload.GetProperty("source_event_sequence"), "source_event_sequence");
                 break;
             case "operation":
-                // The operation payload is frozen by the public/provider
-                // operation contract and is deliberately validated by the
-                // fake host rather than duplicated here.
+                ValidateFixtureOperationRequest(payload);
                 break;
             default:
                 throw InvalidField("method");
@@ -775,6 +794,11 @@ internal static class FakePrivateProtocol
 
     private static void ValidateManifestChunk(JsonElement payload)
     {
+        var rawBytes = RequireRange(
+            payload.GetProperty("raw_bytes"),
+            "raw_bytes",
+            1,
+            MaximumManifestChunkBytes);
         var encoded = RequireString(payload.GetProperty("raw_base64"), "raw_base64");
         if (encoded.Length == 0 || encoded.Length % 4 != 0 ||
             encoded.Any(character => !(char.IsAsciiLetterOrDigit(character) || character is '+' or '/' or '=')))
@@ -788,6 +812,7 @@ internal static class FakePrivateProtocol
         {
             if (!Convert.TryFromBase64String(encoded, decoded, out var decodedLength) ||
                 decodedLength is < 1 or > MaximumManifestChunkBytes ||
+                decodedLength != rawBytes ||
                 !string.Equals(
                     Convert.ToBase64String(decoded, 0, decodedLength),
                     encoded,
@@ -806,6 +831,142 @@ internal static class FakePrivateProtocol
         {
             ArrayPool<byte>.Shared.Return(decoded, clearArray: true);
         }
+    }
+
+    private static void ValidateFixtureOperationRequest(JsonElement payload)
+    {
+        RequireExactProperties(
+            payload,
+            "operation payload",
+            "operation",
+            "call_id",
+            "dispatch_capability",
+            "output_capability",
+            "arguments");
+        if (RequireString(payload.GetProperty("operation"), "operation") != "job_list")
+            throw InvalidField("operation");
+
+        var callId = RequireUuidV7(payload.GetProperty("call_id"), "call_id");
+        var dispatch = RequireObject(
+            payload.GetProperty("dispatch_capability"),
+            "dispatch_capability");
+        RequireExactProperties(
+            dispatch,
+            "dispatch_capability",
+            "token",
+            "call_id",
+            "expires_unix_time_milliseconds");
+        ValidateCapabilityToken(dispatch.GetProperty("token"));
+        if (RequireUuidV7(dispatch.GetProperty("call_id"), "dispatch_capability.call_id") != callId)
+            throw InvalidField("dispatch_capability.call_id");
+        _ = RequirePositiveInt64(
+            dispatch.GetProperty("expires_unix_time_milliseconds"),
+            "expires_unix_time_milliseconds");
+
+        if (payload.GetProperty("output_capability").ValueKind != JsonValueKind.Null)
+            throw InvalidField("output_capability");
+        RequireExactProperties(payload.GetProperty("arguments"), "job_list arguments");
+    }
+
+    private static void ValidateOkResponsePayload(JsonElement payload)
+    {
+        if (!payload.TryGetProperty("response_type", out var responseTypeValue))
+            throw InvalidField("response_type");
+
+        switch (RequireString(responseTypeValue, "response_type"))
+        {
+            case "manifest_header_accepted":
+                RequireExactProperties(
+                    payload,
+                    "manifest_header_accepted payload",
+                    "response_type",
+                    "manifest_id",
+                    "next_chunk_index",
+                    "next_offset");
+                _ = RequireUuid(payload.GetProperty("manifest_id"), "manifest_id");
+                RequireExactInt32(payload.GetProperty("next_chunk_index"), "next_chunk_index", 0);
+                RequireExactInt32(payload.GetProperty("next_offset"), "next_offset", 0);
+                break;
+            case "manifest_chunk_accepted":
+                RequireExactProperties(
+                    payload,
+                    "manifest_chunk_accepted payload",
+                    "response_type",
+                    "manifest_id",
+                    "chunk_index",
+                    "next_chunk_index",
+                    "next_offset");
+                _ = RequireUuid(payload.GetProperty("manifest_id"), "manifest_id");
+                var chunkIndex = RequireRange(
+                    payload.GetProperty("chunk_index"),
+                    "chunk_index",
+                    0,
+                    MaximumManifestChunks - 1);
+                var nextChunkIndex = RequireRange(
+                    payload.GetProperty("next_chunk_index"),
+                    "next_chunk_index",
+                    1,
+                    MaximumManifestChunks);
+                if (nextChunkIndex != chunkIndex + 1) throw InvalidField("next_chunk_index");
+                _ = RequireRange(
+                    payload.GetProperty("next_offset"),
+                    "next_offset",
+                    1,
+                    MaximumManifestBytes);
+                break;
+            case "manifest_sealed":
+                RequireExactProperties(
+                    payload,
+                    "manifest_sealed payload",
+                    "response_type",
+                    "manifest_id",
+                    "manifest_sha256",
+                    "total_bytes");
+                _ = RequireUuid(payload.GetProperty("manifest_id"), "manifest_id");
+                _ = RequireSha256(payload.GetProperty("manifest_sha256"), "manifest_sha256");
+                _ = RequireRange(
+                    payload.GetProperty("total_bytes"),
+                    "total_bytes",
+                    1,
+                    MaximumManifestBytes);
+                break;
+            case "operation_completed":
+                ValidateFixtureOperationCompleted(payload);
+                break;
+            case "control_acknowledged":
+                RequireExactProperties(
+                    payload,
+                    "control_acknowledged payload",
+                    "response_type",
+                    "source_event_sequence");
+                _ = RequirePositiveInt64(
+                    payload.GetProperty("source_event_sequence"),
+                    "source_event_sequence");
+                break;
+            case "shutdown_accepted":
+                RequireExactProperties(payload, "shutdown_accepted payload", "response_type");
+                break;
+            default:
+                throw InvalidField("response_type");
+        }
+    }
+
+    private static void ValidateFixtureOperationCompleted(JsonElement payload)
+    {
+        RequireExactProperties(
+            payload,
+            "operation_completed payload",
+            "response_type",
+            "operation",
+            "result");
+        if (RequireString(payload.GetProperty("operation"), "operation") != "job_list")
+            throw InvalidField("operation");
+
+        var result = RequireObject(payload.GetProperty("result"), "result");
+        RequireExactProperties(result, "text_result", "text");
+        var text = RequireString(result.GetProperty("text"), "text");
+        if (text.Length > 131_072 || StrictUtf8.GetByteCount(text) > 131_072)
+            throw InvalidField("text");
     }
 
     private static void ValidateCapabilityToken(JsonElement value)
@@ -1057,6 +1218,19 @@ internal static class FakePrivateProtocol
 
     private static Guid? RequireNullableUuid(JsonElement value, string name) =>
         value.ValueKind == JsonValueKind.Null ? null : RequireUuid(value, name);
+
+    private static Guid RequireUuidV7(JsonElement value, string name)
+    {
+        var text = RequireString(value, name);
+        if (!Guid.TryParseExact(text, "D", out var parsed) ||
+            !string.Equals(text, parsed.ToString("D"), StringComparison.Ordinal) ||
+            text[14] != '7' ||
+            text[19] is not ('8' or '9' or 'a' or 'b'))
+        {
+            throw InvalidField(name);
+        }
+        return parsed;
+    }
 
     private static void ValidateUuid(Guid value, string name)
     {

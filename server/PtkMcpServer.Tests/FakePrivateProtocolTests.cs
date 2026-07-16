@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PtkResilienceTestFixture;
@@ -170,7 +171,7 @@ public sealed class FakePrivateProtocolTests
                 .GetProperty("x-ptk-property-order"),
             highWatermark);
         Assert.Equal("default", highWatermark.GetProperty("alias").GetString());
-        Assert.Equal(0, highWatermark.GetProperty("generation").GetInt64());
+        Assert.Equal(generation - 1, highWatermark.GetProperty("generation").GetInt64());
     }
 
     [Fact]
@@ -191,6 +192,134 @@ public sealed class FakePrivateProtocolTests
             AssertProtocolFailure("wrong_direction", () =>
                 FakePrivateProtocol.Decode(encoded, wrongSender));
         }
+    }
+
+    [Fact]
+    public void Manifest_chunk_requires_raw_bytes_and_exact_decoded_length()
+    {
+        var raw = "fixture manifest chunk"u8.ToArray();
+        var valid = ManifestChunk(raw, raw.Length);
+        var encoded = FakePrivateProtocol.Encode(valid, FakePrivatePeer.Guardian);
+        var decoded = FakePrivateProtocol.Decode(encoded, FakePrivatePeer.Guardian);
+        var payload = decoded.Value("payload");
+        Assert.Equal(raw.Length, payload.GetProperty("raw_bytes").GetInt32());
+
+        using var schema = JsonDocument.Parse(File.ReadAllBytes(ContractPath(
+            "guardian-host-protocol.schema.json")));
+        AssertPropertyOrder(
+            schema.RootElement.GetProperty("$defs").GetProperty("manifest_chunk")
+                .GetProperty("x-ptk-property-order"),
+            payload);
+
+        AssertProtocolFailure("invalid_field", () => FakePrivateProtocol.Encode(
+            ManifestChunk(raw, raw.Length - 1),
+            FakePrivatePeer.Guardian));
+
+        var missingRawBytes = Request(
+            "manifest_chunk",
+            JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+            {
+                ["manifest_id"] = "33333333-3333-4333-8333-333333333333",
+                ["chunk_index"] = 0,
+                ["offset"] = 0,
+                ["raw_base64"] = Convert.ToBase64String(raw),
+                ["raw_sha256"] = Sha256Hex(raw),
+            }));
+        AssertProtocolFailure("invalid_field", () => FakePrivateProtocol.Encode(
+            missingRawBytes,
+            FakePrivatePeer.Guardian));
+    }
+
+    [Fact]
+    public void Handshake_and_operation_frames_use_the_frozen_v1_payload_shapes()
+    {
+        using var schema = JsonDocument.Parse(File.ReadAllBytes(ContractPath(
+            "guardian-host-protocol.schema.json")));
+
+        var manifestId = Guid.Parse("33333333-3333-4333-8333-333333333333");
+        var handshakePayloads = new[]
+        {
+            ("manifest_header_accepted", JsonSerializer.SerializeToElement(
+                new Dictionary<string, object?>
+                {
+                    ["response_type"] = "manifest_header_accepted",
+                    ["manifest_id"] = manifestId,
+                    ["next_chunk_index"] = 0,
+                    ["next_offset"] = 0,
+                })),
+            ("manifest_chunk_accepted", JsonSerializer.SerializeToElement(
+                new Dictionary<string, object?>
+                {
+                    ["response_type"] = "manifest_chunk_accepted",
+                    ["manifest_id"] = manifestId,
+                    ["chunk_index"] = 0,
+                    ["next_chunk_index"] = 1,
+                    ["next_offset"] = 17,
+                })),
+            ("manifest_sealed", JsonSerializer.SerializeToElement(
+                new Dictionary<string, object?>
+                {
+                    ["response_type"] = "manifest_sealed",
+                    ["manifest_id"] = manifestId,
+                    ["manifest_sha256"] = new string('a', 64),
+                    ["total_bytes"] = 17,
+                })),
+        };
+        var requestId = 1L;
+        foreach (var (definition, payload) in handshakePayloads)
+        {
+            _ = FakePrivateProtocol.Encode(
+                Response(requestId++, payload),
+                FakePrivatePeer.Host);
+            AssertPropertyOrder(
+                schema.RootElement.GetProperty("$defs").GetProperty(definition)
+                    .GetProperty("x-ptk-property-order"),
+                payload);
+        }
+
+        var operationRequest = OperationRequest(requestId++);
+        _ = FakePrivateProtocol.Encode(operationRequest, FakePrivatePeer.Guardian);
+        AssertPropertyOrder(
+            schema.RootElement.GetProperty("$defs").GetProperty("operation_request")
+                .GetProperty("x-ptk-property-order"),
+            operationRequest.Value("payload"));
+
+        var operationResponse = Response(requestId++);
+        _ = FakePrivateProtocol.Encode(operationResponse, FakePrivatePeer.Host);
+        AssertPropertyOrder(
+            schema.RootElement.GetProperty("$defs").GetProperty("operation_completed")
+                .GetProperty("x-ptk-property-order"),
+            operationResponse.Value("payload"));
+
+        var oldOperation = FakePrivateProtocol.Create(
+            FakePrivateMessageKind.Request,
+            GuardianBootId,
+            HostBootId,
+            1,
+            ("request_id", requestId++),
+            ("method", "operation"),
+            ("deadline_unix_time_milliseconds", 2_000_000_000_000L),
+            ("session_alias", "default"),
+            ("session_transition_version", 1L),
+            ("worker_boot_id", Guid.Parse("44444444-4444-4444-8444-444444444444")),
+            ("worker_generation", 1L),
+            ("plan_id", null),
+            ("operation_id", null),
+            ("payload", JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+            {
+                ["barrier"] = "normal",
+                ["token"] = "fixture",
+            })));
+        AssertProtocolFailure("invalid_field", () => FakePrivateProtocol.Encode(
+            oldOperation,
+            FakePrivatePeer.Guardian));
+
+        var oldEmptyResponse = Response(
+            requestId,
+            JsonSerializer.SerializeToElement(new Dictionary<string, object?>()));
+        AssertProtocolFailure("invalid_field", () => FakePrivateProtocol.Encode(
+            oldEmptyResponse,
+            FakePrivatePeer.Host));
     }
 
     [Fact]
@@ -260,10 +389,16 @@ public sealed class FakePrivateProtocolTests
         Assert.Equal(1, failing.WriteCount);
     }
 
+    private static readonly Guid GuardianBootId =
+        Guid.Parse("11111111-1111-4111-8111-111111111111");
+
+    private static readonly Guid HostBootId =
+        Guid.Parse("22222222-2222-4222-8222-222222222222");
+
     private static FakePrivateEnvelope Hello() => FakePrivateProtocol.Create(
         FakePrivateMessageKind.Hello,
-        Guid.Parse("11111111-1111-4111-8111-111111111111"),
-        Guid.Parse("22222222-2222-4222-8222-222222222222"),
+        GuardianBootId,
+        HostBootId,
         1,
         ("host_pid", 4242),
         ("host_executable_sha256", new string('1', 64)),
@@ -273,15 +408,92 @@ public sealed class FakePrivateProtocolTests
         ("request_channel_owned", true),
         ("event_channel_owned", true));
 
-    private static FakePrivateEnvelope Response(long requestId) => FakePrivateProtocol.Create(
+    private static FakePrivateEnvelope Response(long requestId) => Response(
+        requestId,
+        JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+        {
+            ["response_type"] = "operation_completed",
+            ["operation"] = "job_list",
+            ["result"] = new Dictionary<string, object?>
+            {
+                ["text"] = "{}",
+            },
+        }));
+
+    private static FakePrivateEnvelope Response(long requestId, JsonElement payload) =>
+        FakePrivateProtocol.Create(
         FakePrivateMessageKind.Response,
-        Guid.Parse("11111111-1111-4111-8111-111111111111"),
-        Guid.Parse("22222222-2222-4222-8222-222222222222"),
+        GuardianBootId,
+        HostBootId,
         1,
         ("request_id", requestId),
         ("status", "ok"),
-        ("payload", JsonSerializer.SerializeToElement(new Dictionary<string, object?>())),
+        ("payload", payload),
         ("error", null));
+
+    private static FakePrivateEnvelope OperationRequest(long requestId)
+    {
+        var callId = "01890f2e-9b5a-7cc1-98b7-5e510d65e4d2";
+        return FakePrivateProtocol.Create(
+            FakePrivateMessageKind.Request,
+            GuardianBootId,
+            HostBootId,
+            1,
+            ("request_id", requestId),
+            ("method", "operation"),
+            ("deadline_unix_time_milliseconds", 2_000_000_000_000L),
+            ("session_alias", "default"),
+            ("session_transition_version", 1L),
+            ("worker_boot_id", Guid.Parse("44444444-4444-4444-8444-444444444444")),
+            ("worker_generation", 1L),
+            ("plan_id", null),
+            ("operation_id", null),
+            ("payload", JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+            {
+                ["operation"] = "job_list",
+                ["call_id"] = callId,
+                ["dispatch_capability"] = new Dictionary<string, object?>
+                {
+                    ["token"] = new string('A', 43),
+                    ["call_id"] = callId,
+                    ["expires_unix_time_milliseconds"] = 2_000_000_000_000L,
+                },
+                ["output_capability"] = null,
+                ["arguments"] = new Dictionary<string, object?>(),
+            })));
+    }
+
+    private static FakePrivateEnvelope ManifestChunk(byte[] raw, int rawBytes) => Request(
+        "manifest_chunk",
+        JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+        {
+            ["manifest_id"] = "33333333-3333-4333-8333-333333333333",
+            ["chunk_index"] = 0,
+            ["offset"] = 0,
+            ["raw_bytes"] = rawBytes,
+            ["raw_base64"] = Convert.ToBase64String(raw),
+            ["raw_sha256"] = Sha256Hex(raw),
+        }));
+
+    private static FakePrivateEnvelope Request(string method, JsonElement payload) =>
+        FakePrivateProtocol.Create(
+            FakePrivateMessageKind.Request,
+            GuardianBootId,
+            HostBootId,
+            1,
+            ("request_id", 2L),
+            ("method", method),
+            ("deadline_unix_time_milliseconds", null),
+            ("session_alias", null),
+            ("session_transition_version", null),
+            ("worker_boot_id", null),
+            ("worker_generation", null),
+            ("plan_id", null),
+            ("operation_id", null),
+            ("payload", payload));
+
+    private static string Sha256Hex(byte[] bytes) =>
+        Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
     private static (FakePrivateEnvelope Envelope, FakePrivatePeer Sender)[] AllEnvelopeKinds()
     {
@@ -289,7 +501,6 @@ public sealed class FakePrivateProtocolTests
         var host = Guid.Parse("22222222-2222-4222-8222-222222222222");
         var manifest = Guid.Parse("33333333-3333-4333-8333-333333333333");
         var digest = new string('a', 64);
-        var empty = JsonSerializer.SerializeToElement(new Dictionary<string, object?>());
         var eventPayload = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
         {
             ["binding_digest"] = digest,
@@ -325,21 +536,7 @@ public sealed class FakePrivateProtocolTests
                 ("manifest_id", manifest),
                 ("manifest_sha256", digest),
                 ("host_pid", 4242)), FakePrivatePeer.Host),
-            (FakePrivateProtocol.Create(
-                FakePrivateMessageKind.Request,
-                guardian,
-                host,
-                1,
-                ("request_id", 2L),
-                ("method", "operation"),
-                ("deadline_unix_time_milliseconds", null),
-                ("session_alias", null),
-                ("session_transition_version", null),
-                ("worker_boot_id", null),
-                ("worker_generation", null),
-                ("plan_id", null),
-                ("operation_id", null),
-                ("payload", empty)), FakePrivatePeer.Guardian),
+            (OperationRequest(2L), FakePrivatePeer.Guardian),
             (FakePrivateProtocol.Create(
                 FakePrivateMessageKind.Cancel,
                 guardian,

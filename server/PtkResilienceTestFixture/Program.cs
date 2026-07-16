@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -365,10 +366,21 @@ internal sealed class FakeGuardian : IAsyncDisposable
             }
 
             var privateRequestId = NextPrivateRequestId();
+            var callId = Guid.CreateVersion7();
+            var deadline = DateTimeOffset.UtcNow.Add(PrivateOperationTimeout)
+                .ToUnixTimeMilliseconds();
             var privatePayload = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
             {
-                ["barrier"] = barrier,
-                ["token"] = token,
+                ["operation"] = "job_list",
+                ["call_id"] = callId.ToString("D"),
+                ["dispatch_capability"] = new Dictionary<string, object?>
+                {
+                    ["token"] = CreateCapabilityToken(),
+                    ["call_id"] = callId.ToString("D"),
+                    ["expires_unix_time_milliseconds"] = deadline,
+                },
+                ["output_capability"] = null,
+                ["arguments"] = new Dictionary<string, object?>(),
             }, JsonOptions);
             var privateRequest = FakePrivateProtocol.Create(
                 FakePrivateMessageKind.Request,
@@ -377,15 +389,25 @@ internal sealed class FakeGuardian : IAsyncDisposable
                 host.Generation,
                 ("request_id", privateRequestId),
                 ("method", "operation"),
-                ("deadline_unix_time_milliseconds", null),
-                ("session_alias", null),
-                ("session_transition_version", null),
-                ("worker_boot_id", null),
-                ("worker_generation", null),
+                ("deadline_unix_time_milliseconds", deadline),
+                ("session_alias", "default"),
+                ("session_transition_version", 1L),
+                ("worker_boot_id", host.WorkerBootId),
+                ("worker_generation", host.WorkerGeneration),
                 ("plan_id", null),
                 ("operation_id", null),
                 ("payload", privatePayload));
             var privateResponse = host.Connection.RegisterResponse(privateRequestId);
+            Program.WriteControlFile(
+                Program.ControlPath(
+                    _controlRoot,
+                    "operation",
+                    privateRequestId.ToString(CultureInfo.InvariantCulture)),
+                JsonSerializer.Serialize(new Dictionary<string, object?>
+                {
+                    ["barrier"] = barrier,
+                    ["token"] = token,
+                }, JsonOptions));
 
             if (barrier == "pre_write_revalidation")
             {
@@ -477,7 +499,12 @@ internal sealed class FakeGuardian : IAsyncDisposable
                 terminal.Value("request_id").GetInt64() != privateRequestId ||
                 terminal.Value("status").GetString() != "ok" ||
                 terminal.Value("error").ValueKind != JsonValueKind.Null ||
-                terminal.Value("payload").ValueKind != JsonValueKind.Object)
+                terminal.Value("payload").ValueKind != JsonValueKind.Object ||
+                terminal.Value("payload").GetProperty("response_type").GetString() !=
+                    "operation_completed" ||
+                terminal.Value("payload").GetProperty("operation").GetString() != "job_list" ||
+                terminal.Value("payload").GetProperty("result").GetProperty("text").ValueKind !=
+                    JsonValueKind.String)
             {
                 if (!host.Process.HasExited)
                 {
@@ -487,7 +514,10 @@ internal sealed class FakeGuardian : IAsyncDisposable
                 return BackendOutcome.Error(OutcomeUnknown());
             }
 
-            var exactTerminal = terminal.Value("payload").GetRawText();
+            var exactTerminal = terminal.Value("payload")
+                .GetProperty("result")
+                .GetProperty("text")
+                .GetString()!;
 
             if (barrier == "terminal_decoded")
             {
@@ -510,6 +540,23 @@ internal sealed class FakeGuardian : IAsyncDisposable
         if (requestId <= 0)
             throw new InvalidOperationException("Private request identifiers are exhausted.");
         return requestId;
+    }
+
+    private static string CreateCapabilityToken()
+    {
+        Span<byte> randomBytes = stackalloc byte[32];
+        RandomNumberGenerator.Fill(randomBytes);
+        try
+        {
+            return Convert.ToBase64String(randomBytes)
+                .TrimEnd('=')
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(randomBytes);
+        }
     }
 
     private async Task<HostSnapshot> AwaitHostLossAsync(HostInstance host)
@@ -1072,12 +1119,16 @@ internal sealed class FakeGuardian : IAsyncDisposable
         {
             Connection = new FakePrivateHostConnection(process, generation, guardianBootId);
             Generation = generation;
+            WorkerBootId = Guid.NewGuid();
+            WorkerGeneration = generation;
             StartTimeUtc = Connection.StartTimeUtc;
         }
 
         public FakePrivateHostConnection Connection { get; }
         public Process Process => Connection.Process;
         public long Generation { get; }
+        public Guid WorkerBootId { get; }
+        public long WorkerGeneration { get; }
         public DateTime StartTimeUtc { get; }
         public Task? Observer
         {

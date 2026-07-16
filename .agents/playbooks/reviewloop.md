@@ -120,6 +120,27 @@ machine state). The cache is advisory and **self-authored** — never hand-maint
 the source of truth is "re-derive by probing," so a stale cache self-corrects on the
 next smoke test.
 
+## Claude review question (neutral by construction)
+
+When `<agent>` is Claude, the substantive review prompt is exactly:
+
+> Is the code as implemented the best way to achieve the goal?
+
+That sentence is the whole substantive framing. Give Claude only the mechanical
+coordinates needed to perform the review: repository location, exact base and head
+SHAs, permission to inspect the repository to discover the goal, disposable-worktree
+isolation, side-effect boundaries, and the structured verdict schema. Those facts make
+the review reproducible; they do not tell the reviewer what conclusion to reach.
+
+Do **not** tell Claude to validate the code against a plan. Do not summarize the plan
+or implementation, enumerate areas to inspect, supply a risk checklist, suggest
+findings or mutations, repeat claimed invariants, disclose prior reviewer conclusions,
+or otherwise prime what should matter. The plan and finding records remain repository
+evidence Claude may discover, not a rubric the caller argues from. Claude chooses what
+to read, which alternatives to consider, and which guards provide the strongest
+independent evidence. Let the reviewer breathe; a clean "yes" is as valid as a
+well-supported "no."
+
 ## Per-finding flow
 
 For each admitted finding (intake/triage and the coder's own guard proof are done —
@@ -132,11 +153,13 @@ see the gate below):
    branch **head SHA** and the **base SHA** (the merge-base with the main branch at
    dispatch time), so the reviewer evaluates `git diff <base-sha>..<head-sha>` against
    a fixed snapshot — a `main..branch` range is *not* stable if the main branch moves.
-   The reviewer reads the code from the **shared workspace** (you do not pipe it the
-   diff); it reads `.agents/review/findings/<id>.md`, and **independently performs the
-   guard proof** (revert → confirm FAIL → restore → confirm PASS) **in its own `git
-   worktree` checked out at the head SHA** — never by mutating your working tree. A
-   reviewer that crashes mid-proof leaves only its disposable worktree dirty.
+   When the reviewer is Claude, construct the prompt exactly as the neutral-question
+   section above requires; do not single out the plan or finding record as the
+   evaluation standard. The reviewer reads the code from the **shared workspace**
+   (you do not pipe it the diff) and **independently performs the guard proof** (revert
+   → confirm FAIL → restore → confirm PASS) **in its own `git worktree` checked out at
+   the head SHA** — never by mutating your working tree. A reviewer that crashes
+   mid-proof leaves only its disposable worktree dirty.
 3. **Verdict contract (structured, fail-closed).** The reviewer returns its verdict in
    the JSON envelope. Its result payload must match:
    ```json
@@ -322,6 +345,10 @@ Name them when they appear; they are process defects, not code defects.
   finding or contested doc.
 - **Reviewing against a moving base.** Pin the base + head SHAs at dispatch; do not let
   `main..branch` drift mid-review.
+- **Plan-conformance priming (Claude).** Telling Claude to validate against a plan, or
+  preloading a checklist, suspected risks, preferred mutations, or expected findings,
+  turns independent review into confirmation. Ask only the neutral substantive
+  question and provide the mechanical coordinates and safety/output contract.
 
 ## Knobs
 

@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "1def437132097d4317a7687295b6bf47e2b928f453ecd78c0da1f76c5beed586";
+    private const string ContractSha256 = "d622bc8f4242b75a09824a14b8347af37db1bbcd096891f270beac994242705d";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -203,6 +203,25 @@ public sealed class McpResilienceR0ContractTests
             fixture.Split('\n'),
             line => line.TrimStart().StartsWith("disable_compression:", StringComparison.Ordinal));
         Assert.Equal("    disable_compression: true", setting);
+    }
+
+    [Fact]
+    public void Invoke_description_discloses_one_absolute_timeout_and_containment_bound()
+    {
+        using var publicContract = ReadStrictJson("public-tool-contract.json");
+        var description = publicContract.RootElement.GetProperty("tools_list").GetProperty("tools")
+            .EnumerateArray().Single(tool => tool.GetProperty("name").GetString() == "ptk_invoke")
+            .GetProperty("description").GetString()!;
+
+        Assert.Contains("timeoutSeconds=0 uses the operator-configured call default", description, StringComparison.Ordinal);
+        Assert.Contains("a positive override is capped by the server maximum", description, StringComparison.Ordinal);
+        Assert.Contains(
+            "One absolute deadline covers lazy session startup/bootstrap, queueing, routing, foreground execution or background start, and result shaping",
+            description,
+            StringComparison.Ordinal);
+        Assert.Contains("earlier frozen template startup ceiling", description, StringComparison.Ordinal);
+        Assert.Contains("containment may extend the response by at most 10 seconds", description, StringComparison.Ordinal);
+        Assert.Contains("maximum wall time is the selected deadline plus 10 seconds", description, StringComparison.Ordinal);
     }
 
     [Fact]

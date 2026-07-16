@@ -10,7 +10,7 @@
     "tools": [
       {
         "name": "ptk_invoke",
-        "description": "Run shell work through PTK with warm PowerShell state, internal RTK/Bash routing, bounded shaping, and same-invocation output recovery. Background work is cold and stateless. The total timeout includes queueing and execution. No work started. PTK recovery is <phase> (attempt <n>). Check ptk_state in <NN> ms. Do not resubmit until <gate> is ready.",
+        "description": "Run shell work through PTK with warm PowerShell state, internal RTK/Bash routing, bounded shaping, and same-invocation output recovery. Background work is cold and stateless. timeoutSeconds=0 uses the operator-configured call default; a positive override is capped by the server maximum. One absolute deadline covers lazy session startup/bootstrap, queueing, routing, foreground execution or background start, and result shaping; template-backed lazy startup also stops at the earlier frozen template startup ceiling. After a launched worker misses that deadline, containment may extend the response by at most 10 seconds, so maximum wall time is the selected deadline plus 10 seconds. No work started. PTK recovery is <phase> (attempt <n>). Check ptk_state in <NN> ms. Do not resubmit until <gate> is ready.",
         "inputSchema": {
           "type": "object",
           "properties": {

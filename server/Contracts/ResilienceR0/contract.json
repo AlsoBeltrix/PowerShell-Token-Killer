@@ -205,7 +205,7 @@
       "files_order": "ordinal_utf8_path",
       "example_file": "package-manifest.example.json",
       "example_raw_utf8_bytes": 2233,
-      "example_digest": "0a1a7b0d4b878a3d386471123d038120aa16749cdd9ea2cfdb4b729b41949c7a",
+      "example_digest": "4f4b9059442b11c948727cf424e3fb512cefda25f03f5fdf423d13319d9aba7e",
       "manifest_is_not_a_file_entry": true
     },
     "public_contract": {
@@ -305,7 +305,7 @@
     "sentinel-event.json"
   ],
   "artifact_sha256": {
-    "public-tool-contract.json": "842dbeaaebb2f25404e1b042f26f3fde3a0b4240b91da31fbf81cf0cc7a8dd62",
+    "public-tool-contract.json": "8906a9117fccb3fa7040f0ab8ba703256793278fbd22b2c674b8104fdbb88435",
     "public-recovery.schema.json": "c5b5ae2cc710c62c23f5c564371fd8b743ad1056769424bf8cf4b4e85fe046ce",
     "public-state.schema.json": "b189cc62a991244c29a33bbc7ef5c2d4fe971098e0b3cdf5f8ace982c448c9f5",
     "guardian-host-protocol.json": "9d763b7dd0dd79a0b86ee884e1598cf899d46a3bb629fbb28948a14b2a13912c",
@@ -315,7 +315,7 @@
     "audit-v3-null.jsonl": "515008d265bdf60594a091e734221b2555b53d5b0dda377eed7f7de76297f39b",
     "audit-v3-host.jsonl": "c0bf4bf23f60cd60e524f3eb1628a9ab28d8cae59d922c541b1dc43c5e35a3e5",
     "package-manifest.schema.json": "16eff921e0d3c3c93963c7d9eba26b300951fc02d0ab076e680ce6dcaf5bebb2",
-    "package-manifest.example.json": "c1bc90e7c2672bf047d6736a1d9e0a111bc5e6644fa9a60610781735665c356d",
+    "package-manifest.example.json": "b0450c9927a61f4d66e17609cc0eaf991bd16b85ad07cba2000e7f3e6acfafb5",
     "native-linux-acquisition.json": "bf9a29f3a61df4a79e93ba65059594429f2e3d51df6c371deb9f2fec831b14cc",
     "adapter-pins.json": "163c41eaa147c12993c4c2f9f57ab433654fa9d08c623b71ac56d708945d9a0c",
     "adapter-live-validation.json": "a37a6e02355ed9651d2061cea0ae213a432e251307bff1fc0189006d666efc79",

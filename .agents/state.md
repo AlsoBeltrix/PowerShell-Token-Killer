@@ -28,7 +28,9 @@ short and update it when important repo facts change.
   checkout validation, and exact snapshot `a473ca3` passed the direct Linux
   behavior battery after manual generation around an ARM64 MSBuild-only
   `protoc` crash; the exact commands, contexts, counts, and clean-build caveat
-  are recorded there. Hosted Linux/Windows/macOS CI has not run.
+  are recorded there. Hosted run `29520427103` at `72c6103` passed all three
+  SIEM jobs and the complete Ubuntu/macOS product batteries; its Windows
+  server failure is addressed by the CI portability follow-up below.
 - **Audited-harness Slices 7a-7f and the Windows wait-ownership prerequisite
   are complete and landed on local `master`; Slice 7f code head is
   `a9e757e`.**
@@ -152,31 +154,18 @@ short and update it when important repo facts change.
   evidence is in `.agents/review/index.md`; the earlier fail-closed attempts
   and their resolution remain in
   `.agents/review/mcp-resilience-r0-review.contested.md`.
-- **CI portability repair is complete at test-only code head `6193ae4`.**
-  GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
-  Windows at Slice 8's newly introduced five-second overlap checkpoint and
-  failed Ubuntu in two older eight-way rendezvous fixtures; its server and
-  workflow trees are identical to green `d30bbf3`. The Windows checkpoint now
-  shares the original fifteen-second contender budget; the singleton mutation
-  failed and scoped ownership passed 10/10 on `NETWATCH-01`. The Ubuntu pair
-  is one blocking-ThreadPool test-harness flaw; Slice 9 uses dedicated
-  `LongRunning` contenders in both fixtures while preserving their eight-way
-  collision and cleanup assertions. Both collision mutations failed for the
-  intended losing publish, the paired tests passed 10/10, the complete local
-  and direct Windows batteries passed, and independent review found no code
-  issue. Hosted run `29318333860` then passed Ubuntu and macOS at `24c7958`
-  but failed one Windows result in a second concurrent recovery fixture that
-  still shared a singleton request context. Production has always scoped that
-  holder. Slice 10 now gives every synthetic request its own scope and
-  deterministically overlaps two handlers using the existing completion
-  budget. Singleton ownership failed the guard on macOS and Windows; restored
-  scopes passed 10/10, both complete batteries passed, and independent review
-  found no material issue. GitHub Actions run `29331077331` passed Ubuntu,
-  macOS, and Windows at docs descendant `ccee469`, including Pester, all 1,207
-  server tests, the handshake, and cleanup. No production files changed.
-  Canonical evidence is in
-  `.agents/plans/ci-portability-repair.md`, `.agents/review/index.md`, and
-  `.agents/machines.md`; RTK distribution remains a separate decision.
+- **CI portability Slices 11-12 are implemented and directly verified at
+  exact repair head `f658f21`; the hosted matrix rerun is pending.** Run
+  `29520427103` passed Ubuntu, macOS, and every SIEM job but exposed six
+  Windows CRLF conversions in byte-exact R0 fixtures plus one final-name
+  marker sharing race. The repair pins only the current R0 text-artifact
+  extensions to LF and publishes fixture markers only after the writer closes.
+  Focused red/green mutations, the complete macOS and direct Windows batteries,
+  and independent review all passed without a production runtime change or a
+  weakened assertion. Slices 1-10 remain complete at test-only head `6193ae4`
+  with green hosted run `29331077331`. Canonical evidence is in
+  `.agents/plans/ci-portability-repair.md` and `.agents/machines.md`; RTK
+  distribution remains a separate decision.
 - **Audited-harness Slice 6 is complete locally.** Code
   head `7999328` moves invoke/job/state/reset behavior and session-lifetime
   caches behind one owning `SessionRuntime`, leaves audit and output

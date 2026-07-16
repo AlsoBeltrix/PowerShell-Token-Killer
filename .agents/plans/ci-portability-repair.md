@@ -1,12 +1,14 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** REOPENED 2026-07-16 for owner-approved Slices 11-12 after GitHub
-Actions run `29520427103` exposed two independent Windows checkout/fixture
-defects at exact head `72c6103`. Slices 1-10 remain completed at test-only code
-head `6193ae4`; their final hosted evidence is green run `29331077331` at docs
-descendant `ccee469`. The reopened work does not change production runtime
-behavior, install RTK into ordinary unit-test jobs, or decide whether a future
-PTK release bundles a pinned RTK binary.
+**Status:** IMPLEMENTED AND DIRECTLY VERIFIED 2026-07-16 for owner-approved
+Slices 11-12 at exact repair head `f658f21`; a new hosted matrix is still
+required before this reopened work is complete. GitHub Actions run
+`29520427103` exposed two independent Windows checkout/fixture defects at exact
+head `72c6103`. Slices 1-10 remain completed at test-only code head `6193ae4`;
+their final hosted evidence is green run `29331077331` at docs descendant
+`ccee469`. The reopened work does not change production runtime behavior,
+install RTK into ordinary unit-test jobs, or decide whether a future PTK
+release bundles a pinned RTK binary.
 
 ## Evidence and problem
 
@@ -242,6 +244,34 @@ write handle. The existence-only wait returned, and `ReadAllTextAsync` then
 hit Windows sharing violation. Host and worker markers avoid this ordering
 only because their pipe events occur after their writes return; the descendant
 ready event is independent of marker-write completion.
+
+Slice 11 landed at `f77d99a`. A disposable `core.autocrlf=true` checkout of
+the parent reported `w/crlf` and reproduced all six R0 failures; the repaired
+checkout reported `w/lf` with `text eol=lf`, and the complete R0 contract class
+passed 14/14 without changing any contract artifact or exact-byte assertion.
+
+Slice 12 landed at `f658f21`. On Windows, a temporary direct-final mutation
+held the descendant marker's writer open and deterministically reproduced the
+same sharing violation. Writing the same bytes to the pending sibling under
+the same hold, then closing and moving it, passed. The exact committed fixture
+then passed its focused integration test 10/10.
+
+The exact repair head passed the complete macOS battery: 1,532 server tests,
+141 Pester passes with two expected platform skips, and the stdio handshake.
+On `NETWATCH-01`, the complete server suite passed 1,532/1,532 under a
+transient `SYSTEM` task, while the documented no-profile Pester command passed
+142 tests with one expected skip and the handshake passed under
+`NETWATCH-01\\michael`. The split identity is required because this host's
+key-authenticated SSH identity cannot use current-user DPAPI for the suite's
+persisted PKCS#12 imports. The service profile's legacy Pester was not counted
+as product evidence. No validation certificate, process, task, checkout,
+bundle, script, or log remained after cleanup.
+
+Independent read-only review of `72c6103..f658f21` found no material issue,
+production change, weakened assertion, or uncovered current R0 artifact. Its
+only residual test-hygiene note is that the deterministic held-handle delay was
+a temporary mutation proof; the ordinary Windows integration guard remains
+committed. Hosted matrix evidence remains required.
 
 ## Non-goals
 

@@ -574,10 +574,11 @@ excluded from the merge and did not alter the tested product or test sources._
   reported `HANDSHAKE PASSED` with zero warnings and zero errors.
 - `dotnet list siem/PtkSiem.slnx package --vulnerable --include-transitive`
   reported no vulnerable direct or transitive packages.
-- This is local macOS evidence only. Hosted ubuntu/windows/macos CI and direct
-  Windows validation were not run. Mini-SIEM S4 remains gated on the absent
-  producer-owned serialized v3 OTLP request fixture, and startup filesystem
-  owner/mode/DACL plus symlink/reparse enforcement remains unimplemented.
+- This is local macOS evidence at merge `374f164`; later direct platform and
+  hosted evidence is recorded in its own sections and in the CI portability
+  plan. Mini-SIEM S4 remains gated on the absent producer-owned serialized v3
+  OTLP request fixture, and startup filesystem owner/mode/DACL plus
+  symlink/reparse enforcement remains unimplemented.
 
 ## R0 + mini-SIEM S1-S3 integration verification (Windows, 2026-07-16)
 
@@ -615,9 +616,8 @@ NT 10.0.26200.0 x64, PowerShell 7.6.3, .NET SDK 10.0.302/runtime 10.0.10._
   changed.
 - This validates the committed Windows source in a service context; it does not
   satisfy the still-unimplemented dedicated receiver-account filesystem/DACL
-  and symlink/reparse acceptance matrix. Hosted Linux/Windows/macOS CI still has
-  not run, and mini-SIEM S4 remains gated on producer-owned serialized v3 OTLP
-  request bytes.
+  and symlink/reparse acceptance matrix. Mini-SIEM S4 remains gated on
+  producer-owned serialized v3 OTLP request bytes.
 
 ## R0 + mini-SIEM S1-S3 integration verification (Linux, 2026-07-16)
 
@@ -648,6 +648,34 @@ disposable Ubuntu 26.04 ARM64 checkout at `192.168.64.5`: kernel 7.0.0-27,
   residue. The only HTTPS development certificate in the user store predates
   this validation (created 2026-07-11) and was preserved. No installed PTK
   payload or existing checkout changed.
-- Hosted Linux/Windows/macOS CI still has not run. The receiver filesystem
-  protection matrix remains unimplemented, and mini-SIEM S4 remains gated on
-  producer-owned serialized v3 OTLP request bytes.
+- The receiver filesystem protection matrix remains unimplemented, and
+  mini-SIEM S4 remains gated on producer-owned serialized v3 OTLP request
+  bytes.
+
+## CI portability Slices 11-12 verification (Mac and Windows, 2026-07-16)
+
+_Verified at exact repair head `f658f212da64d2ad08c94c0341844d301f0eac4c`; this
+was disposable-checkout validation and did not update an installed payload._
+
+- On `nagatha.local`, a `core.autocrlf=true` parent checkout reproduced the six
+  byte-contract failures with `w/crlf`. The repaired checkout reported `w/lf`
+  and `text eol=lf`, and the R0 contract class passed 14/14. The exact repair
+  head then passed 1,532/1,532 server tests, 141 Pester tests with two expected
+  platform skips, and the complete stdio handshake.
+- On `NETWATCH-01`, the checked-out R0 artifacts likewise reported `w/lf` with
+  the LF attribute. A temporary direct-final marker writer held open for one
+  second reproduced the hosted sharing violation; the pending-file version
+  passed with the same hold, and the exact committed Windows integration test
+  passed 10/10 after the hold was removed. The R0 contract class passed 14/14.
+- The complete Windows server suite passed 1,532/1,532 under a transient
+  `NT AUTHORITY\\SYSTEM` scheduled task. The documented no-profile PowerShell
+  suite passed 142 tests with one expected skip under
+  `NETWATCH-01\\michael`, and the stdio handshake passed with a zero-warning,
+  zero-error build. The service identity was required for .NET because this
+  host's key-authenticated SSH identity cannot use current-user DPAPI for the
+  persisted PKCS#12 test imports; the service profile's legacy Pester was not
+  counted as product evidence.
+- The service run created no certificate. All exact validation tasks,
+  processes, checkouts, bundles, scripts, logs, and local proof directories
+  were removed, with zero scoped residue afterward. Existing checkouts,
+  installed payloads, and unrelated host configuration were unchanged.

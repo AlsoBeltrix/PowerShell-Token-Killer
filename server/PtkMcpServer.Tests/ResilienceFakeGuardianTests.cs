@@ -231,7 +231,8 @@ public sealed class ResilienceFakeGuardianTests
         await File.WriteAllTextAsync(
             Path.Combine(harness.ControlRoot, "fail-next-host-start.json"),
             "{\"enabled\":true}");
-        harness.ExpectStderr("resilience-fixture:recovery:FakePrivateProtocolException\n");
+        harness.ExpectStderr(
+            $"resilience-fixture:recovery:FakePrivateProtocolException{Environment.NewLine}");
 
         await KillProcessAsync(initialHost.Pid);
         var firstBackoff = await harness.WaitForStateAsync(state =>

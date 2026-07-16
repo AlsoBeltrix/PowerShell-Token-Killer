@@ -11,7 +11,7 @@
     "sessions": {
       "type": "array",
       "maxItems": 128,
-      "x-ptk-order": "alias_ordinal_utf8",
+      "x-ptk-order": "alias_ordinal_utf8_strictly_increasing_unique",
       "items": { "$ref": "#/$defs/session" }
     }
   },

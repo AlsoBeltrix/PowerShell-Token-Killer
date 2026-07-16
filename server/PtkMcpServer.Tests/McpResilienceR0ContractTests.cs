@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "b34b41480b65766331ccae62f3e96c3992bb56e80ad85f942e523ad4fe4e22a2";
+    private const string ContractSha256 = "7ef12384b74e892ad6d033b99198c006c5995654d5ac08cf9fdf258b772a5a2c";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -221,6 +221,22 @@ public sealed class McpResilienceR0ContractTests
             ],
             "worker_boot_id",
             null);
+    }
+
+    [Fact]
+    public void Public_state_sessions_require_unique_strictly_ordered_aliases()
+    {
+        const string order = "alias_ordinal_utf8_strictly_increasing_unique";
+        using var contract = ReadStrictJson("contract.json");
+        Assert.Equal(order, contract.RootElement.GetProperty("public_state")
+            .GetProperty("alias_order").GetString());
+
+        using var schema = ReadStrictJson("public-state.schema.json");
+        Assert.Equal(order, schema.RootElement.GetProperty("properties")
+            .GetProperty("sessions").GetProperty("x-ptk-order").GetString());
+        Assert.True(SessionAliasesStrictlyIncrease(["a", "b"]));
+        Assert.False(SessionAliasesStrictlyIncrease(["a", "a"]));
+        Assert.False(SessionAliasesStrictlyIncrease(["b", "a"]));
     }
 
     [Fact]
@@ -1167,6 +1183,17 @@ public sealed class McpResilienceR0ContractTests
         {
             if (previous is not null && StringComparer.Ordinal.Compare(previous, path) >= 0) return false;
             previous = path;
+        }
+        return true;
+    }
+
+    private static bool SessionAliasesStrictlyIncrease(IEnumerable<string> aliases)
+    {
+        string? previous = null;
+        foreach (var alias in aliases)
+        {
+            if (previous is not null && StringComparer.Ordinal.Compare(previous, alias) >= 0) return false;
+            previous = alias;
         }
         return true;
     }

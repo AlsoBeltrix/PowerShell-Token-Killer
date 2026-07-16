@@ -23,6 +23,7 @@
   },
   "x-ptk-response-type-by-request": {
     "initialize": "no_response; correlation is ready.initialize_request_id",
+    "cancel": "no_response; target_request_id original request owns the sole terminal",
     "manifest_header": "manifest_header_accepted",
     "manifest_chunk": "manifest_chunk_accepted",
     "manifest_seal": "manifest_sealed",
@@ -32,6 +33,14 @@
     "worker_containment_armed_ack": "control_acknowledged",
     "worker_containment_remove_ack": "control_acknowledged",
     "shutdown": "shutdown_accepted"
+  },
+  "x-ptk-cross-frame-invariants": {
+    "operation_call_id": "operation_request.call_id=operation_request.dispatch_capability.call_id",
+    "cancel_request_id": "anti_replay_and_ordering_only; never response-owning",
+    "cancel_terminal_owner": "target_request_id original request owns the sole terminal",
+    "operation_response": "operation_completed.operation=originating_operation_request.operation",
+    "delivery_event": "operation_delivery.dispatch_token=originating_operation_request.dispatch_capability.token",
+    "control_ack": "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence"
   },
   "$defs": {
     "uuidv4": {
@@ -386,6 +395,8 @@
     },
     "cancel": {
       "type": "object",
+      "x-ptk-request-id-purpose": "anti_replay_and_ordering_only; never response-owning",
+      "x-ptk-terminal-owner": "target_request_id original request owns the sole terminal",
       "x-ptk-property-order": [
         "protocol_version", "kind", "guardian_boot_id", "host_boot_id", "host_generation",
         "request_id", "target_request_id", "reason"
@@ -741,6 +752,7 @@
     },
     "operation_request": {
       "type": "object",
+      "x-ptk-invariant": "call_id=dispatch_capability.call_id",
       "x-ptk-property-order": [
         "operation", "call_id", "dispatch_capability", "output_capability", "arguments"
       ],
@@ -945,6 +957,7 @@
     "worker_containment_remove_requested": { "$ref": "#/$defs/containment_identity_armed" },
     "operation_delivery": {
       "type": "object",
+      "x-ptk-cross-frame-invariant": "dispatch_token=originating_operation_request.dispatch_capability.token",
       "x-ptk-property-order": ["dispatch_token", "delivery_state", "worker_request_id"],
       "properties": {
         "dispatch_token": { "$ref": "#/$defs/token32" },
@@ -1177,6 +1190,7 @@
     },
     "operation_completed": {
       "type": "object",
+      "x-ptk-cross-frame-invariant": "operation=originating_operation_request.operation",
       "x-ptk-property-order": ["response_type", "operation", "result"],
       "properties": {
         "response_type": { "const": "operation_completed" },
@@ -1268,6 +1282,7 @@
     },
     "control_acknowledged": {
       "type": "object",
+      "x-ptk-cross-frame-invariant": "source_event_sequence=originating_guardian_request.payload.source_event_sequence",
       "x-ptk-property-order": ["response_type", "source_event_sequence"],
       "properties": {
         "response_type": { "const": "control_acknowledged" },

@@ -155,7 +155,9 @@
         "reason"
       ],
       "rules": {
+        "request_id": "anti_replay_and_ordering_only_no_response",
         "target_request_id": "original_request_in_same_host_generation",
+        "terminal_owner": "target_request_id_original_request_only",
         "reason": ["caller_canceled", "deadline_expired", "guardian_shutdown"]
       }
     },
@@ -488,6 +490,14 @@
         "request": "worker_containment_remove_ack"
       }
     ]
+  },
+  "cross_frame_correlation": {
+    "operation_call_id": "operation_request.call_id=operation_request.dispatch_capability.call_id",
+    "cancel_request_id": "anti_replay_and_ordering_only; never response-owning",
+    "cancel_terminal_owner": "target_request_id original request owns the sole terminal",
+    "operation_response": "operation_completed.operation=originating_operation_request.operation",
+    "delivery_event": "operation_delivery.dispatch_token=originating_operation_request.dispatch_capability.token",
+    "control_ack": "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence"
   },
   "manifest_transfer": {
     "schema_version": "ptk.recovery-manifest/1",

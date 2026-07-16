@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "d622bc8f4242b75a09824a14b8347af37db1bbcd096891f270beac994242705d";
+    private const string ContractSha256 = "2052bc80760f9b3cce3357cb69717379d527e2fef7c8a0f517fa2678fbec7ef3";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -222,6 +222,51 @@ public sealed class McpResilienceR0ContractTests
         Assert.Contains("earlier frozen template startup ceiling", description, StringComparison.Ordinal);
         Assert.Contains("containment may extend the response by at most 10 seconds", description, StringComparison.Ordinal);
         Assert.Contains("maximum wall time is the selected deadline plus 10 seconds", description, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Private_v1_cross_frame_capability_and_terminal_ownership_are_closed()
+    {
+        using var schema = ReadStrictJson("guardian-host-protocol.schema.json");
+        var responseMap = schema.RootElement.GetProperty("x-ptk-response-type-by-request");
+        Assert.Equal(
+            "no_response; target_request_id original request owns the sole terminal",
+            responseMap.GetProperty("cancel").GetString());
+
+        var expected = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["operation_call_id"] = "operation_request.call_id=operation_request.dispatch_capability.call_id",
+            ["cancel_request_id"] = "anti_replay_and_ordering_only; never response-owning",
+            ["cancel_terminal_owner"] = "target_request_id original request owns the sole terminal",
+            ["operation_response"] = "operation_completed.operation=originating_operation_request.operation",
+            ["delivery_event"] = "operation_delivery.dispatch_token=originating_operation_request.dispatch_capability.token",
+            ["control_ack"] = "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence",
+        };
+        var schemaInvariants = schema.RootElement.GetProperty("x-ptk-cross-frame-invariants");
+        Assert.Equal(expected.Keys, schemaInvariants.EnumerateObject().Select(property => property.Name));
+        Assert.All(expected, pair => Assert.Equal(pair.Value, schemaInvariants.GetProperty(pair.Key).GetString()));
+
+        var definitions = schema.RootElement.GetProperty("$defs");
+        var cancel = definitions.GetProperty("cancel");
+        Assert.Equal(expected["cancel_request_id"], cancel.GetProperty("x-ptk-request-id-purpose").GetString());
+        Assert.Equal(expected["cancel_terminal_owner"], cancel.GetProperty("x-ptk-terminal-owner").GetString());
+        Assert.Equal("call_id=dispatch_capability.call_id", definitions.GetProperty("operation_request")
+            .GetProperty("x-ptk-invariant").GetString());
+        Assert.Equal("dispatch_token=originating_operation_request.dispatch_capability.token",
+            definitions.GetProperty("operation_delivery").GetProperty("x-ptk-cross-frame-invariant").GetString());
+        Assert.Equal("operation=originating_operation_request.operation",
+            definitions.GetProperty("operation_completed").GetProperty("x-ptk-cross-frame-invariant").GetString());
+        Assert.Equal("source_event_sequence=originating_guardian_request.payload.source_event_sequence",
+            definitions.GetProperty("control_acknowledged").GetProperty("x-ptk-cross-frame-invariant").GetString());
+
+        using var protocol = ReadStrictJson("guardian-host-protocol.json");
+        var protocolInvariants = protocol.RootElement.GetProperty("cross_frame_correlation");
+        Assert.Equal(expected.Keys, protocolInvariants.EnumerateObject().Select(property => property.Name));
+        Assert.All(expected, pair => Assert.Equal(pair.Value, protocolInvariants.GetProperty(pair.Key).GetString()));
+        var cancelRules = protocol.RootElement.GetProperty("kinds").EnumerateArray()
+            .Single(kind => kind.GetProperty("kind").GetString() == "cancel").GetProperty("rules");
+        Assert.Equal("anti_replay_and_ordering_only_no_response", cancelRules.GetProperty("request_id").GetString());
+        Assert.Equal("target_request_id_original_request_only", cancelRules.GetProperty("terminal_owner").GetString());
     }
 
     [Fact]

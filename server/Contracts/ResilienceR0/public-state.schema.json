@@ -188,6 +188,26 @@
               }
             }
           ]
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "state": { "enum": ["absent", "backoff", "circuit_open", "stopped"] },
+                "boot_id": { "type": "null" },
+                "generation": { "type": "null" }
+              }
+            },
+            {
+              "properties": {
+                "state": {
+                  "enum": ["starting", "ready", "recovering", "containment_unconfirmed", "half_open"]
+                },
+                "boot_id": { "$ref": "#/$defs/uuidv4" },
+                "generation": { "type": "integer", "minimum": 1 }
+              }
+            }
+          ]
         }
       ]
     },
@@ -352,6 +372,34 @@
                 "recovery_attempt": { "type": "integer", "minimum": 1 },
                 "retry_after_ms": { "type": "integer", "minimum": 250, "maximum": 60000 },
                 "ready_for_effects": { "const": false }
+              }
+            }
+          ]
+        },
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "state": { "const": "cold" },
+                "worker_boot_id": { "type": "null" },
+                "generation": { "type": "null" }
+              }
+            },
+            {
+              "properties": {
+                "state": { "enum": ["ready", "bootstrapping", "quarantined"] },
+                "worker_boot_id": { "$ref": "#/$defs/uuidv4" },
+                "generation": { "type": "integer", "minimum": 1 }
+              }
+            },
+            {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "starting", "resetting", "closing", "faulted", "lost", "recovering",
+                    "backoff", "circuit_open", "half_open", "recovery_unknown"
+                  ]
+                }
               }
             }
           ]

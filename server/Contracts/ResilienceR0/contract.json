@@ -96,6 +96,18 @@
       "half_open",
       "recovery_unknown"
     ],
+    "host_identity_by_state": {
+      "null": ["absent", "backoff", "circuit_open", "stopped"],
+      "nonnull": ["starting", "ready", "recovering", "containment_unconfirmed", "half_open"]
+    },
+    "session_identity_by_state": {
+      "null": ["cold"],
+      "nonnull": ["ready", "bootstrapping", "quarantined"],
+      "paired_but_nullable": [
+        "starting", "resetting", "closing", "faulted", "lost", "recovering",
+        "backoff", "circuit_open", "half_open", "recovery_unknown"
+      ]
+    },
     "maximum_aliases": 128,
     "alias_pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
   },
@@ -295,7 +307,7 @@
   "artifact_sha256": {
     "public-tool-contract.json": "842dbeaaebb2f25404e1b042f26f3fde3a0b4240b91da31fbf81cf0cc7a8dd62",
     "public-recovery.schema.json": "c5b5ae2cc710c62c23f5c564371fd8b743ad1056769424bf8cf4b4e85fe046ce",
-    "public-state.schema.json": "efe2ea29c741c4392a281ab70123684fdb2fd8db2c2e265084807b78f8a16592",
+    "public-state.schema.json": "b189cc62a991244c29a33bbc7ef5c2d4fe971098e0b3cdf5f8ace982c448c9f5",
     "guardian-host-protocol.json": "9d763b7dd0dd79a0b86ee884e1598cf899d46a3bb629fbb28948a14b2a13912c",
     "guardian-host-protocol.schema.json": "2b13826bd6a2f6fe07ad31908341859609cf512d511c6820a3ed1737facafaf0",
     "recovery-manifest.schema.json": "3bed14f63f5a3e30c6555dabee575c6fce497521efa1244cbc3d74c46ee06872",

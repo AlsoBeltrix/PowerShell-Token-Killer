@@ -405,6 +405,22 @@ bookkeeping still awaits the 60-second counter-reset window. This boolean is
 the recovery-resubmission gate, not general authorization for explicit
 lifecycle repair.
 
+Host `boot_id`/`generation` are the current allocated attempt or unconfirmed-
+containment identity, never merely the last successful host. They are null in
+`absent`, `backoff`, `circuit_open`, and `stopped`, and nonnull in `starting`,
+`ready`, `recovering`, `containment_unconfirmed`, and `half_open`. A transition
+into a recovery attempt/half-open probe publishes its allocated identity in the
+same atomic state change; containment retains the old identity until death is
+confirmed.
+
+Session `worker_boot_id`/`generation` remain one paired slot observation, but a
+nonnull pair outside `ready` is not by itself a liveness or dispatch proof.
+`cold` has a null pair; `ready` and `bootstrapping` have the current nonnull
+worker pair; `quarantined` retains the nonnull unconfirmed-containment target.
+Every other session state permits either a null pair before a capability grant
+or a retained/current pair after allocation. Only `ready_for_effects` plus the
+pre-write generation revalidation authorizes effectful dispatch.
+
 Public-pipe liveness, not elapsed inactivity or host liveness, controls
 guardian shutdown. Guardian mode has no idle watchdog:
 `PTK_IDLE_EXIT_SECONDS` cannot stop or recycle the guardian, host, or workers

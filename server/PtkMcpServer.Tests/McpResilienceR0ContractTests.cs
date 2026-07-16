@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "b2bfd1f983d18973132ae6782628443453900fca796c936821349616acb366df";
+    private const string ContractSha256 = "d9b51a9b3d64c75c274a337efac35cfc12477eed362ce3fb5f2b87a1da01f5b7";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -39,13 +39,30 @@ public sealed class McpResilienceR0ContractTests
                 "host_recovering", "session_recovering",
             ],
             Strings(recovery.GetProperty("retryable_detail_codes")));
+        var publicState = contract.RootElement.GetProperty("public_state");
         Assert.Equal(
             [
                 "cold", "starting", "ready", "resetting", "closing", "faulted", "lost",
                 "quarantined", "recovering", "backoff", "bootstrapping", "circuit_open",
                 "half_open", "recovery_unknown",
             ],
-            Strings(contract.RootElement.GetProperty("public_state").GetProperty("session_states")));
+            Strings(publicState.GetProperty("session_states")));
+        Assert.Equal(
+            ["absent", "backoff", "circuit_open", "stopped"],
+            Strings(publicState.GetProperty("host_identity_by_state").GetProperty("null")));
+        Assert.Equal(
+            ["starting", "ready", "recovering", "containment_unconfirmed", "half_open"],
+            Strings(publicState.GetProperty("host_identity_by_state").GetProperty("nonnull")));
+        Assert.Equal(["cold"], Strings(publicState.GetProperty("session_identity_by_state").GetProperty("null")));
+        Assert.Equal(
+            ["ready", "bootstrapping", "quarantined"],
+            Strings(publicState.GetProperty("session_identity_by_state").GetProperty("nonnull")));
+        Assert.Equal(
+            [
+                "starting", "resetting", "closing", "faulted", "lost", "recovering",
+                "backoff", "circuit_open", "half_open", "recovery_unknown",
+            ],
+            Strings(publicState.GetProperty("session_identity_by_state").GetProperty("paired_but_nullable")));
 
         var compactError = SerializeRecoveryVector();
         Assert.InRange(compactError.Length, 1, 4096);
@@ -147,6 +164,35 @@ public sealed class McpResilienceR0ContractTests
         AssertStateRule(sessionRules[4], ["bootstrapping"], ["bootstrap"], false, automatic: true);
         AssertStateRule(sessionRules[5], ["circuit_open"], ["circuit_open"], false, automatic: true);
         AssertStateRule(sessionRules[6], ["half_open"], ["half_open"], false, automatic: true);
+    }
+
+    [Fact]
+    public void Public_state_schema_closes_identity_state_combinations()
+    {
+        using var stateSchema = ReadStrictJson("public-state.schema.json");
+        var definitions = stateSchema.RootElement.GetProperty("$defs");
+
+        var hostRules = IdentityRules(definitions.GetProperty("host"));
+        Assert.Equal(2, hostRules.Length);
+        AssertIdentityRule(hostRules[0], ["absent", "backoff", "circuit_open", "stopped"], "boot_id", false);
+        AssertIdentityRule(
+            hostRules[1],
+            ["starting", "ready", "recovering", "containment_unconfirmed", "half_open"],
+            "boot_id",
+            true);
+
+        var sessionRules = IdentityRules(definitions.GetProperty("session"));
+        Assert.Equal(3, sessionRules.Length);
+        AssertIdentityRule(sessionRules[0], ["cold"], "worker_boot_id", false);
+        AssertIdentityRule(sessionRules[1], ["ready", "bootstrapping", "quarantined"], "worker_boot_id", true);
+        AssertIdentityRule(
+            sessionRules[2],
+            [
+                "starting", "resetting", "closing", "faulted", "lost", "recovering",
+                "backoff", "circuit_open", "half_open", "recovery_unknown",
+            ],
+            "worker_boot_id",
+            null);
     }
 
     [Fact]
@@ -697,8 +743,49 @@ public sealed class McpResilienceR0ContractTests
     private static JsonElement[] StateRules(JsonElement definition)
     {
         var allOf = definition.GetProperty("allOf").EnumerateArray().ToArray();
-        Assert.Equal(2, allOf.Length);
+        Assert.True(allOf.Length >= 2);
         return allOf[1].GetProperty("oneOf").EnumerateArray().ToArray();
+    }
+
+    private static JsonElement[] IdentityRules(JsonElement definition)
+    {
+        var allOf = definition.GetProperty("allOf").EnumerateArray().ToArray();
+        Assert.Equal(3, allOf.Length);
+        return allOf[2].GetProperty("oneOf").EnumerateArray().ToArray();
+    }
+
+    private static void AssertIdentityRule(
+        JsonElement rule,
+        string[] states,
+        string identityProperty,
+        bool? nonnull)
+    {
+        Assert.Equal(["properties"], rule.EnumerateObject().Select(property => property.Name));
+        var properties = rule.GetProperty("properties");
+        Assert.Equal(
+            nonnull.HasValue ? new[] { "state", identityProperty, "generation" } : ["state"],
+            properties.EnumerateObject().Select(property => property.Name));
+        AssertExactStringSet(properties.GetProperty("state"), states);
+
+        if (!nonnull.HasValue) return;
+
+        var identity = properties.GetProperty(identityProperty);
+        var generation = properties.GetProperty("generation");
+        if (nonnull.Value)
+        {
+            AssertPropertyOrder(identity, ["$ref"]);
+            Assert.Equal("#/$defs/uuidv4", identity.GetProperty("$ref").GetString());
+            AssertPropertyOrder(generation, ["type", "minimum"]);
+            Assert.Equal("integer", generation.GetProperty("type").GetString());
+            Assert.Equal(1, generation.GetProperty("minimum").GetInt64());
+        }
+        else
+        {
+            AssertPropertyOrder(identity, ["type"]);
+            Assert.Equal("null", identity.GetProperty("type").GetString());
+            AssertPropertyOrder(generation, ["type"]);
+            Assert.Equal("null", generation.GetProperty("type").GetString());
+        }
     }
 
     private static void AssertStateRule(

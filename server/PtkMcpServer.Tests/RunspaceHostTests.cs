@@ -1287,7 +1287,8 @@ public sealed class RunspaceHostTests : IDisposable
                 $"[Convert]::FromBase64String('{encodedSource}'))",
                 new TestInvocationAuthorizer((_, _) => ValueTask.FromResult(true)),
                 raw: true,
-                route: "pwsh");
+                route: "pwsh",
+                timeoutSeconds: 10);
             Assert.True(mutation.Success, string.Join(Environment.NewLine, mutation.Errors));
 
             switch (reprimePath)

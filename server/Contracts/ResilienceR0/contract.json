@@ -206,7 +206,9 @@
       "example_file": "package-manifest.example.json",
       "example_raw_utf8_bytes": 2233,
       "example_digest": "4f4b9059442b11c948727cf424e3fb512cefda25f03f5fdf423d13319d9aba7e",
-      "manifest_is_not_a_file_entry": true
+      "manifest_is_not_a_file_entry": true,
+      "runtime_invariants_schema": "package-manifest.schema.json#/x-ptk-runtime-invariants",
+      "runtime_validation_required_before_activation": true
     },
     "public_contract": {
       "algorithm": "SHA-256",
@@ -233,19 +235,7 @@
     "installer_owned_entries": ["bin", "src", "scripts", "VERSION"],
     "package_manifest": "bin/ptk-package-manifest.json",
     "manifest_is_single_binary_identity_authority": true,
-    "required_bin_roles": [
-      "guardian_apphost",
-      "guardian_managed",
-      "host_apphost",
-      "host_managed",
-      "shared_contract",
-      "host_runtime",
-      "audit_admin"
-    ],
-    "required_unix_bin_roles": [
-      "guardian_helper",
-      "containment_helper"
-    ],
+    "required_roles": "package-manifest.schema.json#/x-ptk-required-roles-by-rid",
     "separate_containment_helper_manifest": false
   },
   "native_build": {
@@ -314,7 +304,7 @@
     "recovery-manifest.example.json": "b5e589198bac9d35138a1dc7c2839ebb5b52ae7e66b208eafa4a451d789e4f1e",
     "audit-v3-null.jsonl": "515008d265bdf60594a091e734221b2555b53d5b0dda377eed7f7de76297f39b",
     "audit-v3-host.jsonl": "c0bf4bf23f60cd60e524f3eb1628a9ab28d8cae59d922c541b1dc43c5e35a3e5",
-    "package-manifest.schema.json": "16eff921e0d3c3c93963c7d9eba26b300951fc02d0ab076e680ce6dcaf5bebb2",
+    "package-manifest.schema.json": "22058d458122874e4f42dc0e802f21c6bc61ea49233dc095e02cc0c63037f0e4",
     "package-manifest.example.json": "b0450c9927a61f4d66e17609cc0eaf991bd16b85ad07cba2000e7f3e6acfafb5",
     "native-linux-acquisition.json": "bf9a29f3a61df4a79e93ba65059594429f2e3d51df6c371deb9f2fec831b14cc",
     "adapter-pins.json": "163c41eaa147c12993c4c2f9f57ab433654fa9d08c623b71ac56d708945d9a0c",

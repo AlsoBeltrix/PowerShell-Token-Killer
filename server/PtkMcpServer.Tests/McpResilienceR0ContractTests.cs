@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "2052bc80760f9b3cce3357cb69717379d527e2fef7c8a0f517fa2678fbec7ef3";
+    private const string ContractSha256 = "06d722245ba23554818dafab683e6bb3af93d86925afbf674f5a2fd0f5e971a4";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -563,6 +563,9 @@ public sealed class McpResilienceR0ContractTests
             .GetProperty("schema_version").GetProperty("const").GetString());
 
         var digestContract = contract.RootElement.GetProperty("digests").GetProperty("package_manifest");
+        Assert.Equal("package-manifest.schema.json#/x-ptk-runtime-invariants",
+            digestContract.GetProperty("runtime_invariants_schema").GetString());
+        Assert.True(digestContract.GetProperty("runtime_validation_required_before_activation").GetBoolean());
         AssertPropertyOrder(root, Strings(digestContract.GetProperty("property_order")));
         var exactManifest = File.ReadAllBytes(PathOf("package-manifest.example.json"));
         _ = StrictUtf8.GetString(exactManifest);
@@ -617,7 +620,59 @@ public sealed class McpResilienceR0ContractTests
         Assert.Equal("bin/ptk-package-manifest.json", layout.GetProperty("package_manifest").GetString());
         Assert.True(layout.GetProperty("manifest_is_single_binary_identity_authority").GetBoolean());
         Assert.False(layout.GetProperty("separate_containment_helper_manifest").GetBoolean());
-        Assert.Contains("guardian_managed", Strings(layout.GetProperty("required_bin_roles")));
+        Assert.Equal("package-manifest.schema.json#/x-ptk-required-roles-by-rid",
+            layout.GetProperty("required_roles").GetString());
+    }
+
+    [Fact]
+    public void Package_manifest_schema_closes_required_runtime_identity()
+    {
+        using var schema = ReadStrictJson("package-manifest.schema.json");
+        var required = schema.RootElement.GetProperty("x-ptk-required-roles-by-rid");
+        var allRoles = new[]
+        {
+            "audit_admin", "guardian_apphost", "guardian_managed", "host_apphost", "host_managed",
+            "host_runtime", "module", "script", "shared_contract", "version",
+        };
+        var unixRoles = new[] { "containment_helper", "guardian_helper" };
+        Assert.Equal(allRoles, Strings(required.GetProperty("all")));
+        Assert.Equal(unixRoles, Strings(required.GetProperty("unix")));
+        Assert.Equal(
+            [
+                "files_paths_are_strictly_increasing_ordinal_utf8_and_unique",
+                "selected_rid_required_roles_each_appear_exactly_once",
+                "VERSION_role_path_is_VERSION_and_exact_strict_utf8_file_bytes_equal_package_version_without_bom_or_terminator",
+                "public_contract_sha256=recompute_using_contract.json#/digests/public_contract",
+                "host_build_sha256=recompute_using_contract.json#/digests/host_build",
+            ],
+            Strings(schema.RootElement.GetProperty("x-ptk-runtime-invariants")));
+        var filesSchema = schema.RootElement.GetProperty("properties").GetProperty("files");
+        Assert.True(filesSchema.GetProperty("uniqueItems").GetBoolean());
+        Assert.Equal("path_ordinal_utf8_strictly_increasing_unique", filesSchema.GetProperty("x-ptk-order").GetString());
+
+        var closure = schema.RootElement.GetProperty("allOf").EnumerateArray().ToArray();
+        Assert.Equal(allRoles.Length + 1, closure.Length);
+        Assert.Equal(allRoles, closure.Take(allRoles.Length).Select(RequiredRole));
+        var versionContains = closure[allRoles.Length - 1].GetProperty("properties").GetProperty("files")
+            .GetProperty("contains").GetProperty("properties");
+        Assert.Equal("VERSION", versionContains.GetProperty("path").GetProperty("const").GetString());
+
+        var unix = closure[^1];
+        Assert.Equal(["linux-x64", "linux-arm64", "osx-arm64"], Strings(unix.GetProperty("if")
+            .GetProperty("properties").GetProperty("rid").GetProperty("enum")));
+        Assert.Equal(unixRoles, unix.GetProperty("then").GetProperty("allOf")
+            .EnumerateArray().Select(RequiredRole));
+
+        using var example = ReadStrictJson("package-manifest.example.json");
+        var exampleFiles = example.RootElement.GetProperty("files");
+        var exampleRoles = exampleFiles.EnumerateArray()
+            .Select(file => file.GetProperty("role").GetString()!).ToArray();
+        Assert.Equal(allRoles.Concat(unixRoles).Order(StringComparer.Ordinal),
+            exampleRoles.Order(StringComparer.Ordinal));
+        Assert.True(PackagePathsStrictlyIncrease(exampleFiles.EnumerateArray()
+            .Select(file => file.GetProperty("path").GetString()!)));
+        Assert.False(PackagePathsStrictlyIncrease(["VERSION", "VERSION"]));
+        Assert.False(PackagePathsStrictlyIncrease(["bin/z", "bin/a"]));
     }
 
     [Fact]
@@ -1069,6 +1124,21 @@ public sealed class McpResilienceR0ContractTests
     }
 
     private static string NormalizeSentinelType(string type) => type.ToLowerInvariant();
+
+    private static string RequiredRole(JsonElement branch) => branch.GetProperty("properties")
+        .GetProperty("files").GetProperty("contains").GetProperty("properties")
+        .GetProperty("role").GetProperty("const").GetString()!;
+
+    private static bool PackagePathsStrictlyIncrease(IEnumerable<string> paths)
+    {
+        string? previous = null;
+        foreach (var path in paths)
+        {
+            if (previous is not null && StringComparer.Ordinal.Compare(previous, path) >= 0) return false;
+            previous = path;
+        }
+        return true;
+    }
 
     private static string[] Strings(JsonElement array) =>
         array.EnumerateArray().Select(item => item.GetString()!).ToArray();

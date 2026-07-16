@@ -3,6 +3,20 @@
   "$id": "https://powershell-token-killer.invalid/schemas/ptk-package-manifest-1.json",
   "title": "PTK matched runtime package manifest",
   "type": "object",
+  "x-ptk-required-roles-by-rid": {
+    "all": [
+      "audit_admin", "guardian_apphost", "guardian_managed", "host_apphost", "host_managed",
+      "host_runtime", "module", "script", "shared_contract", "version"
+    ],
+    "unix": ["containment_helper", "guardian_helper"]
+  },
+  "x-ptk-runtime-invariants": [
+    "files_paths_are_strictly_increasing_ordinal_utf8_and_unique",
+    "selected_rid_required_roles_each_appear_exactly_once",
+    "VERSION_role_path_is_VERSION_and_exact_strict_utf8_file_bytes_equal_package_version_without_bom_or_terminator",
+    "public_contract_sha256=recompute_using_contract.json#/digests/public_contract",
+    "host_build_sha256=recompute_using_contract.json#/digests/host_build"
+  ],
   "properties": {
     "schema_version": { "const": "ptk.package-manifest/1" },
     "package_version": { "type": "string", "minLength": 1, "maxLength": 128 },
@@ -14,6 +28,8 @@
       "type": "array",
       "minItems": 1,
       "maxItems": 4096,
+      "uniqueItems": true,
+      "x-ptk-order": "path_ordinal_utf8_strictly_increasing_unique",
       "items": { "$ref": "#/$defs/file" }
     }
   },
@@ -27,6 +43,126 @@
     "files"
   ],
   "additionalProperties": false,
+  "allOf": [
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "audit_admin" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "guardian_apphost" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "guardian_managed" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "host_apphost" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "host_managed" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "host_runtime" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "module" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "script" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": { "properties": { "role": { "const": "shared_contract" } }, "required": ["role"] },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "properties": {
+        "files": {
+          "contains": {
+            "properties": { "path": { "const": "VERSION" }, "role": { "const": "version" } },
+            "required": ["path", "role"]
+          },
+          "minContains": 1,
+          "maxContains": 1
+        }
+      }
+    },
+    {
+      "if": { "properties": { "rid": { "enum": ["linux-x64", "linux-arm64", "osx-arm64"] } } },
+      "then": {
+        "allOf": [
+          {
+            "properties": {
+              "files": {
+                "contains": { "properties": { "role": { "const": "containment_helper" } }, "required": ["role"] },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          },
+          {
+            "properties": {
+              "files": {
+                "contains": { "properties": { "role": { "const": "guardian_helper" } }, "required": ["role"] },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        ]
+      }
+    }
+  ],
   "$defs": {
     "sha256": {
       "type": "string",

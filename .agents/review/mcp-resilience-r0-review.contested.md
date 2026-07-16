@@ -1,7 +1,7 @@
-# MCP resilience R0 implementation review: no external verdict
+# MCP resilience R0 implementation review: resolved
 
-**Status:** Contested process gate — no code finding and no accepted external
-review verdict.
+**Status:** Resolved 2026-07-16 — the later direct-route review returned a
+valid accepted verdict. The failed attempts below remain historical evidence.
 
 **Recorded:** 2026-07-16T04:15:54Z
 
@@ -35,9 +35,22 @@ in-repo audit found no remaining R0 contract, schema, hash, mapping, or
 platform-evidence blocker. Those are implementation evidence, not a substitute
 for the explicitly required Claude Fable fixed-SHA review.
 
-## Required resolution
+## Resolution
 
-Do not infer acceptance, merge R0, or start R1. Retry the same fixed-SHA Fable
-review only after the external route can return a complete verdict, or ask the
-owner to explicitly change/waive the reviewer gate. No code adjudication is
-needed unless a future reviewer returns an admitted material finding.
+After the owner removed the compression proxy, a fresh bounded smoke probe
+through `https://api.anthropic.com` completed successfully and its
+`modelUsage` reported `claude-fable-5` plus the Haiku helper, with no Opus
+model. Claude Code 2.1.211 then reviewed the same exact base/head at effort
+`max` and returned exit zero with the schema-constrained verdict `accepted`,
+literal `guard_confirmed=true`, and both full SHAs matching dispatch at
+2026-07-16T06:15:48Z.
+
+The reviewer independently proved three guards red then green: Sentinel static
+projection under `HostGeneration` corruption; the post-write
+`outcome_unknown` boundary under a false pre-dispatch phase mapping; and Unix
+hard containment when worker-group `SIGKILL` was weakened to `SIGTERM`. It
+restored every mutation byte-exactly, verified an empty porcelain status and
+`git diff HEAD`, and removed its disposable worktree. The Ajv strictTypes
+warnings were confirmed non-semantic by 17 targeted probes. One LOW,
+non-blocking Unix fixture-cleanup advisory is recorded in
+`.agents/review/index.md` and does not reopen R0.

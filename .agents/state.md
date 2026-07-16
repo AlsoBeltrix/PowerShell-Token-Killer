@@ -86,9 +86,9 @@ short and update it when important repo facts change.
   complete reconciled draft passed final independent fixed-SHA review at
   `b4a2c0c` and is landed on local `master` at review-record head `6ed0167`;
   R0 code, tests, independent contract audit, and platform evidence are
-  complete on `impl/mcp-resilience-r0` at `c1d809f`, but its required
-  fixed-SHA Fable implementation review is blocked and the branch is not
-  merged; R1-R7 are not authorized.** The
+  complete on `impl/mcp-resilience-r0` at `c1d809f`, and its required
+  fixed-SHA Fable implementation review is accepted; the branch is not yet
+  merged and R1-R7 are not authorized.** The
   target keeps one public stdio guardian alive while it
   restarts an exact-version private host, and makes a healthy host replace an
   unexpectedly lost session worker. It never replays ambiguous work, changes
@@ -118,9 +118,15 @@ short and update it when important repo facts change.
   write begins, the existing `outcome_unknown`/no-replay boundary still wins.
   Exact R0 verification and direct macOS/Windows evidence are recorded in
   `.agents/machines.md`. The in-repo independent audit found no R0 blocker.
-  Claude Code 2.1.211 was smoke-proved to route `claude-fable-5` with maximum
-  effort and no Opus usage, but the fixed-range review and its one permitted
-  retry each expired without any verdict envelope; fail-closed details live in
+  After the compression proxy was removed, Claude Code 2.1.211 routed directly
+  to `claude-fable-5` at maximum effort and accepted exact range
+  `215e10f..c1d809f` with matching SHAs and `guard_confirmed=true`. Its model
+  metadata reported Fable plus the Haiku helper and no Opus model. It proved
+  the Sentinel projection, post-write `outcome_unknown`, and Unix hard-
+  containment guards red-to-green, restored its clean detached tree, and
+  reported only one non-blocking fixture-hygiene advisory. Canonical review
+  evidence is in `.agents/review/index.md`; the earlier fail-closed attempts
+  and their resolution remain in
   `.agents/review/mcp-resilience-r0-review.contested.md`.
 - **CI portability repair is complete at test-only code head `6193ae4`.**
   GitHub Actions run `29316766579` at docs-only descendant `e3b1dfd` failed
@@ -240,11 +246,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Obtain the required `claude-fable-5` maximum-effort fixed-SHA acceptance for
-   resilience R0 range `215e10f..c1d809f`, record it, then locally merge the
-   accepted branch. The implementation, battery, independent audit, and native
-   evidence are already complete. Do not begin R1 without separate explicit
-   authorization.
+1. Locally merge the accepted resilience R0 branch. The implementation,
+   battery, independent audit, native evidence, and required Fable review are
+   complete. Do not begin R1 without separate explicit authorization.
 2. Release-distribution slice 3 is ordered after resilience R7 and consumes
    only its matched guardian layout; there is no legacy migration path. Do not
    execute it before R7 lands. Re-present the hook-default choice before release
@@ -272,17 +276,14 @@ short and update it when important repo facts change.
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean
   complete rerun; repair the test synchronization in a separate scoped slice,
   not by weakening R0.
+- Fable's accepted R0 review noted one non-blocking test-fixture hygiene risk:
+  if the testhost dies before its `finally`, the Unix guardian broker fixture's
+  TERM-immune paused process group can remain until its fixture guardian is
+  killed. This cannot make the guard falsely pass or affect an R0 product
+  contract; consider an stdin-EOF guardian watch in a later scoped test-hygiene
+  slice.
 
 ## Blockers
-
-- **Resilience R0 fixed-SHA external review has no accepted verdict.** Claude
-  Code 2.1.211 was explicitly routed to `claude-fable-5` at effort `max`; the
-  model-identifying smoke probe succeeded, but the 30-minute review and its
-  one 45-minute fail-closed retry returned no output. Both disposable reviewer
-  trees were clean and removed. See
-  `.agents/review/mcp-resilience-r0-review.contested.md`; do not merge R0 or
-  start R1 until the mandated review succeeds or the owner explicitly changes
-  that gate.
 
 - **Windows wiring requires a hard supervisor/worker role cutover.**
   `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still

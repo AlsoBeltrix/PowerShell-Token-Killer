@@ -2575,3 +2575,43 @@ replace the owner-required Fable implementation review. R0 therefore remains
 unmerged pending a successful fixed-SHA rerun or an explicit owner change to
 the review gate. Contested/blocker detail:
 `.agents/review/mcp-resilience-r0-review.contested.md`.
+
+---
+
+**MCP RESILIENCE R0 IMPLEMENTATION — ACCEPTED; EARLIER PROCESS BLOCKER
+RESOLVED.** Claude Code 2.1.211 (`claude-fable-5`, effort `max`, isolated
+disposable worktree) reviewed exact fixed range
+`215e10fcfede9cf200b21b3c0cda95d4fc712ddd..c1d809f51b74b97a04a13fe32a5b72afeb4d15af`
+after the compression proxy was removed. A fresh direct-endpoint smoke probe
+and the review envelope each reported `claude-fable-5` plus Claude Code's Haiku
+helper and no Opus model. The review exited zero and returned the exact schema-
+constrained verdict `accepted`, literal `guard_confirmed=true`, and both full
+SHAs matching dispatch at 2026-07-16T06:15:48Z.
+
+Fable independently proved three representative guards red then green. It
+corrupted `HostGeneration` in `sentinel-event.json` and the semantic per-column
+Sentinel projection guard failed; remapped a post-write private-host loss to
+`backend_lost_before_dispatch` and the fake guardian's write-started
+`outcome_unknown` assertion failed; and weakened broker worker-group `SIGKILL`
+to `SIGTERM`, causing the `after_release` guardian-death containment case to
+miss its deadline. Every mutation was restored byte-exactly and its focused
+guard reran green. The reviewer verified empty porcelain and `git diff HEAD`,
+removed its disposable worktree, and the orchestrator independently confirmed
+the worktree was absent and the coder tree unchanged.
+
+The reviewer reproduced 64 Ajv strictTypes warnings, identified them as
+conjunctive branch subschemas whose types are pinned at the root/definition
+level, and found no accepted-invalid or rejected-valid case in 17 targeted
+probes. It also recorded one LOW, non-blocking test-hygiene advisory at
+`server/PtkMcpServer.Tests/Native/ptk_guardian_broker_fixture.c:1437,1500`:
+abrupt testhost death before `finally` can leave the TERM-immune paused
+disposable fixture tree until its fixture guardian is killed. The case cannot
+create a false pass or affect an R0 product contract; a later scoped hygiene
+slice may add a guardian stdin-EOF watch.
+
+Reviewed complete R0 contracts, fake protocol/recovery fixtures, and native
+feasibility containment; no material issue found. R0 is review-complete and
+ready for its local owner-gated merge. This acceptance does not authorize
+push, history rewriting, or R1-R7 implementation. Historical failed-attempt
+detail and resolution are preserved in
+`.agents/review/mcp-resilience-r0-review.contested.md`.

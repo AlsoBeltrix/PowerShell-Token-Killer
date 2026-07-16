@@ -1,10 +1,9 @@
 # Plan: resilient MCP guardian and automatic backend recovery
 
 **Status:** PLANNING BOUNDARY OWNER-APPROVED 2026-07-15; R0 IMPLEMENTATION
-OWNER-AUTHORIZED 2026-07-15; R0 CODE, TESTS, AND PLATFORM EVIDENCE COMPLETE AT
-`c1d809f`, BUT REQUIRED FIXED-SHA IMPLEMENTATION REVIEW NOT ACCEPTED BECAUSE
-CLAUDE FABLE RETURNED NO VERDICT BEFORE BOTH BOUNDED ATTEMPTS EXPIRED; R1-R7
-NOT AUTHORIZED. The approved boundary is:
+OWNER-AUTHORIZED 2026-07-15; R0 CODE, TESTS, PLATFORM EVIDENCE, AND REQUIRED
+FIXED-SHA FABLE IMPLEMENTATION REVIEW COMPLETE AT `c1d809f`; R0 AWAITS LOCAL
+MERGE; R1-R7 NOT AUTHORIZED. The approved boundary is:
 add two recovery
 layers so the MCP host automatically replaces failed session workers and a
 minimal public-pipe guardian automatically restarts the host; neither layer
@@ -74,6 +73,15 @@ full SHAs exactly; its model metadata reported Fable plus Claude Code's Haiku
 helper and no Opus model. The reviewed head includes all owner-approved
 amendments above. This is final plan review only; implementation remains
 separately gated, and this review record changes no implementation contract.
+
+Claude Code 2.1.211 using `claude-fable-5` at maximum effort accepted the R0
+implementation's exact fixed range `215e10f..c1d809f` with
+`guard_confirmed=true` on 2026-07-16. It independently proved Sentinel static
+projection, post-write `outcome_unknown`, and Unix hard-containment guards
+red-to-green, then restored and removed its clean detached worktree. Its model
+metadata reported Fable plus Claude Code's Haiku helper and no Opus model.
+Canonical detail and the one non-blocking fixture-hygiene advisory are in
+`.agents/review/index.md`. Acceptance does not authorize R1-R7.
 
 `.agents/decisions.md` remains under the owner's existing hold and is not
 amended by this plan. This plan is the canonical source for MCP transport and

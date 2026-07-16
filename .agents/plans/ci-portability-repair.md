@@ -1,14 +1,12 @@
 # Plan: CI portability repair after audited-harness Slice 6
 
-**Status:** COMPLETED at test-only code head `6193ae4`. GitHub Actions run
-`29318333860` passed Ubuntu and macOS at `24c7958` but exposed the same shared
-singleton request-context flaw in a second concurrent Windows fixture. The
-production-faithful scoped repair, deterministic guard, complete local and
-direct Windows batteries, and independent review all passed. GitHub Actions
-run `29331077331` then passed Ubuntu, macOS, and Windows at docs descendant
-`ccee469`, including every Pester/server/handshake/cleanup step. The work does
-not change production runtime behavior, install RTK into ordinary unit-test jobs, or
-decide whether a future PTK release bundles a pinned RTK binary.
+**Status:** REOPENED 2026-07-16 for owner-approved Slices 11-12 after GitHub
+Actions run `29520427103` exposed two independent Windows checkout/fixture
+defects at exact head `72c6103`. Slices 1-10 remain completed at test-only code
+head `6193ae4`; their final hosted evidence is green run `29331077331` at docs
+descendant `ccee469`. The reopened work does not change production runtime
+behavior, install RTK into ordinary unit-test jobs, or decide whether a future
+PTK release bundles a pinned RTK binary.
 
 ## Evidence and problem
 
@@ -123,6 +121,21 @@ Each numbered slice is one finding and one commit.
     pair, handler and accepted/completed counts, healthy final state, and final
     stop assertion. Mutating the accessor back to singleton must fail the
     two-handler checkpoint; restored request scopes must pass on Windows.
+11. **Preserve exact R0 contract bytes across Git checkout.** Add a root
+    `.gitattributes` policy that pins only `*.json`, `*.jsonl`, and `*.yaml`
+    under `server/Contracts/ResilienceR0/` to LF. Do not normalize, trim, or
+    weaken the exact-byte tests. In a disposable checkout with
+    `core.autocrlf=true`, the parent must reproduce the six Windows contract
+    failures with `w/crlf`; the repaired tree must report `w/lf` with the LF
+    attribute and pass the complete R0 contract-test class.
+12. **Publish nested-Job fixture markers only after close.** Write each marker
+    to a sibling pending path, close the writer, then atomically move it to the
+    final marker name. Preserve the final exact bytes and every containment,
+    identity, and deadline assertion. Prove the guard on Windows by holding
+    the marker write handle open before close: direct-final publication must
+    reproduce the sharing violation while pending-file publication passes
+    under the same hold. Remove the hold, run the focused integration test ten
+    times, then run the complete battery.
 
 ## Verification
 
@@ -207,6 +220,28 @@ patch passed 1,207 .NET tests, 142 Pester tests with one expected skip, and the
 full zero-warning handshake on `NETWATCH-01`. GitHub Actions run `29331077331`
 passed Ubuntu, macOS, and Windows at exact head `ccee469`; every matrix job
 completed Pester, all 1,207 server tests, the stdio handshake, and cleanup.
+
+## Reopened Slices 11-12 evidence
+
+GitHub Actions run `29520427103` tested exact head `72c6103`. All three SIEM
+jobs passed receiver and producer-conformance checks. Ubuntu and macOS passed
+Pester, all 1,532 server tests, and the handshake. Windows passed Pester and
+the complete SIEM job, then failed 7 of 1,532 server tests and skipped the
+handshake.
+
+Six failures were exact consequences of Windows checkout converting canonical
+LF R0 contract artifacts to CRLF because the repository had no attribute
+policy. A disposable `core.autocrlf=true` checkout reproduced the same six
+tests, hashes, retained carriage returns, and `w/crlf` state. The direct
+Windows archive battery had stayed green because `git archive` preserves blob
+bytes and does not perform checkout conversion.
+
+The seventh failure was a test-fixture publication race. The descendant's
+final marker filename became visible while `File.WriteAllText` still held its
+write handle. The existence-only wait returned, and `ReadAllTextAsync` then
+hit Windows sharing violation. Host and worker markers avoid this ordering
+only because their pipe events occur after their writes return; the descendant
+ready event is independent of marker-write completion.
 
 ## Non-goals
 

@@ -319,7 +319,7 @@
     "native-linux-acquisition.json": "bf9a29f3a61df4a79e93ba65059594429f2e3d51df6c371deb9f2fec831b14cc",
     "adapter-pins.json": "163c41eaa147c12993c4c2f9f57ab433654fa9d08c623b71ac56d708945d9a0c",
     "adapter-live-validation.json": "a37a6e02355ed9651d2061cea0ae213a432e251307bff1fc0189006d666efc79",
-    "splunk-hec-fixture.yaml": "be28a14a2886de4880855d1c4cbfa96b2bd80ae84386ac2626815f4fef22a397",
+    "splunk-hec-fixture.yaml": "0ebe4ecd4f12e198feaf3be24af76f088f40cc87b7b0569ed506d59b6676c3cc",
     "splunk-hec-event.jsonl": "5c92fa9073078016f3fd7cf4c3e05c37540b070b3efeb1eab6a2a98ef9b0c825",
     "sentinel-dcr.json": "da76a8e0c5d2cef25551e5ebfffe02927cc202ef585b4f0c4332552ab9f992d6",
     "sentinel-table.json": "37360b57f62de3b08332d2bad0fbe344e26f1ba0b5a2ced75458b7f0d5c3387d",

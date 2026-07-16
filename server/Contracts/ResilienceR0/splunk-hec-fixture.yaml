@@ -10,6 +10,7 @@ exporters:
     source: ptk
     sourcetype: ptk:audit
     index: ptk
+    disable_compression: true
     otel_attrs_to_hec_metadata:
       host: host.id
 service:

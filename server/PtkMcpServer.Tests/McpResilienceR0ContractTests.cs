@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "d9b51a9b3d64c75c274a337efac35cfc12477eed362ce3fb5f2b87a1da01f5b7";
+    private const string ContractSha256 = "1def437132097d4317a7687295b6bf47e2b928f453ecd78c0da1f76c5beed586";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -193,6 +193,16 @@ public sealed class McpResilienceR0ContractTests
             ],
             "worker_boot_id",
             null);
+    }
+
+    [Fact]
+    public void Splunk_fixture_disables_transport_compression_for_exact_wire_vector()
+    {
+        var fixture = File.ReadAllText(PathOf("splunk-hec-fixture.yaml"), StrictUtf8);
+        var setting = Assert.Single(
+            fixture.Split('\n'),
+            line => line.TrimStart().StartsWith("disable_compression:", StringComparison.Ordinal));
+        Assert.Equal("    disable_compression: true", setting);
     }
 
     [Fact]

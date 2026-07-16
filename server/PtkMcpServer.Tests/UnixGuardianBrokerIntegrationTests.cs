@@ -335,6 +335,17 @@ public sealed class UnixGuardianBrokerIntegrationTests
         Assert.Matches(
             new Regex(@"#define\s+PTK_IDENTITY_POLL_MILLISECONDS\s+25\b"),
             source);
+        Assert.Matches(
+            new Regex(
+                @"static void sleep_until\(uint64_t deadline\)\s*\{\s*" +
+                @"for \(;;\) \{\s*" +
+                @"uint64_t now = monotonic_milliseconds\(\);\s*" +
+                @"if \(now >= deadline\) \{\s*return;\s*\}\s*" +
+                @"uint64_t remaining = deadline - now;\s*" +
+                @"sleep_milliseconds\(remaining < UINT64_C\(25\) \? remaining : UINT64_C\(25\)\);\s*" +
+                @"\}\s*\}",
+                RegexOptions.CultureInvariant),
+            source);
 
         // Portable wait operations own only direct children. There is one
         // nonblocking waitpid call site in the entire native fixture and its

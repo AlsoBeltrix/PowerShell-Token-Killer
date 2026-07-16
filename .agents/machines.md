@@ -473,3 +473,37 @@ head `1f6d485` on Darwin 25.5.0 arm64, dotnet 10.0.301, pwsh 7.6.3._
 - Hosted ubuntu/windows/macos CI was not run from this local branch; the SIEM
   job is configured to exercise both receiver and live producer conformance
   legs on all three when the branch is published.
+
+## mini-SIEM S3 verification (Mac, 2026-07-15)
+
+_Local verification of S3 durable-store head `eb51f2e` plus producer
+conformance compatibility head `9f53831` on Darwin 25.5.0 arm64, dotnet
+10.0.301, pwsh 7.6.3._
+
+- `dotnet test siem/PtkSiem.slnx`: 91/91 passed. Coverage includes migration
+  reopen, effective WAL/FULL writer assertions, exact raw event evidence,
+  deterministic custody framing and chaining, post-head duplicate replay,
+  mismatched duplicate quarantine, a controlled simultaneous fork, durable
+  strict-validator quarantine, unique `(boot_id, sequence)` backstop, simulated
+  `SQLITE_FULL`, interrupted event/quarantine transactions, and live mTLS
+  `200`/`400`/`503` storage paths.
+- `dotnet list siem/PtkSiem.slnx package --vulnerable --include-transitive`
+  reported no vulnerable direct or transitive package in either project. The
+  explicit native SQLite bundle override resolved to 2.1.12 throughout.
+- Producer conformance passed 2/2 both with the override absent and with
+  `PTK_SIEM_CONFORMANCE_MODE=in-process`; the compatibility adapter preserves
+  the original S2 fake-committer seam while production uses receipt metadata.
+- Existing battery: Pester 141 passed / 0 failed / 2 skipped;
+  `dotnet test server/PtkMcpServer.slnx` 1485/1485 passed; handshake
+  `HANDSHAKE PASSED` with a zero-warning build.
+- Six independent guard mutations failed for the intended reason and were
+  restored: `synchronous=OFF` tripped startup policy; moving the injected fault
+  after commit exposed a persisted partial transaction; rejecting a replay
+  broke post-head idempotence; bypassing quarantine left no attempt evidence;
+  removing the boot/sequence uniqueness allowed a fork insert; omitting remote
+  endpoint bytes changed the frozen custody digest. The restored tree passed
+  the complete battery above.
+- Hosted ubuntu/windows/macos CI was not run from this local branch. The plan's
+  separate startup filesystem-protection matrix remains unimplemented and is
+  recorded as a scheduling conflict in `.agents/state.md`; these results do not
+  claim acceptance row 7.

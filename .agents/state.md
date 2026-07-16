@@ -5,19 +5,23 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **mini-SIEM S1-S2 are complete on `plan/mini-siem-discovery`; S2 receiver
-  code head is `e761b75` and the authorized producer-test seam head is
-  `1f6d485`.** S1 supplies the solution skeleton and strict startup config.
-  S2 independently compiles the canonical proto and adds a bounded exact
-  one-record validator for v1/v2/v3 projections, real Kestrel mTLS with custom
-  CA-bundle trust and explicit revocation policy, and the frozen 200/400/503
-  protobuf response table. Production deliberately returns retryable 503 until
-  S3 supplies durable storage, so S2 cannot false-ack. The isolated producer
-  conformance project keeps the ordinary fake-receiver battery unchanged and,
-  under the CI-only environment gate, drives the real exporter into the live
-  receiver on all three configured CI platforms. Its producer-owned serializer
-  can emit current v1/v2 golden request bytes; v3 bytes remain absent and are
-  never invented before the producer implements v3. Local evidence and guard
+- **mini-SIEM S1-S3 are complete on `plan/mini-siem-discovery`; the S3 durable
+  store head is `eb51f2e` and its producer-conformance compatibility head is
+  `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
+  supplies the independently compiled canonical proto, bounded exact
+  one-record validator, real Kestrel mTLS, and frozen response table. S3 replaces
+  the fail-closed placeholder with a startup-migrated SQLite store: one
+  serialized nondeferred transaction re-reads and conditionally advances the
+  producer chain, stores exact raw request evidence, and atomically appends the
+  versioned custody ledger under asserted WAL/FULL writer policy. Byte-identical
+  replay is idempotent even after head advance; duplicate mismatch, chain
+  failure, and strict-validator failure commit quarantine evidence before a
+  permanent response; any commit/quarantine failure remains retryable and can
+  never false-ack. The SQLite package's vulnerable native minimum is overridden
+  to its patched bundle, and the dependency audit is clean. The isolated
+  producer conformance project remains source-compatible and its ordinary fake
+  receiver path remains unchanged. Producer-owned exact v1/v2 fixtures exist at
+  `1f6d485`; v3 remains absent and is never invented. Local evidence and guard
   proofs are recorded in `.agents/machines.md`.
 - **Audited-harness Slices 7a-7f and the Windows wait-ownership prerequisite
   are complete and landed on local `master`; Slice 7f code head is
@@ -245,11 +249,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Execute mini-SIEM S3 under the approved implementation plan: add the SQLite
-   schema/migrations, serialized durable-before-ack transaction, duplicate and
-   fork handling, custody ledger, strict quarantine path, and verified
-   WAL/FULL writer policy. Keep the production S2 committer fail-closed until
-   the durable S3 path replaces it atomically.
+1. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
+   When producer-owned v3 request bytes land, execute S4 from the complete
+   producer corpus; do not substitute receiver-authored fixtures.
 2. Complete resilience R0 on `impl/mcp-resilience-r0`; R1-R7 remain separately
    gated and the SIEM worktree must not consume that worktree's uncommitted
    files.
@@ -283,6 +285,15 @@ short and update it when important repo facts change.
   concern belongs to the open security track.
 
 ## Blockers
+
+- **The mini-SIEM plan does not consistently schedule startup filesystem
+  enforcement.** Its architecture and acceptance row 7 assign owner-only
+  mode/DACL plus symlink/reparse refusal to S1/S3, but S1 explicitly deferred
+  that work and the S3 slice definition schedules only the durable store. The
+  current receiver still lacks that enforcement. S3's durable-store contract is
+  complete, but receiver-host storage protection and full product acceptance
+  must not be claimed until the plan placement is reconciled and the negative
+  cross-platform matrix lands.
 
 - **Windows wiring requires a hard supervisor/worker role cutover.**
   `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still

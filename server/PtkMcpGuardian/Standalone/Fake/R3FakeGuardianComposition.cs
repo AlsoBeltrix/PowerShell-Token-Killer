@@ -255,6 +255,15 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
         target = _profile.JobListTarget;
         return true;
     }
+
+    public bool TryGetJobListTargetInvalidation(
+        GuardianHostJobListTarget target,
+        [NotNullWhen(true)] out GuardianHostJobListTargetInvalidation? invalidation)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        invalidation = null;
+        return false;
+    }
 }
 
 internal sealed class R3NoOpDispatchObserver : IGuardianHostSupervisorDispatchObserver

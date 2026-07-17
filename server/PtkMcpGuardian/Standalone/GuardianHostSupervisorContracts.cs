@@ -74,6 +74,45 @@ internal sealed record GuardianHostJobListTarget
 }
 
 /// <summary>
+/// Frozen automatic-recovery facts captured by the session owner in the same
+/// transition that invalidated an exact dispatch target. A later ready target
+/// cannot reconstruct these facts from its current snapshot.
+/// </summary>
+internal sealed record GuardianHostJobListTargetInvalidation
+{
+    internal GuardianHostJobListTargetInvalidation(
+        GuardianHostJobListTarget invalidatedTarget,
+        PublicSessionStateSnapshot recoverySnapshot)
+    {
+        InvalidatedTarget = invalidatedTarget ??
+            throw new ArgumentNullException(nameof(invalidatedTarget));
+        RecoverySnapshot = recoverySnapshot ??
+            throw new ArgumentNullException(nameof(recoverySnapshot));
+        if (!invalidatedTarget.ReadyForEffects)
+            throw new ArgumentException(
+                "Only a ready dispatch target can be invalidated.",
+                nameof(invalidatedTarget));
+        if (recoverySnapshot.Alias != invalidatedTarget.Alias ||
+            recoverySnapshot.ReadyForEffects ||
+            recoverySnapshot.RecoveryPhase is null ||
+            recoverySnapshot.RecoveryAttempt <= 0 ||
+            recoverySnapshot.RetryAfterMilliseconds is null)
+        {
+            throw new ArgumentException(
+                "Session invalidation evidence must be one exact automatic-recovery snapshot.",
+                nameof(recoverySnapshot));
+        }
+    }
+
+    internal GuardianHostJobListTarget InvalidatedTarget { get; }
+
+    internal PublicSessionStateSnapshot RecoverySnapshot { get; }
+
+    internal bool AppliesTo(GuardianHostJobListTarget target) =>
+        InvalidatedTarget.SameDispatchIdentity(target);
+}
+
+/// <summary>
 /// Guardian-local last-known session state. Both members are synchronous so a
 /// state poll can neither wait on nor enter the replaceable host.
 /// </summary>
@@ -83,6 +122,15 @@ internal interface IGuardianHostSupervisorSessionSource
 
     bool TryGetJobListTarget(
         [NotNullWhen(true)] out GuardianHostJobListTarget? target);
+
+    /// <summary>
+    /// Returns evidence only when it was atomically captured while the exact
+    /// target was invalidated. Implementations must return false instead of
+    /// synthesizing recovery metadata from a later target.
+    /// </summary>
+    bool TryGetJobListTargetInvalidation(
+        GuardianHostJobListTarget target,
+        [NotNullWhen(true)] out GuardianHostJobListTargetInvalidation? invalidation);
 }
 
 internal sealed record GuardianHostDispatchObservation(

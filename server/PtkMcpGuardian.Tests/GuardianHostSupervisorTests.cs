@@ -351,7 +351,7 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
-    public async Task Session_target_identity_is_re_read_under_authority_before_first_write()
+    public async Task Ready_session_replacement_uses_frozen_prewrite_loss_evidence()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
         await rig.StartAsync();
@@ -359,14 +359,93 @@ public sealed class GuardianHostSupervisorTests
 
         var dispatch = rig.DispatchJobListAsync();
         await blocked.WaitAsync(TestTimeout);
-        rig.Sessions.WorkerGeneration = 2;
+        rig.Sessions.ReplaceReadyWorker(
+            workerGeneration: 2,
+            transitionVersion: 2,
+            new PublicSessionStateSnapshot(
+                TestRig.Alias,
+                DesiredSessionState.Ready,
+                PublicSessionState.Recovering,
+                TestRig.Worker.BootId,
+                TestRig.Worker.Generation,
+                new SessionTransitionVersion(2),
+                RecoveryPhase.Containment,
+                recoveryAttempt: 7,
+                retryAfterMilliseconds: 913,
+                readyForEffects: false,
+                lastFailureCode: null,
+                warmStateLost: true,
+                BootstrapState.Pending));
         rig.Observer.ReleaseAuthorization();
 
         var error = DecodeRecovery(await dispatch.WaitAsync(TestTimeout));
-        Assert.Equal(PublicRecoveryDetailCode.SessionBootstrapFailed, error.DetailCode);
-        Assert.False(error.Retryable);
+        Assert.Equal(PublicRecoveryDetailCode.BackendLostBeforeDispatch, error.DetailCode);
+        Assert.True(error.Retryable);
+        Assert.Equal(RecoveryPhase.Containment, error.RecoveryPhase);
+        Assert.Equal(7, error.RecoveryAttempt);
+        Assert.Equal(913, error.RetryAfterMilliseconds);
+        var gate = Assert.IsType<SessionReadyGate>(error.RetryGate);
+        Assert.Equal(TestRig.Alias, gate.Alias);
         Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
-        rig.Sessions.WorkerGeneration = 1;
+
+        var state = await rig.ReadStateAsync();
+        Assert.Equal(PublicHostState.Ready, state.Host.State);
+        Assert.True(state.Host.ReadyForEffects);
+        var session = Assert.Single(state.Sessions);
+        Assert.Equal(PublicSessionState.Ready, session.State);
+        Assert.True(session.ReadyForEffects);
+        Assert.Equal(new WorkerGeneration(2), session.Generation);
+        Assert.Equal(new SessionTransitionVersion(2), session.TransitionVersion);
+        Assert.Null(session.RecoveryPhase);
+        Assert.Equal(7, session.RecoveryAttempt);
+        Assert.Null(session.RetryAfterMilliseconds);
+
+        var fresh = await rig.DispatchJobListAsync().WaitAsync(TestTimeout);
+        Assert.False(fresh.IsError);
+        Assert.Equal("jobs-generation-1", fresh.Text);
+        Assert.Equal(1, rig.Factory.Resources[0].OperationCount);
+    }
+
+    [Fact]
+    public async Task Ready_session_replacement_without_evidence_is_recovery_unknown()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var blocked = rig.Observer.BlockNextAuthorization();
+
+        var dispatch = rig.DispatchJobListAsync();
+        await blocked.WaitAsync(TestTimeout);
+        rig.Sessions.ReplaceReadyWorker(
+            workerGeneration: 2,
+            transitionVersion: 2,
+            recoverySnapshot: null);
+        rig.Observer.ReleaseAuthorization();
+
+        var error = DecodeRecovery(await dispatch.WaitAsync(TestTimeout));
+        Assert.Equal(PublicRecoveryDetailCode.SessionRecoveryUnknown, error.DetailCode);
+        Assert.False(error.Retryable);
+        Assert.Null(error.RecoveryPhase);
+        Assert.Null(error.RecoveryAttempt);
+        Assert.Null(error.RetryAfterMilliseconds);
+        Assert.Null(error.RetryGate);
+        Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
+
+        var state = await rig.ReadStateAsync();
+        Assert.Equal(PublicHostState.Ready, state.Host.State);
+        Assert.True(state.Host.ReadyForEffects);
+        var session = Assert.Single(state.Sessions);
+        Assert.Equal(PublicSessionState.Ready, session.State);
+        Assert.True(session.ReadyForEffects);
+        Assert.Equal(new WorkerGeneration(2), session.Generation);
+        Assert.Equal(new SessionTransitionVersion(2), session.TransitionVersion);
+        Assert.Null(session.RecoveryPhase);
+        Assert.Equal(0, session.RecoveryAttempt);
+        Assert.Null(session.RetryAfterMilliseconds);
+
+        var fresh = await rig.DispatchJobListAsync().WaitAsync(TestTimeout);
+        Assert.False(fresh.IsError);
+        Assert.Equal("jobs-generation-1", fresh.Text);
+        Assert.Equal(1, rig.Factory.Resources[0].OperationCount);
     }
 
     [Fact]
@@ -715,6 +794,16 @@ public sealed class GuardianHostSupervisorTests
                     CancellationToken.None)
                 .AsTask();
 
+        internal async Task<PublicStateSnapshot> ReadStateAsync()
+        {
+            var result = await Supervisor.DispatchAsync(
+                "ptk_state",
+                EmptyArguments(),
+                CancellationToken.None);
+            Assert.False(result.IsError);
+            return PublicStateCodec.Decode(Encoding.UTF8.GetBytes(result.Text));
+        }
+
         public async ValueTask DisposeAsync()
         {
             foreach (var resource in Factory.Resources)
@@ -777,49 +866,98 @@ public sealed class GuardianHostSupervisorTests
 
         internal interface ITestSessionControl : IGuardianHostSupervisorSessionSource
         {
-            bool Ready { get; set; }
-            long WorkerGeneration { get; set; }
+            void ReplaceReadyWorker(
+                long workerGeneration,
+                long transitionVersion,
+                PublicSessionStateSnapshot? recoverySnapshot);
         }
 
         private sealed class StaticSessionSource : ITestSessionControl
         {
-            public bool Ready { get; set; } = true;
-            public long WorkerGeneration { get; set; } = 1;
+            private readonly object _sync = new();
+            private long _workerGeneration = 1;
+            private long _transitionVersion = 1;
+            private long _recoveryAttempt;
+            private GuardianHostJobListTargetInvalidation? _invalidation;
 
-            public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions() =>
-            [
-                new PublicSessionStateSnapshot(
-                    Alias,
-                    DesiredSessionState.Ready,
-                    Ready ? PublicSessionState.Ready : PublicSessionState.RecoveryUnknown,
-                    Ready ? Worker.BootId : null,
-                    Ready ? new WorkerGeneration(WorkerGeneration) : null,
-                    Transition,
-                    recoveryPhase: null,
-                    recoveryAttempt: 0,
-                    retryAfterMilliseconds: null,
-                    readyForEffects: Ready,
-                    lastFailureCode: Ready
-                        ? null
-                        : PublicRecoveryDetailCode.SessionRecoveryUnknown,
-                    warmStateLost: false,
-                    bootstrapState: Ready
-                        ? BootstrapState.Restored
-                        : BootstrapState.Unknown),
-            ];
+            public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
+            {
+                lock (_sync)
+                {
+                    return
+                    [
+                        new PublicSessionStateSnapshot(
+                            Alias,
+                            DesiredSessionState.Ready,
+                            PublicSessionState.Ready,
+                            Worker.BootId,
+                            new WorkerGeneration(_workerGeneration),
+                            new SessionTransitionVersion(_transitionVersion),
+                            recoveryPhase: null,
+                            _recoveryAttempt,
+                            retryAfterMilliseconds: null,
+                            readyForEffects: true,
+                            lastFailureCode: null,
+                            warmStateLost: false,
+                            BootstrapState.Restored),
+                    ];
+                }
+            }
 
             public bool TryGetJobListTarget(
                 [NotNullWhen(true)] out GuardianHostJobListTarget? target)
             {
-                target = new GuardianHostJobListTarget(
-                    Alias,
-                    Transition,
-                    new GuardianHostWorkerIdentity(
-                        Worker.BootId,
-                        new WorkerGeneration(WorkerGeneration)),
-                    Ready);
+                lock (_sync)
+                    target = CreateTargetLocked();
                 return true;
             }
+
+            public bool TryGetJobListTargetInvalidation(
+                GuardianHostJobListTarget target,
+                [NotNullWhen(true)] out GuardianHostJobListTargetInvalidation? invalidation)
+            {
+                ArgumentNullException.ThrowIfNull(target);
+                lock (_sync)
+                {
+                    if (_invalidation is not null && _invalidation.AppliesTo(target))
+                    {
+                        invalidation = _invalidation;
+                        return true;
+                    }
+
+                    invalidation = null;
+                    return false;
+                }
+            }
+
+            public void ReplaceReadyWorker(
+                long workerGeneration,
+                long transitionVersion,
+                PublicSessionStateSnapshot? recoverySnapshot)
+            {
+                var nextGeneration = new WorkerGeneration(workerGeneration);
+                var nextTransition = new SessionTransitionVersion(transitionVersion);
+                lock (_sync)
+                {
+                    var invalidated = CreateTargetLocked();
+                    _invalidation = recoverySnapshot is null
+                        ? null
+                        : new GuardianHostJobListTargetInvalidation(
+                            invalidated,
+                            recoverySnapshot);
+                    _workerGeneration = nextGeneration.Value;
+                    _transitionVersion = nextTransition.Value;
+                    _recoveryAttempt = recoverySnapshot?.RecoveryAttempt ?? 0;
+                }
+            }
+
+            private GuardianHostJobListTarget CreateTargetLocked() => new(
+                    Alias,
+                    new SessionTransitionVersion(_transitionVersion),
+                    new GuardianHostWorkerIdentity(
+                        Worker.BootId,
+                        new WorkerGeneration(_workerGeneration)),
+                    readyForEffects: true);
         }
     }
 

@@ -365,11 +365,12 @@ internal sealed class GuardianHostSupervisor :
             }
 
             if (!_sessionSource.TryGetJobListTarget(out var current) ||
-                !current.ReadyForEffects ||
-                !expectedTarget.SameDispatchIdentity(current))
+                !current.ReadyForEffects)
             {
                 return CreateSessionRefusal(expectedTarget.Alias);
             }
+            if (!expectedTarget.SameDispatchIdentity(current))
+                return CreateSessionTargetInvalidationRefusal(expectedTarget);
 
             return null;
         }
@@ -423,7 +424,7 @@ internal sealed class GuardianHostSupervisor :
                         call.Attempt,
                         backendLostBeforeDispatch: true,
                         target.Alias)
-                    : CreateSessionRefusal(target.Alias);
+                    : CreatePrewriteSessionRefusal(target);
                 SignalLocalTerminal(call, terminal);
             }
             finally
@@ -1111,6 +1112,49 @@ internal sealed class GuardianHostSupervisor :
             recoveryAttempt: null,
             retryGate: null));
     }
+
+    private GuardianHostSupervisorTerminal CreatePrewriteSessionRefusal(
+        GuardianHostJobListTarget expectedTarget)
+    {
+        if (_sessionSource.TryGetJobListTarget(out var current) &&
+            current.ReadyForEffects &&
+            !expectedTarget.SameDispatchIdentity(current))
+        {
+            return CreateSessionTargetInvalidationRefusal(expectedTarget);
+        }
+
+        return CreateSessionRefusal(expectedTarget.Alias);
+    }
+
+    private GuardianHostSupervisorTerminal CreateSessionTargetInvalidationRefusal(
+        GuardianHostJobListTarget expectedTarget)
+    {
+        if (_sessionSource.TryGetJobListTargetInvalidation(
+                expectedTarget,
+                out var invalidation) &&
+            invalidation.AppliesTo(expectedTarget))
+        {
+            var recovery = invalidation.RecoverySnapshot;
+            return RecoveryTerminal(new PublicRecoveryError(
+                PublicRecoveryDetailCode.BackendLostBeforeDispatch,
+                retryable: true,
+                recovery.RetryAfterMilliseconds,
+                recovery.RecoveryPhase,
+                recovery.RecoveryAttempt,
+                new SessionReadyGate(expectedTarget.Alias)));
+        }
+
+        return SessionRecoveryUnknown();
+    }
+
+    private static GuardianHostSupervisorTerminal SessionRecoveryUnknown() =>
+        RecoveryTerminal(new PublicRecoveryError(
+            PublicRecoveryDetailCode.SessionRecoveryUnknown,
+            retryable: false,
+            retryAfterMilliseconds: null,
+            recoveryPhase: null,
+            recoveryAttempt: null,
+            retryGate: null));
 
     private static GuardianHostSupervisorTerminal OutcomeUnknown() =>
         RecoveryTerminal(new PublicRecoveryError(

@@ -306,6 +306,95 @@ public sealed class R3FakeHostTests
         resources.Dispose();
     }
 
+    [Theory]
+    [InlineData((int)R3FakeHostHelloFault.WrongGuardianBootId)]
+    [InlineData((int)R3FakeHostHelloFault.WrongHostBootId)]
+    [InlineData((int)R3FakeHostHelloFault.WrongGeneration)]
+    [InlineData((int)R3FakeHostHelloFault.WrongExecutableDigest)]
+    [InlineData((int)R3FakeHostHelloFault.WrongBuildDigest)]
+    [InlineData((int)R3FakeHostHelloFault.WrongPublicContractDigest)]
+    [InlineData((int)R3FakeHostHelloFault.WrongConfigurationDigest)]
+    public async Task Every_fake_hello_fault_is_rejected_before_manifest(
+        int faultValue)
+    {
+        var control = new R3FakeHostControl();
+        control.EnqueueAttempt(new R3FakeHostAttemptPlan
+        {
+            HelloFault = (R3FakeHostHelloFault)faultValue,
+        });
+        var (_, resources) = CreateAttempt(control: control);
+        Assert.Equal(GuardianHostLaunchOutcome.Started, resources.Launch());
+        await using var client = CreateClient(resources);
+
+        var failure = await Assert.ThrowsAsync<GuardianHostClientException>(() =>
+            client.InitializeAsync(CreateManifest()).WaitAsync(TestTimeout));
+        Assert.Equal(GuardianHostClientFailureKind.ContractMismatch, failure.DetailKind);
+        Assert.Empty(resources.Peer.ReceivedRequestIds);
+        resources.BeginContainment(new GuardianHostContainmentDeadline(1, 2));
+        await resources.HostExited.WaitAsync(TestTimeout);
+        await resources.ContainmentConfirmed.WaitAsync(TestTimeout);
+        resources.Dispose();
+    }
+
+    [Theory]
+    [InlineData((int)R3FakeHostOperationBehavior.CrashAfterReceive)]
+    [InlineData((int)R3FakeHostOperationBehavior.WrongGenerationResponse)]
+    public async Task Invalid_fake_operation_terminals_never_complete_the_request(
+        int behaviorValue)
+    {
+        var operation = new R3FakeHostOperationPlan
+        {
+            Behavior = (R3FakeHostOperationBehavior)behaviorValue,
+        };
+        var control = new R3FakeHostControl();
+        control.EnqueueOperation(operation);
+        var (_, resources) = CreateAttempt(control: control);
+        Assert.Equal(GuardianHostLaunchOutcome.Started, resources.Launch());
+        await using var client = CreateClient(resources);
+        await client.InitializeAsync(CreateManifest()).WaitAsync(TestTimeout);
+
+        await Assert.ThrowsAnyAsync<IOException>(() =>
+            client.SendRequestAsync(CreateJobListRequest).WaitAsync(TestTimeout));
+        Assert.Equal(1, resources.Peer.JobListEffectCount);
+        Assert.True(operation.Received.IsReached);
+        if ((R3FakeHostOperationBehavior)behaviorValue ==
+            R3FakeHostOperationBehavior.CrashAfterReceive)
+        {
+            Assert.False(operation.ResponseSent.IsReached);
+        }
+        resources.BeginContainment(new GuardianHostContainmentDeadline(1, 2));
+        await resources.ContainmentConfirmed.WaitAsync(TestTimeout);
+        resources.Dispose();
+    }
+
+    [Fact]
+    public async Task Duplicate_fake_response_delivers_once_then_faults_the_private_generation()
+    {
+        var operation = new R3FakeHostOperationPlan
+        {
+            Behavior = R3FakeHostOperationBehavior.DuplicateResponse,
+        };
+        var control = new R3FakeHostControl();
+        control.EnqueueOperation(operation);
+        var (_, resources) = CreateAttempt(control: control);
+        Assert.Equal(GuardianHostLaunchOutcome.Started, resources.Launch());
+        await using var client = CreateClient(resources);
+        await client.InitializeAsync(CreateManifest()).WaitAsync(TestTimeout);
+
+        var response = await client.SendRequestAsync(CreateJobListRequest)
+            .WaitAsync(TestTimeout);
+        Assert.IsType<GuardianHostSuccessResponse>(response);
+        var fatal = await client.Fatal.WaitAsync(TestTimeout);
+        Assert.Equal(
+            GuardianHostClientFailureKind.DuplicateOrStaleResponse,
+            fatal.DetailKind);
+        Assert.Equal(1, resources.Peer.JobListEffectCount);
+        Assert.True(operation.ResponseSent.IsReached);
+        resources.BeginContainment(new GuardianHostContainmentDeadline(1, 2));
+        await resources.ContainmentConfirmed.WaitAsync(TestTimeout);
+        resources.Dispose();
+    }
+
     [Fact]
     public async Task Fake_peer_rejects_manifest_content_that_does_not_match_attempt_identity()
     {

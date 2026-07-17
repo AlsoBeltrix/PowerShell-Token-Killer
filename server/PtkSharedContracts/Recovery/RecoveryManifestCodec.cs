@@ -9,35 +9,51 @@ public static class RecoveryManifestCodec
     {
         ArgumentNullException.ThrowIfNull(manifest);
         using var stream = new MemoryStream();
-        using (var writer = new Utf8JsonWriter(stream))
+        byte[]? compact = null;
+        var compactReturned = false;
+        try
         {
-            writer.WriteStartObject();
-            writer.WriteString("schema_version", manifest.SchemaVersion);
-            writer.WriteString("guardian_boot_id", manifest.GuardianBootId.ToString());
-            writer.WriteNumber("host_generation", manifest.HostGeneration.Value);
-            writer.WriteString("catalog_digest", manifest.CatalogDigest.Value);
-            writer.WriteString("configuration_sha256", manifest.ConfigurationDigest.Value);
-            writer.WritePropertyName("templates"); writer.WriteStartArray();
-            foreach (var value in manifest.Templates) WriteTemplate(writer, value);
-            writer.WriteEndArray();
-            writer.WritePropertyName("bindings"); writer.WriteStartArray();
-            foreach (var value in manifest.Bindings) WriteBinding(writer, value);
-            writer.WriteEndArray();
-            writer.WritePropertyName("worker_generation_high_watermarks"); writer.WriteStartArray();
-            foreach (var value in manifest.WorkerGenerationHighWatermarks)
+            using (var writer = new Utf8JsonWriter(stream))
             {
-                writer.WriteStartObject(); writer.WriteString("alias", value.Alias.Value);
-                writer.WriteNumber("generation", value.Generation.Value); writer.WriteEndObject();
+                writer.WriteStartObject();
+                writer.WriteString("schema_version", manifest.SchemaVersion);
+                writer.WriteString("guardian_boot_id", manifest.GuardianBootId.ToString());
+                writer.WriteNumber("host_generation", manifest.HostGeneration.Value);
+                writer.WriteString("catalog_digest", manifest.CatalogDigest.Value);
+                writer.WriteString("configuration_sha256", manifest.ConfigurationDigest.Value);
+                writer.WritePropertyName("templates"); writer.WriteStartArray();
+                foreach (var value in manifest.Templates) WriteTemplate(writer, value);
+                writer.WriteEndArray();
+                writer.WritePropertyName("bindings"); writer.WriteStartArray();
+                foreach (var value in manifest.Bindings) WriteBinding(writer, value);
+                writer.WriteEndArray();
+                writer.WritePropertyName("worker_generation_high_watermarks"); writer.WriteStartArray();
+                foreach (var value in manifest.WorkerGenerationHighWatermarks)
+                {
+                    writer.WriteStartObject(); writer.WriteString("alias", value.Alias.Value);
+                    writer.WriteNumber("generation", value.Generation.Value); writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteNumber("host_generation_high_watermark", manifest.HostGenerationHighWatermark.Value);
+                writer.WriteEndObject();
             }
-            writer.WriteEndArray();
-            writer.WriteNumber("host_generation_high_watermark", manifest.HostGenerationHighWatermark.Value);
-            writer.WriteEndObject();
+
+            compact = stream.ToArray();
+            var transferredBytes = checked(compact.Length + (appendFinalLf ? 1 : 0));
+            if (compact.Length < 2 || transferredBytes > ContractLimits.MaximumManifestBytes)
+                throw new InvalidDataException("Recovery manifest is outside its frozen bound.");
+            if (appendFinalLf)
+                return [.. compact, (byte)'\n'];
+
+            compactReturned = true;
+            return compact;
         }
-        var compact = stream.ToArray();
-        var transferredBytes = checked(compact.Length + (appendFinalLf ? 1 : 0));
-        if (compact.Length < 2 || transferredBytes > ContractLimits.MaximumManifestBytes)
-            throw new InvalidDataException("Recovery manifest is outside its frozen bound.");
-        return appendFinalLf ? [.. compact, (byte)'\n'] : compact;
+        finally
+        {
+            ClearMemoryStreamBuffer(stream);
+            if (compact is not null && !compactReturned)
+                CryptographicOperations.ZeroMemory(compact);
+        }
     }
 
     public static RecoveryManifest DecodeForInitialize(
@@ -83,9 +99,24 @@ public static class RecoveryManifestCodec
             new HostGeneration(RequiredLong(root, "host_generation_high_watermark")));
         if (manifest.ConfigurationDigest != initializeConfigurationDigest)
             throw new InvalidDataException("Manifest configuration digest does not match initialize.");
-        if (!Encode(manifest, appendFinalLf: hasFinalLf).AsSpan().SequenceEqual(encoded.Span))
-            throw new InvalidDataException("Recovery manifest is not in canonical compact form.");
+        var canonical = Encode(manifest, appendFinalLf: hasFinalLf);
+        try
+        {
+            if (!canonical.AsSpan().SequenceEqual(encoded.Span))
+                throw new InvalidDataException("Recovery manifest is not in canonical compact form.");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(canonical);
+        }
         return manifest;
+    }
+
+    internal static void ClearMemoryStreamBuffer(MemoryStream stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        if (stream.TryGetBuffer(out var buffer))
+            CryptographicOperations.ZeroMemory(buffer.AsSpan());
     }
 
     private static void WriteTemplate(Utf8JsonWriter writer, RecoveryTemplate value)

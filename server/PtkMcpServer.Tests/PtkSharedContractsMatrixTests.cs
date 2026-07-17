@@ -189,6 +189,31 @@ public sealed class PtkSharedContractsMatrixTests
     }
 
     [Fact]
+    public void Recovery_manifest_codec_clears_intermediate_encode_buffers()
+    {
+        using var stream = new MemoryStream();
+        stream.Write("temporary manifest bytes"u8);
+        Assert.True(stream.TryGetBuffer(out var buffer));
+        var written = buffer.AsSpan(0, checked((int)stream.Length));
+        Assert.Contains(written.ToArray(), value => value != 0);
+
+        RecoveryManifestCodec.ClearMemoryStreamBuffer(stream);
+
+        Assert.All(written.ToArray(), value => Assert.Equal(0, value));
+
+        var source = File.ReadAllText(RecoveryManifestCodecSourcePath());
+        Assert.Contains("ClearMemoryStreamBuffer(stream)", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "CryptographicOperations.ZeroMemory(compact)",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "CryptographicOperations.ZeroMemory(canonical)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Recovery_manifest_rejects_collection_order_count_null_and_coverage_failures()
     {
         var firstTemplate = Template("alpha", "a"u8.ToArray(), Digest('1'));

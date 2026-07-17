@@ -152,6 +152,7 @@ public sealed class GuardianArchitectureBoundaryTests
         "RtkProcessRunner",
         "BashExecutableIdentity",
         "ExecutableFileIdentity",
+        "PrivateHostProcessEntry",
         "WorkerProcessEntry",
         "WorkerServer",
         "WorkerOperationScheduler",

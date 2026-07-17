@@ -20,6 +20,8 @@ internal sealed class R3BoundedOneWayStream : Stream
     private readonly SemaphoreSlim _readGate = new(1, 1);
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly CancellationTokenSource _disposed = new();
+    private readonly TaskCompletionSource _capacityWaitObserved = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Action<byte[]>? _retiredBufferObserver;
 
     private byte[]? _current;
@@ -52,6 +54,8 @@ internal sealed class R3BoundedOneWayStream : Stream
     internal int BufferedChunkCount => Volatile.Read(ref _bufferedChunkCount);
 
     internal int MaximumBufferedChunkCount => Volatile.Read(ref _maximumBufferedChunkCount);
+
+    internal Task CapacityWaitObserved => _capacityWaitObserved.Task;
 
     internal bool IsDisposed
     {
@@ -218,7 +222,11 @@ internal sealed class R3BoundedOneWayStream : Stream
                     throw new IOException("The armed fake transport write failed.");
             }
 
-            await _bufferSlots.WaitAsync(linked.Token).ConfigureAwait(false);
+            if (!_bufferSlots.Wait(0))
+            {
+                _capacityWaitObserved.TrySetResult();
+                await _bufferSlots.WaitAsync(linked.Token).ConfigureAwait(false);
+            }
             ownsSlot = true;
             lock (_sync) ThrowIfNotWritableLocked();
 

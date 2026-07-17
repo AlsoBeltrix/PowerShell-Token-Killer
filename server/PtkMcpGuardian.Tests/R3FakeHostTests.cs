@@ -45,7 +45,7 @@ public sealed class R3FakeHostTests
         await stream.WriteAsync(new byte[] { 1, 2, 3 });
 
         var secondWrite = stream.WriteAsync(new byte[] { 4, 5, 6 }).AsTask();
-        await Task.Delay(50);
+        await stream.CapacityWaitObserved.WaitAsync(TestTimeout);
 
         Assert.False(secondWrite.IsCompleted);
         Assert.Equal(1, stream.BufferedChunkCount);

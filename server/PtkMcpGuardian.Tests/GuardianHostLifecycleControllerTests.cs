@@ -508,6 +508,9 @@ public sealed class GuardianHostLifecycleControllerTests
                 attempt,
                 GuardianHostLossReason.ContractMismatch));
         Assert.Equal(
+            GuardianHostLifecycleLossDisposition.Duplicate,
+            mismatchRig.Controller.ReportLoss(attempt, GuardianHostLossReason.Exit));
+        Assert.Equal(
             GuardianHostContainmentDisposition.Confirmed,
             mismatchRig.Controller.ConfirmContainment(attempt).Disposition);
         var mismatch = mismatchRig.Controller.Snapshot();
@@ -528,6 +531,84 @@ public sealed class GuardianHostLifecycleControllerTests
         Assert.Equal(
             GuardianHostPermanentStopReason.IdentityExhausted,
             exhaustedRig.Controller.Snapshot().PermanentStopReason);
+    }
+
+    [Fact]
+    public void Contract_mismatch_promotes_generic_or_unconfirmed_containment_to_stop()
+    {
+        var generic = new TestRig();
+        var attempt = StartReady(generic);
+        Assert.Equal(
+            GuardianHostLifecycleLossDisposition.BeganContainment,
+            generic.Controller.ReportLoss(attempt, GuardianHostLossReason.Exit));
+        Assert.Equal(
+            GuardianHostLifecycleLossDisposition.Duplicate,
+            generic.Controller.ReportLoss(
+                attempt,
+                GuardianHostLossReason.ContractMismatch));
+        Assert.Equal(1, generic.Factory.Resources[0].CloseCount);
+        Assert.Equal(1, generic.Factory.Resources[0].BeginContainmentCount);
+        var promoted = generic.Controller.Snapshot();
+        Assert.Equal(
+            GuardianHostPermanentStopReason.ContractMismatch,
+            promoted.PermanentStopReason);
+        Assert.Equal(GuardianHostLossReason.ContractMismatch, promoted.LastLossReason);
+        Assert.Equal(
+            PublicRecoveryDetailCode.HostContractMismatch,
+            promoted.Host.LastFailureCode);
+        Assert.Null(generic.Controller.ConfirmContainment(attempt).StartedAttempt);
+        Assert.Equal(PublicHostState.Stopped, generic.Controller.Snapshot().Host.State);
+        Assert.Single(generic.Factory.Resources);
+
+        var unconfirmed = new TestRig();
+        var uncertainAttempt = StartReady(unconfirmed);
+        Assert.Equal(
+            GuardianHostLifecycleLossDisposition.BeganContainment,
+            unconfirmed.Controller.ReportLoss(
+                uncertainAttempt,
+                GuardianHostLossReason.ReaderFailure));
+        unconfirmed.Clock.Advance(TimeSpan.FromSeconds(10));
+        Assert.Equal(
+            GuardianHostContainmentDisposition.MarkedUnconfirmed,
+            unconfirmed.Controller.ObserveContainmentDeadline(uncertainAttempt).Disposition);
+        Assert.Equal(
+            GuardianHostLifecycleLossDisposition.Duplicate,
+            unconfirmed.Controller.ReportLoss(
+                uncertainAttempt,
+                GuardianHostLossReason.ContractMismatch));
+        Assert.Null(unconfirmed.Controller.ConfirmContainment(uncertainAttempt).StartedAttempt);
+        Assert.Equal(PublicHostState.Stopped, unconfirmed.Controller.Snapshot().Host.State);
+        Assert.Single(unconfirmed.Factory.Resources);
+    }
+
+    [Fact]
+    public void Racing_contract_mismatch_and_exit_always_stop_one_containment()
+    {
+        for (var iteration = 0; iteration < 256; iteration++)
+        {
+            var rig = new TestRig();
+            var attempt = StartReady(rig);
+            GuardianHostLifecycleLossDisposition exit = default;
+            GuardianHostLifecycleLossDisposition mismatch = default;
+
+            Parallel.Invoke(
+                () => exit = rig.Controller.ReportLoss(attempt, GuardianHostLossReason.Exit),
+                () => mismatch = rig.Controller.ReportLoss(
+                    attempt,
+                    GuardianHostLossReason.ContractMismatch));
+
+            Assert.Contains(
+                GuardianHostLifecycleLossDisposition.BeganContainment,
+                new[] { exit, mismatch });
+            Assert.Contains(
+                GuardianHostLifecycleLossDisposition.Duplicate,
+                new[] { exit, mismatch });
+            Assert.Null(rig.Controller.ConfirmContainment(attempt).StartedAttempt);
+            Assert.Equal(PublicHostState.Stopped, rig.Controller.Snapshot().Host.State);
+            Assert.Equal(1, rig.Factory.Resources[0].CloseCount);
+            Assert.Equal(1, rig.Factory.Resources[0].BeginContainmentCount);
+            Assert.Single(rig.Factory.Resources);
+        }
     }
 
     [Fact]

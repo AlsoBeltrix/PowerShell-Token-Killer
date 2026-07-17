@@ -208,6 +208,11 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 GuardianHostAttemptStage.ContainmentUnconfirmed or
                 GuardianHostAttemptStage.DeathConfirmed)
             {
+                if (reason == GuardianHostLossReason.ContractMismatch &&
+                    attempt.Stage is not GuardianHostAttemptStage.DeathConfirmed)
+                {
+                    PromoteContractMismatchLocked();
+                }
                 return GuardianHostLifecycleLossDisposition.Duplicate;
             }
             if (_state == PublicHostState.Stopped)
@@ -527,8 +532,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
 
         if (reason == GuardianHostLossReason.ContractMismatch)
         {
-            _permanentStopReason = GuardianHostPermanentStopReason.ContractMismatch;
-            _lastFailureCode = PublicRecoveryDetailCode.HostContractMismatch;
+            PromoteContractMismatchLocked();
         }
         else
         {
@@ -564,6 +568,15 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         {
             // Deadline observation will publish uncertainty if no proof arrives.
         }
+    }
+
+    private void PromoteContractMismatchLocked()
+    {
+        _pendingContainmentAction = PendingContainmentAction.Stop;
+        _lastLossReason = GuardianHostLossReason.ContractMismatch;
+        _lastFailureCode = PublicRecoveryDetailCode.HostContractMismatch;
+        if (!_terminalShutdown)
+            _permanentStopReason = GuardianHostPermanentStopReason.ContractMismatch;
     }
 
     private PendingContainmentAction PendingActionForLocked(

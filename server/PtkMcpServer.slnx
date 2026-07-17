@@ -1,5 +1,8 @@
 <Solution>
   <Project Path="PtkContainmentTestFixture/PtkContainmentTestFixture.csproj" />
+  <Project Path="PtkGuardianArchitecture.Tests/PtkGuardianArchitecture.Tests.csproj" />
+  <Project Path="PtkMcpGuardian.Tests/PtkMcpGuardian.Tests.csproj" />
+  <Project Path="PtkMcpGuardian/PtkMcpGuardian.csproj" />
   <Project Path="PtkMcpServer.Tests/PtkMcpServer.Tests.csproj" />
   <Project Path="PtkMcpServer/PtkMcpServer.csproj" />
   <Project Path="PtkSharedContracts/PtkSharedContracts.csproj" />

@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PtkContainmentTestFixture\PtkContainmentTestFixture.csproj" />
+    <ProjectReference Include="..\PtkMcpGuardian\PtkMcpGuardian.csproj" />
     <ProjectReference Include="..\PtkMcpServer\PtkMcpServer.csproj" />
     <ProjectReference Include="..\PtkResilienceTestFixture\PtkResilienceTestFixture.csproj" />
     <ProjectReference Include="..\PtkRtkTestFixture\PtkRtkTestFixture.csproj" />

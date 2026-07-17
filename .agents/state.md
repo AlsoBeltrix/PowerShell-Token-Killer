@@ -261,15 +261,19 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
+1. Review the proposed mini-SIEM S3H amendment in
+   `.agents/plans/mini-siem-implementation.md`. If the owner approves it,
+   implement only startup filesystem hardening under `siem/`; do not begin
+   S4-S6 or modify PTK runtime code. Until approval, make no S3H code change.
+2. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
    When producer-owned v3 request bytes land, execute S4 from the complete
    producer corpus; do not substitute receiver-authored fixtures.
-2. Do not begin resilience R1 without separate explicit authorization.
-3. Release-distribution slice 3 is ordered after resilience R7 and consumes
+3. Do not begin resilience R1 without separate explicit authorization.
+4. Release-distribution slice 3 is ordered after resilience R7 and consumes
    only its matched guardian layout; there is no legacy migration path. Do not
    execute it before R7 lands. Re-present the hook-default choice before release
    slice 4.
-4. When the owner releases the decisions hold, reconcile the rejected
+5. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
 
@@ -316,14 +320,15 @@ short and update it when important repo facts change.
   ARM64 build must not be claimed until the launch failure is resolved or
   independently disproved; see `.agents/machines.md`.
 
-- **The mini-SIEM plan does not consistently schedule startup filesystem
-  enforcement.** Its architecture and acceptance row 7 assign owner-only
-  mode/DACL plus symlink/reparse refusal to S1/S3, but S1 explicitly deferred
-  that work and the S3 slice definition schedules only the durable store. The
-  current receiver still lacks that enforcement. S3's durable-store contract is
-  complete, but receiver-host storage protection and full product acceptance
-  must not be claimed until the plan placement is reconciled and the negative
-  cross-platform matrix lands.
+- **Mini-SIEM startup filesystem enforcement is planned but not yet approved
+  or implemented.** The proposed S3H amendment in
+  `.agents/plans/mini-siem-implementation.md` corrects the former S1/S3
+  scheduling inconsistency for current config, TLS, database, and sidecar
+  paths while leaving the not-yet-existent custody-checkpoint path with its
+  later owning slice. The current receiver still lacks this enforcement. Do
+  not claim receiver-host storage protection or full product acceptance until
+  the owner approves S3H, its cross-platform negative matrix lands, and the
+  later checkpoint path is protected before first use.
 
 - **Windows wiring requires a hard supervisor/worker role cutover.**
   `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still

@@ -94,17 +94,27 @@ internal sealed class FrozenSessionCatalog : IFrozenSessionCatalog
         return true;
     }
 
-    private static RecoveryTemplate CloneTemplate(RecoveryTemplate template) =>
-        new(
-            template.Name,
-            template.Description,
-            template.StartupTimeoutSeconds,
-            template.DeclaredTarget,
-            template.DeclaredIdentity,
-            template.AllowColdBackground,
-            template.TemplateDigest,
-            template.BootstrapDigest,
-            template.GetBootstrapBytes());
+    private static RecoveryTemplate CloneTemplate(RecoveryTemplate template)
+    {
+        var bootstrap = template.GetBootstrapBytes();
+        try
+        {
+            return new RecoveryTemplate(
+                template.Name,
+                template.Description,
+                template.StartupTimeoutSeconds,
+                template.DeclaredTarget,
+                template.DeclaredIdentity,
+                template.AllowColdBackground,
+                template.TemplateDigest,
+                template.BootstrapDigest,
+                bootstrap);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(bootstrap);
+        }
+    }
 
     private static Sha256Digest ComputeCatalogDigest(
         IEnumerable<RecoveryTemplate> templates)

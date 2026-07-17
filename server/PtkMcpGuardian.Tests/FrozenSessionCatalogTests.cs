@@ -48,6 +48,17 @@ public sealed class FrozenSessionCatalogTests
     }
 
     [Fact]
+    public void Catalog_cloning_does_not_leave_an_intermediate_bootstrap_copy()
+    {
+        var source = File.ReadAllText(FrozenSessionCatalogSourcePath());
+
+        Assert.Contains(
+            "CryptographicOperations.ZeroMemory(bootstrap)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Digest_uses_the_frozen_v1_domain_and_ordinal_name_order()
     {
         var zeta = Template("zeta", RepeatedHex("11"));
@@ -147,6 +158,16 @@ public sealed class FrozenSessionCatalogTests
 
     private static string RepeatedHex(string pair) =>
         string.Concat(Enumerable.Repeat(pair, 32));
+
+    private static string FrozenSessionCatalogSourcePath(
+        [System.Runtime.CompilerServices.CallerFilePath] string testSourcePath = "") =>
+        Path.GetFullPath(Path.Combine(
+            Path.GetDirectoryName(testSourcePath) ??
+                throw new InvalidOperationException("Test source path is unavailable."),
+            "..",
+            "PtkMcpGuardian",
+            "Ownership",
+            "FrozenSessionCatalog.cs"));
 
     private static void AssertTemplateEquivalent(
         RecoveryTemplate expected,

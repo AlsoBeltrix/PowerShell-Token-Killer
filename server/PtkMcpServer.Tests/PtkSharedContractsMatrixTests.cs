@@ -221,6 +221,22 @@ public sealed class PtkSharedContractsMatrixTests
     }
 
     [Fact]
+    public void Guardian_host_schema_validation_avoids_immutable_raw_payload_copies()
+    {
+        var source = File.ReadAllText(GuardianHostProtocolSchemaSourcePath());
+
+        Assert.DoesNotContain("rawBase64.GetString", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Convert.ToBase64String(decoded", source, StringComparison.Ordinal);
+        Assert.Contains("rawBase64.GetBytesFromBase64()", source, StringComparison.Ordinal);
+        Assert.Contains("rawBase64.ValueEquals", source, StringComparison.Ordinal);
+        Assert.Contains("CryptographicOperations.ZeroMemory(decoded)", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "ArrayPool<byte>.Shared.Return(canonical, clearArray: true)",
+            source,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Failed_recovery_manifest_decode_clears_owned_template_bootstrap_bytes()
     {
         var encoded = RecoveryManifestCodec.Encode(
@@ -570,4 +586,14 @@ public sealed class PtkSharedContractsMatrixTests
             "PtkSharedContracts",
             "Recovery",
             "RecoveryManifestCodec.cs"));
+
+    private static string GuardianHostProtocolSchemaSourcePath(
+        [System.Runtime.CompilerServices.CallerFilePath] string testSourcePath = "") =>
+        Path.GetFullPath(Path.Combine(
+            Path.GetDirectoryName(testSourcePath) ??
+                throw new InvalidOperationException("Test source path is unavailable."),
+            "..",
+            "PtkSharedContracts",
+            "GuardianHost",
+            "GuardianHostProtocolSchema.cs"));
 }

@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -219,25 +220,49 @@ internal static class GuardianHostProtocolSchema
         if (!rawBytes.TryGetInt32(out var expectedBytes) || rawBase64.ValueKind != JsonValueKind.String ||
             rawSha256.ValueKind != JsonValueKind.String)
             return false;
-        var encoded = rawBase64.GetString()!;
-        var maximumDecodedBytes = checked(encoded.Length / 4 * 3);
-        var decoded = ArrayPool<byte>.Shared.Rent(Math.Max(1, maximumDecodedBytes));
+
+        byte[] decoded;
         try
         {
-            if (!Convert.TryFromBase64String(encoded, decoded, out var decodedLength) ||
-                decodedLength != expectedBytes ||
-                Convert.ToBase64String(decoded, 0, decodedLength) != encoded)
+            decoded = rawBase64.GetBytesFromBase64();
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (decoded.Length != expectedBytes)
                 return false;
 
-            Span<byte> actualDigest = stackalloc byte[32];
-            SHA256.HashData(decoded.AsSpan(0, decodedLength), actualDigest);
-            return Convert.ToHexString(actualDigest).Equals(
-                rawSha256.GetString(),
-                StringComparison.OrdinalIgnoreCase);
+            var canonical = ArrayPool<byte>.Shared.Rent(
+                Math.Max(1, Base64.GetMaxEncodedToUtf8Length(decoded.Length)));
+            try
+            {
+                var status = Base64.EncodeToUtf8(
+                    decoded,
+                    canonical,
+                    out var consumed,
+                    out var written);
+                if (status != OperationStatus.Done || consumed != decoded.Length ||
+                    !rawBase64.ValueEquals(canonical.AsSpan(0, written)))
+                    return false;
+
+                Span<byte> actualDigest = stackalloc byte[32];
+                SHA256.HashData(decoded, actualDigest);
+                return Convert.ToHexString(actualDigest).Equals(
+                    rawSha256.GetString(),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(canonical, clearArray: true);
+            }
         }
         finally
         {
-            ArrayPool<byte>.Shared.Return(decoded, clearArray: true);
+            CryptographicOperations.ZeroMemory(decoded);
         }
     }
 

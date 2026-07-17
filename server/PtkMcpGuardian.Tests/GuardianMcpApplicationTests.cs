@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using PtkMcpGuardian.Standalone;
+using PtkMcpGuardian.Standalone.Fake;
 using PtkSharedContracts;
 
 namespace PtkMcpGuardian.Tests;
@@ -86,24 +87,56 @@ public sealed class GuardianMcpApplicationTests
     }
 
     [Fact]
-    public void Executable_rejects_every_mode_without_opening_a_public_transport()
+    public async Task Executable_rejects_every_mode_except_exact_fake_host_without_output()
     {
         IReadOnlyList<string>[] invocations =
         [
             [],
-            ["--fake-host"],
             ["--host"],
             ["unexpected"],
+            ["--FAKE-HOST"],
+            ["--fake-host", "extra"],
         ];
 
         foreach (var arguments in invocations)
         {
+            using var input = new MemoryStream();
+            using var output = new MemoryStream();
             using var error = new StringWriter();
-            Assert.Equal(Program.UsageExitCode, Program.Run(arguments, error));
+            Assert.Equal(
+                Program.UsageExitCode,
+                await Program.RunAsync(arguments, input, output, error));
             Assert.Equal(
                 Program.UnsupportedModeMessage + Environment.NewLine,
                 error.ToString());
+            Assert.Empty(output.ToArray());
         }
+    }
+
+    [Fact]
+    public async Task Fake_host_startup_failure_is_stderr_only_and_never_opens_MCP()
+    {
+        var control = new R3FakeHostControl();
+        control.EnqueueAttempt(new R3FakeHostAttemptPlan { FailPrepare = true });
+        var composition = R3FakeGuardianComposition.Create(control);
+        using var input = new MemoryStream();
+        using var output = new MemoryStream();
+        using var error = new StringWriter();
+
+        Assert.Equal(
+            Program.SoftwareExitCode,
+            await Program.RunAsync(
+                ["--fake-host"],
+                input,
+                output,
+                error,
+                composition));
+        Assert.Equal(
+            Program.RuntimeFailureMessage + Environment.NewLine,
+            error.ToString());
+        Assert.Empty(output.ToArray());
+        Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+        Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
     }
 
     [Fact]

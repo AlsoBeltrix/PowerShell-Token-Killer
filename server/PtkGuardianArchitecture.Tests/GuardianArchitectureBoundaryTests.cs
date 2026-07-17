@@ -20,6 +20,7 @@ public sealed class GuardianArchitectureBoundaryTests
     [
         "Program.cs",
         "Standalone/GuardianMcpApplication.cs",
+        "Standalone/Fake/R3FakeGuardianComposition.cs",
     ];
 
     private static readonly string[] RequiredGuardianAuditCompileInputs =
@@ -415,7 +416,7 @@ public sealed class GuardianArchitectureBoundaryTests
     }
 
     [Fact]
-    public void Guardian_apphost_uses_the_frozen_contract_explicit_handlers_and_stderr_logging()
+    public void Guardian_apphost_uses_frozen_contract_explicit_fake_mode_stdio_and_stderr_logging()
     {
         var paths = RepositoryPaths.Create();
         var guardian = EvaluateProject(paths.GuardianProject);
@@ -436,7 +437,24 @@ public sealed class GuardianArchitectureBoundaryTests
         var programPath = Path.Combine(guardian.ProjectDirectory, "Program.cs");
         var program = File.ReadAllText(programPath);
         Assert.DoesNotContain("Console.Out", program, StringComparison.Ordinal);
-        Assert.DoesNotContain("OpenStandardOutput", program, StringComparison.Ordinal);
+        Assert.Contains("if (!IsFakeHostMode(args))", program, StringComparison.Ordinal);
+        Assert.Contains(
+            "return RejectUnsupportedMode(Console.Error);",
+            program,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "using var publicInput = Console.OpenStandardInput();",
+            program,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "using var publicOutput = Console.OpenStandardOutput();",
+            program,
+            StringComparison.Ordinal);
+        Assert.Contains("arguments.Count == 1", program, StringComparison.Ordinal);
+        Assert.Contains(
+            "StringComparer.Ordinal.Equals(arguments[0], \"--fake-host\")",
+            program,
+            StringComparison.Ordinal);
 
         foreach (var sourcePath in guardian.CompileInputs)
         {

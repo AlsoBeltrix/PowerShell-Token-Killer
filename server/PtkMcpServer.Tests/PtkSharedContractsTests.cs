@@ -33,8 +33,13 @@ public sealed class PtkSharedContractsTests
         Assert.Equal(
             ["ptk_invoke", "ptk_job", "ptk_output", "ptk_reset", "ptk_session", "ptk_state"],
             contract.Tools.Select(tool => tool.Name));
+        Assert.All(
+            contract.Tools,
+            tool => Assert.Equal(
+                "object",
+                tool.InputSchema.GetProperty("type").GetString()));
         Assert.Equal(
-            "84ae4ab1b55c474bd1bf48e48752a7995c54e9328b12440ca1b5cefd1ba8b51b",
+            "1c3a79c821e0367957891585644b52cedd7c56cecf5f4775766e87d155b94970",
             PublicToolContractResource.ComputeDigest().Value);
     }
 

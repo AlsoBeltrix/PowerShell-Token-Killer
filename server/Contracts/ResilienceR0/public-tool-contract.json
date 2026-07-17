@@ -74,6 +74,7 @@
         "name": "ptk_session",
         "description": "List desired session bindings or explicitly open, close, or restart one named session. List is guardian-local; lifecycle actions require the host. For lifecycle actions, timeoutSeconds=0 uses the operator-configured call default and a positive override is capped by the server maximum; template-backed open/restart also stops at the earlier frozen template startup ceiling. After a launched worker misses that deadline, containment may extend the response by at most 10 seconds, so maximum wall time is the selected deadline plus 10 seconds. No work started. PTK recovery is <phase> (attempt <n>). Check ptk_state in <NN> ms. Do not resubmit until <gate> is ready.",
         "inputSchema": {
+          "type": "object",
           "oneOf": [
             {
               "type": "object",

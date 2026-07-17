@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using PtkMcpGuardian.Ownership;
 using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tests;
@@ -86,6 +87,34 @@ public sealed class JobManagerTests : IDisposable
         Assert.Empty(_jobs.List());
         Assert.False(Directory.Exists(_dir));
         Assert.False(File.Exists(plan.OutputPath));
+    }
+
+    [Fact]
+    public void Shared_guardian_allocator_never_reuses_abandoned_or_failed_start_ids()
+    {
+        IPublicJobIdAllocator allocator = new MonotonicPublicJobIdAllocator();
+        using var first = new JobManager(
+            allocator,
+            new JobPwshExecutable(AbsolutePath: null),
+            Path.Combine(_dir, "shared-id-first"));
+        using var second = new JobManager(
+            allocator,
+            new JobPwshExecutable(AbsolutePath: null),
+            Path.Combine(_dir, "shared-id-second"));
+
+        var abandoned = first.PrepareStart("'abandoned'", Path.GetTempPath());
+        var failed = second.PrepareStart("'fails before start'", Path.GetTempPath());
+        var failure = Assert.Throws<JobStartException>(() => second.CommitStart(failed));
+        var next = first.PrepareStart("'next'", Path.GetTempPath());
+
+        Assert.Equal(1, abandoned.Id);
+        Assert.Equal(2, failed.Id);
+        Assert.False(failure.ProcessStarted);
+        Assert.Equal(3, next.Id);
+        Assert.Null(first.Snapshot(abandoned.Id));
+        Assert.Null(first.Snapshot(failed.Id));
+        Assert.Null(second.Snapshot(abandoned.Id));
+        Assert.Null(second.Snapshot(failed.Id));
     }
 
     [Fact]

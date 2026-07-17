@@ -3,6 +3,7 @@ using PtkMcpGuardian.Ownership;
 using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 using PtkMcpServer.Tools;
+using PtkSharedContracts;
 
 namespace PtkMcpServer.Tests;
 
@@ -55,6 +56,11 @@ public sealed class GuardianBoundaryContractTests
             [typeof(IDisposable)],
             [],
             [("ShutdownAsync", typeof(Task), Type.EmptyTypes)]);
+        AssertInternalInterface(
+            typeof(IPublicJobIdAllocator),
+            [],
+            [],
+            [("Allocate", typeof(PublicJobId), Type.EmptyTypes)]);
         AssertInternalInterface(
             typeof(IOutputArtifactReader),
             [],
@@ -123,6 +129,15 @@ public sealed class GuardianBoundaryContractTests
             fields,
             field => field.FieldType == typeof(Func<AuditRuntimeResources>));
 
+        var jobFields = typeof(JobManager).GetFields(
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var allocatorField = Assert.Single(
+            jobFields,
+            field => field.FieldType == typeof(IPublicJobIdAllocator));
+        Assert.Equal("_publicJobIdAllocator", allocatorField.Name);
+        Assert.True(allocatorField.IsInitOnly);
+        Assert.DoesNotContain(jobFields, field => field.Name == "_nextId");
+
         var runOwned = Assert.Single(
             typeof(AuditRuntimeGate)
                 .GetMethods(BindingFlags.Instance | BindingFlags.NonPublic),
@@ -131,6 +146,29 @@ public sealed class GuardianBoundaryContractTests
         Assert.Equal(
             [typeof(IOrderedOwnedLifetime)],
             lifetimeParameter.GetGenericParameterConstraints());
+    }
+
+    [Fact]
+    public void Public_job_identifiers_remain_signed_64_bit_values_at_every_public_boundary()
+    {
+        Assert.Equal(typeof(long), typeof(JobStartPlan).GetProperty(nameof(JobStartPlan.Id))!.PropertyType);
+        Assert.Equal(typeof(long), typeof(JobSnapshot).GetProperty(nameof(JobSnapshot.Id))!.PropertyType);
+
+        var jobTool = typeof(JobTool).GetMethod(
+            nameof(JobTool.Job),
+            BindingFlags.Public | BindingFlags.Static)!;
+        Assert.Equal(
+            typeof(long),
+            jobTool.GetParameters().Single(parameter => parameter.Name == "id").ParameterType);
+
+        Assert.Equal(
+            typeof(long),
+            typeof(JobManager).GetMethod(nameof(JobManager.Snapshot))!
+                .GetParameters().Single().ParameterType);
+        Assert.Equal(
+            typeof(long),
+            typeof(JobManager).GetMethod(nameof(JobManager.Kill))!
+                .GetParameters().First().ParameterType);
     }
 
     [Fact]

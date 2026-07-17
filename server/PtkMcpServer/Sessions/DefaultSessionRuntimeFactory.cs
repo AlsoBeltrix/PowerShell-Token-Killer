@@ -1,3 +1,5 @@
+using PtkMcpGuardian.Ownership;
+
 namespace PtkMcpServer.Sessions;
 
 /// <summary>
@@ -18,7 +20,21 @@ internal static class DefaultSessionRuntimeFactory
         TimeSpan maxCallTimeout,
         JobPwshExecutable jobPwshExecutable,
         CancellationToken cancellationToken = default)
+        => Create(
+            callTimeout,
+            maxCallTimeout,
+            jobPwshExecutable,
+            new MonotonicPublicJobIdAllocator(),
+            cancellationToken);
+
+    internal static SessionRuntime Create(
+        TimeSpan callTimeout,
+        TimeSpan maxCallTimeout,
+        JobPwshExecutable jobPwshExecutable,
+        IPublicJobIdAllocator publicJobIdAllocator,
+        CancellationToken cancellationToken = default)
     {
+        ArgumentNullException.ThrowIfNull(publicJobIdAllocator);
         cancellationToken.ThrowIfCancellationRequested();
         RunspaceHost? host = null;
         JobManager? jobs = null;
@@ -26,7 +42,7 @@ internal static class DefaultSessionRuntimeFactory
         {
             host = new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout);
             cancellationToken.ThrowIfCancellationRequested();
-            jobs = new JobManager(jobPwshExecutable);
+            jobs = new JobManager(publicJobIdAllocator, jobPwshExecutable);
             cancellationToken.ThrowIfCancellationRequested();
 
             var runtime = new SessionRuntime(host, jobs, new RawUsageCounter());

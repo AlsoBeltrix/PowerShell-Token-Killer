@@ -80,9 +80,12 @@ public sealed class GuardianArchitectureBoundaryTests
         "PublicJobIdAllocator.cs",
     ];
 
-    private static readonly string[] RequiredGuardianBoundaryTypeDefinitions =
+    private static readonly string[] RequiredGuardianOwnedTypeDefinitions =
     [
+        "PtkMcpGuardian.Ownership.IPublicJobIdAllocator",
         "PtkMcpGuardian.Ownership.IOrderedOwnedLifetime",
+        "PtkMcpGuardian.Ownership.MonotonicPublicJobIdAllocator",
+        "PtkMcpGuardian.Ownership.PublicJobIdExhaustedException",
         "PtkMcpServer.Audit.IAuditAdmissionOwner",
         "PtkMcpServer.Audit.IAuditBoundaryCall",
         "PtkMcpServer.Audit.IAuditRuntimeResources",
@@ -447,6 +450,122 @@ public sealed class GuardianArchitectureBoundaryTests
     }
 
     [Fact]
+    public void Public_job_id_allocation_is_guardian_owned_and_forwarded_without_replacement()
+    {
+        var paths = RepositoryPaths.Create();
+        var jobManagerRoot = ParseSourceRoot(Path.Combine(
+            paths.ServerDirectory,
+            "PtkMcpServer",
+            "JobManager.cs"));
+        var jobManager = Assert.Single(
+            jobManagerRoot.DescendantNodes().OfType<ClassDeclarationSyntax>(),
+            declaration => declaration.Identifier.ValueText == "JobManager");
+
+        var allocatorField = Assert.Single(
+            jobManager.Members.OfType<FieldDeclarationSyntax>(),
+            field => field.Declaration.Type.ToString() == "IPublicJobIdAllocator");
+        Assert.Contains(
+            allocatorField.Modifiers,
+            modifier => modifier.IsKind(SyntaxKind.ReadOnlyKeyword));
+        Assert.Equal(
+            "_publicJobIdAllocator",
+            Assert.Single(allocatorField.Declaration.Variables).Identifier.ValueText);
+        Assert.DoesNotContain(
+            jobManager.Members.OfType<FieldDeclarationSyntax>()
+                .SelectMany(field => field.Declaration.Variables),
+            variable => variable.Identifier.ValueText == "_nextId");
+
+        var prepareStart = Assert.Single(
+            jobManager.Members.OfType<MethodDeclarationSyntax>(),
+            method => method.Identifier.ValueText == "PrepareStartCore");
+        var idDeclaration = Assert.Single(
+            prepareStart.DescendantNodes().OfType<VariableDeclaratorSyntax>(),
+            variable => variable.Identifier.ValueText == "id");
+        Assert.Equal(
+            "_publicJobIdAllocator.Allocate().Value",
+            idDeclaration.Initializer!.Value.ToString());
+        Assert.Single(
+            prepareStart.DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString() == "_publicJobIdAllocator.Allocate");
+
+        var factoryRoot = ParseSourceRoot(Path.Combine(
+            paths.ServerDirectory,
+            "PtkMcpServer",
+            "Sessions",
+            "DefaultSessionRuntimeFactory.cs"));
+        var factory = Assert.Single(
+            factoryRoot.DescendantNodes().OfType<ClassDeclarationSyntax>(),
+            declaration => declaration.Identifier.ValueText == "DefaultSessionRuntimeFactory");
+        var creates = factory.Members.OfType<MethodDeclarationSyntax>()
+            .Where(method => method.Identifier.ValueText == "Create")
+            .ToArray();
+        Assert.Equal(2, creates.Length);
+        var localCreate = Assert.Single(
+            creates,
+            method => method.ParameterList.Parameters.All(
+                parameter => parameter.Type?.ToString() != "IPublicJobIdAllocator"));
+        var injectedCreate = Assert.Single(
+            creates,
+            method => method.ParameterList.Parameters.Any(
+                parameter => parameter.Type?.ToString() == "IPublicJobIdAllocator"));
+        var localForward = Assert.IsType<InvocationExpressionSyntax>(
+            localCreate.ExpressionBody!.Expression);
+        Assert.Equal("Create", localForward.Expression.ToString());
+        Assert.Equal(
+            [
+                "callTimeout",
+                "maxCallTimeout",
+                "jobPwshExecutable",
+                "new MonotonicPublicJobIdAllocator()",
+                "cancellationToken",
+            ],
+            localForward.ArgumentList.Arguments.Select(argument => argument.Expression.ToString()));
+
+        var injectedJobManager = Assert.Single(
+            injectedCreate.DescendantNodes().OfType<ObjectCreationExpressionSyntax>(),
+            creation => creation.Type.ToString() == "JobManager");
+        Assert.Equal(
+            ["publicJobIdAllocator", "jobPwshExecutable"],
+            injectedJobManager.ArgumentList!.Arguments
+                .Select(argument => argument.Expression.ToString()));
+
+        var programRoot = ParseSourceRoot(Path.Combine(
+            paths.ServerDirectory,
+            "PtkMcpServer",
+            "Program.cs"));
+        var registrations = programRoot.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Where(invocation => invocation.Expression is MemberAccessExpressionSyntax
+            {
+                Name: GenericNameSyntax { Identifier.ValueText: "AddSingleton" },
+            } && RegistrationServiceType(invocation) == "IPublicJobIdAllocator")
+            .ToArray();
+        var registration = Assert.Single(registrations);
+        Assert.Single(
+            registration.DescendantNodes().OfType<ObjectCreationExpressionSyntax>(),
+            creation => creation.Type.ToString() == "MonotonicPublicJobIdAllocator");
+
+        var resolutions = programRoot.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Where(invocation => invocation.Expression is MemberAccessExpressionSyntax
+            {
+                Name: GenericNameSyntax
+                {
+                    Identifier.ValueText: "GetRequiredService",
+                    TypeArgumentList.Arguments.Count: 1,
+                } generic,
+            } && generic.TypeArgumentList.Arguments[0].ToString() == "IPublicJobIdAllocator")
+            .ToArray();
+        var resolution = Assert.Single(resolutions);
+        var runtimeCreate = Assert.Single(
+            resolution.Ancestors().OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString() == "DefaultSessionRuntimeFactory.Create");
+        Assert.Same(
+            resolution,
+            runtimeCreate.ArgumentList.Arguments[^1].Expression);
+    }
+
+    [Fact]
     public void Output_definitions_are_compiled_only_by_guardian()
     {
         var paths = RepositoryPaths.Create();
@@ -463,7 +582,7 @@ public sealed class GuardianArchitectureBoundaryTests
     }
 
     [Fact]
-    public void Guardian_boundary_interfaces_are_compiled_only_by_guardian()
+    public void Guardian_owned_definitions_are_compiled_only_by_guardian()
     {
         var paths = RepositoryPaths.Create();
         var guardian = EvaluateProject(paths.GuardianProject);
@@ -471,7 +590,7 @@ public sealed class GuardianArchitectureBoundaryTests
         var guardianDefinitions = ReadCompiledTypeDefinitions(guardian);
         var serverDefinitions = ReadSourceTypeDefinitions(server);
 
-        foreach (var typeName in RequiredGuardianBoundaryTypeDefinitions)
+        foreach (var typeName in RequiredGuardianOwnedTypeDefinitions)
         {
             Assert.Contains(typeName, guardianDefinitions, StringComparer.Ordinal);
             Assert.DoesNotContain(typeName, serverDefinitions, StringComparer.Ordinal);
@@ -1134,6 +1253,15 @@ public sealed class GuardianArchitectureBoundaryTests
         }
 
         return generic.TypeArgumentList.Arguments[0].ToString();
+    }
+
+    private static CompilationUnitSyntax ParseSourceRoot(string path)
+    {
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(path), path: path);
+        Assert.DoesNotContain(
+            tree.GetDiagnostics(),
+            diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        return tree.GetCompilationUnitRoot();
     }
 
     private static void AssertExistingGateAlias(InvocationExpressionSyntax registration)

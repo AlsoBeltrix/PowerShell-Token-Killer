@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Text;
+using PtkMcpGuardian.Ownership;
 
 namespace PtkMcpServer;
 
@@ -206,8 +207,8 @@ public sealed class JobManager : IDisposable
     private readonly bool _allowColdBackground;
     private readonly TimeSpan _postExitOutputDrainGrace;
     private readonly TimeSpan _abortedOutputDrainGrace;
+    private readonly IPublicJobIdAllocator _publicJobIdAllocator;
     private readonly object _shutdownGate = new();
-    private long _nextId;
     private Task? _shutdownTask;
     private bool _stopping;
     private bool _resetting;
@@ -440,7 +441,25 @@ public sealed class JobManager : IDisposable
         bool allowColdBackground = true,
         TimeSpan? postExitOutputDrainGrace = null,
         TimeSpan? abortedOutputDrainGrace = null)
+        : this(
+            new MonotonicPublicJobIdAllocator(),
+            pwshExecutable,
+            jobsDirOverride,
+            allowColdBackground,
+            postExitOutputDrainGrace,
+            abortedOutputDrainGrace)
     {
+    }
+
+    internal JobManager(
+        IPublicJobIdAllocator publicJobIdAllocator,
+        JobPwshExecutable pwshExecutable,
+        string? jobsDirOverride = null,
+        bool allowColdBackground = true,
+        TimeSpan? postExitOutputDrainGrace = null,
+        TimeSpan? abortedOutputDrainGrace = null)
+    {
+        ArgumentNullException.ThrowIfNull(publicJobIdAllocator);
         if (postExitOutputDrainGrace is { } drainGrace && drainGrace <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(postExitOutputDrainGrace));
         if (abortedOutputDrainGrace is { } abortGrace && abortGrace <= TimeSpan.Zero)
@@ -449,6 +468,7 @@ public sealed class JobManager : IDisposable
         _allowColdBackground = allowColdBackground;
         _postExitOutputDrainGrace = postExitOutputDrainGrace ?? PostExitOutputDrainGrace;
         _abortedOutputDrainGrace = abortedOutputDrainGrace ?? AbortedOutputDrainGrace;
+        _publicJobIdAllocator = publicJobIdAllocator;
         _jobsDir = jobsDirOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".ptk", "jobs");
         SweepOldLogs();
@@ -604,7 +624,7 @@ public sealed class JobManager : IDisposable
             // reset/shutdown is permanently stale and can never be committed.
             generation = _stopping || _resetting ? -1 : _generation;
         }
-        var id = Interlocked.Increment(ref _nextId);
+        var id = _publicJobIdAllocator.Allocate().Value;
         var outputPath = ExpectedOutputPath(id);
         var encodedCommand = dispatch.ExecutionPath == ExecutionPath.PowerShellDirect
             ? BuildEncodedCommand(dispatch.ExecutionScript!, outputPath)

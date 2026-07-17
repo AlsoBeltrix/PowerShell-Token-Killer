@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using PtkMcpGuardian.Ownership;
 using PtkMcpServer;
 using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
@@ -70,9 +71,11 @@ builder.Services.AddSingleton<IAuditAdmissionOwner>(
     sp => sp.GetRequiredService<AuditRuntimeGate>());
 builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<AuditRuntimeGate>());
 
-// Harness-lifetime recovery belongs to the supervisor service provider, not
-// a request scope or the replaceable runspace host.
+// Harness-lifetime recovery and public IDs belong to the supervisor service
+// provider, not a request scope or the replaceable runspace host.
 builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
+builder.Services.AddSingleton<IPublicJobIdAllocator>(
+    _ => new MonotonicPublicJobIdAllocator());
 // The default session is one owned runtime. Audit startup must be durable
 // before either the runspace or the job manager can be constructed. The
 // runtime preserves shutdown order (jobs, then runspace), and the output store
@@ -83,7 +86,8 @@ builder.Services.AddSingleton<ISessionOperations>(sp =>
         return DefaultSessionRuntimeFactory.Create(
             callTimeout,
             maxCallTimeout,
-            jobPwshExecutable);
+            jobPwshExecutable,
+            sp.GetRequiredService<IPublicJobIdAllocator>());
     }));
 builder.Services.AddHostedService(sp => new IdleWatchdog(
     idleExit,

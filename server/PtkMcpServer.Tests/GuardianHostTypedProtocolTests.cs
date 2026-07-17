@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text;
 using PtkSharedContracts;
 
@@ -119,6 +120,36 @@ public sealed class GuardianHostTypedProtocolTests
             await failingWriter.WriteAsync(hello));
         Assert.Equal("writer_faulted", latched.DetailCode);
         Assert.Equal(1, failing.WriteCount);
+    }
+
+    [Fact]
+    public void Manifest_chunk_dispose_zeroes_its_owned_bytes_and_refuses_reuse()
+    {
+        byte[] source = [0x41, 0x42, 0x43, 0x44];
+        var chunk = new ManifestChunkRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(9),
+            Manifest,
+            chunkIndex: 0,
+            source);
+        var field = typeof(ManifestChunkRequest).GetField(
+            "_rawBytes",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        var owned = Assert.IsType<byte[]>(field!.GetValue(chunk));
+
+        Assert.NotSame(source, owned);
+        Assert.Equal(source, owned);
+        Assert.Equal(source.Length, chunk.RawByteCount);
+
+        chunk.Dispose();
+
+        Assert.All(owned, value => Assert.Equal(0, value));
+        Assert.Throws<ObjectDisposedException>(chunk.GetRawBytes);
+        Assert.Throws<ObjectDisposedException>(() => GuardianHostProtocolCodec.Encode(chunk));
+        chunk.Dispose();
+        Assert.Equal(source.Length, chunk.RawByteCount);
     }
 
     [Fact]

@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Globalization;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace PtkSharedContracts;
@@ -291,9 +292,9 @@ public sealed class ManifestHeaderRequest : GuardianHostRequest
     public int TemplateCount { get; }
 }
 
-public sealed class ManifestChunkRequest : GuardianHostRequest
+public sealed class ManifestChunkRequest : GuardianHostRequest, IDisposable
 {
-    private readonly byte[] _rawBytes;
+    private byte[]? _rawBytes;
 
     public ManifestChunkRequest(
         GuardianBootId guardianBootId,
@@ -311,6 +312,7 @@ public sealed class ManifestChunkRequest : GuardianHostRequest
         ManifestId = manifestId;
         ChunkIndex = chunkIndex;
         _rawBytes = rawBytes.ToArray();
+        RawByteCount = _rawBytes.Length;
         RawDigest = Sha256Digest.Compute(_rawBytes);
     }
 
@@ -323,10 +325,21 @@ public sealed class ManifestChunkRequest : GuardianHostRequest
     public ManifestId ManifestId { get; }
     public int ChunkIndex { get; }
     public int Offset => checked(ChunkIndex * ContractLimits.MaximumManifestChunkBytes);
-    public int RawByteCount => _rawBytes.Length;
+    public int RawByteCount { get; }
     public Sha256Digest RawDigest { get; }
-    public byte[] GetRawBytes() => _rawBytes.ToArray();
-    internal ReadOnlySpan<byte> RawSpan => _rawBytes;
+    public byte[] GetRawBytes() => RawBytesOrThrow().ToArray();
+    internal ReadOnlySpan<byte> RawSpan => RawBytesOrThrow();
+
+    public void Dispose()
+    {
+        var rawBytes = Interlocked.Exchange(ref _rawBytes, null);
+        if (rawBytes is not null)
+            CryptographicOperations.ZeroMemory(rawBytes);
+    }
+
+    private byte[] RawBytesOrThrow() =>
+        Volatile.Read(ref _rawBytes) ??
+        throw new ObjectDisposedException(nameof(ManifestChunkRequest));
 }
 
 public sealed class ManifestSealRequest : GuardianHostRequest

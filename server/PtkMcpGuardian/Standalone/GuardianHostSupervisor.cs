@@ -37,6 +37,8 @@ internal sealed class GuardianHostSupervisor :
     private readonly IGuardianHostSupervisorSessionSource _sessionSource;
     private readonly IGuardianHostSupervisorDispatchObserver _dispatchObserver;
     private readonly GuardianHostSupervisorPins _pins;
+    private readonly Func<GuardianHostClientException, CancellationToken, ValueTask>
+        _beforeClientFatalObservation;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<long, ActiveCall> _calls = [];
     private readonly Dictionary<Task, string> _background = [];
@@ -61,7 +63,9 @@ internal sealed class GuardianHostSupervisor :
         IGuardianHostSupervisorScheduler scheduler,
         IGuardianHostSupervisorSessionSource sessionSource,
         IGuardianHostSupervisorDispatchObserver dispatchObserver,
-        GuardianHostSupervisorPins pins)
+        GuardianHostSupervisorPins pins,
+        Func<GuardianHostClientException, CancellationToken, ValueTask>?
+            beforeClientFatalObservation = null)
     {
         _guardianBootId = guardianBootId ??
             throw new ArgumentNullException(nameof(guardianBootId));
@@ -76,6 +80,12 @@ internal sealed class GuardianHostSupervisor :
         _dispatchObserver = dispatchObserver ??
             throw new ArgumentNullException(nameof(dispatchObserver));
         _pins = pins ?? throw new ArgumentNullException(nameof(pins));
+        _beforeClientFatalObservation = beforeClientFatalObservation ??
+            (static (_, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.CompletedTask;
+            });
     }
 
     internal int OutstandingCallCount
@@ -297,6 +307,9 @@ internal sealed class GuardianHostSupervisor :
         await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            if (_active is { } currentActive)
+                SynchronizeFaultedClientLossLocked(currentActive);
+
             if (!_sessionSource.TryGetJobListTarget(out var target))
             {
                 return new DispatchAdmission(
@@ -340,6 +353,7 @@ internal sealed class GuardianHostSupervisor :
         await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            SynchronizeFaultedClientLossLocked(expectedActive);
             if (_stopping || !ReferenceEquals(_active, expectedActive) ||
                 expectedActive.Client?.State != GuardianHostClientState.Ready ||
                 expectedActive.Lease.Stage != GuardianHostAttemptStage.Ready)
@@ -605,6 +619,8 @@ internal sealed class GuardianHostSupervisor :
         var cancellationToken = active.PreContainmentToken;
         var failure = await active.Client!.Fatal.WaitAsync(cancellationToken)
             .ConfigureAwait(false);
+        await _beforeClientFatalObservation(failure, cancellationToken)
+            .ConfigureAwait(false);
         await ObserveLossAsync(active, LossReasonFor(failure)).ConfigureAwait(false);
     }
 
@@ -678,6 +694,25 @@ internal sealed class GuardianHostSupervisor :
         finally
         {
             _authority.Release();
+        }
+    }
+
+    private void SynchronizeFaultedClientLossLocked(ActiveAttempt active)
+    {
+        if (active.Client is null ||
+            !active.Client.TryGetFatalFailure(out var failure) ||
+            failure is null)
+        {
+            return;
+        }
+
+        var disposition = _lifecycle.ReportLoss(active.Lease, LossReasonFor(failure));
+        if (disposition is GuardianHostLifecycleLossDisposition.BeganContainment or
+            GuardianHostLifecycleLossDisposition.Duplicate &&
+            active.Lease.Stage is GuardianHostAttemptStage.Containing or
+                GuardianHostAttemptStage.ContainmentUnconfirmed)
+        {
+            BeginContainmentLocked(active);
         }
     }
 
@@ -880,6 +915,7 @@ internal sealed class GuardianHostSupervisor :
         var release = true;
         try
         {
+            SynchronizeFaultedClientLossLocked(active);
             if (_stopping || !ReferenceEquals(_active, active) ||
                 active.Lease.Stage != GuardianHostAttemptStage.Ready ||
                 _lifecycle.BeginFirstWrite(active.Lease, static _ => { }) !=

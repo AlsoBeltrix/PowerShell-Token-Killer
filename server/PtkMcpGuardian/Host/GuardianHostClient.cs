@@ -162,7 +162,8 @@ internal sealed class GuardianHostClientPins
 /// </summary>
 internal sealed class GuardianHostClient : IAsyncDisposable
 {
-    internal const int MaximumOutstandingRequests = 64;
+    internal const int MaximumOutstandingRequests =
+        ContractLimits.MaximumOutstandingPrivateRequests;
     internal const int MaximumUnacknowledgedControlEvents = 64;
 
     private readonly object _sync = new();
@@ -255,6 +256,28 @@ internal sealed class GuardianHostClient : IAsyncDisposable
     }
 
     internal Task<GuardianHostClientException> Fatal => _fatal.Task;
+
+    internal bool TryGetFatalFailure(out GuardianHostClientException? failure)
+    {
+        lock (_sync)
+        {
+            if (_state != GuardianHostClientState.Faulted)
+            {
+                failure = null;
+                return false;
+            }
+
+            failure = _failure ?? throw new InvalidOperationException(
+                "A faulted private-host client has no exact failure.");
+            if (!_fatal.Task.IsCompletedSuccessfully ||
+                !ReferenceEquals(_fatal.Task.GetAwaiter().GetResult(), failure))
+            {
+                throw new InvalidOperationException(
+                    "A faulted private-host client did not publish its exact fatal failure.");
+            }
+            return true;
+        }
+    }
 
     internal Task ReaderCompletion
     {
@@ -1378,6 +1401,11 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             if (_failure is null && _state != GuardianHostClientState.Stopped)
             {
                 _failure = proposed;
+                if (!_fatal.TrySetResult(proposed))
+                {
+                    throw new InvalidOperationException(
+                        "The private-host fatal terminal was already published.");
+                }
                 _state = GuardianHostClientState.Faulted;
                 first = true;
             }
@@ -1391,7 +1419,6 @@ internal sealed class GuardianHostClient : IAsyncDisposable
 
         if (first)
         {
-            _fatal.TrySetResult(failure);
             foreach (var request in pending)
                 request.Completion.TrySetException(failure);
             try { _lifetime.Cancel(); }

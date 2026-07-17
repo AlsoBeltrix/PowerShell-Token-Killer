@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using System.Diagnostics.CodeAnalysis;
+using PtkMcpGuardian.Host;
 using PtkMcpGuardian.Lifecycle;
 using PtkMcpGuardian.Standalone;
 using PtkSharedContracts;
@@ -71,6 +72,90 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(0, old.OperationCount);
 
         old.ConfirmContainment();
+    }
+
+    [Fact]
+    public async Task Fresh_dispatch_synchronizes_faulted_client_before_refusal()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+        var fatalBlocked = rig.Observer.BlockNextFatalObservation();
+
+        try
+        {
+            await old.InjectProtocolFatalAsync();
+            await fatalBlocked.WaitAsync(TestTimeout);
+            Assert.Equal(PublicHostState.Ready, rig.Supervisor.SnapshotState().Host.State);
+
+            var error = DecodeRecovery(
+                await rig.DispatchJobListAsync().WaitAsync(TestTimeout));
+            Assert.Equal(PublicRecoveryDetailCode.HostRecovering, error.DetailCode);
+            Assert.True(error.Retryable);
+            var gate = Assert.IsType<SessionReadyGate>(error.RetryGate);
+            Assert.Equal(TestRig.Alias, gate.Alias);
+            Assert.Equal(0, old.OperationCount);
+        }
+        finally
+        {
+            rig.Observer.ReleaseFatalObservation();
+        }
+
+        await WaitUntilAsync(() =>
+            rig.Factory.Resources.Count == 2 &&
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+        Assert.Equal(0, rig.Factory.Resources[1].OperationCount);
+    }
+
+    [Fact]
+    public async Task Revalidation_synchronizes_faulted_client_as_prewrite_loss()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+        var authorizationBlocked = rig.Observer.BlockNextAuthorization();
+        var fatalBlocked = rig.Observer.BlockNextFatalObservation();
+
+        var dispatch = rig.DispatchJobListAsync();
+        await authorizationBlocked.WaitAsync(TestTimeout);
+        try
+        {
+            await old.InjectProtocolFatalAsync();
+            await fatalBlocked.WaitAsync(TestTimeout);
+            Assert.Equal(PublicHostState.Ready, rig.Supervisor.SnapshotState().Host.State);
+            rig.Observer.ReleaseAuthorization();
+
+            var error = DecodeRecovery(await dispatch.WaitAsync(TestTimeout));
+            Assert.Equal(
+                PublicRecoveryDetailCode.BackendLostBeforeDispatch,
+                error.DetailCode);
+            Assert.True(error.Retryable);
+            var gate = Assert.IsType<SessionReadyGate>(error.RetryGate);
+            Assert.Equal(TestRig.Alias, gate.Alias);
+            Assert.Equal(0, old.OperationCount);
+        }
+        finally
+        {
+            rig.Observer.ReleaseAuthorization();
+            rig.Observer.ReleaseFatalObservation();
+        }
+
+        await WaitUntilAsync(() =>
+            rig.Factory.Resources.Count == 2 &&
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+        Assert.Equal(0, rig.Factory.Resources[1].OperationCount);
     }
 
     [Fact]
@@ -610,7 +695,8 @@ public sealed class GuardianHostSupervisorTests
                 Scheduler,
                 Sessions,
                 Observer,
-                CreatePins());
+                CreatePins(),
+                Observer.BeforeClientFatalObservationAsync);
         }
 
         internal ManualTimeProvider Clock { get; }
@@ -755,6 +841,8 @@ public sealed class GuardianHostSupervisorTests
         private readonly object _sync = new();
         private TaskCompletionSource<bool>? _entered;
         private TaskCompletionSource<bool>? _release;
+        private TaskCompletionSource<bool>? _fatalEntered;
+        private TaskCompletionSource<bool>? _fatalRelease;
 
         internal Action? OnDecoded { get; set; }
 
@@ -774,6 +862,43 @@ public sealed class GuardianHostSupervisorTests
         {
             lock (_sync)
                 (_release ?? throw new InvalidOperationException()).TrySetResult(true);
+        }
+
+        internal Task BlockNextFatalObservation()
+        {
+            lock (_sync)
+            {
+                _fatalEntered = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _fatalRelease = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return _fatalEntered.Task;
+            }
+        }
+
+        internal void ReleaseFatalObservation()
+        {
+            lock (_sync)
+                _fatalRelease?.TrySetResult(true);
+        }
+
+        internal async ValueTask BeforeClientFatalObservationAsync(
+            GuardianHostClientException failure,
+            CancellationToken cancellationToken)
+        {
+            Task? release = null;
+            lock (_sync)
+            {
+                if (_fatalEntered is not null && _fatalRelease is not null)
+                {
+                    _fatalEntered.TrySetResult(true);
+                    release = _fatalRelease.Task;
+                    _fatalEntered = null;
+                }
+            }
+            if (release is not null)
+                await release.WaitAsync(cancellationToken);
+            _ = failure;
         }
 
         public async ValueTask BeforeWriteAuthorizationAsync(
@@ -1034,6 +1159,9 @@ public sealed class GuardianHostSupervisorTests
         internal Task InjectContractMismatchAsync() =>
             _peer.InjectContractMismatchAsync();
 
+        internal Task InjectProtocolFatalAsync() =>
+            _peer.InjectProtocolFatalAsync();
+
         public Stream RequestStream => _requests;
         public Stream EventStream => _events;
         public int HostProcessId { get; }
@@ -1129,6 +1257,17 @@ public sealed class GuardianHostSupervisorTests
         internal Task InjectContractMismatchAsync() =>
             _writer.WriteAsync(new GuardianHostHello(
                 new GuardianBootId(Guid.Parse("99999999-9999-4999-8999-999999999999")),
+                _owner.Identity.HostBootId,
+                _owner.Identity.HostGeneration,
+                _owner.HostProcessId,
+                _pins.HostExecutableDigest,
+                _pins.HostBuildDigest,
+                _pins.PublicContractDigest,
+                _pins.ConfigurationDigest)).AsTask();
+
+        internal Task InjectProtocolFatalAsync() =>
+            _writer.WriteAsync(new GuardianHostHello(
+                _owner.Identity.GuardianBootId,
                 _owner.Identity.HostBootId,
                 _owner.Identity.HostGeneration,
                 _owner.HostProcessId,

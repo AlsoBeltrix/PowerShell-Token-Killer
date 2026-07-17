@@ -278,7 +278,13 @@ public sealed class GuardianHostClientTests
             GuardianHostDeliveryState.NotDispatched,
             null));
 
+        Assert.True(SpinWait.SpinUntil(
+            () => harness.Client.State == GuardianHostClientState.Faulted,
+            TestTimeout));
+        Assert.True(harness.Client.Fatal.IsCompletedSuccessfully);
+        Assert.True(harness.Client.TryGetFatalFailure(out var synchronousFatal));
         var fatal = await harness.Client.Fatal.WaitAsync(TestTimeout);
+        Assert.Same(fatal, synchronousFatal);
         Assert.Equal(GuardianHostClientFailureKind.ContractMismatch, fatal.DetailKind);
         var pendingFailure = await Assert.ThrowsAsync<GuardianHostClientException>(() => completion);
         Assert.Same(fatal, pendingFailure);

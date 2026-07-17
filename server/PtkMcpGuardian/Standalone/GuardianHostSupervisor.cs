@@ -601,13 +601,10 @@ internal sealed class GuardianHostSupervisor :
 
     private async Task WatchStartupDeadlineAsync(ActiveAttempt active)
     {
-        var now = _timeProvider.GetTimestamp();
-        var remainingTicks = active.Lease.StartupDeadline.AbsoluteTimestamp - now;
-        var remaining = remainingTicks <= 0
-            ? TimeSpan.Zero
-            : TimeSpan.FromSeconds(
-                (double)remainingTicks / _timeProvider.TimestampFrequency);
-        await _scheduler.DelayAsync(remaining, _lifetime.Token).ConfigureAwait(false);
+        await _scheduler.DelayAsync(
+                RemainingUntil(active.Lease.StartupDeadline.AbsoluteTimestamp),
+                _lifetime.Token)
+            .ConfigureAwait(false);
 
         await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
         try
@@ -713,20 +710,42 @@ internal sealed class GuardianHostSupervisor :
 
     private async Task WatchContainmentDeadlineAsync(ActiveAttempt active)
     {
-        await _scheduler.DelayAsync(
-                GuardianHostLifecycleController.HostContainmentGrace,
-                _lifetime.Token)
-            .ConfigureAwait(false);
-        await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
-        try
+        var deadline = active.Lease.ContainmentDeadline ??
+            throw new InvalidOperationException(
+                "Containment started without an absolute deadline.");
+        while (true)
         {
-            if (ReferenceEquals(_active, active))
-                _lifecycle.ObserveContainmentDeadline(active.Lease);
+            await _scheduler.DelayAsync(
+                    RemainingUntil(deadline.AbsoluteTimestamp),
+                    _lifetime.Token)
+                .ConfigureAwait(false);
+            var pending = false;
+            await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+            try
+            {
+                if (!ReferenceEquals(_active, active)) return;
+                pending = _lifecycle.ObserveContainmentDeadline(active.Lease).Disposition ==
+                    GuardianHostContainmentDisposition.Pending;
+            }
+            finally
+            {
+                _authority.Release();
+            }
+
+            if (!pending) return;
         }
-        finally
-        {
-            _authority.Release();
-        }
+    }
+
+    private TimeSpan RemainingUntil(long absoluteTimestamp)
+    {
+        var now = _timeProvider.GetTimestamp();
+        if (absoluteTimestamp <= now) return TimeSpan.Zero;
+
+        var remainingTimestampTicks = checked(absoluteTimestamp - now);
+        var timeSpanTicks = decimal.Ceiling(
+            (decimal)remainingTimestampTicks * TimeSpan.TicksPerSecond /
+            _timeProvider.TimestampFrequency);
+        return TimeSpan.FromTicks(decimal.ToInt64(timeSpanTicks));
     }
 
     private async Task WatchContainmentConfirmationAsync(ActiveAttempt active)

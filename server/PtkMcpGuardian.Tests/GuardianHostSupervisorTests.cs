@@ -311,6 +311,44 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Containment_watcher_uses_remaining_absolute_deadline()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(
+                HostBehavior.Respond,
+                AutoConfirmContainment: false,
+                AdvanceClockOnContainment: TimeSpan.FromSeconds(3)));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+
+        old.Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.Recovering &&
+            (rig.Scheduler.HasPending(TimeSpan.FromSeconds(7)) ||
+             rig.Scheduler.HasPending(
+                 GuardianHostLifecycleController.HostContainmentGrace)));
+
+        Assert.Equal(TimeSpan.FromSeconds(3).Ticks, rig.Clock.GetTimestamp());
+        Assert.True(rig.Scheduler.HasPending(TimeSpan.FromSeconds(7)));
+        Assert.False(rig.Scheduler.HasPending(
+            GuardianHostLifecycleController.HostContainmentGrace));
+
+        await rig.Scheduler.CompleteWithoutAdvancingAsync(TimeSpan.FromSeconds(7));
+        await WaitUntilAsync(() =>
+            rig.Scheduler.HasPending(TimeSpan.FromSeconds(7)));
+        Assert.Equal(PublicHostState.Recovering,
+            rig.Supervisor.SnapshotState().Host.State);
+        Assert.Equal(TimeSpan.FromSeconds(3).Ticks, rig.Clock.GetTimestamp());
+
+        await rig.Scheduler.AdvanceAndCompleteAsync(TimeSpan.FromSeconds(7));
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State ==
+                PublicHostState.ContainmentUnconfirmed);
+        Assert.Equal(TimeSpan.FromSeconds(10).Ticks, rig.Clock.GetTimestamp());
+        Assert.Single(rig.Factory.Resources);
+    }
+
+    [Fact]
     public async Task Shutdown_claim_during_containment_disposal_prevents_replacement()
     {
         await using var rig = new TestRig(
@@ -460,7 +498,7 @@ public sealed class GuardianHostSupervisorTests
             Scheduler = new ManualScheduler(Clock);
             Observer = new BlockingDispatchObserver();
             Sessions = new StaticSessionSource();
-            Factory = new FakeAttemptFactory(plans, CreatePins());
+            Factory = new FakeAttemptFactory(plans, CreatePins(), Clock);
             var lifecycle = new GuardianHostLifecycleController(
                 Guardian,
                 new MonotonicHostGenerationAllocator(),
@@ -720,6 +758,18 @@ public sealed class GuardianHostSupervisorTests
             selected.Complete();
         }
 
+        internal async Task CompleteWithoutAdvancingAsync(TimeSpan delay)
+        {
+            await WaitUntilAsync(() => HasPending(delay));
+            ScheduledDelay selected;
+            lock (_sync)
+            {
+                selected = _delays.First(value =>
+                    value.Delay == delay && !value.Task.IsCompleted);
+            }
+            selected.Complete();
+        }
+
         internal async Task AdvanceAndCompleteAllAsync(TimeSpan delay)
         {
             await WaitUntilAsync(() => HasPending(delay));
@@ -733,7 +783,7 @@ public sealed class GuardianHostSupervisorTests
             foreach (var value in selected) value.Complete();
         }
 
-        private bool HasPending(TimeSpan delay)
+        internal bool HasPending(TimeSpan delay)
         {
             lock (_sync)
                 return _delays.Any(value =>
@@ -775,21 +825,25 @@ public sealed class GuardianHostSupervisorTests
 
     private sealed record AttemptPlan(
         HostBehavior Behavior,
-        bool AutoConfirmContainment = true);
+        bool AutoConfirmContainment = true,
+        TimeSpan AdvanceClockOnContainment = default);
 
     private sealed class FakeAttemptFactory : IGuardianHostAttemptFactory
     {
         private readonly object _sync = new();
         private readonly Queue<AttemptPlan> _plans;
         private readonly GuardianHostSupervisorPins _pins;
+        private readonly ManualTimeProvider _clock;
         private readonly List<FakeConnectedResources> _resources = [];
 
         internal FakeAttemptFactory(
             IEnumerable<AttemptPlan> plans,
-            GuardianHostSupervisorPins pins)
+            GuardianHostSupervisorPins pins,
+            ManualTimeProvider clock)
         {
             _plans = new Queue<AttemptPlan>(plans);
             _pins = pins;
+            _clock = clock;
         }
 
         internal IReadOnlyList<FakeConnectedResources> Resources
@@ -811,6 +865,7 @@ public sealed class GuardianHostSupervisorTests
                     identity,
                     plan,
                     _pins,
+                    _clock,
                     checked(100 + (int)identity.HostGeneration.Value));
                 _resources.Add(resources);
                 _ = startupDeadline;
@@ -823,6 +878,7 @@ public sealed class GuardianHostSupervisorTests
         IGuardianHostConnectedAttemptResources
     {
         private readonly AttemptPlan _plan;
+        private readonly ManualTimeProvider _clock;
         private readonly TestTransportStream _requests = new();
         private readonly TestTransportStream _events = new();
         private readonly TaskCompletionSource<bool> _hostExited = new(
@@ -841,10 +897,12 @@ public sealed class GuardianHostSupervisorTests
             GuardianHostIdentity identity,
             AttemptPlan plan,
             GuardianHostSupervisorPins pins,
+            ManualTimeProvider clock,
             int hostProcessId)
         {
             Identity = identity;
             _plan = plan;
+            _clock = clock;
             HostProcessId = hostProcessId;
             _peer = new FakeHostPeer(this, _requests, _events, pins);
         }
@@ -883,6 +941,7 @@ public sealed class GuardianHostSupervisorTests
         public void BeginContainment(GuardianHostContainmentDeadline deadline)
         {
             _ = deadline;
+            _clock.Advance(_plan.AdvanceClockOnContainment);
             if (_plan.AutoConfirmContainment)
                 _containmentConfirmed.TrySetResult(true);
         }

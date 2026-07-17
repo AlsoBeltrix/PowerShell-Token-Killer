@@ -168,7 +168,7 @@ public static class RecoveryManifestCodec
         writer.WriteBoolean("allow_cold_background", value.AllowColdBackground);
         writer.WriteString("template_digest", value.TemplateDigest.Value);
         writer.WriteString("bootstrap_digest", value.BootstrapDigest.Value);
-        writer.WriteString("bootstrap_raw_base64", Convert.ToBase64String(value.BootstrapSpan));
+        writer.WriteBase64String("bootstrap_raw_base64", value.BootstrapSpan);
         writer.WriteEndObject();
     }
 

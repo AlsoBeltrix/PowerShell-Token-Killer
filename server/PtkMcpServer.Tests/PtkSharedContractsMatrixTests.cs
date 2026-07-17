@@ -188,6 +188,7 @@ public sealed class PtkSharedContractsMatrixTests
         Assert.DoesNotContain("StrictUtf8.GetString", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Encoding.UTF8.GetString", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Convert.FromBase64String", source, StringComparison.Ordinal);
+        Assert.DoesNotContain("Convert.ToBase64String", source, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "bootstrap_raw_base64\").GetString",
             source,

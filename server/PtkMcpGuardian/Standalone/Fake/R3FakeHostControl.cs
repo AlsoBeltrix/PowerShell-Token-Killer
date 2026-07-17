@@ -1,7 +1,34 @@
 using System.Collections.Concurrent;
 using PtkMcpGuardian.Lifecycle;
+using PtkSharedContracts;
 
 namespace PtkMcpGuardian.Standalone.Fake;
+
+internal sealed record R3FakeHostProfile
+{
+    private static readonly GuardianHostJobListTarget DefaultTarget = new(
+        new CanonicalAlias("default"),
+        new SessionTransitionVersion(1),
+        new GuardianHostWorkerIdentity(
+            new WorkerBootId(Guid.Parse(
+                "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")),
+            new WorkerGeneration(1)),
+        readyForEffects: true);
+
+    internal R3FakeHostProfile(GuardianHostJobListTarget jobListTarget)
+    {
+        JobListTarget = jobListTarget ??
+            throw new ArgumentNullException(nameof(jobListTarget));
+        if (!jobListTarget.ReadyForEffects)
+            throw new ArgumentException(
+                "The fake host profile must name a ready job-list target.",
+                nameof(jobListTarget));
+    }
+
+    internal GuardianHostJobListTarget JobListTarget { get; }
+
+    internal static R3FakeHostProfile StrictDefault { get; } = new(DefaultTarget);
+}
 
 internal sealed class R3FakeHostBarrier
 {

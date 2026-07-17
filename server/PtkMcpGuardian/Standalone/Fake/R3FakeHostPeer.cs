@@ -24,6 +24,7 @@ internal sealed class R3FakeHostPeer
 
     private readonly GuardianHostIdentity _identity;
     private readonly GuardianHostSupervisorPins _pins;
+    private readonly R3FakeHostProfile _profile;
     private readonly int _hostProcessId;
     private readonly GuardianHostProtocolReader _reader;
     private readonly GuardianHostProtocolWriter _writer;
@@ -39,6 +40,7 @@ internal sealed class R3FakeHostPeer
     internal R3FakeHostPeer(
         GuardianHostIdentity identity,
         GuardianHostSupervisorPins pins,
+        R3FakeHostProfile profile,
         int hostProcessId,
         R3BoundedOneWayStream requestStream,
         R3BoundedOneWayStream eventStream,
@@ -47,6 +49,7 @@ internal sealed class R3FakeHostPeer
     {
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _pins = pins ?? throw new ArgumentNullException(nameof(pins));
+        _profile = profile ?? throw new ArgumentNullException(nameof(profile));
         if (hostProcessId <= 0)
             throw new ArgumentOutOfRangeException(nameof(hostProcessId));
         ArgumentNullException.ThrowIfNull(requestStream);
@@ -298,10 +301,12 @@ internal sealed class R3FakeHostPeer
     {
         ValidateRequestIdentity(request);
         RecordRequest(request.RequestId);
-        if (request.SessionAlias?.Value != "default" ||
-            request.SessionTransitionVersion is null ||
-            request.SessionTransitionVersion.Value <= 0 ||
+        var expected = _profile.JobListTarget;
+        if (request.SessionAlias != expected.Alias ||
+            request.SessionTransitionVersion != expected.TransitionVersion ||
             request.WorkerIdentity is null ||
+            request.WorkerIdentity.BootId != expected.WorkerIdentity.BootId ||
+            request.WorkerIdentity.Generation != expected.WorkerIdentity.Generation ||
             request.OperationIdentity is not null ||
             request.Operation is not JobListOperation)
         {

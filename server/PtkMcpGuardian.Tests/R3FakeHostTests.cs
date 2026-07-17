@@ -159,6 +159,51 @@ public sealed class R3FakeHostTests
         resources.Dispose();
     }
 
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public async Task Fake_peer_rejects_every_wrong_job_list_dispatch_identity_before_effect(
+        int mutation)
+    {
+        var (_, resources) = CreateAttempt();
+        Assert.Equal(GuardianHostLaunchOutcome.Started, resources.Launch());
+        await using var client = CreateClient(resources);
+        await client.InitializeAsync(CreateManifest()).WaitAsync(TestTimeout);
+
+        var request = client.SendRequestAsync((guardian, host, generation, requestId) =>
+        {
+            var transition = mutation == 0
+                ? new SessionTransitionVersion(Transition.Value + 1)
+                : Transition;
+            var worker = mutation switch
+            {
+                1 => new GuardianHostWorkerIdentity(
+                    new WorkerBootId(Guid.Parse(
+                        "12345678-1234-4234-8234-123456789abc")),
+                    Worker.Generation),
+                2 => new GuardianHostWorkerIdentity(
+                    Worker.BootId,
+                    new WorkerGeneration(Worker.Generation.Value + 1)),
+                _ => Worker,
+            };
+            return CreateJobListRequest(
+                guardian,
+                host,
+                generation,
+                requestId,
+                transition,
+                worker);
+        });
+
+        await Assert.ThrowsAnyAsync<IOException>(() =>
+            request.WaitAsync(TestTimeout));
+        Assert.Equal(0, resources.Peer.JobListEffectCount);
+        resources.BeginContainment(new GuardianHostContainmentDeadline(1, 2));
+        await resources.ContainmentConfirmed.WaitAsync(TestTimeout);
+        resources.Dispose();
+    }
+
     [Fact]
     public async Task Attempt_control_distinguishes_no_child_from_ambiguous_launch()
     {
@@ -381,15 +426,29 @@ public sealed class R3FakeHostTests
         GuardianBootId guardian,
         HostBootId host,
         HostGeneration generation,
-        PrivateRequestId requestId) => new(
+        PrivateRequestId requestId) => CreateJobListRequest(
+            guardian,
+            host,
+            generation,
+            requestId,
+            Transition,
+            Worker);
+
+    private static OperationRequest CreateJobListRequest(
+        GuardianBootId guardian,
+        HostBootId host,
+        HostGeneration generation,
+        PrivateRequestId requestId,
+        SessionTransitionVersion transition,
+        GuardianHostWorkerIdentity workerIdentity) => new(
             guardian,
             host,
             generation,
             requestId,
             FutureDeadline(),
             Alias,
-            Transition,
-            Worker,
+            transition,
+            workerIdentity,
             null,
             new JobListOperation(
                 Call,

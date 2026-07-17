@@ -11,6 +11,7 @@ internal sealed class R3FakeHostAttemptFactory : IGuardianHostAttemptFactory
     private readonly object _sync = new();
     private readonly GuardianHostSupervisorPins _pins;
     private readonly R3FakeHostControl _control;
+    private readonly R3FakeHostProfile _profile;
     private readonly int _streamCapacity;
     private readonly Action<byte[]>? _retiredBufferObserver;
     private readonly List<R3FakeHostAttemptResources> _attempts = [];
@@ -19,10 +20,12 @@ internal sealed class R3FakeHostAttemptFactory : IGuardianHostAttemptFactory
         GuardianHostSupervisorPins pins,
         R3FakeHostControl? control = null,
         int streamCapacity = R3BoundedOneWayStream.DefaultCapacity,
-        Action<byte[]>? retiredBufferObserver = null)
+        Action<byte[]>? retiredBufferObserver = null,
+        R3FakeHostProfile? profile = null)
     {
         _pins = pins ?? throw new ArgumentNullException(nameof(pins));
         _control = control ?? new R3FakeHostControl();
+        _profile = profile ?? R3FakeHostProfile.StrictDefault;
         if (streamCapacity <= 0)
             throw new ArgumentOutOfRangeException(nameof(streamCapacity));
         _streamCapacity = streamCapacity;
@@ -30,6 +33,8 @@ internal sealed class R3FakeHostAttemptFactory : IGuardianHostAttemptFactory
     }
 
     internal R3FakeHostControl Control => _control;
+
+    internal R3FakeHostProfile Profile => _profile;
 
     internal IReadOnlyList<R3FakeHostAttemptResources> Attempts
     {
@@ -56,6 +61,7 @@ internal sealed class R3FakeHostAttemptFactory : IGuardianHostAttemptFactory
             identity,
             startupDeadline,
             _pins,
+            _profile,
             hostProcessId,
             _control,
             plan,
@@ -97,6 +103,7 @@ internal sealed class R3FakeHostAttemptResources : IGuardianHostConnectedAttempt
         GuardianHostIdentity identity,
         GuardianHostStartupDeadline startupDeadline,
         GuardianHostSupervisorPins pins,
+        R3FakeHostProfile profile,
         int hostProcessId,
         R3FakeHostControl control,
         R3FakeHostAttemptPlan plan,
@@ -112,6 +119,7 @@ internal sealed class R3FakeHostAttemptResources : IGuardianHostConnectedAttempt
         Peer = new R3FakeHostPeer(
             identity,
             pins ?? throw new ArgumentNullException(nameof(pins)),
+            profile ?? throw new ArgumentNullException(nameof(profile)),
             hostProcessId,
             RequestTransport,
             EventTransport,

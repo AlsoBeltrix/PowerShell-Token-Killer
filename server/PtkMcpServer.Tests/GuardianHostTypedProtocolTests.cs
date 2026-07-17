@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Text;
+using System.Text.Json;
 using PtkSharedContracts;
 
 namespace PtkMcpServer.Tests;
@@ -224,6 +225,41 @@ public sealed class GuardianHostTypedProtocolTests
             ((IDisposable)rawEvent).Dispose();
             Assert.Equal(expected.Length, rawByteCount);
         }
+    }
+
+    [Fact]
+    public void Raw_decoder_zeroes_its_temporary_bytes_on_success_and_failure()
+    {
+        using var document = JsonDocument.Parse(
+            """{"raw_base64":"QUJDRA=="}""");
+        byte[]? successfulBuffer = null;
+
+        var length = GuardianHostProtocolCodec.DecodeRawBytes(
+            document.RootElement,
+            rawBytes =>
+            {
+                successfulBuffer = rawBytes;
+                Assert.Equal(new byte[] { 0x41, 0x42, 0x43, 0x44 }, rawBytes);
+                return rawBytes.Length;
+            });
+
+        Assert.Equal(4, length);
+        Assert.NotNull(successfulBuffer);
+        Assert.All(successfulBuffer, value => Assert.Equal(0, value));
+
+        byte[]? failedBuffer = null;
+        var failure = Assert.Throws<InvalidOperationException>(() =>
+            GuardianHostProtocolCodec.DecodeRawBytes<int>(
+                document.RootElement,
+                rawBytes =>
+                {
+                    failedBuffer = rawBytes;
+                    throw new InvalidOperationException("Injected materializer failure.");
+                }));
+
+        Assert.Equal("Injected materializer failure.", failure.Message);
+        Assert.NotNull(failedBuffer);
+        Assert.All(failedBuffer, value => Assert.Equal(0, value));
     }
 
     [Fact]

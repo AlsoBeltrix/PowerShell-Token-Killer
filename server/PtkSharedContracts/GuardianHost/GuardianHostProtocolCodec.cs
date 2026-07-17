@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
@@ -442,11 +443,8 @@ public static class GuardianHostProtocolCodec
                 Digest(payload.GetProperty("manifest_sha256")),
                 Int32(payload.GetProperty("alias_count")),
                 Int32(payload.GetProperty("template_count"))),
-            GuardianHostRequestMethod.ManifestChunk => new ManifestChunkRequest(
-                guardian, host, hostGeneration, requestId,
-                Manifest(payload.GetProperty("manifest_id")),
-                Int32(payload.GetProperty("chunk_index")),
-                RawBytes(payload)),
+            GuardianHostRequestMethod.ManifestChunk => DecodeManifestChunk(
+                guardian, host, hostGeneration, requestId, payload),
             GuardianHostRequestMethod.ManifestSeal => new ManifestSealRequest(
                 guardian, host, hostGeneration, requestId,
                 Manifest(payload.GetProperty("manifest_id")),
@@ -641,13 +639,9 @@ public static class GuardianHostProtocolCodec
                 NullableInt32(payload.GetProperty("exit_code")),
                 Parse<GuardianHostTerminationCertainty>(payload.GetProperty("termination_certainty"), "termination_certainty"),
                 Parse<GuardianHostEffectsState>(payload.GetProperty("effects_state"), "effects_state")),
-            GuardianHostEventType.WorkerDiagnosticChunk => new WorkerDiagnosticChunkEvent(
+            GuardianHostEventType.WorkerDiagnosticChunk => DecodeWorkerDiagnosticChunk(
                 guardian, host, hostGeneration, sequence, requestId, alias, transition,
-                Required(worker, "worker_boot_id"), operation,
-                Parse<GuardianHostDiagnosticStream>(payload.GetProperty("stream"), "stream"),
-                Int64(payload.GetProperty("chunk_index")),
-                Int32(payload.GetProperty("offset")), RawBytes(payload),
-                Boolean(payload.GetProperty("end_of_stream"))),
+                worker, operation, payload),
             GuardianHostEventType.WorkerDiagnosticTruncated =>
                 new WorkerDiagnosticTruncatedEvent(
                     guardian, host, hostGeneration, sequence, requestId, alias, transition,
@@ -663,13 +657,9 @@ public static class GuardianHostProtocolCodec
                 Parse<GuardianHostOutputState>(payload.GetProperty("output_state"), "output_state"),
                 Int32(payload.GetProperty("output_bytes")),
                 NullableDigest(payload.GetProperty("output_sha256"))),
-            GuardianHostEventType.OutputChunk => new OutputChunkEvent(
-                guardian, host, hostGeneration, sequence,
-                Required(requestId, "request_id"), alias, transition,
-                Required(worker, "worker_boot_id"), operation,
-                Token(payload.GetProperty("output_capability_token")),
-                Int64(payload.GetProperty("chunk_index")),
-                Int32(payload.GetProperty("offset")), RawBytes(payload)),
+            GuardianHostEventType.OutputChunk => DecodeOutputChunk(
+                guardian, host, hostGeneration, sequence, requestId, alias, transition,
+                worker, operation, payload),
             GuardianHostEventType.OutputSeal => new OutputSealEvent(
                 guardian, host, hostGeneration, sequence,
                 Required(requestId, "request_id"), alias, transition,
@@ -853,8 +843,117 @@ public static class GuardianHostProtocolCodec
                 new OperationId(GuidValue(raw.Value("operation_id"))));
     }
 
-    private static byte[] RawBytes(JsonElement value) =>
-        Convert.FromBase64String(Text(value.GetProperty("raw_base64")));
+    private static ManifestChunkRequest DecodeManifestChunk(
+        GuardianBootId guardian,
+        HostBootId host,
+        HostGeneration hostGeneration,
+        PrivateRequestId requestId,
+        JsonElement payload)
+    {
+        var manifest = Manifest(payload.GetProperty("manifest_id"));
+        var chunkIndex = Int32(payload.GetProperty("chunk_index"));
+        return DecodeRawBytes(
+            payload,
+            rawBytes => new ManifestChunkRequest(
+                guardian,
+                host,
+                hostGeneration,
+                requestId,
+                manifest,
+                chunkIndex,
+                rawBytes));
+    }
+
+    private static WorkerDiagnosticChunkEvent DecodeWorkerDiagnosticChunk(
+        GuardianBootId guardian,
+        HostBootId host,
+        HostGeneration hostGeneration,
+        HostEventSequence sequence,
+        PrivateRequestId? requestId,
+        CanonicalAlias alias,
+        SessionTransitionVersion transition,
+        GuardianHostWorkerIdentity? worker,
+        GuardianHostOperationIdentity? operation,
+        JsonElement payload)
+    {
+        var requiredWorker = Required(worker, "worker_boot_id");
+        var stream = Parse<GuardianHostDiagnosticStream>(
+            payload.GetProperty("stream"),
+            "stream");
+        var chunkIndex = Int64(payload.GetProperty("chunk_index"));
+        var offset = Int32(payload.GetProperty("offset"));
+        var endOfStream = Boolean(payload.GetProperty("end_of_stream"));
+        return DecodeRawBytes(
+            payload,
+            rawBytes => new WorkerDiagnosticChunkEvent(
+                guardian,
+                host,
+                hostGeneration,
+                sequence,
+                requestId,
+                alias,
+                transition,
+                requiredWorker,
+                operation,
+                stream,
+                chunkIndex,
+                offset,
+                rawBytes,
+                endOfStream));
+    }
+
+    private static OutputChunkEvent DecodeOutputChunk(
+        GuardianBootId guardian,
+        HostBootId host,
+        HostGeneration hostGeneration,
+        HostEventSequence sequence,
+        PrivateRequestId? requestId,
+        CanonicalAlias alias,
+        SessionTransitionVersion transition,
+        GuardianHostWorkerIdentity? worker,
+        GuardianHostOperationIdentity? operation,
+        JsonElement payload)
+    {
+        var requiredRequestId = Required(requestId, "request_id");
+        var requiredWorker = Required(worker, "worker_boot_id");
+        var outputCapabilityToken = Token(
+            payload.GetProperty("output_capability_token"));
+        var chunkIndex = Int64(payload.GetProperty("chunk_index"));
+        var offset = Int32(payload.GetProperty("offset"));
+        return DecodeRawBytes(
+            payload,
+            rawBytes => new OutputChunkEvent(
+                guardian,
+                host,
+                hostGeneration,
+                sequence,
+                requiredRequestId,
+                alias,
+                transition,
+                requiredWorker,
+                operation,
+                outputCapabilityToken,
+                chunkIndex,
+                offset,
+                rawBytes));
+    }
+
+    internal static T DecodeRawBytes<T>(
+        JsonElement payload,
+        Func<byte[], T> materialize)
+    {
+        ArgumentNullException.ThrowIfNull(materialize);
+        var rawBytes = Convert.FromBase64String(
+            Text(payload.GetProperty("raw_base64")));
+        try
+        {
+            return materialize(rawBytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(rawBytes);
+        }
+    }
 
     private static T Required<T>(T? value, string name) where T : class =>
         value ?? throw InvalidField(name);

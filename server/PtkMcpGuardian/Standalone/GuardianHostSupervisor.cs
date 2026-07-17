@@ -48,6 +48,7 @@ internal sealed class GuardianHostSupervisor :
     private Exception? _backgroundFailure;
     private int _startClaimed;
     private int _reservedCalls;
+    private int _ownedAttemptWatcherSets;
     private bool _stopping;
     private bool _recoverySchedulerRunning;
 
@@ -90,6 +91,16 @@ internal sealed class GuardianHostSupervisor :
     internal int BackgroundTaskCount
     {
         get { lock (_stateSync) return _background.Count; }
+    }
+
+    internal int OwnedClientCount
+    {
+        get { lock (_stateSync) return _clients.Count; }
+    }
+
+    internal int OwnedAttemptWatcherSetCount
+    {
+        get { lock (_stateSync) return _ownedAttemptWatcherSets; }
     }
 
     internal string BackgroundTaskNames
@@ -475,7 +486,8 @@ internal sealed class GuardianHostSupervisor :
             throw new InvalidOperationException(
                 "The lifecycle attempt did not expose a connected private transport.");
 
-        var active = new ActiveAttempt(lease, resources);
+        var active = new ActiveAttempt(lease, resources, _lifetime.Token);
+        lock (_stateSync) _ownedAttemptWatcherSets++;
         _active = active;
 
         if (lease.Stage is GuardianHostAttemptStage.Containing or
@@ -543,11 +555,12 @@ internal sealed class GuardianHostSupervisor :
         ActiveAttempt active,
         RecoveryManifest manifest)
     {
+        var cancellationToken = active.PreContainmentToken;
         try
         {
-            await active.Client!.InitializeAsync(manifest, _lifetime.Token)
+            await active.Client!.InitializeAsync(manifest, cancellationToken)
                 .ConfigureAwait(false);
-            await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+            await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 if (!ReferenceEquals(_active, active) || _stopping ||
@@ -556,6 +569,7 @@ internal sealed class GuardianHostSupervisor :
                     active.Ready.TrySetResult(false);
                     return;
                 }
+                active.CancelStartupDeadline();
                 active.Ready.TrySetResult(true);
                 TrackBackground(WatchReadyStabilityAsync(active));
             }
@@ -564,7 +578,7 @@ internal sealed class GuardianHostSupervisor :
                 _authority.Release();
             }
         }
-        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             active.Ready.TrySetResult(false);
         }
@@ -588,25 +602,28 @@ internal sealed class GuardianHostSupervisor :
 
     private async Task WatchClientFatalAsync(ActiveAttempt active)
     {
-        var failure = await active.Client!.Fatal.WaitAsync(_lifetime.Token)
+        var cancellationToken = active.PreContainmentToken;
+        var failure = await active.Client!.Fatal.WaitAsync(cancellationToken)
             .ConfigureAwait(false);
         await ObserveLossAsync(active, LossReasonFor(failure)).ConfigureAwait(false);
     }
 
     private async Task WatchHostExitAsync(ActiveAttempt active)
     {
-        await active.Resources.HostExited.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        var cancellationToken = active.PreContainmentToken;
+        await active.Resources.HostExited.WaitAsync(cancellationToken).ConfigureAwait(false);
         await ObserveLossAsync(active, GuardianHostLossReason.Exit).ConfigureAwait(false);
     }
 
     private async Task WatchStartupDeadlineAsync(ActiveAttempt active)
     {
+        var cancellationToken = active.StartupDeadlineToken;
         await _scheduler.DelayAsync(
                 RemainingUntil(active.Lease.StartupDeadline.AbsoluteTimestamp),
-                _lifetime.Token)
+                cancellationToken)
             .ConfigureAwait(false);
 
-        await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (!ReferenceEquals(_active, active)) return;
@@ -624,11 +641,12 @@ internal sealed class GuardianHostSupervisor :
 
     private async Task WatchReadyStabilityAsync(ActiveAttempt active)
     {
+        var cancellationToken = active.PreContainmentToken;
         await _scheduler.DelayAsync(
                 RecoveryCircuitMachine.ReadyStabilityWindow,
-                _lifetime.Token)
+                cancellationToken)
             .ConfigureAwait(false);
-        await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+        await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
             if (ReferenceEquals(_active, active) && !_stopping)
@@ -668,6 +686,8 @@ internal sealed class GuardianHostSupervisor :
         if (Interlocked.Exchange(ref active.ContainmentStarted, 1) != 0)
             return;
 
+        active.CancelPreContainment();
+        active.CancelStartupDeadline();
         active.Ready.TrySetResult(false);
         var host = _lifecycle.Snapshot().Host;
         active.PrewriteLossHost = host;
@@ -710,6 +730,7 @@ internal sealed class GuardianHostSupervisor :
 
     private async Task WatchContainmentDeadlineAsync(ActiveAttempt active)
     {
+        var cancellationToken = active.ContainmentDeadlineToken;
         var deadline = active.Lease.ContainmentDeadline ??
             throw new InvalidOperationException(
                 "Containment started without an absolute deadline.");
@@ -717,10 +738,10 @@ internal sealed class GuardianHostSupervisor :
         {
             await _scheduler.DelayAsync(
                     RemainingUntil(deadline.AbsoluteTimestamp),
-                    _lifetime.Token)
+                    cancellationToken)
                 .ConfigureAwait(false);
             var pending = false;
-            await _authority.WaitAsync(_lifetime.Token).ConfigureAwait(false);
+            await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 if (!ReferenceEquals(_active, active)) return;
@@ -766,6 +787,8 @@ internal sealed class GuardianHostSupervisor :
                 return;
             }
 
+            active.CancelContainmentDeadline();
+            DisposeAttemptWatcherOwnership(active);
             oldClient = active.Client;
             _active = null;
             if (transition.StartedAttempt is { } replacement)
@@ -1206,6 +1229,9 @@ internal sealed class GuardianHostSupervisor :
         {
             // TrackBackground retains the first bounded diagnostic.
         }
+
+        if (_active is { } remaining)
+            DisposeAttemptWatcherOwnership(remaining);
     }
 
     private void TrackBackground(
@@ -1244,6 +1270,20 @@ internal sealed class GuardianHostSupervisor :
         finally
         {
             lock (_stateSync) _clients.Remove(client);
+        }
+    }
+
+    private void DisposeAttemptWatcherOwnership(ActiveAttempt active)
+    {
+        if (!active.DisposeWatcherOwnership()) return;
+        lock (_stateSync)
+        {
+            if (_ownedAttemptWatcherSets <= 0)
+            {
+                throw new InvalidOperationException(
+                    "The attempt watcher-ownership count underflowed.");
+            }
+            _ownedAttemptWatcherSets--;
         }
     }
 
@@ -1322,17 +1362,55 @@ internal sealed class GuardianHostSupervisor :
         return result;
     }
 
-    private sealed class ActiveAttempt(
-        GuardianHostAttemptLease lease,
-        IGuardianHostConnectedAttemptResources resources)
+    private sealed class ActiveAttempt
     {
-        internal GuardianHostAttemptLease Lease { get; } = lease;
-        internal IGuardianHostConnectedAttemptResources Resources { get; } = resources;
+        private readonly CancellationTokenSource _preContainment;
+        private readonly CancellationTokenSource _startupDeadline;
+        private readonly CancellationTokenSource _containmentDeadline;
+        private int _watcherOwnershipDisposed;
+
+        internal ActiveAttempt(
+            GuardianHostAttemptLease lease,
+            IGuardianHostConnectedAttemptResources resources,
+            CancellationToken lifetime)
+        {
+            Lease = lease;
+            Resources = resources;
+            _preContainment = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            _startupDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            _containmentDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+        }
+
+        internal GuardianHostAttemptLease Lease { get; }
+        internal IGuardianHostConnectedAttemptResources Resources { get; }
         internal GuardianHostClient? Client { get; set; }
         internal PublicHostStateSnapshot? PrewriteLossHost { get; set; }
+        internal CancellationToken PreContainmentToken => _preContainment.Token;
+        internal CancellationToken StartupDeadlineToken => _startupDeadline.Token;
+        internal CancellationToken ContainmentDeadlineToken => _containmentDeadline.Token;
         internal TaskCompletionSource<bool> Ready { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         internal int ContainmentStarted;
+
+        internal void CancelPreContainment() => _preContainment.Cancel();
+
+        internal void CancelStartupDeadline() => _startupDeadline.Cancel();
+
+        internal void CancelContainmentDeadline() => _containmentDeadline.Cancel();
+
+        internal bool DisposeWatcherOwnership()
+        {
+            if (Interlocked.Exchange(ref _watcherOwnershipDisposed, 1) != 0)
+                return false;
+
+            _preContainment.Cancel();
+            _startupDeadline.Cancel();
+            _containmentDeadline.Cancel();
+            _preContainment.Dispose();
+            _startupDeadline.Dispose();
+            _containmentDeadline.Dispose();
+            return true;
+        }
     }
 
     private sealed class ActiveCall(

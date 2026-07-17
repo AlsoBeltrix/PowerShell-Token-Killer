@@ -373,6 +373,38 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Terminal_unconfirmed_shutdown_disposes_attempt_watcher_ownership()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond, AutoConfirmContainment: false));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+
+        old.Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.Recovering);
+        await rig.Scheduler.AdvanceAndCompleteAsync(
+            GuardianHostLifecycleController.HostContainmentGrace);
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State ==
+                PublicHostState.ContainmentUnconfirmed);
+
+        await rig.Supervisor.ShutdownAsync().WaitAsync(TestTimeout);
+
+        Assert.Equal(
+            PublicHostState.ContainmentUnconfirmed,
+            rig.Supervisor.SnapshotState().Host.State);
+        Assert.Equal(0, rig.Supervisor.OwnedAttemptWatcherSetCount);
+        Assert.Equal(0, rig.Supervisor.OwnedClientCount);
+        Assert.Equal(0, rig.Supervisor.BackgroundTaskCount);
+        Assert.Null(rig.Supervisor.BackgroundFailure);
+        Assert.Equal(0, rig.Scheduler.PendingCount);
+        await WaitUntilAsync(() => rig.Scheduler.EntryCount == 0);
+        Assert.False(old.IsDisposed);
+        Assert.Single(rig.Factory.Resources);
+    }
+
+    [Fact]
     public async Task Failed_generations_open_a_bounded_circuit_without_poll_driven_probes()
     {
         var plans = new List<AttemptPlan>
@@ -414,6 +446,69 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(RecoveryPhase.CircuitOpen, circuit.RecoveryPhase);
         Assert.Equal(7, circuit.RecoveryAttempt);
         Assert.False(circuit.ReadyForEffects);
+    }
+
+    [Fact]
+    public async Task Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+
+        for (var generation = 1; generation <= 101; generation++)
+        {
+            await WaitUntilAsync(() =>
+                rig.Supervisor.SnapshotState().Host is
+                {
+                    State: PublicHostState.Ready,
+                    Generation.Value: var currentGeneration,
+                } && currentGeneration == generation);
+
+            await rig.Scheduler.AdvanceAndCompleteAsync(
+                RecoveryCircuitMachine.ReadyStabilityWindow);
+            await WaitUntilAsync(() =>
+                !rig.Supervisor.BackgroundTaskNames.Contains(
+                    "WatchReadyStabilityAsync",
+                    StringComparison.Ordinal));
+
+            Assert.Equal(0, rig.Scheduler.PendingCount);
+            await WaitUntilAsync(() =>
+                rig.Scheduler.EntryCount == 0 &&
+                rig.Supervisor.BackgroundTaskCount == 2 &&
+                rig.Supervisor.OwnedClientCount == 1);
+            Assert.Equal(1, rig.Supervisor.OwnedAttemptWatcherSetCount);
+            Assert.Null(rig.Supervisor.BackgroundFailure);
+            Assert.Equal(
+                "WatchClientFatalAsync(active),WatchHostExitAsync(active)",
+                rig.Supervisor.BackgroundTaskNames);
+
+            var result = await rig.DispatchJobListAsync().WaitAsync(TestTimeout);
+            Assert.False(result.IsError);
+            Assert.Equal($"jobs-generation-{generation}", result.Text);
+
+            if (generation <= 100)
+                rig.Factory.Resources[generation - 1].Crash();
+        }
+
+        var resources = rig.Factory.Resources;
+        Assert.Equal(101, resources.Count);
+        Assert.Equal(
+            Enumerable.Range(1, 101).Select(value => (long)value),
+            resources.Select(value => value.Identity.HostGeneration.Value));
+        Assert.All(resources.Take(100), value => Assert.True(value.IsDisposed));
+        Assert.False(resources[^1].IsDisposed);
+        Assert.Single(resources, value => !value.IsDisposed);
+        Assert.All(resources, value => Assert.Equal(1, value.OperationCount));
+        Assert.Equal(1, rig.Supervisor.OwnedClientCount);
+        Assert.Equal(1, rig.Supervisor.OwnedAttemptWatcherSetCount);
+        Assert.Equal(2, rig.Supervisor.BackgroundTaskCount);
+        Assert.Equal(0, rig.Scheduler.PendingCount);
+        Assert.Equal(0, rig.Scheduler.EntryCount);
+
+        var requestIds = resources.SelectMany(value => value.RequestIds).ToArray();
+        Assert.True(requestIds.Length >= 101);
+        Assert.All(
+            requestIds.Zip(requestIds.Skip(1)),
+            pair => Assert.True(pair.First < pair.Second));
     }
 
     [Fact]
@@ -737,11 +832,34 @@ public sealed class GuardianHostSupervisorTests
 
         internal int ScheduleCount => Volatile.Read(ref _scheduleCount);
 
+        internal int PendingCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _delays.Count(value => !value.Task.IsCompleted);
+            }
+        }
+
+        internal int EntryCount
+        {
+            get { lock (_sync) return _delays.Count; }
+        }
+
         public ValueTask DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
         {
             var scheduled = new ScheduledDelay(delay, cancellationToken);
             lock (_sync) _delays.Add(scheduled);
             Interlocked.Increment(ref _scheduleCount);
+            _ = scheduled.Task.ContinueWith(
+                _ =>
+                {
+                    lock (_sync) _delays.Remove(scheduled);
+                    scheduled.DisposeRegistration();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
             return new ValueTask(scheduled.Task);
         }
 
@@ -808,9 +926,10 @@ public sealed class GuardianHostSupervisorTests
 
             internal void Complete()
             {
-                _registration.Dispose();
                 _completion.TrySetResult(true);
             }
+
+            internal void DisposeRegistration() => _registration.Dispose();
         }
     }
 
@@ -910,6 +1029,7 @@ public sealed class GuardianHostSupervisorTests
         internal GuardianHostIdentity Identity { get; }
         internal int OperationCount => _peer.OperationCount;
         internal IReadOnlyList<long> RequestIds => _peer.RequestIds;
+        internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
 
         internal Task InjectContractMismatchAsync() =>
             _peer.InjectContractMismatchAsync();

@@ -21,6 +21,8 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
     private readonly IGuardianHostAttemptFactory _attemptFactory;
     private readonly TimeProvider _timeProvider;
     private readonly RecoveryCircuitMachine _recoveryCircuit;
+    private readonly TaskCompletionSource<bool> _shutdownCompletion = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
 
     private GuardianHostAttemptLease? _current;
     private PublicHostState _state = PublicHostState.Absent;
@@ -259,6 +261,8 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
             _state = PublicHostState.ContainmentUnconfirmed;
             _phase = null;
             _lastFailureCode = PublicRecoveryDetailCode.HostContainmentUnconfirmed;
+            if (_terminalShutdown)
+                _shutdownCompletion.TrySetResult(true);
             return new(
                 GuardianHostContainmentDisposition.MarkedUnconfirmed,
                 StartedAttempt: null);
@@ -351,7 +355,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         lock (_gate)
         {
             if (_terminalShutdown)
-                return Task.CompletedTask;
+                return _shutdownCompletion.Task;
 
             _terminalShutdown = true;
             _permanentStopReason = GuardianHostPermanentStopReason.TerminalShutdown;
@@ -369,14 +373,18 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                         attempt,
                         GuardianHostLossReason.TerminalShutdown);
                 }
+                else if (attempt.Stage == GuardianHostAttemptStage.ContainmentUnconfirmed)
+                {
+                    _shutdownCompletion.TrySetResult(true);
+                }
             }
             else
             {
                 StopPermanentlyLocked(GuardianHostPermanentStopReason.TerminalShutdown);
             }
-        }
 
-        return Task.CompletedTask;
+            return _shutdownCompletion.Task;
+        }
     }
 
     public void Dispose()
@@ -674,6 +682,8 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         _phase = null;
         _pendingContainmentAction = PendingContainmentAction.None;
         _containmentRecoveryAttempt = 0;
+        if (_terminalShutdown || reason == GuardianHostPermanentStopReason.TerminalShutdown)
+            _shutdownCompletion.TrySetResult(true);
     }
 
     private GuardianHostStartTransition RefusedStartLocked() => new(

@@ -603,8 +603,9 @@ public sealed class GuardianHostLifecycleControllerTests
         Assert.False(shutdownTask.IsCompleted);
         release.Set();
         var start = await startTask;
-        await shutdownTask;
         var attempt = Assert.IsType<GuardianHostAttemptLease>(start.Attempt);
+        await Task.Delay(TimeSpan.FromMilliseconds(50));
+        Assert.False(shutdownTask.IsCompleted);
         Assert.Equal(1, rig.Factory.Resources[0].BeginContainmentCount);
         Assert.True(rig.Controller.Snapshot().TerminalShutdown);
         Assert.False(rig.Controller.MarkReady(attempt));
@@ -615,6 +616,7 @@ public sealed class GuardianHostLifecycleControllerTests
         Assert.Equal(
             GuardianHostContainmentDisposition.Confirmed,
             rig.Controller.ConfirmContainment(attempt).Disposition);
+        await shutdownTask.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(PublicHostState.Stopped, rig.Controller.Snapshot().Host.State);
         Assert.Single(rig.Factory.Resources);
     }
@@ -625,11 +627,14 @@ public sealed class GuardianHostLifecycleControllerTests
         var rig = new TestRig();
         var attempt = StartReady(rig);
 
-        await rig.Controller.ShutdownAsync();
+        var shutdown = rig.Controller.ShutdownAsync();
+        Assert.Same(shutdown, rig.Controller.ShutdownAsync());
+        Assert.False(shutdown.IsCompleted);
         rig.Clock.Advance(TimeSpan.FromSeconds(10));
         Assert.Equal(
             GuardianHostContainmentDisposition.MarkedUnconfirmed,
             rig.Controller.ObserveContainmentDeadline(attempt).Disposition);
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
         var unconfirmed = rig.Controller.Snapshot();
         Assert.True(unconfirmed.TerminalShutdown);
         Assert.Equal(PublicHostState.ContainmentUnconfirmed, unconfirmed.Host.State);
@@ -645,6 +650,23 @@ public sealed class GuardianHostLifecycleControllerTests
             rig.Controller.ConfirmContainment(attempt).Disposition);
         Assert.Equal(PublicHostState.Stopped, rig.Controller.Snapshot().Host.State);
         Assert.Single(rig.Factory.Resources);
+    }
+
+    [Fact]
+    public async Task Shutdown_without_an_owned_child_completes_once_and_refuses_initial_start()
+    {
+        var rig = new TestRig();
+
+        var first = rig.Controller.ShutdownAsync();
+        var second = rig.Controller.ShutdownAsync();
+
+        Assert.Same(first, second);
+        await first.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(PublicHostState.Stopped, rig.Controller.Snapshot().Host.State);
+        Assert.Equal(
+            GuardianHostStartDisposition.PermanentlyStopped,
+            rig.Controller.StartInitial().Disposition);
+        Assert.Empty(rig.Factory.Resources);
     }
 
     [Fact]

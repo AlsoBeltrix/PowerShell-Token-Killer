@@ -354,6 +354,53 @@ public sealed class SessionRecoveryStateMachineTests
             BootstrapState.Restored));
     }
 
+    [Fact]
+    public void Initial_cold_acknowledgement_cannot_erase_an_explicit_fault()
+    {
+        var harness = Harness.CreateTemplate(
+            desiredState: DesiredSessionState.Cold);
+        var version = harness.Machine.Snapshot().Session.TransitionVersion;
+        Assert.True(harness.Machine.RecordExplicitlyFaulted(version));
+
+        Assert.False(harness.Machine.RecordAcknowledgedCold(version));
+        var snapshot = harness.Machine.Snapshot().Session;
+        Assert.Equal(PublicSessionState.Faulted, snapshot.State);
+        Assert.Equal(BootstrapState.Failed, snapshot.BootstrapState);
+        Assert.Equal(
+            PublicRecoveryDetailCode.SessionBootstrapFailed,
+            snapshot.LastFailureCode);
+    }
+
+    [Fact]
+    public void Late_cold_acknowledgement_cannot_erase_ambiguous_open()
+    {
+        var harness = Harness.CreateTemplate(
+            desiredState: DesiredSessionState.Cold);
+        var initialVersion = harness.Machine.Snapshot().Session.TransitionVersion;
+        var open = Assert.IsType<SessionRecoveryTransitionLease>(
+            harness.Machine.BeginLifecycleTransition(
+                SessionRecoveryTransitionKind.Open));
+        var target = WorkerIdentity(2, 1882);
+        Assert.True(harness.Machine.AttachLifecycleWorkerIdentity(open, target));
+        Assert.True(harness.Machine.MarkLifecycleDispatched(open));
+        var loss = harness.Machine.BeginUnexpectedLoss(
+            target,
+            harness.Machine.FrozenBindingProof);
+        Assert.Equal(SessionRecoveryLossDisposition.RecoveryUnknown, loss.Disposition);
+        Assert.Equal(
+            SessionRecoveryDeathDisposition.NoRecovery,
+            harness.Machine.ConfirmOldTreeDeath(
+                Assert.IsType<SessionRecoveryLossLease>(loss.Loss)).Disposition);
+
+        Assert.False(harness.Machine.RecordAcknowledgedCold(initialVersion));
+        var snapshot = harness.Machine.Snapshot().Session;
+        Assert.Equal(PublicSessionState.RecoveryUnknown, snapshot.State);
+        Assert.Equal(BootstrapState.Unknown, snapshot.BootstrapState);
+        Assert.Equal(
+            PublicRecoveryDetailCode.SessionRecoveryUnknown,
+            snapshot.LastFailureCode);
+    }
+
     [Theory]
     [InlineData((int)SessionRecoveryTransitionKind.Restart, false)]
     [InlineData((int)SessionRecoveryTransitionKind.Restart, true)]

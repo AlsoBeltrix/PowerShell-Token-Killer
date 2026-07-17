@@ -524,6 +524,7 @@ internal sealed class SessionRecoveryStateMachine : IDisposable
             if (_terminalShutdown ||
                 _everReady ||
                 _desiredState != DesiredSessionState.Cold ||
+                _state != PublicSessionState.Cold ||
                 _activeLoss is not null ||
                 _secondaryTransitionLoss is not null ||
                 _activeAttempt is not null ||

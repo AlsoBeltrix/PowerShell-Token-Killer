@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Buffers.Text;
 using System.Security.Cryptography;
 using System.Text.Json;
 
@@ -194,13 +196,22 @@ public static class RecoveryManifestCodec
         Func<byte[], T> materialize)
     {
         ArgumentNullException.ThrowIfNull(materialize);
+        var encoded = value.GetProperty("bootstrap_raw_base64");
         byte[] bootstrap;
-        try { bootstrap = Convert.FromBase64String(value.GetProperty("bootstrap_raw_base64").GetString()!); }
+        try { bootstrap = encoded.GetBytesFromBase64(); }
         catch (FormatException exception) { throw new InvalidDataException("Bootstrap is not canonical base64.", exception); }
+        var canonical = GC.AllocateUninitializedArray<byte>(
+            Base64.GetMaxEncodedToUtf8Length(bootstrap.Length));
         try
         {
-            if (Convert.ToBase64String(bootstrap) !=
-                value.GetProperty("bootstrap_raw_base64").GetString())
+            var status = Base64.EncodeToUtf8(
+                bootstrap,
+                canonical,
+                out var consumed,
+                out var written);
+            if (status != OperationStatus.Done ||
+                consumed != bootstrap.Length ||
+                !encoded.ValueEquals(canonical.AsSpan(0, written)))
             {
                 throw new InvalidDataException("Bootstrap is not canonical base64.");
             }
@@ -208,6 +219,7 @@ public static class RecoveryManifestCodec
         }
         finally
         {
+            CryptographicOperations.ZeroMemory(canonical);
             CryptographicOperations.ZeroMemory(bootstrap);
         }
     }

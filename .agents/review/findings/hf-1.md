@@ -1,7 +1,7 @@
 # hf-1: ptk_output offset schema emits string minimum/maximum, violating JSON Schema draft 2020-12
 
 **Severity**: MAJOR
-**Status**: Fixed, externally verified — codex round 4 accepted, guard_confirmed true (branch `fix/ptk-output-schema-draft2020`, code head `03d2803`, record head `edb26d4`, base `019a28d`)
+**Status**: Merged to master — merge commit `b7ac20b` (owner-approved). Externally verified — codex round 4 accepted, guard_confirmed true (branch `fix/ptk-output-schema-draft2020`, code head `03d2803`, record head `edb26d4`, base `019a28d`). Post-merge verification on master: ToolSchemaConformanceTests + McpResilienceR0ContractTests 53/53.
 **Source**: operator-reported production defect 2026-07-18 (install on a second machine)
 **File**: `server/PtkMcpServer/Tools/OutputTool.cs:32`
 

@@ -2663,12 +2663,13 @@ install) — per-finding detail: `.agents/review/findings/hf-1.md`.
 
 | ID   | Severity | Impact (one line)                                                          | Status | Branch |
 |------|----------|----------------------------------------------------------------------------|--------|--------|
-| hf-1 | MAJOR    | ptk_output offset schema emits string minimum/maximum; strict draft 2020-12 MCP clients reject the entire toolset | `[x]` fixed, externally verified | `fix/ptk-output-schema-draft2020` |
+| hf-1 | MAJOR    | ptk_output offset schema emits string minimum/maximum; strict draft 2020-12 MCP clients reject the entire toolset | `[x]` merged (`b7ac20b`) | `fix/ptk-output-schema-draft2020` |
 
 **hf-1 closed 2026-07-18T07:27:56Z:** numeric Range fix + generated-schema conformance
 guard at code head `03d2803`; digest chain recomputed. External
 fixed-SHA review — Reviewer: codex / high / standard, 4 rounds
 (rejected: tautological guard; rejected: record attribution; rejected:
 record consistency; accepted), final head `edb26d4`, guard_confirmed
-true, verdict accepted. Suite 1575/1575. Branch awaits owner-gated
-merge.
+true, verdict accepted. Suite 1575/1575. Merged to master 2026-07-18,
+merge commit `b7ac20b` (owner-approved); post-merge master check
+ToolSchemaConformanceTests + McpResilienceR0ContractTests 53/53.

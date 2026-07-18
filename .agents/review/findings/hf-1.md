@@ -1,7 +1,7 @@
 # hf-1: ptk_output offset schema emits string minimum/maximum, violating JSON Schema draft 2020-12
 
 **Severity**: MAJOR
-**Status**: Fixed, pending external review (branch `fix/ptk-output-schema-draft2020`, code head `03d2803`, base `019a28d`)
+**Status**: Fixed, externally verified — codex round 4 accepted, guard_confirmed true (branch `fix/ptk-output-schema-draft2020`, code head `03d2803`, record head `edb26d4`, base `019a28d`)
 **Source**: operator-reported production defect 2026-07-18 (install on a second machine)
 **File**: `server/PtkMcpServer/Tools/OutputTool.cs:32`
 
@@ -122,5 +122,8 @@ as the fixed head. Corrected by record-only amendment `5540a6d`.
 Round 3 (head `5540a6d`): codex, guard_confirmed **true**, verdict
 **rejected** on record accuracy only — Resolution said "two commits"
 while describing three and left the amendment commit unnamed. Corrected
-by a further record-only amendment naming `5540a6d`; round-4 re-review
-dispatched over the record-only delta.
+by a further record-only amendment naming `5540a6d`.
+
+Round 4 (head `edb26d4`): codex, guard_confirmed **true**, verdict
+**accepted**. Attribution, commit count, and round-3 reporting verified
+accurate; delta confined to this record with no content drift.

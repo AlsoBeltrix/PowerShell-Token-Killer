@@ -133,6 +133,7 @@ public sealed class AuditOtlpSiemConformanceTests
             headers,
             authorities,
             clientCertificate,
+            X509RevocationMode.NoCheck,
             new string('a', 64));
         return handler is null
             ? AuditOtlpHttpExporter.Create(options, "9.8.7")

@@ -1,7 +1,7 @@
 # hf-1: ptk_output offset schema emits string minimum/maximum, violating JSON Schema draft 2020-12
 
 **Severity**: MAJOR
-**Status**: Fixed, pending external review (branch `fix/ptk-output-schema-draft2020`, head `3505edd`, base `019a28d`)
+**Status**: Fixed, pending external review (branch `fix/ptk-output-schema-draft2020`, code head `03d2803`, base `019a28d`)
 **Source**: operator-reported production defect 2026-07-18 (install on a second machine)
 **File**: `server/PtkMcpServer/Tools/OutputTool.cs:32`
 
@@ -49,12 +49,21 @@ reachable store size.
 
 ## Resolution
 
-Commit `3505edd` on `fix/ptk-output-schema-draft2020`:
+Two commits on `fix/ptk-output-schema-draft2020`.
+
+Commit `3505edd` (round-1 head):
 
 - `OutputTool.cs` — `[Range(0d, 9007199254740991d)]` with a comment
   forbidding the string-operand constructor and recording the 2^53−1
   rationale.
-- `ToolSchemaConformanceTests.cs` (new) — generates the ACTUAL input
+- Digest chain recomputed as described in Scope.
+- Initial conformance guard — reflection-only over `RangeAttribute`
+  operands; rejected in round 1 as implementation-coupled and
+  superseded by the commit below.
+
+Commit `03d2803` (round-2 head):
+
+- `ToolSchemaConformanceTests.cs` (rewritten) — generates the ACTUAL input
   schema for every `[McpServerTool]` method through the production SDK
   factory (`McpServerTool.Create`, DI parameter types registered by
   convention so they are excluded exactly as in the real host), strict-
@@ -66,7 +75,10 @@ Commit `3505edd` on `fix/ptk-output-schema-draft2020`:
   the same factory and asserts the validator rejects it, proving the
   guard is not tautological. Attribute-level `RangeAttribute` pins are
   retained as a fast early signal.
-- Digest chain recomputed as described in Scope.
+- This finding record (`hf-1.md`) first landed in this commit.
+
+A third, docs-only commit amends this record to correct the commit
+attribution above after the round-2 review flagged it.
 
 ## Guard proof
 
@@ -91,6 +103,17 @@ numeric bounds at head, string bounds with the old attribute; draft
 digest chain independently recomputed clean
 (`4467db27…`/`817f00e5…`/`5699d8fc…`/`2e923f91…`/`cd6aff30…`, manifest
 2233 bytes); no unrelated hunks, no remaining string-operand `Range`
-usages. Round 2 addresses the blocker by replacing the reflection-only
-guard with generated-schema validation (see Resolution); re-review
-dispatched at the new head.
+usages.
+
+Round 2 (head `03d2803`): codex, guard_confirmed **true**, verdict
+**rejected**. The guard blocker is cleared: reviewer confirmed the test
+discovers all five `[McpServerTool]` methods, generates each schema
+through `McpServerTool.Create`, and validates with a schema-position-
+aware walker; the filtered run passed 39/39, and a temporary mutation
+restoring the legacy `Range(typeof(long), string, string)` shape caused
+four failures including generated-schema rejection of string
+`minimum`/`maximum`. Remaining blocker was record accuracy: this record
+attributed the generated-schema guard to `3505edd` (where the guard was
+reflection-only and this record did not yet exist) and named `3505edd`
+as the fixed head. Corrected by the docs-only amendment noted in
+Resolution; round-3 re-review dispatched over the record-only delta.

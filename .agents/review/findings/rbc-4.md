@@ -1,7 +1,7 @@
 # rbc-4: AuditOtlpHttpExporter TLS revocation disabled by default with no opt-in
 
 **Severity**: MAJOR
-**Status**: Open (intake, awaiting owner triage)
+**Status**: Fixed, pending owner review/merge
 **Source**: read-only codebase review 2026-07-17, head `f6a2caa`
 **File**: `server/PtkMcpServer/Audit/AuditOtlpHttpExporter.cs:432`
 
@@ -39,13 +39,46 @@ One property in `AuditOtlpHttpExporter.cs`, plus a configuration option
 in `AuditExportConfiguration` if made configurable. No architectural
 change.
 
+## Resolution
+
+Revocation posture is now an explicit, required operator decision — there
+is no implicit default and no silent fallback:
+
+- `AuditExportConfiguration` requires a `revocation_check_mode` field
+  (`ParseRevocationMode`, exact-case: `"NoCheck"` | `"Online"` |
+  `"Offline"`; absent or unrecognized values throw
+  `AuditExportConfigurationException`). Mirrors the SIEM receiver's
+  `revocation_check_mode` contract.
+- `AuditOtlpHttpExporter.ConfigureCustomTrustPolicy` now takes the parsed
+  `X509RevocationMode` and sets `policy.RevocationMode` from it on the
+  custom-trust (pinned root) validation path.
+- On the system-trust path, `HttpClientHandler.CheckCertificateRevocationList`
+  is set from the mode; since the handler only exposes a boolean online
+  check, `Offline` is elevated to an online check rather than silently
+  degraded to no check (documented in a code comment referencing rbc-4).
+- `revocation_check_mode` participates in `ExportConfigurationIdentity`
+  (HMAC-framed via `AppendFramedString`), so changing the revocation
+  posture changes the config identity and cannot alias a prior identity.
+
 ## Guard proof
 
-Not yet written. If made configurable, a guard should assert that a
-revoked cert is rejected under `Online`/`Offline` mode and accepted
-under an explicit `NoCheck` opt-in.
+Written. Guards assert:
+- config parsing accepts exactly `"NoCheck"`/`"Online"`/`"Offline"` and
+  rejects absent/unknown/wrong-case values with
+  `AuditExportConfigurationException` (`AuditExportConfigurationTests`),
+- the handler enables `CheckCertificateRevocationList` for
+  `Online`/`Offline` and disables it only under explicit `NoCheck`, and
+  the custom-trust chain policy carries the configured mode
+  (`AuditOtlpHttpExporterTests`),
+- identity derivation includes the revocation mode and rejects material
+  with an empty mode (`ExportConfigurationIdentityTests`).
+
+Full test suite green after the change.
 
 ## Reviewer comments
 
 Read-only review by Hermes subagent (audit subsystem pass). No external
-fixed-SHA review has been dispatched.
+fixed-SHA review has been dispatched. Fix implemented in-session; owner
+review of the changed default (explicit required field is a breaking
+config change for existing configs lacking `revocation_check_mode`)
+still pending.

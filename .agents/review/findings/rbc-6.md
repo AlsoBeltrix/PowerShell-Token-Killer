@@ -5,6 +5,7 @@
 uses the Unix runtime's immediate SIGKILL tree termination; the claimed
 SIGTERM-only grace and predicted TERM-trap survivor do not exist. No code
 change. External fixed-SHA review accepted with `guard_confirmed: true`.
+Merged to `master` at `315b9db` (owner-approved, docs only).
 **Source**: read-only codebase review 2026-07-17, head `f6a2caa`
 **Files**: `server/PtkMcpServer/Execution/BashProcessRunner.cs:736-744`,
 `server/PtkMcpServer/Execution/RtkProcessRunner.cs:403-430`

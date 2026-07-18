@@ -2615,3 +2615,38 @@ ready for its local owner-gated merge. This acceptance does not authorize
 push, history rewriting, or R1-R7 implementation. Historical failed-attempt
 detail and resolution are preserved in
 `.agents/review/mcp-resilience-r0-review.contested.md`.
+
+---
+
+Loop run 2026-07-17 (read-only baseline codebase review) — reviewer: Hermes
+(this session, glm-5.2:cloud, read-only), scope: the full PTK codebase at head
+`f6a2caa` (PowerShell module, MCP server, audit subsystem, execution/worker
+subsystem, SIEM receiver, scripts, CI). Four parallel review passes: one
+direct pass (PowerShell module + MCP entry/tool surface + scripts + CI) and
+three Hermes subagent passes (audit subsystem, execution/worker/routing
+subsystem, SIEM receiver). Per-finding detail: `.agents/review/findings/rbc-*.md`.
+
+## Findings (read-only baseline codebase review)
+
+| ID    | Severity | Impact (one line)                                                          | Status | Branch |
+|-------|----------|----------------------------------------------------------------------------|--------|--------|
+| rbc-1 | BLOCKER  | Cold PS-direct background jobs lack CreateNoWindow and stdout/stderr redirect; native-command output can leak into the MCP transport | `[ ]`  | n/a (intake) |
+| rbc-2 | MAJOR    | AuditRuntimeGate StopCoreAsync does not guarantee server.stopped on session/exporter failure | `[ ]`  | n/a (intake) |
+| rbc-3 | MAJOR    | AuditRuntimeGate TryCreateCallContext bypasses the lifecycle gate | `[ ]`  | n/a (intake) |
+| rbc-4 | MAJOR    | AuditOtlpHttpExporter TLS revocation disabled by default with no opt-in | `[ ]`  | n/a (intake) |
+| rbc-5 | MAJOR    | Background jobs lack Job Object containment on Windows (foreground workers have it) | `[ ]`  | n/a (intake) |
+| rbc-6 | MAJOR    | No SIGKILL escalation for Unix process trees after SIGTERM grace | `[ ]`  | n/a (intake) |
+| rbc-7 | MAJOR    | OutputStore Read/Search can wedge the store lock on a slow filesystem | `[ ]`  | n/a (intake) |
+| rbc-8 | MAJOR    | WorkerServer initialize handshake is a fragile multi-arm Task.WhenAny | `[ ]`  | n/a (intake) |
+| rbc-9 | MAJOR    | WorkerOperationScheduler ignores injected TaskScheduler for outer admit dispatch | `[ ]`  | n/a (intake) |
+| rbc-10 | MAJOR   | SIEM receiver Kestrel MaxRequestBodySize disabled (defense-in-depth gap) | `[ ]`  | n/a (intake) |
+| rbc-11 | MAJOR   | SIEM receiver has no retention enforcement on master | `[ ]`  | n/a (intake) |
+| rbc-12 | MAJOR   | SIEM receiver has no rate limiting or backpressure | `[ ]`  | n/a (intake) |
+| rbc-13 | MAJOR   | ColdCommandResolution MatchesCurrentResolution PATH race (safe but racy; downgraded from blocker) | `[ ]`  | n/a (intake) |
+
+**Loop OPEN 2026-07-18T00:12Z:** 13 findings (1 blocker, 12 major), all at
+intake awaiting owner triage. No fixes have been written. This is a
+read-only review; no files were modified except this index and the 13
+per-finding records under `.agents/review/findings/rbc-*.md`. The subagent
+that flagged rbc-13 rated it blocker; the orchestrating session downgraded
+it to major after verifying the failure mode fails closed.

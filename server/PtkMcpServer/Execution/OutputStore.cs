@@ -589,10 +589,8 @@ public sealed class OutputStore : IDisposable
 
         SafeFileHandle file;
         long totalBytes;
-        OutputArtifactState state;
         bool complete;
         OutputProvenance? provenance;
-        string? detailCode;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -603,21 +601,22 @@ public sealed class OutputStore : IDisposable
             if (!IsReadableArtifact(entry)) return StateRead(entry, offset);
             file = entry.Stream!.SafeFileHandle;
             totalBytes = entry.Bytes;
-            state = entry.State;
             complete = entry.Complete;
             provenance = entry.Provenance;
-            detailCode = entry.DetailCode;
         }
 
         // Sealed artifacts are immutable, so the file reads run outside _gate:
         // a wedged filesystem must not stall Status/TryReserve/Seal callers
         // queued behind this read (rbc-7). A concurrent retention pass may
-        // dispose the stream mid-read; that race surfaces as
-        // ObjectDisposedException and is mapped back to the entry's recorded
-        // state instead of a crash or a stale answer.
-        _options.RetainedReadStartingForTests?.Invoke();
+        // dispose the stream mid-read; that surfaces as
+        // ObjectDisposedException, and the success path re-validates the
+        // entry under _gate so the reported artifact state reflects
+        // completion time, never a pre-read snapshot. Retention still
+        // deletes artifact files while holding _gate; that residual wedge on
+        // the delete/close path is tracked separately as rbc-14.
         try
         {
+            _options.RetainedReadStartingForTests?.Invoke();
             if (offset > totalBytes || !IsUtf8Boundary(file, offset, totalBytes))
             {
                 return new OutputReadResult(
@@ -648,16 +647,23 @@ public sealed class OutputStore : IDisposable
             }
             var text = StrictUtf8.GetString(bytes);
             var nextOffset = checked(offset + bytes.Length);
-            return new OutputReadResult(
-                state,
-                text,
-                offset,
-                nextOffset,
-                totalBytes,
-                bytes.Length,
-                complete,
-                provenance,
-                detailCode);
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                var entry = FindReadableLocked(handle);
+                if (entry is null) return MissingRead(offset);
+                if (!IsReadableArtifact(entry)) return StateRead(entry, offset);
+                return new OutputReadResult(
+                    entry.State,
+                    text,
+                    offset,
+                    nextOffset,
+                    totalBytes,
+                    bytes.Length,
+                    entry.Complete,
+                    entry.Provenance,
+                    entry.DetailCode);
+            }
         }
         catch (ObjectDisposedException)
         {
@@ -687,10 +693,8 @@ public sealed class OutputStore : IDisposable
 
         SafeFileHandle file;
         long totalBytes;
-        OutputArtifactState state;
         bool complete;
         OutputProvenance? provenance;
-        string? detailCode;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -701,18 +705,16 @@ public sealed class OutputStore : IDisposable
             if (!IsReadableArtifact(entry)) return StateSearch(entry, offset);
             file = entry.Stream!.SafeFileHandle;
             totalBytes = entry.Bytes;
-            state = entry.State;
             complete = entry.Complete;
             provenance = entry.Provenance;
-            detailCode = entry.DetailCode;
         }
 
-        // See Read: file io runs outside _gate (rbc-7); a concurrent
-        // retention pass disposing the stream is mapped back to the entry's
-        // recorded state.
-        _options.RetainedReadStartingForTests?.Invoke();
+        // See Read: file io runs outside _gate (rbc-7); dispose races map to
+        // ObjectDisposedException, and the success path re-validates the
+        // entry state under _gate at completion.
         try
         {
+            _options.RetainedReadStartingForTests?.Invoke();
             if (offset > totalBytes || !IsUtf8Boundary(file, offset, totalBytes))
             {
                 return new OutputSearchResult(
@@ -776,16 +778,23 @@ public sealed class OutputStore : IDisposable
                 if (nextOffset <= offset) nextOffset = checked(offset + scan.Length);
             }
 
-            return new OutputSearchResult(
-                state,
-                [.. matches],
-                offset,
-                nextOffset,
-                totalBytes,
-                scan.Length,
-                complete,
-                provenance,
-                detailCode);
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                var entry = FindReadableLocked(handle);
+                if (entry is null) return MissingSearch(offset);
+                if (!IsReadableArtifact(entry)) return StateSearch(entry, offset);
+                return new OutputSearchResult(
+                    entry.State,
+                    [.. matches],
+                    offset,
+                    nextOffset,
+                    totalBytes,
+                    scan.Length,
+                    entry.Complete,
+                    entry.Provenance,
+                    entry.DetailCode);
+            }
         }
         catch (ObjectDisposedException)
         {

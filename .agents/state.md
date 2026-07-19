@@ -296,43 +296,41 @@ short and update it when important repo facts change.
   external fixed-SHA review is accepted with `guard_confirmed=true` and a green
   full suite may be merged to `master` without a per-item prompt. Merged so
   far: rbc-1 (`a445038`), rbc-2 (`a6c4a17`), rbc-3 refuted (`41d3257`), rbc-4
-  (`685d34c`), and out-of-band hotfix hf-1 ptk_output draft-2020-12 schema
-  (`b7ac20b`). Stale index rows reconciled at `e766e19`. Remaining open:
-  rbc-5, rbc-6, rbc-7, rbc-8, rbc-9, rbc-10, rbc-11, rbc-12, rbc-13. External
-  reviewer this session was codex (standard = gpt-5.6-sol @ high, owner-
-  confirmed in `.agents/review/harnesses.local.json`; frontier unconfirmed —
-  escalation on codex blocks to owner).
-- **PAUSED by owner + safeguards: rbc-5/rbc-6 background-job containment has
-  UNCOMMITTED WIP on branch `fix/rbc-6-unix-sigkill-escalation` (built on
-  `master` tip `e766e19`).** The process-kill/containment implementation
-  tripped Fable 5 safeguards mid-work; the owner directed that this
-  security-sensitive work be **farmed out to codex or an opus subagent for
-  implementation, not written inline in this chat**, and to stop. Do NOT
-  resume the containment code inline on Fable. Working-tree WIP (do not
-  discard without owner direction): new `ProcessTreeContainment.cs` +
-  `ProcessTreeContainmentTests.cs` (rbc-6 Unix: exclusive-process-group sweep
-  + SIGKILL escalation for reparented orphans; was green 1578/1578), new
-  `BackgroundJobContainment.cs` + edits to `WindowsWorkerNative.cs`
-  (AssignProcessToJob), `JobManager.cs`, `BashProcessRunner.cs`,
-  `RtkProcessRunner.cs` (rbc-5 Windows Job-Object attach; compiled clean, no
-  tests yet). None of this is committed or reviewed. Task list #8 tracks it.
+  (`685d34c`), rbc-6 refuted (`315b9db`, merge record `749815b`), and
+  out-of-band hotfix hf-1 ptk_output draft-2020-12 schema (`b7ac20b`). The
+  rbc-6 fixed-SHA Codex review accepted the docs-only refutation with
+  `guard_confirmed=true`; the recorded PowerShell and .NET suites were green.
+  Remaining open: rbc-5, rbc-7, rbc-8, rbc-9, rbc-10, rbc-11, rbc-12,
+  rbc-13. External reviewer was codex (standard = gpt-5.6-sol @ high,
+  owner-confirmed in `.agents/review/harnesses.local.json`; frontier
+  unconfirmed — escalation on codex blocks to owner).
+- **rbc-5/rbc-6 containment WIP remains uncommitted and preserved on
+  `fix/rbc-6-unix-sigkill-escalation` at `2b3ce1a`; do not discard it without
+  owner direction.** rbc-6's filed premise was false: .NET 10 Unix
+  `Process.Kill(entireProcessTree: true)` already uses SIGKILL. Its WIP instead
+  addresses a different daemonized/reparented-descendant condition and was not
+  accepted. rbc-5 is valid in the current in-process Windows runtime, but its
+  saved spawn-then-assign Job Object WIP has an admitted escape race and
+  conflicts with the approved creation-time containment contract. No rbc-5
+  product change is accepted or committed. The recommended proportional
+  resolution is to close rbc-5 through the already-planned resilience R7
+  worker cutover, adding a Windows guard that a background descendant dies on
+  hard supervisor termination; this recommendation is not yet owner-approved.
 
 ## Next
 
-1. **rbc-5/rbc-6 containment: route implementation to codex or an opus
-   subagent** (owner directive after Fable safeguards flagged the process-kill
-   work). Hand it the uncommitted WIP on `fix/rbc-6-unix-sigkill-escalation`
-   as a starting point or restart clean; do not implement inline on Fable.
-   Then run the standard external fixed-SHA review + batch-merge per the
-   pre-approval above.
-2. Continue the rest of the rbc batch (rbc-7, then rbc-2 already done, rbc-8,
-   rbc-9, rbc-10, rbc-11, rbc-12, rbc-13) in the owner's priority order; each
-   is fix → external review → merge-on-accept. Non-process-kill findings can
-   proceed inline; reassess per-finding whether the work is safeguard-sensitive
-   and route out if so.
-3. Owner call: push `master` (contains the S3H merge plus the rbc-1..4 + hf-1
-   merges) to `origin`, or keep it local. Push policy requires an explicit ask
-   for merge commits.
+1. Obtain the owner's informed rbc-5 posture decision: either close it through
+   resilience R7's creation-time worker containment (recommended, with a direct
+   Windows hard-supervisor-death background-descendant guard), or authorize a
+   separate creation-time contained launcher for the current runtime. Do not
+   continue or commit the saved post-start attach WIP.
+2. Continue the rest of the rbc batch with rbc-7, then rbc-8, rbc-9, rbc-10,
+   rbc-11, rbc-12, rbc-13 in the owner's priority order; each is fix → external
+   review → merge-on-accept. Reassess per-finding whether work is
+   safeguard-sensitive and route out if so.
+3. Owner call: push `master` (contains the S3H merge plus rbc-1..4, the rbc-6
+   refutation, and hf-1) to `origin`, or keep it local. Push policy requires an
+   explicit ask for merge commits.
 4. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
    When producer-owned v3 request bytes land, execute S4 from the complete
    producer corpus; do not substitute receiver-authored fixtures. Do not begin
@@ -385,6 +383,13 @@ short and update it when important repo facts change.
   slice.
 
 ## Blockers
+
+- **rbc-5 implementation is blocked on an informed owner choice.** A correct
+  standalone fix for the current Windows runtime is a moderate low-level
+  launcher/JobManager change; the smaller preserved post-start attach has a
+  real escape race. The proposed lower-duplication resolution is to prove and
+  close the finding with resilience R7's already-planned creation-time worker
+  containment, but the owner has not yet approved that change in disposition.
 
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled

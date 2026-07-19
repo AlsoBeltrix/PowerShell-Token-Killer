@@ -2636,13 +2636,14 @@ subsystem, SIEM receiver). Per-finding detail: `.agents/review/findings/rbc-*.md
 | rbc-4 | MAJOR    | AuditOtlpHttpExporter TLS revocation disabled by default with no opt-in | `[x]` merged (`685d34c`) | `fix/rbc-4-otlp-revocation-mode` |
 | rbc-5 | MAJOR    | Background jobs lack Job Object containment on Windows (foreground workers have it) | `[ ]` deferred to resilience R7 | n/a (owner disposition 2026-07-19) |
 | rbc-6 | MAJOR    | No SIGKILL escalation for Unix process trees after SIGTERM grace | `[x]` refuted | `fix/rbc-6-refutation` |
-| rbc-7 | MAJOR    | OutputStore Read/Search can wedge the store lock on a slow filesystem | `[ ]` fix committed (`bb2df34`), review pending | `fix/rbc-7-outputstore-read-wedge` |
+| rbc-7 | MAJOR    | OutputStore Read/Search can wedge the store lock on a slow filesystem | `[ ]` fix amended (`db23ec4`), external review in progress | `fix/rbc-7-outputstore-read-wedge` |
 | rbc-8 | MAJOR    | WorkerServer initialize handshake is a fragile multi-arm Task.WhenAny | `[ ]`  | n/a (intake) |
 | rbc-9 | MAJOR    | WorkerOperationScheduler ignores injected TaskScheduler for outer admit dispatch | `[ ]`  | n/a (intake) |
 | rbc-10 | MAJOR   | SIEM receiver Kestrel MaxRequestBodySize disabled (defense-in-depth gap) | `[ ]`  | n/a (intake) |
 | rbc-11 | MAJOR   | SIEM receiver has no retention enforcement on master | `[ ]`  | n/a (intake) |
 | rbc-12 | MAJOR   | SIEM receiver has no rate limiting or backpressure | `[ ]`  | n/a (intake) |
 | rbc-13 | MAJOR   | ColdCommandResolution MatchesCurrentResolution PATH race (safe but racy; downgraded from blocker) | `[ ]`  | n/a (intake) |
+| rbc-14 | MAJOR   | OutputStore retention deletes artifact files while holding the store gate | `[ ]`  | n/a (intake 2026-07-19, from rbc-7 external review) |
 
 **Loop OPEN 2026-07-18T00:12Z:** 13 findings (1 blocker, 12 major), all at
 intake awaiting owner triage. No fixes have been written. This is a
@@ -2690,3 +2691,11 @@ launcher for the current runtime. The saved post-start attach WIP
 remains rejected and preserved on `fix/rbc-6-unix-sigkill-escalation`
 at `2b3ce1a`. The finding stays open until R7 lands with its guard
 proof. Detail: `.agents/review/findings/rbc-5.md`.
+
+**rbc-14 intake 2026-07-19:** external fixed-SHA review of the rbc-7 fix
+(codex, turn 1, head `bb2df34`) surfaced that the inline retention sweep
+still unlinks and disposes artifact files under `_gate`
+(`OutputStore.cs:1178,1233` at `db23ec4`), reproducing the rbc-7 wedge
+on the delete path. Deferred from the rbc-7 diff to keep that fix
+narrow; awaiting owner triage. Detail:
+`.agents/review/findings/rbc-14.md`.

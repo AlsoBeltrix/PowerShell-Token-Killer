@@ -61,7 +61,8 @@ internal sealed record OutputStoreOptions(
     Action? ReservationStartingForTests = null,
     Action<string>? ArtifactWriteStartingForTests = null,
     Action<string>? ArtifactUnlinkIdentityVerifiedForTests = null,
-    Action? ArtifactPublishingClaimedForTests = null)
+    Action? ArtifactPublishingClaimedForTests = null,
+    Action? RetainedReadStartingForTests = null)
 {
     internal static OutputStoreOptions Production()
     {
@@ -586,6 +587,12 @@ public sealed class OutputStore : IDisposable
         if (offset < 0) throw new ArgumentOutOfRangeException(nameof(offset));
         ValidateReadBound(maximumBytes);
 
+        SafeFileHandle file;
+        long totalBytes;
+        OutputArtifactState state;
+        bool complete;
+        OutputProvenance? provenance;
+        string? detailCode;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -594,46 +601,72 @@ public sealed class OutputStore : IDisposable
             var entry = FindReadableLocked(handle);
             if (entry is null) return MissingRead(offset);
             if (!IsReadableArtifact(entry)) return StateRead(entry, offset);
-            if (offset > entry.Bytes || !IsUtf8Boundary(entry.Stream!.SafeFileHandle, offset, entry.Bytes))
+            file = entry.Stream!.SafeFileHandle;
+            totalBytes = entry.Bytes;
+            state = entry.State;
+            complete = entry.Complete;
+            provenance = entry.Provenance;
+            detailCode = entry.DetailCode;
+        }
+
+        // Sealed artifacts are immutable, so the file reads run outside _gate:
+        // a wedged filesystem must not stall Status/TryReserve/Seal callers
+        // queued behind this read (rbc-7). A concurrent retention pass may
+        // dispose the stream mid-read; that race surfaces as
+        // ObjectDisposedException and is mapped back to the entry's recorded
+        // state instead of a crash or a stale answer.
+        _options.RetainedReadStartingForTests?.Invoke();
+        try
+        {
+            if (offset > totalBytes || !IsUtf8Boundary(file, offset, totalBytes))
             {
                 return new OutputReadResult(
                     OutputArtifactState.InvalidOffset,
                     string.Empty,
                     offset,
                     offset,
-                    entry.Bytes,
+                    totalBytes,
                     0,
-                    entry.Complete,
-                    entry.Provenance,
+                    complete,
+                    provenance,
                     "offset_not_utf8_boundary");
             }
 
-            var bytes = ReadUtf8Chunk(entry.Stream!.SafeFileHandle, offset, maximumBytes, entry.Bytes);
-            if (bytes.Length == 0 && offset < entry.Bytes)
+            var bytes = ReadUtf8Chunk(file, offset, maximumBytes, totalBytes);
+            if (bytes.Length == 0 && offset < totalBytes)
             {
                 return new OutputReadResult(
                     OutputArtifactState.InsufficientBound,
                     string.Empty,
                     offset,
                     offset,
-                    entry.Bytes,
+                    totalBytes,
                     0,
-                    entry.Complete,
-                    entry.Provenance,
+                    complete,
+                    provenance,
                     "max_bytes_too_small_for_next_utf8_scalar");
             }
             var text = StrictUtf8.GetString(bytes);
             var nextOffset = checked(offset + bytes.Length);
             return new OutputReadResult(
-                entry.State,
+                state,
                 text,
                 offset,
                 nextOffset,
-                entry.Bytes,
+                totalBytes,
                 bytes.Length,
-                entry.Complete,
-                entry.Provenance,
-                entry.DetailCode);
+                complete,
+                provenance,
+                detailCode);
+        }
+        catch (ObjectDisposedException)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                var entry = FindReadableLocked(handle);
+                return entry is null ? MissingRead(offset) : StateRead(entry, offset);
+            }
         }
     }
 
@@ -652,6 +685,12 @@ public sealed class OutputStore : IDisposable
         if (maximumBytes < patternBytes.Length)
             throw new ArgumentOutOfRangeException(nameof(maximumBytes));
 
+        SafeFileHandle file;
+        long totalBytes;
+        OutputArtifactState state;
+        bool complete;
+        OutputProvenance? provenance;
+        string? detailCode;
         lock (_gate)
         {
             ThrowIfDisposed();
@@ -660,32 +699,46 @@ public sealed class OutputStore : IDisposable
             var entry = FindReadableLocked(handle);
             if (entry is null) return MissingSearch(offset);
             if (!IsReadableArtifact(entry)) return StateSearch(entry, offset);
-            if (offset > entry.Bytes || !IsUtf8Boundary(entry.Stream!.SafeFileHandle, offset, entry.Bytes))
+            file = entry.Stream!.SafeFileHandle;
+            totalBytes = entry.Bytes;
+            state = entry.State;
+            complete = entry.Complete;
+            provenance = entry.Provenance;
+            detailCode = entry.DetailCode;
+        }
+
+        // See Read: file io runs outside _gate (rbc-7); a concurrent
+        // retention pass disposing the stream is mapped back to the entry's
+        // recorded state.
+        _options.RetainedReadStartingForTests?.Invoke();
+        try
+        {
+            if (offset > totalBytes || !IsUtf8Boundary(file, offset, totalBytes))
             {
                 return new OutputSearchResult(
                     OutputArtifactState.InvalidOffset,
                     [],
                     offset,
                     offset,
-                    entry.Bytes,
+                    totalBytes,
                     0,
-                    entry.Complete,
-                    entry.Provenance,
-                    offset > entry.Bytes ? "offset_past_end" : "offset_not_utf8_boundary");
+                    complete,
+                    provenance,
+                    offset > totalBytes ? "offset_past_end" : "offset_not_utf8_boundary");
             }
 
-            var scan = ReadUtf8Chunk(entry.Stream!.SafeFileHandle, offset, maximumBytes, entry.Bytes);
-            if (scan.Length == 0 && offset < entry.Bytes)
+            var scan = ReadUtf8Chunk(file, offset, maximumBytes, totalBytes);
+            if (scan.Length == 0 && offset < totalBytes)
             {
                 return new OutputSearchResult(
                     OutputArtifactState.InsufficientBound,
                     [],
                     offset,
                     offset,
-                    entry.Bytes,
+                    totalBytes,
                     0,
-                    entry.Complete,
-                    entry.Provenance,
+                    complete,
+                    provenance,
                     "max_bytes_too_small_for_next_utf8_scalar");
             }
             var matches = new List<OutputSearchMatch>();
@@ -707,16 +760,16 @@ public sealed class OutputStore : IDisposable
             {
                 nextOffset = checked(matches[^1].Offset + patternBytes.Length);
             }
-            else if (offset + scan.Length >= entry.Bytes)
+            else if (offset + scan.Length >= totalBytes)
             {
-                nextOffset = entry.Bytes;
+                nextOffset = totalBytes;
             }
             else
             {
                 var overlap = Math.Min(patternBytes.Length - 1, Math.Max(0, scan.Length - 1));
                 nextOffset = checked(offset + scan.Length - overlap);
                 while (nextOffset < offset + scan.Length &&
-                       !IsUtf8Boundary(entry.Stream!.SafeFileHandle, nextOffset, entry.Bytes))
+                       !IsUtf8Boundary(file, nextOffset, totalBytes))
                 {
                     nextOffset++;
                 }
@@ -724,15 +777,24 @@ public sealed class OutputStore : IDisposable
             }
 
             return new OutputSearchResult(
-                entry.State,
+                state,
                 [.. matches],
                 offset,
                 nextOffset,
-                entry.Bytes,
+                totalBytes,
                 scan.Length,
-                entry.Complete,
-                entry.Provenance,
-                entry.DetailCode);
+                complete,
+                provenance,
+                detailCode);
+        }
+        catch (ObjectDisposedException)
+        {
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                var entry = FindReadableLocked(handle);
+                return entry is null ? MissingSearch(offset) : StateSearch(entry, offset);
+            }
         }
     }
 

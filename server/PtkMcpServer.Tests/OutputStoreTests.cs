@@ -648,6 +648,88 @@ public sealed class OutputStoreTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Read_and_search_file_io_does_not_wedge_the_store_gate()
+    {
+        using var ioEntered = new ManualResetEventSlim(false);
+        using var releaseIo = new ManualResetEventSlim(false);
+        var wedgeArmed = false;
+        using var store = CreateStore(
+            () => new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero),
+            retainedReadStartingForTests: () =>
+            {
+                if (!Volatile.Read(ref wedgeArmed)) return;
+                ioEntered.Set();
+                Assert.True(
+                    releaseIo.Wait(TimeSpan.FromSeconds(30)),
+                    "wedged artifact io was never released");
+            });
+        var sealedArtifact = Seal(store, "needle in a haystack");
+
+        Volatile.Write(ref wedgeArmed, true);
+        var read = Task.Run(() => store.Read(sealedArtifact.Handle!, 0, 64));
+        Assert.True(ioEntered.Wait(TimeSpan.FromSeconds(30)), "read never reached file io");
+
+        // Status takes _gate; it must complete while the read io is wedged.
+        var status = Task.Run(() => store.Status(sealedArtifact.Handle!));
+        var statusCompleted =
+            await Task.WhenAny(status, Task.Delay(TimeSpan.FromSeconds(5))) == status;
+        releaseIo.Set();
+        Assert.True(statusCompleted, "Status wedged behind retained-handle read io");
+        Assert.Equal(OutputArtifactState.Available, (await status).State);
+        Assert.Equal("needle in a haystack", (await read).Text);
+
+        ioEntered.Reset();
+        releaseIo.Reset();
+        var search = Task.Run(() => store.Search(sealedArtifact.Handle!, "needle", 0, 64));
+        Assert.True(ioEntered.Wait(TimeSpan.FromSeconds(30)), "search never reached file io");
+        var statusDuringSearch = Task.Run(() => store.Status(sealedArtifact.Handle!));
+        var statusDuringSearchCompleted =
+            await Task.WhenAny(statusDuringSearch, Task.Delay(TimeSpan.FromSeconds(5))) ==
+            statusDuringSearch;
+        releaseIo.Set();
+        Assert.True(statusDuringSearchCompleted, "Status wedged behind search io");
+        Assert.Equal(OutputArtifactState.Available, (await statusDuringSearch).State);
+        var searchResult = await search;
+        Assert.Single(searchResult.Matches);
+        Assert.Equal(0, searchResult.Matches[0].Offset);
+    }
+
+    [Fact]
+    public async Task Expiry_during_unlocked_read_reports_the_tombstone_state()
+    {
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var ioEntered = new ManualResetEventSlim(false);
+        using var releaseIo = new ManualResetEventSlim(false);
+        var wedgeArmed = false;
+        using var store = CreateStore(
+            () => now,
+            retainedReadStartingForTests: () =>
+            {
+                if (!Volatile.Read(ref wedgeArmed)) return;
+                ioEntered.Set();
+                Assert.True(
+                    releaseIo.Wait(TimeSpan.FromSeconds(30)),
+                    "wedged artifact io was never released");
+            });
+        var sealedArtifact = Seal(store, "abc");
+
+        Volatile.Write(ref wedgeArmed, true);
+        var read = Task.Run(() => store.Read(sealedArtifact.Handle!, 0, 8));
+        Assert.True(ioEntered.Wait(TimeSpan.FromSeconds(30)), "read never reached file io");
+
+        // Expire and tombstone the artifact (disposing its stream) while the
+        // read is parked between its snapshot and its file io.
+        now += TimeSpan.FromHours(1);
+        store.RunRetentionForTests();
+        releaseIo.Set();
+
+        var result = await read;
+        Assert.Equal(OutputArtifactState.Expired, result.State);
+        Assert.Equal("ttl_expired", result.DetailCode);
+        Assert.Equal(string.Empty, result.Text);
+    }
+
     private OutputStore CreateStore(
         Func<DateTimeOffset> clock,
         long maximumArtifactBytes = 1024,
@@ -659,7 +741,8 @@ public sealed class OutputStoreTests : IDisposable
         Action<string>? artifactCreateStartingForTests = null,
         Action<string>? artifactWriteStartingForTests = null,
         Action<string>? artifactUnlinkIdentityVerifiedForTests = null,
-        Action? artifactPublishingClaimedForTests = null)
+        Action? artifactPublishingClaimedForTests = null,
+        Action? retainedReadStartingForTests = null)
     {
         var root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -680,7 +763,8 @@ public sealed class OutputStoreTests : IDisposable
             ArtifactCreateStartingForTests: artifactCreateStartingForTests,
             ArtifactWriteStartingForTests: artifactWriteStartingForTests,
             ArtifactUnlinkIdentityVerifiedForTests: artifactUnlinkIdentityVerifiedForTests,
-            ArtifactPublishingClaimedForTests: artifactPublishingClaimedForTests));
+            ArtifactPublishingClaimedForTests: artifactPublishingClaimedForTests,
+            RetainedReadStartingForTests: retainedReadStartingForTests));
     }
 
     private static OutputSealResult Seal(OutputStore store, string text, string sessionAlias = "default")

@@ -57,5 +57,7 @@ integration guard proves refusal under saturation but not body-read
 timing; the unit pin adds real mutation-sensitivity (including
 `Exit()` slot accounting), though the `null!` collaborator technique
 is blunt. Unit pin added at `90b97b3`. Per-client rate limiting
-remains deferred to SIEM ingest hardening. Further review turns halted
-per operator instruction (no turn 2/3 dispatched).
+remains deferred to SIEM ingest hardening. Remedy verification at
+`90b97b3` (2026-07-20): VERDICT: ACCEPT, via fresh codex thread
+`019f7dbb-86b2-7f11-a539-42f67c6026d9` (original review thread lost to
+an idle timeout). Review closed.

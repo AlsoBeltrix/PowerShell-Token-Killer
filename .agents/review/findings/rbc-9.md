@@ -53,5 +53,6 @@ Read-only review by Hermes subagent (execution/worker subsystem pass).
 External fixed-SHA codex review of `27511b1`, turn 1: guard-weakness
 finding. Adjudicated VALID — the guard as committed did not fail on
 the exact mutation it was built to catch. Hardened at `90b97b3`.
-Further review turns halted per operator instruction (no turn 2/3
-dispatched).
+Remedy verification at `90b97b3` (2026-07-20): VERDICT: ACCEPT, via
+fresh codex thread `019f7dbb-86b2-7f11-a539-42f67c6026d9` (original
+review thread lost to an idle timeout). Review closed.

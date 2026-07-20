@@ -50,5 +50,7 @@ fixed-SHA codex review of `27511b1`, turn 1: test-framing finding
 (declared vs. chunked path). Adjudicated TECHNICALLY CORRECT, MARGINAL
 — chunked enforcement is Kestrel framework behavior, so the added test
 pins Kestrel's contract, not ours; accepted as cheap belt-and-
-suspenders at `90b97b3`. Further review turns halted per operator
-instruction (no turn 2/3 dispatched).
+suspenders at `90b97b3`. Remedy verification at `90b97b3`
+(2026-07-20): VERDICT: ACCEPT, via fresh codex thread
+`019f7dbb-86b2-7f11-a539-42f67c6026d9` (original review thread lost to
+an idle timeout). Review closed.

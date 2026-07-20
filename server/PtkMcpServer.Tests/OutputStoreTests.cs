@@ -860,6 +860,83 @@ public sealed class OutputStoreTests : IDisposable
         Assert.Equal(string.Empty, result.Text);
     }
 
+    [Fact]
+    public async Task Reservation_rechecks_capacity_when_settle_finalizes_before_wait()
+    {
+        // Lost-pulse race (codex rbc-14 turn 2): a reserver defers to a
+        // settling claim held by a concurrent drainer, but the drainer
+        // finalizes (reclaiming the bytes) before the reserver re-locks.
+        // The reserver must re-check capacity instead of spuriously
+        // failing with "capacity" while the store has room.
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var unlinkStarted = new ManualResetEventSlim(false);
+        using var releaseUnlink = new ManualResetEventSlim(false);
+        using var drainerDone = new ManualResetEventSlim(false);
+        var unlinkWedged = 0;
+        var settleWindowed = 0;
+        using var store = CreateStore(
+            () => now,
+            maximumArtifactBytes: 32,
+            maximumSessionBytes: 32,
+            maximumAggregateBytes: 64,
+            artifactDeleteStartingForTests: _ =>
+            {
+                // Wedge only the concurrent drainer's unlink; later drains
+                // (e.g. dispose-time cleanup) must run unimpeded.
+                if (Interlocked.CompareExchange(ref unlinkWedged, 1, 0) != 0)
+                {
+                    return;
+                }
+
+                unlinkStarted.Set();
+                releaseUnlink.Wait(TimeSpan.FromSeconds(30));
+            },
+            reservationSettlingForTests: () =>
+            {
+                // First hit: the reserver has deferred to the settling
+                // claim and released the store lock. Let the drainer
+                // finalize completely before the reserver drains, so the
+                // finalize pulse fires with nobody waiting.
+                if (Interlocked.CompareExchange(ref settleWindowed, 1, 0) != 0)
+                {
+                    return;
+                }
+
+                releaseUnlink.Set();
+                Assert.True(drainerDone.Wait(TimeSpan.FromSeconds(30)));
+            });
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Expire the first artifact and let a background retention pass
+        // claim it and wedge inside its off-gate unlink.
+        now += TimeSpan.FromMinutes(6);
+        var drainer = Task.Run(() =>
+        {
+            store.RunRetentionForTests();
+            drainerDone.Set();
+        });
+        Assert.True(
+            unlinkStarted.Wait(TimeSpan.FromSeconds(30)),
+            "retention drain never reached the wedged unlink");
+
+        Assert.True(
+            store.TryReserve("post", out var reservation, out var failure),
+            failure);
+        reservation!.Dispose();
+        await drainer.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(1, settleWindowed);
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        AssertNoNamedArtifacts(store);
+    }
+
     private OutputStore CreateStore(
         Func<DateTimeOffset> clock,
         long maximumArtifactBytes = 1024,
@@ -873,7 +950,8 @@ public sealed class OutputStoreTests : IDisposable
         Action<string>? artifactUnlinkIdentityVerifiedForTests = null,
         Action? artifactPublishingClaimedForTests = null,
         Action? retainedReadStartingForTests = null,
-        Action<string>? artifactDeleteStartingForTests = null)
+        Action<string>? artifactDeleteStartingForTests = null,
+        Action? reservationSettlingForTests = null)
     {
         var root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -895,7 +973,8 @@ public sealed class OutputStoreTests : IDisposable
             ArtifactWriteStartingForTests: artifactWriteStartingForTests,
             ArtifactUnlinkIdentityVerifiedForTests: artifactUnlinkIdentityVerifiedForTests,
             ArtifactPublishingClaimedForTests: artifactPublishingClaimedForTests,
-            RetainedReadStartingForTests: retainedReadStartingForTests));
+            RetainedReadStartingForTests: retainedReadStartingForTests,
+            ReservationSettlingForTests: reservationSettlingForTests));
     }
 
     private static OutputSealResult Seal(OutputStore store, string text, string sessionAlias = "default")

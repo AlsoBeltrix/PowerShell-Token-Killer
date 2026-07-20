@@ -62,7 +62,8 @@ internal sealed record OutputStoreOptions(
     Action<string>? ArtifactWriteStartingForTests = null,
     Action<string>? ArtifactUnlinkIdentityVerifiedForTests = null,
     Action? ArtifactPublishingClaimedForTests = null,
-    Action? RetainedReadStartingForTests = null)
+    Action? RetainedReadStartingForTests = null,
+    Action? ReservationSettlingForTests = null)
 {
     internal static OutputStoreOptions Production()
     {
@@ -454,6 +455,11 @@ public sealed class OutputStore : IDisposable
     private bool _disposed;
     private List<PendingArtifactDelete> _pendingDeletes = [];
     private int _deletesInFlight;
+    // Bumped under _gate whenever a claimed delete finalizes with its bytes
+    // actually released. Reservers snapshot it when deferring to settling
+    // claims so a finalize that lands before their Monitor.Wait begins is
+    // not mistaken for "nothing settled" (lost-pulse; codex rbc-14 turn 2).
+    private long _settleGeneration;
 
     // How long a reserver waits for another caller's off-gate unlink to
     // finalize before reporting capacity truthfully (rbc-14).
@@ -555,6 +561,7 @@ public sealed class OutputStore : IDisposable
 
         _options.ReservationStartingForTests?.Invoke();
 
+        long claimedGeneration = 0;
         while (true)
         {
             lock (_gate)
@@ -635,19 +642,41 @@ public sealed class OutputStore : IDisposable
                 // step == CapacityStep.Claimed: either an eviction candidate
                 // was tombstoned, or claims are still settling off-gate. In
                 // both cases the unlinks must run outside _gate before the
-                // freed bytes become visible to the capacity checks.
+                // freed bytes become visible to the capacity checks. Record
+                // the settle generation inside this same lock hold so a
+                // finalize landing after we release _gate is detectable.
+                claimedGeneration = _settleGeneration;
             }
 
-            // No successful unlink and nothing left in flight means capacity
-            // truly cannot be made right now (e.g. a wedged filesystem):
-            // fail truthfully instead of tombstoning every remaining
-            // artifact (rbc-14).
+            _options.ReservationSettlingForTests?.Invoke();
+
+            // No successful unlink, nothing left in flight, and no finalize
+            // since the claim was deferred means capacity truly cannot be
+            // made right now (e.g. a wedged filesystem): fail truthfully
+            // instead of tombstoning every remaining artifact (rbc-14).
             if (DrainPendingArtifactDeletes() == 0)
             {
                 lock (_gate)
                 {
-                    if (_deletesInFlight == 0 ||
-                        !Monitor.Wait(_gate, PendingDeleteSettleTimeout))
+                    if (_settleGeneration != claimedGeneration)
+                    {
+                        // A concurrent drainer finalized (reclaiming bytes
+                        // or a retained slot) between the defer decision
+                        // above and this re-lock; its pulse fired before we
+                        // waited. Re-check capacity instead of spuriously
+                        // failing (codex rbc-14 turn 2).
+                        continue;
+                    }
+
+                    if (_deletesInFlight > 0 &&
+                        Monitor.Wait(_gate, PendingDeleteSettleTimeout))
+                    {
+                        continue;
+                    }
+
+                    // Monitor.Wait releases _gate: a finalize may land after
+                    // the timeout expires but before the lock is reacquired.
+                    if (_settleGeneration == claimedGeneration)
                     {
                         failure = "capacity";
                         return false;
@@ -1484,6 +1513,10 @@ public sealed class OutputStore : IDisposable
                 // Wake reservers waiting for an in-flight unlink to settle.
                 Monitor.PulseAll(_gate);
                 if (!deleted) continue;
+                // Capacity genuinely improved (bytes and/or a retained slot
+                // are about to be released); reservers that deferred before
+                // this finalize must re-check instead of failing (rbc-14).
+                _settleGeneration++;
                 item.Entry.Stream = null;
                 item.Entry.Path = null;
                 if (_disposed) continue;

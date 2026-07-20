@@ -111,3 +111,25 @@ VERDICT: FINDINGS — one MAJOR, accepted.
   against the pre-remedy store, pass with the guard.
 - Full suite post-remedy: 1580/1580 green (includes
   `Guardian_death_contains_every_creation_barrier`).
+
+## Codex turn-2 follow-up: stale-pulse wait (remedied `f624796`)
+
+- Codex turn-2 contested remedy shape: a reserver that observes
+  "settling" and elects to wait can wait on a capacity pulse that a
+  concurrent settle finalize had **already fired** before the reserver
+  reached its wait — wedging the reservation until the next unrelated
+  retention pass fires the gate again (or the settle timeout fails it
+  with `capacity` despite freed room).
+- Remedy (`f624796`): `TryReserveCore` snapshots `_settleGeneration`
+  under `_gate` at claim time; settle finalize increments the
+  generation and pulses under the same lock. After the settling seam
+  the reserver re-locks and re-checks the generation — if a settle
+  completed in the window it loops and re-evaluates capacity directly
+  instead of waiting on a pulse that already happened.
+- Guard: `Reservation_rechecks_capacity_when_settle_finalizes_before_wait`
+  drives the race deterministically via `reservationSettlingForTests`
+  (seam between the claim snapshot and the wait) with the drain wedged
+  by `artifactDeleteStartingForTests` until the reserver sits in the
+  window. Red-verified: with the generation re-check neutralized
+  (pre-remedy logic) the test FAILs; with the fix it passes.
+- Full suite post-remedy: 1581/1581 green.

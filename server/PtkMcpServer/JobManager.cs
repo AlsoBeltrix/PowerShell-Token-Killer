@@ -1248,6 +1248,10 @@ public sealed class JobManager : IDisposable
     {
         try
         {
+            // Before the first child ever starts: force the exclusive
+            // process-group acquisition so the first tracked root inherits
+            // the exclusive group instead of degrading to fallback polling.
+            BackgroundJobContainment.PrepareForLaunch();
             var started = ProcessStartOverrideForTests?.Invoke(process) ?? process.Start();
             if (started) return;
             throw new JobStartException(

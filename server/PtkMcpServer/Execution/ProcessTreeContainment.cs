@@ -58,23 +58,37 @@ internal sealed class ProcessTreeContainment : IDisposable
     private readonly bool _inert;
     private readonly bool _useExclusive;
     private readonly Lock _gate = new();
-    private readonly Dictionary<int, int> _tracked = [];
+    private readonly Dictionary<int, TrackedEntry> _tracked = [];
     private readonly CancellationTokenSource _stop = new();
     private int _disposed;
 
-    private ProcessTreeContainment(int rootPid, bool inert)
+    /// <summary>
+    /// Fallback-mode tracking record. <see cref="StartUtcTicks"/> is the
+    /// incarnation identity: pid plus pgid alone can be recycled after the
+    /// poller freezes, so kill-time eligibility additionally requires the
+    /// current process's start time to match the one recorded when the pid
+    /// was tracked. Zero means the start time could not be read; such
+    /// entries are never signalled from the frozen set.
+    /// </summary>
+    private readonly record struct TrackedEntry(int Pgid, long StartUtcTicks);
+
+    private ProcessTreeContainment(int rootPid, bool inert, bool? forceExclusive = null)
     {
         _rootPid = rootPid;
         _inert = inert;
         if (inert) return;
 
         // Exclusive mode is only trusted for roots that verifiably
-        // inherited the exclusive group. The first tracked root predates
-        // the lazy setpgid switch (it inherited the server's original
-        // group), and a root can leave the group later via setsid or
-        // setpgid; both cases degrade to fallback polling instead of
-        // silently escaping every sweep.
-        _useExclusive = ExclusiveGroup.Value && RootInExclusiveGroup(rootPid);
+        // inherited the exclusive group. A root launched before the lazy
+        // setpgid switch ran (it inherited the server's original group)
+        // degrades to fallback polling instead of silently escaping every
+        // sweep; EnsureExclusiveGroup makes that window defensive rather
+        // than load-bearing. Classification is one-shot: a root that later
+        // leaves the group via setsid/setpgid stays classified exclusive
+        // and its shed descendants escape — that is the documented
+        // group-shedding containment boundary, not a fallback trigger.
+        _useExclusive = forceExclusive
+            ?? (ExclusiveGroup.Value && RootInExclusiveGroup(rootPid));
         if (!_useExclusive)
             _ = Task.Run(() => PollLoopAsync(_stop.Token));
     }
@@ -84,6 +98,42 @@ internal sealed class ProcessTreeContainment : IDisposable
         try { return getpgid(rootPid) == getpgrp(); }
         catch { return false; }
     }
+
+    /// <summary>
+    /// Forces the one-shot exclusive-group acquisition. Called before the
+    /// first child is ever launched so the first tracked root inherits the
+    /// exclusive group instead of degrading to fallback polling. Safe on
+    /// any platform, idempotent, never throws.
+    /// </summary>
+    internal static void EnsureExclusiveGroup()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        try { _ = ExclusiveGroup.Value; } catch { }
+    }
+
+    /// <summary>Test seam: this tracker's classification.</summary>
+    internal bool ExclusiveForTests => _useExclusive;
+
+    /// <summary>
+    /// Test seam: a fallback-mode tracker regardless of the process-global
+    /// exclusive-group state, so the frozen-set kill-eligibility rules can
+    /// be exercised deterministically.
+    /// </summary>
+    internal static ProcessTreeContainment CreateFallbackForTests(int rootPid) =>
+        new(rootPid, inert: false, forceExclusive: false);
+
+    /// <summary>Test seam: inject a fallback tracking record.</summary>
+    internal void RecordTrackedForTests(int pid, int pgid, long startUtcTicks)
+    {
+        lock (_gate) _tracked[pid] = new TrackedEntry(pgid, startUtcTicks);
+    }
+
+    /// <summary>Test seam: kill-eligibility set for a synthetic table.</summary>
+    internal HashSet<int> FindEscapeesForTests(List<ProcessTableRow> snapshot) =>
+        FindEscapees(snapshot);
+
+    /// <summary>Test seam: the recorded start-time identity source.</summary>
+    internal static long ReadStartUtcTicksForTests(int pid) => TryGetStartUtcTicks(pid);
 
     /// <summary>
     /// Begins containment for a successfully started process. Returns an
@@ -203,10 +253,10 @@ internal sealed class ProcessTreeContainment : IDisposable
             // recycled pid that reappears under PID 1 in a different
             // group is dropped instead of being retained indefinitely.
             List<int>? drop = null;
-            foreach (var (pid, recordedPgid) in _tracked)
+            foreach (var (pid, entry) in _tracked)
             {
                 if (present.TryGetValue(pid, out var row) &&
-                    row.Pgid == recordedPgid &&
+                    row.Pgid == entry.Pgid &&
                     (closure.Contains(pid) || row.Ppid == 1))
                 {
                     continue;
@@ -222,7 +272,18 @@ internal sealed class ProcessTreeContainment : IDisposable
 
             foreach (var pid in closure)
             {
-                if (present.TryGetValue(pid, out var row)) _tracked[pid] = row.Pgid;
+                if (!present.TryGetValue(pid, out var row)) continue;
+
+                // Keep the existing record (and its start-time identity)
+                // while the pid stays in the same group; only a new or
+                // regrouped pid pays the start-time read.
+                if (_tracked.TryGetValue(pid, out var existing) &&
+                    existing.Pgid == row.Pgid)
+                {
+                    continue;
+                }
+
+                _tracked[pid] = new TrackedEntry(row.Pgid, TryGetStartUtcTicks(pid));
             }
         }
 
@@ -288,10 +349,24 @@ internal sealed class ProcessTreeContainment : IDisposable
         var survivors = new HashSet<int>();
         lock (_gate)
         {
-            foreach (var (pid, recordedPgid) in _tracked)
+            foreach (var (pid, entry) in _tracked)
             {
-                if (present.TryGetValue(pid, out var pgid) && pgid == recordedPgid)
-                    survivors.Add(pid);
+                if (!present.TryGetValue(pid, out var pgid) || pgid != entry.Pgid)
+                    continue;
+
+                // pid + pgid is not identity: a pid recycled into the same
+                // group after the poller froze is a different process. The
+                // recorded start time must match the current incarnation
+                // (1s tolerance for clock-tick conversion); entries whose
+                // start time was unreadable at record time are never
+                // signalled from the frozen set.
+                if (entry.StartUtcTicks == 0) continue;
+                var current = TryGetStartUtcTicks(pid);
+                if (current == 0) continue;
+                if (Math.Abs(current - entry.StartUtcTicks) > TimeSpan.TicksPerSecond)
+                    continue;
+
+                survivors.Add(pid);
             }
         }
 
@@ -302,6 +377,25 @@ internal sealed class ProcessTreeContainment : IDisposable
 
         survivors.Remove(_rootPid);
         return survivors;
+    }
+
+    /// <summary>
+    /// Kernel-reported process start time in UTC ticks, or 0 when it
+    /// cannot be read (process gone, permission denied). Stable across
+    /// repeated reads for the same incarnation on Linux (/proc starttime)
+    /// and macOS (sysctl absolute timeval).
+    /// </summary>
+    private static long TryGetStartUtcTicks(int pid)
+    {
+        try
+        {
+            using var probe = Process.GetProcessById(pid);
+            return probe.StartTime.ToUniversalTime().Ticks;
+        }
+        catch
+        {
+            return 0;
+        }
     }
 
     private static HashSet<int> LiveClosure(

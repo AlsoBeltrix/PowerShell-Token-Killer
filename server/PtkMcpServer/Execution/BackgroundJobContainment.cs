@@ -52,6 +52,18 @@ internal static class BackgroundJobContainment
     /// Begins containment for a successfully started background root.
     /// Never throws.
     /// </summary>
+    /// <summary>
+    /// Pre-launch initialization. On Unix forces the one-shot exclusive
+    /// process-group acquisition before the child starts, so the first
+    /// tracked root inherits the exclusive group instead of silently
+    /// degrading to fallback polling. No-op on Windows; idempotent; never
+    /// throws; call before every <see cref="Process.Start"/>.
+    /// </summary>
+    internal static void PrepareForLaunch()
+    {
+        try { ProcessTreeContainment.EnsureExclusiveGroup(); } catch { }
+    }
+
     internal static void Attach(Process process)
     {
         try
@@ -105,9 +117,13 @@ internal static class BackgroundJobContainment
     }
 
     /// <summary>
-    /// Terminal cleanup. Stops Unix tracking; on Windows closes the job
-    /// handle, reaping any descendants that survived root exit so no
-    /// orphan outlives the job. Idempotent and never throws.
+    /// Terminal cleanup. On Windows closes the job handle, reaping any
+    /// descendants that survived root exit so no orphan outlives the job.
+    /// On Unix fires a final containment sweep before stopping tracking,
+    /// giving the same guarantee: later kill/reset/shutdown requests no
+    /// longer find a registry entry, so this is the last point at which
+    /// escaped descendants of this job can be reaped. Idempotent and never
+    /// throws.
     /// </summary>
     internal static void Release(Process process)
     {
@@ -116,7 +132,33 @@ internal static class BackgroundJobContainment
             if (!Registry.TryGetValue(process, out var state) || state is null)
                 return;
             Registry.Remove(process);
-            state.Dispose();
+            if (state.Job is not null)
+            {
+                state.Dispose();
+                return;
+            }
+
+            // stopped: true — the job is terminal, so only escaped
+            // descendants are signalled; the root is never re-killed here.
+            // The tracker is disposed only after the sweep completes so
+            // its frozen tracked set stays available to escalation.
+            var unixState = state;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    _ = await ProcessTreeContainment
+                        .EscalateAsync(process, stopped: true)
+                        .ConfigureAwait(false);
+                }
+                catch
+                {
+                }
+                finally
+                {
+                    unixState.Dispose();
+                }
+            });
         }
         catch
         {

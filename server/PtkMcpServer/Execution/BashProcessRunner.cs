@@ -161,6 +161,8 @@ internal static class BashProcessRunner
                 RootTerminationConfirmed: false);
         }
 
+        using var containment = ProcessTreeContainment.Track(process);
+
         // Every successful Process.Start receives one lifecycle fact, even if
         // the process start itself consumed the final validator budget. The
         // dispatch event already authorized this no-execution helper; this
@@ -390,6 +392,7 @@ internal static class BashProcessRunner
             return StartOutcomeUnknown();
         }
 
+        using var containment = ProcessTreeContainment.Track(process);
         try { process.StandardInput.Close(); } catch { }
         Task<BoundedTextCapture> stdout;
         Task<BoundedTextCapture> stderr;
@@ -771,6 +774,9 @@ internal static class BashProcessRunner
             }
         }
         catch { }
+        // rbc-6: reap descendants the tree-walk cannot see (reparented to
+        // PID 1 before the kill). Best-effort; never throws.
+        stopped = await ProcessTreeContainment.EscalateAsync(process, stopped);
         if (stopped)
         {
             try

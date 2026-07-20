@@ -809,6 +809,11 @@ public sealed class JobManager : IDisposable
                     ValidateRtkLaunchFacts(plan);
                 ThrowIfStartBudgetExpired(deadline, cancellationToken);
                 StartProcessOrThrow(plan, process);
+                // Confirmed start: contain the tree (Unix sweep tracking;
+                // Windows kill-on-close Job Object). Best-effort by
+                // contract — a containment setup failure must not convert
+                // a started job into a start failure.
+                BackgroundJobContainment.Attach(process);
             }
             catch (JobStartException exception) when (exception.ProcessStarted is null)
             {
@@ -1497,6 +1502,10 @@ public sealed class JobManager : IDisposable
         }
         finally
         {
+            // Release before Process.Dispose: on Windows this closes the
+            // kill-on-close job handle, reaping any descendants that
+            // survived root exit; on Unix it stops the tracker poll.
+            BackgroundJobContainment.Release(entry.Process);
             entry.Process.Dispose();
             entry.TerminalCompleted.TrySetResult(true);
         }
@@ -1896,9 +1905,27 @@ public sealed class JobManager : IDisposable
                 request,
                 Task.Delay(_abortedOutputDrainGrace)).ConfigureAwait(false) != request)
         {
+            // The kill request itself is wedged; escalation is idempotent
+            // and never throws, so let it race the wedged kill instead of
+            // extending this method's bound.
+            _ = BackgroundJobContainment.EscalateAsync(process, stopped: false);
             return ContainmentRequestDisposition.Indeterminate;
         }
-        return await request.ConfigureAwait(false);
+
+        var disposition = await request.ConfigureAwait(false);
+        // Reap descendants the snapshot-walk kill missed (reparented or
+        // group-escaped children). Bounded by the same grace as the kill
+        // request; an overrun keeps sweeping in the background.
+        var escalate = BackgroundJobContainment.EscalateAsync(
+            process,
+            stopped: disposition == ContainmentRequestDisposition.AlreadyExited);
+        if (await Task.WhenAny(
+                escalate,
+                Task.Delay(_abortedOutputDrainGrace)).ConfigureAwait(false) == escalate)
+        {
+            await escalate.ConfigureAwait(false);
+        }
+        return disposition;
     }
 
     private static bool RootAlreadyExited(Process process)
@@ -2016,6 +2043,10 @@ public sealed class JobManager : IDisposable
             {
                 BeforeKillForTests?.Invoke(entry.Process);
                 entry.Process.Kill(entireProcessTree: true);
+                // Fire-and-forget: escalation never throws and must not
+                // extend the synchronous kill admission under the gate.
+                _ = BackgroundJobContainment.EscalateAsync(
+                    entry.Process, stopped: false);
                 return new JobKillResult(id, JobKillDisposition.Requested, reason);
             }
             catch

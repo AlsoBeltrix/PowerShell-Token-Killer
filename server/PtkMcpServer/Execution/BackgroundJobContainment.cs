@@ -1,0 +1,255 @@
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+using PtkMcpServer.Worker;
+
+namespace PtkMcpServer;
+
+/// <summary>
+/// Process-tree containment for background jobs, mirroring the foreground
+/// runner model. On Unix this delegates to
+/// <see cref="ProcessTreeContainment"/> (group sweep in exclusive mode,
+/// tracked-survivor SIGKILL in fallback mode). On Windows the started
+/// root is assigned to a kill-on-close Job Object, so closing the handle
+/// — at kill escalation, at terminal cleanup, or by OS handle cleanup
+/// when the server process dies — reaps every remaining member of the
+/// tree, matching the containment foreground workers already have.
+/// </summary>
+/// <remarks>
+/// Attach is best-effort and never throws: the root has already started,
+/// so a containment setup failure must not convert a started job into a
+/// start failure. On Windows the assignment happens immediately after
+/// <c>Process.Start</c>; children spawned inside that window escape the
+/// job. That residual window is small, applies only to the post-start
+/// attach path, and remains covered by the snapshot-walk kill
+/// (<c>Process.Kill(entireProcessTree: true)</c>). Unknown-start
+/// retention (a start whose outcome could not be proven) never attaches:
+/// containment applies to confirmed starts only.
+/// </remarks>
+internal static class BackgroundJobContainment
+{
+    private static readonly ConditionalWeakTable<Process, State> Registry = [];
+
+    private sealed class State : IDisposable
+    {
+        internal ProcessTreeContainment? Tracker;
+        internal IWindowsJobHandle? Job;
+        private int _released;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _released, 1) != 0) return;
+            try { Tracker?.Dispose(); } catch { }
+            try { Job?.Dispose(); } catch { }
+        }
+    }
+
+    /// <summary>
+    /// Begins containment for a successfully started background root.
+    /// Never throws.
+    /// </summary>
+    internal static void Attach(Process process)
+    {
+        try
+        {
+            var state = new State();
+            if (OperatingSystem.IsWindows())
+                state.Job = TryCreateKillOnCloseJob(process);
+            else
+                state.Tracker = ProcessTreeContainment.Track(process);
+            Registry.AddOrUpdate(process, state);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Kill-time escalation. On Windows closes the kill-on-close job
+    /// handle, which terminates every remaining member of the tree. On
+    /// Unix delegates to
+    /// <see cref="ProcessTreeContainment.EscalateAsync"/>. Never throws;
+    /// a no-op when <paramref name="process"/> was never attached.
+    /// </summary>
+    internal static async Task EscalateAsync(Process process, bool stopped)
+    {
+        State? state;
+        try
+        {
+            if (!Registry.TryGetValue(process, out state) || state is null)
+                return;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (state.Job is not null)
+        {
+            state.Dispose();
+            return;
+        }
+
+        try
+        {
+            _ = await ProcessTreeContainment.EscalateAsync(process, stopped)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+        }
+    }
+
+    /// <summary>
+    /// Terminal cleanup. Stops Unix tracking; on Windows closes the job
+    /// handle, reaping any descendants that survived root exit so no
+    /// orphan outlives the job. Idempotent and never throws.
+    /// </summary>
+    internal static void Release(Process process)
+    {
+        try
+        {
+            if (!Registry.TryGetValue(process, out var state) || state is null)
+                return;
+            Registry.Remove(process);
+            state.Dispose();
+        }
+        catch
+        {
+        }
+    }
+
+    private static IWindowsJobHandle? TryCreateKillOnCloseJob(Process process)
+    {
+        JobObjectNative.JobHandle? job = null;
+        try
+        {
+            job = JobObjectNative.CreateKillOnCloseJob();
+            JobObjectNative.AssignProcess(job, process.SafeHandle);
+            return job;
+        }
+        catch
+        {
+            try { job?.Dispose(); } catch { }
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Self-contained job-object shim owned by the background path.
+    /// <see cref="WindowsWorkerNative"/>'s P/Invoke surface is pinned by a
+    /// guard test to exactly one atomic create-in-job with no post-start
+    /// assign escape hatch, and that invariant is deliberate: the worker
+    /// pipeline must never regain an assign-after-start fallback. The
+    /// background root necessarily starts via <see cref="Process.Start()"/>,
+    /// so its best-effort post-start assign lives here, outside the guarded
+    /// worker surface, with the residual window documented in the class
+    /// remarks above.
+    /// </summary>
+    private static class JobObjectNative
+    {
+        private const uint JobObjectExtendedLimitInformationClass = 9;
+
+        internal static JobHandle CreateKillOnCloseJob()
+        {
+            var job = CreateJobObjectW(IntPtr.Zero, null);
+            if (job.IsInvalid)
+                throw new InvalidOperationException(
+                    $"CreateJobObjectW failed ({Marshal.GetLastWin32Error()}).");
+
+            var information = new JobObjectExtendedLimitInformation
+            {
+                BasicLimitInformation = new JobObjectBasicLimitInformation
+                {
+                    LimitFlags = WindowsProcessTreeSupervisor.KillOnJobClose,
+                },
+            };
+            if (!SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformationClass,
+                    ref information,
+                    (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>()))
+            {
+                var error = Marshal.GetLastWin32Error();
+                job.Dispose();
+                throw new InvalidOperationException(
+                    $"SetInformationJobObject failed ({error}).");
+            }
+
+            return job;
+        }
+
+        internal static void AssignProcess(JobHandle job, SafeProcessHandle process)
+        {
+            if (AssignProcessToJobObject(job, process)) return;
+
+            throw new InvalidOperationException(
+                $"AssignProcessToJobObject failed ({Marshal.GetLastWin32Error()}).");
+        }
+
+        internal sealed class JobHandle : SafeHandleZeroOrMinusOneIsInvalid, IWindowsJobHandle
+        {
+            public JobHandle() : base(ownsHandle: true) { }
+
+            protected override bool ReleaseHandle() => CloseHandle(handle);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectBasicLimitInformation
+        {
+            internal long PerProcessUserTimeLimit;
+            internal long PerJobUserTimeLimit;
+            internal uint LimitFlags;
+            internal nuint MinimumWorkingSetSize;
+            internal nuint MaximumWorkingSetSize;
+            internal uint ActiveProcessLimit;
+            internal nuint Affinity;
+            internal uint PriorityClass;
+            internal uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoCounters
+        {
+            internal ulong ReadOperationCount;
+            internal ulong WriteOperationCount;
+            internal ulong OtherOperationCount;
+            internal ulong ReadTransferCount;
+            internal ulong WriteTransferCount;
+            internal ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectExtendedLimitInformation
+        {
+            internal JobObjectBasicLimitInformation BasicLimitInformation;
+            internal IoCounters IoInfo;
+            internal nuint ProcessMemoryLimit;
+            internal nuint JobMemoryLimit;
+            internal nuint PeakProcessMemoryUsed;
+            internal nuint PeakJobMemoryUsed;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern JobHandle CreateJobObjectW(IntPtr jobAttributes, string? name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetInformationJobObject(
+            JobHandle job,
+            uint informationClass,
+            ref JobObjectExtendedLimitInformation information,
+            uint informationLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool AssignProcessToJobObject(
+            JobHandle job,
+            SafeProcessHandle process);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr handle);
+    }
+}

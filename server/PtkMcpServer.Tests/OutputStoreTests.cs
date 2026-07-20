@@ -696,6 +696,136 @@ public sealed class OutputStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Retention_delete_io_does_not_wedge_the_store_gate()
+    {
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var deleteEntered = new ManualResetEventSlim(false);
+        using var releaseDelete = new ManualResetEventSlim(false);
+        var wedgeArmed = false;
+        using var store = CreateStore(
+            () => now,
+            maximumArtifactBytes: 32,
+            maximumSessionBytes: 32,
+            maximumAggregateBytes: 64,
+            artifactDeleteStartingForTests: _ =>
+            {
+                if (!Volatile.Read(ref wedgeArmed)) return;
+                deleteEntered.Set();
+                Assert.True(
+                    releaseDelete.Wait(TimeSpan.FromSeconds(30)),
+                    "wedged artifact delete io was never released");
+            });
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Expire only the first artifact, then wedge its unlink: the delete
+        // io must run outside _gate (rbc-14).
+        now += TimeSpan.FromMinutes(6);
+        Volatile.Write(ref wedgeArmed, true);
+        var retention = Task.Run(() => store.RunRetentionForTests());
+        Assert.True(
+            deleteEntered.Wait(TimeSpan.FromSeconds(30)),
+            "retention never reached delete io");
+
+        // Status and Read take _gate; they must complete while the expired
+        // artifact's delete io is wedged.
+        var status = Task.Run(() => store.Status(survivor.Handle!));
+        var statusCompleted =
+            await Task.WhenAny(status, Task.Delay(TimeSpan.FromSeconds(5))) == status;
+        Assert.True(statusCompleted, "Status wedged behind retention delete io");
+        Assert.Equal(OutputArtifactState.Available, (await status).State);
+
+        var read = Task.Run(() => store.Read(survivor.Handle!, 0, 64));
+        var readCompleted =
+            await Task.WhenAny(read, Task.Delay(TimeSpan.FromSeconds(5))) == read;
+        Assert.True(readCompleted, "Read wedged behind retention delete io");
+        Assert.Equal("needle in a haystack", (await read).Text);
+
+        releaseDelete.Set();
+        await retention;
+        Volatile.Write(ref wedgeArmed, false);
+
+        // The released delete must have freed the expired artifact's bytes:
+        // this reservation only fits the aggregate cap if they were
+        // reclaimed, and it must not evict the survivor to make room.
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        Assert.True(
+            store.TryReserve("post", out var replacement, out var postFailure),
+            postFailure);
+        replacement!.Dispose();
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        AssertNoNamedArtifacts(store);
+    }
+
+    [Fact]
+    public void Reservation_settles_expired_deletes_before_evicting_live_artifacts()
+    {
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var store = CreateStore(
+            () => now,
+            maximumArtifactBytes: 32,
+            maximumSessionBytes: 32,
+            maximumAggregateBytes: 64);
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Expire only the first artifact, then reserve. The reservation's
+        // inline retention pass claims the expired artifact, whose settling
+        // bytes cover the aggregate shortfall; those bytes must be reclaimed
+        // in preference to evicting the live survivor (rbc-14 follow-up:
+        // settle before evicting).
+        now += TimeSpan.FromMinutes(6);
+        Assert.True(
+            store.TryReserve("post", out var reservation, out var failure),
+            failure);
+        reservation!.Dispose();
+
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        AssertNoNamedArtifacts(store);
+    }
+
+    [Fact]
+    public void Reservation_settles_expired_deletes_before_evicting_for_artifact_slots()
+    {
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var store = CreateStore(
+            () => now,
+            maximumRetainedArtifacts: 2);
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Both retained-artifact slots are held; the expired artifact's
+        // retained handle frees one once its claim settles. The reservation
+        // must wait for that settle instead of evicting the survivor
+        // (rbc-14 follow-up: settle before evicting).
+        now += TimeSpan.FromMinutes(6);
+        Assert.True(
+            store.TryReserve("post", out var reservation, out var failure),
+            failure);
+        reservation!.Dispose();
+
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        AssertNoNamedArtifacts(store);
+    }
+
+    [Fact]
     public async Task Expiry_during_unlocked_read_reports_the_tombstone_state()
     {
         var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
@@ -730,6 +860,83 @@ public sealed class OutputStoreTests : IDisposable
         Assert.Equal(string.Empty, result.Text);
     }
 
+    [Fact]
+    public async Task Reservation_rechecks_capacity_when_settle_finalizes_before_wait()
+    {
+        // Lost-pulse race (codex rbc-14 turn 2): a reserver defers to a
+        // settling claim held by a concurrent drainer, but the drainer
+        // finalizes (reclaiming the bytes) before the reserver re-locks.
+        // The reserver must re-check capacity instead of spuriously
+        // failing with "capacity" while the store has room.
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var unlinkStarted = new ManualResetEventSlim(false);
+        using var releaseUnlink = new ManualResetEventSlim(false);
+        using var drainerDone = new ManualResetEventSlim(false);
+        var unlinkWedged = 0;
+        var settleWindowed = 0;
+        using var store = CreateStore(
+            () => now,
+            maximumArtifactBytes: 32,
+            maximumSessionBytes: 32,
+            maximumAggregateBytes: 64,
+            artifactDeleteStartingForTests: _ =>
+            {
+                // Wedge only the concurrent drainer's unlink; later drains
+                // (e.g. dispose-time cleanup) must run unimpeded.
+                if (Interlocked.CompareExchange(ref unlinkWedged, 1, 0) != 0)
+                {
+                    return;
+                }
+
+                unlinkStarted.Set();
+                releaseUnlink.Wait(TimeSpan.FromSeconds(30));
+            },
+            reservationSettlingForTests: () =>
+            {
+                // First hit: the reserver has deferred to the settling
+                // claim and released the store lock. Let the drainer
+                // finalize completely before the reserver drains, so the
+                // finalize pulse fires with nobody waiting.
+                if (Interlocked.CompareExchange(ref settleWindowed, 1, 0) != 0)
+                {
+                    return;
+                }
+
+                releaseUnlink.Set();
+                Assert.True(drainerDone.Wait(TimeSpan.FromSeconds(30)));
+            });
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Expire the first artifact and let a background retention pass
+        // claim it and wedge inside its off-gate unlink.
+        now += TimeSpan.FromMinutes(6);
+        var drainer = Task.Run(() =>
+        {
+            store.RunRetentionForTests();
+            drainerDone.Set();
+        });
+        Assert.True(
+            unlinkStarted.Wait(TimeSpan.FromSeconds(30)),
+            "retention drain never reached the wedged unlink");
+
+        Assert.True(
+            store.TryReserve("post", out var reservation, out var failure),
+            failure);
+        reservation!.Dispose();
+        await drainer.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.Equal(1, settleWindowed);
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        AssertNoNamedArtifacts(store);
+    }
+
     private OutputStore CreateStore(
         Func<DateTimeOffset> clock,
         long maximumArtifactBytes = 1024,
@@ -742,7 +949,9 @@ public sealed class OutputStoreTests : IDisposable
         Action<string>? artifactWriteStartingForTests = null,
         Action<string>? artifactUnlinkIdentityVerifiedForTests = null,
         Action? artifactPublishingClaimedForTests = null,
-        Action? retainedReadStartingForTests = null)
+        Action? retainedReadStartingForTests = null,
+        Action<string>? artifactDeleteStartingForTests = null,
+        Action? reservationSettlingForTests = null)
     {
         var root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -758,13 +967,14 @@ public sealed class OutputStoreTests : IDisposable
             maximumSessionBytes,
             maximumAggregateBytes,
             clock,
-            ArtifactDeleteStartingForTests: null,
+            ArtifactDeleteStartingForTests: artifactDeleteStartingForTests,
             MaximumRetainedArtifacts: maximumRetainedArtifacts,
             ArtifactCreateStartingForTests: artifactCreateStartingForTests,
             ArtifactWriteStartingForTests: artifactWriteStartingForTests,
             ArtifactUnlinkIdentityVerifiedForTests: artifactUnlinkIdentityVerifiedForTests,
             ArtifactPublishingClaimedForTests: artifactPublishingClaimedForTests,
-            RetainedReadStartingForTests: retainedReadStartingForTests));
+            RetainedReadStartingForTests: retainedReadStartingForTests,
+            ReservationSettlingForTests: reservationSettlingForTests));
     }
 
     private static OutputSealResult Seal(OutputStore store, string text, string sessionAlias = "default")

@@ -133,3 +133,6 @@ VERDICT: FINDINGS — one MAJOR, accepted.
   window. Red-verified: with the generation re-check neutralized
   (pre-remedy logic) the test FAILs; with the fix it passes.
 - Full suite post-remedy: 1581/1581 green.
+- Codex turn-3 (final, conversation `019f7ce6-d2df-7570-ab51-336d1aef4679`):
+  VERDICT: ACCEPT, guard_confirmed: true. Finding closed at `f624796`
+  within the 3-turn cap.

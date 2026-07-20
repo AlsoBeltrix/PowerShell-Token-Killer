@@ -71,3 +71,43 @@ external review cycle rather than widening an already-reviewed diff.
 - Full suite at `5fc84ad`: 1578 total, 1 unrelated flake
   (`Guardian_death_contains_every_creation_barrier`, passes 7/7 in
   isolation), all OutputStore tests green.
+
+## External review, turn 1 (codex, thread `019f7ce6-d2df-7570-ab51-336d1aef4679`)
+
+VERDICT: FINDINGS — one MAJOR, accepted.
+
+- MAJOR — `TryReserveCore` checked capacity and tombstoned a live
+  eviction candidate before considering `_deletesInFlight` /
+  `_pendingDeletes`; it waited only when no candidate existed. Because
+  the off-gate design defers byte/slot reclamation to
+  `DrainPendingArtifactDeletes`, a reservation racing a settling delete
+  (including the expired claim made by its own inline retention pass)
+  could permanently evict a live artifact whose capacity the settling
+  delete was about to reclaim. Pre-fix behavior deleted synchronously
+  under `_gate`, so this unnecessary eviction could not happen — a
+  genuine regression introduced by the off-gate move, not a
+  pre-existing defect.
+
+### Remedy (turn 1)
+
+- Extracted pure predicates (`NeedsSessionCapacityLocked`,
+  `NeedsAggregateCapacityLocked`, `NeedsArtifactSlotLocked`,
+  `NeedsCapacityLocked`) shared by the step-makers and the new guard so
+  the two views of "insufficient" cannot drift.
+- `TryReserveCore` now defers eviction while claims are settling
+  (`_pendingDeletes.Count > 0 || _deletesInFlight > 0`): it drains
+  queued claims / waits (bounded by `PendingDeleteSettleTimeout`) and
+  re-checks, tombstoning a live candidate only when nothing is settling
+  and capacity is still short. On settle-timeout with a wedged delete
+  it fails truthfully with `capacity` instead of evicting — evicting
+  there would just queue more unlinks behind the same wedged
+  filesystem, the rbc-14 anti-goal.
+- Guards: `Reservation_settles_expired_deletes_before_evicting_live_artifacts`
+  (aggregate-bytes shape) and
+  `Reservation_settles_expired_deletes_before_evicting_for_artifact_slots`
+  (retained-slot shape, which the byte-only view would have missed
+  because tombstoned entries hold their retained stream — and therefore
+  an artifact slot — until drained). Refutation run: both fail 2/2
+  against the pre-remedy store, pass with the guard.
+- Full suite post-remedy: 1580/1580 green (includes
+  `Guardian_death_contains_every_creation_barrier`).

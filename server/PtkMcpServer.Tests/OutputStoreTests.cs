@@ -763,6 +763,69 @@ public sealed class OutputStoreTests : IDisposable
     }
 
     [Fact]
+    public void Reservation_settles_expired_deletes_before_evicting_live_artifacts()
+    {
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var store = CreateStore(
+            () => now,
+            maximumArtifactBytes: 32,
+            maximumSessionBytes: 32,
+            maximumAggregateBytes: 64);
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Expire only the first artifact, then reserve. The reservation's
+        // inline retention pass claims the expired artifact, whose settling
+        // bytes cover the aggregate shortfall; those bytes must be reclaimed
+        // in preference to evicting the live survivor (rbc-14 follow-up:
+        // settle before evicting).
+        now += TimeSpan.FromMinutes(6);
+        Assert.True(
+            store.TryReserve("post", out var reservation, out var failure),
+            failure);
+        reservation!.Dispose();
+
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        AssertNoNamedArtifacts(store);
+    }
+
+    [Fact]
+    public void Reservation_settles_expired_deletes_before_evicting_for_artifact_slots()
+    {
+        var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
+        using var store = CreateStore(
+            () => now,
+            maximumRetainedArtifacts: 2);
+        var doomed = Seal(store, "expired artifact", sessionAlias: "doomed");
+        now += TimeSpan.FromMinutes(10);
+        var survivor = Seal(store, "needle in a haystack", sessionAlias: "survivor");
+
+        // Both retained-artifact slots are held; the expired artifact's
+        // retained handle frees one once its claim settles. The reservation
+        // must wait for that settle instead of evicting the survivor
+        // (rbc-14 follow-up: settle before evicting).
+        now += TimeSpan.FromMinutes(6);
+        Assert.True(
+            store.TryReserve("post", out var reservation, out var failure),
+            failure);
+        reservation!.Dispose();
+
+        Assert.Equal(
+            OutputArtifactState.Available,
+            store.Status(survivor.Handle!).State);
+        var expired = store.Status(doomed.Handle!);
+        Assert.Equal(OutputArtifactState.Expired, expired.State);
+        Assert.Equal("ttl_expired", expired.DetailCode);
+        AssertNoNamedArtifacts(store);
+    }
+
+    [Fact]
     public async Task Expiry_during_unlocked_read_reports_the_tombstone_state()
     {
         var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);

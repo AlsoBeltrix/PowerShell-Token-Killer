@@ -562,11 +562,27 @@ public sealed class OutputStore : IDisposable
                 ThrowIfDisposed();
                 var now = UtcNow();
                 RetainLocked(now);
-                var step = MakeArtifactCapacityStepLocked(now);
-                if (step == CapacityStep.Ready)
+                CapacityStep step;
+                if ((_pendingDeletes.Count > 0 || _deletesInFlight > 0) &&
+                    NeedsCapacityLocked(sessionAlias, _options.MaximumArtifactBytes))
                 {
-                    step = MakeCapacityStepLocked(
-                        sessionAlias, _options.MaximumArtifactBytes, now);
+                    // Claims still settling off-gate hold bytes and artifact
+                    // slots that the drain/wait below may reclaim. Deciding
+                    // eviction now would tombstone a live artifact that the
+                    // settled deletes could have spared (e.g. the retention
+                    // pass just above claimed an expired artifact whose
+                    // bytes cover this reservation). Defer eviction until
+                    // no claims are settling and capacity is still short.
+                    step = CapacityStep.Claimed;
+                }
+                else
+                {
+                    step = MakeArtifactCapacityStepLocked(now);
+                    if (step == CapacityStep.Ready)
+                    {
+                        step = MakeCapacityStepLocked(
+                            sessionAlias, _options.MaximumArtifactBytes, now);
+                    }
                 }
 
                 if (step == CapacityStep.Unavailable)
@@ -616,8 +632,9 @@ public sealed class OutputStore : IDisposable
                     return true;
                 }
 
-                // step == CapacityStep.Claimed: an eviction candidate was
-                // tombstoned; its unlink must run outside _gate before the
+                // step == CapacityStep.Claimed: either an eviction candidate
+                // was tombstoned, or claims are still settling off-gate. In
+                // both cases the unlinks must run outside _gate before the
                 // freed bytes become visible to the capacity checks.
             }
 
@@ -1282,10 +1299,31 @@ public sealed class OutputStore : IDisposable
         }
     }
 
+    // Pure capacity predicates: shared by the step-makers below and by the
+    // settle-before-evict guard in TryReserveCore so the two can never
+    // disagree about what "insufficient" means. Tombstoned entries keep
+    // their bytes (and their retained stream, which holds an artifact
+    // slot) until DrainPendingArtifactDeletes finalizes them, so these
+    // deliberately overcount while claims are settling.
+    private bool NeedsSessionCapacityLocked(string sessionAlias, long needed) =>
+        SessionBytesLocked(sessionAlias) + ReservedSessionBytesLocked(sessionAlias) + needed >
+        _options.MaximumSessionBytes;
+
+    private bool NeedsAggregateCapacityLocked(long needed) =>
+        _aggregateBytes + _reservedBytes + needed > _options.MaximumAggregateBytes;
+
+    private bool NeedsArtifactSlotLocked() =>
+        _entries.Values.Count(entry => entry.Capturing || entry.Stream is not null) >=
+        _options.MaximumRetainedArtifacts;
+
+    private bool NeedsCapacityLocked(string sessionAlias, long needed) =>
+        NeedsArtifactSlotLocked() ||
+        NeedsSessionCapacityLocked(sessionAlias, needed) ||
+        NeedsAggregateCapacityLocked(needed);
+
     private CapacityStep MakeCapacityStepLocked(string sessionAlias, long needed, DateTimeOffset now)
     {
-        if (SessionBytesLocked(sessionAlias) + ReservedSessionBytesLocked(sessionAlias) + needed >
-            _options.MaximumSessionBytes)
+        if (NeedsSessionCapacityLocked(sessionAlias, needed))
         {
             var candidate = OldestAvailableLocked(sessionAlias);
             if (candidate is null) return CapacityStep.Unavailable;
@@ -1293,7 +1331,7 @@ public sealed class OutputStore : IDisposable
             return CapacityStep.Claimed;
         }
 
-        if (_aggregateBytes + _reservedBytes + needed > _options.MaximumAggregateBytes)
+        if (NeedsAggregateCapacityLocked(needed))
         {
             var candidate = OldestAvailableLocked(sessionAlias: null);
             if (candidate is null) return CapacityStep.Unavailable;
@@ -1306,8 +1344,7 @@ public sealed class OutputStore : IDisposable
 
     private CapacityStep MakeArtifactCapacityStepLocked(DateTimeOffset now)
     {
-        if (_entries.Values.Count(entry => entry.Capturing || entry.Stream is not null) >=
-            _options.MaximumRetainedArtifacts)
+        if (NeedsArtifactSlotLocked())
         {
             var candidate = OldestAvailableLocked(sessionAlias: null);
             if (candidate is null) return CapacityStep.Unavailable;

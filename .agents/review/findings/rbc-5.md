@@ -1,7 +1,7 @@
 # rbc-5: Background jobs lack Job Object containment on Windows
 
 **Severity**: MAJOR
-**Status**: Open (intake, awaiting owner triage)
+**Status**: Open (disposition decided 2026-07-19: close via resilience R7)
 **Source**: read-only codebase review 2026-07-17, head `f6a2caa`
 **Files**: `server/PtkMcpServer/JobManager.cs:1820, 1962`
 
@@ -51,6 +51,25 @@ Not yet written. If wired, a guard should assert that a hard-killed
 supervisor leaves no orphaned background job tree on Windows
 (verified via a Job-Object close callback or a post-crash process
 scan).
+
+## Disposition (owner, 2026-07-19)
+
+Owner ruling: close rbc-5 through resilience R7's already-planned
+creation-time worker containment, adding a Windows guard that a
+background descendant dies on hard supervisor termination
+(hard-supervisor-death background-descendant guard). A separate
+creation-time contained launcher for the current in-process runtime
+was offered and not chosen.
+
+The saved spawn-then-assign post-start attach WIP (preserved
+uncommitted on `fix/rbc-6-unix-sigkill-escalation` at `2b3ce1a`)
+remains rejected: it has an admitted escape race and conflicts with
+the approved creation-time containment contract. Do not continue or
+commit it.
+
+The finding stays Open until R7 lands with its guard proof; closure is
+gated on R7's own external fixed-SHA review and green suite, not on
+this record.
 
 ## Reviewer comments
 

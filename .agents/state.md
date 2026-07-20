@@ -342,10 +342,11 @@ short and update it when important repo facts change.
    test lands in the worker-subsystem pass; rbc-11 stays gated on the owner's
    S3H land/park decision; rbc-5 closes via resilience R7. Reassess
    per-finding whether work is safeguard-sensitive and route out if so.
-3. Owner call: push `master` (contains the S3H merge plus rbc-1..4, the rbc-6
-   refutation, hf-1, rbc-7, rbc-9/rbc-10/rbc-12, rbc-14, and rbc-15) to
-   `origin`, or
-   keep it local. Push policy requires an explicit ask for merge commits.
+3. [done 2026-07-20] Owner asked `/git push all`; `master` (S3H merge plus
+   rbc-1..4, the rbc-6 refutation, hf-1, rbc-7, rbc-9/rbc-10/rbc-12, rbc-14,
+   and rbc-15) was pushed fast-forward `19732e8..8e90552` to all three
+   remotes: `origin`, `github`, and `gitea`. No force, no divergence; all
+   remotes now match local `master`.
 4. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
    When producer-owned v3 request bytes land, execute S4 from the complete
    producer corpus; do not substitute receiver-authored fixtures. Do not begin

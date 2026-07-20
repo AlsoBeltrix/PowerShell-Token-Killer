@@ -52,9 +52,22 @@ internal sealed class ProcessTreeContainment : IDisposable
     private static readonly Lazy<bool> ExclusiveGroup = new(TryAcquireExclusiveGroup);
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan EscalationGrace = TimeSpan.FromMilliseconds(500);
+
+    /// <summary>
+    /// Maximum start-time skew treated as the same process incarnation.
+    /// Start times come from clock-tick granularity sources (10 ms ticks
+    /// on Linux), so genuine conversion error is tens of milliseconds at
+    /// most. The tolerance must stay well under <see cref="PollInterval"/>:
+    /// a pid recycled between the final poll and the escalation snapshot
+    /// must not be able to impersonate the tracked incarnation.
+    /// </summary>
+    private static readonly long StartIdentityToleranceTicks =
+        TimeSpan.FromMilliseconds(100).Ticks;
+
     private const int Sigkill = 9;
 
     private readonly int _rootPid;
+    private readonly long _rootStartUtcTicks;
     private readonly bool _inert;
     private readonly bool _useExclusive;
     private readonly Lock _gate = new();
@@ -72,11 +85,22 @@ internal sealed class ProcessTreeContainment : IDisposable
     /// </summary>
     private readonly record struct TrackedEntry(int Pgid, long StartUtcTicks);
 
-    private ProcessTreeContainment(int rootPid, bool inert, bool? forceExclusive = null)
+    private ProcessTreeContainment(
+        int rootPid,
+        bool inert,
+        bool? forceExclusive = null,
+        long? rootStartUtcTicksForTests = null)
     {
         _rootPid = rootPid;
         _inert = inert;
         if (inert) return;
+
+        // Root incarnation identity, recorded while the just-started root
+        // is verifiably alive. Zero means unreadable; the fallback
+        // live-closure fold then stays disabled rather than trusting a
+        // possibly recycled root pid (rbc-15 T2-3).
+        _rootStartUtcTicks =
+            rootStartUtcTicksForTests ?? TryGetStartUtcTicks(rootPid);
 
         // Exclusive mode is only trusted for roots that verifiably
         // inherited the exclusive group. A root launched before the lazy
@@ -119,8 +143,10 @@ internal sealed class ProcessTreeContainment : IDisposable
     /// exclusive-group state, so the frozen-set kill-eligibility rules can
     /// be exercised deterministically.
     /// </summary>
-    internal static ProcessTreeContainment CreateFallbackForTests(int rootPid) =>
-        new(rootPid, inert: false, forceExclusive: false);
+    internal static ProcessTreeContainment CreateFallbackForTests(
+        int rootPid, long? rootStartUtcTicks = null) =>
+        new(rootPid, inert: false, forceExclusive: false,
+            rootStartUtcTicksForTests: rootStartUtcTicks);
 
     /// <summary>Test seam: inject a fallback tracking record.</summary>
     internal void RecordTrackedForTests(int pid, int pgid, long startUtcTicks)
@@ -357,22 +383,35 @@ internal sealed class ProcessTreeContainment : IDisposable
                 // pid + pgid is not identity: a pid recycled into the same
                 // group after the poller froze is a different process. The
                 // recorded start time must match the current incarnation
-                // (1s tolerance for clock-tick conversion); entries whose
-                // start time was unreadable at record time are never
-                // signalled from the frozen set.
+                // within StartIdentityToleranceTicks — clock-tick
+                // conversion skew only, kept well under the poll interval
+                // so a fast recycle cannot impersonate the tracked process
+                // (rbc-15 T2-3); entries whose start time was unreadable
+                // at record time are never signalled from the frozen set.
                 if (entry.StartUtcTicks == 0) continue;
                 var current = TryGetStartUtcTicks(pid);
                 if (current == 0) continue;
-                if (Math.Abs(current - entry.StartUtcTicks) > TimeSpan.TicksPerSecond)
+                if (Math.Abs(current - entry.StartUtcTicks) > StartIdentityToleranceTicks)
                     continue;
 
                 survivors.Add(pid);
             }
         }
 
-        foreach (var pid in LiveClosure(snapshot, _rootPid))
+        // The live-closure fold is trusted only while the root pid still
+        // belongs to the incarnation recorded at track time: a recycled
+        // root pid would otherwise donate an unrelated process's
+        // descendants to the kill set (rbc-15 T2-3). Unreadable identity
+        // on either side disables the fold; the frozen tracked set above
+        // still applies.
+        var rootCurrent = TryGetStartUtcTicks(_rootPid);
+        if (_rootStartUtcTicks != 0 && rootCurrent != 0 &&
+            Math.Abs(rootCurrent - _rootStartUtcTicks) <= StartIdentityToleranceTicks)
         {
-            if (present.ContainsKey(pid)) survivors.Add(pid);
+            foreach (var pid in LiveClosure(snapshot, _rootPid))
+            {
+                if (present.ContainsKey(pid)) survivors.Add(pid);
+            }
         }
 
         survivors.Remove(_rootPid);

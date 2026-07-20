@@ -144,6 +144,10 @@ internal static class BashProcessRunner
         {
             StartInfo = startInfo,
         };
+        // Pre-start: force the one-shot exclusive-group acquisition so this
+        // root inherits the exclusive group instead of degrading to
+        // fallback polling on a first launch (rbc-15 T2-1).
+        ProcessTreeContainment.EnsureExclusiveGroup();
         try
         {
             if (!process.Start())
@@ -378,6 +382,10 @@ internal static class BashProcessRunner
             return BudgetFailure(deadline, cancellationToken.IsCancellationRequested);
 
         using var process = new Process { StartInfo = startInfo };
+        // Pre-start: force the one-shot exclusive-group acquisition so this
+        // root inherits the exclusive group instead of degrading to
+        // fallback polling on a first launch (rbc-15 T2-1).
+        ProcessTreeContainment.EnsureExclusiveGroup();
         try
         {
             if (!process.Start())

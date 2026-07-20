@@ -119,49 +119,54 @@ internal static class BackgroundJobContainment
     /// <summary>
     /// Terminal cleanup. On Windows closes the job handle, reaping any
     /// descendants that survived root exit so no orphan outlives the job.
-    /// On Unix fires a final containment sweep before stopping tracking,
+    /// On Unix runs a final containment sweep before stopping tracking,
     /// giving the same guarantee: later kill/reset/shutdown requests no
     /// longer find a registry entry, so this is the last point at which
-    /// escaped descendants of this job can be reaped. Idempotent and never
-    /// throws.
+    /// escaped descendants of this job can be reaped. The returned task
+    /// completes only after that sweep has run: terminal completion — and
+    /// therefore shutdown, which waits on it — cannot outrun the sweep,
+    /// and the caller must keep the <see cref="Process"/> undisposed until
+    /// the task completes (rbc-15 T2-2). Idempotent and never throws.
     /// </summary>
-    internal static void Release(Process process)
+    internal static Task ReleaseAsync(Process process)
     {
         try
         {
             if (!Registry.TryGetValue(process, out var state) || state is null)
-                return;
+                return Task.CompletedTask;
             Registry.Remove(process);
             if (state.Job is not null)
             {
                 state.Dispose();
-                return;
+                return Task.CompletedTask;
             }
 
             // stopped: true — the job is terminal, so only escaped
             // descendants are signalled; the root is never re-killed here.
             // The tracker is disposed only after the sweep completes so
-            // its frozen tracked set stays available to escalation.
-            var unixState = state;
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    _ = await ProcessTreeContainment
-                        .EscalateAsync(process, stopped: true)
-                        .ConfigureAwait(false);
-                }
-                catch
-                {
-                }
-                finally
-                {
-                    unixState.Dispose();
-                }
-            });
+            // its frozen tracked set stays available to the sweep itself.
+            return SweepAndDisposeAsync(process, state);
         }
         catch
         {
+            return Task.CompletedTask;
+        }
+
+        static async Task SweepAndDisposeAsync(Process process, State unixState)
+        {
+            try
+            {
+                _ = await ProcessTreeContainment
+                    .EscalateAsync(process, stopped: true)
+                    .ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+            finally
+            {
+                unixState.Dispose();
+            }
         }
     }
 

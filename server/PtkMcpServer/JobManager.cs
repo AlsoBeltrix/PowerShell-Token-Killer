@@ -1508,8 +1508,14 @@ public sealed class JobManager : IDisposable
         {
             // Release before Process.Dispose: on Windows this closes the
             // kill-on-close job handle, reaping any descendants that
-            // survived root exit; on Unix it stops the tracker poll.
-            BackgroundJobContainment.Release(entry.Process);
+            // survived root exit; on Unix it runs the final containment
+            // sweep. Awaited so terminal completion — and therefore
+            // shutdown, which waits on TerminalCompleted — cannot finish
+            // before the last sweep has run, and so the Process handle
+            // stays undisposed while the sweep still needs it
+            // (rbc-15 T2-2).
+            await BackgroundJobContainment.ReleaseAsync(entry.Process)
+                .ConfigureAwait(false);
             entry.Process.Dispose();
             entry.TerminalCompleted.TrySetResult(true);
         }

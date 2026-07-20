@@ -167,7 +167,7 @@ public sealed class ProcessTreeContainmentTests : IDisposable
         process.Kill(entireProcessTree: true);
         Assert.True(process.WaitForExit(TimeSpan.FromSeconds(5)));
 
-        BackgroundJobContainment.Release(process);
+        await BackgroundJobContainment.ReleaseAsync(process);
 
         Assert.True(
             await SpinUntilDeadAsync(orphanPid),

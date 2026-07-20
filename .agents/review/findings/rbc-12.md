@@ -1,7 +1,7 @@
 # rbc-12: SIEM receiver has no rate limiting or backpressure
 
 **Severity**: MAJOR
-**Status**: Triaged 2026-07-19 — confirmed (only the `SqliteIngestStore` writer gate `SemaphoreSlim(1,1)` exists; no admission cap). Fix approved: global admission concurrency cap rejecting 503 when saturated; per-client rate limiting deferred to SIEM ingest hardening. Queued in fix batch 2.
+**Status**: Triaged 2026-07-19 — confirmed (only the `SqliteIngestStore` writer gate `SemaphoreSlim(1,1)` exists; no admission cap). Fix committed 2026-07-19 at `27511b1` on `fix/rbc-batch2-scheduler-kestrel-admission`: `IngestAdmissionGate` (`MaxConcurrentRequests`) refuses saturation before any buffering with transient 503 + Retry-After + `admission_capacity`; guard proves refusal under a parked commit and capacity recovery after release. Per-client rate limiting remains deferred to SIEM ingest hardening.
 **Source**: read-only codebase review 2026-07-17, head `f6a2caa`
 **File**: `siem/PtkSiemReceiver/Ingest/ReceiverApplication.cs` (no rate-limiting middleware)
 

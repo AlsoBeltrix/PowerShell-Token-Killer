@@ -38,7 +38,7 @@ internal sealed class GuardianAuditCallFactory : IAuditCallFactory
 
     public AuditCallLifecycle Create(
         AuditJournal journal,
-        ScriptEvidenceStoreProvider evidence) => new(journal, evidence);
+        ScriptEvidenceStoreProvider evidence) => new GuardianAuditCall(journal, evidence);
 }
 
 /// <summary>

@@ -1,0 +1,247 @@
+using System.Text;
+using System.Text.Json;
+using PtkMcpServer.Audit;
+using PtkSharedContracts;
+
+namespace PtkMcpGuardian.Tests;
+
+public sealed class GuardianAuditCallTests
+{
+    [Fact]
+    public void Durable_dispatch_authorization_freezes_guardian_call_and_session_identity()
+    {
+        using var fixture = new Fixture();
+        var call = fixture.CreateCall();
+        Assert.True(call.TryBegin(Metadata(), null, out var failure), failure);
+        var publicCallId = call.PublicCallId;
+        var jobId = new PublicJobId(42);
+
+        Assert.True(call.TryAuthorizeDispatch(new GuardianAuditDispatchAuthorization(
+            GuardianHostOperationKind.JobKill,
+            TemplateSession(),
+            jobId)));
+        Assert.True(call.EffectAuthorized);
+        Assert.Throws<InvalidOperationException>(() =>
+            call.TryAuthorizeDispatch(new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.JobKill,
+                TemplateSession(),
+                jobId)));
+        call.CompleteCall("completed", "ok");
+
+        var events = fixture.Sink.Lines.Select(Parse).ToArray();
+        Assert.Equal(
+            ["call.accepted", GuardianAuditCall.DispatchAuthorizedEvent, "call.completed"],
+            events.Select(EventType));
+        Assert.All(events, value => Assert.Equal(
+            "ptk.audit/3",
+            value.GetProperty("schema_version").GetString()));
+
+        var authorization = events[1];
+        Assert.Equal(
+            publicCallId.Value,
+            authorization.GetProperty("correlation").GetProperty("call_id").GetGuid());
+        Assert.Equal(
+            jobId.Value,
+            authorization.GetProperty("correlation").GetProperty("job_id").GetInt64());
+        Assert.Equal(
+            jobId.Value,
+            authorization.GetProperty("request").GetProperty("job_id").GetInt64());
+        Assert.Equal(
+            "job_kill",
+            authorization.GetProperty("outcome").GetProperty("detail_code").GetString());
+        Assert.Equal(
+            "authorized",
+            authorization.GetProperty("outcome").GetProperty("state").GetString());
+        Assert.Equal(
+            "none",
+            authorization.GetProperty("coverage").GetProperty("root_process_observed").GetString());
+
+        var host = authorization.GetProperty("host");
+        Assert.Equal(Fixture.HostBootId, host.GetProperty("boot_id").GetGuid());
+        Assert.Equal(5, host.GetProperty("generation").GetInt64());
+        Assert.Equal("ready", host.GetProperty("state").GetString());
+
+        var session = authorization.GetProperty("session");
+        Assert.Equal("build", session.GetProperty("name").GetString());
+        Assert.Equal(17, session.GetProperty("generation").GetInt64());
+        Assert.Equal("template", session.GetProperty("binding_kind").GetString());
+        Assert.Equal("ci", session.GetProperty("template_name").GetString());
+        Assert.Equal(TemplateDigest.Value, session.GetProperty("template_digest").GetString());
+        Assert.Equal(BootstrapDigest.Value, session.GetProperty("bootstrap_digest").GetString());
+        Assert.Equal("compile project", session.GetProperty("declared_purpose").GetString());
+        Assert.Equal("local", session.GetProperty("declared_target").GetString());
+        Assert.Equal("builder", session.GetProperty("declared_identity").GetString());
+        Assert.False(session.GetProperty("allow_cold_background").GetBoolean());
+    }
+
+    [Fact]
+    public void Failed_dispatch_append_returns_no_authority()
+    {
+        using var fixture = new Fixture((point, call) =>
+            point == AuditSinkFaultPoint.BeforeAppend && call == 2);
+        var audit = fixture.CreateCall();
+        Assert.True(audit.TryBegin(Metadata(), null, out var failure), failure);
+
+        Assert.False(audit.TryAuthorizeDispatch(new GuardianAuditDispatchAuthorization(
+            GuardianHostOperationKind.JobKill,
+            TemplateSession(),
+            new PublicJobId(42))));
+
+        Assert.False(audit.EffectAuthorized);
+        Assert.True(audit.AuthorizationPersistenceFailed);
+        Assert.Single(fixture.Sink.Lines);
+        Assert.Equal("call.accepted", EventType(Parse(fixture.Sink.Lines[0])));
+        audit.CompleteCall("not_started", AuditCallLifecycle.NotStartedMessage);
+        Assert.Equal(0, fixture.Journal.ReservedBytes);
+    }
+
+    [Fact]
+    public void Dispatch_job_identity_must_match_kind_and_accepted_request()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.JobKill,
+                TemplateSession()));
+        Assert.Throws<ArgumentException>(() =>
+            new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.Reset,
+                TemplateSession(),
+                new PublicJobId(42)));
+
+        using var fixture = new Fixture();
+        var call = fixture.CreateCall();
+        Assert.True(call.TryBegin(Metadata(), null, out var failure), failure);
+        Assert.Throws<InvalidOperationException>(() =>
+            call.TryAuthorizeDispatch(new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.JobKill,
+                TemplateSession(),
+                new PublicJobId(43))));
+        Assert.False(call.EffectAuthorized);
+        call.CompleteCall("not_started", "mismatch");
+    }
+
+    private static readonly byte[] BootstrapBytes = Encoding.UTF8.GetBytes("Write-Output ready");
+    private static readonly Sha256Digest BootstrapDigest = Sha256Digest.Compute(BootstrapBytes);
+    private static readonly Sha256Digest TemplateDigest = new(new string('a', 64));
+    private static readonly Sha256Digest BindingDigest = new(new string('b', 64));
+
+    private static GuardianAuditSession TemplateSession()
+    {
+        var templateName = new CanonicalAlias("ci");
+        var template = new RecoveryTemplate(
+            templateName,
+            "compile project",
+            startupTimeoutSeconds: 30,
+            declaredTarget: "local",
+            declaredIdentity: "builder",
+            allowColdBackground: false,
+            TemplateDigest,
+            BootstrapDigest,
+            BootstrapBytes);
+        var binding = new RecoveryBinding(
+            new CanonicalAlias("build"),
+            RecoveryBindingKind.Template,
+            templateName,
+            TemplateDigest,
+            BootstrapDigest,
+            allowColdBackground: false,
+            DesiredSessionState.Ready,
+            new SessionTransitionVersion(3),
+            BindingDigest);
+        return new GuardianAuditSession(binding, new WorkerGeneration(17), template);
+    }
+
+    private static AuditCallMetadata Metadata() => new(
+        new AuditActor
+        {
+            Transport = "mcp_stdio",
+            ClientName = "guardian-test",
+            ClientVersion = "1",
+            ClientSessionId = "session",
+            AttributionStrength = "client_asserted",
+        },
+        new AuditRequest
+        {
+            Tool = "ptk_job",
+            Action = "kill",
+            SessionRequested = "build",
+            ProvidedFields = ["action", "id", "session"],
+            JobId = 42,
+        },
+        new AuditOperationProfile(
+            MaximumCallRecordSlots: 4,
+            PersistentJobTerminalSlots: 0,
+            RequiresScriptEvidence: false,
+            MayHaveSideEffects: true));
+
+    private static JsonElement Parse(byte[] line)
+    {
+        using var document = JsonDocument.Parse(line.AsMemory(0, line.Length - 1));
+        return document.RootElement.Clone();
+    }
+
+    private static string EventType(JsonElement value) =>
+        value.GetProperty("event_type").GetString()!;
+
+    private sealed class Fixture : IDisposable
+    {
+        internal static readonly Guid HostBootId =
+            Guid.Parse("14345678-1234-4abc-8def-0123456789ab");
+
+        private readonly string _root;
+        private readonly ScriptEvidenceStoreProvider _evidence;
+
+        internal Fixture(Func<AuditSinkFaultPoint, int, bool>? faultInjector = null)
+        {
+            _root = Path.Combine(
+                Path.GetTempPath(),
+                "ptk-guardian-dispatch-audit-" + Guid.NewGuid().ToString("N"));
+            var options = AuditOptions.Create(
+                _root,
+                maxRecordBytes: AuditEventSerializer.MaximumLineBytes,
+                segmentBytes: AuditEventSerializer.MaximumLineBytes * 16L,
+                aggregateBytes: AuditEventSerializer.MaximumLineBytes * 16L,
+                emergencyReserveBytes: AuditEventSerializer.MaximumLineBytes * 2L,
+                retentionAge: TimeSpan.FromMinutes(10),
+                maxEvidenceBytes: ScriptEvidenceStore.MaximumScriptBytes,
+                evidenceAggregateBytes: ScriptEvidenceStore.MaximumScriptBytes * 2L,
+                evidenceRetentionAge: TimeSpan.FromMinutes(10));
+            var health = new AuditHealth(options);
+            Sink = new InMemoryAuditJournalSink(
+                options.SegmentBytes,
+                options.AggregateBytes,
+                options.ProtectionMode,
+                options.RetentionAge,
+                faultInjector);
+            var hostSnapshots = new GuardianAuditHostSnapshotSource();
+            hostSnapshots.Publish(new AuditHostSnapshot(
+                HostBootId,
+                Generation: 5,
+                State: "ready",
+                RecoveryAttempt: 0));
+            Journal = new AuditJournal(
+                options,
+                health,
+                Sink,
+                "guardian-dispatch-audit-test",
+                binaryDigest: null,
+                hostId: Guid.Parse("24345678-1234-4abc-8def-0123456789ab"),
+                supervisorBootId: Guid.Parse("34345678-1234-4abc-8def-0123456789ab"),
+                hostSnapshots: hostSnapshots);
+            _evidence = new ScriptEvidenceStoreProvider(options);
+        }
+
+        internal InMemoryAuditJournalSink Sink { get; }
+
+        internal AuditJournal Journal { get; }
+
+        internal GuardianAuditCall CreateCall() => Assert.IsType<GuardianAuditCall>(
+            GuardianAuditCallFactory.Instance.Create(Journal, _evidence));
+
+        public void Dispose()
+        {
+            Journal.Dispose();
+            if (Directory.Exists(_root)) Directory.Delete(_root, recursive: true);
+        }
+    }
+}

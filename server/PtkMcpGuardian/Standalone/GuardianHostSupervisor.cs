@@ -198,6 +198,25 @@ internal sealed class GuardianHostSupervisor :
         if (StringComparer.Ordinal.Equals(toolName, "ptk_output"))
             return DispatchOutput(arguments, auditCall, cancellationToken);
 
+        if (StringComparer.Ordinal.Equals(toolName, "ptk_session"))
+        {
+            if (!auditCall.AcceptsGuardianLocalSessionList ||
+                arguments.Count != 1 ||
+                !arguments.TryGetValue("action", out var sessionAction) ||
+                sessionAction.ValueKind != JsonValueKind.String ||
+                !StringComparer.Ordinal.Equals(sessionAction.GetString(), "list"))
+            {
+                return ValueTask.FromResult(new GuardianToolResult(
+                    UnsupportedToolText,
+                    isError: true));
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new GuardianToolResult(
+                EncodeStateSnapshot(),
+                isError: false));
+        }
+
         if (!StringComparer.Ordinal.Equals(toolName, "ptk_job") ||
             !TryReadJobArguments(
                 arguments,

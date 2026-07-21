@@ -340,6 +340,17 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
         }
     }
 
+    internal bool AcceptsGuardianLocalSessionList
+    {
+        get
+        {
+            EnsureActive();
+            return StringComparer.Ordinal.Equals(_request!.Tool, "ptk_session") &&
+                StringComparer.Ordinal.Equals(_request.Action, "list") &&
+                _request.SessionRequested is null;
+        }
+    }
+
     internal void RecordOutputAccess(
         OutputAccessAuditOutcome outcome,
         string response)

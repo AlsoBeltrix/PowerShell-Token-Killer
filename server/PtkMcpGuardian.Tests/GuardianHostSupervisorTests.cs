@@ -1013,6 +1013,31 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Public_session_list_is_guardian_local_and_uses_projected_state()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var scheduleCount = rig.Scheduler.ScheduleCount;
+        var attemptCount = rig.Factory.Resources.Count;
+
+        var state = await rig.ReadSessionListAsync();
+
+        Assert.Equal(TestRig.Guardian, state.GuardianBootId);
+        Assert.Equal(PublicHostState.Ready, state.Host.State);
+        var session = Assert.Single(state.Sessions);
+        Assert.Equal(TestRig.Alias, session.Alias);
+        Assert.Equal(DesiredSessionState.Ready, session.DesiredState);
+        Assert.Equal(PublicSessionState.Ready, session.State);
+        Assert.True(session.ReadyForEffects);
+        Assert.Equal(scheduleCount, rig.Scheduler.ScheduleCount);
+        Assert.Equal(attemptCount, rig.Factory.Resources.Count);
+        Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
+        Assert.Equal(
+            ["call.accepted", "call.completed"],
+            rig.AuditEventTypes()[^2..]);
+    }
+
+    [Fact]
     public async Task Host_loss_projects_last_known_ready_session_as_unavailable()
     {
         await using var rig = new TestRig(
@@ -1575,6 +1600,15 @@ public sealed class GuardianHostSupervisorTests
     private static IReadOnlyDictionary<string, JsonElement> EmptyArguments() =>
         new Dictionary<string, JsonElement>(StringComparer.Ordinal);
 
+    private static IReadOnlyDictionary<string, JsonElement> SessionListArguments()
+    {
+        using var document = JsonDocument.Parse("{\"action\":\"list\"}");
+        return document.RootElement.EnumerateObject().ToDictionary(
+            property => property.Name,
+            property => property.Value.Clone(),
+            StringComparer.Ordinal);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {
         using var cancellation = new CancellationTokenSource(TestTimeout);
@@ -2011,6 +2045,16 @@ public sealed class GuardianHostSupervisorTests
             return PublicStateCodec.Decode(Encoding.UTF8.GetBytes(result.Text));
         }
 
+        internal async Task<PublicStateSnapshot> ReadSessionListAsync()
+        {
+            var result = await DispatchPublicAsync(
+                "ptk_session",
+                "list",
+                SessionListArguments());
+            Assert.False(result.IsError);
+            return PublicStateCodec.Decode(Encoding.UTF8.GetBytes(result.Text));
+        }
+
         private static DispatchCapability RebindDispatch(
             DispatchCapability source,
             CallId callId) => new(
@@ -2116,13 +2160,19 @@ public sealed class GuardianHostSupervisorTests
                     Tool = tool,
                     Action = action,
                     ProvidedFields = arguments.Keys.Order(StringComparer.Ordinal).ToArray(),
-                    SessionRequested = "default",
+                    SessionRequested = tool == "ptk_session" && action == "list"
+                        ? null
+                        : "default",
                 },
                 new AuditOperationProfile(
-                    MaximumCallRecordSlots: tool == "ptk_state" ? 5 : 4,
+                    MaximumCallRecordSlots: tool == "ptk_state"
+                        ? 5
+                        : tool == "ptk_session" && action == "list"
+                            ? 3
+                            : 4,
                     PersistentJobTerminalSlots: 0,
                     RequiresScriptEvidence: false,
-                    MayHaveSideEffects: true));
+                    MayHaveSideEffects: tool != "ptk_session" || action != "list"));
             return await DispatchAuditedAsync(
                 metadata,
                 exactSubmittedScript: null,

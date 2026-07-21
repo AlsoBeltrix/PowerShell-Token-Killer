@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Diagnostics;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
@@ -169,12 +170,29 @@ public sealed class MatchedPackageLoaderTests
         using var package = TestPackage.Create();
         var artifact = package.FindEntry(MatchedPackageRole.Module);
         var path = package.AbsolutePath(artifact);
-        var target = Path.Combine(package.Root, "unlisted-target");
-        File.WriteAllBytes(target, File.ReadAllBytes(path));
-        File.Delete(path);
-        File.CreateSymbolicLink(path, target);
+        if (!OperatingSystem.IsWindows())
+        {
+            var target = Path.Combine(package.Root, "unlisted-target");
+            File.WriteAllBytes(target, File.ReadAllBytes(path));
+            File.Delete(path);
+            File.CreateSymbolicLink(path, target);
+            AssertFailure(package, "artifact_path_unsafe");
+            return;
+        }
 
-        AssertFailure(package, "artifact_path_unsafe");
+        var artifactDirectory = Path.GetDirectoryName(path)!;
+        var targetDirectory = Path.Combine(package.Root, "unlisted-artifact-directory");
+        Directory.Move(artifactDirectory, targetDirectory);
+        CreateDirectoryReparsePoint(artifactDirectory, targetDirectory);
+        try
+        {
+            AssertFailure(package, "artifact_path_unsafe");
+        }
+        finally
+        {
+            Directory.Delete(artifactDirectory);
+            Directory.Move(targetDirectory, artifactDirectory);
+        }
     }
 
     [Fact]
@@ -184,16 +202,35 @@ public sealed class MatchedPackageLoaderTests
         var rootLink = package.Root + "-link";
         try
         {
-            Directory.CreateSymbolicLink(rootLink, package.Root);
+            CreateDirectoryReparsePoint(rootLink, package.Root);
             var rootFailure = Assert.Throws<MatchedPackageValidationException>(() =>
                 MatchedPackageLoader.Load(rootLink, package.Rid));
             Assert.Equal("package_root_invalid", rootFailure.DetailCode);
 
             var manifest = package.ManifestPath;
-            var target = Path.Combine(package.Root, "manifest-target.json");
-            File.Move(manifest, target);
-            File.CreateSymbolicLink(manifest, target);
-            AssertFailure(package, "manifest_path_unsafe");
+            if (!OperatingSystem.IsWindows())
+            {
+                var target = Path.Combine(package.Root, "manifest-target.json");
+                File.Move(manifest, target);
+                File.CreateSymbolicLink(manifest, target);
+                AssertFailure(package, "manifest_path_unsafe");
+            }
+            else
+            {
+                var manifestDirectory = Path.GetDirectoryName(manifest)!;
+                var targetDirectory = Path.Combine(package.Root, "manifest-target-directory");
+                Directory.Move(manifestDirectory, targetDirectory);
+                CreateDirectoryReparsePoint(manifestDirectory, targetDirectory);
+                try
+                {
+                    AssertFailure(package, "manifest_path_unsafe");
+                }
+                finally
+                {
+                    Directory.Delete(manifestDirectory);
+                    Directory.Move(targetDirectory, manifestDirectory);
+                }
+            }
         }
         finally
         {
@@ -301,6 +338,48 @@ public sealed class MatchedPackageLoaderTests
             MatchedPackageLoader.Load(package.Root, package.Rid));
         Assert.Equal(expectedDetailCode, failure.DetailCode);
         Assert.Null(failure.InnerException);
+    }
+
+    private static void CreateDirectoryReparsePoint(string path, string target)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            Directory.CreateSymbolicLink(path, target);
+            return;
+        }
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.System),
+                "cmd.exe"),
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        startInfo.ArgumentList.Add("/d");
+        startInfo.ArgumentList.Add("/c");
+        startInfo.ArgumentList.Add("mklink");
+        startInfo.ArgumentList.Add("/j");
+        startInfo.ArgumentList.Add(path);
+        startInfo.ArgumentList.Add(target);
+
+        using var process = Process.Start(startInfo);
+        Assert.NotNull(process);
+        var exited = process.WaitForExit(5_000);
+        if (!exited)
+        {
+            process.Kill(entireProcessTree: true);
+            process.WaitForExit();
+        }
+        var standardOutput = process.StandardOutput.ReadToEnd();
+        var standardError = process.StandardError.ReadToEnd();
+        Assert.True(exited, "Timed out while creating a Windows directory junction.");
+        Assert.True(
+            process.ExitCode == 0,
+            $"Windows directory junction creation failed ({process.ExitCode}): " +
+            $"{standardOutput}{standardError}");
     }
 
     private static void SetUnixMode(string path, UnixFileMode mode)

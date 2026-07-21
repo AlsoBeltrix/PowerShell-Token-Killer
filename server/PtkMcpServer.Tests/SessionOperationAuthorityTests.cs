@@ -95,6 +95,32 @@ public sealed class SessionOperationAuthorityTests
     }
 
     [Fact]
+    public async Task Expired_wire_deadline_never_resets_the_private_session()
+    {
+        using var fixture = new RuntimeFixture();
+        await fixture.Host.InvokeAsync("$privateResetProbe = 'present'");
+        var deadline = DateTimeOffset.UtcNow
+            .AddSeconds(-5)
+            .ToUnixTimeMilliseconds();
+        var operation = new ResetOperation(
+            Call,
+            Dispatch(deadline),
+            expectedGeneration: 1,
+            force: false);
+        var authority = SessionOperationAuthority.Create(Request(operation, deadline));
+
+        await Assert.ThrowsAsync<SessionOperationDeadlineException>(async () =>
+            await ((IPrivateSessionOperations)fixture.Runtime).ResetAsync(
+                authority,
+                operation,
+                CancellationToken.None));
+
+        var probe = await fixture.Host.InvokeAsync(
+            "if ($null -eq $privateResetProbe) { 'gone' } else { $privateResetProbe }");
+        Assert.Equal("present", probe.Output.Trim());
+    }
+
+    [Fact]
     public async Task Expired_wire_deadline_with_huge_timeout_never_starts_foreground_script()
     {
         using var fixture = new RuntimeFixture();

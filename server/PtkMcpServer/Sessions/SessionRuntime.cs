@@ -11,7 +11,11 @@ namespace PtkMcpServer.Sessions;
 /// Background jobs may retain only their designed terminal audit and output
 /// capabilities until completion.
 /// </summary>
-public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisposable
+public sealed class SessionRuntime :
+    ISessionOperations,
+    ISessionLifetime,
+    IPrivateSessionOperations,
+    IDisposable
 {
     private readonly RunspaceHost _host;
     private readonly JobManager _jobs;
@@ -81,6 +85,58 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
         => ResetAsync(
             cancellationToken,
             auditContext?.Current);
+
+    Task<string> IPrivateSessionOperations.InvokeAsync(
+        SessionOperationAuthority operationAuthority,
+        InvokeForegroundOperation operation,
+        CancellationToken cancellationToken,
+        IExecutionOutputCaptureOwner outputCaptureOwner) =>
+        InvokeAsync(
+            operationAuthority,
+            operation,
+            cancellationToken,
+            outputCaptureOwner: outputCaptureOwner);
+
+    Task<string> IPrivateSessionOperations.InvokeAsync(
+        SessionOperationAuthority operationAuthority,
+        InvokeBackgroundOperation operation,
+        CancellationToken cancellationToken,
+        IExecutionOutputCaptureOwner outputCaptureOwner) =>
+        InvokeAsync(
+            operationAuthority,
+            operation,
+            cancellationToken,
+            outputCaptureOwner: outputCaptureOwner);
+
+    Task<string> IPrivateSessionOperations.JobAsync(
+        SessionOperationAuthority operationAuthority,
+        JobListOperation operation,
+        CancellationToken cancellationToken) =>
+        JobAsync(operationAuthority, operation, cancellationToken);
+
+    Task<string> IPrivateSessionOperations.JobAsync(
+        SessionOperationAuthority operationAuthority,
+        JobStatusOperation operation,
+        CancellationToken cancellationToken) =>
+        JobAsync(operationAuthority, operation, cancellationToken);
+
+    Task<string> IPrivateSessionOperations.JobAsync(
+        SessionOperationAuthority operationAuthority,
+        JobOutputOperation operation,
+        CancellationToken cancellationToken) =>
+        JobAsync(operationAuthority, operation, cancellationToken);
+
+    Task<string> IPrivateSessionOperations.JobAsync(
+        SessionOperationAuthority operationAuthority,
+        JobKillOperation operation,
+        CancellationToken cancellationToken) =>
+        JobAsync(operationAuthority, operation, cancellationToken);
+
+    Task<string> IPrivateSessionOperations.ResetAsync(
+        SessionOperationAuthority operationAuthority,
+        ResetOperation operation,
+        CancellationToken cancellationToken) =>
+        ResetAsync(operationAuthority, operation, cancellationToken);
 
     Task PtkMcpGuardian.Ownership.IOrderedOwnedLifetime.ShutdownAsync() => ShutdownAsync();
 
@@ -1292,15 +1348,36 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
         : up.TotalMinutes >= 1 ? $"{(int)up.TotalMinutes}m{up.Seconds:00}s"
         : $"{Math.Max(0, (int)up.TotalSeconds)}s";
 
-    internal async Task<string> ResetAsync(
+    internal Task<string> ResetAsync(
         CancellationToken cancellationToken = default,
-        AuditCallContext? audit = null)
+        AuditCallContext? audit = null) =>
+        ResetCoreAsync(cancellationToken, audit, operationAuthority: null);
+
+    internal Task<string> ResetAsync(
+        SessionOperationAuthority operationAuthority,
+        ResetOperation operation,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operationAuthority);
+        operationAuthority.RequireOperation(operation);
+        return ResetCoreAsync(
+            cancellationToken,
+            audit: null,
+            operationAuthority);
+    }
+
+    private async Task<string> ResetCoreAsync(
+        CancellationToken cancellationToken,
+        AuditCallContext? audit,
+        SessionOperationAuthority? operationAuthority)
     {
         var host = _host;
         var jobs = _jobs;
+        operationAuthority?.ThrowIfExpired(cancellationToken);
         if (audit is not null && !audit.AuthorizeControl("reset.requested"))
             return AuditCallContext.NotStartedMessage;
 
+        operationAuthority?.ThrowIfExpired(cancellationToken);
         JobManager.JobResetLease jobReset;
         try
         {
@@ -1319,6 +1396,7 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
         using (jobReset)
             try
             {
+                operationAuthority?.ThrowIfExpired(cancellationToken);
                 await host.ResetAsync(cancellationToken);
                 audit?.RecordControlOutcome(
                     jobReset.FailedCount == 0 ? "runspace.recycled" : "reset.partial_effect",

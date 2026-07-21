@@ -1,6 +1,7 @@
 using System.Reflection;
 using PtkMcpGuardian.Ownership;
 using PtkMcpServer.Audit;
+using PtkMcpServer.GuardianHost;
 using PtkMcpServer.Sessions;
 using PtkMcpServer.Tools;
 using PtkSharedContracts;
@@ -146,6 +147,46 @@ public sealed class GuardianBoundaryContractTests
         Assert.Equal(
             [typeof(IOrderedOwnedLifetime)],
             lifetimeParameter.GetGenericParameterConstraints());
+    }
+
+    [Fact]
+    public void Default_private_runtime_uses_only_private_capability_boundaries()
+    {
+        Assert.True(typeof(IPrivateSessionOperations).IsInterface);
+        Assert.True(typeof(IPrivateSessionOperations).IsNotPublic);
+        Assert.Equal(
+            [typeof(IOrderedOwnedLifetime), typeof(IDisposable)],
+            typeof(IPrivateSessionOperations).GetInterfaces());
+        Assert.Contains(
+            typeof(IPrivateSessionOperations),
+            typeof(SessionRuntime).GetInterfaces());
+        AssertExplicitImplementation<SessionRuntime, IPrivateSessionOperations>();
+
+        var methods = typeof(IPrivateSessionOperations)
+            .GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+            .OrderBy(method => method.Name, StringComparer.Ordinal)
+            .ThenBy(method => method.GetParameters()[1].ParameterType.Name, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(7, methods.Length);
+        Assert.All(methods, method => Assert.Equal(typeof(Task<string>), method.ReturnType));
+        Assert.Equal(2, methods.Count(method => method.Name == "InvokeAsync"));
+        Assert.Equal(4, methods.Count(method => method.Name == "JobAsync"));
+        Assert.Single(methods, method => method.Name == "ResetAsync");
+        Assert.All(methods, method => Assert.Equal(
+            typeof(SessionOperationAuthority),
+            method.GetParameters()[0].ParameterType));
+
+        var fields = typeof(DefaultPrivateHostRuntime).GetFields(
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.Contains(fields, field => field.FieldType == typeof(IPrivateHostEventSink));
+        Assert.Contains(fields, field => field.FieldType == typeof(IPrivateSessionOperations));
+        Assert.DoesNotContain(fields, field =>
+        {
+            var typeName = field.FieldType.ToString();
+            return typeName.Contains(nameof(OutputStore), StringComparison.Ordinal) ||
+                typeName.Contains("PtkMcpServer.Audit", StringComparison.Ordinal) ||
+                typeName.Contains("ModelContextProtocol", StringComparison.Ordinal);
+        });
     }
 
     [Fact]

@@ -125,19 +125,28 @@ short and update it when important repo facts change.
   apphost coverage, and direct macOS/Windows/Linux behavior validation are
   complete at code/test head `1eb69d6` with the test-only scheduler closure at
   `d238a80`; R4 private real-host and control-plane transfer is active at clean
-  committed code/test head `6790416` on `feature/mcp-resilience-r1`. The
+  committed code/test head `d8b6efd` on `feature/mcp-resilience-r1`. The
   migration-ready sequence verifies matched runtime packages at `65efb36`,
-  serializes private-
-  host outbound frames at `99014e4`, and transfers output capture by execution
-  capability at `6790416`. Digest enforcement, concurrent sequence allocation,
-  and exactly-once output-capture transfer each have direct red-to-green
-  mutation proof. At that exact code/test head, Pester passed 141 tests with 2
-  platform skips; Guardian, architecture, and server suites passed 280/280,
-  70/70, and 1811/1811; the protocol handshake passed. A load-contended joint
-  run first exposed one 200 ms unconfirmed-stop timing failure; that test passed
-  10/10 in isolation and in the clean complete rerun. Continue on a Windows
-  server with Exchange and AD access from this exact code/test head; first rerun
-  the complete documented battery there before the next code change. Future
+  serializes private-host outbound frames at `99014e4`, and transfers output
+  capture by execution capability at `6790416`. Windows checkout prerequisites
+  preserve the SIEM corpus bytes at `b13fd18` and exercise package reparse
+  guards without symlink privilege at `5759bb8`. Private-host launch work then
+  captures and erases exact inherited identity and pins at `afd5b53`, freezes
+  the guardian-owned apphost command, handles, and bootstrap environment at
+  `bf8afc1`, gives the host runner single ownership of captured bootstrap and
+  process streams at `724d068`, and accepts a pre-captured worker bootstrap
+  without environment recapture at `d8b6efd`. The new boundaries each have
+  direct red-to-green mutation proof. `Program.cs` remains unwired; a concrete
+  production `IPrivateHostRuntime`, real guardian host attempt launcher and
+  containment, output-wire ingestion, and remaining audit/control-plane
+  transfer are still required. Registration cutover remains R7. At exact
+  detached Windows head `d8b6efd`, all 1830 server tests passed. The attempted
+  complete solution run with `--no-restore` was not a complete proof because
+  the detached checkout lacked
+  `PtkGuardianArchitecture.Tests/obj/project.assets.json`; its server suite
+  still passed, and the run continued to report the existing NU1903 advisories
+  for `System.Security.Cryptography.Xml` 10.0.6. Restore and rerun the complete
+  battery plus the protocol handshake before the next code change. Future
   handoffs must only edit `## Now` / `## Next` surgically; never replace this
   file wholesale.** The
   target keeps one public stdio guardian alive while it
@@ -293,12 +302,14 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. On the Windows development server, fetch and check out
-   `feature/mcp-resilience-r1`, confirm code/test head `6790416` is in its
-   history and the tree is clean, and run the complete verification entry point
-   plus `server/test-handshake.ps1`.
-   Then continue R4 private real-host and control-plane transfer in coherent
-   committed slices, followed by R5-R7. Ordinary reviews may use Opus or Grok;
+1. Resume `feature/mcp-resilience-r1` from clean committed head `d8b6efd`.
+   Restore the exact checkout, rerun the complete verification entry point plus
+   `server/test-handshake.ps1`, then continue R4 with a concrete in-process
+   private-host runtime and its event/output boundaries. Wire the exact
+   `Program.cs` role classification only once that production path is
+   functional; follow with the real guardian attempt launcher, containment,
+   and remaining control-plane transfer in coherent committed slices, then
+   R5-R7. Ordinary reviews may use Opus or Grok;
    hold Fable openreviews until capacity returns, then rerun the R1 fixed range
    `1f314a2..60eb20f` and later fixed ranges. Do not merge incomplete R4,
    rewrite history, or publish a release without separate authorization. Do

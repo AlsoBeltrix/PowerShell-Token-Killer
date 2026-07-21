@@ -4,7 +4,9 @@ using System.Threading.Channels;
 using System.Diagnostics.CodeAnalysis;
 using PtkMcpGuardian.Host;
 using PtkMcpGuardian.Lifecycle;
+using PtkMcpGuardian.Output;
 using PtkMcpGuardian.Standalone;
+using PtkMcpServer;
 using PtkSharedContracts;
 
 namespace PtkMcpGuardian.Tests;
@@ -12,6 +14,9 @@ namespace PtkMcpGuardian.Tests;
 public sealed class GuardianHostSupervisorTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(10);
+    private static readonly GuardianHostOperationIdentity OperationIdentity = new(
+        new PlanId(Guid.Parse("33333333-3333-4333-8333-333333333333")),
+        new OperationId(Guid.Parse("44444444-4444-4444-8444-444444444444")));
 
     [Fact]
     public async Task Loss_before_write_authorization_is_safe_and_never_dispatched()
@@ -259,6 +264,152 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(1, old.OperationCount);
         Assert.Single(rig.Factory.Resources);
         old.ConfirmContainment();
+    }
+
+    [Fact]
+    public async Task Foreground_output_is_registered_ingested_and_decorated_before_delivery()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.ForegroundOutput));
+        await rig.StartAsync();
+        var expected = Encoding.UTF8.GetBytes("foreground exact output");
+
+        var result = await rig.DispatchSessionOperationAsync(
+                ForegroundOperation(rig.Clock, Token(31)),
+                OperationIdentity)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(result.IsError);
+        Assert.Contains("foreground shaped", result.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            GuardianOutputResponseDecorator.GenericUnavailableMarker,
+            result.Text,
+            StringComparison.Ordinal);
+        const string marker = "recovery=available: ptk_output handle=";
+        var markerIndex = result.Text.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(markerIndex >= 0);
+        var handle = result.Text[(markerIndex + marker.Length)..];
+        var read = rig.OutputStore!.Read(handle, 0, OutputStore.MaximumReadBytes);
+        Assert.Equal(expected, Encoding.UTF8.GetBytes(read.Text));
+        Assert.Equal(0, rig.OutputCoordinator!.ActiveCapabilityCount);
+        Assert.Equal(0, rig.OutputCoordinator.TrackedCount);
+    }
+
+    [Fact]
+    public async Task Output_operation_without_guardian_owner_is_rejected_before_dispatch()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rig.DispatchSessionOperationAsync(
+                ForegroundOperation(rig.Clock, Token(35)),
+                OperationIdentity));
+
+        Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
+        Assert.Equal(0, rig.Supervisor.OutstandingCallCount);
+    }
+
+    [Fact]
+    public async Task Successful_background_response_authorizes_late_output_after_pending_removal()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.BackgroundLateOutput));
+        await rig.StartAsync();
+        var resource = rig.Factory.Resources[0];
+        var operation = BackgroundOperation(
+            rig.Clock,
+            Token(32),
+            new PublicJobId(88));
+
+        var result = await rig.DispatchSessionOperationAsync(
+                operation,
+                OperationIdentity)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(result.IsError);
+        Assert.Equal("[job 88 started]", result.Text);
+        Assert.Equal(1, rig.OutputCoordinator!.ActiveCapabilityCount);
+        Assert.Equal(1, rig.OutputCoordinator.TrackedCount);
+
+        resource.ReleaseOutput();
+        await resource.OutputFinished.WaitAsync(TestTimeout);
+        await WaitUntilAsync(() => rig.OutputCoordinator.TryGetJobRecovery(
+            new PublicJobId(88),
+            out _));
+
+        Assert.True(rig.OutputCoordinator.TryGetJobRecovery(
+            new PublicJobId(88),
+            out var recovery));
+        Assert.Equal(OutputArtifactState.Available, recovery!.State);
+        var read = rig.OutputStore!.Read(
+            recovery.Handle!,
+            0,
+            OutputStore.MaximumReadBytes);
+        Assert.Equal("late background output", read.Text);
+        Assert.Equal(0, rig.OutputCoordinator.ActiveCapabilityCount);
+        Assert.Equal(0, rig.OutputCoordinator.TrackedCount);
+    }
+
+    [Fact]
+    public async Task Host_loss_seals_background_prefix_into_guardian_job_recovery()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.BackgroundPrefixBeforeLoss),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var resource = rig.Factory.Resources[0];
+        var operation = BackgroundOperation(
+            rig.Clock,
+            Token(33),
+            new PublicJobId(89));
+
+        var result = await rig.DispatchSessionOperationAsync(
+                operation,
+                OperationIdentity)
+            .WaitAsync(TestTimeout);
+        Assert.False(result.IsError);
+
+        resource.ReleaseOutput();
+        await resource.OutputFinished.WaitAsync(TestTimeout);
+        Assert.False((await rig.DispatchJobListAsync().WaitAsync(TestTimeout)).IsError);
+        resource.Crash();
+        await WaitUntilAsync(() => rig.OutputCoordinator!.TryGetJobRecovery(
+            new PublicJobId(89),
+            out _));
+
+        Assert.True(rig.OutputCoordinator!.TryGetJobRecovery(
+            new PublicJobId(89),
+            out var recovery));
+        Assert.Equal(OutputArtifactState.Incomplete, recovery!.State);
+        var read = rig.OutputStore!.Read(
+            recovery.Handle!,
+            0,
+            OutputStore.MaximumReadBytes);
+        Assert.Equal("surviving background prefix", read.Text);
+    }
+
+    [Fact]
+    public async Task Ambiguous_foreground_loss_releases_coordinator_call_tracking()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.CrashAfterRequest),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+
+        var result = await rig.DispatchSessionOperationAsync(
+                ForegroundOperation(rig.Clock, Token(34)),
+                OperationIdentity)
+            .WaitAsync(TestTimeout);
+
+        var error = DecodeRecovery(result);
+        Assert.Equal(PublicRecoveryDetailCode.OutcomeUnknown, error.DetailCode);
+        Assert.Equal(0, rig.OutputCoordinator!.ActiveCapabilityCount);
+        Assert.Equal(0, rig.OutputCoordinator.TrackedCount);
     }
 
     [Fact]
@@ -709,6 +860,48 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(PublicHostState.Stopped, rig.Supervisor.SnapshotState().Host.State);
     }
 
+    private static InvokeForegroundOperation ForegroundOperation(
+        TimeProvider clock,
+        CapabilityToken outputToken)
+    {
+        var callId = new CallId(Guid.CreateVersion7());
+        var expires = clock.GetUtcNow().AddMinutes(1).ToUnixTimeMilliseconds();
+        return new InvokeForegroundOperation(
+            callId,
+            new DispatchCapability(Token(201), callId, expires),
+            new OutputCapability(outputToken, maximumBytes: 1024, expires),
+            "Write-Output secret",
+            raw: false,
+            GuardianHostInvokeRoute.Auto);
+    }
+
+    private static InvokeBackgroundOperation BackgroundOperation(
+        TimeProvider clock,
+        CapabilityToken outputToken,
+        PublicJobId publicJobId)
+    {
+        var callId = new CallId(Guid.CreateVersion7());
+        var expires = clock.GetUtcNow().AddMinutes(1).ToUnixTimeMilliseconds();
+        return new InvokeBackgroundOperation(
+            callId,
+            new DispatchCapability(Token(202), callId, expires),
+            new OutputCapability(outputToken, maximumBytes: 1024, expires),
+            "Write-Output secret",
+            raw: false,
+            GuardianHostInvokeRoute.Auto,
+            publicJobId);
+    }
+
+    private static CapabilityToken Token(byte marker)
+    {
+        Span<byte> bytes = stackalloc byte[ContractLimits.CapabilityTokenBytes];
+        bytes.Fill(marker);
+        return new CapabilityToken(Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_'));
+    }
+
     private static PublicRecoveryError DecodeRecovery(GuardianToolResult result)
     {
         Assert.True(result.IsError);
@@ -736,6 +929,8 @@ public sealed class GuardianHostSupervisorTests
 
     private sealed class TestRig : IAsyncDisposable
     {
+        private readonly string? _outputRoot;
+
         internal static readonly GuardianBootId Guardian = new(
             Guid.Parse("11111111-1111-4111-8111-111111111111"));
         internal static readonly CanonicalAlias Alias = new("default");
@@ -752,12 +947,33 @@ public sealed class GuardianHostSupervisorTests
         internal static readonly Sha256Digest BindingDigest = Digest('7');
 
         internal TestRig(params AttemptPlan[] plans)
+            : this(enableOutput: false, plans)
+        {
+        }
+
+        internal TestRig(bool enableOutput, params AttemptPlan[] plans)
         {
             Clock = new ManualTimeProvider();
             Scheduler = new ManualScheduler(Clock);
             Observer = new BlockingDispatchObserver();
             Sessions = new StaticSessionSource();
             Factory = new FakeAttemptFactory(plans, CreatePins(), Clock);
+            if (enableOutput)
+            {
+                _outputRoot = Path.Combine(
+                    Path.GetTempPath(),
+                    $"ptk-supervisor-output-{Guid.NewGuid():N}");
+                OutputStore = new OutputStore(new OutputStoreOptions(
+                    _outputRoot,
+                    TimeSpan.FromMinutes(5),
+                    TimeSpan.FromHours(1),
+                    MaximumArtifactBytes: 1024,
+                    MaximumSessionBytes: 8192,
+                    MaximumAggregateBytes: 8192,
+                    UtcNow: Clock.GetUtcNow));
+                OutputCoordinator = new GuardianOutputCoordinator(
+                    new GuardianOutputCapabilityRegistry(OutputStore, Clock));
+            }
             var lifecycle = new GuardianHostLifecycleController(
                 Guardian,
                 new MonotonicHostGenerationAllocator(),
@@ -775,7 +991,8 @@ public sealed class GuardianHostSupervisorTests
                 Sessions,
                 Observer,
                 CreatePins(),
-                Observer.BeforeClientFatalObservationAsync);
+                Observer.BeforeClientFatalObservationAsync,
+                OutputCoordinator);
         }
 
         internal ManualTimeProvider Clock { get; }
@@ -784,6 +1001,8 @@ public sealed class GuardianHostSupervisorTests
         internal ITestSessionControl Sessions { get; }
         internal FakeAttemptFactory Factory { get; }
         internal GuardianHostSupervisor Supervisor { get; }
+        internal OutputStore? OutputStore { get; }
+        internal GuardianOutputCoordinator? OutputCoordinator { get; }
 
         internal Task StartAsync() => Supervisor.StartAsync();
 
@@ -791,6 +1010,15 @@ public sealed class GuardianHostSupervisorTests
             Supervisor.DispatchAsync(
                     "ptk_job",
                     JobListArguments(),
+                    CancellationToken.None)
+                .AsTask();
+
+        internal Task<GuardianToolResult> DispatchSessionOperationAsync(
+            GuardianHostOperation operation,
+            GuardianHostOperationIdentity? operationIdentity) =>
+            Supervisor.DispatchSessionOperationAsync(
+                    operation,
+                    operationIdentity,
                     CancellationToken.None)
                 .AsTask();
 
@@ -806,24 +1034,40 @@ public sealed class GuardianHostSupervisorTests
 
         public async ValueTask DisposeAsync()
         {
-            foreach (var resource in Factory.Resources)
-                resource.ConfirmContainment();
             try
             {
-                await Supervisor.ShutdownAsync().WaitAsync(TestTimeout);
+                foreach (var resource in Factory.Resources)
+                    resource.ConfirmContainment();
+                try
+                {
+                    await Supervisor.ShutdownAsync().WaitAsync(TestTimeout);
+                }
+                catch (TimeoutException exception)
+                {
+                    var state = Supervisor.SnapshotState().Host;
+                    throw new InvalidOperationException(
+                        $"shutdown timed out in {state.State}/{state.RecoveryPhase}; " +
+                        $"calls={Supervisor.OutstandingCallCount}; " +
+                        $"background_tasks={Supervisor.BackgroundTaskCount}; " +
+                        $"background_names={Supervisor.BackgroundTaskNames}; " +
+                        $"background_failure={Supervisor.BackgroundFailure}",
+                        exception);
+                }
+                await Supervisor.DisposeAsync();
             }
-            catch (TimeoutException exception)
+            finally
             {
-                var state = Supervisor.SnapshotState().Host;
-                throw new InvalidOperationException(
-                    $"shutdown timed out in {state.State}/{state.RecoveryPhase}; " +
-                    $"calls={Supervisor.OutstandingCallCount}; " +
-                    $"background_tasks={Supervisor.BackgroundTaskCount}; " +
-                    $"background_names={Supervisor.BackgroundTaskNames}; " +
-                    $"background_failure={Supervisor.BackgroundFailure}",
-                    exception);
+                OutputCoordinator?.Dispose();
+                OutputStore?.Dispose();
+                try
+                {
+                    if (_outputRoot is not null && Directory.Exists(_outputRoot))
+                        Directory.Delete(_outputRoot, recursive: true);
+                }
+                catch
+                {
+                }
             }
-            await Supervisor.DisposeAsync();
         }
 
         private static GuardianHostSupervisorPins CreatePins() => new(
@@ -1199,6 +1443,9 @@ public sealed class GuardianHostSupervisorTests
     private enum HostBehavior
     {
         Respond,
+        ForegroundOutput,
+        BackgroundLateOutput,
+        BackgroundPrefixBeforeLoss,
         ContractMismatchHello,
         CrashAfterRequest,
         Hold,
@@ -1269,6 +1516,10 @@ public sealed class GuardianHostSupervisorTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> _disposeEntered = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _outputRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _outputFinished = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly FakeHostPeer _peer;
         private ManualResetEventSlim? _disposeRelease;
         private int _launched;
@@ -1293,12 +1544,19 @@ public sealed class GuardianHostSupervisorTests
         internal int OperationCount => _peer.OperationCount;
         internal IReadOnlyList<long> RequestIds => _peer.RequestIds;
         internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+        internal Task OutputFinished => _outputFinished.Task;
 
         internal Task InjectContractMismatchAsync() =>
             _peer.InjectContractMismatchAsync();
 
         internal Task InjectProtocolFatalAsync() =>
             _peer.InjectProtocolFatalAsync();
+
+        internal void ReleaseOutput() => _outputRelease.TrySetResult(true);
+
+        internal Task WaitForOutputReleaseAsync() => _outputRelease.Task;
+
+        internal void SignalOutputFinished() => _outputFinished.TrySetResult(true);
 
         public Stream RequestStream => _requests;
         public Stream EventStream => _events;
@@ -1319,6 +1577,7 @@ public sealed class GuardianHostSupervisorTests
         public void CloseTransport()
         {
             if (Interlocked.Exchange(ref _closed, 1) != 0) return;
+            _outputRelease.TrySetResult(true);
             _requests.CompleteWriting();
             _events.CompleteWriting();
             _hostExited.TrySetResult(true);
@@ -1352,6 +1611,8 @@ public sealed class GuardianHostSupervisorTests
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            _outputRelease.TrySetResult(true);
+            _outputFinished.TrySetResult(true);
             _disposeEntered.TrySetResult(true);
             _disposeRelease?.Wait();
             _requests.Dispose();
@@ -1370,6 +1631,7 @@ public sealed class GuardianHostSupervisorTests
         private readonly GuardianHostSupervisorPins _pins;
         private readonly List<long> _requestIds = [];
         private int _operationCount;
+        private long _eventSequence;
 
         internal FakeHostPeer(
             FakeConnectedResources owner,
@@ -1486,10 +1748,55 @@ public sealed class GuardianHostSupervisorTests
                         return;
                     }
 
-                    await _writer.WriteAsync(Success(
-                        operation.RequestId,
-                        new OperationCompleted(new JobListResult(
-                            $"jobs-generation-{identity.HostGeneration.Value}"))));
+                    switch (behavior)
+                    {
+                        case HostBehavior.ForegroundOutput:
+                        {
+                            Assert.IsType<InvokeForegroundOperation>(operation.Operation);
+                            var bytes = Encoding.UTF8.GetBytes("foreground exact output");
+                            await WriteOutputChunkAsync(operation, bytes);
+                            await WriteOutputSealAsync(operation, bytes);
+                            await _writer.WriteAsync(Success(
+                                operation.RequestId,
+                                new OperationCompleted(new InvokeForegroundResult(
+                                    "foreground shaped" + Environment.NewLine +
+                                    GuardianOutputResponseDecorator.GenericUnavailableMarker))));
+                            break;
+                        }
+                        case HostBehavior.BackgroundLateOutput
+                            when operation.Operation is InvokeBackgroundOperation:
+                        case HostBehavior.BackgroundPrefixBeforeLoss
+                            when operation.Operation is InvokeBackgroundOperation:
+                        {
+                            var background = Assert.IsType<InvokeBackgroundOperation>(
+                                operation.Operation);
+                            await _writer.WriteAsync(Success(
+                                operation.RequestId,
+                                new OperationCompleted(new InvokeBackgroundResult(
+                                    background.PublicJobId,
+                                    Token(240)))));
+                            await _owner.WaitForOutputReleaseAsync();
+                            var text = behavior == HostBehavior.BackgroundLateOutput
+                                ? "late background output"
+                                : "surviving background prefix";
+                            var bytes = Encoding.UTF8.GetBytes(text);
+                            await WriteOutputChunkAsync(operation, bytes);
+                            if (behavior == HostBehavior.BackgroundPrefixBeforeLoss)
+                            {
+                                _owner.SignalOutputFinished();
+                                break;
+                            }
+                            await WriteOutputSealAsync(operation, bytes);
+                            _owner.SignalOutputFinished();
+                            break;
+                        }
+                        default:
+                            await _writer.WriteAsync(Success(
+                                operation.RequestId,
+                                new OperationCompleted(new JobListResult(
+                                    $"jobs-generation-{identity.HostGeneration.Value}"))));
+                            break;
+                    }
                 }
             }
             catch (Exception exception) when (exception is
@@ -1509,6 +1816,46 @@ public sealed class GuardianHostSupervisorTests
                 _owner.Identity.HostGeneration,
                 requestId,
                 payload);
+
+        private async Task WriteOutputChunkAsync(
+            OperationRequest request,
+            byte[] bytes)
+        {
+            using var chunk = new OutputChunkEvent(
+                request.GuardianBootId,
+                request.HostBootId,
+                request.HostGeneration,
+                new HostEventSequence(Interlocked.Increment(ref _eventSequence)),
+                request.RequestId,
+                request.SessionAlias!,
+                request.SessionTransitionVersion!,
+                request.WorkerIdentity!,
+                request.OperationIdentity,
+                request.Operation.OutputCapability!.Token,
+                chunkIndex: 0,
+                offset: 0,
+                bytes);
+            await _writer.WriteAsync(chunk);
+        }
+
+        private Task WriteOutputSealAsync(
+            OperationRequest request,
+            byte[] bytes) =>
+            _writer.WriteAsync(new OutputSealEvent(
+                    request.GuardianBootId,
+                    request.HostBootId,
+                    request.HostGeneration,
+                    new HostEventSequence(Interlocked.Increment(ref _eventSequence)),
+                    request.RequestId,
+                    request.SessionAlias!,
+                    request.SessionTransitionVersion!,
+                    request.WorkerIdentity!,
+                    request.OperationIdentity,
+                    request.Operation.OutputCapability!.Token,
+                    GuardianHostOutputSealState.Complete,
+                    bytes.Length,
+                    Sha256Digest.Compute(bytes)))
+                .AsTask();
 
         private void Record(PrivateRequestId requestId)
         {

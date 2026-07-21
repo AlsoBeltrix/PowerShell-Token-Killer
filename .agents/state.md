@@ -305,8 +305,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Resume `feature/mcp-resilience-r1` from clean committed head `a21b7a1`.
-   First clear the exact-solution timing blocker recorded below without
+1. Resume `feature/mcp-resilience-r1` from its clean committed handoff
+   descendant; `a21b7a1` is the latest code/test checkpoint. First clear the
+   exact-solution timing blocker recorded below without
    weakening any deadline guard. Then continue R4 by admitting every public
    guardian call through `AuditRuntimeGate`, passing the resulting mandatory
    `GuardianAuditCall` capability into supervisor dispatch, and recording its

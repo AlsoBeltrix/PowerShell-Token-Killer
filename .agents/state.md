@@ -369,10 +369,12 @@ short and update it when important repo facts change.
 ## Blockers
 
 - **Exact full verification at R4 head `a21b7a1` is stalled on this Windows
-  host by nonreproducing wall-clock tests.** Three exact detached runs of
+  host by nonreproducing timing/environment-sensitive tests.** Three exact
+  detached runs of
   `dotnet test server/PtkMcpServer.slnx` each passed Guardian 366 and
-  architecture 70 but failed one different server timing assertion at
-  1861/1862. The first two failed tests passed immediately in isolation; the
+  architecture 70 but failed one different server timing/environment
+  assertion at 1861/1862. The first two failed tests passed immediately in
+  isolation; the
   third run reached the repo's three-cycle stop threshold. No guard was
   weakened and both worktrees are clean. Obtain one exact full pass after the
   external load/state changes, or reproduce and diagnose a stable failure,

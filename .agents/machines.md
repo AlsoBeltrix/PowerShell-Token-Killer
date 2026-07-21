@@ -843,7 +843,7 @@ same SHA on Windows host `ASHBIAMWEB1`._
   server 1862/1862.
 - Three exact `dotnet test server/PtkMcpServer.slnx` runs at `a21b7a1` each
   passed Guardian 366/366 and architecture 70/70, but each failed a different
-  server wall-clock assertion at 1861/1862:
+  server timing/environment-sensitive assertion at 1861/1862:
   `StateToolTests.Path_drift_reports_an_entry_level_diff`,
   `SessionOperationAuthorityTests.Job_output_shaping_inherits_the_exact_wire_deadline`,
   then

@@ -696,6 +696,164 @@ public sealed class GuardianHostClientTests
     }
 
     [Fact]
+    public async Task Retained_output_authority_accepts_a_chunk_after_background_response()
+    {
+        OperationRequest? original = null;
+        var handled = new TaskCompletionSource<OutputChunkEvent>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var correlationChecks = 0;
+        await using var harness = new HostHarness(
+            eventHandler: (hostEvent, _) =>
+            {
+                handled.TrySetResult(Assert.IsType<OutputChunkEvent>(hostEvent));
+                return ValueTask.CompletedTask;
+            },
+            retainedOutputEventCorrelation: hostEvent =>
+            {
+                Interlocked.Increment(ref correlationChecks);
+                return original is not null &&
+                    hostEvent.RequestId == original.RequestId &&
+                    hostEvent.SessionAlias == original.SessionAlias &&
+                    hostEvent.SessionTransitionVersion ==
+                        original.SessionTransitionVersion &&
+                    hostEvent is OutputChunkEvent chunk &&
+                    chunk.OutputCapabilityToken == OutputToken;
+            });
+        await harness.InitializeAsync();
+        var completion = harness.Client.SendRequestAsync(CreateBackgroundRequest);
+        original = Assert.IsType<OperationRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        await harness.HostWriter.WriteAsync(Success(
+            original.RequestId,
+            new OperationCompleted(new InvokeBackgroundResult(
+                new PublicJobId(1),
+                JobToken))));
+        await completion.WaitAsync(TestTimeout);
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+
+        using (var outbound = new OutputChunkEvent(
+            Guardian,
+            Host,
+            Generation,
+            new HostEventSequence(1),
+            original.RequestId,
+            Alias,
+            Transition,
+            Worker,
+            OperationIdentity,
+            OutputToken,
+            0,
+            0,
+            new byte[] { 0x41 }))
+        {
+            await harness.HostWriter.WriteAsync(outbound);
+        }
+
+        var accepted = await handled.Task.WaitAsync(TestTimeout);
+        Assert.Equal(original.RequestId, accepted.RequestId);
+        Assert.Equal(1, Volatile.Read(ref correlationChecks));
+        Assert.Equal(1, harness.Client.LastHostEventSequence);
+        Assert.Equal(GuardianHostClientState.Ready, harness.Client.State);
+        Assert.False(harness.Client.Fatal.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Rejected_late_output_never_reaches_the_handler_or_advances_sequence()
+    {
+        var handled = 0;
+        await using var harness = new HostHarness(
+            eventHandler: (_, _) =>
+            {
+                Interlocked.Increment(ref handled);
+                return ValueTask.CompletedTask;
+            },
+            retainedOutputEventCorrelation: static _ => false);
+        await harness.InitializeAsync();
+        var completion = harness.Client.SendRequestAsync(CreateBackgroundRequest);
+        var request = Assert.IsType<OperationRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        await harness.HostWriter.WriteAsync(Success(
+            request.RequestId,
+            new OperationCompleted(new InvokeBackgroundResult(
+                new PublicJobId(1),
+                JobToken))));
+        await completion.WaitAsync(TestTimeout);
+
+        using (var outbound = new OutputChunkEvent(
+            Guardian,
+            Host,
+            Generation,
+            new HostEventSequence(1),
+            request.RequestId,
+            Alias,
+            Transition,
+            Worker,
+            OperationIdentity,
+            OutputToken,
+            0,
+            0,
+            new byte[] { 0x41 }))
+        {
+            await harness.HostWriter.WriteAsync(outbound);
+        }
+
+        var fatal = await harness.Client.Fatal.WaitAsync(TestTimeout);
+        Assert.Equal(
+            GuardianHostClientFailureKind.EventCorrelationMismatch,
+            fatal.DetailKind);
+        Assert.Equal(0, Volatile.Read(ref handled));
+        Assert.Equal(0, harness.Client.LastHostEventSequence);
+    }
+
+    [Fact]
+    public async Task Retained_output_authority_cannot_admit_a_nonoutput_late_event()
+    {
+        var checks = 0;
+        var handled = 0;
+        await using var harness = new HostHarness(
+            eventHandler: (_, _) =>
+            {
+                Interlocked.Increment(ref handled);
+                return ValueTask.CompletedTask;
+            },
+            retainedOutputEventCorrelation: _ =>
+            {
+                Interlocked.Increment(ref checks);
+                return true;
+            });
+        await harness.InitializeAsync();
+        var completion = harness.Client.SendRequestAsync(CreateJobListRequest);
+        var request = Assert.IsType<OperationRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        await harness.HostWriter.WriteAsync(Success(
+            request.RequestId,
+            new OperationCompleted(new JobListResult("[]"))));
+        await completion.WaitAsync(TestTimeout);
+
+        await harness.HostWriter.WriteAsync(new OperationDeliveryEvent(
+            Guardian,
+            Host,
+            Generation,
+            new HostEventSequence(1),
+            request.RequestId,
+            Alias,
+            Transition,
+            Worker,
+            null,
+            DispatchToken,
+            GuardianHostDeliveryState.NotDispatched,
+            null));
+
+        var fatal = await harness.Client.Fatal.WaitAsync(TestTimeout);
+        Assert.Equal(
+            GuardianHostClientFailureKind.EventCorrelationMismatch,
+            fatal.DetailKind);
+        Assert.Equal(0, Volatile.Read(ref checks));
+        Assert.Equal(0, Volatile.Read(ref handled));
+        Assert.Equal(0, harness.Client.LastHostEventSequence);
+    }
+
+    [Fact]
     public async Task Dispose_waits_for_an_in_flight_writer_and_its_generation_lease()
     {
         var leaseDisposed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -2187,7 +2345,8 @@ public sealed class GuardianHostClientTests
             Func<GuardianHostMessage, GuardianHostResponse, CancellationToken, ValueTask>?
                 responseHandler = null,
             IPrivateRequestIdAllocator? requestIds = null,
-            Func<IDisposable?>? writeLeaseFactory = null)
+            Func<IDisposable?>? writeLeaseFactory = null,
+            Func<GuardianHostEvent, bool>? retainedOutputEventCorrelation = null)
         {
             Manifest = CreateManifest();
             Client = new GuardianHostClient(
@@ -2201,7 +2360,8 @@ public sealed class GuardianHostClientTests
                 responseLeaseFactory ?? ((_, _) => new CallbackLease(static () => { })),
                 eventHandler ?? ((_, _) => ValueTask.CompletedTask),
                 responseHandler ?? ((_, _, _) => ValueTask.CompletedTask),
-                () => GuardianHostClientTests.Manifest);
+                () => GuardianHostClientTests.Manifest,
+                retainedOutputEventCorrelation);
             GuardianReader = new GuardianHostProtocolReader(
                 RequestTransport,
                 GuardianHostPeer.Guardian);

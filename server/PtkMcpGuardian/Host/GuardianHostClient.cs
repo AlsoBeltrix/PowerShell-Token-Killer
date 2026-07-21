@@ -177,6 +177,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
     private readonly Func<GuardianHostEvent, IDisposable?> _eventLeaseFactory;
     private readonly Func<GuardianHostMessage, GuardianHostResponse, IDisposable?>
         _responseLeaseFactory;
+    private readonly Func<GuardianHostEvent, bool> _retainedOutputEventCorrelation;
     private readonly Func<GuardianHostEvent, CancellationToken, ValueTask> _eventHandler;
     private readonly Func<GuardianHostMessage, GuardianHostResponse, CancellationToken, ValueTask>
         _responseHandler;
@@ -214,7 +215,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         Func<GuardianHostEvent, CancellationToken, ValueTask> eventHandler,
         Func<GuardianHostMessage, GuardianHostResponse, CancellationToken, ValueTask>
             responseHandler,
-        Func<ManifestId>? manifestIdFactory = null)
+        Func<ManifestId>? manifestIdFactory = null,
+        Func<GuardianHostEvent, bool>? retainedOutputEventCorrelation = null)
     {
         ArgumentNullException.ThrowIfNull(requestStream);
         ArgumentNullException.ThrowIfNull(eventStream);
@@ -233,6 +235,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         _responseHandler = responseHandler ?? throw new ArgumentNullException(nameof(responseHandler));
         _manifestIdFactory = manifestIdFactory ??
             (() => new ManifestId(Guid.NewGuid()));
+        _retainedOutputEventCorrelation = retainedOutputEventCorrelation ??
+            (static _ => false);
     }
 
     internal GuardianHostClientState State
@@ -1113,6 +1117,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
 
     private void ValidateAndReserveEvent(GuardianHostEvent hostEvent)
     {
+        var retainedOutputMatch = MatchesRetainedOutputEvent(hostEvent);
         lock (_sync)
         {
             RequireInboundActiveLocked(hostEvent.HostBootId);
@@ -1128,8 +1133,11 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                     pending.Message is not OperationRequest request ||
                     !EventMatchesRequest(hostEvent, request))
                 {
-                    throw new GuardianHostClientException(
-                        GuardianHostClientFailureKind.EventCorrelationMismatch);
+                    if (!retainedOutputMatch)
+                    {
+                        throw new GuardianHostClientException(
+                            GuardianHostClientFailureKind.EventCorrelationMismatch);
+                    }
                 }
             }
 
@@ -1146,6 +1154,26 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             }
 
             _lastHostEventSequence = hostEvent.EventSequence.Value;
+        }
+    }
+
+    /// <summary>
+    /// Background capture may outlive its successful start response. Only an
+    /// output chunk or seal can use the guardian's retained capability table;
+    /// the callback is deliberately evaluated outside the client state lock
+    /// and must be a side-effect-free exact-correlation check.
+    /// </summary>
+    private bool MatchesRetainedOutputEvent(GuardianHostEvent hostEvent)
+    {
+        if (hostEvent is not (OutputChunkEvent or OutputSealEvent)) return false;
+        try
+        {
+            return _retainedOutputEventCorrelation(hostEvent);
+        }
+        catch (Exception exception) when (!IsFatalRuntimeException(exception))
+        {
+            throw new GuardianHostClientException(
+                GuardianHostClientFailureKind.EventCorrelationMismatch);
         }
     }
 

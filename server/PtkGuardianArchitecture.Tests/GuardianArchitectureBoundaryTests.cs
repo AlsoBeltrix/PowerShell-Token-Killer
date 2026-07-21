@@ -61,6 +61,7 @@ public sealed class GuardianArchitectureBoundaryTests
         "AuditOtlpHttpExporter.cs",
         "AuditOtlpRecordMapper.cs",
         "AuditOutputRequestProtector.cs",
+        "AuditRuntimeGate.cs",
         "AuditRuntimeResources.cs",
         "AuditServerLifecycle.cs",
         "AuditSpoolQuotaLease.cs",
@@ -79,7 +80,6 @@ public sealed class GuardianArchitectureBoundaryTests
         "AuditCallContext.cs",
         "AuditCallFilter.cs",
         "AuditCallMetadataCapture.cs",
-        "AuditRuntimeGate.cs",
     ];
 
     private static readonly string[] RequiredGuardianOwnershipCompileInputs =
@@ -102,6 +102,9 @@ public sealed class GuardianArchitectureBoundaryTests
         "PtkMcpServer.Audit.IAuditAdmissionOwner",
         "PtkMcpServer.Audit.IAuditBoundaryCall",
         "PtkMcpServer.Audit.AuditCallLifecycle",
+        "PtkMcpServer.Audit.AuditRuntimeGate",
+        "PtkMcpServer.Audit.GuardianAuditCallFactory",
+        "PtkMcpServer.Audit.IAuditCallFactory",
         "PtkMcpServer.Audit.IAuditRuntimeResources",
         "PtkMcpServer.IOutputArtifactReader",
         "PtkMcpServer.IOutputCaptureOwner",

@@ -163,7 +163,8 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
             options,
             health,
             evidence,
-            "local-startup-barrier-test");
+            "local-startup-barrier-test",
+            callFactory: AuditCallContextFactory.Instance);
 
         await gate.StartAsync(CancellationToken.None);
 
@@ -172,12 +173,12 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
         Assert.True(File.Exists(retainedFloor));
         Assert.Single(AwaitingPaths(options));
         Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-        Assert.False(gate.TryCreateCallContext(1, out _));
+        Assert.False(gate.TryCreateCall(1, out _));
         Assert.True(File.Exists(retainedFloor));
         Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
 
         File.Delete(retainedFloor);
-        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
+        Assert.True(gate.TryCreateCall(1, out var recoveredContext));
         Assert.NotNull(recoveredContext);
         Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
         Assert.Empty(AwaitingPaths(options));
@@ -226,7 +227,8 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
                 health,
                 "anchored-startup-barrier-test",
                 new AcknowledgingTransport(ConfigurationIdentity),
-                evidence));
+                evidence),
+            callFactory: AuditCallContextFactory.Instance);
 
         await gate.StartAsync(CancellationToken.None);
 
@@ -235,14 +237,14 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
         Assert.True(File.Exists(retainedForeign));
         Assert.Single(AwaitingPaths(options));
         Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-        Assert.False(gate.TryCreateCallContext(1, out _));
+        Assert.False(gate.TryCreateCall(1, out _));
         Assert.True(File.Exists(retainedForeign));
         Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
 
         foreignJournal.Dispose();
         checkpoint.Dispose();
         preparation.Dispose();
-        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
+        Assert.True(gate.TryCreateCall(1, out var recoveredContext));
         Assert.NotNull(recoveredContext);
         Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
         Assert.Empty(AwaitingPaths(options));
@@ -275,7 +277,8 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
             options,
             health,
             evidence,
-            "evidence-storage-recovery-test");
+            "evidence-storage-recovery-test",
+            callFactory: AuditCallContextFactory.Instance);
 
         await gate.StartAsync(CancellationToken.None);
 
@@ -285,7 +288,7 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
         Assert.Single(AwaitingPaths(options));
 
         failEvidenceOpen = false;
-        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
+        Assert.True(gate.TryCreateCall(1, out var recoveredContext));
         Assert.NotNull(recoveredContext);
         Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
         Assert.Empty(AwaitingPaths(options));

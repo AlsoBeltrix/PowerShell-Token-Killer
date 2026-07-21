@@ -424,7 +424,8 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
             options,
             health,
             new ScriptEvidenceStoreProvider(options),
-            "evidence-retention-runtime-test");
+            "evidence-retention-runtime-test",
+            callFactory: AuditCallContextFactory.Instance);
 
         await runtime.StartAsync(CancellationToken.None);
 
@@ -465,7 +466,8 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
                 health,
                 "anchored-evidence-retention-runtime-test",
                 transport,
-                evidence));
+                evidence),
+            callFactory: AuditCallContextFactory.Instance);
 
         await runtime.StartAsync(CancellationToken.None);
 

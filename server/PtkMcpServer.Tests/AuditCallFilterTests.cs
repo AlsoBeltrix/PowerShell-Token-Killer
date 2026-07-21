@@ -539,7 +539,11 @@ public sealed class AuditCallFilterTests : IDisposable
             utcNow: () => Now);
         var evidence = new ScriptEvidenceStore(root);
         var runtime = AuditRuntimeGate.CreateOperationalForTests(
-            options, health, journal, evidence);
+            options,
+            health,
+            journal,
+            evidence,
+            AuditCallContextFactory.Instance);
         var touches = new ToolDependencyTouches();
         var accessor = new AuditCallContextAccessor();
         var collection = new ServiceCollection()

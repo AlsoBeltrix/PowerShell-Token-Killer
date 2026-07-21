@@ -65,7 +65,8 @@ builder.Services.AddSingleton(sp =>
         health,
         sp.GetRequiredService<ScriptEvidenceStoreProvider>(),
         producerVersion,
-        openRuntime: openRuntime);
+        openRuntime: openRuntime,
+        callFactory: AuditCallContextFactory.Instance);
 });
 builder.Services.AddSingleton<IAuditAdmissionOwner>(
     sp => sp.GetRequiredService<AuditRuntimeGate>());

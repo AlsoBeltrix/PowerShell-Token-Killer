@@ -4,7 +4,7 @@ using PtkMcpGuardian.Ownership;
 namespace PtkMcpServer.Audit;
 
 /// <summary>
-/// Nonthrowing supervisor startup gate. The MCP transport may start in a
+/// Nonthrowing guardian startup gate. The MCP transport may start in a
 /// diagnostic-only mode when protected audit storage is unavailable, while
 /// every runtime dependency remains unreachable until server.started is
 /// durable. A later request may repair first-start failure under this gate;
@@ -18,6 +18,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
     private readonly AuditOptions _options;
     private readonly AuditHealth _health;
     private readonly ScriptEvidenceStoreProvider _evidence;
+    private readonly IAuditCallFactory _callFactory;
     private readonly string _producerVersion;
     private readonly Func<IAuditRuntimeResources> _openRuntime;
 
@@ -39,7 +40,8 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
         ScriptEvidenceStoreProvider evidence,
         string producerVersion,
         Func<AuditJournal>? openJournal = null,
-        Func<IAuditRuntimeResources>? openRuntime = null)
+        Func<IAuditRuntimeResources>? openRuntime = null,
+        IAuditCallFactory? callFactory = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -49,6 +51,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
         _options = options;
         _health = health;
         _evidence = evidence;
+        _callFactory = callFactory ?? GuardianAuditCallFactory.Instance;
         _producerVersion = producerVersion;
         if (openJournal is not null && openRuntime is not null)
         {
@@ -68,11 +71,13 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
         AuditOptions options,
         AuditHealth health,
         AuditJournal journal,
-        ScriptEvidenceStoreProvider evidence)
+        ScriptEvidenceStoreProvider evidence,
+        IAuditCallFactory callFactory)
     {
         _options = options;
         _health = health;
         _evidence = evidence;
+        _callFactory = callFactory;
         _producerVersion = "test";
         _openRuntime = () => new AuditRuntimeResources(journal, ownsJournal: false);
         _resources = new AuditRuntimeResources(journal, ownsJournal: false);
@@ -84,8 +89,14 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
         AuditOptions options,
         AuditHealth health,
         AuditJournal journal,
-        ScriptEvidenceStore evidence) =>
-        new(options, health, journal, new ScriptEvidenceStoreProvider(evidence));
+        ScriptEvidenceStore evidence,
+        IAuditCallFactory? callFactory = null) =>
+        new(
+            options,
+            health,
+            journal,
+            new ScriptEvidenceStoreProvider(evidence),
+            callFactory ?? GuardianAuditCallFactory.Instance);
 
     internal AuditHealth Health => _health;
 
@@ -108,9 +119,9 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
 
     void IAuditAdmissionOwner.Touch() => Touch();
 
-    internal bool TryCreateCallContext(
+    internal bool TryCreateCall(
         int upcomingRecordSlots,
-        out AuditCallContext? context)
+        out AuditCallLifecycle? context)
     {
         if (upcomingRecordSlots < 1)
             throw new ArgumentOutOfRangeException(nameof(upcomingRecordSlots));
@@ -143,7 +154,9 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
                     return false;
                 }
 
-                context = new AuditCallContext(_journal!, _evidence);
+                context = _callFactory.Create(_journal!, _evidence) ??
+                    throw new InvalidOperationException(
+                        "The audit call factory returned no lifecycle.");
                 return true;
             }
         }
@@ -158,7 +171,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
     internal bool TryBeginCall(
         AuditCallMetadata metadata,
         string? exactSubmittedScript,
-        out AuditCallContext? context,
+        out AuditCallLifecycle? context,
         out AuditRuntimeCallLease? callLease,
         out string? failureClass)
     {
@@ -225,7 +238,9 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
                 }
             }
 
-            var candidate = new AuditCallContext(_journal!, _evidence);
+            var candidate = _callFactory.Create(_journal!, _evidence) ??
+                throw new InvalidOperationException(
+                    "The audit call factory returned no lifecycle.");
             if (!candidate.TryBegin(metadata, exactSubmittedScript, out failureClass))
                 return false;
 

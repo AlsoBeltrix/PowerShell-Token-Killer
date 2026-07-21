@@ -53,6 +53,16 @@ public sealed class GuardianBoundaryContractTests
                     ]),
             ]);
         AssertInternalInterface(
+            typeof(IAuditCallFactory),
+            [],
+            [],
+            [
+                (
+                    "Create",
+                    typeof(AuditCallLifecycle),
+                    [typeof(AuditJournal), typeof(ScriptEvidenceStoreProvider)]),
+            ]);
+        AssertInternalInterface(
             typeof(IOrderedOwnedLifetime),
             [typeof(IDisposable)],
             [],
@@ -106,7 +116,11 @@ public sealed class GuardianBoundaryContractTests
     public void Server_adapters_implement_only_the_guardian_safe_ownership_shapes()
     {
         AssertExplicitImplementation<AuditRuntimeResources, IAuditRuntimeResources>();
-        AssertExplicitImplementation<AuditCallContext, IAuditBoundaryCall>();
+        AssertExplicitImplementation<AuditCallLifecycle, IAuditBoundaryCall>();
+        Assert.Equal(typeof(AuditCallLifecycle), typeof(AuditCallContext).BaseType);
+        Assert.Contains(
+            typeof(IAuditCallFactory),
+            typeof(AuditCallContextFactory).GetInterfaces());
         AssertExplicitImplementation<AuditRuntimeGate, IAuditAdmissionOwner>();
         AssertExplicitImplementation<OutputStore, IOutputArtifactReader>();
         AssertExplicitImplementation<OutputStore, IOutputCaptureOwner>();
@@ -126,6 +140,7 @@ public sealed class GuardianBoundaryContractTests
         Assert.Single(
             fields,
             field => field.FieldType == typeof(Func<IAuditRuntimeResources>));
+        Assert.Single(fields, field => field.FieldType == typeof(IAuditCallFactory));
         Assert.DoesNotContain(
             fields,
             field => field.FieldType == typeof(Func<AuditRuntimeResources>));

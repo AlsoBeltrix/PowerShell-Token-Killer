@@ -147,7 +147,8 @@ public sealed class AuditAnchoredRuntimeTests : IDisposable
                 health,
                 "anchored-runtime-test",
                 transport,
-                evidence));
+                evidence),
+            callFactory: AuditCallContextFactory.Instance);
     }
 
     private static async Task WaitUntilAsync(Func<bool> condition, TimeSpan timeout)

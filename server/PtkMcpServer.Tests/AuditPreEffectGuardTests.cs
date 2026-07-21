@@ -2047,7 +2047,11 @@ public sealed class AuditPreEffectGuardTests : IDisposable
             supervisorBootId: Guid.Parse("22345678-1234-4abc-8def-0123456789ab"));
         var evidence = new ScriptEvidenceStore(options.EvidenceDirectory, evidenceFault);
         var runtime = AuditRuntimeGate.CreateOperationalForTests(
-            options, health, journal, evidence);
+            options,
+            health,
+            journal,
+            evidence,
+            AuditCallContextFactory.Instance);
         var auditContext = new AuditCallContextAccessor();
         var outputStore = new OutputStore(new OutputStoreOptions(
             Path.Combine(root, "output"),

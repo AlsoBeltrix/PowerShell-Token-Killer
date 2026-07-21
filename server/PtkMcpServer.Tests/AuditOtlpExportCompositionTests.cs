@@ -245,7 +245,8 @@ public sealed class AuditOtlpExportCompositionTests
                 health,
                 "export-composition-test",
                 transport,
-                evidence));
+                evidence),
+            callFactory: AuditCallContextFactory.Instance);
     }
 
     private static AuditOtlpHttpExporter CreateExporter(

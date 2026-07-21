@@ -101,7 +101,8 @@ public sealed class AuditRuntimeGateTests : IDisposable
             health,
             new ScriptEvidenceStoreProvider(options),
             "runtime-export-order-test",
-            openRuntime: OpenRuntime);
+            openRuntime: OpenRuntime,
+            callFactory: AuditCallContextFactory.Instance);
         await runtime.StartAsync(CancellationToken.None);
         var activeSource = Assert.IsType<BlockingExportSource>(source);
         await activeSource.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
@@ -142,7 +143,8 @@ public sealed class AuditRuntimeGateTests : IDisposable
             health,
             new ScriptEvidenceStoreProvider(options),
             "runtime-export-fault-test",
-            openRuntime: OpenRuntime);
+            openRuntime: OpenRuntime,
+            callFactory: AuditCallContextFactory.Instance);
         await runtime.StartAsync(CancellationToken.None);
         await Assert.IsType<ThrowingExportSource>(source).Faulted.Task
             .WaitAsync(TimeSpan.FromSeconds(5));
@@ -289,7 +291,8 @@ public sealed class AuditRuntimeGateTests : IDisposable
             health,
             new ScriptEvidenceStoreProvider(options),
             "runtime-race-test",
-            OpenJournal);
+            OpenJournal,
+            callFactory: AuditCallContextFactory.Instance);
         await runtime.StartAsync(CancellationToken.None);
         using var services = new ServiceCollection()
             .AddSingleton<IAuditAdmissionOwner>(runtime)
@@ -383,7 +386,8 @@ public sealed class AuditRuntimeGateTests : IDisposable
             {
                 Interlocked.Increment(ref openCalls);
                 throw new IOException("injected startup failure");
-            });
+            },
+            callFactory: AuditCallContextFactory.Instance);
         await runtime.StartAsync(CancellationToken.None);
         Assert.Equal(1, openCalls);
 
@@ -391,7 +395,7 @@ public sealed class AuditRuntimeGateTests : IDisposable
         canceled.Cancel();
         await runtime.StopAsync(canceled.Token);
         await runtime.StopAsync(CancellationToken.None);
-        Assert.False(runtime.TryCreateCallContext(1, out _));
+        Assert.False(runtime.TryCreateCall(1, out _));
         var factoryCalls = 0;
         Assert.Throws<AuditUnavailableException>(() =>
             runtime.RunAfterStarted(() =>
@@ -511,8 +515,9 @@ public sealed class AuditRuntimeGateTests : IDisposable
             out var exactScript,
             out _));
         Assert.True(runtime.TryBeginCall(
-            metadata!, exactScript, out var audit, out var activeCall, out _));
+            metadata!, exactScript, out var admittedCall, out var activeCall, out _));
         using var activeCallLease = activeCall!;
+        var audit = Assert.IsType<AuditCallContext>(admittedCall);
         var plan = jobs.PrepareStart(script, Directory.GetCurrentDirectory());
         var terminal = Assert.IsType<AuditJobTerminalLease>(
             audit!.AuthorizeJobStart(plan.Id, Directory.GetCurrentDirectory()));
@@ -1002,7 +1007,8 @@ public sealed class AuditRuntimeGateTests : IDisposable
             options,
             health,
             new ScriptEvidenceStoreProvider(options),
-            "runtime-gate-test");
+            "runtime-gate-test",
+            callFactory: AuditCallContextFactory.Instance);
 
     private static async ValueTask<CallToolResult> Filter(
         IServiceProvider services,

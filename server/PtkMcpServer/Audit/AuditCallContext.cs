@@ -846,6 +846,19 @@ internal sealed class AuditCallContext : AuditCallLifecycle, IInvocationAuthoriz
 
 }
 
+internal sealed class AuditCallContextFactory : IAuditCallFactory
+{
+    internal static AuditCallContextFactory Instance { get; } = new();
+
+    private AuditCallContextFactory()
+    {
+    }
+
+    public AuditCallLifecycle Create(
+        AuditJournal journal,
+        ScriptEvidenceStoreProvider evidence) => new AuditCallContext(journal, evidence);
+}
+
 /// <summary>
 /// Request-scoped tool-layer holder for the admitted audit capability. It is
 /// deliberately an ordinary DI object, not static/AsyncLocal state: a

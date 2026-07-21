@@ -30,6 +30,8 @@ internal sealed class GuardianHostSupervisor :
         "The guardian could not reserve output recovery; no backend work started.";
     private const string JobAdmissionText =
         "The guardian could not reserve a public job identifier; no backend work started.";
+    private const string JobLookupText =
+        "The guardian does not own an active job with that identifier; no backend work started.";
     private static readonly TimeSpan DispatchCapabilityLifetime = TimeSpan.FromMinutes(1);
 
     private readonly object _stateSync = new();
@@ -246,10 +248,7 @@ internal sealed class GuardianHostSupervisor :
         ArgumentNullException.ThrowIfNull(operation);
         if (operation.Kind is not (
                 GuardianHostOperationKind.InvokeForeground or
-                GuardianHostOperationKind.JobList or
-                GuardianHostOperationKind.JobStatus or
-                GuardianHostOperationKind.JobOutput or
-                GuardianHostOperationKind.JobKill))
+                GuardianHostOperationKind.JobList))
         {
             throw new ArgumentException(
                 "The operation does not use a session dispatch gate.",
@@ -272,6 +271,7 @@ internal sealed class GuardianHostSupervisor :
         return await DispatchSessionOperationCoreAsync(
                 operation,
                 backgroundInvoke: null,
+                jobControl: null,
                 operationIdentity,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -316,17 +316,97 @@ internal sealed class GuardianHostSupervisor :
         return DispatchSessionOperationCoreAsync(
             operation: null,
             backgroundInvoke,
+            jobControl: null,
             operationIdentity,
+            cancellationToken);
+    }
+
+    internal ValueTask<GuardianToolResult> DispatchJobStatusAsync(
+        CallId callId,
+        DispatchCapability dispatchCapability,
+        PublicJobId publicJobId,
+        CancellationToken cancellationToken) =>
+        DispatchJobControlAsync(
+            new JobControlDispatch(
+                GuardianHostOperationKind.JobStatus,
+                callId,
+                dispatchCapability,
+                outputCapability: null,
+                publicJobId,
+                offset: 0),
+            cancellationToken);
+
+    internal ValueTask<GuardianToolResult> DispatchJobOutputAsync(
+        CallId callId,
+        DispatchCapability dispatchCapability,
+        OutputCapability outputCapability,
+        PublicJobId publicJobId,
+        long offset,
+        CancellationToken cancellationToken) =>
+        DispatchJobControlAsync(
+            new JobControlDispatch(
+                GuardianHostOperationKind.JobOutput,
+                callId,
+                dispatchCapability,
+                outputCapability,
+                publicJobId,
+                offset),
+            cancellationToken);
+
+    internal ValueTask<GuardianToolResult> DispatchJobKillAsync(
+        CallId callId,
+        DispatchCapability dispatchCapability,
+        PublicJobId publicJobId,
+        CancellationToken cancellationToken) =>
+        DispatchJobControlAsync(
+            new JobControlDispatch(
+                GuardianHostOperationKind.JobKill,
+                callId,
+                dispatchCapability,
+                outputCapability: null,
+                publicJobId,
+                offset: 0),
+            cancellationToken);
+
+    /// <summary>
+    /// Resolves one guardian-held job capability only under the same authority
+    /// that guards first write. Public argument parsing and mandatory audit
+    /// authorization remain outside this still-internal seam.
+    /// </summary>
+    private ValueTask<GuardianToolResult> DispatchJobControlAsync(
+        JobControlDispatch jobControl,
+        CancellationToken cancellationToken)
+    {
+        if (_jobCapabilities is null)
+        {
+            throw new InvalidOperationException(
+                "A job operation requires guardian job ownership.");
+        }
+        if (jobControl.OutputCapability is not null && _outputCoordinator is null)
+        {
+            throw new InvalidOperationException(
+                "A job output operation requires guardian output ownership.");
+        }
+
+        return DispatchSessionOperationCoreAsync(
+            operation: null,
+            backgroundInvoke: null,
+            jobControl,
+            operationIdentity: null,
             cancellationToken);
     }
 
     private async ValueTask<GuardianToolResult> DispatchSessionOperationCoreAsync(
         GuardianHostOperation? operation,
         BackgroundInvokeDispatch? backgroundInvoke,
+        JobControlDispatch? jobControl,
         GuardianHostOperationIdentity? operationIdentity,
         CancellationToken cancellationToken)
     {
-        if ((operation is null) == (backgroundInvoke is null))
+        var operationSourceCount = (operation is null ? 0 : 1) +
+            (backgroundInvoke is null ? 0 : 1) +
+            (jobControl is null ? 0 : 1);
+        if (operationSourceCount != 1)
         {
             throw new InvalidOperationException(
                 "Exactly one private session operation source is required.");
@@ -392,6 +472,22 @@ internal sealed class GuardianHostSupervisor :
                                     }
                                     dispatchedOperation = backgroundInvoke.CreateOperation(
                                         jobRegistration!.PublicJobId);
+                                }
+                                else if (jobControl is not null)
+                                {
+                                    if (!_jobCapabilities!.TryGetActive(
+                                            jobControl.PublicJobId,
+                                            out var jobCapability) ||
+                                        !jobCapability!.MatchesOwner(
+                                            active.Lease.Identity,
+                                            target.Alias,
+                                            target.TransitionVersion,
+                                            target.WorkerIdentity))
+                                    {
+                                        throw new JobLookupException();
+                                    }
+                                    dispatchedOperation = jobControl.CreateOperation(
+                                        jobCapability);
                                 }
 
                                 var request = new OperationRequest(
@@ -462,6 +558,10 @@ internal sealed class GuardianHostSupervisor :
             catch (JobAdmissionException)
             {
                 return new GuardianToolResult(JobAdmissionText, isError: true);
+            }
+            catch (JobLookupException)
+            {
+                return new GuardianToolResult(JobLookupText, isError: true);
             }
             catch (Exception exception) when (!IsFatalRuntimeException(exception))
             {
@@ -1795,6 +1895,8 @@ internal sealed class GuardianHostSupervisor :
 
     private sealed class JobAdmissionException : InvalidOperationException;
 
+    private sealed class JobLookupException : InvalidOperationException;
+
     private sealed class BackgroundInvokeDispatch
     {
         private readonly CallId _callId;
@@ -1840,6 +1942,95 @@ internal sealed class GuardianHostSupervisor :
                 _raw,
                 _route,
                 publicJobId);
+    }
+
+    private sealed class JobControlDispatch
+    {
+        private readonly GuardianHostOperationKind _operationKind;
+        private readonly CallId _callId;
+        private readonly DispatchCapability _dispatchCapability;
+        private readonly long _offset;
+
+        internal JobControlDispatch(
+            GuardianHostOperationKind operationKind,
+            CallId callId,
+            DispatchCapability dispatchCapability,
+            OutputCapability? outputCapability,
+            PublicJobId publicJobId,
+            long offset)
+        {
+            if (operationKind is not (
+                    GuardianHostOperationKind.JobStatus or
+                    GuardianHostOperationKind.JobOutput or
+                    GuardianHostOperationKind.JobKill))
+            {
+                throw new ArgumentOutOfRangeException(nameof(operationKind));
+            }
+            ArgumentNullException.ThrowIfNull(callId);
+            ArgumentNullException.ThrowIfNull(dispatchCapability);
+            ArgumentNullException.ThrowIfNull(publicJobId);
+            if (dispatchCapability.CallId != callId)
+            {
+                throw new ArgumentException(
+                    "Dispatch capability call ID must match the operation call ID.",
+                    nameof(dispatchCapability));
+            }
+            if ((operationKind == GuardianHostOperationKind.JobOutput) !=
+                (outputCapability is not null))
+            {
+                throw new ArgumentException(
+                    "Only job output accepts an output capability.",
+                    nameof(outputCapability));
+            }
+            if (operationKind == GuardianHostOperationKind.JobOutput)
+                GuardianHostDtoValidation.RequireNonnegative(offset, nameof(offset));
+            else if (offset != 0)
+                throw new ArgumentOutOfRangeException(nameof(offset));
+
+            _operationKind = operationKind;
+            _callId = callId;
+            _dispatchCapability = dispatchCapability;
+            OutputCapability = outputCapability;
+            PublicJobId = publicJobId;
+            _offset = offset;
+        }
+
+        internal OutputCapability? OutputCapability { get; }
+
+        internal PublicJobId PublicJobId { get; }
+
+        internal GuardianHostOperation CreateOperation(
+            GuardianJobCapability capability)
+        {
+            if (capability.PublicJobId != PublicJobId)
+            {
+                throw new InvalidOperationException(
+                    "The resolved job capability does not match the requested ID.");
+            }
+
+            return _operationKind switch
+            {
+                GuardianHostOperationKind.JobStatus => new JobStatusOperation(
+                    _callId,
+                    _dispatchCapability,
+                    PublicJobId,
+                    capability.JobCapability),
+                GuardianHostOperationKind.JobOutput => new JobOutputOperation(
+                    _callId,
+                    _dispatchCapability,
+                    OutputCapability!,
+                    PublicJobId,
+                    capability.JobCapability,
+                    _offset),
+                GuardianHostOperationKind.JobKill => new JobKillOperation(
+                    _callId,
+                    _dispatchCapability,
+                    PublicJobId,
+                    capability.JobCapability),
+                _ => throw new InvalidOperationException(
+                    "The job control operation kind is invalid."),
+            };
+        }
     }
 
     private readonly record struct DispatchAdmission(

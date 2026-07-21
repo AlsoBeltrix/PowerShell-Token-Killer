@@ -627,6 +627,73 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Public_foreground_invoke_routes_the_exact_admitted_request()
+    {
+        var session = new CanonicalAlias("build");
+        await using var rig = new TestRig(
+            session,
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.ForegroundOutput));
+        await rig.StartAsync();
+        const string script = "Write-Output 'exact ☃'\nGet-Date";
+        var deadline = rig.Clock.GetUtcNow().AddSeconds(37);
+
+        var result = await rig.DispatchPublicInvokeAsync(
+                script,
+                raw: true,
+                route: "rtk",
+                background: false,
+                timeoutSeconds: 37,
+                session: session.Value)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(result.IsError);
+        Assert.Contains("foreground shaped", result.Text, StringComparison.Ordinal);
+        AssertPublicInvoke(
+            Assert.Single(rig.Factory.Resources[0].Invokes),
+            GuardianHostOperationKind.InvokeForeground,
+            script,
+            raw: true,
+            GuardianHostInvokeRoute.Rtk,
+            session,
+            deadline.ToUnixTimeMilliseconds());
+    }
+
+    [Fact]
+    public async Task Public_background_invoke_reserves_the_guardian_job_and_exact_deadline()
+    {
+        var session = new CanonicalAlias("build");
+        await using var rig = new TestRig(
+            session,
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.BackgroundJobControls));
+        await rig.StartAsync();
+        const string script = "Start-Sleep -Milliseconds 1; 'done'";
+        var deadline = rig.Clock.GetUtcNow().AddSeconds(19);
+
+        var result = await rig.DispatchPublicInvokeAsync(
+                script,
+                raw: false,
+                route: "pwsh",
+                background: true,
+                timeoutSeconds: 19,
+                session: session.Value)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(result.IsError);
+        Assert.Equal("[job 1 started]", result.Text);
+        Assert.Equal(1, rig.JobCapabilities!.ActiveCount);
+        AssertPublicInvoke(
+            Assert.Single(rig.Factory.Resources[0].Invokes),
+            GuardianHostOperationKind.InvokeBackground,
+            script,
+            raw: false,
+            GuardianHostInvokeRoute.Pwsh,
+            session,
+            deadline.ToUnixTimeMilliseconds());
+    }
+
+    [Fact]
     public async Task Unknown_job_output_is_refused_before_output_reservation_or_write()
     {
         await using var rig = new TestRig(
@@ -1298,6 +1365,32 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(offset, observed.Offset);
     }
 
+    private static void AssertPublicInvoke(
+        ObservedInvoke observed,
+        GuardianHostOperationKind operationKind,
+        string script,
+        bool raw,
+        GuardianHostInvokeRoute route,
+        CanonicalAlias session,
+        long deadlineUnixTimeMilliseconds)
+    {
+        Assert.Equal(operationKind, observed.OperationKind);
+        Assert.Equal(script, observed.Script);
+        Assert.Equal(raw, observed.Raw);
+        Assert.Equal(route, observed.Route);
+        Assert.Equal(session, observed.SessionAlias);
+        Assert.Equal(deadlineUnixTimeMilliseconds, observed.DeadlineUnixTimeMilliseconds);
+        Assert.Equal(
+            deadlineUnixTimeMilliseconds,
+            observed.DispatchCapability.ExpiresUnixTimeMilliseconds);
+        Assert.Equal(
+            deadlineUnixTimeMilliseconds,
+            observed.OutputCapability.ExpiresUnixTimeMilliseconds);
+        Assert.Equal(1024, observed.OutputCapability.MaximumBytes);
+        Assert.Equal(4, observed.OperationIdentity.PlanId.Value.Version);
+        Assert.Equal(4, observed.OperationIdentity.OperationId.Value.Version);
+    }
+
     private static PublicRecoveryError DecodeRecovery(GuardianToolResult result)
     {
         Assert.True(result.IsError);
@@ -1329,6 +1422,30 @@ public sealed class GuardianHostSupervisorTests
         if (StringComparer.Ordinal.Equals(action, "output"))
             values["offset"] = offset;
 
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(values));
+        return document.RootElement.EnumerateObject().ToDictionary(
+            property => property.Name,
+            property => property.Value.Clone(),
+            StringComparer.Ordinal);
+    }
+
+    private static IReadOnlyDictionary<string, JsonElement> InvokeArguments(
+        string script,
+        bool raw,
+        string route,
+        bool background,
+        int timeoutSeconds,
+        string session)
+    {
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["script"] = script,
+            ["raw"] = raw,
+            ["route"] = route,
+            ["background"] = background,
+            ["timeoutSeconds"] = timeoutSeconds,
+            ["session"] = session,
+        };
         using var document = JsonDocument.Parse(JsonSerializer.Serialize(values));
         return document.RootElement.EnumerateObject().ToDictionary(
             property => property.Name,
@@ -1523,6 +1640,43 @@ public sealed class GuardianHostSupervisorTests
                     CancellationToken.None));
         }
 
+        internal Task<GuardianToolResult> DispatchPublicInvokeAsync(
+            string script,
+            bool raw,
+            string route,
+            bool background,
+            int timeoutSeconds,
+            string session)
+        {
+            var arguments = InvokeArguments(
+                script,
+                raw,
+                route,
+                background,
+                timeoutSeconds,
+                session);
+            var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            return DispatchAuditedAsync(
+                Metadata(
+                    "ptk_invoke",
+                    "invoke",
+                    maximumCallRecordSlots: 11,
+                    persistentJobTerminalSlots: background ? 1 : 0,
+                    background: background,
+                    session: session,
+                    raw: raw,
+                    route: route,
+                    timeoutMilliseconds: checked((long)timeout.TotalMilliseconds),
+                    deadlineUtc: Clock.GetUtcNow().Add(timeout),
+                    providedFields: arguments.Keys.Order(StringComparer.Ordinal).ToArray()),
+                script,
+                auditCall => Supervisor.DispatchAsync(
+                    "ptk_invoke",
+                    arguments,
+                    auditCall,
+                    CancellationToken.None));
+        }
+
         internal Task<GuardianToolResult> DispatchSessionOperationAsync(
             GuardianHostOperation operation,
             GuardianHostOperationIdentity? operationIdentity)
@@ -1536,7 +1690,14 @@ public sealed class GuardianHostSupervisorTests
                         "ptk_invoke",
                         "invoke",
                         maximumCallRecordSlots: 11,
-                        background: false),
+                        background: false,
+                        raw: invoke.Raw,
+                        route: invoke.Route.ToString().ToLowerInvariant(),
+                        timeoutMilliseconds:
+                            invoke.DispatchCapability.ExpiresUnixTimeMilliseconds -
+                            Clock.GetUtcNow().ToUnixTimeMilliseconds(),
+                        deadlineUtc: DateTimeOffset.FromUnixTimeMilliseconds(
+                            invoke.DispatchCapability.ExpiresUnixTimeMilliseconds)),
                 invoke?.Script,
                 auditCall => Supervisor.DispatchSessionOperationAsync(
                     invoke is null
@@ -1570,7 +1731,12 @@ public sealed class GuardianHostSupervisorTests
                     maximumCallRecordSlots: 11,
                     persistentJobTerminalSlots: 1,
                     background: true,
-                    session: session),
+                    session: session,
+                    raw: false,
+                    route: "auto",
+                    timeoutMilliseconds:
+                        expires - Clock.GetUtcNow().ToUnixTimeMilliseconds(),
+                    deadlineUtc: DateTimeOffset.FromUnixTimeMilliseconds(expires)),
                 script,
                 auditCall => Supervisor.DispatchBackgroundInvokeAsync(
                     auditCall.PublicCallId,
@@ -1688,7 +1854,12 @@ public sealed class GuardianHostSupervisorTests
             int persistentJobTerminalSlots = 0,
             bool? background = null,
             long? jobId = null,
-            string session = "default") => new(
+            string session = "default",
+            bool? raw = null,
+            string? route = null,
+            long? timeoutMilliseconds = null,
+            DateTimeOffset? deadlineUtc = null,
+            IReadOnlyList<string>? providedFields = null) => new(
                 new AuditActor
                 {
                     Transport = "mcp_stdio",
@@ -1698,10 +1869,14 @@ public sealed class GuardianHostSupervisorTests
                 {
                     Tool = tool,
                     Action = action,
-                    ProvidedFields = [],
+                    ProvidedFields = providedFields ?? [],
                     SessionRequested = session,
                     Background = background,
                     JobId = jobId,
+                    Raw = raw,
+                    Route = route,
+                    TimeoutMs = timeoutMilliseconds,
+                    DeadlineUtc = deadlineUtc,
                 },
                 new AuditOperationProfile(
                     maximumCallRecordSlots,
@@ -2256,6 +2431,17 @@ public sealed class GuardianHostSupervisorTests
         CapabilityToken JobCapability,
         long Offset);
 
+    private sealed record ObservedInvoke(
+        GuardianHostOperationKind OperationKind,
+        string Script,
+        bool Raw,
+        GuardianHostInvokeRoute Route,
+        CanonicalAlias SessionAlias,
+        long DeadlineUnixTimeMilliseconds,
+        DispatchCapability DispatchCapability,
+        OutputCapability OutputCapability,
+        GuardianHostOperationIdentity OperationIdentity);
+
     private sealed class FakeAttemptFactory : IGuardianHostAttemptFactory
     {
         private readonly object _sync = new();
@@ -2343,6 +2529,7 @@ public sealed class GuardianHostSupervisorTests
         internal int OperationCount => _peer.OperationCount;
         internal IReadOnlyList<long> RequestIds => _peer.RequestIds;
         internal IReadOnlyList<ObservedJobControl> JobControls => _peer.JobControls;
+        internal IReadOnlyList<ObservedInvoke> Invokes => _peer.Invokes;
         internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
         internal Task OutputFinished => _outputFinished.Task;
 
@@ -2431,6 +2618,7 @@ public sealed class GuardianHostSupervisorTests
         private readonly GuardianHostSupervisorPins _pins;
         private readonly List<long> _requestIds = [];
         private readonly List<ObservedJobControl> _jobControls = [];
+        private readonly List<ObservedInvoke> _invokes = [];
         private int _operationCount;
         private long _eventSequence;
 
@@ -2454,6 +2642,10 @@ public sealed class GuardianHostSupervisorTests
         internal IReadOnlyList<ObservedJobControl> JobControls
         {
             get { lock (_sync) return _jobControls.ToArray(); }
+        }
+        internal IReadOnlyList<ObservedInvoke> Invokes
+        {
+            get { lock (_sync) return _invokes.ToArray(); }
         }
 
         internal void Start(HostBehavior behavior) =>
@@ -2545,6 +2737,7 @@ public sealed class GuardianHostSupervisorTests
                         continue;
                     Record(operation.RequestId);
                     Interlocked.Increment(ref _operationCount);
+                    RecordInvoke(operation);
                     if (behavior == HostBehavior.Hold)
                         continue;
                     if (behavior == HostBehavior.CrashAfterRequest)
@@ -2731,6 +2924,36 @@ public sealed class GuardianHostSupervisorTests
                     operation.JobCapability,
                     offset));
             }
+        }
+
+        private void RecordInvoke(OperationRequest request)
+        {
+            var invoke = request.Operation switch
+            {
+                InvokeForegroundOperation foreground => new ObservedInvoke(
+                    foreground.Kind,
+                    foreground.Script,
+                    foreground.Raw,
+                    foreground.Route,
+                    request.SessionAlias!,
+                    request.DeadlineUnixTimeMilliseconds!.Value,
+                    foreground.DispatchCapability,
+                    foreground.OutputCapability!,
+                    request.OperationIdentity!),
+                InvokeBackgroundOperation background => new ObservedInvoke(
+                    background.Kind,
+                    background.Script,
+                    background.Raw,
+                    background.Route,
+                    request.SessionAlias!,
+                    request.DeadlineUnixTimeMilliseconds!.Value,
+                    background.DispatchCapability,
+                    background.OutputCapability!,
+                    request.OperationIdentity!),
+                _ => null,
+            };
+            if (invoke is null) return;
+            lock (_sync) _invokes.Add(invoke);
         }
     }
 

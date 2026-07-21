@@ -150,6 +150,80 @@ public sealed class GuardianAuditCallTests
         }
     }
 
+    [Fact]
+    public void Invocation_dispatch_authorization_binds_every_admitted_fact_and_plan()
+    {
+        using var fixture = new Fixture();
+        var call = fixture.CreateCall();
+        Assert.True(
+            call.TryBegin(InvokeMetadata(), InvokeScript, out var failure),
+            failure);
+        var identity = new GuardianHostOperationIdentity(
+            new PlanId(Guid.Parse("45345678-1234-4abc-8def-0123456789ab")),
+            new OperationId(Guid.Parse("55345678-1234-4abc-8def-0123456789ab")));
+        var accepted = call.AcceptedInvokeFacts;
+        Assert.Equal(InvokeDigest, accepted.ScriptDigest);
+        Assert.True(accepted.Raw);
+        Assert.Equal(GuardianHostInvokeRoute.Rtk, accepted.Route);
+        Assert.False(accepted.Background);
+        Assert.Equal(InvokeDeadline.ToUnixTimeMilliseconds(),
+            accepted.DeadlineUnixTimeMilliseconds);
+
+        AssertRejected(new GuardianAuditInvokeFacts(
+            new Sha256Digest(new string('c', 64)),
+            accepted.Raw,
+            accepted.Route,
+            accepted.Background,
+            accepted.DeadlineUnixTimeMilliseconds));
+        AssertRejected(new GuardianAuditInvokeFacts(
+            accepted.ScriptDigest,
+            raw: false,
+            route: accepted.Route,
+            background: accepted.Background,
+            deadlineUnixTimeMilliseconds: accepted.DeadlineUnixTimeMilliseconds));
+        AssertRejected(new GuardianAuditInvokeFacts(
+            accepted.ScriptDigest,
+            accepted.Raw,
+            GuardianHostInvokeRoute.Auto,
+            accepted.Background,
+            accepted.DeadlineUnixTimeMilliseconds));
+        AssertRejected(new GuardianAuditInvokeFacts(
+            accepted.ScriptDigest,
+            accepted.Raw,
+            accepted.Route,
+            accepted.Background,
+            accepted.DeadlineUnixTimeMilliseconds + 1));
+        Assert.Throws<ArgumentException>(() =>
+            new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.InvokeForeground,
+                TemplateSession()));
+
+        Assert.True(call.TryAuthorizeDispatch(
+            new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.InvokeForeground,
+                TemplateSession(),
+                publicJobId: null,
+                invokeDispatch: new GuardianAuditInvokeDispatch(identity, accepted))));
+        call.CompleteCall("completed", "ok");
+
+        var events = fixture.Sink.Lines.Select(Parse).ToArray();
+        Assert.Equal(
+            identity.PlanId.Value,
+            events[1].GetProperty("correlation").GetProperty("plan_id").GetGuid());
+
+        void AssertRejected(GuardianAuditInvokeFacts facts)
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+                call.TryAuthorizeDispatch(
+                    new GuardianAuditDispatchAuthorization(
+                        GuardianHostOperationKind.InvokeForeground,
+                        TemplateSession(),
+                        publicJobId: null,
+                        invokeDispatch: new GuardianAuditInvokeDispatch(identity, facts))));
+            Assert.False(call.EffectAuthorized);
+        }
+    }
+
     [Theory]
     [InlineData(false, GuardianAuditCall.DispatchCompletedEvent, "completed", "confirmed")]
     [InlineData(true, GuardianAuditCall.DispatchFailedEvent, "failed", "confirmed")]
@@ -281,6 +355,11 @@ public sealed class GuardianAuditCallTests
     private static readonly Sha256Digest BootstrapDigest = Sha256Digest.Compute(BootstrapBytes);
     private static readonly Sha256Digest TemplateDigest = new(new string('a', 64));
     private static readonly Sha256Digest BindingDigest = new(new string('b', 64));
+    private const string InvokeScript = "Write-Output 'exact ☃'";
+    private static readonly Sha256Digest InvokeDigest =
+        Sha256Digest.Compute(Encoding.UTF8.GetBytes(InvokeScript));
+    private static readonly DateTimeOffset InvokeDeadline =
+        DateTimeOffset.UnixEpoch.AddDays(2);
 
     private static GuardianAuditSession TemplateSession(long? generation = 17)
     {
@@ -347,6 +426,33 @@ public sealed class GuardianAuditCallTests
             MaximumCallRecordSlots: 4,
             PersistentJobTerminalSlots: 0,
             RequiresScriptEvidence: false,
+            MayHaveSideEffects: true));
+
+    private static AuditCallMetadata InvokeMetadata() => new(
+        new AuditActor
+        {
+            Transport = "mcp_stdio",
+            ClientName = "guardian-test",
+            ClientVersion = "1",
+            ClientSessionId = "session",
+            AttributionStrength = "client_asserted",
+        },
+        new AuditRequest
+        {
+            Tool = "ptk_invoke",
+            Action = "invoke",
+            SessionRequested = "build",
+            ProvidedFields = ["background", "raw", "route", "script", "session"],
+            TimeoutMs = 30_000,
+            DeadlineUtc = InvokeDeadline,
+            Route = "rtk",
+            Background = false,
+            Raw = true,
+        },
+        new AuditOperationProfile(
+            MaximumCallRecordSlots: 11,
+            PersistentJobTerminalSlots: 0,
+            RequiresScriptEvidence: true,
             MayHaveSideEffects: true));
 
     private static JsonElement Parse(byte[] line)

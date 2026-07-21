@@ -33,6 +33,7 @@ internal sealed class GuardianHostSupervisor :
         "The guardian could not reserve a public job identifier; no backend work started.";
     private const string JobLookupText =
         "The guardian does not own an active job with that identifier; no backend work started.";
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly TimeSpan DispatchCapabilityLifetime = TimeSpan.FromMinutes(1);
 
     private readonly object _stateSync = new();
@@ -187,6 +188,9 @@ internal sealed class GuardianHostSupervisor :
                 isError: false));
         }
 
+        if (StringComparer.Ordinal.Equals(toolName, "ptk_invoke"))
+            return DispatchInvokeAsync(arguments, auditCall, cancellationToken);
+
         if (!StringComparer.Ordinal.Equals(toolName, "ptk_job") ||
             !TryReadJobArguments(
                 arguments,
@@ -247,6 +251,159 @@ internal sealed class GuardianHostSupervisor :
                 UnsupportedToolText,
                 isError: true)),
         };
+    }
+
+    private ValueTask<GuardianToolResult> DispatchInvokeAsync(
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        GuardianAuditCall auditCall,
+        CancellationToken cancellationToken)
+    {
+        if (_outputCoordinator is null)
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+
+        var admitted = auditCall.AcceptedInvokeFacts;
+        if (!TryReadInvokeArguments(
+                arguments,
+                auditCall.RequestedSessionAlias,
+                admitted,
+                out var script) ||
+            (admitted.Background && _jobCapabilities is null))
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+
+        var callId = auditCall.PublicCallId;
+        var dispatch = new DispatchCapability(
+            NewCapabilityToken(),
+            callId,
+            admitted.DeadlineUnixTimeMilliseconds);
+        var output = new OutputCapability(
+            NewCapabilityToken(),
+            _outputCoordinator.MaximumCaptureBytes,
+            admitted.DeadlineUnixTimeMilliseconds);
+        var operationIdentity = NewOperationIdentity();
+        return admitted.Background
+            ? DispatchBackgroundInvokeAsync(
+                callId,
+                dispatch,
+                output,
+                script,
+                admitted.Raw,
+                admitted.Route,
+                operationIdentity,
+                auditCall,
+                cancellationToken)
+            : DispatchSessionOperationAsync(
+                new InvokeForegroundOperation(
+                    callId,
+                    dispatch,
+                    output,
+                    script,
+                    admitted.Raw,
+                    admitted.Route),
+                operationIdentity,
+                auditCall,
+                cancellationToken);
+    }
+
+    private static bool TryReadInvokeArguments(
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        CanonicalAlias admittedSessionAlias,
+        GuardianAuditInvokeFacts admitted,
+        out string script)
+    {
+        script = string.Empty;
+        if (arguments.Keys.Any(static key => key is not (
+                "script" or "raw" or "route" or "background" or
+                "timeoutSeconds" or "session")) ||
+            !arguments.TryGetValue("script", out var scriptElement) ||
+            scriptElement.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+        script = scriptElement.GetString()!;
+
+        Sha256Digest scriptDigest;
+        try
+        {
+            scriptDigest = ComputeScriptDigest(script);
+        }
+        catch (EncoderFallbackException)
+        {
+            script = string.Empty;
+            return false;
+        }
+        if (scriptDigest != admitted.ScriptDigest)
+        {
+            script = string.Empty;
+            return false;
+        }
+
+        var raw = false;
+        if (arguments.TryGetValue("raw", out var rawElement))
+        {
+            if (rawElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+                return false;
+            raw = rawElement.GetBoolean();
+        }
+        if (raw != admitted.Raw)
+            return false;
+
+        var background = false;
+        if (arguments.TryGetValue("background", out var backgroundElement))
+        {
+            if (backgroundElement.ValueKind is not (
+                    JsonValueKind.True or JsonValueKind.False))
+            {
+                return false;
+            }
+            background = backgroundElement.GetBoolean();
+        }
+        if (background != admitted.Background)
+            return false;
+
+        var route = GuardianHostInvokeRoute.Auto;
+        if (arguments.TryGetValue("route", out var routeElement))
+        {
+            if (routeElement.ValueKind is not (
+                    JsonValueKind.String or JsonValueKind.Null))
+            {
+                return false;
+            }
+            route = ParseRoute(
+                routeElement.ValueKind == JsonValueKind.Null
+                    ? null
+                    : routeElement.GetString());
+        }
+        if (route != admitted.Route)
+            return false;
+
+        var sessionAlias = new CanonicalAlias("default");
+        if (arguments.TryGetValue("session", out var sessionElement))
+        {
+            if (sessionElement.ValueKind != JsonValueKind.String)
+                return false;
+            try
+            {
+                sessionAlias = new CanonicalAlias(sessionElement.GetString()!);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+        if (sessionAlias != admittedSessionAlias)
+            return false;
+
+        return !arguments.TryGetValue("timeoutSeconds", out var timeoutElement) ||
+            timeoutElement.ValueKind == JsonValueKind.Number &&
+            timeoutElement.TryGetInt32(out _);
     }
 
     internal PublicStateSnapshot SnapshotState()
@@ -701,11 +858,28 @@ internal sealed class GuardianHostSupervisor :
                                         job.PublicJobId,
                                     _ => null,
                                 };
+                                var invokeDispatch = dispatchedOperation switch
+                                {
+                                    InvokeForegroundOperation invoke =>
+                                        CreateInvokeDispatch(
+                                            operationIdentity!,
+                                            invoke,
+                                            request.DeadlineUnixTimeMilliseconds!.Value,
+                                            background: false),
+                                    InvokeBackgroundOperation invoke =>
+                                        CreateInvokeDispatch(
+                                            operationIdentity!,
+                                            invoke,
+                                            request.DeadlineUnixTimeMilliseconds!.Value,
+                                            background: true),
+                                    _ => null,
+                                };
                                 if (!auditCall.TryAuthorizeDispatch(
                                         new GuardianAuditDispatchAuthorization(
                                             dispatchedOperation.Kind,
                                             target.AuditSession,
-                                            publicJobId)))
+                                            publicJobId,
+                                            invokeDispatch)))
                                 {
                                     throw new AuditAuthorizationException();
                                 }
@@ -2051,6 +2225,57 @@ internal sealed class GuardianHostSupervisor :
         var value = _timeProvider.GetUtcNow().Add(duration).ToUnixTimeMilliseconds();
         return Math.Max(1, value);
     }
+
+    private static GuardianAuditInvokeDispatch CreateInvokeDispatch(
+        GuardianHostOperationIdentity operationIdentity,
+        GuardianHostOperation operation,
+        long deadlineUnixTimeMilliseconds,
+        bool background)
+    {
+        var (script, raw, route) = operation switch
+        {
+            InvokeForegroundOperation invoke =>
+                (invoke.Script, invoke.Raw, invoke.Route),
+            InvokeBackgroundOperation invoke =>
+                (invoke.Script, invoke.Raw, invoke.Route),
+            _ => throw new ArgumentException(
+                "The private operation is not an invocation.",
+                nameof(operation)),
+        };
+        return new GuardianAuditInvokeDispatch(
+            operationIdentity,
+            new GuardianAuditInvokeFacts(
+                ComputeScriptDigest(script),
+                raw,
+                route,
+                background,
+                deadlineUnixTimeMilliseconds));
+    }
+
+    private static Sha256Digest ComputeScriptDigest(string script)
+    {
+        var bytes = StrictUtf8.GetBytes(script);
+        try
+        {
+            return Sha256Digest.Compute(bytes);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(bytes);
+        }
+    }
+
+    private static GuardianHostInvokeRoute ParseRoute(string? route) =>
+        route?.ToLowerInvariant() switch
+        {
+            "pwsh" => GuardianHostInvokeRoute.Pwsh,
+            "rtk" => GuardianHostInvokeRoute.Rtk,
+            _ => GuardianHostInvokeRoute.Auto,
+        };
+
+    private static GuardianHostOperationIdentity NewOperationIdentity() => new(
+        new PlanId(Guid.NewGuid()),
+        new OperationId(Guid.NewGuid()));
 
     private static CapabilityToken NewCapabilityToken()
     {

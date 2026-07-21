@@ -684,6 +684,7 @@ public sealed class GuardianArchitectureBoundaryTests
                 "jobPwshExecutable",
                 "new MonotonicPublicJobIdAllocator()",
                 "cancellationToken",
+                "true",
             ],
             localForward.ArgumentList.Arguments.Select(argument => argument.Expression.ToString()));
 
@@ -691,7 +692,7 @@ public sealed class GuardianArchitectureBoundaryTests
             injectedCreate.DescendantNodes().OfType<ObjectCreationExpressionSyntax>(),
             creation => creation.Type.ToString() == "JobManager");
         Assert.Equal(
-            ["publicJobIdAllocator", "jobPwshExecutable"],
+            ["publicJobIdAllocator", "jobPwshExecutable", "allowColdBackground"],
             injectedJobManager.ArgumentList!.Arguments
                 .Select(argument => argument.Expression.ToString()));
 

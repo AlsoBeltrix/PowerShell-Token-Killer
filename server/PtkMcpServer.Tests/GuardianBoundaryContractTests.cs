@@ -205,6 +205,24 @@ public sealed class GuardianBoundaryContractTests
                 typeName.Contains("PtkMcpServer.Audit", StringComparison.Ordinal) ||
                 typeName.Contains("ModelContextProtocol", StringComparison.Ordinal);
         });
+
+        var privateCompositionTypes = new[]
+        {
+            typeof(DefaultPrivateHostSessionFactory),
+            typeof(DefaultPrivateHostRuntimeFactory),
+        }.Concat(typeof(DefaultPrivateHostSessionFactory).GetNestedTypes(
+            BindingFlags.NonPublic));
+        var privateCompositionFields = privateCompositionTypes.SelectMany(type =>
+            type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic));
+        Assert.DoesNotContain(privateCompositionFields, field =>
+        {
+            var typeName = field.FieldType.ToString();
+            return typeName.Contains(nameof(OutputStore), StringComparison.Ordinal) ||
+                typeName.Contains(nameof(OutputCaptureReservation), StringComparison.Ordinal) ||
+                typeName.Contains(nameof(MonotonicPublicJobIdAllocator), StringComparison.Ordinal) ||
+                typeName.Contains("PtkMcpServer.Audit", StringComparison.Ordinal) ||
+                typeName.Contains("ModelContextProtocol", StringComparison.Ordinal);
+        });
     }
 
     [Fact]

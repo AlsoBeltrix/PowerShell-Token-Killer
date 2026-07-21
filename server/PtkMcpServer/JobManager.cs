@@ -495,9 +495,9 @@ public sealed class JobManager : IDisposable
     }
 
     /// <summary>
-    /// Frozen session admission fact. The reserved default session constructs
-    /// its manager with the public default (true); later named-session binding
-    /// passes its own frozen value through the internal constructor.
+    /// Frozen session admission fact. The transitional public default uses
+    /// true; private-host and later named-session bindings pass their frozen
+    /// manifest value through the internal constructor.
     /// </summary>
     internal bool AllowColdBackground => _allowColdBackground;
 

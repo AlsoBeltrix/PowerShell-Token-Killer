@@ -3,9 +3,9 @@ using PtkMcpGuardian.Ownership;
 namespace PtkMcpServer.Sessions;
 
 /// <summary>
-/// One construction path for the existing default runtime. Supervisor mode
-/// freezes its inputs at supervisor startup; worker mode invokes the same path
-/// only from WorkerServer's validated initialize factory.
+/// One construction path for the existing default runtime. Transitional public
+/// mode and the private host freeze their inputs at process startup; worker mode
+/// invokes the same path only from WorkerServer's validated initialize factory.
 /// </summary>
 internal static class DefaultSessionRuntimeFactory
 {
@@ -25,14 +25,16 @@ internal static class DefaultSessionRuntimeFactory
             maxCallTimeout,
             jobPwshExecutable,
             new MonotonicPublicJobIdAllocator(),
-            cancellationToken);
+            cancellationToken,
+            allowColdBackground: true);
 
     internal static SessionRuntime Create(
         TimeSpan callTimeout,
         TimeSpan maxCallTimeout,
         JobPwshExecutable jobPwshExecutable,
         IPublicJobIdAllocator publicJobIdAllocator,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowColdBackground = true)
     {
         ArgumentNullException.ThrowIfNull(publicJobIdAllocator);
         cancellationToken.ThrowIfCancellationRequested();
@@ -42,7 +44,10 @@ internal static class DefaultSessionRuntimeFactory
         {
             host = new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout);
             cancellationToken.ThrowIfCancellationRequested();
-            jobs = new JobManager(publicJobIdAllocator, jobPwshExecutable);
+            jobs = new JobManager(
+                publicJobIdAllocator,
+                jobPwshExecutable,
+                allowColdBackground: allowColdBackground);
             cancellationToken.ThrowIfCancellationRequested();
 
             var runtime = new SessionRuntime(host, jobs, new RawUsageCounter());

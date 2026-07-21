@@ -857,3 +857,20 @@ same SHA on Windows host `ASHBIAMWEB1`._
   This checkpoint needs one exact full pass after external machine load/state
   changes, or a stable reproduction and separately scoped diagnosis, before a
   complete-battery claim.
+- A later exact run from clean handoff descendant `589362d` (identical
+  code/test content to `a21b7a1`) passed Guardian 366/366 and architecture
+  70/70, then exposed stale working-tree materialization rather than a product
+  failure: all eight tracked `SiemConformance/*.base64` files physically ended
+  in CRLF despite the committed `text eol=lf` attribute, so the server corpus
+  guard failed at 1861/1862. Their raw bytes were mechanically normalized to
+  the exact committed blob hashes and the index stat cache was refreshed with
+  `git add --renormalize`; no tracked diff remained. The isolated corpus guard
+  then passed 1/1.
+- The immediately following exact `dotnet test server/PtkMcpServer.slnx` run
+  at `589362d` passed Guardian 366/366, architecture 70/70, and server
+  1862/1862. This closes the R4 checkpoint stall without changing a product or
+  test guard. The run continued to report only the known NU1903 advisories for
+  `System.Security.Cryptography.Xml` 10.0.6.
+- The owner confirmed that the local Gitea mirror is unreachable from this
+  machine and will be synchronized later from another environment; do not
+  treat its absence from this clone's configured remotes as a work blocker.

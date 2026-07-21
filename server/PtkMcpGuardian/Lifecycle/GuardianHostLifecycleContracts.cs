@@ -195,3 +195,12 @@ internal sealed record GuardianHostLifecycleSnapshot(
     bool TerminalShutdown,
     GuardianHostPermanentStopReason? PermanentStopReason,
     GuardianHostLossReason? LastLossReason);
+
+/// <summary>
+/// Receives an immutable state projection while the lifecycle gate still owns
+/// the transition. Implementations must be bounded and non-reentrant.
+/// </summary>
+internal interface IGuardianHostStatePublisher
+{
+    void Publish(PublicHostStateSnapshot snapshot);
+}

@@ -95,6 +95,7 @@ public sealed class GuardianArchitectureBoundaryTests
         "PtkMcpGuardian.Ownership.GuardianJobCapability",
         "PtkMcpGuardian.Ownership.GuardianJobCapabilityRegistry",
         "PtkMcpGuardian.Ownership.GuardianJobRegistration",
+        "PtkMcpGuardian.Lifecycle.IGuardianHostStatePublisher",
         "PtkMcpGuardian.Ownership.IPublicJobIdAllocator",
         "PtkMcpGuardian.Ownership.IOrderedOwnedLifetime",
         "PtkMcpGuardian.Ownership.MonotonicPublicJobIdAllocator",

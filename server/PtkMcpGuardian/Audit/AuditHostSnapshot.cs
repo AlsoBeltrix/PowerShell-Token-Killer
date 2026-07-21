@@ -1,5 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
+using PtkMcpGuardian.Lifecycle;
+using PtkSharedContracts;
 
 namespace PtkMcpServer.Audit;
 
@@ -24,7 +26,9 @@ internal interface IAuditHostSnapshotSource
 /// and the serialized audit writer. Journal append captures exactly one
 /// already-validated snapshot without acquiring the lifecycle gate.
 /// </summary>
-internal sealed class GuardianAuditHostSnapshotSource : IAuditHostSnapshotSource
+internal sealed class GuardianAuditHostSnapshotSource :
+    IAuditHostSnapshotSource,
+    IGuardianHostStatePublisher
 {
     private AuditHostSnapshot _current = new(
         BootId: null,
@@ -40,6 +44,28 @@ internal sealed class GuardianAuditHostSnapshotSource : IAuditHostSnapshotSource
     }
 
     public AuditHostSnapshot Capture() => Volatile.Read(ref _current);
+
+    void IGuardianHostStatePublisher.Publish(PublicHostStateSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Publish(new AuditHostSnapshot(
+            snapshot.BootId?.Value,
+            snapshot.Generation?.Value,
+            snapshot.State switch
+            {
+                PublicHostState.Absent => "absent",
+                PublicHostState.Backoff => "backoff",
+                PublicHostState.CircuitOpen => "circuit_open",
+                PublicHostState.ContainmentUnconfirmed => "containment_unconfirmed",
+                PublicHostState.HalfOpen => "half_open",
+                PublicHostState.Ready => "ready",
+                PublicHostState.Recovering => "recovering",
+                PublicHostState.Starting => "starting",
+                PublicHostState.Stopped => "stopped",
+                _ => throw new ArgumentOutOfRangeException(nameof(snapshot)),
+            },
+            snapshot.RecoveryAttempt));
+    }
 }
 
 internal static class AuditHostSnapshotCodec

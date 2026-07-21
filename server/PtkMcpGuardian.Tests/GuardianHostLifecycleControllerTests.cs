@@ -1,4 +1,5 @@
 using PtkMcpGuardian.Lifecycle;
+using PtkMcpServer.Audit;
 using PtkSharedContracts;
 
 namespace PtkMcpGuardian.Tests;
@@ -960,6 +961,38 @@ public sealed class GuardianHostLifecycleControllerTests
         Assert.Equal(2, rig.Controller.Snapshot().Host.Generation!.Value);
     }
 
+    [Fact]
+    public async Task Every_host_transition_publishes_the_exact_audit_v3_snapshot()
+    {
+        var audit = new GuardianAuditHostSnapshotSource();
+        var rig = new TestRig(statePublisher: audit);
+        AssertAuditHost(audit.Capture(), "absent", generation: null, attempt: 0);
+
+        var start = rig.Controller.StartInitial();
+        var initial = Assert.IsType<GuardianHostAttemptLease>(start.Attempt);
+        AssertAuditHost(audit.Capture(), "starting", generation: 1, attempt: 0);
+        Assert.True(rig.Controller.MarkReady(initial));
+        AssertAuditHost(audit.Capture(), "ready", generation: 1, attempt: 0);
+
+        Assert.Equal(
+            GuardianHostLifecycleLossDisposition.BeganContainment,
+            rig.Controller.ReportLoss(initial, GuardianHostLossReason.Exit));
+        AssertAuditHost(audit.Capture(), "recovering", generation: 1, attempt: 1);
+        var replacement = Assert.IsType<GuardianHostAttemptLease>(
+            rig.Controller.ConfirmContainment(initial).StartedAttempt);
+        AssertAuditHost(audit.Capture(), "recovering", generation: 2, attempt: 1);
+        Assert.True(rig.Controller.MarkReady(replacement));
+        AssertAuditHost(audit.Capture(), "ready", generation: 2, attempt: 1);
+
+        var shutdown = rig.Controller.ShutdownAsync();
+        AssertAuditHost(audit.Capture(), "recovering", generation: 2, attempt: 2);
+        Assert.Equal(
+            GuardianHostContainmentDisposition.Confirmed,
+            rig.Controller.ConfirmContainment(replacement).Disposition);
+        await shutdown.WaitAsync(TimeSpan.FromSeconds(5));
+        AssertAuditHost(audit.Capture(), "stopped", generation: null, attempt: 0);
+    }
+
     private static GuardianHostAttemptLease StartReady(TestRig rig)
     {
         var start = rig.Controller.StartInitial();
@@ -998,9 +1031,23 @@ public sealed class GuardianHostLifecycleControllerTests
         Assert.Equal(generation is not null, snapshot.BootId is not null);
     }
 
+    private static void AssertAuditHost(
+        AuditHostSnapshot snapshot,
+        string state,
+        long? generation,
+        long attempt)
+    {
+        Assert.Equal(state, snapshot.State);
+        Assert.Equal(generation, snapshot.Generation);
+        Assert.Equal(attempt, snapshot.RecoveryAttempt);
+        Assert.Equal(generation is not null, snapshot.BootId is not null);
+    }
+
     private sealed class TestRig
     {
-        internal TestRig(long initialGeneration = 0)
+        internal TestRig(
+            long initialGeneration = 0,
+            IGuardianHostStatePublisher? statePublisher = null)
         {
             Clock = new ManualTimeProvider();
             Factory = new FakeAttemptFactory();
@@ -1011,7 +1058,8 @@ public sealed class GuardianHostLifecycleControllerTests
                 new SequentialBootIdSource(),
                 Deadlines,
                 Factory,
-                Clock);
+                Clock,
+                statePublisher);
         }
 
         internal ManualTimeProvider Clock { get; }

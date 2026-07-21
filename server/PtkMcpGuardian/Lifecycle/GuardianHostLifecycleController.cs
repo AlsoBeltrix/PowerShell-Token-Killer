@@ -21,6 +21,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
     private readonly IGuardianHostAttemptFactory _attemptFactory;
     private readonly TimeProvider _timeProvider;
     private readonly RecoveryCircuitMachine _recoveryCircuit;
+    private readonly IGuardianHostStatePublisher? _statePublisher;
     private readonly TaskCompletionSource<bool> _shutdownCompletion = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -42,7 +43,8 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         IGuardianHostBootIdSource bootIdSource,
         IGuardianHostStartupDeadlineSource startupDeadlineSource,
         IGuardianHostAttemptFactory attemptFactory,
-        TimeProvider timeProvider)
+        TimeProvider timeProvider,
+        IGuardianHostStatePublisher? statePublisher = null)
     {
         ArgumentNullException.ThrowIfNull(guardianBootId);
         ArgumentNullException.ThrowIfNull(generationAllocator);
@@ -58,6 +60,8 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         _attemptFactory = attemptFactory;
         _timeProvider = timeProvider;
         _recoveryCircuit = new RecoveryCircuitMachine(timeProvider);
+        _statePublisher = statePublisher;
+        PublishStateLocked();
     }
 
     internal bool TerminalShutdownClaimed =>
@@ -74,11 +78,12 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 _permanentStopReason is not null ||
                 _state != PublicHostState.Absent)
             {
-                return RefusedStartLocked();
+                return PublishStateLocked(RefusedStartLocked());
             }
 
             _initialAttemptStarted = true;
-            return StartAttemptLocked(recoveryLease: null, isInitialAttempt: true);
+            return PublishStateLocked(
+                StartAttemptLocked(recoveryLease: null, isInitialAttempt: true));
         }
     }
 
@@ -93,13 +98,13 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
             if (TerminalShutdownClaimed || _permanentStopReason is not null ||
                 _current is not null)
             {
-                return RefusedStartLocked();
+                return PublishStateLocked(RefusedStartLocked());
             }
 
             var recoveryLease = _recoveryCircuit.TryAcquireDueAttempt();
-            return recoveryLease is null
+            return PublishStateLocked(recoveryLease is null
                 ? RefusedStartLocked()
-                : StartAttemptLocked(recoveryLease, isInitialAttempt: false);
+                : StartAttemptLocked(recoveryLease, isInitialAttempt: false));
         }
     }
 
@@ -112,7 +117,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 attempt.Stage != GuardianHostAttemptStage.Launching ||
                 TerminalShutdownClaimed)
             {
-                return false;
+                return PublishStateLocked(false);
             }
 
             if (StartupDeadlineElapsedLocked(attempt))
@@ -120,7 +125,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 BeginContainmentLocked(
                     attempt,
                     GuardianHostLossReason.InitializationFailure);
-                return false;
+                return PublishStateLocked(false);
             }
 
             attempt.Stage = GuardianHostAttemptStage.Bootstrapping;
@@ -139,7 +144,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 _state = PublicHostState.Recovering;
                 _phase = RecoveryPhase.Bootstrap;
             }
-            return true;
+            return PublishStateLocked(true);
         }
     }
 
@@ -154,7 +159,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                     GuardianHostAttemptStage.Bootstrapping) ||
                 TerminalShutdownClaimed)
             {
-                return false;
+                return PublishStateLocked(false);
             }
 
             if (StartupDeadlineElapsedLocked(attempt))
@@ -162,20 +167,20 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 BeginContainmentLocked(
                     attempt,
                     GuardianHostLossReason.InitializationFailure);
-                return false;
+                return PublishStateLocked(false);
             }
 
             if (attempt.RecoveryLease is { } recoveryLease &&
                 !_recoveryCircuit.MarkReady(recoveryLease))
             {
-                return false;
+                return PublishStateLocked(false);
             }
 
             attempt.Stage = GuardianHostAttemptStage.Ready;
             attempt.EverReady = true;
             _state = PublicHostState.Ready;
             _phase = null;
-            return true;
+            return PublishStateLocked(true);
         }
     }
 
@@ -184,11 +189,11 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         ArgumentNullException.ThrowIfNull(attempt);
         lock (_gate)
         {
-            return ReferenceEquals(_current, attempt) &&
+            return PublishStateLocked(ReferenceEquals(_current, attempt) &&
                 attempt.Stage == GuardianHostAttemptStage.Ready &&
                 attempt.RecoveryLease is { } recoveryLease &&
                 !TerminalShutdownClaimed &&
-                _recoveryCircuit.TryCompleteReadyStability(recoveryLease);
+                _recoveryCircuit.TryCompleteReadyStability(recoveryLease));
         }
     }
 
@@ -201,17 +206,17 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         lock (_gate)
         {
             if (TerminalShutdownClaimed || _permanentStopReason is not null)
-                return GuardianHostWriteDisposition.Stopped;
+                return PublishStateLocked(GuardianHostWriteDisposition.Stopped);
             if (!ReferenceEquals(_current, attempt))
-                return GuardianHostWriteDisposition.StaleAttempt;
+                return PublishStateLocked(GuardianHostWriteDisposition.StaleAttempt);
             if (_state != PublicHostState.Ready ||
                 attempt.Stage != GuardianHostAttemptStage.Ready)
             {
-                return GuardianHostWriteDisposition.NotReady;
+                return PublishStateLocked(GuardianHostWriteDisposition.NotReady);
             }
 
             firstPossiblyWriting(attempt.Identity);
-            return GuardianHostWriteDisposition.Began;
+            return PublishStateLocked(GuardianHostWriteDisposition.Began);
         }
     }
 
@@ -227,32 +232,33 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         lock (_gate)
         {
             if (!ReferenceEquals(_current, attempt))
-                return GuardianHostStartupDeadlineDisposition.StaleAttempt;
+                return PublishStateLocked(GuardianHostStartupDeadlineDisposition.StaleAttempt);
             if (TerminalShutdownClaimed || _permanentStopReason is not null ||
                 _state == PublicHostState.Stopped)
             {
-                return GuardianHostStartupDeadlineDisposition.Stopped;
+                return PublishStateLocked(GuardianHostStartupDeadlineDisposition.Stopped);
             }
             if (attempt.Stage == GuardianHostAttemptStage.Ready ||
                 attempt.Stage is GuardianHostAttemptStage.Containing or
                     GuardianHostAttemptStage.ContainmentUnconfirmed or
                     GuardianHostAttemptStage.DeathConfirmed)
             {
-                return GuardianHostStartupDeadlineDisposition.Duplicate;
+                return PublishStateLocked(GuardianHostStartupDeadlineDisposition.Duplicate);
             }
             if (attempt.Stage is not (
                     GuardianHostAttemptStage.Launching or
                     GuardianHostAttemptStage.Bootstrapping))
             {
-                return GuardianHostStartupDeadlineDisposition.StaleAttempt;
+                return PublishStateLocked(GuardianHostStartupDeadlineDisposition.StaleAttempt);
             }
             if (!StartupDeadlineElapsedLocked(attempt))
-                return GuardianHostStartupDeadlineDisposition.Pending;
+                return PublishStateLocked(GuardianHostStartupDeadlineDisposition.Pending);
 
             BeginContainmentLocked(
                 attempt,
                 GuardianHostLossReason.InitializationFailure);
-            return GuardianHostStartupDeadlineDisposition.BeganContainment;
+            return PublishStateLocked(
+                GuardianHostStartupDeadlineDisposition.BeganContainment);
         }
     }
 
@@ -272,7 +278,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         lock (_gate)
         {
             if (!ReferenceEquals(_current, attempt))
-                return GuardianHostLifecycleLossDisposition.StaleAttempt;
+                return PublishStateLocked(GuardianHostLifecycleLossDisposition.StaleAttempt);
             if (attempt.Stage is GuardianHostAttemptStage.Containing or
                 GuardianHostAttemptStage.ContainmentUnconfirmed or
                 GuardianHostAttemptStage.DeathConfirmed)
@@ -282,18 +288,18 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 {
                     PromoteContractMismatchLocked();
                 }
-                return GuardianHostLifecycleLossDisposition.Duplicate;
+                return PublishStateLocked(GuardianHostLifecycleLossDisposition.Duplicate);
             }
             if (_state == PublicHostState.Stopped)
-                return GuardianHostLifecycleLossDisposition.Stopped;
+                return PublishStateLocked(GuardianHostLifecycleLossDisposition.Stopped);
             if (reason == GuardianHostLossReason.OperatorRecycle &&
                 attempt.Stage != GuardianHostAttemptStage.Ready)
             {
-                return GuardianHostLifecycleLossDisposition.StaleAttempt;
+                return PublishStateLocked(GuardianHostLifecycleLossDisposition.StaleAttempt);
             }
 
             BeginContainmentLocked(attempt, reason);
-            return GuardianHostLifecycleLossDisposition.BeganContainment;
+            return PublishStateLocked(GuardianHostLifecycleLossDisposition.BeganContainment);
         }
     }
 
@@ -305,30 +311,30 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         {
             if (!ReferenceEquals(_current, attempt))
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.StaleAttempt,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
             if (attempt.Stage == GuardianHostAttemptStage.ContainmentUnconfirmed)
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.Duplicate,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
             if (attempt.Stage != GuardianHostAttemptStage.Containing ||
                 attempt.ContainmentDeadline is not { } deadline)
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.StaleAttempt,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
             if (_timeProvider.GetElapsedTime(
                     deadline.StartedTimestamp,
                     _timeProvider.GetTimestamp()) < HostContainmentGrace)
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.Pending,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
 
             attempt.Stage = GuardianHostAttemptStage.ContainmentUnconfirmed;
@@ -337,9 +343,9 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
             _lastFailureCode = PublicRecoveryDetailCode.HostContainmentUnconfirmed;
             if (TerminalShutdownClaimed)
                 _shutdownCompletion.TrySetResult(true);
-            return new(
+            return PublishStateLocked(new GuardianHostContainmentTransition(
                 GuardianHostContainmentDisposition.MarkedUnconfirmed,
-                StartedAttempt: null);
+                StartedAttempt: null));
         }
     }
 
@@ -351,23 +357,23 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         {
             if (!ReferenceEquals(_current, attempt))
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.StaleAttempt,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
             if (attempt.Stage == GuardianHostAttemptStage.DeathConfirmed)
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.Duplicate,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
             if (attempt.Stage is not (
                     GuardianHostAttemptStage.Containing or
                     GuardianHostAttemptStage.ContainmentUnconfirmed))
             {
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.StaleAttempt,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
 
             attempt.Stage = GuardianHostAttemptStage.DeathConfirmed;
@@ -383,9 +389,9 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
             {
                 StopPermanentlyLocked(
                     _permanentStopReason ?? GuardianHostPermanentStopReason.TerminalShutdown);
-                return new(
+                return PublishStateLocked(new GuardianHostContainmentTransition(
                     GuardianHostContainmentDisposition.Confirmed,
-                    StartedAttempt: null);
+                    StartedAttempt: null));
             }
 
             GuardianHostStartTransition start;
@@ -406,9 +412,9 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                     recoveryStabilityFrozen: true);
             }
 
-            return new(
+            return PublishStateLocked(new GuardianHostContainmentTransition(
                 GuardianHostContainmentDisposition.Confirmed,
-                start.Attempt);
+                start.Attempt));
         }
     }
 
@@ -430,7 +436,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
         lock (_gate)
         {
             if (_terminalShutdownApplied)
-                return _shutdownCompletion.Task;
+                return PublishStateLocked(_shutdownCompletion.Task);
 
             _terminalShutdownApplied = true;
             _permanentStopReason = GuardianHostPermanentStopReason.TerminalShutdown;
@@ -458,7 +464,7 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 StopPermanentlyLocked(GuardianHostPermanentStopReason.TerminalShutdown);
             }
 
-            return _shutdownCompletion.Task;
+            return PublishStateLocked(_shutdownCompletion.Task);
         }
     }
 
@@ -739,6 +745,15 @@ internal sealed class GuardianHostLifecycleController : IOrderedOwnedLifetime
                 "A failed host generation did not enter a scheduled state."),
         };
     }
+
+    private T PublishStateLocked<T>(T result)
+    {
+        PublishStateLocked();
+        return result;
+    }
+
+    private void PublishStateLocked() =>
+        _statePublisher?.Publish(CreatePublicSnapshotLocked());
 
     private PublicHostStateSnapshot CreatePublicSnapshotLocked()
     {

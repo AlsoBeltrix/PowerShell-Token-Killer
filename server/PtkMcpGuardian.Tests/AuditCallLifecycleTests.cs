@@ -47,6 +47,11 @@ public sealed class AuditCallLifecycleTests
         Assert.Equal(0, journal.ReservedBytes);
         var events = sink.Lines.Select(Parse).ToArray();
         Assert.Equal(["call.accepted", "call.completed"], events.Select(EventType));
+        Assert.All(events, value =>
+        {
+            Assert.Equal("ptk.audit/2", value.GetProperty("schema_version").GetString());
+            Assert.False(value.TryGetProperty("host", out _));
+        });
         var callId = events[0].GetProperty("correlation").GetProperty("call_id").GetGuid();
         Assert.Equal(callId, events[1].GetProperty("correlation").GetProperty("call_id").GetGuid());
         Assert.Equal(
@@ -107,6 +112,138 @@ public sealed class AuditCallLifecycleTests
         Assert.Equal(["call.accepted", "call.completed"], sink.Lines.Select(Parse).Select(EventType));
     }
 
+    [Fact]
+    public void Guardian_journal_captures_one_v3_host_snapshot_for_each_event()
+    {
+        var options = AuditOptions.Create(
+            Path.Combine(Path.GetTempPath(), "ptk-guardian-v3-" + Guid.NewGuid().ToString("N")),
+            maxRecordBytes: AuditEventSerializer.MaximumLineBytes,
+            segmentBytes: AuditEventSerializer.MaximumLineBytes * 16L,
+            aggregateBytes: AuditEventSerializer.MaximumLineBytes * 16L,
+            emergencyReserveBytes: AuditEventSerializer.MaximumLineBytes * 2L,
+            retentionAge: TimeSpan.FromMinutes(10),
+            maxEvidenceBytes: ScriptEvidenceStore.MaximumScriptBytes,
+            evidenceAggregateBytes: ScriptEvidenceStore.MaximumScriptBytes * 2L,
+            evidenceRetentionAge: TimeSpan.FromMinutes(10));
+        var health = new AuditHealth(options);
+        var sink = new InMemoryAuditJournalSink(
+            options.SegmentBytes,
+            options.AggregateBytes,
+            options.ProtectionMode,
+            options.RetentionAge);
+        var hostSnapshots = new GuardianAuditHostSnapshotSource();
+        using var journal = new AuditJournal(
+            options,
+            health,
+            sink,
+            "guardian-v3-test",
+            binaryDigest: null,
+            hostId: Guid.Parse("62345678-1234-4abc-8def-0123456789ab"),
+            supervisorBootId: Guid.Parse("72345678-1234-4abc-8def-0123456789ab"),
+            hostSnapshots: hostSnapshots);
+        var call = new AuditCallLifecycle(
+            journal,
+            new ScriptEvidenceStore(options.EvidenceDirectory));
+
+        Assert.True(call.TryBegin(Metadata(), null, out var failure), failure);
+        var live = new AuditHostSnapshot(
+            Guid.Parse("82345678-1234-4abc-8def-0123456789ab"),
+            Generation: 7,
+            State: "ready",
+            RecoveryAttempt: 0);
+        hostSnapshots.Publish(live);
+        call.CompleteCall("completed", "ok");
+
+        var events = sink.Lines.Select(Parse).ToArray();
+        Assert.Equal(2, events.Length);
+        Assert.All(events, value => Assert.Equal(
+            "ptk.audit/3",
+            value.GetProperty("schema_version").GetString()));
+        var acceptedHost = events[0].GetProperty("host");
+        Assert.Equal(JsonValueKind.Null, acceptedHost.GetProperty("boot_id").ValueKind);
+        Assert.Equal(JsonValueKind.Null, acceptedHost.GetProperty("generation").ValueKind);
+        Assert.Equal("absent", acceptedHost.GetProperty("state").GetString());
+        Assert.Equal(0, acceptedHost.GetProperty("recovery_attempt").GetInt64());
+        var terminalHost = events[1].GetProperty("host");
+        Assert.Equal(live.BootId, terminalHost.GetProperty("boot_id").GetGuid());
+        Assert.Equal(live.Generation, terminalHost.GetProperty("generation").GetInt64());
+        Assert.Equal(live.State, terminalHost.GetProperty("state").GetString());
+        Assert.Equal(live.RecoveryAttempt, terminalHost.GetProperty("recovery_attempt").GetInt64());
+        Assert.Throws<AuditEventValidationException>(() => hostSnapshots.Publish(
+            live with { State = "stopped" }));
+        Assert.Same(live, hostSnapshots.Capture());
+    }
+
+    [Fact]
+    public async Task Guardian_gate_propagates_v3_snapshots_through_default_runtime_resources()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            "ptk-guardian-v3-runtime-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var options = AuditOptions.Create(
+                root,
+                maxRecordBytes: AuditEventSerializer.MaximumLineBytes,
+                segmentBytes: AuditEventSerializer.MaximumLineBytes * 16L,
+                aggregateBytes: AuditEventSerializer.MaximumLineBytes * 16L,
+                emergencyReserveBytes: AuditEventSerializer.MaximumLineBytes * 2L,
+                retentionAge: TimeSpan.FromMinutes(10),
+                maxEvidenceBytes: ScriptEvidenceStore.MaximumScriptBytes,
+                evidenceAggregateBytes: ScriptEvidenceStore.MaximumScriptBytes * 2L,
+                evidenceRetentionAge: TimeSpan.FromMinutes(10));
+            var health = new AuditHealth(options);
+            var evidence = new ScriptEvidenceStoreProvider(options);
+            var hostSnapshots = new GuardianAuditHostSnapshotSource();
+            using (var gate = new AuditRuntimeGate(
+                       options,
+                       health,
+                       evidence,
+                       "guardian-v3-runtime-test",
+                       hostSnapshots: hostSnapshots))
+            {
+                await gate.StartAsync(CancellationToken.None);
+                hostSnapshots.Publish(new AuditHostSnapshot(
+                    Guid.Parse("92345678-1234-4abc-8def-0123456789ab"),
+                    Generation: 9,
+                    State: "ready",
+                    RecoveryAttempt: 0));
+                Assert.True(gate.TryBeginCall(
+                    Metadata(),
+                    exactSubmittedScript: null,
+                    out var call,
+                    out var lease,
+                    out var failure), failure);
+                call!.CompleteCall("completed", "ok");
+                lease!.Dispose();
+                await gate.StopAsync(CancellationToken.None);
+            }
+
+            var spool = Assert.Single(Directory.GetFiles(
+                options.SpoolDirectory,
+                "ptk-audit-*.jsonl"));
+            var events = File.ReadLines(spool)
+                .Select(ParseLine)
+                .ToArray();
+            Assert.Equal(
+                ["server.started", "call.accepted", "call.completed", "server.stopped"],
+                events.Select(EventType));
+            Assert.All(events, value =>
+            {
+                Assert.Equal("ptk.audit/3", value.GetProperty("schema_version").GetString());
+                Assert.True(value.TryGetProperty("host", out _));
+            });
+            Assert.Equal("absent", events[0].GetProperty("host").GetProperty("state").GetString());
+            Assert.All(events[1..], value => Assert.Equal(
+                "ready",
+                value.GetProperty("host").GetProperty("state").GetString()));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
     private static AuditCallMetadata Metadata() => new(
             new AuditActor
             {
@@ -133,6 +270,12 @@ public sealed class AuditCallLifecycleTests
     private static JsonElement Parse(byte[] line)
     {
         using var document = JsonDocument.Parse(line.AsMemory(0, line.Length - 1));
+        return document.RootElement.Clone();
+    }
+
+    private static JsonElement ParseLine(string line)
+    {
+        using var document = JsonDocument.Parse(line);
         return document.RootElement.Clone();
     }
 

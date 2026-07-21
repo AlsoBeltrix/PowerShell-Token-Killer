@@ -63,6 +63,11 @@ public sealed class GuardianBoundaryContractTests
                     [typeof(AuditJournal), typeof(ScriptEvidenceStoreProvider)]),
             ]);
         AssertInternalInterface(
+            typeof(IAuditHostSnapshotSource),
+            [],
+            [],
+            [("Capture", typeof(AuditHostSnapshot), Type.EmptyTypes)]);
+        AssertInternalInterface(
             typeof(IOrderedOwnedLifetime),
             [typeof(IDisposable)],
             [],

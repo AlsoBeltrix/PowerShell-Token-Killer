@@ -49,7 +49,8 @@ internal sealed class AuditRuntimeResources : IAuditRuntimeResources
         AuditOptions options,
         AuditHealth health,
         string producerVersion,
-        ScriptEvidenceStoreProvider evidence)
+        ScriptEvidenceStoreProvider evidence,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -73,7 +74,8 @@ internal sealed class AuditRuntimeResources : IAuditRuntimeResources
                 options,
                 health,
                 producerVersion,
-                evidence);
+                evidence,
+                hostSnapshots);
             var resources = new AuditRuntimeResources(journal);
             journal = null;
             return resources;
@@ -90,7 +92,8 @@ internal sealed class AuditRuntimeResources : IAuditRuntimeResources
         string producerVersion,
         IAuditOtlpExportTransport transport,
         ScriptEvidenceStoreProvider evidence,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -138,7 +141,8 @@ internal sealed class AuditRuntimeResources : IAuditRuntimeResources
                 options,
                 health,
                 producerVersion,
-                sink);
+                sink,
+                hostSnapshots: hostSnapshots);
             // Startup reconciliation completed before writer preparation. The
             // long-lived reconciler handles only artifacts published after
             // this writer became authoritative.

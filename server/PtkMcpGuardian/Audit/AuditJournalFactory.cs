@@ -17,7 +17,8 @@ internal static class AuditJournalFactory
         Func<DateTimeOffset, Guid>? uuidV7Factory = null,
         Func<FileAuditSinkFaultPoint, int, bool>? sinkFaultInjector = null,
         Action<string>? hostIdentityReadCompletedForTests = null,
-        Action? hostIdentityDestinationCheckedForTests = null)
+        Action? hostIdentityDestinationCheckedForTests = null,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         return OpenCore(
             options,
@@ -28,7 +29,8 @@ internal static class AuditJournalFactory
             uuidV7Factory,
             sinkFaultInjector,
             hostIdentityReadCompletedForTests,
-            hostIdentityDestinationCheckedForTests);
+            hostIdentityDestinationCheckedForTests,
+            hostSnapshots);
     }
 
     private static AuditJournal OpenCore(
@@ -40,7 +42,8 @@ internal static class AuditJournalFactory
         Func<DateTimeOffset, Guid>? uuidV7Factory,
         Func<FileAuditSinkFaultPoint, int, bool>? sinkFaultInjector,
         Action<string>? hostIdentityReadCompletedForTests,
-        Action? hostIdentityDestinationCheckedForTests)
+        Action? hostIdentityDestinationCheckedForTests,
+        IAuditHostSnapshotSource? hostSnapshots)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -66,7 +69,8 @@ internal static class AuditJournalFactory
             hostId,
             binaryDigest,
             utcNow,
-            uuidV7Factory);
+            uuidV7Factory,
+            hostSnapshots);
     }
 
     /// <summary>
@@ -79,7 +83,8 @@ internal static class AuditJournalFactory
         AuditOptions options,
         AuditHealth health,
         string producerVersion,
-        ScriptEvidenceStoreProvider evidence)
+        ScriptEvidenceStoreProvider evidence,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -105,7 +110,8 @@ internal static class AuditJournalFactory
             uuidV7Factory: null,
             sinkFaultInjector: null,
             hostIdentityReadCompletedForTests: null,
-            hostIdentityDestinationCheckedForTests: null);
+            hostIdentityDestinationCheckedForTests: null,
+            hostSnapshots: hostSnapshots);
     }
 
     /// <summary>
@@ -119,7 +125,8 @@ internal static class AuditJournalFactory
         FileAuditJournalSink sink,
         string? binaryDigest = null,
         Func<DateTimeOffset>? utcNow = null,
-        Func<DateTimeOffset, Guid>? uuidV7Factory = null)
+        Func<DateTimeOffset, Guid>? uuidV7Factory = null,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -156,7 +163,8 @@ internal static class AuditJournalFactory
             hostId,
             binaryDigest,
             utcNow,
-            uuidV7Factory);
+            uuidV7Factory,
+            hostSnapshots);
     }
 
     private static AuditJournal CreateJournalTakingSink(
@@ -168,7 +176,8 @@ internal static class AuditJournalFactory
         Guid hostId,
         string? binaryDigest,
         Func<DateTimeOffset>? utcNow,
-        Func<DateTimeOffset, Guid>? uuidV7Factory)
+        Func<DateTimeOffset, Guid>? uuidV7Factory,
+        IAuditHostSnapshotSource? hostSnapshots)
     {
         try
         {
@@ -181,7 +190,8 @@ internal static class AuditJournalFactory
                 hostId,
                 supervisorBootId,
                 utcNow,
-                uuidV7Factory);
+                uuidV7Factory,
+                hostSnapshots);
         }
         catch
         {

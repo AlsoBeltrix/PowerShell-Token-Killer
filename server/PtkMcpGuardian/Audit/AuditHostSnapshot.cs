@@ -14,6 +14,34 @@ internal sealed record AuditHostSnapshot(
     string State,
     long RecoveryAttempt);
 
+internal interface IAuditHostSnapshotSource
+{
+    AuditHostSnapshot Capture();
+}
+
+/// <summary>
+/// Lock-free immutable publication point between guardian lifecycle ownership
+/// and the serialized audit writer. Journal append captures exactly one
+/// already-validated snapshot without acquiring the lifecycle gate.
+/// </summary>
+internal sealed class GuardianAuditHostSnapshotSource : IAuditHostSnapshotSource
+{
+    private AuditHostSnapshot _current = new(
+        BootId: null,
+        Generation: null,
+        State: "absent",
+        RecoveryAttempt: 0);
+
+    internal void Publish(AuditHostSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        AuditHostSnapshotCodec.ValidateForSerialization(snapshot);
+        Volatile.Write(ref _current, snapshot);
+    }
+
+    public AuditHostSnapshot Capture() => Volatile.Read(ref _current);
+}
+
 internal static class AuditHostSnapshotCodec
 {
     internal const string SchemaVersion = "ptk.audit/3";

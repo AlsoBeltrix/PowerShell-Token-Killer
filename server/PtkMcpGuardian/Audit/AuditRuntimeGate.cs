@@ -41,7 +41,8 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
         string producerVersion,
         Func<AuditJournal>? openJournal = null,
         Func<IAuditRuntimeResources>? openRuntime = null,
-        IAuditCallFactory? callFactory = null)
+        IAuditCallFactory? callFactory = null,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -58,13 +59,20 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
             throw new ArgumentException(
                 "Specify either a journal factory or a runtime-resource factory, not both.");
         }
+        if (hostSnapshots is not null && (openJournal is not null || openRuntime is not null))
+        {
+            throw new ArgumentException(
+                "A host snapshot source must be wired by a custom audit runtime factory.",
+                nameof(hostSnapshots));
+        }
         _openRuntime = openRuntime ?? (openJournal is not null
             ? () => new AuditRuntimeResources(openJournal())
             : () => AuditRuntimeResources.OpenLocal(
                 _options,
                 _health,
                 _producerVersion,
-                _evidence));
+                _evidence,
+                hostSnapshots));
     }
 
     private AuditRuntimeGate(

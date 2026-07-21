@@ -209,6 +209,7 @@ internal sealed class AuditJournal : IDisposable
     private readonly string? _binaryDigest;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Func<DateTimeOffset, Guid> _uuidV7Factory;
+    private readonly IAuditHostSnapshotSource? _hostSnapshots;
     private long _sequence;
     private string? _previousEventHash;
     private Guid? _lastEventId;
@@ -228,7 +229,8 @@ internal sealed class AuditJournal : IDisposable
         Guid hostId,
         Guid supervisorBootId,
         Func<DateTimeOffset>? utcNow = null,
-        Func<DateTimeOffset, Guid>? uuidV7Factory = null)
+        Func<DateTimeOffset, Guid>? uuidV7Factory = null,
+        IAuditHostSnapshotSource? hostSnapshots = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -249,6 +251,7 @@ internal sealed class AuditJournal : IDisposable
         SupervisorBootId = supervisorBootId;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _uuidV7Factory = uuidV7Factory ?? Guid.CreateVersion7;
+        _hostSnapshots = hostSnapshots;
         _lastKnownTotalBytes = _sink.TotalBytes;
         UpdateHealthMetricsLocked();
     }
@@ -523,14 +526,25 @@ internal sealed class AuditJournal : IDisposable
                 Pid: Environment.ProcessId,
                 _producerVersion,
                 _binaryDigest);
-            var serialized = AuditEventSerializer.Serialize(
-                nextSequence,
-                _previousEventHash,
-                producer,
-                input,
-                eventId,
-                occurredUtc,
-                observedUtc);
+            var serialized = _hostSnapshots is null
+                ? AuditEventSerializer.Serialize(
+                    nextSequence,
+                    _previousEventHash,
+                    producer,
+                    input,
+                    eventId,
+                    occurredUtc,
+                    observedUtc)
+                : AuditEventSerializer.SerializeVersion3(
+                    nextSequence,
+                    _previousEventHash,
+                    producer,
+                    _hostSnapshots.Capture() ?? throw new AuditEventValidationException(
+                        "The guardian audit host snapshot source returned null."),
+                    input,
+                    eventId,
+                    occurredUtc,
+                    observedUtc);
 
             if (serialized.Utf8Line.Length > _options.MaxRecordBytes)
             {

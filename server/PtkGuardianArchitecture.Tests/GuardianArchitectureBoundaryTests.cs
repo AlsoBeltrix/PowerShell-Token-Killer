@@ -84,12 +84,16 @@ public sealed class GuardianArchitectureBoundaryTests
     private static readonly string[] RequiredGuardianOwnershipCompileInputs =
     [
         "FrozenSessionCatalog.cs",
+        "GuardianJobCapabilityRegistry.cs",
         "IOrderedOwnedLifetime.cs",
         "PublicJobIdAllocator.cs",
     ];
 
     private static readonly string[] RequiredGuardianOwnedTypeDefinitions =
     [
+        "PtkMcpGuardian.Ownership.GuardianJobCapability",
+        "PtkMcpGuardian.Ownership.GuardianJobCapabilityRegistry",
+        "PtkMcpGuardian.Ownership.GuardianJobRegistration",
         "PtkMcpGuardian.Ownership.IPublicJobIdAllocator",
         "PtkMcpGuardian.Ownership.IOrderedOwnedLifetime",
         "PtkMcpGuardian.Ownership.MonotonicPublicJobIdAllocator",

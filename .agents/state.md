@@ -108,52 +108,23 @@ short and update it when important repo facts change.
   content arrival was verified by direct branch diff, and the feature branch
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
-- **The two-layer MCP resilience planning boundary is owner-approved; its
-  complete reconciled draft passed final independent fixed-SHA review at
-  `b4a2c0c` and is landed on local `master` at review-record head `6ed0167`;
-  R0 code, tests, independent contract audit, and platform evidence are
-  complete and landed on local `master` at `c1d809f`, and its required
-  fixed-SHA Fable implementation review is accepted at review-record head
-  `4f99fd5`; R1 implementation and exact-head macOS, Windows, and Linux
-  behavior validation are complete at `60eb20f` on
-  `feature/mcp-resilience-r1`; its required fixed-SHA Fable openreview is held
-  at the owner's 2026-07-17 direction until Fable capacity returns; the owner
-  explicitly authorized every remaining slice R2-R7 on 2026-07-17 and directed
-  implementation to continue without stopping for reviews; R2's deterministic
-  unwired per-alias recovery core is complete at `eaef85f`; R3's standalone
-  guardian, crashable fake-host recovery, race/soak closure, real OS-process
-  apphost coverage, and direct macOS/Windows/Linux behavior validation are
-  complete at code/test head `1eb69d6` with the test-only scheduler closure at
-  `d238a80`; R4 private real-host and control-plane transfer is active at clean
-  committed code/test head `a21b7a1` and handoff descendant `589362d` on
-  `feature/mcp-resilience-r1`. The
-  migration-ready sequence verifies matched runtime packages at `65efb36`,
-  serializes private-host outbound frames at `99014e4`, and transfers output
-  capture by execution capability at `6790416`. Windows checkout prerequisites
-  preserve the SIEM corpus bytes at `b13fd18` and exercise package reparse
-  guards without symlink privilege at `5759bb8`. Private-host launch work then
-  captures and erases exact inherited identity and pins at `afd5b53`, freezes
-  the guardian-owned apphost command, handles, and bootstrap environment at
-  `bf8afc1`, gives the host runner single ownership of captured bootstrap and
-  process streams at `724d068`, and accepts a pre-captured worker bootstrap
-  without environment recapture at `d8b6efd`. Later committed R4 slices now
-  provide the production private runtime, default-session operation and output
-  path, guardian output/job ownership and supervision, guardian audit gate and
-  v3 host snapshots, lifecycle snapshot publication, generation-bound audit
-  dispatch authorization and delivery truth, and guardian-owned MCP metadata
-  capture. The new boundaries each have direct red-to-green mutation proof.
-  `Program.cs` remains unwired; guardian MCP audit admission, mandatory
-  supervisor audit-capability integration, remaining public control-plane
-  transfer, and final private `--host` role wiring are still required.
-  Registration cutover remains R7. Exact detached Windows head `118111c`
-  passed Guardian 366, architecture 70, and server 1862 tests. At clean handoff
-  descendant `589362d` (the same code/test content as `a21b7a1`), stale CRLF
-  materialization of the tracked SIEM corpus was normalized to its committed LF
-  bytes and the exact complete solution then passed Guardian 366, architecture
-  70, and server 1862. Exact evidence remains in `.agents/machines.md`. Future
-  handoffs must only edit `## Now` / `## Next` surgically; never replace this
-  file wholesale.** The
-  target keeps one public stdio guardian alive while it
+- **The owner-approved two-layer MCP resilience sequence is implemented
+  through every locally actionable R5 Windows barrier on
+  `feature/mcp-resilience-r1`; the exact verified code/test head is `195e7e6`.
+  R0-R4 are complete. R5 now owns real Windows private-host launch,
+  containment, monitoring, exact-generation restart, lifecycle audit,
+  delivery truth, declared-state restoration, job/output tombstones, and
+  recovery-aware state. Real apphost tests cover startup/replacement crashes,
+  request/effect/response barriers, native descendant cleanup, idle
+  persistence, lost jobs, and ambiguous reset requiring explicit repair.
+  The complete repository battery and stdio handshake pass at that head;
+  exact machine evidence, test counts, and current package advisories are in
+  `.agents/machines.md`. R5 is not cross-platform complete: production Unix
+  still deliberately refuses startup until the approved native outer broker
+  exists, and this Windows host has no usable WSL/compiler/container path.
+  The owner authorized R2-R7 on 2026-07-17 and directed implementation to
+  continue without waiting for held Fable reviews.** The target keeps one
+  public stdio guardian alive while it
   restarts an exact-version private host, and makes a healthy host replace an
   unexpectedly lost session worker. It never replays ambiguous work, changes
   generation on every replacement, recreates only frozen declared bootstrap
@@ -306,20 +277,17 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Resume `feature/mcp-resilience-r1` from clean committed handoff descendant
-   `589362d`; `a21b7a1` is the latest code/test checkpoint and its exact
-   complete solution battery is now green. Continue R4 by admitting every public
-   guardian call through `AuditRuntimeGate`, passing the resulting mandatory
-   `GuardianAuditCall` capability into supervisor dispatch, and recording its
-   existing pre-write/decoded/ambiguous delivery classifications. Keep
-   `Program.cs` unwired until the complete production path is functional;
-   follow with remaining control-plane transfer and private `--host` role
-   wiring in coherent committed slices, then
-   R5-R7. Ordinary reviews may use Opus or Grok;
-   hold Fable openreviews until capacity returns, then rerun the R1 fixed range
-   `1f314a2..60eb20f` and later fixed ranges. Do not merge incomplete R4,
-   rewrite history, or publish a release without separate authorization. Do
-   not replace `.agents/state.md` wholesale on handoff.
+1. Resume `feature/mcp-resilience-r1` from its clean committed tip; exact R5
+   Windows code/test head `195e7e6` has the complete green local battery. The
+   next implementation boundary is R5's approved native Unix outer broker and
+   production launcher, including creation-time group ownership, liveness
+   teardown, direct-host reap, descendant confirmation, and Linux/macOS
+   package tests. Do that work only on a host with a usable native toolchain
+   and direct Linux/macOS execution; this Windows host cannot validate it.
+   After exact cross-platform R5 evidence, mark R5 complete and begin R6.
+   Ordinary reviews may use Opus or Grok; hold Fable openreviews until capacity
+   returns. Do not merge, rewrite history, push, or publish a release without
+   the separately required authorization.
 2. Implement the owner-approved mini-SIEM S3H amendment in
    `.agents/plans/mini-siem-implementation.md`: startup filesystem hardening
    under `siem/` only. Do not begin S4-S6 or modify PTK runtime code.
@@ -365,6 +333,11 @@ short and update it when important repo facts change.
   killed. This cannot make the guard falsely pass or affect an R0 product
   contract; consider an stdin-EOF guardian watch in a later scoped test-hygiene
   slice.
+- `System.Security.Cryptography.Xml` 10.0.6 currently emits high-severity
+  NU1903 advisories during restore/build. No dependency upgrade was folded into
+  the R5 resilience scope; assess it as a separate approved package/security
+  slice before release. Exact as-of-head advisory evidence is in
+  `.agents/machines.md`.
 
 ## Blockers
 
@@ -388,12 +361,13 @@ short and update it when important repo facts change.
   S3H's cross-platform negative matrix lands and the later checkpoint path is
   protected before first use.
 
-- **Windows wiring requires a hard supervisor/worker role cutover.**
-  `Program.cs`, `BashProcessRunner`, `RtkProcessRunner`, and `JobManager` still
-  permit supervisor-side runtime or generic process creation. Those paths
-  cannot race the Windows launcher's temporarily inheritable selected handles.
-  The wired supervisor must not retain an in-process user-runtime or generic-
-  spawn fallback.
+- **R5 Unix production containment is not implemented or locally
+  verifiable.** Production composition deliberately fails closed on non-Windows
+  until the approved native outer broker exists. On `ASHBIAMWEB1`, WSL reports
+  `WSL_E_WSL_OPTIONAL_COMPONENT_REQUIRED`, and no `gcc`, `clang`, or `docker`
+  command is available. Implement and validate the broker on direct Linux and
+  macOS before claiming R5 complete; exact host evidence is in
+  `.agents/machines.md`.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in

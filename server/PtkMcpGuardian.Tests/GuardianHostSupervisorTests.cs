@@ -222,7 +222,8 @@ public sealed class GuardianHostSupervisorTests
             GuardianHostLifecycleController.HostContainmentGrace);
         await WaitUntilAsync(() =>
             rig.Supervisor.SnapshotState().Host.State ==
-            PublicHostState.ContainmentUnconfirmed);
+                PublicHostState.ContainmentUnconfirmed &&
+            rig.HostAuditLines("host.containment_unconfirmed").Length == 1);
 
         var line = Assert.Single(
             rig.HostAuditLines("host.containment_unconfirmed"));

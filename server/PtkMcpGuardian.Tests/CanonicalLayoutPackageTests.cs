@@ -7,6 +7,90 @@ namespace PtkMcpGuardian.Tests;
 public sealed class CanonicalLayoutPackageTests
 {
     [Fact]
+    public async Task Unix_layout_is_matched_and_the_packaged_guardian_accepts_public_eof()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var repositoryRoot = FindRepositoryRoot();
+        var runtimeIdentifier = CurrentUnixRuntimeIdentifier();
+        var layoutRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"ptk-canonical-unix-layout-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(layoutRoot);
+        try
+        {
+            var generator = Path.Combine(repositoryRoot, "scripts", "dev-install.ps1");
+            var generated = await RunAsync(
+                "pwsh",
+                repositoryRoot,
+                [
+                    "-NoProfile",
+                    "-File",
+                    generator,
+                    "-LayoutOnly",
+                    "-OutputDir",
+                    layoutRoot,
+                    "-Rid",
+                    runtimeIdentifier,
+                    "-Version",
+                    "0.2.0-unix-layout-test",
+                ],
+                closeStandardInput: false,
+                TimeSpan.FromMinutes(10));
+            Assert.True(
+                generated.ExitCode == 0,
+                $"Canonical Unix layout generation failed: {Bounded(generated.StandardError)}" +
+                Bounded(generated.StandardOutput));
+
+            var package = MatchedPackageLoader.Load(layoutRoot, runtimeIdentifier);
+            Assert.Equal(
+                Path.Combine(layoutRoot, "bin", "PtkMcpServer"),
+                package.HostAppHostPath);
+            Assert.Equal(
+                [
+                    MatchedPackageRole.Version,
+                    MatchedPackageRole.AuditAdmin,
+                    MatchedPackageRole.ContainmentHelper,
+                    MatchedPackageRole.GuardianHelper,
+                    MatchedPackageRole.GuardianAppHost,
+                    MatchedPackageRole.GuardianManaged,
+                    MatchedPackageRole.HostAppHost,
+                    MatchedPackageRole.HostManaged,
+                    MatchedPackageRole.HostRuntime,
+                    MatchedPackageRole.SharedContract,
+                    MatchedPackageRole.Script,
+                    MatchedPackageRole.Module,
+                ],
+                package.RequiredArtifactPaths.Select(artifact => artifact.Role));
+
+            var containmentHelper = await RunAsync(
+                Path.Combine(layoutRoot, "bin", "PtkContainmentBroker"),
+                layoutRoot,
+                [],
+                closeStandardInput: true,
+                TimeSpan.FromSeconds(10));
+            Assert.Equal(78, containmentHelper.ExitCode);
+            Assert.Empty(containmentHelper.StandardOutput);
+            Assert.Empty(containmentHelper.StandardError);
+
+            var guardian = await RunAsync(
+                Path.Combine(layoutRoot, "bin", "PtkMcpGuardian"),
+                layoutRoot,
+                [],
+                closeStandardInput: true,
+                TimeSpan.FromSeconds(30));
+            Assert.Equal(0, guardian.ExitCode);
+            Assert.Empty(guardian.StandardOutput);
+            Assert.Empty(guardian.StandardError);
+        }
+        finally
+        {
+            if (Directory.Exists(layoutRoot))
+                Directory.Delete(layoutRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Windows_layout_is_matched_and_the_packaged_guardian_accepts_public_eof()
     {
         if (!OperatingSystem.IsWindows())
@@ -144,6 +228,16 @@ public sealed class CanonicalLayoutPackageTests
     private static string Bounded(string value) => value.Length <= 4096
         ? value
         : value[..4096];
+
+    private static string CurrentUnixRuntimeIdentifier() =>
+        (OperatingSystem.IsMacOS(), RuntimeInformation.ProcessArchitecture) switch
+        {
+            (true, Architecture.Arm64) => "osx-arm64",
+            (false, Architecture.X64) => "linux-x64",
+            (false, Architecture.Arm64) => "linux-arm64",
+            _ => throw new PlatformNotSupportedException(
+                "The Unix package fixture requires macOS arm64 or Linux x64/arm64."),
+        };
 
     private sealed record ProcessResult(
         int ExitCode,

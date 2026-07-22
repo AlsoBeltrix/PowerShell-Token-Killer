@@ -70,16 +70,31 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
-    public async Task Windows_composition_serves_the_real_private_host_before_public_initialize()
+    public async Task Composition_serves_the_real_private_host_before_public_initialize()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot("real-audit");
         var outputRoot = TemporaryRoot("real-output");
+        string? nativeRoot = null;
+        IPrivateHostProcessLauncher launcher;
+        MatchedPackageFacts package;
+        if (OperatingSystem.IsWindows())
+        {
+            launcher = new WindowsPrivateHostProcessLauncher();
+            package = Package(FindServerAppHost());
+        }
+        else
+        {
+            nativeRoot = TemporaryRoot("native-broker");
+            Directory.CreateDirectory(nativeRoot);
+            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+            await CompileGuardianBrokerAsync(broker);
+            launcher = new UnixPrivateHostProcessLauncher(broker);
+            package = Package(FindServerAppHost(), broker);
+        }
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            package,
             LocalAudit(auditRoot),
-            new WindowsPrivateHostProcessLauncher(),
+            launcher,
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
@@ -214,8 +229,243 @@ public sealed class ProductionGuardianCompositionTests
             }
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
+            if (nativeRoot is not null) DeleteRoot(nativeRoot);
         }
 
+        Assert.False(Directory.Exists(outputRoot));
+    }
+
+    [Fact]
+    public async Task Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var auditRoot = TemporaryRoot("unix-recovery-audit");
+        var outputRoot = TemporaryRoot("unix-recovery-output");
+        var nativeRoot = TemporaryRoot("unix-recovery-broker");
+        Directory.CreateDirectory(nativeRoot);
+        var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+        var backgroundMarker = Path.Combine(nativeRoot, "background-pid.txt");
+        var escapedBackgroundMarker = backgroundMarker.Replace(
+            "'",
+            "''",
+            StringComparison.Ordinal);
+        Process? descendant = null;
+        Process? backgroundProcess = null;
+        await CompileGuardianBrokerAsync(broker);
+        var launcher = new RecordingPrivateHostLauncher(
+            new UnixPrivateHostProcessLauncher(broker));
+        var composition = ProductionGuardianComposition.Create(
+            Package(FindServerAppHost(), broker),
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            var initialized = await RequestAsync(
+                writer,
+                reader,
+                requestId: 1,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "production-unix-host-recovery-test",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            Assert.True(initialized.TryGetProperty("result", out _), initialized.GetRawText());
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                    @params = new { },
+                },
+                timeout.Token);
+
+            var initialStateResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 2,
+                "tools/call",
+                new { name = "ptk_state", arguments = new { } },
+                timeout.Token);
+            var initialState = PublicStateCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(initialStateResponse, expectedError: false)));
+            Assert.Equal(PublicHostState.Ready, initialState.Host.State);
+            Assert.Equal(1, initialState.Host.Generation?.Value);
+
+            var descendantResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 3,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "$child = Start-Process -FilePath '/usr/bin/tail' -ArgumentList '-f','/dev/null' -PassThru; 'PTK_CHILD_PID=' + $child.Id",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var descendantProcessId = MarkerInteger(
+                ToolText(descendantResponse, expectedError: false),
+                "PTK_CHILD_PID=");
+            descendant = Process.GetProcessById(descendantProcessId);
+            Assert.False(descendant.HasExited);
+
+            var backgroundResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 4,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = $"[IO.File]::WriteAllText('{escapedBackgroundMarker}', [string]$PID); Start-Sleep -Seconds 300",
+                        raw = true,
+                        route = "pwsh",
+                        background = true,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            _ = ToolText(backgroundResponse, expectedError: false);
+            for (var attempt = 0; attempt < 200 && !File.Exists(backgroundMarker); attempt++)
+                await Task.Delay(25, timeout.Token);
+            Assert.True(File.Exists(backgroundMarker), "The cold background job did not publish its PID.");
+            var backgroundProcessId = int.Parse(
+                await File.ReadAllTextAsync(backgroundMarker, timeout.Token),
+                CultureInfo.InvariantCulture);
+            backgroundProcess = Process.GetProcessById(backgroundProcessId);
+            Assert.False(backgroundProcess.HasExited);
+
+            var firstAuthority = await launcher.FirstAuthority.WaitAsync(timeout.Token);
+            using (var firstHost = Process.GetProcessById(firstAuthority.ProcessId))
+            {
+                firstHost.Kill();
+                await firstHost.WaitForExitAsync(timeout.Token);
+            }
+            await firstAuthority.ContainmentConfirmed.WaitAsync(timeout.Token);
+            await descendant.WaitForExitAsync(timeout.Token);
+            await backgroundProcess.WaitForExitAsync(timeout.Token);
+            Assert.True(descendant.HasExited);
+            Assert.True(backgroundProcess.HasExited);
+
+            PublicStateSnapshot? recovered = null;
+            var requestId = 5;
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                var response = await RequestAsync(
+                    writer,
+                    reader,
+                    requestId++,
+                    "tools/call",
+                    new { name = "ptk_state", arguments = new { } },
+                    timeout.Token);
+                var candidate = PublicStateCodec.Decode(
+                    Encoding.UTF8.GetBytes(ToolText(response, expectedError: false)));
+                if (candidate.Host.ReadyForEffects)
+                {
+                    recovered = candidate;
+                    break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+            Assert.NotNull(recovered);
+            Assert.Equal(2, recovered.Host.Generation?.Value);
+            Assert.True(Assert.Single(recovered.Sessions).WarmStateLost);
+            Assert.Equal(2, launcher.LaunchCount);
+
+            var invocation = await RequestAsync(
+                writer,
+                reader,
+                requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "'recovered-unix-private-host'",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "recovered-unix-private-host",
+                ToolText(invocation, expectedError: false),
+                StringComparison.Ordinal);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+        }
+        finally
+        {
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            KillProcessIfAlive(descendant);
+            KillProcessIfAlive(backgroundProcess);
+            descendant?.Dispose();
+            backgroundProcess?.Dispose();
+            DeleteRoot(auditRoot);
+            DeleteRoot(nativeRoot);
+        }
         Assert.False(Directory.Exists(outputRoot));
     }
 
@@ -1840,13 +2090,19 @@ public sealed class ProductionGuardianCompositionTests
         return [.. environment];
     }
 
-    private static MatchedPackageFacts Package(string hostAppHost) => new(
+    private static MatchedPackageFacts Package(
+        string hostAppHost,
+        string? guardianHelper = null) => new(
         hostAppHost,
         Digest('1'),
         Digest('2'),
         PublicToolContractResource.ComputeDigest(),
         Digest('6'),
-        []);
+        guardianHelper is null
+            ? []
+            : [new MatchedPackageArtifactPath(
+                MatchedPackageRole.GuardianHelper,
+                guardianHelper)]);
 
     private static string FindServerAppHost()
     {
@@ -1861,9 +2117,43 @@ public sealed class ProductionGuardianCompositionTests
             "bin",
             configurationDirectory.Name,
             "net10.0",
-            "PtkMcpServer.exe");
+            OperatingSystem.IsWindows() ? "PtkMcpServer.exe" : "PtkMcpServer");
         Assert.True(File.Exists(path), $"The private host apphost is absent: {path}");
         return path;
+    }
+
+    private static async Task CompileGuardianBrokerAsync(string outputPath)
+    {
+        var source = Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "PtkMcpGuardian",
+            "Native",
+            "ptk_guardian_broker.c");
+        var start = new ProcessStartInfo
+        {
+            FileName = "/usr/bin/cc",
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in new[]
+        {
+            "-std=c17", "-O2", "-fno-common", "-fstack-protector-strong",
+            "-Wall", "-Wextra", "-Werror", "-Wpedantic", "-Wshadow",
+            "-Wstrict-prototypes", "-Wmissing-prototypes", source, "-o", outputPath,
+        })
+        {
+            start.ArgumentList.Add(argument);
+        }
+        using var compiler = Process.Start(start) ??
+            throw new InvalidOperationException("The native broker compiler did not start.");
+        var standardOutput = compiler.StandardOutput.ReadToEndAsync();
+        var standardError = compiler.StandardError.ReadToEndAsync();
+        await compiler.WaitForExitAsync().WaitAsync(TestTimeout);
+        Assert.True(
+            compiler.ExitCode == 0,
+            $"Native broker compile failed: {await standardOutput}{await standardError}");
     }
 
     private static string FindRepositoryRoot()
@@ -1878,9 +2168,33 @@ public sealed class ProductionGuardianCompositionTests
         throw new InvalidOperationException("Repository root not found.");
     }
 
-    private static string TemporaryRoot(string kind) => Path.Combine(
-        Path.GetTempPath(),
-        $"ptk-production-guardian-{kind}-{Guid.NewGuid():N}");
+    private static string TemporaryRoot(string kind)
+    {
+        var temporary = new DirectoryInfo(Path.GetTempPath());
+        var canonical = OperatingSystem.IsMacOS() &&
+            temporary.FullName.StartsWith("/var/", StringComparison.Ordinal)
+            ? "/private" + temporary.FullName
+            : temporary.ResolveLinkTarget(returnFinalTarget: true)?.FullName ??
+                temporary.FullName;
+        return Path.Combine(
+            canonical,
+            $"ptk-production-guardian-{kind}-{Guid.NewGuid():N}");
+    }
+
+    private static void KillProcessIfAlive(Process? process)
+    {
+        if (process is null) return;
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch (Exception exception) when (exception is
+            ArgumentException or InvalidOperationException or
+            System.ComponentModel.Win32Exception)
+        {
+        }
+    }
 
     private static void DeleteRoot(string root)
     {
@@ -1894,6 +2208,27 @@ public sealed class ProductionGuardianCompositionTests
     {
         public PrivateHostProcessLaunchResult Launch(PrivateHostLaunchCommand command) =>
             throw new InvalidOperationException("The construction test must not launch a host.");
+    }
+
+    private sealed class RecordingPrivateHostLauncher(
+        IPrivateHostProcessLauncher inner) : IPrivateHostProcessLauncher
+    {
+        private readonly TaskCompletionSource<IPrivateHostLaunchedProcess> _firstAuthority = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _launchCount;
+
+        internal Task<IPrivateHostLaunchedProcess> FirstAuthority => _firstAuthority.Task;
+
+        internal int LaunchCount => Volatile.Read(ref _launchCount);
+
+        public PrivateHostProcessLaunchResult Launch(PrivateHostLaunchCommand command)
+        {
+            var result = inner.Launch(command);
+            var count = Interlocked.Increment(ref _launchCount);
+            if (count == 1 && result.LaunchedHost is not null)
+                _firstAuthority.TrySetResult(result.LaunchedHost);
+            return result;
+        }
     }
 
     private sealed class GatedContainmentLauncher : IPrivateHostProcessLauncher

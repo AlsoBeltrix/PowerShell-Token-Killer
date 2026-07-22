@@ -61,7 +61,7 @@ internal sealed class ProductionGuardianComposition : IAsyncDisposable
     internal static ProductionGuardianComposition Create(MatchedPackageFacts package)
     {
         ArgumentNullException.ThrowIfNull(package);
-        var launcher = CreatePlatformLauncher();
+        var launcher = CreatePlatformLauncher(package);
         var auditStartup = AuditStartupConfiguration.LoadFromEnvironment();
         try
         {
@@ -288,12 +288,20 @@ internal sealed class ProductionGuardianComposition : IAsyncDisposable
         }
     }
 
-    private static IPrivateHostProcessLauncher CreatePlatformLauncher()
+    private static IPrivateHostProcessLauncher CreatePlatformLauncher(
+        MatchedPackageFacts package)
     {
+        ArgumentNullException.ThrowIfNull(package);
         if (OperatingSystem.IsWindows())
             return new WindowsPrivateHostProcessLauncher();
-        throw new PlatformNotSupportedException(
-            "The production Unix guardian requires the native PtkGuardianBroker launcher.");
+        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+        {
+            var broker = package.RequiredArtifactPaths.SingleOrDefault(
+                artifact => artifact.Role == MatchedPackageRole.GuardianHelper) ??
+                throw new MatchedPackageValidationException("guardian_helper_missing");
+            return new UnixPrivateHostProcessLauncher(broker.AbsolutePath);
+        }
+        throw new PlatformNotSupportedException("The guardian platform is unsupported.");
     }
 }
 

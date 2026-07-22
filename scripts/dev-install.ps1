@@ -188,25 +188,41 @@ function Add-PtkBigEndianHashInteger {
     $Hash.AppendData($bytes)
 }
 
-function Write-PtkWindowsPackageManifest {
+function Write-PtkPackageManifest {
     param(
         [Parameter(Mandatory)][string]$Destination,
-        [Parameter(Mandatory)][ValidateSet('win-x64', 'win-arm64')][string]$TargetRid,
+        [Parameter(Mandatory)][ValidateSet(
+            'win-x64', 'win-arm64', 'linux-x64', 'linux-arm64', 'osx-arm64')][string]$TargetRid,
         [Parameter(Mandatory)][string]$PayloadVersion
     )
 
-    $definitions = @(
-        [pscustomobject]@{ Path = 'VERSION'; Role = 'version' }
-        [pscustomobject]@{ Path = 'bin/PtkAuditAdmin.exe'; Role = 'audit_admin' }
-        [pscustomobject]@{ Path = 'bin/PtkMcpGuardian.dll'; Role = 'guardian_managed' }
-        [pscustomobject]@{ Path = 'bin/PtkMcpGuardian.exe'; Role = 'guardian_apphost' }
-        [pscustomobject]@{ Path = 'bin/PtkMcpServer.dll'; Role = 'host_managed' }
-        [pscustomobject]@{ Path = 'bin/PtkMcpServer.exe'; Role = 'host_apphost' }
-        [pscustomobject]@{ Path = 'bin/PtkMcpServer.runtimeconfig.json'; Role = 'host_runtime' }
-        [pscustomobject]@{ Path = 'bin/PtkSharedContracts.dll'; Role = 'shared_contract' }
-        [pscustomobject]@{ Path = 'scripts/ptk_init.ps1'; Role = 'script' }
-        [pscustomobject]@{ Path = 'src/PwshTokenCompressor.psm1'; Role = 'module' }
-    )
+    $isUnix = $TargetRid -notlike 'win-*'
+    $suffix = if ($isUnix) { '' } else { '.exe' }
+    $definitions = [Collections.Generic.List[object]]::new()
+    $definitions.Add([pscustomobject]@{ Path = 'VERSION'; Role = 'version' })
+    $definitions.Add([pscustomobject]@{ Path = "bin/PtkAuditAdmin$suffix"; Role = 'audit_admin' })
+    if ($isUnix) {
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkContainmentBroker'; Role = 'containment_helper' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkGuardianBroker'; Role = 'guardian_helper' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpGuardian'; Role = 'guardian_apphost' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpGuardian.dll'; Role = 'guardian_managed' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpServer'; Role = 'host_apphost' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpServer.dll'; Role = 'host_managed' })
+    }
+    else {
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpGuardian.dll'; Role = 'guardian_managed' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpGuardian.exe'; Role = 'guardian_apphost' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpServer.dll'; Role = 'host_managed' })
+        $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpServer.exe'; Role = 'host_apphost' })
+    }
+    $definitions.Add([pscustomobject]@{ Path = 'bin/PtkMcpServer.runtimeconfig.json'; Role = 'host_runtime' })
+    $definitions.Add([pscustomobject]@{ Path = 'bin/PtkSharedContracts.dll'; Role = 'shared_contract' })
+    $definitions.Add([pscustomobject]@{ Path = 'scripts/ptk_init.ps1'; Role = 'script' })
+    $definitions.Add([pscustomobject]@{ Path = 'src/PwshTokenCompressor.psm1'; Role = 'module' })
+
+    $executableRoles = @(
+        'audit_admin', 'containment_helper', 'guardian_helper',
+        'guardian_apphost', 'host_apphost')
     $entries = @()
     $previousPath = $null
     foreach ($definition in $definitions) {
@@ -221,12 +237,34 @@ function Write-PtkWindowsPackageManifest {
             throw "Package manifest artifact is missing: $($definition.Path)"
         }
         $file = Get-Item -LiteralPath $absolutePath
+        $unixMode = if (-not $isUnix) {
+            $null
+        }
+        elseif ($definition.Role -in $executableRoles) {
+            493
+        }
+        else {
+            420
+        }
+        if ($isUnix) {
+            $mode = if ($unixMode -eq 493) {
+                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor
+                    [IO.UnixFileMode]::UserExecute -bor [IO.UnixFileMode]::GroupRead -bor
+                    [IO.UnixFileMode]::GroupExecute -bor [IO.UnixFileMode]::OtherRead -bor
+                    [IO.UnixFileMode]::OtherExecute
+            }
+            else {
+                [IO.UnixFileMode]::UserRead -bor [IO.UnixFileMode]::UserWrite -bor
+                    [IO.UnixFileMode]::GroupRead -bor [IO.UnixFileMode]::OtherRead
+            }
+            [IO.File]::SetUnixFileMode($file.FullName, $mode)
+        }
         $entries += [ordered]@{
             path = $definition.Path
             role = $definition.Role
             bytes = [long]$file.Length
             sha256 = Get-PtkFileSha256 -Path $file.FullName
-            unix_mode = $null
+            unix_mode = $unixMode
         }
     }
 
@@ -273,6 +311,27 @@ function Write-PtkWindowsPackageManifest {
         $manifestBytes)
 }
 
+function Build-PtkUnixBroker {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Output
+    )
+
+    $compiler = Get-Command cc -CommandType Application -ErrorAction SilentlyContinue
+    if (-not $compiler) {
+        throw 'The native Unix broker build requires cc on PATH.'
+    }
+    $arguments = @(
+        '-std=c17', '-O2', '-fno-common', '-fstack-protector-strong',
+        '-Wall', '-Wextra', '-Werror', '-Wpedantic', '-Wshadow',
+        '-Wstrict-prototypes', '-Wmissing-prototypes',
+        $Source, '-o', $Output)
+    & $compiler.Source @arguments | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native Unix broker compile failed: $Source"
+    }
+}
+
 # Publishes every apphost and assembles the canonical layout (bin/, src/,
 # scripts/, VERSION) in $Destination. The one layout generator dev installs
 # and release CI share.
@@ -312,16 +371,22 @@ function New-PtkLayout {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
     Set-Content -LiteralPath (Join-Path $Destination 'VERSION') -Value $PayloadVersion -NoNewline
-    # Unix matched packages require the two native broker roles that land in
-    # the later resilience slices. Until then, keep the transitional Unix
-    # layout usable by the direct development server but manifest-less, so a
-    # production guardian fails closed instead of accepting a partial package.
-    if ($TargetRid -like 'win-*') {
-        Write-PtkWindowsPackageManifest `
-            -Destination $Destination `
-            -TargetRid $TargetRid `
-            -PayloadVersion $PayloadVersion
+    if ($TargetRid -notlike 'win-*') {
+        $currentRid = Get-PtkRid
+        if ($TargetRid -ne $currentRid) {
+            throw "Native Unix broker builds require their target host ($TargetRid requested on $currentRid)."
+        }
+        Build-PtkUnixBroker `
+            -Source (Join-Path $repoRoot 'server' 'PtkMcpGuardian' 'Native' 'ptk_guardian_broker.c') `
+            -Output (Join-Path $Destination 'bin' 'PtkGuardianBroker')
+        Build-PtkUnixBroker `
+            -Source (Join-Path $repoRoot 'server' 'PtkMcpGuardian' 'Native' 'ptk_containment_broker.c') `
+            -Output (Join-Path $Destination 'bin' 'PtkContainmentBroker')
     }
+    Write-PtkPackageManifest `
+        -Destination $Destination `
+        -TargetRid $TargetRid `
+        -PayloadVersion $PayloadVersion
 }
 
 # Replaces the installer-owned payload in ~/.ptk with the staged layout.

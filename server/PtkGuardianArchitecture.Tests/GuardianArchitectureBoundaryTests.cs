@@ -17,6 +17,8 @@ public sealed class GuardianArchitectureBoundaryTests
     private const string GuardianSentinel = "Ownership/PublicJobIdAllocator.cs";
     private const string WindowsPrivateHostLauncher =
         "Host/WindowsPrivateHostProcessLauncher.cs";
+    private const string UnixPrivateHostLauncher =
+        "Host/UnixPrivateHostProcessLauncher.cs";
 
     private static readonly string[] RequiredGuardianAppHostCompileInputs =
     [
@@ -296,8 +298,13 @@ public sealed class GuardianArchitectureBoundaryTests
         new("libc", "lstat"),
         new("libc", "lstat$INODE64"),
         new("libc", "open"),
+        new("libc", "posix_spawn"),
+        new("libc", "posix_spawn_file_actions_addopen"),
+        new("libc", "posix_spawn_file_actions_destroy"),
+        new("libc", "posix_spawn_file_actions_init"),
         new("libc", "rename"),
         new("libc", "statx"),
+        new("libc", "waitpid"),
     ];
 
     private static readonly HashSet<NativeImport> WindowsPrivateHostLauncherImports =
@@ -322,6 +329,19 @@ public sealed class GuardianArchitectureBoundaryTests
 
     private static readonly HashSet<string> WindowsPrivateHostLaunchIdentifiers = new(
         WindowsPrivateHostLauncherImports.Select(import => import.EntryPoint),
+        StringComparer.Ordinal);
+
+    private static readonly HashSet<NativeImport> UnixPrivateHostLauncherImports =
+    [
+        new("libc", "posix_spawn"),
+        new("libc", "posix_spawn_file_actions_addopen"),
+        new("libc", "posix_spawn_file_actions_destroy"),
+        new("libc", "posix_spawn_file_actions_init"),
+        new("libc", "waitpid"),
+    ];
+
+    private static readonly HashSet<string> UnixPrivateHostLaunchIdentifiers = new(
+        UnixPrivateHostLauncherImports.Select(import => import.EntryPoint),
         StringComparer.Ordinal);
 
     private static readonly HashSet<string> ForbiddenCatalogSourceIdentifiers = new(
@@ -1300,8 +1320,13 @@ public sealed class GuardianArchitectureBoundaryTests
                 new NativeImport("libc", "lstat"),
                 new NativeImport("libc", "lstat$INODE64"),
                 new NativeImport("libc", "open"),
+                new NativeImport("libc", "posix_spawn"),
+                new NativeImport("libc", "posix_spawn_file_actions_addopen"),
+                new NativeImport("libc", "posix_spawn_file_actions_destroy"),
+                new NativeImport("libc", "posix_spawn_file_actions_init"),
                 new NativeImport("libc", "rename"),
                 new NativeImport("libc", "statx"),
+                new NativeImport("libc", "waitpid"),
             ],
             "guardian native import allowlist");
     }
@@ -1333,6 +1358,27 @@ public sealed class GuardianArchitectureBoundaryTests
             .SelectMany(path => ReadSourceNativeImports(path)
                 .Where(launcherExclusive.Contains)
                 .Select(import => $"{path}: launcher-owned import {import.Module}!{import.EntryPoint}"));
+        AssertNoViolations(violations);
+    }
+
+    [Fact]
+    public void Unix_private_host_launch_imports_have_one_exact_source_owner()
+    {
+        var guardian = EvaluateProject(RepositoryPaths.Create().GuardianProject);
+        var launcherPath = NormalizePath(Path.Combine(
+            guardian.ProjectDirectory,
+            UnixPrivateHostLauncher.Replace('/', Path.DirectorySeparatorChar)));
+        Assert.Contains(launcherPath, guardian.CompileInputs, PathComparer);
+        AssertExactSet(
+            ReadSourceNativeImports(launcherPath),
+            UnixPrivateHostLauncherImports,
+            "Unix private-host launcher imports");
+
+        var violations = guardian.CompileInputs
+            .Where(path => !PathComparer.Equals(path, launcherPath))
+            .SelectMany(path => ReadSourceNativeImports(path)
+                .Where(UnixPrivateHostLauncherImports.Contains)
+                .Select(import => $"{path}: Unix-launcher-owned import {import.Module}!{import.EntryPoint}"));
         AssertNoViolations(violations);
     }
 
@@ -1381,14 +1427,20 @@ public sealed class GuardianArchitectureBoundaryTests
                 var isWindowsPrivateHostLauncher = sourcePath.EndsWith(
                     WindowsPrivateHostLauncher.Replace('/', Path.DirectorySeparatorChar),
                     PathComparison);
+                var isUnixPrivateHostLauncher = sourcePath.EndsWith(
+                    UnixPrivateHostLauncher.Replace('/', Path.DirectorySeparatorChar),
+                    PathComparison);
 
                 foreach (var token in root.DescendantTokens(descendIntoTrivia: false))
                 {
                     if (token.IsKind(SyntaxKind.IdentifierToken))
                     {
                         var identifier = token.ValueText;
-                        var exactLauncherIdentifier = isWindowsPrivateHostLauncher &&
-                            WindowsPrivateHostLaunchIdentifiers.Contains(identifier);
+                        var exactLauncherIdentifier =
+                            isWindowsPrivateHostLauncher &&
+                            WindowsPrivateHostLaunchIdentifiers.Contains(identifier) ||
+                            isUnixPrivateHostLauncher &&
+                            UnixPrivateHostLaunchIdentifiers.Contains(identifier);
                         if (!exactLauncherIdentifier &&
                             (ForbiddenSourceIdentifiers.Contains(identifier) ||
                              IsForbiddenNativeEntryPoint(identifier)))
@@ -1405,6 +1457,8 @@ public sealed class GuardianArchitectureBoundaryTests
                     else if (token.Value is string text &&
                              !(isWindowsPrivateHostLauncher &&
                                WindowsPrivateHostLaunchIdentifiers.Contains(text)) &&
+                             !(isUnixPrivateHostLauncher &&
+                               UnixPrivateHostLaunchIdentifiers.Contains(text)) &&
                              (ContainsForbiddenRuntimeName(text) ||
                               IsForbiddenNativeEntryPoint(text)))
                     {
@@ -1571,7 +1625,10 @@ public sealed class GuardianArchitectureBoundaryTests
         Assert.DoesNotContain(new NativeImport(module, entryPoint), AllowedNativeImports);
         Assert.All(
             AllowedNativeImports.Where(import => IsForbiddenNativeEntryPoint(import.EntryPoint)),
-            import => Assert.Contains(import, WindowsPrivateHostLauncherImports));
+            import => Assert.True(
+                WindowsPrivateHostLauncherImports.Contains(import) ||
+                UnixPrivateHostLauncherImports.Contains(import),
+                $"Forbidden native launch import lacks an exact launcher owner: {import}"));
     }
 
     [Theory]

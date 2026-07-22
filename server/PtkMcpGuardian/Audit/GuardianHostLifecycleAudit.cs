@@ -74,6 +74,20 @@ internal sealed class GuardianHostLifecycleAudit(AuditRuntimeGate runtime) :
             detailCode: "host_recovery_scheduled",
             warmStateLost: true);
 
+    public void RecordCircuitOpen() =>
+        Record(
+            "host.circuit_open",
+            outcomeState: "circuit_open",
+            detailCode: "host_circuit_open",
+            warmStateLost: true);
+
+    public void RecordCircuitHalfOpen() =>
+        Record(
+            "host.circuit_half_open",
+            outcomeState: "half_open",
+            detailCode: "host_circuit_half_open",
+            warmStateLost: true);
+
     private void Record(
         string eventType,
         string outcomeState,

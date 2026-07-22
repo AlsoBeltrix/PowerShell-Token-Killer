@@ -85,4 +85,8 @@ internal sealed class NoOpGuardianHostLifecycleAudit : IGuardianHostLifecycleAud
     public void RecordRecoveryFailed(bool processStarted) { }
 
     public void RecordRecoveryScheduled() { }
+
+    public void RecordCircuitOpen() { }
+
+    public void RecordCircuitHalfOpen() { }
 }

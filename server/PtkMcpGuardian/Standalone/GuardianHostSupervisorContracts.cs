@@ -60,6 +60,10 @@ internal interface IGuardianHostLifecycleAudit
     void RecordRecoveryFailed(bool processStarted);
 
     void RecordRecoveryScheduled();
+
+    void RecordCircuitOpen();
+
+    void RecordCircuitHalfOpen();
 }
 
 internal sealed record GuardianHostJobListTarget

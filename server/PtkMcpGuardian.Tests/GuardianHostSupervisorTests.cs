@@ -246,6 +246,85 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Circuit_open_and_half_open_transitions_are_durably_audited()
+    {
+        var plans = new List<AttemptPlan>
+        {
+            new(HostBehavior.Respond),
+        };
+        plans.AddRange(Enumerable.Repeat(
+            new AttemptPlan(HostBehavior.ProvedNoChild),
+            6));
+        plans.Add(new AttemptPlan(HostBehavior.Respond));
+        await using var rig = new TestRig(plans.ToArray());
+        await rig.StartAsync();
+
+        rig.Factory.Resources[0].SignalHostExit();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.Backoff);
+        var backoffs = new[]
+        {
+            TimeSpan.FromMilliseconds(250),
+            TimeSpan.FromSeconds(1),
+            TimeSpan.FromSeconds(4),
+            TimeSpan.FromSeconds(15),
+            TimeSpan.FromSeconds(30),
+        };
+        for (var index = 0; index < backoffs.Length; index++)
+        {
+            await rig.Scheduler.AdvanceAndCompleteAllAsync(backoffs[index]);
+            var expectedAttempts = index + 3;
+            await WaitUntilAsync(() =>
+                rig.Factory.Resources.Count >= expectedAttempts);
+        }
+
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.CircuitOpen &&
+            rig.HostAuditLines("host.circuit_open").Length == 1);
+        var failedLines = rig.HostAuditLines("host.recovery_failed");
+        Assert.Equal(6, failedLines.Length);
+        Assert.Equal(5, rig.HostAuditLines("host.recovery_scheduled").Length);
+        var circuitLine = Assert.Single(rig.HostAuditLines("host.circuit_open"));
+        using var failedDocument = JsonDocument.Parse(failedLines[^1]);
+        using var circuitDocument = JsonDocument.Parse(circuitLine);
+        var circuitRoot = circuitDocument.RootElement;
+        Assert.True(
+            failedDocument.RootElement.GetProperty("sequence").GetInt64() <
+            circuitRoot.GetProperty("sequence").GetInt64());
+        var openHost = circuitRoot.GetProperty("host");
+        Assert.Equal(JsonValueKind.Null, openHost.GetProperty("boot_id").ValueKind);
+        Assert.Equal(JsonValueKind.Null, openHost.GetProperty("generation").ValueKind);
+        Assert.Equal("circuit_open", openHost.GetProperty("state").GetString());
+        Assert.Equal(7, openHost.GetProperty("recovery_attempt").GetInt64());
+
+        await rig.Scheduler.AdvanceAndCompleteAllAsync(
+            RecoveryCircuitMachine.CircuitOpenWindow);
+        await WaitUntilAsync(() =>
+            rig.HostAuditLines("host.circuit_half_open").Length == 1 &&
+            rig.Factory.Resources.Count == 8);
+        var halfOpenLine = Assert.Single(
+            rig.HostAuditLines("host.circuit_half_open"));
+        using var halfOpenDocument = JsonDocument.Parse(halfOpenLine);
+        var halfOpenRoot = halfOpenDocument.RootElement;
+        var halfOpenIdentity = rig.Factory.Resources[7].Identity;
+        var halfOpenHost = halfOpenRoot.GetProperty("host");
+        Assert.Equal(
+            halfOpenIdentity.HostBootId.Value.ToString("D"),
+            halfOpenHost.GetProperty("boot_id").GetString());
+        Assert.Equal(
+            halfOpenIdentity.HostGeneration.Value,
+            halfOpenHost.GetProperty("generation").GetInt64());
+        Assert.Equal("half_open", halfOpenHost.GetProperty("state").GetString());
+        Assert.Equal(7, halfOpenHost.GetProperty("recovery_attempt").GetInt64());
+        Assert.Equal(
+            "half_open",
+            halfOpenRoot.GetProperty("outcome").GetProperty("state").GetString());
+        Assert.True(
+            circuitRoot.GetProperty("sequence").GetInt64() <
+            halfOpenRoot.GetProperty("sequence").GetInt64());
+    }
+
+    [Fact]
     public async Task Host_loss_begins_containment_before_its_durable_audit_append()
     {
         await using var rig = new TestRig(
@@ -3211,6 +3290,12 @@ public sealed class GuardianHostSupervisorTests
 
         public void RecordRecoveryScheduled() =>
             _inner.RecordRecoveryScheduled();
+
+        public void RecordCircuitOpen() =>
+            _inner.RecordCircuitOpen();
+
+        public void RecordCircuitHalfOpen() =>
+            _inner.RecordCircuitHalfOpen();
     }
 
     private sealed class BlockingDispatchObserver :

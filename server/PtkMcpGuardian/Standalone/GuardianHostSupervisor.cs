@@ -2045,7 +2045,7 @@ internal sealed class GuardianHostSupervisor :
             }
             else
             {
-                RecordScheduledRecoveryLocked(
+                RecordFailedRecoveryLocked(
                     failedProcessStarted: active.Lease.RecoveryLease is not null);
                 ScheduleRecoveryLocked();
             }
@@ -2104,7 +2104,7 @@ internal sealed class GuardianHostSupervisor :
                     if (transition.Disposition ==
                         GuardianHostStartDisposition.ProvedNoChild)
                     {
-                        RecordScheduledRecoveryLocked(failedProcessStarted: false);
+                        RecordFailedRecoveryLocked(failedProcessStarted: false);
                     }
                     if (_lifecycle.Snapshot().Host.State is not (
                             PublicHostState.Backoff or PublicHostState.CircuitOpen))
@@ -2136,17 +2136,26 @@ internal sealed class GuardianHostSupervisor :
 
     private void RecordAttemptStartingLocked(GuardianHostAttemptLease attempt)
     {
-        if (attempt.Stage == GuardianHostAttemptStage.Launching)
+        if (attempt.Stage != GuardianHostAttemptStage.Launching)
+            return;
+
+        if (_lifecycle.Snapshot().Host.State == PublicHostState.HalfOpen)
+            _lifecycleAudit.RecordCircuitHalfOpen();
+        else
             _lifecycleAudit.RecordStarting();
     }
 
-    private void RecordScheduledRecoveryLocked(bool failedProcessStarted)
+    private void RecordFailedRecoveryLocked(bool failedProcessStarted)
     {
-        if (_lifecycle.Snapshot().Host.State != PublicHostState.Backoff)
+        var state = _lifecycle.Snapshot().Host.State;
+        if (state is not (PublicHostState.Backoff or PublicHostState.CircuitOpen))
             return;
 
         _lifecycleAudit.RecordRecoveryFailed(failedProcessStarted);
-        _lifecycleAudit.RecordRecoveryScheduled();
+        if (state == PublicHostState.Backoff)
+            _lifecycleAudit.RecordRecoveryScheduled();
+        else
+            _lifecycleAudit.RecordCircuitOpen();
     }
 
     private IDisposable? AcquireWriteAuthority(ActiveAttempt active)

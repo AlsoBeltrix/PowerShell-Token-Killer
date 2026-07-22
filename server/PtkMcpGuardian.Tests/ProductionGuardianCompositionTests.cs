@@ -447,6 +447,192 @@ public sealed class ProductionGuardianCompositionTests
         Assert.False(Directory.Exists(outputRoot));
     }
 
+    [Fact]
+    public async Task Windows_composition_never_replays_a_real_effect_when_the_host_dies()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var auditRoot = TemporaryRoot("outcome-unknown-audit");
+        var outputRoot = TemporaryRoot("outcome-unknown-output");
+        var launcher = new GatedContainmentLauncher();
+        launcher.ReleaseFirstContainmentConfirmation();
+        var composition = ProductionGuardianComposition.Create(
+            Package(FindServerAppHost()),
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            var initialized = await RequestAsync(
+                writer,
+                reader,
+                requestId: 1,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "production-host-outcome-unknown-test",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            Assert.True(initialized.TryGetProperty("result", out _), initialized.GetRawText());
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                    @params = new { },
+                },
+                timeout.Token);
+            var firstHostProcessId = await launcher.FirstHostProcessId.WaitAsync(timeout.Token);
+
+            var ambiguousResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 2,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "[System.Diagnostics.Process]::GetCurrentProcess().Kill()",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var ambiguous = PublicRecoveryCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(ambiguousResponse, expectedError: true)));
+            Assert.Equal(PublicRecoveryDetailCode.OutcomeUnknown, ambiguous.DetailCode);
+            Assert.False(ambiguous.Retryable);
+            Assert.Null(ambiguous.RetryAfterMilliseconds);
+            Assert.Null(ambiguous.RecoveryPhase);
+            Assert.Null(ambiguous.RecoveryAttempt);
+            Assert.Null(ambiguous.RetryGate);
+
+            var replacementHostProcessId = await launcher.ReplacementHostProcessId
+                .WaitAsync(timeout.Token);
+            Assert.NotEqual(firstHostProcessId, replacementHostProcessId);
+
+            PublicStateSnapshot? recovered = null;
+            var requestId = 3;
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                var stateResponse = await RequestAsync(
+                    writer,
+                    reader,
+                    requestId++,
+                    "tools/call",
+                    new
+                    {
+                        name = "ptk_state",
+                        arguments = new { },
+                    },
+                    timeout.Token);
+                var candidate = PublicStateCodec.Decode(
+                    Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
+                if (candidate.Host.ReadyForEffects)
+                {
+                    recovered = candidate;
+                    break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+
+            Assert.NotNull(recovered);
+            Assert.Equal(PublicHostState.Ready, recovered.Host.State);
+            Assert.Equal(2, recovered.Host.Generation?.Value);
+            Assert.True(Assert.Single(recovered.Sessions).WarmStateLost);
+            Assert.Equal(2, launcher.LaunchCount);
+
+            var invocation = await RequestAsync(
+                writer,
+                reader,
+                requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "Write-Output 'effect-was-not-replayed'",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "effect-was-not-replayed",
+                ToolText(invocation, expectedError: false),
+                StringComparison.Ordinal);
+            Assert.Equal(2, launcher.LaunchCount);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+            Assert.Equal(0, composition.Supervisor.OwnedClientCount);
+            Assert.Equal(0, composition.Supervisor.OwnedAttemptWatcherSetCount);
+        }
+        finally
+        {
+            launcher.ReleaseFirstContainmentConfirmation();
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            DeleteRoot(auditRoot);
+        }
+
+        Assert.False(Directory.Exists(outputRoot));
+    }
+
     private static async Task<JsonElement> RequestAsync(
         StreamWriter writer,
         StreamReader reader,

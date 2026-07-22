@@ -76,6 +76,7 @@ public sealed class GuardianArchitectureBoundaryTests
         "ExportConfigurationIdentity.cs",
         "FileAuditJournalSink.cs",
         "GuardianAuditCall.cs",
+        "GuardianHostLifecycleAudit.cs",
         "ScriptEvidenceStore.cs",
         "ScriptEvidenceStoreProvider.cs",
         "SecureAuditStorage.cs",

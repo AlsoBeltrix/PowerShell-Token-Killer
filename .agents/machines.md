@@ -179,9 +179,67 @@ validation, not an installed-payload update._
   An initial uncached Unix layout publish exceeded the new fixture's original
   three-minute deadline; its Unix-only cold-publish allowance is now ten
   minutes and subsequent matched-layout runs passed.
+- Linux validation later exposed a build-server lifetime hang in that same
+  canonical publish path. Follow-up code head `225b5fc` adds the official
+  `--disable-build-servers` switch to all three apphost publishes without
+  changing native containment. The fixed package guard passed locally in nine
+  seconds; the complete macOS rerun again passed architecture 73/73, guardian
+  436/436, server 1,868/1,868, Pester 141 with two platform skips, and the full
+  stdio handshake.
 - Restore/build still emits the separately parked NU1903 high-severity
   advisories for `System.Security.Cryptography.Xml` 10.0.6. No dependency
   change was folded into R5.
+
+### MCP resilience R5 Linux containment validation (`magneto`)
+
+_Verified 2026-07-22 against the exact code/test content committed at
+`225b5fc`; this was a disposable checkout validation, not an installed-payload
+update._
+
+- `magneto` reported Arch Linux x86_64, kernel 7.1.3, .NET SDK 10.0.110,
+  PowerShell 7.6.3, and GCC 16.1.1. The base source was a `git archive` of
+  `300cbf6` with SHA-256
+  `c2201341cfb6e3732afd3e4ae48656b9b07d55dca7140159824cee66904567f0`;
+  local and remote hashes matched. The only later code/test delta was the
+  canonical-publish fix committed at `225b5fc` and copied with a matching
+  SHA-256. A clean nonincremental solution build passed before behavior
+  validation.
+- The focused Linux R5 set passed 6/6: creation-time process-group ownership,
+  direct descendant cleanup, guardian-liveness EOF cleanup, the frozen native
+  boundary, real private-host startup, same-public-connection hard-kill
+  recovery with ordinary descendant and cold-background cleanup, and the
+  matched canonical Unix layout. The real recovery advanced host generation
+  and resumed work through the replacement without closing public MCP.
+- The original canonical layout run published the server and guardian, then
+  left its childless PowerShell installer waiting in `futex_do_wait` until the
+  fixture's ten-minute deadline. Publishing all three apphosts with the .NET
+  CLI's official `--disable-build-servers` switch completed, and adding that
+  switch to each canonical publish made the previously failing package guard
+  pass in 32 seconds. Removing the fix reproduces the timeout; restoring it
+  returns the guard to green.
+- Independently changing native containment from process-group signaling to
+  direct-host-only signaling made
+  `Native_broker_owns_creation_time_group_and_confirms_descendant_death` time
+  out at its all-processes-gone assertion after 32 seconds. The restored native
+  source matched SHA-256
+  `d62973708647dc96a8a6fdbfcaa5777928bf597b68c3957a8d8302486ede7492`
+  locally and remotely, and the same test then passed in two seconds. The
+  mutation was not committed.
+- An intentionally non-authoritative parallel battery saturated the four-CPU
+  host to load 22 and produced timing failures in both R5 composition tests
+  and two established runspace timing tests; all four had passed focused or on
+  the later isolated path. The authoritative solution run used one MSBuild
+  project at a time and no competing workload: architecture passed 73/73,
+  guardian passed 436/436, and server passed 1,868/1,868. Pester 6.0.1 was
+  imported only from the disposable validation tree because the host had no
+  installed Pester module; 141 tests passed with two platform skips. The
+  complete stdio handshake passed every invoke, output, recovery, audit,
+  outage, graceful-cleanup, and hard-kill check.
+- The disposable root `/tmp/ptk-r5-linux-DXL2sF6b`, including the staged Pester
+  module and source archive, was removed after a scoped process check; no host
+  profile, installed payload, or unrelated process was changed. Restore/build
+  continued to emit only the separately parked NU1903 advisories for
+  `System.Security.Cryptography.Xml` 10.0.6.
 
 ## `NETWATCH-01` — Michael's Windows machine
 

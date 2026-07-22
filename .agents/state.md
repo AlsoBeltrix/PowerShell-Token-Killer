@@ -108,21 +108,22 @@ short and update it when important repo facts change.
   content arrival was verified by direct branch diff, and the feature branch
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
-- **The owner-approved two-layer MCP resilience sequence is implemented
-  through every locally actionable R5 Windows barrier and the direct macOS
-  Unix containment/package boundary on `feature/mcp-resilience-r1`; the exact
-  verified code/test heads are Windows `195e7e6` and macOS `300cbf6`. R0-R4
-  are complete. R5 now owns real Windows and Unix private-host launch,
+- **The owner-approved two-layer MCP resilience sequence is implemented and
+  directly validated through R5 on `feature/mcp-resilience-r1`; the current
+  code head is `225b5fc`, with exact platform evidence at Windows `195e7e6`,
+  macOS `225b5fc`, and Linux code/test content `225b5fc`. R0-R5 are complete.
+  R5 owns real Windows and Unix private-host launch,
   containment, monitoring, exact-generation restart, lifecycle audit,
   delivery truth, declared-state restoration, job/output tombstones, and
   recovery-aware state. Real apphost tests cover startup/replacement crashes,
   request/effect/response barriers, native descendant and cold-background
   cleanup, guardian-liveness EOF, idle persistence, lost jobs, and ambiguous
-  reset requiring explicit repair. The complete repository battery and stdio
-  handshake pass at the macOS head; exact machine evidence, guard proofs, test
-  counts, and current package advisories are in `.agents/machines.md`. R5 is
-  not cross-platform complete because the exact native broker/package path has
-  not yet run on direct Linux; do not infer Linux acceptance from macOS. The
+  reset requiring explicit repair. The complete repository battery, Pester,
+  and stdio handshake pass at the macOS and Linux heads; exact machine
+  evidence, guard proofs, test counts, host-load caveat, and current package
+  advisories are in `.agents/machines.md`. The separately recorded ARM64
+  MSBuild-only `protoc` crash remains an architecture-specific clean-build
+  blocker, not an R5 Linux behavior blocker. The
   owner authorized R2-R7 on 2026-07-17 and directed implementation to continue
   without waiting for held Fable reviews.** The target keeps one
   public stdio guardian alive while it
@@ -278,14 +279,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Resume `feature/mcp-resilience-r1` after the macOS R5 code head `300cbf6` and
-   its completion record. Validate that exact native broker, production
-   launcher, liveness teardown, direct-host reap, descendant/cold-background
-   cleanup, recovery, and matched package on direct Linux. Prefer a usable x64
-   Linux host or first resolve the separately recorded ARM64 MSBuild `protoc`
-   failure; do not claim a clean Linux battery around that roadblock. Fix only
-   Linux-specific failures within the approved R5 boundary. After exact
-   Windows, macOS, and Linux evidence, mark R5 complete and begin R6.
+1. Resume `feature/mcp-resilience-r1` after the cross-platform R5 code head
+   `225b5fc` and its completion record. Begin the approved R6 automatic worker
+   recovery slice without reopening R5 or folding the separate ARM64 MSBuild
+   `protoc` investigation into resilience work.
    Ordinary reviews may use Opus or Grok; hold Fable openreviews until capacity
    returns. Do not merge, rewrite history, push, or publish a release without
    the separately required authorization.
@@ -362,14 +359,6 @@ short and update it when important repo facts change.
   S3H's cross-platform negative matrix lands and the later checkpoint path is
   protected before first use.
 
-- **R5 Linux production containment remains unverified.** The native outer
-  broker, production launcher, matched Unix package, hard-kill recovery, and
-  guardian-liveness teardown pass on direct macOS at `300cbf6`, but that does
-  not establish Linux behavior. `ASHBIAMWEB1` still has no usable
-  WSL/compiler/container path, and the known Ubuntu ARM64 MSBuild-only
-  `Grpc.Tools` failure blocks a clean battery there. Run the exact R5 path on a
-  usable direct Linux host (or resolve that build roadblock) before claiming R5
-  complete; exact host evidence is in `.agents/machines.md`.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in

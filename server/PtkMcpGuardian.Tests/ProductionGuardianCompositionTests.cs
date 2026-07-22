@@ -305,6 +305,53 @@ public sealed class ProductionGuardianCompositionTests
             Assert.False(Assert.Single(initial.Sessions).WarmStateLost);
             var firstHostProcessId = await launcher.FirstHostProcessId.WaitAsync(timeout.Token);
 
+            var warmMutation = await RequestAsync(
+                writer,
+                reader,
+                requestId: 3,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "$global:PtkR5UndeclaredState = 'old-generation'; 'warm-state-set'",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "warm-state-set",
+                ToolText(warmMutation, expectedError: false),
+                StringComparison.Ordinal);
+            var warmProof = await RequestAsync(
+                writer,
+                reader,
+                requestId: 4,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "if ($global:PtkR5UndeclaredState -eq 'old-generation') { 'warm-state-present' } else { 'warm-state-absent' }",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "warm-state-present",
+                ToolText(warmProof, expectedError: false),
+                StringComparison.Ordinal);
+
             using (var firstHost = Process.GetProcessById(firstHostProcessId))
             {
                 firstHost.Kill();
@@ -317,7 +364,7 @@ public sealed class ProductionGuardianCompositionTests
             var recoveryStateResponse = await RequestAsync(
                 writer,
                 reader,
-                requestId: 3,
+                requestId: 5,
                 "tools/call",
                 new
                 {
@@ -340,7 +387,7 @@ public sealed class ProductionGuardianCompositionTests
             var refusedResponse = await RequestAsync(
                 writer,
                 reader,
-                requestId: 4,
+                requestId: 6,
                 "tools/call",
                 new
                 {
@@ -364,7 +411,7 @@ public sealed class ProductionGuardianCompositionTests
             Assert.NotEqual(firstHostProcessId, replacementHostProcessId);
 
             PublicStateSnapshot? recovered = null;
-            var requestId = 5;
+            var requestId = 7;
             for (var attempt = 0; attempt < 200; attempt++)
             {
                 var stateResponse = await RequestAsync(
@@ -407,7 +454,7 @@ public sealed class ProductionGuardianCompositionTests
                     name = "ptk_invoke",
                     arguments = new
                     {
-                        script = "Write-Output 'recovered-private-host'",
+                        script = "if (Get-Variable -Name PtkR5UndeclaredState -Scope Global -ErrorAction Ignore) { 'warm-state-present' } else { 'warm-state-absent' }; 'recovered-private-host'",
                         raw = true,
                         route = "pwsh",
                         background = false,
@@ -416,10 +463,10 @@ public sealed class ProductionGuardianCompositionTests
                     },
                 },
                 timeout.Token);
-            Assert.Contains(
-                "recovered-private-host",
-                ToolText(invocation, expectedError: false),
-                StringComparison.Ordinal);
+            var recoveredText = ToolText(invocation, expectedError: false);
+            Assert.Contains("warm-state-absent", recoveredText, StringComparison.Ordinal);
+            Assert.DoesNotContain("warm-state-present", recoveredText, StringComparison.Ordinal);
+            Assert.Contains("recovered-private-host", recoveredText, StringComparison.Ordinal);
 
             input.CompleteWriting();
             Assert.Equal(0, await run.WaitAsync(timeout.Token));

@@ -57,7 +57,7 @@ internal sealed class R3FakeGuardianComposition : IAsyncDisposable
         var selectedProfile = profile ?? R3FakeHostProfile.StrictDefault;
         var selectedTimeProvider = timeProvider ?? TimeProvider.System;
         var selectedScheduler = scheduler ??
-            new R3SystemGuardianHostSupervisorScheduler(selectedTimeProvider);
+            new SystemGuardianHostSupervisorScheduler(selectedTimeProvider);
         var guardianBootId = new GuardianBootId(Guid.NewGuid());
         var pins = CreatePins();
         var hostSnapshots = new GuardianAuditHostSnapshotSource();
@@ -71,8 +71,8 @@ internal sealed class R3FakeGuardianComposition : IAsyncDisposable
             var lifecycle = new GuardianHostLifecycleController(
                 guardianBootId,
                 new MonotonicHostGenerationAllocator(),
-                new R3RandomHostBootIdSource(),
-                new R3GuardianHostStartupDeadlineSource(
+                new RandomGuardianHostBootIdSource(),
+                new FixedGuardianHostStartupDeadlineSource(
                     selectedTimeProvider,
                     HostStartupTimeout),
                 factory,
@@ -89,7 +89,7 @@ internal sealed class R3FakeGuardianComposition : IAsyncDisposable
                 selectedTimeProvider,
                 selectedScheduler,
                 new R3FakeSessionSource(selectedProfile),
-                R3NoOpDispatchObserver.Instance,
+                NoOpGuardianHostSupervisorDispatchObserver.Instance,
                 pins);
             return new R3FakeGuardianComposition(
                 guardianBootId,
@@ -271,48 +271,6 @@ internal sealed class R3FakeGuardianAuditRuntime : IDisposable
     }
 }
 
-internal sealed class R3RandomHostBootIdSource : IGuardianHostBootIdSource
-{
-    public HostBootId Next() => new(Guid.NewGuid());
-}
-
-internal sealed class R3GuardianHostStartupDeadlineSource :
-    IGuardianHostStartupDeadlineSource
-{
-    private readonly TimeProvider _timeProvider;
-    private readonly long _timeoutTimestampTicks;
-
-    internal R3GuardianHostStartupDeadlineSource(
-        TimeProvider timeProvider,
-        TimeSpan timeout)
-    {
-        _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
-        if (timeout <= TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-        _timeoutTimestampTicks = checked((long)Math.Ceiling(
-            timeout.TotalSeconds * timeProvider.TimestampFrequency));
-        if (_timeoutTimestampTicks <= 0)
-            throw new ArgumentOutOfRangeException(nameof(timeout));
-    }
-
-    public GuardianHostStartupDeadline Next() => new(
-        checked(_timeProvider.GetTimestamp() + _timeoutTimestampTicks));
-}
-
-internal sealed class R3SystemGuardianHostSupervisorScheduler(TimeProvider timeProvider) :
-    IGuardianHostSupervisorScheduler
-{
-    private readonly TimeProvider _timeProvider = timeProvider ??
-        throw new ArgumentNullException(nameof(timeProvider));
-
-    public ValueTask DelayAsync(TimeSpan delay, CancellationToken cancellationToken)
-    {
-        if (delay < TimeSpan.Zero)
-            throw new ArgumentOutOfRangeException(nameof(delay));
-        return new ValueTask(Task.Delay(delay, _timeProvider, cancellationToken));
-    }
-}
-
 internal sealed class R3FakeRecoveryManifestSource :
     IGuardianHostRecoveryManifestSource
 {
@@ -414,24 +372,3 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
     }
 }
 
-internal sealed class R3NoOpDispatchObserver : IGuardianHostSupervisorDispatchObserver
-{
-    internal static R3NoOpDispatchObserver Instance { get; } = new();
-
-    private R3NoOpDispatchObserver() { }
-
-    public ValueTask BeforeWriteAuthorizationAsync(
-        GuardianHostDispatchObservation observation,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(observation);
-        cancellationToken.ThrowIfCancellationRequested();
-        return ValueTask.CompletedTask;
-    }
-
-    public void OnWriteStarting(GuardianHostDispatchObservation observation) =>
-        ArgumentNullException.ThrowIfNull(observation);
-
-    public void OnTerminalDecoded(GuardianHostDispatchObservation observation) =>
-        ArgumentNullException.ThrowIfNull(observation);
-}

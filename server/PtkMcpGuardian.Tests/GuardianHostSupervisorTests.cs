@@ -830,6 +830,129 @@ public sealed class GuardianHostSupervisorTests
             rig.AuditEventTypes());
     }
 
+    [Theory]
+    [InlineData("close", GuardianHostOperationKind.SessionClose)]
+    [InlineData("restart", GuardianHostOperationKind.SessionRestart)]
+    public async Task Public_session_lifecycle_uses_the_host_gate_and_binds_exact_control_facts(
+        string action,
+        GuardianHostOperationKind operationKind)
+    {
+        var session = new CanonicalAlias("build");
+        await using var rig = new TestRig(
+            session,
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+        rig.Sessions.SetReadyForEffects(false);
+        var deadline = rig.Clock.GetUtcNow().AddSeconds(19);
+
+        var result = await rig.DispatchPublicSessionLifecycleAsync(
+                action,
+                session.Value,
+                expectedGeneration: 1,
+                force: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(result.IsError);
+        Assert.Contains($"session={session.Value} ", result.Text, StringComparison.Ordinal);
+        var lifecycle = Assert.Single(rig.Factory.Resources[0].SessionLifecycles);
+        Assert.Equal(operationKind, lifecycle.OperationKind);
+        Assert.Equal(session, lifecycle.SessionAlias);
+        Assert.Equal(TestRig.Transition, lifecycle.TransitionVersion);
+        Assert.Equal(TestRig.Worker.BootId, lifecycle.WorkerIdentity.BootId);
+        Assert.Equal(TestRig.Worker.Generation, lifecycle.WorkerIdentity.Generation);
+        Assert.Equal(1, lifecycle.ExpectedGeneration);
+        Assert.True(lifecycle.Force);
+        Assert.Equal(deadline.ToUnixTimeMilliseconds(), lifecycle.DeadlineUnixTimeMilliseconds);
+        Assert.Equal(
+            deadline.ToUnixTimeMilliseconds(),
+            lifecycle.DispatchCapability.ExpiresUnixTimeMilliseconds);
+        Assert.Equal(
+            [
+                "call.accepted",
+                GuardianAuditCall.DispatchAuthorizedEvent,
+                GuardianAuditCall.DispatchCompletedEvent,
+                "call.completed",
+            ],
+            rig.AuditEventTypes());
+    }
+
+    [Fact]
+    public async Task Host_recovery_refusal_for_session_restart_uses_the_host_gate()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.SessionLifecycle, AutoConfirmContainment: false),
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+        old.Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Recovering,
+                RecoveryPhase: RecoveryPhase.Containment,
+            });
+
+        var error = DecodeRecovery(await rig.DispatchPublicSessionLifecycleAsync(
+                "restart",
+                "default",
+                expectedGeneration: 0,
+                force: false,
+                timeoutSeconds: 30)
+            .WaitAsync(TestTimeout));
+
+        Assert.Equal(PublicRecoveryDetailCode.HostRecovering, error.DetailCode);
+        Assert.True(error.Retryable);
+        Assert.IsType<HostReadyGate>(error.RetryGate);
+        Assert.Equal(0, old.OperationCount);
+        old.ConfirmContainment();
+    }
+
+    [Fact]
+    public async Task Public_session_lifecycle_rejects_raw_control_facts_not_bound_to_admission()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+
+        var generationMismatch = await rig.DispatchPublicSessionLifecycleAsync(
+                "close",
+                "default",
+                expectedGeneration: 1,
+                force: false,
+                timeoutSeconds: 30,
+                admittedExpectedGeneration: 2)
+            .WaitAsync(TestTimeout);
+        var forceMismatch = await rig.DispatchPublicSessionLifecycleAsync(
+                "restart",
+                "default",
+                expectedGeneration: 1,
+                force: true,
+                timeoutSeconds: 30,
+                admittedForce: false)
+            .WaitAsync(TestTimeout);
+        var actionMismatch = await rig.DispatchPublicSessionLifecycleAsync(
+                "close",
+                "default",
+                expectedGeneration: 1,
+                force: false,
+                timeoutSeconds: 30,
+                admittedAction: "restart")
+            .WaitAsync(TestTimeout);
+
+        Assert.True(generationMismatch.IsError);
+        Assert.True(forceMismatch.IsError);
+        Assert.True(actionMismatch.IsError);
+        Assert.Equal(
+            "The guardian does not support that public tool operation.",
+            actionMismatch.Text);
+        Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
+        Assert.DoesNotContain(
+            GuardianAuditCall.DispatchAuthorizedEvent,
+            rig.AuditEventTypes());
+    }
+
     [Fact]
     public async Task Public_output_reads_searches_and_reports_guardian_local_artifacts()
     {
@@ -1765,6 +1888,27 @@ public sealed class GuardianHostSupervisorTests
             StringComparer.Ordinal);
     }
 
+    private static IReadOnlyDictionary<string, JsonElement> SessionLifecycleArguments(
+        string action,
+        string name,
+        long expectedGeneration,
+        bool force,
+        int timeoutSeconds)
+    {
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            action,
+            name,
+            expectedGeneration,
+            force,
+            timeoutSeconds,
+        }));
+        return document.RootElement.EnumerateObject().ToDictionary(
+            property => property.Name,
+            property => property.Value.Clone(),
+            StringComparer.Ordinal);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {
         using var cancellation = new CancellationTokenSource(TestTimeout);
@@ -2066,6 +2210,42 @@ public sealed class GuardianHostSupervisorTests
                 exactSubmittedScript: null,
                 auditCall => Supervisor.DispatchAsync(
                     "ptk_reset",
+                    arguments,
+                    auditCall,
+                    CancellationToken.None));
+        }
+
+        internal Task<GuardianToolResult> DispatchPublicSessionLifecycleAsync(
+            string action,
+            string session,
+            long expectedGeneration,
+            bool force,
+            int timeoutSeconds,
+            long? admittedExpectedGeneration = null,
+            bool? admittedForce = null,
+            string? admittedAction = null)
+        {
+            var arguments = SessionLifecycleArguments(
+                action,
+                session,
+                expectedGeneration,
+                force,
+                timeoutSeconds);
+            var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            return DispatchAuditedAsync(
+                Metadata(
+                    "ptk_session",
+                    admittedAction ?? action,
+                    maximumCallRecordSlots: 4,
+                    session: session,
+                    timeoutMilliseconds: checked((long)timeout.TotalMilliseconds),
+                    deadlineUtc: Clock.GetUtcNow().Add(timeout),
+                    providedFields: arguments.Keys.Order(StringComparer.Ordinal).ToArray(),
+                    expectedGeneration: admittedExpectedGeneration ?? expectedGeneration,
+                    force: admittedForce ?? force),
+                exactSubmittedScript: null,
+                auditCall => Supervisor.DispatchAsync(
+                    "ptk_session",
                     arguments,
                     auditCall,
                     CancellationToken.None));
@@ -2843,6 +3023,7 @@ public sealed class GuardianHostSupervisorTests
         ProvedNoChild,
         RejectOperation,
         Reset,
+        SessionLifecycle,
     }
 
     private sealed record AttemptPlan(
@@ -2868,6 +3049,16 @@ public sealed class GuardianHostSupervisorTests
         GuardianHostOperationIdentity OperationIdentity);
 
     private sealed record ObservedReset(
+        CanonicalAlias SessionAlias,
+        SessionTransitionVersion TransitionVersion,
+        GuardianHostWorkerIdentity WorkerIdentity,
+        long ExpectedGeneration,
+        bool Force,
+        long DeadlineUnixTimeMilliseconds,
+        DispatchCapability DispatchCapability);
+
+    private sealed record ObservedSessionLifecycle(
+        GuardianHostOperationKind OperationKind,
         CanonicalAlias SessionAlias,
         SessionTransitionVersion TransitionVersion,
         GuardianHostWorkerIdentity WorkerIdentity,
@@ -2965,6 +3156,8 @@ public sealed class GuardianHostSupervisorTests
         internal IReadOnlyList<ObservedJobControl> JobControls => _peer.JobControls;
         internal IReadOnlyList<ObservedInvoke> Invokes => _peer.Invokes;
         internal IReadOnlyList<ObservedReset> Resets => _peer.Resets;
+        internal IReadOnlyList<ObservedSessionLifecycle> SessionLifecycles =>
+            _peer.SessionLifecycles;
         internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
         internal Task OutputFinished => _outputFinished.Task;
 
@@ -3055,6 +3248,7 @@ public sealed class GuardianHostSupervisorTests
         private readonly List<ObservedJobControl> _jobControls = [];
         private readonly List<ObservedInvoke> _invokes = [];
         private readonly List<ObservedReset> _resets = [];
+        private readonly List<ObservedSessionLifecycle> _sessionLifecycles = [];
         private int _operationCount;
         private long _eventSequence;
 
@@ -3086,6 +3280,10 @@ public sealed class GuardianHostSupervisorTests
         internal IReadOnlyList<ObservedReset> Resets
         {
             get { lock (_sync) return _resets.ToArray(); }
+        }
+        internal IReadOnlyList<ObservedSessionLifecycle> SessionLifecycles
+        {
+            get { lock (_sync) return _sessionLifecycles.ToArray(); }
         }
 
         internal void Start(HostBehavior behavior) =>
@@ -3248,6 +3446,32 @@ public sealed class GuardianHostSupervisorTests
                                     readyForEffects: true,
                                     warmStateLost: true,
                                     BootstrapState.Restored))));
+                            continue;
+                        case GuardianHostGenerationOperation lifecycle
+                            when behavior == HostBehavior.SessionLifecycle &&
+                                 lifecycle.Kind is GuardianHostOperationKind.SessionClose or
+                                     GuardianHostOperationKind.SessionRestart:
+                            RecordSessionLifecycle(operation, lifecycle);
+                            var result = lifecycle.Kind == GuardianHostOperationKind.SessionClose
+                                ? (GuardianHostSessionOperationResult)new SessionCloseResult(
+                                    operation.SessionAlias!,
+                                    PublicSessionState.Cold,
+                                    workerIdentity: null,
+                                    operation.SessionTransitionVersion!,
+                                    readyForEffects: false,
+                                    warmStateLost: true,
+                                    BootstrapState.NotApplicable)
+                                : new SessionRestartResult(
+                                    operation.SessionAlias!,
+                                    PublicSessionState.Ready,
+                                    operation.WorkerIdentity,
+                                    operation.SessionTransitionVersion!,
+                                    readyForEffects: true,
+                                    warmStateLost: true,
+                                    BootstrapState.Restored);
+                            await _writer.WriteAsync(Success(
+                                operation.RequestId,
+                                new OperationCompleted(result)));
                             continue;
                     }
 
@@ -3421,6 +3645,24 @@ public sealed class GuardianHostSupervisorTests
                     reset.Force,
                     request.DeadlineUnixTimeMilliseconds!.Value,
                     reset.DispatchCapability));
+            }
+        }
+
+        private void RecordSessionLifecycle(
+            OperationRequest request,
+            GuardianHostGenerationOperation operation)
+        {
+            lock (_sync)
+            {
+                _sessionLifecycles.Add(new ObservedSessionLifecycle(
+                    operation.Kind,
+                    request.SessionAlias!,
+                    request.SessionTransitionVersion!,
+                    request.WorkerIdentity!,
+                    operation.ExpectedGeneration,
+                    operation.Force,
+                    request.DeadlineUnixTimeMilliseconds!.Value,
+                    operation.DispatchCapability));
             }
         }
     }

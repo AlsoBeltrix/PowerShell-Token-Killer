@@ -390,13 +390,8 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
         get
         {
             EnsureActive();
-            var isGenerationOperation =
-                StringComparer.Ordinal.Equals(_request!.Tool, "ptk_reset") &&
-                StringComparer.Ordinal.Equals(_request.Action, "reset") ||
-                StringComparer.Ordinal.Equals(_request.Tool, "ptk_session") &&
-                _request.Action is "close" or "restart";
-            if (!isGenerationOperation ||
-                _request.ExpectedGeneration is null ||
+            _ = AcceptedGenerationOperationKind;
+            if (_request!.ExpectedGeneration is null ||
                 _request.Force is null ||
                 _request.DeadlineUtc is null)
             {
@@ -408,6 +403,22 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
                 _request.ExpectedGeneration.Value,
                 _request.Force.Value,
                 _request.DeadlineUtc.Value.ToUnixTimeMilliseconds());
+        }
+    }
+
+    internal GuardianHostOperationKind AcceptedGenerationOperationKind
+    {
+        get
+        {
+            EnsureActive();
+            return (_request!.Tool, _request.Action) switch
+            {
+                ("ptk_reset", "reset") => GuardianHostOperationKind.Reset,
+                ("ptk_session", "close") => GuardianHostOperationKind.SessionClose,
+                ("ptk_session", "restart") => GuardianHostOperationKind.SessionRestart,
+                _ => throw new InvalidOperationException(
+                    "The admitted guardian call is not a generation-control operation."),
+            };
         }
     }
 

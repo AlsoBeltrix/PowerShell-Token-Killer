@@ -204,21 +204,28 @@ internal sealed class GuardianHostSupervisor :
 
         if (StringComparer.Ordinal.Equals(toolName, "ptk_session"))
         {
-            if (!auditCall.AcceptsGuardianLocalSessionList ||
-                arguments.Count != 1 ||
-                !arguments.TryGetValue("action", out var sessionAction) ||
-                sessionAction.ValueKind != JsonValueKind.String ||
-                !StringComparer.Ordinal.Equals(sessionAction.GetString(), "list"))
+            if (auditCall.AcceptsGuardianLocalSessionList)
             {
+                if (arguments.Count != 1 ||
+                    !arguments.TryGetValue("action", out var sessionAction) ||
+                    sessionAction.ValueKind != JsonValueKind.String ||
+                    !StringComparer.Ordinal.Equals(sessionAction.GetString(), "list"))
+                {
+                    return ValueTask.FromResult(new GuardianToolResult(
+                        UnsupportedToolText,
+                        isError: true));
+                }
+
+                cancellationToken.ThrowIfCancellationRequested();
                 return ValueTask.FromResult(new GuardianToolResult(
-                    UnsupportedToolText,
-                    isError: true));
+                    EncodeStateSnapshot(),
+                    isError: false));
             }
 
-            cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.FromResult(new GuardianToolResult(
-                EncodeStateSnapshot(),
-                isError: false));
+            return DispatchSessionLifecycleAsync(
+                arguments,
+                auditCall,
+                cancellationToken);
         }
 
         if (!StringComparer.Ordinal.Equals(toolName, "ptk_job") ||
@@ -507,6 +514,134 @@ internal sealed class GuardianHostSupervisor :
                 admitted.Force),
             auditCall,
             cancellationToken);
+    }
+
+    private ValueTask<GuardianToolResult> DispatchSessionLifecycleAsync(
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        GuardianAuditCall auditCall,
+        CancellationToken cancellationToken)
+    {
+        if (!arguments.TryGetValue("action", out var actionElement) ||
+            actionElement.ValueKind != JsonValueKind.String ||
+            actionElement.GetString() is not ("close" or "restart"))
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+
+        var admittedKind = auditCall.AcceptedGenerationOperationKind;
+        var rawKind = actionElement.GetString() switch
+        {
+            "close" => GuardianHostOperationKind.SessionClose,
+            "restart" => GuardianHostOperationKind.SessionRestart,
+            _ => throw new InvalidOperationException(
+                "The validated session lifecycle action is unsupported."),
+        };
+        if (rawKind != admittedKind)
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+
+        var admitted = auditCall.AcceptedGenerationOperationFacts;
+        if (!TryReadSessionLifecycleArguments(
+                arguments,
+                auditCall.RequestedSessionAlias,
+                admitted,
+                out var action))
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+
+        var callId = auditCall.PublicCallId;
+        var dispatch = new DispatchCapability(
+            NewCapabilityToken(),
+            callId,
+            admitted.DeadlineUnixTimeMilliseconds);
+        GuardianHostOperation operation = admittedKind switch
+        {
+            GuardianHostOperationKind.SessionClose => new SessionCloseOperation(
+                callId,
+                dispatch,
+                admitted.ExpectedGeneration,
+                admitted.Force),
+            GuardianHostOperationKind.SessionRestart => new SessionRestartOperation(
+                callId,
+                dispatch,
+                admitted.ExpectedGeneration,
+                admitted.Force),
+            _ => throw new InvalidOperationException(
+                "The parsed session lifecycle action is unsupported."),
+        };
+        return DispatchHostOperationAsync(
+            operation,
+            auditCall,
+            cancellationToken);
+    }
+
+    private static bool TryReadSessionLifecycleArguments(
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        CanonicalAlias admittedSessionAlias,
+        GuardianAuditGenerationOperationFacts admitted,
+        out string action)
+    {
+        action = string.Empty;
+        if (arguments.Keys.Any(static key => key is not (
+                "action" or "name" or "expectedGeneration" or "force" or
+                "timeoutSeconds")) ||
+            !arguments.TryGetValue("action", out var actionElement) ||
+            actionElement.ValueKind != JsonValueKind.String ||
+            (action = actionElement.GetString()!) is not ("close" or "restart") ||
+            !arguments.TryGetValue("name", out var nameElement) ||
+            nameElement.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        CanonicalAlias sessionAlias;
+        try
+        {
+            sessionAlias = new CanonicalAlias(nameElement.GetString()!);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        if (sessionAlias != admittedSessionAlias)
+            return false;
+
+        long expectedGeneration = 0;
+        if (arguments.TryGetValue("expectedGeneration", out var generationElement) &&
+            (generationElement.ValueKind != JsonValueKind.Number ||
+             !generationElement.TryGetInt64(out expectedGeneration) ||
+             expectedGeneration < 0))
+        {
+            return false;
+        }
+        if (expectedGeneration != admitted.ExpectedGeneration)
+            return false;
+
+        var force = false;
+        if (arguments.TryGetValue("force", out var forceElement))
+        {
+            if (forceElement.ValueKind is not (
+                    JsonValueKind.True or JsonValueKind.False))
+            {
+                return false;
+            }
+            force = forceElement.GetBoolean();
+        }
+        if (force != admitted.Force)
+            return false;
+
+        return !arguments.TryGetValue("timeoutSeconds", out var timeoutElement) ||
+            timeoutElement.ValueKind == JsonValueKind.Number &&
+            timeoutElement.TryGetInt32(out var timeoutSeconds) &&
+            timeoutSeconds >= 0;
     }
 
     private static bool TryReadResetArguments(
@@ -824,7 +959,10 @@ internal sealed class GuardianHostSupervisor :
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(auditCall);
-        if (operation.Kind != GuardianHostOperationKind.Reset)
+        if (operation.Kind is not (
+                GuardianHostOperationKind.Reset or
+                GuardianHostOperationKind.SessionClose or
+                GuardianHostOperationKind.SessionRestart))
         {
             throw new ArgumentException(
                 "The operation does not use the implemented host dispatch gate.",

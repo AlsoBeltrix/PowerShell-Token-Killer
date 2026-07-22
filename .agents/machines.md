@@ -241,6 +241,36 @@ update._
   continued to emit only the separately parked NU1903 advisories for
   `System.Security.Cryptography.Xml` 10.0.6.
 
+### Dependency-hardening inventory cutoff (macOS, 2026-07-22)
+
+_Frozen at `2026-07-22T17:09:14Z` from clean baseline `637be3c`; inventory
+only, before any dependency manifest edit._
+
+- All three managed .NET surfaces were queried separately against NuGet.org:
+  `server/PtkMcpServer.slnx`, `siem/PtkSiem.slnx`, and the standalone producer-
+  conformance project. Each ran `--outdated`, `--deprecated
+  --include-transitive`, and `--vulnerable --include-transitive` in JSON mode.
+  One parallel conformance deprecation query saw a truncated NuGet HTTP
+  response; the immediate isolated rerun completed and returned the expected
+  result.
+- The only vulnerable graph was `Microsoft.PowerShell.SDK 7.6.3` resolving
+  `System.Security.Cryptography.Xml 10.0.6` directly and through
+  `Microsoft.Windows.Compatibility`/`System.ServiceModel.*`. NuGet reported the
+  five high-severity advisories already recorded for R5. The server, server-
+  test, and producer-conformance graphs exposed that same package; both SIEM
+  projects remained free of known direct or transitive advisories.
+- The only deprecated direct family was `xunit 2.9.3` in all five .NET test
+  projects, with NuGet naming `xunit.v3` as its replacement. Frozen stable
+  targets were PowerShell SDK 7.6.4, Hosting 10.0.10, MCP 1.4.1, Roslyn 5.6.0,
+  xUnit v3 3.2.2, xUnit runner 3.1.5, Test SDK 18.8.1, Coverlet 10.0.1, and
+  SQLitePCLRaw bundle 3.0.4. Google.Protobuf 3.35.1, Grpc.Tools 2.82.0, and
+  Microsoft.Data.Sqlite 10.0.10 were already current.
+- The PowerShell Gallery reported Pester 6.0.1 as current stable; 6.1 was only
+  prerelease. Official GitHub releases reported actions/checkout v7.0.1 and
+  actions/setup-dotnet v6.0.0, so the workflow's checkout major was current and
+  setup-dotnet required v5-to-v6 migration. These are point-in-time targets,
+  not a permanent update or build-blocking policy.
+
 ## `NETWATCH-01` — Michael's Windows machine
 
 _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._

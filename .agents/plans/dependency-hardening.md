@@ -1,6 +1,7 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** DRAFTED 2026-07-22; IMPLEMENTATION AWAITS EXPLICIT OWNER GO.
+**Status:** IMPLEMENTATION ACTIVE. Owner GO received 2026-07-22. Dependency
+inventory cutoff `2026-07-22T17:09:14Z` was frozen at baseline `637be3c`.
 The owner approved updating through current stable major versions, including
 the xUnit v2-to-v3, Coverlet 6-to-10, and SQLitePCLRaw 2-to-3 migrations. The
 owner rejected any policy that makes vulnerability advisories build- or

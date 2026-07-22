@@ -279,9 +279,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Await explicit owner go on
-   `.agents/plans/dependency-hardening.md`, then update one dependency family
-   per commit before R6. The owner approved current
+1. Execute `.agents/plans/dependency-hardening.md` at frozen inventory cutoff
+   `2026-07-22T17:09:14Z`, updating one dependency family per commit before R6.
+   The owner approved current
    stable major migrations and rejected build/install blocking for unpatched
    advisories; do not add warning-as-error, suppression, or runtime gating.
    After the dependency slice, resume `feature/mcp-resilience-r1` from the
@@ -338,7 +338,8 @@ short and update it when important repo facts change.
 - `System.Security.Cryptography.Xml` 10.0.6 currently emits high-severity
   NU1903 advisories during restore/build. The separate dependency-hardening
   plan inventories its `Microsoft.PowerShell.SDK` route and every other
-  repository-managed dependency; implementation awaits explicit owner go.
+  repository-managed dependency; implementation is active at the frozen
+  `2026-07-22T17:09:14Z` cutoff.
   Advisories remain visible and non-blocking by owner decision. Exact
   as-of-head evidence is in `.agents/machines.md`.
 

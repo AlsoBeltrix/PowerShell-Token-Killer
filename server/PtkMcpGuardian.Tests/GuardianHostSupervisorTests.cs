@@ -53,7 +53,7 @@ public sealed class GuardianHostSupervisorTests
 
         await rig.StartAsync();
 
-        var line = Assert.Single(rig.HostAuditLines());
+        var line = Assert.Single(rig.HostAuditLines("host.starting"));
         using var document = JsonDocument.Parse(line);
         var root = document.RootElement;
         Assert.Equal("ptk.audit/3", root.GetProperty("schema_version").GetString());
@@ -84,6 +84,63 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(
             "not_applicable",
             coverage.GetProperty("descendants_observed").GetString());
+    }
+
+    [Fact]
+    public async Task Ready_and_recovered_hosts_are_durably_distinguished()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond),
+            new AttemptPlan(HostBehavior.Respond));
+
+        await rig.StartAsync();
+        var initialLine = Assert.Single(rig.HostAuditLines("host.ready"));
+        using (var initialDocument = JsonDocument.Parse(initialLine))
+        {
+            var root = initialDocument.RootElement;
+            var identity = rig.Factory.Resources[0].Identity;
+            var host = root.GetProperty("host");
+            Assert.Equal(
+                identity.HostBootId.Value.ToString("D"),
+                host.GetProperty("boot_id").GetString());
+            Assert.Equal(
+                identity.HostGeneration.Value,
+                host.GetProperty("generation").GetInt64());
+            Assert.Equal("ready", host.GetProperty("state").GetString());
+            Assert.Equal(0, host.GetProperty("recovery_attempt").GetInt64());
+            var outcome = root.GetProperty("outcome");
+            Assert.Equal("completed", outcome.GetProperty("state").GetString());
+            Assert.Equal("host_ready", outcome.GetProperty("detail_code").GetString());
+            Assert.False(outcome.GetProperty("warm_state_lost").GetBoolean());
+        }
+
+        rig.Factory.Resources[0].Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+
+        var recoveredLine = Assert.Single(rig.HostAuditLines("host.recovered"));
+        using var recoveredDocument = JsonDocument.Parse(recoveredLine);
+        var recoveredRoot = recoveredDocument.RootElement;
+        var recoveredIdentity = rig.Factory.Resources[1].Identity;
+        var recoveredHost = recoveredRoot.GetProperty("host");
+        Assert.Equal(
+            recoveredIdentity.HostBootId.Value.ToString("D"),
+            recoveredHost.GetProperty("boot_id").GetString());
+        Assert.Equal(
+            recoveredIdentity.HostGeneration.Value,
+            recoveredHost.GetProperty("generation").GetInt64());
+        Assert.Equal("ready", recoveredHost.GetProperty("state").GetString());
+        Assert.Equal(1, recoveredHost.GetProperty("recovery_attempt").GetInt64());
+        var recoveredOutcome = recoveredRoot.GetProperty("outcome");
+        Assert.Equal("completed", recoveredOutcome.GetProperty("state").GetString());
+        Assert.Equal(
+            "host_recovered",
+            recoveredOutcome.GetProperty("detail_code").GetString());
+        Assert.True(recoveredOutcome.GetProperty("warm_state_lost").GetBoolean());
     }
 
     [Fact]
@@ -2134,14 +2191,13 @@ public sealed class GuardianHostSupervisorTests
                 !eventType.StartsWith("host.", StringComparison.Ordinal))
             .ToArray();
 
-        internal byte[][] HostAuditLines() => _audit.Sink.Lines
-            .Where(static line =>
+        internal byte[][] HostAuditLines(string eventType) => _audit.Sink.Lines
+            .Where(line =>
             {
                 using var document = JsonDocument.Parse(line);
-                return document.RootElement
-                    .GetProperty("event_type")
-                    .GetString()!
-                    .StartsWith("host.", StringComparison.Ordinal);
+                return StringComparer.Ordinal.Equals(
+                    eventType,
+                    document.RootElement.GetProperty("event_type").GetString());
             })
             .ToArray();
 

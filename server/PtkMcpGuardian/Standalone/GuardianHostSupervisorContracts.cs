@@ -50,6 +50,8 @@ internal interface IGuardianHostSupervisorScheduler
 internal interface IGuardianHostLifecycleAudit
 {
     void RecordStarting();
+
+    void RecordReady(bool recovered);
 }
 
 internal sealed record GuardianHostJobListTarget

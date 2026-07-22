@@ -15,16 +15,44 @@ internal sealed class GuardianHostLifecycleAudit(AuditRuntimeGate runtime) :
         throw new ArgumentNullException(nameof(runtime));
 
     public void RecordStarting() =>
-        _ = _runtime.TryAppendAutomaticTransition(CreateStartingEvent());
+        Record(
+            "host.starting",
+            outcomeState: "starting",
+            detailCode: "host_starting",
+            warmStateLost: null);
 
-    private AuditEventInput CreateStartingEvent()
+    public void RecordReady(bool recovered) =>
+        Record(
+            recovered ? "host.recovered" : "host.ready",
+            outcomeState: "completed",
+            detailCode: recovered ? "host_recovered" : "host_ready",
+            warmStateLost: recovered);
+
+    private void Record(
+        string eventType,
+        string outcomeState,
+        string detailCode,
+        bool? warmStateLost)
+    {
+        _ = _runtime.TryAppendAutomaticTransition(CreateEvent(
+            eventType,
+            outcomeState,
+            detailCode,
+            warmStateLost));
+    }
+
+    private AuditEventInput CreateEvent(
+        string eventType,
+        string outcomeState,
+        string detailCode,
+        bool? warmStateLost)
     {
         var health = _runtime.Health.Snapshot();
         var unhealthy = health.State is
             AuditHealthState.Degraded or AuditHealthState.Unavailable;
         return new AuditEventInput
         {
-            EventType = "host.starting",
+            EventType = eventType,
             Session = new AuditSession(),
             Actor = new AuditActor { AttributionStrength = "unknown" },
             Correlation = new AuditCorrelation(),
@@ -32,8 +60,9 @@ internal sealed class GuardianHostLifecycleAudit(AuditRuntimeGate runtime) :
             Routing = new AuditRouting(),
             Outcome = new AuditOutcome
             {
-                State = "starting",
-                DetailCode = "host_starting",
+                State = outcomeState,
+                DetailCode = detailCode,
+                WarmStateLost = warmStateLost,
                 TerminationCertainty = "not_applicable",
             },
             Coverage = new AuditCoverage

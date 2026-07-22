@@ -1767,6 +1767,7 @@ internal sealed class GuardianHostSupervisor :
                     active.Ready.TrySetResult(false);
                     return;
                 }
+                _lifecycleAudit.RecordReady(recovered: !active.Lease.IsInitialAttempt);
                 active.CancelStartupDeadline();
                 active.Ready.TrySetResult(true);
                 TrackBackground(WatchReadyStabilityAsync(active));

@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PtkMcpGuardian\PtkMcpGuardian.csproj" />
+    <ProjectReference Include="..\PtkMcpServer\PtkMcpServer.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

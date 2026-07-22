@@ -15,6 +15,8 @@ public sealed class GuardianArchitectureBoundaryTests
     private const string SharedAssemblyName = "PtkSharedContracts";
     private const string ServerAssemblyName = "PtkMcpServer";
     private const string GuardianSentinel = "Ownership/PublicJobIdAllocator.cs";
+    private const string WindowsPrivateHostLauncher =
+        "Host/WindowsPrivateHostProcessLauncher.cs";
 
     private static readonly string[] RequiredGuardianAppHostCompileInputs =
     [
@@ -254,14 +256,25 @@ public sealed class GuardianArchitectureBoundaryTests
         new("advapi32.dll", "SetNamedSecurityInfo"),
         new("kernel32.dll", "CloseHandle"),
         new("kernel32.dll", "CreateFileW"),
+        new("kernel32.dll", "CreateJobObjectW"),
+        new("kernel32.dll", "CreateProcessW"),
+        new("kernel32.dll", "DeleteProcThreadAttributeList"),
+        new("kernel32.dll", "DuplicateHandle"),
         new("kernel32.dll", "FlushFileBuffers"),
         new("kernel32.dll", "GetCurrentProcess"),
         new("kernel32.dll", "GetFileInformationByHandle"),
         new("kernel32.dll", "GetFileInformationByHandleEx"),
         new("kernel32.dll", "GetFinalPathNameByHandleW"),
+        new("kernel32.dll", "GetHandleInformation"),
+        new("kernel32.dll", "InitializeProcThreadAttributeList"),
+        new("kernel32.dll", "IsProcessInJob"),
         new("kernel32.dll", "LocalFree"),
         new("kernel32.dll", "MoveFileEx"),
+        new("kernel32.dll", "QueryInformationJobObject"),
+        new("kernel32.dll", "ResumeThread"),
+        new("kernel32.dll", "SetInformationJobObject"),
         new("kernel32.dll", "SetFileInformationByHandle"),
+        new("kernel32.dll", "UpdateProcThreadAttribute"),
         new("libc", "acl_free"),
         new("libc", "acl_get_file"),
         new("libc", "acl_init"),
@@ -281,6 +294,28 @@ public sealed class GuardianArchitectureBoundaryTests
         new("libc", "rename"),
         new("libc", "statx"),
     ];
+
+    private static readonly HashSet<NativeImport> WindowsPrivateHostLauncherImports =
+    [
+        new("kernel32.dll", "CloseHandle"),
+        new("kernel32.dll", "CreateFileW"),
+        new("kernel32.dll", "CreateJobObjectW"),
+        new("kernel32.dll", "CreateProcessW"),
+        new("kernel32.dll", "DeleteProcThreadAttributeList"),
+        new("kernel32.dll", "DuplicateHandle"),
+        new("kernel32.dll", "GetCurrentProcess"),
+        new("kernel32.dll", "GetHandleInformation"),
+        new("kernel32.dll", "InitializeProcThreadAttributeList"),
+        new("kernel32.dll", "IsProcessInJob"),
+        new("kernel32.dll", "QueryInformationJobObject"),
+        new("kernel32.dll", "ResumeThread"),
+        new("kernel32.dll", "SetInformationJobObject"),
+        new("kernel32.dll", "UpdateProcThreadAttribute"),
+    ];
+
+    private static readonly HashSet<string> WindowsPrivateHostLaunchIdentifiers = new(
+        WindowsPrivateHostLauncherImports.Select(import => import.EntryPoint),
+        StringComparer.Ordinal);
 
     private static readonly HashSet<string> ForbiddenCatalogSourceIdentifiers = new(
         [
@@ -1158,8 +1193,7 @@ public sealed class GuardianArchitectureBoundaryTests
                 var entryPoint = reader.GetString(import.Name);
                 var module = reader.GetString(reader.GetModuleReference(import.Module).Name);
                 actualNativeImports.Add(new NativeImport(module, entryPoint));
-                if (IsForbiddenNativeEntryPoint(entryPoint) ||
-                    !AllowedNativeImports.Contains(new NativeImport(module, entryPoint)))
+                if (!AllowedNativeImports.Contains(new NativeImport(module, entryPoint)))
                 {
                     violations.Add($"{actualName}: unapproved native import {module}!{entryPoint}");
                 }
@@ -1176,7 +1210,7 @@ public sealed class GuardianArchitectureBoundaryTests
     }
 
     [Fact]
-    public void Native_interop_allowlist_is_exact_audit_storage_closure()
+    public void Native_interop_allowlist_is_exact_guardian_closure()
     {
         AssertExactSet(
             AllowedNativeImports,
@@ -1187,14 +1221,25 @@ public sealed class GuardianArchitectureBoundaryTests
                 new NativeImport("advapi32.dll", "SetNamedSecurityInfo"),
                 new NativeImport("kernel32.dll", "CloseHandle"),
                 new NativeImport("kernel32.dll", "CreateFileW"),
+                new NativeImport("kernel32.dll", "CreateJobObjectW"),
+                new NativeImport("kernel32.dll", "CreateProcessW"),
+                new NativeImport("kernel32.dll", "DeleteProcThreadAttributeList"),
+                new NativeImport("kernel32.dll", "DuplicateHandle"),
                 new NativeImport("kernel32.dll", "FlushFileBuffers"),
                 new NativeImport("kernel32.dll", "GetCurrentProcess"),
                 new NativeImport("kernel32.dll", "GetFileInformationByHandle"),
                 new NativeImport("kernel32.dll", "GetFileInformationByHandleEx"),
                 new NativeImport("kernel32.dll", "GetFinalPathNameByHandleW"),
+                new NativeImport("kernel32.dll", "GetHandleInformation"),
+                new NativeImport("kernel32.dll", "InitializeProcThreadAttributeList"),
+                new NativeImport("kernel32.dll", "IsProcessInJob"),
                 new NativeImport("kernel32.dll", "LocalFree"),
                 new NativeImport("kernel32.dll", "MoveFileEx"),
+                new NativeImport("kernel32.dll", "QueryInformationJobObject"),
+                new NativeImport("kernel32.dll", "ResumeThread"),
+                new NativeImport("kernel32.dll", "SetInformationJobObject"),
                 new NativeImport("kernel32.dll", "SetFileInformationByHandle"),
+                new NativeImport("kernel32.dll", "UpdateProcThreadAttribute"),
                 new NativeImport("libc", "acl_free"),
                 new NativeImport("libc", "acl_get_file"),
                 new NativeImport("libc", "acl_init"),
@@ -1215,6 +1260,36 @@ public sealed class GuardianArchitectureBoundaryTests
                 new NativeImport("libc", "statx"),
             ],
             "guardian native import allowlist");
+    }
+
+    [Fact]
+    public void Windows_private_host_launch_imports_have_one_exact_source_owner()
+    {
+        var guardian = EvaluateProject(RepositoryPaths.Create().GuardianProject);
+        var launcherPath = NormalizePath(Path.Combine(
+            guardian.ProjectDirectory,
+            WindowsPrivateHostLauncher.Replace('/', Path.DirectorySeparatorChar)));
+        Assert.Contains(launcherPath, guardian.CompileInputs, PathComparer);
+        AssertExactSet(
+            ReadSourceNativeImports(launcherPath),
+            WindowsPrivateHostLauncherImports,
+            "Windows private-host launcher imports");
+
+        var sharedStorageImports = new HashSet<NativeImport>
+        {
+            new("kernel32.dll", "CloseHandle"),
+            new("kernel32.dll", "CreateFileW"),
+            new("kernel32.dll", "GetCurrentProcess"),
+        };
+        var launcherExclusive = WindowsPrivateHostLauncherImports
+            .Where(import => !sharedStorageImports.Contains(import))
+            .ToHashSet();
+        var violations = guardian.CompileInputs
+            .Where(path => !PathComparer.Equals(path, launcherPath))
+            .SelectMany(path => ReadSourceNativeImports(path)
+                .Where(launcherExclusive.Contains)
+                .Select(import => $"{path}: launcher-owned import {import.Module}!{import.EntryPoint}"));
+        AssertNoViolations(violations);
     }
 
     [Fact]
@@ -1259,14 +1334,20 @@ public sealed class GuardianArchitectureBoundaryTests
                 var isFrozenCatalog = sourcePath.EndsWith(
                     $"Ownership{Path.DirectorySeparatorChar}FrozenSessionCatalog.cs",
                     PathComparison);
+                var isWindowsPrivateHostLauncher = sourcePath.EndsWith(
+                    WindowsPrivateHostLauncher.Replace('/', Path.DirectorySeparatorChar),
+                    PathComparison);
 
                 foreach (var token in root.DescendantTokens(descendIntoTrivia: false))
                 {
                     if (token.IsKind(SyntaxKind.IdentifierToken))
                     {
                         var identifier = token.ValueText;
-                        if (ForbiddenSourceIdentifiers.Contains(identifier) ||
-                            IsForbiddenNativeEntryPoint(identifier))
+                        var exactLauncherIdentifier = isWindowsPrivateHostLauncher &&
+                            WindowsPrivateHostLaunchIdentifiers.Contains(identifier);
+                        if (!exactLauncherIdentifier &&
+                            (ForbiddenSourceIdentifiers.Contains(identifier) ||
+                             IsForbiddenNativeEntryPoint(identifier)))
                         {
                             violations.Add($"{sourcePath}: forbidden identifier {identifier}");
                         }
@@ -1278,6 +1359,8 @@ public sealed class GuardianArchitectureBoundaryTests
                         }
                     }
                     else if (token.Value is string text &&
+                             !(isWindowsPrivateHostLauncher &&
+                               WindowsPrivateHostLaunchIdentifiers.Contains(text)) &&
                              (ContainsForbiddenRuntimeName(text) ||
                               IsForbiddenNativeEntryPoint(text)))
                     {
@@ -1442,9 +1525,9 @@ public sealed class GuardianArchitectureBoundaryTests
         string entryPoint)
     {
         Assert.DoesNotContain(new NativeImport(module, entryPoint), AllowedNativeImports);
-        Assert.DoesNotContain(
-            AllowedNativeImports,
-            import => IsForbiddenNativeEntryPoint(import.EntryPoint));
+        Assert.All(
+            AllowedNativeImports.Where(import => IsForbiddenNativeEntryPoint(import.EntryPoint)),
+            import => Assert.Contains(import, WindowsPrivateHostLauncherImports));
     }
 
     [Theory]
@@ -1792,6 +1875,48 @@ public sealed class GuardianArchitectureBoundaryTests
             }
         }
         return definitions;
+    }
+
+    private static IReadOnlyCollection<NativeImport> ReadSourceNativeImports(string sourcePath)
+    {
+        var imports = new HashSet<NativeImport>();
+        var tree = CSharpSyntaxTree.ParseText(File.ReadAllText(sourcePath));
+        foreach (var method in tree.GetRoot().DescendantNodes().OfType<MethodDeclarationSyntax>())
+        {
+            var attribute = method.AttributeLists
+                .SelectMany(list => list.Attributes)
+                .SingleOrDefault(candidate =>
+                {
+                    var name = candidate.Name.ToString();
+                    return name is "DllImport" or "DllImportAttribute" ||
+                        name.EndsWith(".DllImport", StringComparison.Ordinal) ||
+                        name.EndsWith(".DllImportAttribute", StringComparison.Ordinal);
+                });
+            if (attribute is null) continue;
+            var moduleArgument = attribute.ArgumentList?.Arguments.FirstOrDefault();
+            if (moduleArgument?.Expression is not LiteralExpressionSyntax literal ||
+                literal.Token.Value is not string module)
+            {
+                throw new InvalidDataException(
+                    $"Native import module is not a literal in {sourcePath}: {method.Identifier.ValueText}");
+            }
+
+            var entryPoint = method.Identifier.ValueText;
+            var explicitEntryPoint = attribute.ArgumentList?.Arguments
+                .FirstOrDefault(argument => argument.NameEquals?.Name.Identifier.ValueText == "EntryPoint");
+            if (explicitEntryPoint is not null)
+            {
+                if (explicitEntryPoint.Expression is not LiteralExpressionSyntax entryLiteral ||
+                    entryLiteral.Token.Value is not string entryText)
+                {
+                    throw new InvalidDataException(
+                        $"Native import entry point is not a literal in {sourcePath}: {entryPoint}");
+                }
+                entryPoint = entryText;
+            }
+            imports.Add(new NativeImport(module, entryPoint));
+        }
+        return imports;
     }
 
     private static string QualifiedTypeName(string @namespace, string name) =>

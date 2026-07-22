@@ -259,6 +259,18 @@ internal sealed class GuardianHostSupervisor :
                 isError: true));
         }
 
+        if (action is "status" or "output" &&
+            TryDispatchJobTombstoneRead(
+                action,
+                publicJobId!,
+                offset,
+                auditCall,
+                cancellationToken,
+                out var tombstoneResult))
+        {
+            return ValueTask.FromResult(tombstoneResult!);
+        }
+
         var callId = auditCall.PublicCallId;
         var expires = FutureUnixTimeMilliseconds(DispatchCapabilityLifetime);
         var dispatch = new DispatchCapability(
@@ -891,19 +903,233 @@ internal sealed class GuardianHostSupervisor :
         };
     }
 
-    private ValueTask<GuardianToolResult> DispatchJobListAsync(
+    private async ValueTask<GuardianToolResult> DispatchJobListAsync(
         GuardianAuditCall auditCall,
         CancellationToken cancellationToken)
     {
+        var tombstoneResult = await TryDispatchLocalJobTombstoneListAsync(
+                auditCall,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (tombstoneResult is not null)
+            return tombstoneResult;
+
         var callId = auditCall.PublicCallId;
         var expires = FutureUnixTimeMilliseconds(DispatchCapabilityLifetime);
-        return DispatchSessionOperationAsync(
-            new JobListOperation(
-                callId,
-                new DispatchCapability(NewCapabilityToken(), callId, expires)),
-            operationIdentity: null,
-            auditCall,
-            cancellationToken);
+        return await DispatchSessionOperationAsync(
+                new JobListOperation(
+                    callId,
+                    new DispatchCapability(NewCapabilityToken(), callId, expires)),
+                operationIdentity: null,
+                auditCall,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask<GuardianToolResult?> TryDispatchLocalJobTombstoneListAsync(
+        GuardianAuditCall auditCall,
+        CancellationToken cancellationToken)
+    {
+        if (_jobCapabilities is null || _outputCoordinator is null)
+            return null;
+
+        auditCall.ValidateJobTombstoneRequest(
+            "list",
+            publicJobId: null,
+            requestedOffset: null);
+        GuardianJobTombstone[] tombstones;
+        await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var alias = auditCall.RequestedSessionAlias;
+            tombstones = _jobCapabilities.SnapshotTombstones(alias);
+            if (tombstones.Length == 0)
+                return null;
+
+            if (_active is
+                {
+                    Client.State: GuardianHostClientState.Ready,
+                    Lease.Stage: GuardianHostAttemptStage.Ready,
+                } active &&
+                _sessionSource.TryGetJobListTarget(alias, out var target) &&
+                target.ReadyForEffects &&
+                _jobCapabilities.HasActiveOwner(
+                    active.Lease.Identity,
+                    target.Alias,
+                    target.TransitionVersion,
+                    target.WorkerIdentity))
+            {
+                return null;
+            }
+        }
+        finally
+        {
+            _authority.Release();
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var text = FormatJobTombstoneList(tombstones);
+        auditCall.RecordJobTombstoneAccess(
+            "list",
+            publicJobId: null,
+            requestedOffset: null,
+            text);
+        return new GuardianToolResult(text, isError: false);
+    }
+
+    private bool TryDispatchJobTombstoneRead(
+        string action,
+        PublicJobId publicJobId,
+        long offset,
+        GuardianAuditCall auditCall,
+        CancellationToken cancellationToken,
+        out GuardianToolResult? result)
+    {
+        result = null;
+        if (_jobCapabilities is null || _outputCoordinator is null)
+            return false;
+
+        long? requestedOffset = StringComparer.Ordinal.Equals(action, "output")
+            ? offset
+            : null;
+        auditCall.ValidateJobTombstoneRequest(
+            action,
+            publicJobId,
+            requestedOffset);
+        if (!_jobCapabilities.TryGetTombstone(
+                publicJobId,
+                auditCall.RequestedSessionAlias,
+                out var tombstone))
+        {
+            return false;
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var recovery = _outputCoordinator.TryGetJobRecovery(
+            publicJobId,
+            out var foundRecovery)
+                ? foundRecovery!
+                : OutputRecoverySummary.Unavailable(
+                    tombstone!.LossReason,
+                    advertise: true);
+
+        if (StringComparer.Ordinal.Equals(action, "status"))
+        {
+            var text = FormatJobTombstone(tombstone!, recovery);
+            auditCall.RecordJobTombstoneAccess(
+                action,
+                publicJobId,
+                requestedOffset,
+                text);
+            result = new GuardianToolResult(text, isError: false);
+            return true;
+        }
+
+        if (!StringComparer.Ordinal.Equals(action, "output"))
+            return false;
+
+        var output = ReadJobTombstoneOutput(
+            tombstone!,
+            recovery,
+            _outputCoordinator.ArtifactReader,
+            offset);
+        auditCall.RecordJobTombstoneAccess(
+            action,
+            publicJobId,
+            requestedOffset,
+            output.Text,
+            output.NextOffset,
+            output.BytesReturned);
+        result = new GuardianToolResult(output.Text, isError: false);
+        return true;
+    }
+
+    private string FormatJobTombstoneList(
+        IReadOnlyList<GuardianJobTombstone> tombstones) =>
+        string.Join(
+            Environment.NewLine,
+            tombstones.Select(tombstone =>
+            {
+                var recovery = _outputCoordinator!.TryGetJobRecovery(
+                    tombstone.PublicJobId,
+                    out var foundRecovery)
+                        ? foundRecovery!
+                        : OutputRecoverySummary.Unavailable(
+                            tombstone.LossReason,
+                            advertise: true);
+                return FormatJobTombstone(tombstone, recovery);
+            }));
+
+    private static string FormatJobTombstone(
+        GuardianJobTombstone tombstone,
+        OutputRecoverySummary recovery) =>
+        $"job {tombstone.PublicJobId.Value}: " +
+        $"{JobTombstoneState(tombstone)}, {JobRecoveryStatus(recovery)}";
+
+    private static GuardianJobTombstoneOutput ReadJobTombstoneOutput(
+        GuardianJobTombstone tombstone,
+        OutputRecoverySummary recovery,
+        IOutputArtifactReader reader,
+        long offset)
+    {
+        var nextOffset = offset;
+        long bytesReturned = 0;
+        string text;
+        if (recovery.Handle is { } handle)
+        {
+            var read = reader.Read(handle, offset, OutputStore.DefaultReadBytes);
+            nextOffset = read.NextOffset;
+            bytesReturned = read.BytesRead;
+            text = read.State is OutputArtifactState.Available or
+                    OutputArtifactState.Incomplete
+                ? read.Text.Length == 0 ? "(no new output)" : read.Text
+                : $"[job {tombstone.PublicJobId.Value} output unavailable: " +
+                  $"recovery artifact state={read.State.ToMachineCode()}; " +
+                  "command was not rerun]";
+        }
+        else
+        {
+            text = $"[job {tombstone.PublicJobId.Value} output unavailable: " +
+                "no recovery artifact; command was not rerun]";
+        }
+
+        return new GuardianJobTombstoneOutput(
+            text + Environment.NewLine +
+            JobRecoveryStatus(recovery) + Environment.NewLine +
+            $"[job {tombstone.PublicJobId.Value} " +
+            $"{JobTombstoneState(tombstone)}] next offset: {nextOffset}",
+            nextOffset,
+            bytesReturned);
+    }
+
+    private static string JobTombstoneState(GuardianJobTombstone tombstone) =>
+        tombstone.ContainmentStatus switch
+        {
+            GuardianJobContainmentStatus.Pending =>
+                "outcome unknown; containment pending",
+            GuardianJobContainmentStatus.Confirmed =>
+                "outcome unknown (host generation lost; root termination confirmed)",
+            GuardianJobContainmentStatus.Unconfirmed =>
+                "outcome unknown (host generation lost; root termination unconfirmed)",
+            _ => throw new ArgumentOutOfRangeException(nameof(tombstone)),
+        };
+
+    private static string JobRecoveryStatus(OutputRecoverySummary recovery)
+    {
+        if (recovery is
+            {
+                Handle: { } handle,
+                State: OutputArtifactState.Available or OutputArtifactState.Incomplete,
+            })
+        {
+            var incomplete = recovery.State == OutputArtifactState.Incomplete
+                ? $"; artifact incomplete (detail={recovery.DetailCode ?? "capture_incomplete"})"
+                : string.Empty;
+            return $"recovery=handle: ptk_output handle={handle}{incomplete}; " +
+                "ptk_output reports current availability";
+        }
+
+        return "recovery=unavailable: output capture unavailable; command was not rerun";
     }
 
     /// <summary>
@@ -1280,6 +1506,20 @@ internal sealed class GuardianHostSupervisor :
                                     requestId);
                                 var tracker = new GuardianCallDeliveryTracker<
                                     GuardianHostSupervisorTerminal>(identity);
+                                string? jobListTombstoneText = null;
+                                if (dispatchedOperation.Kind ==
+                                        GuardianHostOperationKind.JobList &&
+                                    _jobCapabilities is not null &&
+                                    _outputCoordinator is not null)
+                                {
+                                    var tombstones = _jobCapabilities
+                                        .SnapshotTombstones(target.Alias);
+                                    if (tombstones.Length > 0)
+                                    {
+                                        jobListTombstoneText =
+                                            FormatJobTombstoneList(tombstones);
+                                    }
+                                }
                                 call = new ActiveCall(
                                     active,
                                     target,
@@ -1287,7 +1527,10 @@ internal sealed class GuardianHostSupervisor :
                                     auditCall,
                                     dispatchGate,
                                     outputRegistration,
-                                    jobRegistration);
+                                    jobRegistration,
+                                    jobControl?.OperationKind,
+                                    jobControl?.PublicJobId,
+                                    jobListTombstoneText);
                                 AddCallUnderAuthority(call);
                                 callAdded = true;
                                 var publicJobId = dispatchedOperation switch
@@ -1925,6 +2168,9 @@ internal sealed class GuardianHostSupervisor :
             active.Lease.Identity.HostBootId,
             active.Lease.Identity.HostGeneration,
             "host_generation_lost");
+        _jobCapabilities?.MarkGenerationLost(
+            active.Lease.Identity,
+            "host_generation_lost");
         foreach (var call in _calls.Values.Where(value =>
                      ReferenceEquals(value.Attempt, active)).ToArray())
         {
@@ -1991,6 +2237,8 @@ internal sealed class GuardianHostSupervisor :
                 if (transition.Disposition ==
                     GuardianHostContainmentDisposition.MarkedUnconfirmed)
                 {
+                    _jobCapabilities?.MarkGenerationContainmentUnconfirmed(
+                        active.Lease.Identity);
                     _lifecycleAudit.RecordContainmentUnconfirmed(
                         warmStateLost: active.Lease.EverReady);
                 }
@@ -2034,6 +2282,7 @@ internal sealed class GuardianHostSupervisor :
                 return;
             }
 
+            _jobCapabilities?.ConfirmGenerationContainment(active.Lease.Identity);
             active.CancelContainmentDeadline();
             DisposeAttemptWatcherOwnership(active);
             oldClient = active.Client;
@@ -2237,6 +2486,27 @@ internal sealed class GuardianHostSupervisor :
                 response is GuardianHostSuccessResponse);
         call.OutputResponseResolved = call.OutputRegistration is not null;
         var terminal = TerminalFrom(response);
+        if (!terminal.IsError &&
+            call.JobControlOperationKind == GuardianHostOperationKind.JobStatus &&
+            call.JobControlPublicId is { } statusJobId &&
+            _outputCoordinator?.TryGetJobRecovery(
+                statusJobId,
+                out var jobRecovery) == true)
+        {
+            terminal = new GuardianHostSupervisorTerminal(
+                GuardianOutputResponseDecorator.Decorate(
+                    terminal.Text,
+                    jobRecovery),
+                isError: false,
+                terminal.AuditDetailCode);
+        }
+        if (!terminal.IsError && call.JobListTombstoneText is { } tombstones)
+        {
+            terminal = new GuardianHostSupervisorTerminal(
+                MergeJobLists(terminal.Text, tombstones),
+                isError: false,
+                terminal.AuditDetailCode);
+        }
         if (call.OutputRegistration is not null)
         {
             terminal = new GuardianHostSupervisorTerminal(
@@ -2543,6 +2813,11 @@ internal sealed class GuardianHostSupervisor :
         _ => throw new GuardianHostClientException(
             GuardianHostClientFailureKind.ResponseCorrelationMismatch),
     };
+
+    private static string MergeJobLists(string currentJobs, string tombstones) =>
+        StringComparer.Ordinal.Equals(currentJobs, "(no jobs)")
+            ? tombstones
+            : currentJobs + Environment.NewLine + tombstones;
 
     private static string FormatSessionOperationResult(
         GuardianHostSessionOperationResult result) =>
@@ -2980,6 +3255,11 @@ internal sealed class GuardianHostSupervisor :
         }
     }
 
+    private sealed record GuardianJobTombstoneOutput(
+        string Text,
+        long NextOffset,
+        long BytesReturned);
+
     private sealed class ActiveCall(
         ActiveAttempt attempt,
         GuardianHostJobListTarget target,
@@ -2987,7 +3267,10 @@ internal sealed class GuardianHostSupervisor :
         GuardianAuditCall auditCall,
         GuardianDispatchGate dispatchGate,
         GuardianOutputRegistration? outputRegistration,
-        GuardianJobRegistration? jobRegistration)
+        GuardianJobRegistration? jobRegistration,
+        GuardianHostOperationKind? jobControlOperationKind,
+        PublicJobId? jobControlPublicId,
+        string? jobListTombstoneText)
     {
         internal ActiveAttempt Attempt { get; } = attempt;
         internal GuardianHostJobListTarget Target { get; } = target;
@@ -2997,6 +3280,10 @@ internal sealed class GuardianHostSupervisor :
         internal GuardianDispatchGate DispatchGate { get; } = dispatchGate;
         internal GuardianOutputRegistration? OutputRegistration { get; } = outputRegistration;
         internal GuardianJobRegistration? JobRegistration { get; } = jobRegistration;
+        internal GuardianHostOperationKind? JobControlOperationKind { get; } =
+            jobControlOperationKind;
+        internal PublicJobId? JobControlPublicId { get; } = jobControlPublicId;
+        internal string? JobListTombstoneText { get; } = jobListTombstoneText;
         internal bool OutputResponseResolved { get; set; }
         internal bool JobResponseResolved { get; set; }
         internal GuardianHostSupervisorTerminal? ClassifiedLossTerminal { get; set; }
@@ -3129,6 +3416,8 @@ internal sealed class GuardianHostSupervisor :
         }
 
         internal OutputCapability? OutputCapability { get; }
+
+        internal GuardianHostOperationKind OperationKind => _operationKind;
 
         internal PublicJobId PublicJobId { get; }
 

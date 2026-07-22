@@ -1529,7 +1529,8 @@ public sealed class GuardianHostSupervisorTests
         Assert.Contains("does not own an active job", result.Text, StringComparison.Ordinal);
         Assert.Equal(1, old.OperationCount);
         Assert.Equal(0, rig.Factory.Resources[1].OperationCount);
-        Assert.Equal(1, rig.JobCapabilities!.ActiveCount);
+        Assert.Equal(0, rig.JobCapabilities!.ActiveCount);
+        Assert.Equal(1, rig.JobCapabilities.TombstoneCount);
     }
 
     [Fact]
@@ -1598,6 +1599,16 @@ public sealed class GuardianHostSupervisorTests
             0,
             OutputStore.MaximumReadBytes);
         Assert.Equal("late background output", read.Text);
+        var status = await rig.DispatchPublicJobAsync(
+                "status",
+                new PublicJobId(1))
+            .WaitAsync(TestTimeout);
+        Assert.False(status.IsError);
+        Assert.Contains("status job 1", status.Text, StringComparison.Ordinal);
+        Assert.Contains(
+            $"recovery=available: ptk_output handle={recovery.Handle}",
+            status.Text,
+            StringComparison.Ordinal);
         Assert.Equal(0, rig.OutputCoordinator.ActiveCapabilityCount);
         Assert.Equal(0, rig.OutputCoordinator.TrackedCount);
     }
@@ -1635,6 +1646,168 @@ public sealed class GuardianHostSupervisorTests
             0,
             OutputStore.MaximumReadBytes);
         Assert.Equal("surviving background prefix", read.Text);
+    }
+
+    [Fact]
+    public async Task Lost_background_job_reads_stay_guardian_local_during_containment()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(
+                HostBehavior.BackgroundPrefixBeforeLoss,
+                AutoConfirmContainment: false),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var resource = rig.Factory.Resources[0];
+        var jobId = new PublicJobId(1);
+
+        var started = await rig.DispatchBackgroundInvokeAsync(Token(34))
+            .WaitAsync(TestTimeout);
+        Assert.False(started.IsError);
+        Assert.Equal("[job 1 started]", started.Text);
+
+        resource.ReleaseOutput();
+        await resource.OutputFinished.WaitAsync(TestTimeout);
+        Assert.False((await rig.DispatchJobListAsync().WaitAsync(TestTimeout)).IsError);
+        resource.Crash();
+        await WaitUntilAsync(() =>
+            resource.ContainmentBegun &&
+            rig.OutputCoordinator!.TryGetJobRecovery(jobId, out _));
+        var operationCount = resource.OperationCount;
+
+        var status = await rig.DispatchPublicJobAsync("status", jobId)
+            .WaitAsync(TestTimeout);
+        var output = await rig.DispatchPublicJobAsync("output", jobId)
+            .WaitAsync(TestTimeout);
+        var list = await rig.DispatchPublicJobAsync("list")
+            .WaitAsync(TestTimeout);
+
+        Assert.False(status.IsError);
+        Assert.Contains(
+            "job 1: outcome unknown; containment pending",
+            status.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "recovery=handle: ptk_output handle=",
+            status.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "artifact incomplete (detail=host_generation_lost)",
+            status.Text,
+            StringComparison.Ordinal);
+
+        Assert.False(output.IsError);
+        Assert.Contains(
+            "surviving background prefix",
+            output.Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "[job 1 outcome unknown; containment pending] next offset:",
+            output.Text,
+            StringComparison.Ordinal);
+
+        Assert.False(list.IsError);
+        Assert.Contains(
+            "job 1: outcome unknown; containment pending",
+            list.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(operationCount, resource.OperationCount);
+
+        await rig.Scheduler.AdvanceAndCompleteAsync(
+            GuardianHostLifecycleController.HostContainmentGrace);
+        await WaitUntilAsync(() =>
+            rig.JobCapabilities!.TryGetTombstone(
+                jobId,
+                new CanonicalAlias("default"),
+                out var tombstone) &&
+            tombstone!.ContainmentStatus ==
+                GuardianJobContainmentStatus.Unconfirmed);
+        var unconfirmedStatus = await rig.DispatchPublicJobAsync("status", jobId)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(unconfirmedStatus.IsError);
+        Assert.Contains(
+            "outcome unknown (host generation lost; root termination unconfirmed)",
+            unconfirmedStatus.Text,
+            StringComparison.Ordinal);
+        Assert.Single(rig.Factory.Resources);
+        Assert.Equal(operationCount, resource.OperationCount);
+
+        resource.ConfirmContainment();
+        await WaitUntilAsync(() =>
+            rig.Factory.Resources.Count == 2 &&
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.Ready &&
+            rig.JobCapabilities!.TryGetTombstone(
+                jobId,
+                new CanonicalAlias("default"),
+                out var tombstone) &&
+            tombstone!.ContainmentStatus == GuardianJobContainmentStatus.Confirmed);
+        var replacement = rig.Factory.Resources[1];
+        var confirmedStatus = await rig.DispatchPublicJobAsync("status", jobId)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(confirmedStatus.IsError);
+        Assert.Contains(
+            "outcome unknown (host generation lost; root termination confirmed)",
+            confirmedStatus.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(0, replacement.OperationCount);
+        Assert.Equal(
+            2,
+            rig.AuditEventTypes().Count(eventType =>
+                StringComparer.Ordinal.Equals(
+                    eventType,
+                    GuardianAuditCall.DispatchAuthorizedEvent)));
+        Assert.Contains("job.status_accessed", rig.AuditEventTypes());
+        Assert.Contains("job.output_accessed", rig.AuditEventTypes());
+        Assert.Contains("job.list_accessed", rig.AuditEventTypes());
+    }
+
+    [Fact]
+    public async Task Replacement_job_list_merges_current_jobs_with_lost_tombstones()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.BackgroundPrefixBeforeLoss),
+            new AttemptPlan(HostBehavior.BackgroundJobControls));
+        await rig.StartAsync();
+        var first = rig.Factory.Resources[0];
+
+        Assert.False((await rig.DispatchBackgroundInvokeAsync(Token(35))
+            .WaitAsync(TestTimeout)).IsError);
+        first.ReleaseOutput();
+        await first.OutputFinished.WaitAsync(TestTimeout);
+        Assert.False((await rig.DispatchJobListAsync().WaitAsync(TestTimeout)).IsError);
+        first.Crash();
+        await WaitUntilAsync(() =>
+            rig.Factory.Resources.Count == 2 &&
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+
+        var second = rig.Factory.Resources[1];
+        var started = await rig.DispatchBackgroundInvokeAsync(Token(36))
+            .WaitAsync(TestTimeout);
+        var list = await rig.DispatchPublicJobAsync("list")
+            .WaitAsync(TestTimeout);
+        var currentStatus = await rig.DispatchPublicJobAsync(
+                "status",
+                new PublicJobId(2))
+            .WaitAsync(TestTimeout);
+
+        Assert.False(started.IsError);
+        Assert.Equal("[job 2 started]", started.Text);
+        Assert.False(list.IsError);
+        Assert.Contains("jobs-generation-2", list.Text, StringComparison.Ordinal);
+        Assert.Contains(
+            "job 1: outcome unknown (host generation lost; root termination confirmed)",
+            list.Text,
+            StringComparison.Ordinal);
+        Assert.False(currentStatus.IsError);
+        Assert.Equal("status job 2", currentStatus.Text);
+        Assert.Equal(3, second.OperationCount);
     }
 
     [Fact]
@@ -2562,6 +2735,7 @@ public sealed class GuardianHostSupervisorTests
                     action,
                     maximumCallRecordSlots: action == "output" ? 6 : 4,
                     jobId: publicJobId?.Value,
+                    offset: action == "output" ? offset : null,
                     session: session),
                 exactSubmittedScript: null,
                 auditCall => Supervisor.DispatchAsync(
@@ -2915,6 +3089,7 @@ public sealed class GuardianHostSupervisorTests
             int persistentJobTerminalSlots = 0,
             bool? background = null,
             long? jobId = null,
+            long? offset = null,
             string session = "default",
             bool? raw = null,
             string? route = null,
@@ -2936,6 +3111,7 @@ public sealed class GuardianHostSupervisorTests
                     SessionRequested = session,
                     Background = background,
                     JobId = jobId,
+                    Offset = offset,
                     Raw = raw,
                     Route = route,
                     TimeoutMs = timeoutMilliseconds,

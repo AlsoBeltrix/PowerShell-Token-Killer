@@ -522,6 +522,305 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
+    public async Task Windows_composition_keeps_a_real_job_tombstone_and_sealed_output()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var auditRoot = TemporaryRoot("job-tombstone-audit");
+        var outputRoot = TemporaryRoot("job-tombstone-output");
+        var launcher = new GatedContainmentLauncher();
+        var composition = ProductionGuardianComposition.Create(
+            Package(FindServerAppHost()),
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            var initialized = await RequestAsync(
+                writer,
+                reader,
+                requestId: 1,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "production-host-job-tombstone-test",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            Assert.True(initialized.TryGetProperty("result", out _), initialized.GetRawText());
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                    @params = new { },
+                },
+                timeout.Token);
+            var firstHostProcessId = await launcher.FirstHostProcessId.WaitAsync(timeout.Token);
+
+            var startedResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 2,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "Write-Output 'PTK_R5_SEALED_JOB_OUTPUT'",
+                        raw = true,
+                        route = "pwsh",
+                        background = true,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var startedText = ToolText(startedResponse, expectedError: false);
+            var jobId = MarkerInteger(startedText, "[job ");
+
+            string? completedStatus = null;
+            string? lastStatus = null;
+            var requestId = 3;
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                var statusResponse = await RequestAsync(
+                    writer,
+                    reader,
+                    requestId++,
+                    "tools/call",
+                    new
+                    {
+                        name = "ptk_job",
+                        arguments = new
+                        {
+                            action = "status",
+                            id = jobId,
+                            session = "default",
+                        },
+                    },
+                    timeout.Token);
+                var candidate = ToolText(statusResponse, expectedError: false);
+                lastStatus = candidate;
+                if (candidate.Contains("exited 0", StringComparison.Ordinal) &&
+                    candidate.Contains(
+                        "recovery=available: ptk_output handle=",
+                        StringComparison.Ordinal))
+                {
+                    completedStatus = candidate;
+                    break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+            Assert.True(
+                completedStatus is not null,
+                $"The background job did not publish a sealed terminal. Last status: {lastStatus}");
+
+            using (var firstHost = Process.GetProcessById(firstHostProcessId))
+            {
+                firstHost.Kill();
+                await firstHost.WaitForExitAsync(timeout.Token);
+                Assert.True(firstHost.HasExited);
+            }
+            await launcher.FirstContainmentConfirmed.WaitAsync(timeout.Token);
+            Assert.Equal(1, launcher.LaunchCount);
+
+            var tombstoneStatusResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_job",
+                    arguments = new
+                    {
+                        action = "status",
+                        id = jobId,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var tombstoneStatus = ToolText(
+                tombstoneStatusResponse,
+                expectedError: false);
+            Assert.Contains(
+                $"job {jobId}: outcome unknown; containment pending",
+                tombstoneStatus,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "recovery=handle: ptk_output handle=",
+                tombstoneStatus,
+                StringComparison.Ordinal);
+
+            var tombstoneOutputResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_job",
+                    arguments = new
+                    {
+                        action = "output",
+                        id = jobId,
+                        offset = 0,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var tombstoneOutput = ToolText(
+                tombstoneOutputResponse,
+                expectedError: false);
+            Assert.Contains(
+                "PTK_R5_SEALED_JOB_OUTPUT",
+                tombstoneOutput,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                $"[job {jobId} outcome unknown; containment pending] next offset:",
+                tombstoneOutput,
+                StringComparison.Ordinal);
+
+            var tombstoneListResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_job",
+                    arguments = new
+                    {
+                        action = "list",
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var tombstoneList = ToolText(
+                tombstoneListResponse,
+                expectedError: false);
+            Assert.Contains(
+                $"job {jobId}: outcome unknown; containment pending",
+                tombstoneList,
+                StringComparison.Ordinal);
+            Assert.Equal(1, launcher.LaunchCount);
+
+            launcher.ReleaseFirstContainmentConfirmation();
+            var replacementHostProcessId = await launcher.ReplacementHostProcessId
+                .WaitAsync(timeout.Token);
+            Assert.NotEqual(firstHostProcessId, replacementHostProcessId);
+
+            PublicStateSnapshot? recovered = null;
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                var stateResponse = await RequestAsync(
+                    writer,
+                    reader,
+                    requestId++,
+                    "tools/call",
+                    new
+                    {
+                        name = "ptk_state",
+                        arguments = new { },
+                    },
+                    timeout.Token);
+                var candidate = PublicStateCodec.Decode(
+                    Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
+                if (candidate.Host.ReadyForEffects)
+                {
+                    recovered = candidate;
+                    break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+            Assert.NotNull(recovered);
+            Assert.Equal(2, recovered.Host.Generation?.Value);
+
+            var confirmedStatusResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_job",
+                    arguments = new
+                    {
+                        action = "status",
+                        id = jobId,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "outcome unknown (host generation lost; root termination confirmed)",
+                ToolText(confirmedStatusResponse, expectedError: false),
+                StringComparison.Ordinal);
+            Assert.Equal(2, launcher.LaunchCount);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+            Assert.Equal(0, composition.Supervisor.OwnedClientCount);
+            Assert.Equal(0, composition.Supervisor.OwnedAttemptWatcherSetCount);
+        }
+        finally
+        {
+            launcher.ReleaseFirstContainmentConfirmation();
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            DeleteRoot(auditRoot);
+        }
+
+        Assert.False(Directory.Exists(outputRoot));
+    }
+
+    [Fact]
     public async Task Windows_composition_never_replays_a_real_effect_when_the_host_dies()
     {
         if (!OperatingSystem.IsWindows()) return;

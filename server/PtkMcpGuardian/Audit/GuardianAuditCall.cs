@@ -305,6 +305,7 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
     private bool _privateWriteMayHaveStarted;
     private bool _dispatchTerminalObserved;
     private bool _outputAccessObserved;
+    private bool _jobTombstoneAccessObserved;
 
     internal GuardianAuditCall(
         AuditJournal journal,
@@ -466,6 +467,59 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
             terminationCertainty: "not_applicable",
             rootCoverage: "not_applicable");
         _outputAccessObserved = true;
+    }
+
+    internal void ValidateJobTombstoneRequest(
+        string action,
+        PublicJobId? publicJobId,
+        long? requestedOffset)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        EnsureActive();
+        if (!StringComparer.Ordinal.Equals(_request!.Tool, "ptk_job") ||
+            !StringComparer.Ordinal.Equals(_request.Action, action) ||
+            action is not ("list" or "status" or "output") ||
+            (action == "list") != (publicJobId is null) ||
+            publicJobId is not null && _request.JobId != publicJobId.Value ||
+            (action == "output") != (requestedOffset is not null) ||
+            _request.Offset != requestedOffset)
+        {
+            throw new InvalidOperationException(
+                "The guardian job tombstone request does not match the accepted audit facts.");
+        }
+    }
+
+    internal void RecordJobTombstoneAccess(
+        string action,
+        PublicJobId? publicJobId,
+        long? requestedOffset,
+        string response,
+        long? nextOffset = null,
+        long? bytesReturnedOverride = null)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        ValidateJobTombstoneRequest(action, publicJobId, requestedOffset);
+        if (_jobTombstoneAccessObserved)
+        {
+            throw new InvalidOperationException(
+                "The guardian job tombstone access is already recorded.");
+        }
+        if ((action == "output") != (nextOffset is not null))
+        {
+            throw new InvalidOperationException(
+                "The guardian job tombstone result does not match the accepted request.");
+        }
+
+        Append(
+            $"job.{action}_accessed",
+            outcomeState: "completed",
+            detailCode: "host_generation_lost",
+            jobId: publicJobId?.Value,
+            bytesReturned: bytesReturnedOverride ?? Utf8.GetByteCount(response),
+            nextOffset: nextOffset,
+            terminationCertainty: "not_applicable",
+            rootCoverage: "not_applicable");
+        _jobTombstoneAccessObserved = true;
     }
 
     internal bool TryAuthorizeDispatch(

@@ -224,6 +224,65 @@ public sealed class GuardianJobCapabilityRegistryTests
     }
 
     [Fact]
+    public void Lost_generation_becomes_a_session_scoped_containment_tombstone()
+    {
+        using var registry = Registry();
+        var activeRegistration = Reserve(registry);
+        Assert.True(registry.TryActivate(
+            activeRegistration,
+            new InvokeBackgroundResult(activeRegistration.PublicJobId, Token(11)),
+            out _,
+            out _));
+        var pendingRegistration = Reserve(registry);
+
+        Assert.Equal(0, registry.MarkGenerationLost(
+            new GuardianHostIdentity(
+                Guardian,
+                Host,
+                new HostGeneration(Generation.Value + 1)),
+            "host_generation_lost"));
+        Assert.Equal(1, registry.MarkGenerationLost(
+            HostIdentity,
+            "host_generation_lost"));
+        Assert.Equal(0, registry.ActiveCount);
+        Assert.Equal(1, registry.PendingCount);
+        Assert.Equal(1, registry.TombstoneCount);
+        Assert.False(registry.TryGetActive(activeRegistration.PublicJobId, out _));
+        Assert.False(registry.TryGetTombstone(
+            activeRegistration.PublicJobId,
+            new CanonicalAlias("other"),
+            out _));
+        Assert.False(registry.TryGetTombstone(
+            pendingRegistration.PublicJobId,
+            Alias,
+            out _));
+        Assert.True(registry.TryGetTombstone(
+            activeRegistration.PublicJobId,
+            Alias,
+            out var pending));
+        Assert.Equal(GuardianJobContainmentStatus.Pending, pending!.ContainmentStatus);
+        Assert.Equal("host_generation_lost", pending.LossReason);
+
+        Assert.Equal(1, registry.MarkGenerationContainmentUnconfirmed(HostIdentity));
+        Assert.True(registry.TryGetTombstone(
+            activeRegistration.PublicJobId,
+            Alias,
+            out var unconfirmed));
+        Assert.Equal(
+            GuardianJobContainmentStatus.Unconfirmed,
+            unconfirmed!.ContainmentStatus);
+
+        Assert.Equal(1, registry.ConfirmGenerationContainment(HostIdentity));
+        var confirmed = Assert.Single(registry.SnapshotTombstones(Alias));
+        Assert.Equal(activeRegistration.PublicJobId, confirmed.PublicJobId);
+        Assert.Equal(GuardianJobContainmentStatus.Confirmed, confirmed.ContainmentStatus);
+        Assert.Equal(0, registry.MarkGenerationContainmentUnconfirmed(HostIdentity));
+        Assert.Equal(
+            GuardianJobContainmentStatus.Confirmed,
+            Assert.Single(registry.SnapshotTombstones(Alias)).ContainmentStatus);
+    }
+
+    [Fact]
     public void Concurrent_reservations_are_unique_and_respect_the_bound()
     {
         const int capacity = 64;

@@ -42,12 +42,27 @@ internal sealed record GuardianJobCapability(
         left.BootId == right.BootId && left.Generation == right.Generation;
 }
 
+internal enum GuardianJobContainmentStatus
+{
+    Pending,
+    Confirmed,
+    Unconfirmed,
+}
+
+internal sealed record GuardianJobTombstone(
+    PublicJobId PublicJobId,
+    CanonicalAlias SessionAlias,
+    string LossReason,
+    GuardianJobContainmentStatus ContainmentStatus);
+
 /// <summary>
 /// Guardian-owned bounded map from irreversible public job identifiers to the
 /// private capabilities returned by one exact host/session/worker generation.
 /// A reservation happens before private dispatch; activation happens only
 /// after the matching successful background-start response. Canceled or
-/// removed identifiers are never returned to the allocator.
+/// removed identifiers are never returned to the allocator. An active job
+/// whose host generation is lost remains addressable as a session-scoped
+/// tombstone, but can no longer authorize private dispatch.
 /// </summary>
 internal sealed class GuardianJobCapabilityRegistry : IDisposable
 {
@@ -79,12 +94,21 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
 
     internal int PendingCount
     {
-        get { lock (_gate) return _entries.Values.Count(entry => !entry.IsActive); }
+        get { lock (_gate) return _entries.Values.Count(entry => entry.IsPending); }
     }
 
     internal int ActiveCount
     {
         get { lock (_gate) return _entries.Values.Count(entry => entry.IsActive); }
+    }
+
+    internal int TombstoneCount
+    {
+        get
+        {
+            lock (_gate)
+                return _entries.Values.Count(entry => entry.Tombstone is not null);
+        }
     }
 
     internal bool TryReserve(
@@ -159,7 +183,7 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
                 failure = "public_job_registration_unknown";
                 return false;
             }
-            if (entry.IsActive)
+            if (!entry.IsPending)
             {
                 failure = "public_job_already_active";
                 return false;
@@ -180,7 +204,129 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
             capability = null;
             return !_disposed &&
                 _entries.TryGetValue(publicJobId.Value, out var entry) &&
+                entry.IsActive &&
                 (capability = entry.Capability) is not null;
+        }
+    }
+
+    internal int MarkGenerationLost(
+        GuardianHostIdentity hostIdentity,
+        string reason)
+    {
+        ArgumentNullException.ThrowIfNull(hostIdentity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+        lock (_gate)
+        {
+            ThrowIfDisposedLocked();
+            var marked = 0;
+            foreach (var entry in _entries.Values)
+            {
+                if (entry.MarkLost(hostIdentity, reason))
+                    marked++;
+            }
+            return marked;
+        }
+    }
+
+    internal int MarkGenerationContainmentUnconfirmed(
+        GuardianHostIdentity hostIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(hostIdentity);
+        lock (_gate)
+        {
+            ThrowIfDisposedLocked();
+            var marked = 0;
+            foreach (var entry in _entries.Values)
+            {
+                if (entry.UpdateContainment(
+                        hostIdentity,
+                        GuardianJobContainmentStatus.Unconfirmed))
+                {
+                    marked++;
+                }
+            }
+            return marked;
+        }
+    }
+
+    internal int ConfirmGenerationContainment(
+        GuardianHostIdentity hostIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(hostIdentity);
+        lock (_gate)
+        {
+            ThrowIfDisposedLocked();
+            var marked = 0;
+            foreach (var entry in _entries.Values)
+            {
+                if (entry.UpdateContainment(
+                        hostIdentity,
+                        GuardianJobContainmentStatus.Confirmed))
+                {
+                    marked++;
+                }
+            }
+            return marked;
+        }
+    }
+
+    internal bool TryGetTombstone(
+        PublicJobId publicJobId,
+        CanonicalAlias sessionAlias,
+        out GuardianJobTombstone? tombstone)
+    {
+        ArgumentNullException.ThrowIfNull(publicJobId);
+        ArgumentNullException.ThrowIfNull(sessionAlias);
+        lock (_gate)
+        {
+            tombstone = null;
+            if (_disposed ||
+                !_entries.TryGetValue(publicJobId.Value, out var entry) ||
+                entry.Tombstone is not { } found ||
+                found.SessionAlias != sessionAlias)
+            {
+                return false;
+            }
+
+            tombstone = found;
+            return true;
+        }
+    }
+
+    internal GuardianJobTombstone[] SnapshotTombstones(CanonicalAlias sessionAlias)
+    {
+        ArgumentNullException.ThrowIfNull(sessionAlias);
+        lock (_gate)
+        {
+            if (_disposed) return [];
+            return _entries.Values
+                .Select(entry => entry.Tombstone)
+                .Where(tombstone => tombstone?.SessionAlias == sessionAlias)
+                .Select(tombstone => tombstone!)
+                .OrderBy(tombstone => tombstone.PublicJobId.Value)
+                .ToArray();
+        }
+    }
+
+    internal bool HasActiveOwner(
+        GuardianHostIdentity hostIdentity,
+        CanonicalAlias sessionAlias,
+        SessionTransitionVersion sessionTransitionVersion,
+        GuardianHostWorkerIdentity workerIdentity)
+    {
+        ArgumentNullException.ThrowIfNull(hostIdentity);
+        ArgumentNullException.ThrowIfNull(sessionAlias);
+        ArgumentNullException.ThrowIfNull(sessionTransitionVersion);
+        ArgumentNullException.ThrowIfNull(workerIdentity);
+        lock (_gate)
+        {
+            return !_disposed && _entries.Values.Any(entry =>
+                entry.IsActive &&
+                entry.Capability!.MatchesOwner(
+                    hostIdentity,
+                    sessionAlias,
+                    sessionTransitionVersion,
+                    workerIdentity));
         }
     }
 
@@ -192,7 +338,7 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
             if (_disposed ||
                 !_entries.TryGetValue(registration.PublicJobId.Value, out var entry) ||
                 !entry.Matches(registration) ||
-                entry.IsActive)
+                !entry.IsPending)
             {
                 return false;
             }
@@ -258,7 +404,11 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
 
         internal GuardianJobCapability? Capability { get; private set; }
 
-        internal bool IsActive => Capability is not null;
+        internal GuardianJobTombstone? Tombstone { get; private set; }
+
+        internal bool IsPending => Capability is null && Tombstone is null;
+
+        internal bool IsActive => Capability is not null && Tombstone is null;
 
         internal bool Matches(GuardianJobRegistration registration) =>
             Registration.PublicJobId == registration.PublicJobId &&
@@ -290,6 +440,46 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
                 _workerIdentity);
             return Capability;
         }
+
+        internal bool MarkLost(
+            GuardianHostIdentity hostIdentity,
+            string reason)
+        {
+            if (Capability is null || Tombstone is not null ||
+                !MatchesHost(hostIdentity))
+            {
+                return false;
+            }
+
+            Tombstone = new GuardianJobTombstone(
+                Registration.PublicJobId,
+                _sessionAlias,
+                reason,
+                GuardianJobContainmentStatus.Pending);
+            Capability = null;
+            return true;
+        }
+
+        internal bool UpdateContainment(
+            GuardianHostIdentity hostIdentity,
+            GuardianJobContainmentStatus containmentStatus)
+        {
+            if (Tombstone is not { } tombstone ||
+                !MatchesHost(hostIdentity) ||
+                tombstone.ContainmentStatus == containmentStatus ||
+                tombstone.ContainmentStatus == GuardianJobContainmentStatus.Confirmed)
+            {
+                return false;
+            }
+
+            Tombstone = tombstone with { ContainmentStatus = containmentStatus };
+            return true;
+        }
+
+        private bool MatchesHost(GuardianHostIdentity hostIdentity) =>
+            _hostIdentity.GuardianBootId == hostIdentity.GuardianBootId &&
+            _hostIdentity.HostBootId == hostIdentity.HostBootId &&
+            _hostIdentity.HostGeneration == hostIdentity.HostGeneration;
 
         private static bool SameWorker(
             GuardianHostWorkerIdentity left,

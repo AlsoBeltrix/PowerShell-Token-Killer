@@ -171,6 +171,47 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
     }
 
     /// <summary>
+    /// Appends one supervisor-generated containment or lifecycle transition
+    /// from the journal's preallocated emergency capacity. The retained
+    /// operation participates in shutdown drain, while a closed or unavailable
+    /// journal refuses without delaying the caller's safety action.
+    /// </summary>
+    internal bool TryAppendAutomaticTransition(AuditEventInput input)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+
+        AuditJournal journal;
+        lock (_admissionGate)
+        {
+            lock (_gate)
+            {
+                if (_disposed || _stopping || _journal is null ||
+                    (!_testOperational && _lifecycle?.IsStarted != true))
+                {
+                    return false;
+                }
+
+                journal = _journal;
+                RetainActiveOperationLocked();
+            }
+        }
+
+        try
+        {
+            _ = journal.AppendAutomaticTransition(input);
+            return true;
+        }
+        catch (AuditUnavailableException)
+        {
+            return false;
+        }
+        finally
+        {
+            ReleaseActiveCall();
+        }
+    }
+
+    /// <summary>
     /// Serializes the complete acceptance transaction (startup recovery,
     /// evidence persistence, journal recovery/reservation, and call.accepted)
     /// and returns an active-call lease. Shutdown cannot write server.stopped
@@ -254,12 +295,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
 
             lock (_gate)
             {
-                if (_activeCalls == 0)
-                {
-                    _activeCallsDrained = new TaskCompletionSource<bool>(
-                        TaskCreationOptions.RunContinuationsAsynchronously);
-                }
-                _activeCalls = checked(_activeCalls + 1);
+                RetainActiveOperationLocked();
             }
             context = candidate;
             callLease = new AuditRuntimeCallLease(ReleaseActiveCall);
@@ -420,6 +456,16 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
             }
         }
         drained?.TrySetResult(true);
+    }
+
+    private void RetainActiveOperationLocked()
+    {
+        if (_activeCalls == 0)
+        {
+            _activeCallsDrained = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        }
+        _activeCalls = checked(_activeCalls + 1);
     }
 
     private bool CanConstructRuntimeLocked()

@@ -489,6 +489,57 @@ public sealed class AuditRuntimeGateTests : IDisposable
     }
 
     [Fact]
+    public async Task Shutdown_waits_for_an_automatic_transition_append()
+    {
+        var root = NewRoot();
+        var options = CreateOptions(Path.Combine(root, "audit"));
+        var health = new AuditHealth(options);
+        var sink = new BlockingTransitionSink(options);
+        using var journal = new AuditJournal(
+            options,
+            health,
+            sink,
+            "automatic-transition-test",
+            binaryDigest: null,
+            Guid.Parse("11111111-1111-4111-8111-111111111111"),
+            Guid.Parse("22222222-2222-4222-8222-222222222222"));
+        using var runtime = AuditRuntimeGate.CreateOperationalForTests(
+            options,
+            health,
+            journal,
+            new ScriptEvidenceStore(options.EvidenceDirectory));
+
+        var append = Task.Run(() =>
+            runtime.TryAppendAutomaticTransition(AutomaticTransition()));
+        Task? stop = null;
+        try
+        {
+            await sink.AppendEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            stop = runtime.StopAsync(CancellationToken.None);
+            await Task.Delay(100);
+            Assert.False(stop.IsCompleted, "audit shutdown overtook an automatic transition");
+
+            sink.ReleaseAppend.TrySetResult();
+            Assert.True(await append.WaitAsync(TimeSpan.FromSeconds(10)));
+            await stop.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(runtime.TryAppendAutomaticTransition(AutomaticTransition()));
+        }
+        finally
+        {
+            sink.ReleaseAppend.TrySetResult();
+            try { await append.WaitAsync(TimeSpan.FromSeconds(10)); } catch { /* preserve primary failure */ }
+            if (stop is not null)
+            {
+                try { await stop.WaitAsync(TimeSpan.FromSeconds(10)); } catch { /* preserve primary failure */ }
+            }
+        }
+
+        var line = Assert.Single(sink.Lines);
+        using var document = JsonDocument.Parse(line);
+        Assert.Equal("host.starting", EventType(document));
+    }
+
+    [Fact]
     public async Task Shutdown_kills_jobs_and_awaits_their_terminal_callback_before_server_stopped()
     {
         var root = NewRoot();
@@ -1010,6 +1061,34 @@ public sealed class AuditRuntimeGateTests : IDisposable
             "runtime-gate-test",
             callFactory: AuditCallContextFactory.Instance);
 
+    private static AuditEventInput AutomaticTransition() => new()
+    {
+        EventType = "host.starting",
+        Session = new AuditSession(),
+        Actor = new AuditActor { AttributionStrength = "unknown" },
+        Correlation = new AuditCorrelation(),
+        Request = new AuditRequest(),
+        Routing = new AuditRouting(),
+        Outcome = new AuditOutcome
+        {
+            State = "starting",
+            DetailCode = "host_starting",
+            TerminationCertainty = "not_applicable",
+        },
+        Coverage = new AuditCoverage
+        {
+            PtkRequest = false,
+            RootProcessObserved = "not_applicable",
+            DescendantsObserved = "not_applicable",
+            RemoteEffectObserved = "not_applicable",
+        },
+        Audit = new AuditEventHealth
+        {
+            ProtectionMode = "local-only",
+            HealthState = "healthy",
+        },
+    };
+
     private static async ValueTask<CallToolResult> Filter(
         IServiceProvider services,
         CallToolRequestParams call,
@@ -1061,6 +1140,50 @@ public sealed class AuditRuntimeGateTests : IDisposable
         private Action? _onDispose = onDispose;
 
         public void Dispose() => Interlocked.Exchange(ref _onDispose, null)?.Invoke();
+    }
+
+    private sealed class BlockingTransitionSink : IAuditJournalSink
+    {
+        private readonly List<byte[]> _lines = [];
+        private bool _disposed;
+
+        internal BlockingTransitionSink(AuditOptions options)
+        {
+            SegmentCapacityBytes = options.SegmentBytes;
+            AggregateCapacityBytes = options.AggregateBytes;
+        }
+
+        internal TaskCompletionSource AppendEntered { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource ReleaseAppend { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal IReadOnlyList<byte[]> Lines => _lines;
+
+        public long SegmentCapacityBytes { get; }
+
+        public long AggregateCapacityBytes { get; }
+
+        public long CurrentSegmentBytes => _lines.Sum(static line => (long)line.Length);
+
+        public long TotalBytes => CurrentSegmentBytes;
+
+        public bool CanReserve(long reservedBytes) =>
+            !_disposed && reservedBytes >= 0 && reservedBytes <= SegmentCapacityBytes;
+
+        public void Append(ReadOnlyMemory<byte> line)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            AppendEntered.TrySetResult();
+            if (!ReleaseAppend.Task.Wait(TimeSpan.FromSeconds(10)))
+                throw new IOException("The automatic-transition append was not released.");
+            _lines.Add(line.ToArray());
+        }
+
+        public void FlushToDisk() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+        public void Dispose() => _disposed = true;
     }
 
     private sealed class BlockingSessionLifetime : IOrderedOwnedLifetime

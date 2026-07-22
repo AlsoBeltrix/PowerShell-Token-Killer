@@ -540,6 +540,38 @@ public sealed class GuardianArchitectureBoundaryTests
     }
 
     [Fact]
+    public void Canonical_layout_generator_publishes_both_guardian_and_host_apphosts()
+    {
+        var paths = RepositoryPaths.Create();
+        var repositoryRoot = Directory.GetParent(paths.ServerDirectory)!.FullName;
+        var generatorPath = Path.Combine(repositoryRoot, "scripts", "dev-install.ps1");
+        var generator = File.ReadAllText(generatorPath);
+        var guardianPublishStart = generator.IndexOf(
+            "dotnet publish (Join-Path $repoRoot 'server' 'PtkMcpGuardian')",
+            StringComparison.Ordinal);
+        var auditPublishStart = generator.IndexOf(
+            "dotnet publish (Join-Path $repoRoot 'server' 'PtkAuditAdmin')",
+            StringComparison.Ordinal);
+
+        Assert.Contains(
+            "dotnet publish (Join-Path $repoRoot 'server' 'PtkMcpServer')",
+            generator,
+            StringComparison.Ordinal);
+        Assert.True(guardianPublishStart >= 0);
+        Assert.True(auditPublishStart > guardianPublishStart);
+
+        var guardianPublish = generator[guardianPublishStart..auditPublishStart];
+        Assert.Contains(
+            "-o (Join-Path $Destination 'bin')",
+            guardianPublish,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "-p:Version=$PayloadVersion",
+            guardianPublish,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Program_aliases_one_existing_audit_gate_under_each_host_contract()
     {
         var paths = RepositoryPaths.Create();

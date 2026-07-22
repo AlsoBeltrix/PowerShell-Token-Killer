@@ -5,14 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Dependency hardening is complete through SQLitePCLRaw 3.0.4 on
+- **Dependency hardening is complete through Pester 6.0.1 on
   `feature/mcp-resilience-r1`.** The frozen inventory, PowerShell security
-  chain, Hosting, MCP, Roslyn, .NET test-platform, and coverage-collector
-  slices are committed. Test SDK 17.14.1 could build xUnit v3 but could not run
-  its assemblies, so xUnit 3.2.2, the 3.1.5 VSTest adapter, and Test SDK 18.8.1
-  correctly land together. Exact listed identities match the pre-migration
-  snapshot in all five projects; explicit and solution macOS runs pass
-  architecture 73, guardian 436, server 1,868, SIEM 91, and conformance 6.
+  chain, Hosting, MCP, Roslyn, .NET test-platform, coverage-collector, SQLite,
+  and Pester slices are committed. Test SDK 17.14.1 could build xUnit v3 but
+  could not run its assemblies, so xUnit 3.2.2, the 3.1.5 VSTest adapter, and
+  Test SDK 18.8.1 correctly land together. Exact listed identities match the
+  pre-migration snapshot in all five projects; explicit and solution macOS
+  runs pass architecture 73, guardian 436, server 1,868, SIEM 91, and
+  conformance 6.
   The solution-level cold-background marker race now waits for a valid PID
   within its unchanged five-second budget. All three package graphs have zero
   deprecated and zero vulnerable packages, and no test-stack package is
@@ -25,9 +26,11 @@ short and update it when important repo facts change.
   vulnerable package, and passes SIEM 91/91 on macOS, x64 Linux, and Windows.
   A fresh external publish contains one bundle and one provider identity; all
   disposable validation artifacts and SYSTEM-profile development-certificate
-  residue were removed. Pester, setup-dotnet, final audits, and complete
-  cross-platform acceptance remain. No push, merge, release, or
-  installed-payload change is authorized.
+  residue were removed. CI now provisions and imports exact Pester 6.0.1 via
+  PSResourceGet with a Gallery-compatible fallback; exact-version runs pass
+  141 with two expected skips on macOS/Linux and 142 with one expected skip on
+  Windows. Setup-dotnet, final audits, and complete cross-platform acceptance
+  remain. No push, merge, release, or installed-payload change is authorized.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -302,8 +305,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue `.agents/plans/dependency-hardening.md` with exact Pester 6.0.1
-   and setup-dotnet v6 one commit at a time. Finish with the
+1. Continue `.agents/plans/dependency-hardening.md` with setup-dotnet v6.
+   Finish with the
    frozen package audits and direct macOS/Linux/Windows acceptance. Remove
    `PTK_SIEM_CONFORMANCE_MODE` with `Remove-Item Env:` before ordinary tests.
    Advisories stay visible and non-blocking; do not add warning-as-error,

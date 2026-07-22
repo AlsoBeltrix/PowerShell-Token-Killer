@@ -1084,3 +1084,28 @@ platform evidence was accepted before the family commit._
 - A fresh macOS external publish resolved exactly one bundle and one provider
   identity, both 3.0.4, with only that bundle's RID-specific native files. The
   temporary publish tree was removed and no repository artifact remained.
+
+## Dependency hardening Pester 6.0.1 verification (macOS/Linux/Windows, 2026-07-22)
+
+_Candidate workflow based on committed SQLite head `a92bb19`. The transferred
+source archive SHA-256 was
+`311a7130c9341cf6b6a8f90d79aa41f2011745c1aef8e8c0ea6077960c8126bb`;
+the shared test-file SHA-256 was
+`c7ef98af12985c5a0a0e472ec697bdd445f06c54fdaf561a6e2b7f24505eadd8`._
+
+- macOS loaded exact Pester 6.0.1 and passed 141/143 with the two expected
+  Unix-platform skips, zero failures, and zero not-run tests.
+- `magneto` (Arch Linux x64, PowerShell 7.6.3) matched both hashes, saved
+  Pester 6.0.1 into a disposable module root, and passed 141/143 with the same
+  two expected skips and zero failures/not-run tests. The source, module, and
+  archive paths were removed.
+- `NETWATCH-01` (Windows 10.0.26200 x64, PowerShell 7.6.3) matched both
+  hashes, saved Pester 6.0.1 into a disposable module root, and passed 142/143
+  with the one expected Windows-platform skip and zero failures/not-run tests.
+  Pester's loaded DLL held the first same-process cleanup attempt open; after
+  that process exited, a fresh scoped cleanup removed the exact source/module
+  root and archive and proved no matching residue.
+- Ruby Psych parsed `.github/workflows/ci.yml`. Structural checks found one
+  exact 6.0.1 provisioner, one PSResourceGet version pin, one PowerShellGet
+  required-version fallback, one exact-version import, and no stale 5.0.0
+  minimum-version check. No hosted workflow result is claimed before push.

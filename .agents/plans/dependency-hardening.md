@@ -276,6 +276,15 @@ The baseline is 141 passed with two Unix-platform skips, or 142 passed with one
 Windows-platform skip. Do not edit product behavior or assertions merely for a
 Pester compatibility change.
 
+**Implemented.** CI installs exact Pester 6.0.1 only when that version is
+absent, prefers `Install-PSResource`, retains the `Install-Module` Gallery
+fallback, and imports the exact version before testing. The workflow YAML
+parses locally and contains no stale minimum-version provisioner. Exact 6.0.1
+runs pass 141 with two expected skips on macOS and x64 Linux, and 142 with one
+expected skip on x64 Windows. Remote verification saved the module only inside
+disposable roots; no host profile or installed PTK payload changed, and all
+source/module/archive residue was removed.
+
 ### 10. Update GitHub Actions runtime dependencies
 
 Update `actions/setup-dotnet` in both jobs to the cutoff's current stable major.

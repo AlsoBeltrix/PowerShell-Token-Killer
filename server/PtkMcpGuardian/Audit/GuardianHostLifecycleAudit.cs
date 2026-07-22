@@ -47,6 +47,16 @@ internal sealed class GuardianHostLifecycleAudit(AuditRuntimeGate runtime) :
             descendantsObserved: "unknown");
     }
 
+    public void RecordContainmentUnconfirmed(bool warmStateLost) =>
+        Record(
+            "host.containment_unconfirmed",
+            outcomeState: "failed",
+            detailCode: "host_containment_unconfirmed",
+            warmStateLost,
+            terminationCertainty: "unconfirmed",
+            rootProcessObserved: "unknown",
+            descendantsObserved: "unknown");
+
     private void Record(
         string eventType,
         string outcomeState,

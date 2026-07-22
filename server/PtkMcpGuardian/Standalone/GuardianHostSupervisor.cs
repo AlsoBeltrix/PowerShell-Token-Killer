@@ -1985,8 +1985,15 @@ internal sealed class GuardianHostSupervisor :
             try
             {
                 if (!ReferenceEquals(_active, active)) return;
-                pending = _lifecycle.ObserveContainmentDeadline(active.Lease).Disposition ==
+                var transition = _lifecycle.ObserveContainmentDeadline(active.Lease);
+                pending = transition.Disposition ==
                     GuardianHostContainmentDisposition.Pending;
+                if (transition.Disposition ==
+                    GuardianHostContainmentDisposition.MarkedUnconfirmed)
+                {
+                    _lifecycleAudit.RecordContainmentUnconfirmed(
+                        warmStateLost: active.Lease.EverReady);
+                }
             }
             finally
             {

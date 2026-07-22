@@ -79,4 +79,6 @@ internal sealed class NoOpGuardianHostLifecycleAudit : IGuardianHostLifecycleAud
     public void RecordReady(bool recovered) { }
 
     public void RecordLost(GuardianHostLossReason reason, bool warmStateLost) { }
+
+    public void RecordContainmentUnconfirmed(bool warmStateLost) { }
 }

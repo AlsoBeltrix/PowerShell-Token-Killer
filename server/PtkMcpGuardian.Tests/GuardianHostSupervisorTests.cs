@@ -208,6 +208,58 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Unconfirmed_containment_is_durably_audited_with_the_old_identity()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond, AutoConfirmContainment: false));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+
+        old.SignalHostExit();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.Recovering);
+        await rig.Scheduler.AdvanceAndCompleteAsync(
+            GuardianHostLifecycleController.HostContainmentGrace);
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State ==
+            PublicHostState.ContainmentUnconfirmed);
+
+        var line = Assert.Single(
+            rig.HostAuditLines("host.containment_unconfirmed"));
+        using var document = JsonDocument.Parse(line);
+        var root = document.RootElement;
+        var host = root.GetProperty("host");
+        Assert.Equal(
+            old.Identity.HostBootId.Value.ToString("D"),
+            host.GetProperty("boot_id").GetString());
+        Assert.Equal(
+            old.Identity.HostGeneration.Value,
+            host.GetProperty("generation").GetInt64());
+        Assert.Equal(
+            "containment_unconfirmed",
+            host.GetProperty("state").GetString());
+        Assert.Equal(0, host.GetProperty("recovery_attempt").GetInt64());
+        Assert.Single(rig.Factory.Resources);
+
+        var outcome = root.GetProperty("outcome");
+        Assert.Equal("failed", outcome.GetProperty("state").GetString());
+        Assert.Equal(
+            "host_containment_unconfirmed",
+            outcome.GetProperty("detail_code").GetString());
+        Assert.True(outcome.GetProperty("warm_state_lost").GetBoolean());
+        Assert.Equal(
+            "unconfirmed",
+            outcome.GetProperty("termination_certainty").GetString());
+        var coverage = root.GetProperty("coverage");
+        Assert.Equal(
+            "unknown",
+            coverage.GetProperty("root_process_observed").GetString());
+        Assert.Equal(
+            "unknown",
+            coverage.GetProperty("descendants_observed").GetString());
+    }
+
+    [Fact]
     public async Task Loss_before_write_authorization_is_safe_and_never_dispatched()
     {
         await using var rig = new TestRig(
@@ -3047,6 +3099,9 @@ public sealed class GuardianHostSupervisorTests
                 throw new TimeoutException("The blocked host-loss audit was not released.");
             _inner.RecordLost(reason, warmStateLost);
         }
+
+        public void RecordContainmentUnconfirmed(bool warmStateLost) =>
+            _inner.RecordContainmentUnconfirmed(warmStateLost);
     }
 
     private sealed class BlockingDispatchObserver :

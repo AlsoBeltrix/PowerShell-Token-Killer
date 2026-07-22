@@ -98,7 +98,14 @@ public sealed class ProductionGuardianCompositionTests
             detectEncodingFromByteOrderMarks: false,
             bufferSize: 1024,
             leaveOpen: true);
-        var run = composition.RunAsync(input, output, timeout.Token);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
         try
         {
             var initialized = await RequestAsync(
@@ -185,7 +192,8 @@ public sealed class ProductionGuardianCompositionTests
                 StringComparison.Ordinal);
 
             input.CompleteWriting();
-            await run.WaitAsync(timeout.Token);
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
             Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
             Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
             Assert.Equal(0, composition.Supervisor.OwnedClientCount);

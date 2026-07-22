@@ -156,11 +156,10 @@ public sealed class GuardianMcpApplicationTests
     }
 
     [Fact]
-    public async Task Executable_rejects_every_mode_except_exact_fake_host_without_output()
+    public async Task Executable_rejects_every_mode_except_no_arguments_or_exact_fake_host()
     {
         IReadOnlyList<string>[] invocations =
         [
-            [],
             ["--host"],
             ["unexpected"],
             ["--FAKE-HOST"],
@@ -180,6 +179,22 @@ public sealed class GuardianMcpApplicationTests
                 error.ToString());
             Assert.Empty(output.ToArray());
         }
+    }
+
+    [Fact]
+    public async Task No_argument_production_package_failure_is_stderr_only()
+    {
+        using var input = new MemoryStream();
+        using var output = new MemoryStream();
+        using var error = new StringWriter();
+
+        Assert.Equal(
+            Program.SoftwareExitCode,
+            await Program.RunAsync([], input, output, error));
+        Assert.Equal(
+            Program.ProductionRuntimeFailureMessage + Environment.NewLine,
+            error.ToString());
+        Assert.Empty(output.ToArray());
     }
 
     [Fact]

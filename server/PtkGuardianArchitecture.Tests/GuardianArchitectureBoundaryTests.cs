@@ -509,7 +509,7 @@ public sealed class GuardianArchitectureBoundaryTests
         var programPath = Path.Combine(guardian.ProjectDirectory, "Program.cs");
         var program = File.ReadAllText(programPath);
         Assert.DoesNotContain("Console.Out", program, StringComparison.Ordinal);
-        Assert.Contains("if (!IsFakeHostMode(args))", program, StringComparison.Ordinal);
+        Assert.Contains("if (!IsSupportedMode(args))", program, StringComparison.Ordinal);
         Assert.Contains(
             "return RejectUnsupportedMode(Console.Error);",
             program,
@@ -522,11 +522,14 @@ public sealed class GuardianArchitectureBoundaryTests
             "using var publicOutput = Console.OpenStandardOutput();",
             program,
             StringComparison.Ordinal);
+        Assert.Contains("arguments.Count == 0", program, StringComparison.Ordinal);
         Assert.Contains("arguments.Count == 1", program, StringComparison.Ordinal);
         Assert.Contains(
             "StringComparer.Ordinal.Equals(arguments[0], \"--fake-host\")",
             program,
             StringComparison.Ordinal);
+        Assert.Contains("CurrentMatchedPackage.Load()", program, StringComparison.Ordinal);
+        Assert.Contains("ProductionGuardianComposition.Create(", program, StringComparison.Ordinal);
 
         foreach (var sourcePath in guardian.CompileInputs)
         {

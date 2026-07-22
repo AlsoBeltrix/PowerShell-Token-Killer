@@ -343,21 +343,21 @@ function New-PtkLayout {
     )
     Write-Host "Publishing PtkMcpServer ($TargetRid, $PayloadVersion)..."
     dotnet publish (Join-Path $repoRoot 'server' 'PtkMcpServer') `
-        -c Release -r $TargetRid --self-contained `
+        -c Release -r $TargetRid --self-contained --disable-build-servers `
         -p:Version=$PayloadVersion `
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
 
     Write-Host "Publishing PtkMcpGuardian ($TargetRid, $PayloadVersion)..."
     dotnet publish (Join-Path $repoRoot 'server' 'PtkMcpGuardian') `
-        -c Release -r $TargetRid --self-contained `
+        -c Release -r $TargetRid --self-contained --disable-build-servers `
         -p:Version=$PayloadVersion `
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'PtkMcpGuardian dotnet publish failed.' }
 
     Write-Host "Publishing PtkAuditAdmin ($TargetRid, $PayloadVersion)..."
     dotnet publish (Join-Path $repoRoot 'server' 'PtkAuditAdmin') `
-        -c Release -r $TargetRid --self-contained `
+        -c Release -r $TargetRid --self-contained --disable-build-servers `
         -p:Version=$PayloadVersion `
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'PtkAuditAdmin dotnet publish failed.' }

@@ -680,7 +680,7 @@ public sealed class ProductionGuardianCompositionTests
                 tombstoneStatusResponse,
                 expectedError: false);
             Assert.Contains(
-                $"job {jobId}: outcome unknown; containment pending",
+                $"job {jobId}: exited 0 (original host generation lost)",
                 tombstoneStatus,
                 StringComparison.Ordinal);
             Assert.Contains(
@@ -713,7 +713,7 @@ public sealed class ProductionGuardianCompositionTests
                 tombstoneOutput,
                 StringComparison.Ordinal);
             Assert.Contains(
-                $"[job {jobId} outcome unknown; containment pending] next offset:",
+                $"[job {jobId} exited 0 (original host generation lost)] next offset:",
                 tombstoneOutput,
                 StringComparison.Ordinal);
 
@@ -736,7 +736,7 @@ public sealed class ProductionGuardianCompositionTests
                 tombstoneListResponse,
                 expectedError: false);
             Assert.Contains(
-                $"job {jobId}: outcome unknown; containment pending",
+                $"job {jobId}: exited 0 (original host generation lost)",
                 tombstoneList,
                 StringComparison.Ordinal);
             Assert.Equal(1, launcher.LaunchCount);
@@ -789,7 +789,7 @@ public sealed class ProductionGuardianCompositionTests
                 },
                 timeout.Token);
             Assert.Contains(
-                "outcome unknown (host generation lost; root termination confirmed)",
+                "exited 0 (original host generation lost)",
                 ToolText(confirmedStatusResponse, expectedError: false),
                 StringComparison.Ordinal);
             Assert.Equal(2, launcher.LaunchCount);

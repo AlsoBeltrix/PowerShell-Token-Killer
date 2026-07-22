@@ -306,6 +306,7 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
     private bool _dispatchTerminalObserved;
     private bool _outputAccessObserved;
     private bool _jobTombstoneAccessObserved;
+    private bool _jobTerminalLeaseCreated;
 
     internal GuardianAuditCall(
         AuditJournal journal,
@@ -600,6 +601,54 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
         }
     }
 
+    internal GuardianAuditJobTerminalLease? TryCreateJobTerminalLease(
+        PublicJobId publicJobId)
+    {
+        ArgumentNullException.ThrowIfNull(publicJobId);
+        EnsureWrittenDispatchTerminalAvailable();
+        if (_jobTerminalLeaseCreated)
+        {
+            throw new InvalidOperationException(
+                "The guardian job terminal lease is already created.");
+        }
+        if (!StringComparer.Ordinal.Equals(_request!.Tool, "ptk_invoke") ||
+            !StringComparer.Ordinal.Equals(_request.Action, "invoke") ||
+            _request.Background != true ||
+            _request.JobId != publicJobId.Value ||
+            Metadata.OperationProfile.PersistentJobTerminalSlots != 1)
+        {
+            throw new InvalidOperationException(
+                "A guardian job terminal lease requires the authorized background invocation.");
+        }
+
+        _jobTerminalLeaseCreated = true;
+        try
+        {
+            var started = Append(
+                "job.started",
+                outcomeState: "started",
+                jobId: publicJobId.Value);
+            var terminalReservation = _reservation!.TransferSlot();
+            return new GuardianAuditJobTerminalLease(
+                _journal,
+                terminalReservation,
+                Metadata.Actor,
+                _session,
+                _request,
+                _routing,
+                _callId,
+                started.EventId,
+                _planId,
+                publicJobId,
+                _startedUtc);
+        }
+        catch (AuditUnavailableException)
+        {
+            _authorizationPersistenceFailed = true;
+            return null;
+        }
+    }
+
     private static bool MatchesAcceptedOperation(
         AuditRequest request,
         GuardianHostOperationKind operationKind) => request.Tool switch
@@ -768,4 +817,182 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
         _ => throw new InvalidOperationException(
             "The admitted guardian invocation has an unknown route."),
     };
+}
+
+/// <summary>
+/// One pre-reserved asynchronous terminal obligation detached from a completed
+/// guardian background-start call. The lease is consumed exactly once by a
+/// correlated private lifecycle event or by finalized host-loss containment.
+/// </summary>
+internal sealed class GuardianAuditJobTerminalLease
+{
+    private readonly object _gate = new();
+    private readonly AuditJournal _journal;
+    private readonly AuditReservation _reservation;
+    private readonly AuditActor _actor;
+    private readonly AuditSession _session;
+    private readonly AuditRequest _request;
+    private readonly AuditRouting _routing;
+    private readonly Guid _callId;
+    private readonly Guid _parentEventId;
+    private readonly Guid? _planId;
+    private readonly PublicJobId _publicJobId;
+    private readonly DateTimeOffset _startedUtc;
+    private bool _completed;
+
+    internal GuardianAuditJobTerminalLease(
+        AuditJournal journal,
+        AuditReservation reservation,
+        AuditActor actor,
+        AuditSession session,
+        AuditRequest request,
+        AuditRouting routing,
+        Guid callId,
+        Guid parentEventId,
+        Guid? planId,
+        PublicJobId publicJobId,
+        DateTimeOffset startedUtc)
+    {
+        _journal = journal ?? throw new ArgumentNullException(nameof(journal));
+        _reservation = reservation ?? throw new ArgumentNullException(nameof(reservation));
+        _actor = actor ?? throw new ArgumentNullException(nameof(actor));
+        _session = session ?? throw new ArgumentNullException(nameof(session));
+        _request = request ?? throw new ArgumentNullException(nameof(request));
+        _routing = routing ?? throw new ArgumentNullException(nameof(routing));
+        _callId = callId;
+        _parentEventId = parentEventId;
+        _planId = planId;
+        _publicJobId = publicJobId ?? throw new ArgumentNullException(nameof(publicJobId));
+        _startedUtc = startedUtc;
+    }
+
+    internal PublicJobId PublicJobId => _publicJobId;
+
+    internal void Complete(JobLifecycleEvent terminal)
+    {
+        ArgumentNullException.ThrowIfNull(terminal);
+        if (terminal.PublicJobId != _publicJobId ||
+            terminal.State is GuardianHostJobState.Queued or GuardianHostJobState.Running)
+        {
+            throw new InvalidOperationException(
+                "The private job terminal does not match its guardian audit lease.");
+        }
+
+        var outcomeUnknown = terminal.State is
+            GuardianHostJobState.Lost or GuardianHostJobState.OutcomeUnknown;
+        var killed = terminal.State is
+            GuardianHostJobState.Canceled or GuardianHostJobState.TimedOut;
+        var detailCode = terminal.State switch
+        {
+            GuardianHostJobState.Lost => "root_termination_unconfirmed",
+            GuardianHostJobState.OutcomeUnknown => "execution_outcome_unknown",
+            GuardianHostJobState.TimedOut => "timed_out",
+            GuardianHostJobState.Canceled => "canceled",
+            _ when terminal.OutputState == GuardianHostOutputState.SealedIncomplete =>
+                "output_capture_incomplete",
+            _ when terminal.OutputState == GuardianHostOutputState.Unavailable =>
+                "output_capture_unavailable",
+            _ => null,
+        };
+        Complete(
+            outcomeUnknown ? "job.outcome_unknown" : killed ? "job.killed" : "job.completed",
+            outcomeUnknown ? "outcome_unknown" : killed ? "killed" : "completed",
+            detailCode,
+            terminal.ExitCode,
+            terminal.State == GuardianHostJobState.Lost ? "unknown" : "confirmed",
+            terminal.State == GuardianHostJobState.Lost ? "unknown" : "complete");
+    }
+
+    internal void CompleteHostLoss(bool containmentConfirmed) => Complete(
+        "job.outcome_unknown",
+        "outcome_unknown",
+        containmentConfirmed ? "host_generation_lost" : "root_termination_unconfirmed",
+        exitCode: null,
+        containmentConfirmed ? "confirmed" : "unknown",
+        containmentConfirmed ? "complete" : "unknown");
+
+    internal void ReleaseWithoutTerminal()
+    {
+        lock (_gate)
+        {
+            if (_completed) return;
+            _completed = true;
+        }
+        _reservation.Release();
+    }
+
+    private void Complete(
+        string eventType,
+        string outcomeState,
+        string? detailCode,
+        int? exitCode,
+        string terminationCertainty,
+        string rootCoverage)
+    {
+        lock (_gate)
+        {
+            if (_completed) return;
+            _completed = true;
+        }
+
+        try
+        {
+            var health = _journal.Health.Snapshot();
+            var unhealthy = health.State is
+                AuditHealthState.Degraded or AuditHealthState.Unavailable;
+            _journal.Append(
+                _reservation,
+                new AuditEventInput
+                {
+                    EventType = eventType,
+                    Session = _session,
+                    Actor = _actor,
+                    Correlation = new AuditCorrelation
+                    {
+                        CallId = _callId,
+                        JobId = _publicJobId.Value,
+                        ParentEventId = _parentEventId,
+                        PlanId = _planId,
+                    },
+                    Request = _request,
+                    Routing = _routing,
+                    Outcome = new AuditOutcome
+                    {
+                        State = outcomeState,
+                        DetailCode = detailCode,
+                        ExitCode = exitCode,
+                        DurationMs = Math.Max(
+                            0,
+                            (long)(DateTimeOffset.UtcNow - _startedUtc).TotalMilliseconds),
+                        TerminationCertainty = terminationCertainty,
+                    },
+                    Coverage = new AuditCoverage
+                    {
+                        PtkRequest = true,
+                        RootProcessObserved = rootCoverage,
+                        DescendantsObserved = "unknown",
+                        RemoteEffectObserved = "unknown",
+                    },
+                    Audit = new AuditEventHealth
+                    {
+                        ProtectionMode = health.ProtectionMode ==
+                            AuditProtectionMode.LocalOnly
+                                ? "local-only"
+                                : "anchored",
+                        ExportConfigurationIdentity =
+                            health.ExportConfigurationIdentity,
+                        HealthState = unhealthy ? "degraded" : "healthy",
+                        FailureClass = unhealthy ? health.FailureClass : null,
+                        DegradedSinceUtc = unhealthy ? health.DegradedSinceUtc : null,
+                    },
+                });
+        }
+        catch (AuditUnavailableException)
+        {
+        }
+        finally
+        {
+            _reservation.Release();
+        }
+    }
 }

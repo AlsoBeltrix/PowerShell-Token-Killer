@@ -1712,6 +1712,7 @@ public sealed class GuardianHostSupervisorTests
             list.Text,
             StringComparison.Ordinal);
         Assert.Equal(operationCount, resource.OperationCount);
+        Assert.DoesNotContain("job.outcome_unknown", rig.AuditEventTypes());
 
         await rig.Scheduler.AdvanceAndCompleteAsync(
             GuardianHostLifecycleController.HostContainmentGrace);
@@ -1761,6 +1762,54 @@ public sealed class GuardianHostSupervisorTests
         Assert.Contains("job.status_accessed", rig.AuditEventTypes());
         Assert.Contains("job.output_accessed", rig.AuditEventTypes());
         Assert.Contains("job.list_accessed", rig.AuditEventTypes());
+        using var lostTerminal = JsonDocument.Parse(
+            Assert.Single(rig.HostAuditLines("job.outcome_unknown")));
+        Assert.Equal(
+            "unknown",
+            lostTerminal.RootElement
+                .GetProperty("outcome")
+                .GetProperty("termination_certainty")
+                .GetString());
+    }
+
+    [Fact]
+    public async Task Completed_background_job_appends_one_detached_terminal()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.BackgroundTerminal));
+        await rig.StartAsync();
+
+        var started = await rig.DispatchBackgroundInvokeAsync(Token(37))
+            .WaitAsync(TestTimeout);
+        Assert.False(started.IsError);
+        await WaitUntilAsync(() =>
+            rig.AuditEventTypes().Contains("job.completed", StringComparer.Ordinal));
+
+        var eventTypes = rig.AuditEventTypes();
+        Assert.Single(eventTypes, eventType =>
+            StringComparer.Ordinal.Equals(eventType, "job.started"));
+        Assert.Single(eventTypes, eventType =>
+            StringComparer.Ordinal.Equals(eventType, "job.completed"));
+        Assert.DoesNotContain("job.outcome_unknown", eventTypes);
+        Assert.Contains("call.completed", eventTypes);
+        Assert.True(
+            Array.IndexOf(eventTypes, "call.completed") <
+            Array.IndexOf(eventTypes, "job.completed"));
+        using var terminal = JsonDocument.Parse(
+            Assert.Single(rig.HostAuditLines("job.completed")));
+        Assert.Equal(
+            "confirmed",
+            terminal.RootElement
+                .GetProperty("outcome")
+                .GetProperty("termination_certainty")
+                .GetString());
+        Assert.Equal(
+            "complete",
+            terminal.RootElement
+                .GetProperty("coverage")
+                .GetProperty("root_process_observed")
+                .GetString());
     }
 
     [Fact]
@@ -1808,6 +1857,14 @@ public sealed class GuardianHostSupervisorTests
         Assert.False(currentStatus.IsError);
         Assert.Equal("status job 2", currentStatus.Text);
         Assert.Equal(3, second.OperationCount);
+        using var lostTerminal = JsonDocument.Parse(
+            Assert.Single(rig.HostAuditLines("job.outcome_unknown")));
+        Assert.Equal(
+            "confirmed",
+            lostTerminal.RootElement
+                .GetProperty("outcome")
+                .GetProperty("termination_certainty")
+                .GetString());
     }
 
     [Fact]
@@ -3749,6 +3806,7 @@ public sealed class GuardianHostSupervisorTests
         BackgroundLateOutput,
         BackgroundJobControls,
         BackgroundPrefixBeforeLoss,
+        BackgroundTerminal,
         ContractMismatchHello,
         CrashAfterRequest,
         Hold,
@@ -4142,6 +4200,16 @@ public sealed class GuardianHostSupervisorTests
                                     background.PublicJobId,
                                     Token(240)))));
                             continue;
+                        case InvokeBackgroundOperation background
+                            when behavior == HostBehavior.BackgroundTerminal:
+                            await WriteOutputSealAsync(operation, []);
+                            await WriteJobTerminalAsync(operation, background.PublicJobId);
+                            await _writer.WriteAsync(Success(
+                                operation.RequestId,
+                                new OperationCompleted(new InvokeBackgroundResult(
+                                    background.PublicJobId,
+                                    Token(240)))));
+                            continue;
                         case JobStatusOperation status:
                             RecordJobControl(status, offset: 0);
                             await _writer.WriteAsync(Success(
@@ -4319,6 +4387,27 @@ public sealed class GuardianHostSupervisorTests
                     GuardianHostOutputSealState.Complete,
                     bytes.Length,
                     Sha256Digest.Compute(bytes)))
+                .AsTask();
+
+        private Task WriteJobTerminalAsync(
+            OperationRequest request,
+            PublicJobId publicJobId) =>
+            _writer.WriteAsync(new JobLifecycleEvent(
+                    request.GuardianBootId,
+                    request.HostBootId,
+                    request.HostGeneration,
+                    new HostEventSequence(Interlocked.Increment(ref _eventSequence)),
+                    requestId: null,
+                    request.SessionAlias!,
+                    request.SessionTransitionVersion!,
+                    request.WorkerIdentity!,
+                    request.OperationIdentity,
+                    publicJobId,
+                    GuardianHostJobState.Completed,
+                    exitCode: 0,
+                    GuardianHostOutputState.Sealed,
+                    outputBytes: 0,
+                    outputDigest: null))
                 .AsTask();
 
         private void Record(PrivateRequestId requestId)

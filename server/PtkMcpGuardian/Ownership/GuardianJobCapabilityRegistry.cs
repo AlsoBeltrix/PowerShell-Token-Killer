@@ -53,7 +53,9 @@ internal sealed record GuardianJobTombstone(
     PublicJobId PublicJobId,
     CanonicalAlias SessionAlias,
     string LossReason,
-    GuardianJobContainmentStatus ContainmentStatus);
+    GuardianJobContainmentStatus ContainmentStatus,
+    GuardianHostJobState? TerminalState = null,
+    int? ExitCode = null);
 
 /// <summary>
 /// Guardian-owned bounded map from irreversible public job identifiers to the
@@ -117,6 +119,23 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
         SessionTransitionVersion sessionTransitionVersion,
         GuardianHostWorkerIdentity workerIdentity,
         out GuardianJobRegistration? registration,
+        out string? failure) =>
+        TryReserve(
+            hostIdentity,
+            sessionAlias,
+            sessionTransitionVersion,
+            workerIdentity,
+            operationIdentity: null,
+            out registration,
+            out failure);
+
+    internal bool TryReserve(
+        GuardianHostIdentity hostIdentity,
+        CanonicalAlias sessionAlias,
+        SessionTransitionVersion sessionTransitionVersion,
+        GuardianHostWorkerIdentity workerIdentity,
+        GuardianHostOperationIdentity? operationIdentity,
+        out GuardianJobRegistration? registration,
         out string? failure)
     {
         ArgumentNullException.ThrowIfNull(hostIdentity);
@@ -153,7 +172,8 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
                     hostIdentity,
                     sessionAlias,
                     sessionTransitionVersion,
-                    workerIdentity));
+                    workerIdentity,
+                    operationIdentity));
             return true;
         }
     }
@@ -209,9 +229,54 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
         }
     }
 
+    internal bool TryObserveLifecycleEvent(
+        JobLifecycleEvent lifecycleEvent,
+        out bool terminalAvailable)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycleEvent);
+        lock (_gate)
+        {
+            terminalAvailable = false;
+            return !_disposed &&
+                _entries.TryGetValue(
+                    lifecycleEvent.PublicJobId.Value,
+                    out var entry) &&
+                entry.TryObserveLifecycleEvent(
+                    lifecycleEvent,
+                    out terminalAvailable);
+        }
+    }
+
+    internal bool TryTakeLifecycleTerminal(
+        PublicJobId publicJobId,
+        out JobLifecycleEvent? lifecycleEvent)
+    {
+        ArgumentNullException.ThrowIfNull(publicJobId);
+        lock (_gate)
+        {
+            lifecycleEvent = null;
+            if (_disposed ||
+                !_entries.TryGetValue(publicJobId.Value, out var entry) ||
+                entry.LifecycleTerminal is not { } found)
+            {
+                return false;
+            }
+
+            lifecycleEvent = found;
+            entry.TakeLifecycleTerminal();
+            return true;
+        }
+    }
+
     internal int MarkGenerationLost(
         GuardianHostIdentity hostIdentity,
-        string reason)
+        string reason) =>
+        MarkGenerationLost(hostIdentity, reason, out _);
+
+    internal int MarkGenerationLost(
+        GuardianHostIdentity hostIdentity,
+        string reason,
+        out PublicJobId[] lostPublicJobIds)
     {
         ArgumentNullException.ThrowIfNull(hostIdentity);
         ArgumentException.ThrowIfNullOrWhiteSpace(reason);
@@ -219,11 +284,16 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
         {
             ThrowIfDisposedLocked();
             var marked = 0;
+            var lost = new List<PublicJobId>();
             foreach (var entry in _entries.Values)
             {
                 if (entry.MarkLost(hostIdentity, reason))
+                {
                     marked++;
+                    lost.Add(entry.Registration.PublicJobId);
+                }
             }
+            lostPublicJobIds = [.. lost];
             return marked;
         }
     }
@@ -338,7 +408,8 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
             if (_disposed ||
                 !_entries.TryGetValue(registration.PublicJobId.Value, out var entry) ||
                 !entry.Matches(registration) ||
-                !entry.IsPending)
+                !entry.IsPending ||
+                entry.HasObservedLifecycleTerminal)
             {
                 return false;
             }
@@ -385,19 +456,22 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
         private readonly CanonicalAlias _sessionAlias;
         private readonly SessionTransitionVersion _sessionTransitionVersion;
         private readonly GuardianHostWorkerIdentity _workerIdentity;
+        private readonly GuardianHostOperationIdentity? _operationIdentity;
 
         internal Entry(
             GuardianJobRegistration registration,
             GuardianHostIdentity hostIdentity,
             CanonicalAlias sessionAlias,
             SessionTransitionVersion sessionTransitionVersion,
-            GuardianHostWorkerIdentity workerIdentity)
+            GuardianHostWorkerIdentity workerIdentity,
+            GuardianHostOperationIdentity? operationIdentity)
         {
             Registration = registration;
             _hostIdentity = hostIdentity;
             _sessionAlias = sessionAlias;
             _sessionTransitionVersion = sessionTransitionVersion;
             _workerIdentity = workerIdentity;
+            _operationIdentity = operationIdentity;
         }
 
         internal GuardianJobRegistration Registration { get; }
@@ -405,6 +479,14 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
         internal GuardianJobCapability? Capability { get; private set; }
 
         internal GuardianJobTombstone? Tombstone { get; private set; }
+
+        internal JobLifecycleEvent? LifecycleTerminal { get; private set; }
+
+        internal JobLifecycleEvent? ObservedLifecycleTerminal { get; private set; }
+
+        private bool LifecycleTerminalObserved { get; set; }
+
+        internal bool HasObservedLifecycleTerminal => LifecycleTerminalObserved;
 
         internal bool IsPending => Capability is null && Tombstone is null;
 
@@ -441,6 +523,44 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
             return Capability;
         }
 
+        internal bool TryObserveLifecycleEvent(
+            JobLifecycleEvent lifecycleEvent,
+            out bool terminalAvailable)
+        {
+            terminalAvailable = false;
+            if (!MatchesLifecycleEvent(lifecycleEvent) || LifecycleTerminalObserved)
+                return false;
+
+            if (lifecycleEvent.State is
+                GuardianHostJobState.Queued or GuardianHostJobState.Running)
+            {
+                return lifecycleEvent.ExitCode is null;
+            }
+            if (lifecycleEvent.OutputState == GuardianHostOutputState.Streaming ||
+                (lifecycleEvent.State is
+                    GuardianHostJobState.Completed or GuardianHostJobState.Failed) &&
+                    lifecycleEvent.ExitCode is null)
+            {
+                return false;
+            }
+
+            LifecycleTerminalObserved = true;
+            LifecycleTerminal = lifecycleEvent;
+            ObservedLifecycleTerminal = lifecycleEvent;
+            terminalAvailable = true;
+            return true;
+        }
+
+        internal void TakeLifecycleTerminal()
+        {
+            if (LifecycleTerminal is null)
+            {
+                throw new InvalidOperationException(
+                    "The guardian job has no pending lifecycle terminal.");
+            }
+            LifecycleTerminal = null;
+        }
+
         internal bool MarkLost(
             GuardianHostIdentity hostIdentity,
             string reason)
@@ -455,7 +575,9 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
                 Registration.PublicJobId,
                 _sessionAlias,
                 reason,
-                GuardianJobContainmentStatus.Pending);
+                GuardianJobContainmentStatus.Pending,
+                ObservedLifecycleTerminal?.State,
+                ObservedLifecycleTerminal?.ExitCode);
             Capability = null;
             return true;
         }
@@ -480,6 +602,24 @@ internal sealed class GuardianJobCapabilityRegistry : IDisposable
             _hostIdentity.GuardianBootId == hostIdentity.GuardianBootId &&
             _hostIdentity.HostBootId == hostIdentity.HostBootId &&
             _hostIdentity.HostGeneration == hostIdentity.HostGeneration;
+
+        private bool MatchesLifecycleEvent(JobLifecycleEvent lifecycleEvent) =>
+            lifecycleEvent.RequestId is null &&
+            lifecycleEvent.GuardianBootId == _hostIdentity.GuardianBootId &&
+            lifecycleEvent.HostBootId == _hostIdentity.HostBootId &&
+            lifecycleEvent.HostGeneration == _hostIdentity.HostGeneration &&
+            lifecycleEvent.PublicJobId == Registration.PublicJobId &&
+            lifecycleEvent.SessionAlias == _sessionAlias &&
+            lifecycleEvent.SessionTransitionVersion == _sessionTransitionVersion &&
+            SameWorker(lifecycleEvent.WorkerIdentity!, _workerIdentity) &&
+            SameOperation(lifecycleEvent.OperationIdentity, _operationIdentity);
+
+        private static bool SameOperation(
+            GuardianHostOperationIdentity? left,
+            GuardianHostOperationIdentity? right) =>
+            left is not null && right is not null &&
+            left.PlanId == right.PlanId &&
+            left.OperationId == right.OperationId;
 
         private static bool SameWorker(
             GuardianHostWorkerIdentity left,

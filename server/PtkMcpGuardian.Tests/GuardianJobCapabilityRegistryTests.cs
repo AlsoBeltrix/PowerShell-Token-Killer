@@ -22,6 +22,9 @@ public sealed class GuardianJobCapabilityRegistryTests
     private static readonly GuardianHostWorkerIdentity Worker = new(
         new WorkerBootId(Guid.Parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc")),
         new WorkerGeneration(11));
+    private static readonly GuardianHostOperationIdentity OperationIdentity = new(
+        new PlanId(Guid.Parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd")),
+        new OperationId(Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")));
 
     [Fact]
     public void Reservation_activates_one_capability_bound_to_the_exact_owner()
@@ -283,6 +286,55 @@ public sealed class GuardianJobCapabilityRegistryTests
     }
 
     [Fact]
+    public void Lifecycle_terminal_is_exactly_correlated_and_survives_fast_exit()
+    {
+        using var registry = Registry();
+        Assert.True(registry.TryReserve(
+            HostIdentity,
+            Alias,
+            Transition,
+            Worker,
+            OperationIdentity,
+            out var registration,
+            out var failure), failure);
+        var forgedIdentity = new GuardianHostOperationIdentity(
+            OperationIdentity.PlanId,
+            new OperationId(Guid.Parse("ffffffff-ffff-4fff-8fff-ffffffffffff")));
+
+        Assert.False(registry.TryObserveLifecycleEvent(
+            Terminal(registration!.PublicJobId, forgedIdentity),
+            out _));
+        var terminal = Terminal(registration.PublicJobId, OperationIdentity);
+        Assert.True(registry.TryObserveLifecycleEvent(
+            terminal,
+            out var terminalAvailable));
+        Assert.True(terminalAvailable);
+        Assert.False(registry.TryCancel(registration));
+        Assert.True(registry.TryActivate(
+            registration,
+            new InvokeBackgroundResult(registration.PublicJobId, Token(12)),
+            out _,
+            out _));
+        Assert.True(registry.TryTakeLifecycleTerminal(
+            registration.PublicJobId,
+            out var retained));
+        Assert.Same(terminal, retained);
+        Assert.False(registry.TryTakeLifecycleTerminal(
+            registration.PublicJobId,
+            out _));
+        Assert.False(registry.TryObserveLifecycleEvent(terminal, out _));
+        Assert.Equal(1, registry.MarkGenerationLost(
+            HostIdentity,
+            "host_generation_lost"));
+        Assert.True(registry.TryGetTombstone(
+            registration.PublicJobId,
+            Alias,
+            out var tombstone));
+        Assert.Equal(GuardianHostJobState.Completed, tombstone!.TerminalState);
+        Assert.Equal(0, tombstone.ExitCode);
+    }
+
+    [Fact]
     public void Concurrent_reservations_are_unique_and_respect_the_bound()
     {
         const int capacity = 64;
@@ -396,6 +448,25 @@ public sealed class GuardianJobCapabilityRegistryTests
         Assert.Null(failure);
         return registration!;
     }
+
+    private static JobLifecycleEvent Terminal(
+        PublicJobId publicJobId,
+        GuardianHostOperationIdentity operationIdentity) => new(
+        Guardian,
+        Host,
+        Generation,
+        new HostEventSequence(1),
+        requestId: null,
+        Alias,
+        Transition,
+        Worker,
+        operationIdentity,
+        publicJobId,
+        GuardianHostJobState.Completed,
+        exitCode: 0,
+        GuardianHostOutputState.Sealed,
+        outputBytes: 12,
+        outputDigest: null);
 
     private static CapabilityToken Token(byte marker)
     {

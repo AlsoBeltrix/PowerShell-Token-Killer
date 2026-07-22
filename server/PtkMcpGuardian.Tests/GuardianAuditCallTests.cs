@@ -225,6 +225,75 @@ public sealed class GuardianAuditCallTests
     }
 
     [Fact]
+    public void Background_success_transfers_one_exact_job_terminal_obligation()
+    {
+        using var fixture = new Fixture();
+        var call = fixture.CreateCall();
+        Assert.True(
+            call.TryBegin(InvokeMetadata(background: true), InvokeScript, out var failure),
+            failure);
+        var identity = new GuardianHostOperationIdentity(
+            new PlanId(Guid.Parse("65345678-1234-4abc-8def-0123456789ab")),
+            new OperationId(Guid.Parse("75345678-1234-4abc-8def-0123456789ab")));
+        var publicJobId = new PublicJobId(73);
+        Assert.True(call.TryAuthorizeDispatch(
+            new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.InvokeBackground,
+                TemplateSession(),
+                publicJobId,
+                new GuardianAuditInvokeDispatch(identity, call.AcceptedInvokeFacts))));
+        call.MarkPrivateWriteStarting();
+
+        var terminalLease = Assert.IsType<GuardianAuditJobTerminalLease>(
+            call.TryCreateJobTerminalLease(publicJobId));
+        call.RecordDecodedTerminal(isError: false, "[job 73 started]");
+        terminalLease.Complete(new JobLifecycleEvent(
+            new GuardianBootId(Guid.Parse("84345678-1234-4abc-8def-0123456789ab")),
+            new HostBootId(Fixture.HostBootId),
+            new HostGeneration(5),
+            new HostEventSequence(1),
+            requestId: null,
+            new CanonicalAlias("build"),
+            new SessionTransitionVersion(3),
+            new GuardianHostWorkerIdentity(
+                new WorkerBootId(Guid.Parse("94345678-1234-4abc-8def-0123456789ab")),
+                new WorkerGeneration(17)),
+            identity,
+            publicJobId,
+            GuardianHostJobState.Completed,
+            exitCode: 0,
+            GuardianHostOutputState.Sealed,
+            outputBytes: 11,
+            outputDigest: null));
+
+        var events = fixture.Sink.Lines.Select(Parse).ToArray();
+        Assert.Equal(
+            [
+                "call.accepted",
+                GuardianAuditCall.DispatchAuthorizedEvent,
+                "job.started",
+                GuardianAuditCall.DispatchCompletedEvent,
+                "call.completed",
+                "job.completed",
+            ],
+            events.Select(EventType));
+        var started = events[2];
+        var terminal = events[^1];
+        Assert.Equal(publicJobId.Value,
+            terminal.GetProperty("correlation").GetProperty("job_id").GetInt64());
+        Assert.Equal(
+            started.GetProperty("event_id").GetGuid(),
+            terminal.GetProperty("correlation").GetProperty("parent_event_id").GetGuid());
+        Assert.Equal(
+            "confirmed",
+            terminal.GetProperty("outcome").GetProperty("termination_certainty").GetString());
+        Assert.Equal(
+            "complete",
+            terminal.GetProperty("coverage").GetProperty("root_process_observed").GetString());
+        Assert.Equal(0, fixture.Journal.ReservedBytes);
+    }
+
+    [Fact]
     public void Reset_dispatch_authorization_binds_every_admitted_control_fact()
     {
         using var fixture = new Fixture();
@@ -477,7 +546,7 @@ public sealed class GuardianAuditCallTests
             RequiresScriptEvidence: false,
             MayHaveSideEffects: true));
 
-    private static AuditCallMetadata InvokeMetadata() => new(
+    private static AuditCallMetadata InvokeMetadata(bool background = false) => new(
         new AuditActor
         {
             Transport = "mcp_stdio",
@@ -495,12 +564,12 @@ public sealed class GuardianAuditCallTests
             TimeoutMs = 30_000,
             DeadlineUtc = InvokeDeadline,
             Route = "rtk",
-            Background = false,
+            Background = background,
             Raw = true,
         },
         new AuditOperationProfile(
             MaximumCallRecordSlots: 11,
-            PersistentJobTerminalSlots: 0,
+            PersistentJobTerminalSlots: background ? 1 : 0,
             RequiresScriptEvidence: true,
             MayHaveSideEffects: true));
 

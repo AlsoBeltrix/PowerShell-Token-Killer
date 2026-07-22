@@ -57,6 +57,7 @@ internal sealed class GuardianHostSupervisor :
         _beforeClientFatalObservation;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<long, ActiveCall> _calls = [];
+    private readonly Dictionary<long, GuardianAuditJobTerminalLease> _jobTerminalLeases = [];
     private readonly Dictionary<Task, string> _background = [];
     private readonly HashSet<GuardianHostClient> _clients = [];
 
@@ -1103,6 +1104,19 @@ internal sealed class GuardianHostSupervisor :
     }
 
     private static string JobTombstoneState(GuardianJobTombstone tombstone) =>
+        tombstone.TerminalState switch
+        {
+            GuardianHostJobState.Completed or GuardianHostJobState.Failed =>
+                $"exited {tombstone.ExitCode?.ToString(CultureInfo.InvariantCulture) ?? "unknown"} " +
+                "(original host generation lost)",
+            GuardianHostJobState.Canceled =>
+                "canceled (original host generation lost)",
+            GuardianHostJobState.TimedOut =>
+                "timed out (original host generation lost)",
+            _ => UnknownJobTombstoneState(tombstone),
+        };
+
+    private static string UnknownJobTombstoneState(GuardianJobTombstone tombstone) =>
         tombstone.ContainmentStatus switch
         {
             GuardianJobContainmentStatus.Pending =>
@@ -1449,6 +1463,7 @@ internal sealed class GuardianHostSupervisor :
                                                 target.Alias,
                                                 target.TransitionVersion,
                                                 target.WorkerIdentity,
+                                                operationIdentity,
                                                 out jobRegistration,
                                                 out _))
                                         {
@@ -2168,9 +2183,22 @@ internal sealed class GuardianHostSupervisor :
             active.Lease.Identity.HostBootId,
             active.Lease.Identity.HostGeneration,
             "host_generation_lost");
-        _jobCapabilities?.MarkGenerationLost(
-            active.Lease.Identity,
-            "host_generation_lost");
+        if (_jobCapabilities is not null)
+        {
+            _jobCapabilities.MarkGenerationLost(
+                active.Lease.Identity,
+                "host_generation_lost",
+                out var lostPublicJobIds);
+            foreach (var publicJobId in lostPublicJobIds)
+            {
+                if (_jobTerminalLeases.Remove(
+                        publicJobId.Value,
+                        out var terminalLease))
+                {
+                    active.LostJobTerminalLeases.Add(terminalLease);
+                }
+            }
+        }
         foreach (var call in _calls.Values.Where(value =>
                      ReferenceEquals(value.Attempt, active)).ToArray())
         {
@@ -2239,6 +2267,9 @@ internal sealed class GuardianHostSupervisor :
                 {
                     _jobCapabilities?.MarkGenerationContainmentUnconfirmed(
                         active.Lease.Identity);
+                    CompleteLostJobTerminals(
+                        active,
+                        containmentConfirmed: false);
                     _lifecycleAudit.RecordContainmentUnconfirmed(
                         warmStateLost: active.Lease.EverReady);
                 }
@@ -2283,6 +2314,7 @@ internal sealed class GuardianHostSupervisor :
             }
 
             _jobCapabilities?.ConfirmGenerationContainment(active.Lease.Identity);
+            CompleteLostJobTerminals(active, containmentConfirmed: true);
             active.CancelContainmentDeadline();
             DisposeAttemptWatcherOwnership(active);
             oldClient = active.Client;
@@ -2448,6 +2480,21 @@ internal sealed class GuardianHostSupervisor :
         GuardianHostEvent hostEvent,
         CancellationToken cancellationToken)
     {
+        if (hostEvent is JobLifecycleEvent jobLifecycle)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_jobCapabilities is null ||
+                !_jobCapabilities.TryObserveLifecycleEvent(
+                    jobLifecycle,
+                    out var terminalAvailable))
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.EventCorrelationMismatch);
+            }
+            if (terminalAvailable)
+                CompleteAvailableJobTerminal(jobLifecycle.PublicJobId);
+            return ValueTask.CompletedTask;
+        }
         if (hostEvent is not (OutputChunkEvent or OutputSealEvent))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -2535,6 +2582,12 @@ internal sealed class GuardianHostSupervisor :
                 terminal.AuditDetailCode);
         }
 
+        if (call.JobRegistration is { } jobRegistration &&
+            response is GuardianHostSuccessResponse)
+        {
+            CompleteAvailableJobTerminal(jobRegistration.PublicJobId);
+        }
+
         _dispatchObserver.OnTerminalDecoded(new GuardianHostDispatchObservation(
             active.Lease.Identity,
             call.Target,
@@ -2551,13 +2604,16 @@ internal sealed class GuardianHostSupervisor :
         if (call.JobRegistration is not { } registration)
             return;
 
-        var resolved = response is GuardianHostSuccessResponse
+        var backgroundResult = response is GuardianHostSuccessResponse
         {
             Payload: OperationCompleted { Result: InvokeBackgroundResult result },
         }
+            ? result
+            : null;
+        var resolved = backgroundResult is not null
             ? _jobCapabilities!.TryActivate(
                 registration,
-                result,
+                backgroundResult,
                 out _,
                 out _)
             : _jobCapabilities!.TryCancel(registration);
@@ -2566,7 +2622,81 @@ internal sealed class GuardianHostSupervisor :
             throw new GuardianHostClientException(
                 GuardianHostClientFailureKind.ResponseCorrelationMismatch);
         }
+        if (backgroundResult is not null)
+        {
+            var terminalLease = call.AuditCall.TryCreateJobTerminalLease(
+                registration.PublicJobId);
+            if (terminalLease is not null &&
+                !_jobTerminalLeases.TryAdd(
+                    registration.PublicJobId.Value,
+                    terminalLease))
+            {
+                terminalLease.ReleaseWithoutTerminal();
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.ResponseCorrelationMismatch);
+            }
+        }
         call.JobResponseResolved = true;
+    }
+
+    private void CompleteAvailableJobTerminal(PublicJobId publicJobId)
+    {
+        if (_jobCapabilities is null ||
+            !_jobTerminalLeases.TryGetValue(
+                publicJobId.Value,
+                out var terminalLease) ||
+            !_jobCapabilities.TryTakeLifecycleTerminal(
+                publicJobId,
+                out var lifecycleTerminal))
+        {
+            return;
+        }
+        if (!JobLifecycleOutputMatches(lifecycleTerminal!))
+        {
+            throw new GuardianHostClientException(
+                GuardianHostClientFailureKind.EventCorrelationMismatch);
+        }
+        if (!_jobTerminalLeases.Remove(
+                publicJobId.Value,
+                out var removedTerminalLease) ||
+            !ReferenceEquals(terminalLease, removedTerminalLease))
+        {
+            throw new InvalidOperationException(
+                "The guardian job terminal lease registry is inconsistent.");
+        }
+        terminalLease.Complete(lifecycleTerminal!);
+    }
+
+    private bool JobLifecycleOutputMatches(JobLifecycleEvent lifecycleTerminal)
+    {
+        if (lifecycleTerminal.OutputState is not (
+                GuardianHostOutputState.Sealed or
+                GuardianHostOutputState.SealedIncomplete))
+        {
+            return lifecycleTerminal.OutputState == GuardianHostOutputState.Unavailable;
+        }
+        if (_outputCoordinator?.TryGetJobRecovery(
+                lifecycleTerminal.PublicJobId,
+                out var recovery) != true)
+        {
+            return false;
+        }
+
+        var expectedState = lifecycleTerminal.OutputState ==
+                GuardianHostOutputState.Sealed
+            ? OutputArtifactState.Available
+            : OutputArtifactState.Incomplete;
+        return recovery!.State == expectedState &&
+            recovery.Bytes == lifecycleTerminal.OutputBytes;
+    }
+
+    private static void CompleteLostJobTerminals(
+        ActiveAttempt active,
+        bool containmentConfirmed)
+    {
+        foreach (var terminalLease in active.LostJobTerminalLeases)
+            terminalLease.CompleteHostLoss(containmentConfirmed);
+        active.LostJobTerminalLeases.Clear();
     }
 
     private async Task<GuardianHostSupervisorTerminal> CurrentHostRefusalAsync(
@@ -3232,6 +3362,7 @@ internal sealed class GuardianHostSupervisor :
         internal CancellationToken ContainmentDeadlineToken => _containmentDeadline.Token;
         internal TaskCompletionSource<bool> Ready { get; } = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        internal List<GuardianAuditJobTerminalLease> LostJobTerminalLeases { get; } = [];
         internal int ContainmentStarted;
 
         internal void CancelPreContainment() => _preContainment.Cancel();

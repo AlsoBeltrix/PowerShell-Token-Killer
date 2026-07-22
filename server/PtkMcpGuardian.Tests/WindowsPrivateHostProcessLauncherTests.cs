@@ -29,21 +29,16 @@ public sealed class WindowsPrivateHostProcessLauncherTests
             Path.GetTempPath(),
             "ptk-host-launcher",
             "PtkMcpServer.exe"));
-        var parent = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            ["z_parent"] = "retained",
-            ["ptk_host_generation"] = "stale",
-            ["A_PARENT"] = "first",
-        };
-
         var block = WindowsPrivateHostProcessLauncher.BuildEnvironmentBlockText(
-            parent,
-            command.BootstrapEnvironment);
+            command.Environment);
 
         Assert.EndsWith("\0\0", block, StringComparison.Ordinal);
         Assert.Equal(1, Occurrences(block, "PTK_HOST_GENERATION="));
         Assert.Contains("PTK_HOST_GENERATION=3\0", block, StringComparison.Ordinal);
-        Assert.DoesNotContain("PTK_HOST_GENERATION=stale", block, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "PTK_HOST_GENERATION=stale",
+            block,
+            StringComparison.OrdinalIgnoreCase);
         Assert.True(
             block.IndexOf("A_PARENT=first", StringComparison.Ordinal) <
             block.IndexOf("z_parent=retained", StringComparison.Ordinal));
@@ -134,6 +129,12 @@ public sealed class WindowsPrivateHostProcessLauncherTests
         Package(appHost),
         Pins(),
         Identity(),
+        new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["z_parent"] = "retained",
+            ["ptk_host_generation"] = "stale",
+            ["A_PARENT"] = "first",
+        },
         requestReadHandle: 101,
         eventWriteHandle: 202);
 

@@ -18,12 +18,14 @@ internal sealed class PrivateHostLaunchCommand
         MatchedPackageFacts package,
         GuardianHostSupervisorPins pins,
         GuardianHostIdentity identity,
+        IEnumerable<KeyValuePair<string, string>> parentEnvironment,
         nuint requestReadHandle,
         nuint eventWriteHandle)
     {
         ArgumentNullException.ThrowIfNull(package);
         ArgumentNullException.ThrowIfNull(pins);
         ArgumentNullException.ThrowIfNull(identity);
+        ArgumentNullException.ThrowIfNull(parentEnvironment);
         if (package.HostExecutableDigest != pins.HostExecutableDigest ||
             package.HostBuildDigest != pins.HostBuildDigest ||
             package.PublicContractDigest != pins.PublicContractDigest ||
@@ -74,6 +76,7 @@ internal sealed class PrivateHostLaunchCommand
         Arguments = Array.AsReadOnly(["--host"]);
         InheritedHandles = Array.AsReadOnly([requestReadHandle, eventWriteHandle]);
         BootstrapEnvironment = new ReadOnlyDictionary<string, string>(environment);
+        Environment = FreezeEnvironment(parentEnvironment, environment);
     }
 
     internal string ExecutablePath { get; }
@@ -85,6 +88,39 @@ internal sealed class PrivateHostLaunchCommand
     internal IReadOnlyList<nuint> InheritedHandles { get; }
 
     internal IReadOnlyDictionary<string, string> BootstrapEnvironment { get; }
+
+    internal IReadOnlyDictionary<string, string> Environment { get; }
+
+    private static IReadOnlyDictionary<string, string> FreezeEnvironment(
+        IEnumerable<KeyValuePair<string, string>> parent,
+        IReadOnlyDictionary<string, string> bootstrap)
+    {
+        var frozen = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in parent)
+        {
+            if (!ValidEnvironmentPair(pair))
+                throw Failure("environment_invalid");
+            if (PrivateHostBootstrapEnvironment.IsReserved(pair.Key))
+                continue;
+            if (!frozen.TryAdd(pair.Key, pair.Value))
+                throw Failure("environment_duplicate");
+        }
+        foreach (var pair in bootstrap)
+            frozen.Add(pair.Key, pair.Value);
+        return new ReadOnlyDictionary<string, string>(frozen);
+    }
+
+    private static bool ValidEnvironmentPair(KeyValuePair<string, string> pair)
+    {
+        if (string.IsNullOrEmpty(pair.Key) || pair.Value is null ||
+            pair.Key.Contains('\0') || pair.Value.Contains('\0'))
+        {
+            return false;
+        }
+        return pair.Key[0] == '='
+            ? !pair.Key.AsSpan(1).Contains('=')
+            : !pair.Key.Contains('=');
+    }
 
     private static string ValidateHostPath(string path)
     {

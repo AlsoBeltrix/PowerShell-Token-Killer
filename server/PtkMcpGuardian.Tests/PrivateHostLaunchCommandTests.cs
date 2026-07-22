@@ -29,6 +29,11 @@ public sealed class PrivateHostLaunchCommandTests
             Package(path),
             Pins(),
             new GuardianHostIdentity(Guardian, Host, Generation),
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Z_PARENT"] = "retained",
+                ["ptk_host_generation"] = "stale",
+            },
             requestReadHandle: 101,
             eventWriteHandle: 202);
 
@@ -66,6 +71,12 @@ public sealed class PrivateHostLaunchCommandTests
         Assert.Equal(PackageDigest.Value,
             command.BootstrapEnvironment["PTK_HOST_PACKAGE_MANIFEST_SHA256"]);
         Assert.DoesNotContain(CatalogDigest.Value, command.BootstrapEnvironment.Values);
+        Assert.Equal("retained", command.Environment["Z_PARENT"]);
+        Assert.Equal("17", command.Environment["PTK_HOST_GENERATION"]);
+        Assert.DoesNotContain(
+            command.Environment,
+            pair => pair.Key == "ptk_host_generation" && pair.Value == "stale");
+        Assert.Equal(11, command.Environment.Count);
     }
 
     [Fact]
@@ -80,6 +91,9 @@ public sealed class PrivateHostLaunchCommandTests
         Assert.Throws<NotSupportedException>(() =>
             Assert.IsAssignableFrom<IDictionary<string, string>>(
                 command.BootstrapEnvironment).Add("AMBIENT", "value"));
+        Assert.Throws<NotSupportedException>(() =>
+            Assert.IsAssignableFrom<IDictionary<string, string>>(
+                command.Environment).Add("AMBIENT", "value"));
     }
 
     [Theory]
@@ -101,6 +115,7 @@ public sealed class PrivateHostLaunchCommandTests
                 Package(AbsoluteHostPath()),
                 pins,
                 new GuardianHostIdentity(Guardian, Host, Generation),
+                [],
                 101,
                 202));
 
@@ -126,6 +141,7 @@ public sealed class PrivateHostLaunchCommandTests
                 Package(secretPath),
                 Pins(),
                 new GuardianHostIdentity(Guardian, Host, Generation),
+                [],
                 101,
                 202));
 
@@ -141,6 +157,7 @@ public sealed class PrivateHostLaunchCommandTests
                 Package(AbsoluteHostPath()),
                 Pins(),
                 new GuardianHostIdentity(Guardian, Host, Generation),
+                [],
                 request,
                 events));
         Assert.Equal(detailCode, exception.DetailCode);
@@ -152,6 +169,7 @@ public sealed class PrivateHostLaunchCommandTests
             Package(AbsoluteHostPath()),
             Pins(),
             new GuardianHostIdentity(Guardian, Host, Generation),
+            [],
             101,
             202);
 

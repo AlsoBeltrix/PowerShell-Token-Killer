@@ -16,7 +16,16 @@ public sealed class PrivateHostAttemptFactoryTests
             new PrivateHostProcessLaunchResult(
                 GuardianHostLaunchOutcome.Started,
                 process));
-        var factory = new PrivateHostAttemptFactory(Package(), Pins(), launcher);
+        var parentEnvironment = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["PTK_PARENT_FROZEN"] = "before",
+        };
+        var factory = new PrivateHostAttemptFactory(
+            Package(),
+            Pins(),
+            launcher,
+            parentEnvironment);
+        parentEnvironment["PTK_PARENT_FROZEN"] = "after";
         var identity = Identity();
         var deadline = new GuardianHostStartupDeadline(1234);
 
@@ -44,6 +53,7 @@ public sealed class PrivateHostAttemptFactoryTests
         Assert.Equal(
             identity.HostGeneration.Value.ToString(),
             command.BootstrapEnvironment["PTK_HOST_GENERATION"]);
+        Assert.Equal("before", command.Environment["PTK_PARENT_FROZEN"]);
 
         var containmentDeadline = new GuardianHostContainmentDeadline(100, 200);
         resources.CloseTransport();

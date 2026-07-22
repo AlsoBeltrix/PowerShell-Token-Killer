@@ -1,3 +1,4 @@
+using System.Collections;
 using System.IO.Pipes;
 using Microsoft.Win32.SafeHandles;
 using PtkMcpGuardian.Lifecycle;
@@ -87,15 +88,18 @@ internal sealed class PrivateHostAttemptFactory : IGuardianHostAttemptFactory
     private readonly MatchedPackageFacts _package;
     private readonly GuardianHostSupervisorPins _pins;
     private readonly IPrivateHostProcessLauncher _launcher;
+    private readonly KeyValuePair<string, string>[] _parentEnvironment;
 
     internal PrivateHostAttemptFactory(
         MatchedPackageFacts package,
         GuardianHostSupervisorPins pins,
-        IPrivateHostProcessLauncher launcher)
+        IPrivateHostProcessLauncher launcher,
+        IEnumerable<KeyValuePair<string, string>>? parentEnvironment = null)
     {
         _package = package ?? throw new ArgumentNullException(nameof(package));
         _pins = pins ?? throw new ArgumentNullException(nameof(pins));
         _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
+        _parentEnvironment = (parentEnvironment ?? CaptureParentEnvironment()).ToArray();
     }
 
     public IGuardianHostAttemptResources Prepare(
@@ -119,6 +123,7 @@ internal sealed class PrivateHostAttemptFactory : IGuardianHostAttemptFactory
                 _package,
                 _pins,
                 identity,
+                _parentEnvironment,
                 HandleValue(requestWrite.ClientSafePipeHandle),
                 HandleValue(eventRead.ClientSafePipeHandle));
             var resources = new PrivateHostAttemptResources(
@@ -144,6 +149,16 @@ internal sealed class PrivateHostAttemptFactory : IGuardianHostAttemptFactory
         return IntPtr.Size == sizeof(long)
             ? unchecked((nuint)(ulong)value.ToInt64())
             : unchecked((nuint)(uint)value.ToInt32());
+    }
+
+    private static IEnumerable<KeyValuePair<string, string>> CaptureParentEnvironment()
+    {
+        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
+        {
+            if (entry.Key is not string key || entry.Value is not string value)
+                throw new InvalidOperationException("The parent environment is not textual.");
+            yield return new KeyValuePair<string, string>(key, value);
+        }
     }
 }
 

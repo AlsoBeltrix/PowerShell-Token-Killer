@@ -1,4 +1,3 @@
-using System.Collections;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -76,9 +75,7 @@ internal sealed class WindowsPrivateHostProcessLauncher : IPrivateHostProcessLau
             using var handleLease = new SafeHandleLease(
                 [outerJob, .. inheritedHandles]);
             using var attributes = new NativeAttributeList(outerJob, inheritedHandles);
-            using var environment = UnicodeEnvironmentBlock.Create(
-                SnapshotParentEnvironment(),
-                command.BootstrapEnvironment);
+            using var environment = UnicodeEnvironmentBlock.Create(command.Environment);
             var startup = new NativeStartupInfoEx
             {
                 StartupInfo = new NativeStartupInfo
@@ -193,22 +190,14 @@ internal sealed class WindowsPrivateHostProcessLauncher : IPrivateHostProcessLau
     }
 
     internal static string BuildEnvironmentBlockText(
-        IEnumerable<KeyValuePair<string, string>> parent,
-        IReadOnlyDictionary<string, string> bootstrap)
+        IEnumerable<KeyValuePair<string, string>> variables)
     {
-        ArgumentNullException.ThrowIfNull(parent);
-        ArgumentNullException.ThrowIfNull(bootstrap);
+        ArgumentNullException.ThrowIfNull(variables);
         var environment = new SortedDictionary<string, string>(
             StringComparer.OrdinalIgnoreCase);
-        foreach (var pair in parent)
+        foreach (var pair in variables)
         {
             ValidateEnvironmentPair(pair);
-            environment.Add(pair.Key, pair.Value);
-        }
-        foreach (var pair in bootstrap)
-        {
-            ValidateEnvironmentPair(pair);
-            environment.Remove(pair.Key);
             environment.Add(pair.Key, pair.Value);
         }
 
@@ -236,18 +225,6 @@ internal sealed class WindowsPrivateHostProcessLauncher : IPrivateHostProcessLau
         {
             throw new ArgumentException("The environment contains an invalid name or value.");
         }
-    }
-
-    private static IReadOnlyDictionary<string, string> SnapshotParentEnvironment()
-    {
-        var snapshot = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
-        {
-            if (entry.Key is not string key || entry.Value is not string value)
-                throw new InvalidOperationException("The parent environment is not textual.");
-            snapshot.Add(key, value);
-        }
-        return snapshot;
     }
 
     private static NativeJobHandle CreateOuterJob()
@@ -710,10 +687,9 @@ internal sealed class WindowsPrivateHostProcessLauncher : IPrivateHostProcessLau
         internal IntPtr Pointer => _pointer;
 
         internal static UnicodeEnvironmentBlock Create(
-            IEnumerable<KeyValuePair<string, string>> parent,
-            IReadOnlyDictionary<string, string> bootstrap)
+            IEnumerable<KeyValuePair<string, string>> variables)
         {
-            var characters = BuildEnvironmentBlockText(parent, bootstrap).ToCharArray();
+            var characters = BuildEnvironmentBlockText(variables).ToCharArray();
             var pointer = IntPtr.Zero;
             try
             {

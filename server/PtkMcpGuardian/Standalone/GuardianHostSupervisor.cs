@@ -1748,8 +1748,15 @@ internal sealed class GuardianHostSupervisor :
             await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                if (!ReferenceEquals(_active, active) || _stopping ||
-                    !_lifecycle.MarkReady(active.Lease))
+                if (!ReferenceEquals(_active, active) || _stopping)
+                {
+                    active.Ready.TrySetResult(false);
+                    return;
+                }
+                _sessionSource.ObserveHostReady(
+                    active.Lease.Identity,
+                    recovered: !active.Lease.IsInitialAttempt);
+                if (!_lifecycle.MarkReady(active.Lease))
                 {
                     active.Ready.TrySetResult(false);
                     return;

@@ -134,6 +134,13 @@ internal interface IGuardianHostSupervisorSessionSource
 {
     IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions();
 
+    /// <summary>
+    /// Commits the session-state consequence of one host generation becoming
+    /// ready. The callback runs under supervisor authority and must remain
+    /// bounded and non-reentrant.
+    /// </summary>
+    void ObserveHostReady(GuardianHostIdentity identity, bool recovered);
+
     bool TryGetJobListTarget(
         CanonicalAlias alias,
         [NotNullWhen(true)] out GuardianHostJobListTarget? target);

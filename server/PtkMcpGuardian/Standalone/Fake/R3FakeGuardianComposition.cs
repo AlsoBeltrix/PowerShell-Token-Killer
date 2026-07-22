@@ -88,7 +88,7 @@ internal sealed class R3FakeGuardianComposition : IAsyncDisposable
                 new MonotonicPrivateRequestIdAllocator(),
                 selectedTimeProvider,
                 selectedScheduler,
-                new R3FakeSessionSource(selectedProfile),
+                new R3FakeSessionSource(guardianBootId, selectedProfile),
                 NoOpGuardianHostSupervisorDispatchObserver.Instance,
                 pins);
             return new R3FakeGuardianComposition(
@@ -324,10 +324,18 @@ internal sealed class R3FakeRecoveryManifestSource :
 
 internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
 {
+    private readonly GuardianBootId _guardianBootId;
     private readonly R3FakeHostProfile _profile;
+    private int _warmStateLost;
 
-    internal R3FakeSessionSource(R3FakeHostProfile profile) =>
+    internal R3FakeSessionSource(
+        GuardianBootId guardianBootId,
+        R3FakeHostProfile profile)
+    {
+        _guardianBootId = guardianBootId ??
+            throw new ArgumentNullException(nameof(guardianBootId));
         _profile = profile ?? throw new ArgumentNullException(nameof(profile));
+    }
 
     public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
     {
@@ -346,9 +354,18 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
                 retryAfterMilliseconds: null,
                 readyForEffects: true,
                 lastFailureCode: null,
-                warmStateLost: false,
+                warmStateLost: Volatile.Read(ref _warmStateLost) != 0,
                 bootstrapState: BootstrapState.Restored),
         ];
+    }
+
+    public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        if (identity.GuardianBootId != _guardianBootId)
+            throw new InvalidOperationException("The ready host belongs to another fake guardian boot.");
+        if (recovered)
+            Interlocked.Exchange(ref _warmStateLost, 1);
     }
 
     public bool TryGetJobListTarget(

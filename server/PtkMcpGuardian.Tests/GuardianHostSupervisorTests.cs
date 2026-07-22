@@ -1330,6 +1330,30 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Recovered_host_persists_the_declared_warm_state_loss()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        Assert.False(Assert.Single(rig.Supervisor.SnapshotState().Sessions).WarmStateLost);
+
+        rig.Factory.Resources[0].Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+
+        var recovered = Assert.Single(rig.Supervisor.SnapshotState().Sessions);
+        Assert.Equal(PublicSessionState.Ready, recovered.State);
+        Assert.True(recovered.ReadyForEffects);
+        Assert.True(recovered.WarmStateLost);
+        Assert.Equal(BootstrapState.Restored, recovered.BootstrapState);
+    }
+
+    [Fact]
     public async Task Ready_session_replacement_uses_frozen_prewrite_loss_evidence()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
@@ -2660,6 +2684,7 @@ public sealed class GuardianHostSupervisorTests
             private long _transitionVersion = 1;
             private long _recoveryAttempt;
             private bool _readyForEffects = true;
+            private bool _warmStateLost;
             private GuardianHostJobListTargetInvalidation? _invalidation;
 
             internal StaticSessionSource(CanonicalAlias alias)
@@ -2687,9 +2712,19 @@ public sealed class GuardianHostSupervisorTests
                             retryAfterMilliseconds: null,
                             readyForEffects: _readyForEffects,
                             lastFailureCode: null,
-                            warmStateLost: false,
+                            warmStateLost: _warmStateLost,
                             BootstrapState.Restored),
                     ];
+                }
+            }
+
+            public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
+            {
+                ArgumentNullException.ThrowIfNull(identity);
+                lock (_sync)
+                {
+                    if (recovered)
+                        _warmStateLost = true;
                 }
             }
 

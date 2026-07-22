@@ -51,6 +51,21 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Recovered_ready_host_persists_warm_state_loss_for_the_guardian_lifetime()
+    {
+        var state = State();
+
+        state.ObserveHostReady(Identity(generation: 1), recovered: false);
+        Assert.False(Assert.Single(state.SnapshotSessions()).WarmStateLost);
+
+        state.ObserveHostReady(Identity(generation: 2), recovered: true);
+        Assert.True(Assert.Single(state.SnapshotSessions()).WarmStateLost);
+
+        state.ObserveHostReady(Identity(generation: 3), recovered: true);
+        Assert.True(Assert.Single(state.SnapshotSessions()).WarmStateLost);
+    }
+
+    [Fact]
     public void Manifest_changes_only_generation_envelope_across_host_attempts()
     {
         var state = State();

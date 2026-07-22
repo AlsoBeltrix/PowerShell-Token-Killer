@@ -25,6 +25,7 @@ internal sealed class FrozenDefaultSessionState :
     private readonly GuardianHostWorkerIdentity _workerIdentity;
     private readonly GuardianHostJobListTarget _target;
     private readonly WorkerGenerationHighWatermarkEntry _workerHighWatermark;
+    private int _warmStateLost;
 
     internal FrozenDefaultSessionState(
         GuardianBootId guardianBootId,
@@ -106,9 +107,18 @@ internal sealed class FrozenDefaultSessionState :
             retryAfterMilliseconds: null,
             readyForEffects: true,
             lastFailureCode: null,
-            warmStateLost: false,
+            warmStateLost: Volatile.Read(ref _warmStateLost) != 0,
             bootstrapState: BootstrapState.Restored),
     ];
+
+    public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        if (identity.GuardianBootId != _guardianBootId)
+            throw new InvalidOperationException("The ready host belongs to another guardian boot.");
+        if (recovered)
+            Interlocked.Exchange(ref _warmStateLost, 1);
+    }
 
     public bool TryGetJobListTarget(
         CanonicalAlias alias,

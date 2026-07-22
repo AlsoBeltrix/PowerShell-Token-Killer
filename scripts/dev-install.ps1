@@ -125,6 +125,154 @@ function Get-PtkServerBinaryName {
     if ($TargetRid -like 'win-*') { 'PtkMcpServer.exe' } else { 'PtkMcpServer' }
 }
 
+function Get-PtkFileSha256 {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $algorithm = [Security.Cryptography.SHA256]::Create()
+    $stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        [IO.FileShare]::Read)
+    try {
+        [Convert]::ToHexString($algorithm.ComputeHash($stream)).ToLowerInvariant()
+    }
+    finally {
+        $stream.Dispose()
+        $algorithm.Dispose()
+    }
+}
+
+function Get-PtkPublicContractSha256 {
+    $contractPath = Join-Path $repoRoot 'server' 'Contracts' 'ResilienceR0' 'public-tool-contract.json'
+    [byte[]]$contractBytes = [IO.File]::ReadAllBytes($contractPath)
+    if ($contractBytes.Length -lt 2 -or
+        $contractBytes[-1] -ne 10 -or
+        $contractBytes[-2] -eq 10 -or
+        [Array]::IndexOf($contractBytes, [byte]13) -ge 0 -or
+        ($contractBytes.Length -ge 3 -and
+            $contractBytes[0] -eq 0xef -and
+            $contractBytes[1] -eq 0xbb -and
+            $contractBytes[2] -eq 0xbf)) {
+        throw 'The frozen public tool contract is not strict UTF-8 with exactly one final LF.'
+    }
+
+    $hash = [Security.Cryptography.IncrementalHash]::CreateHash(
+        [Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        $hash.AppendData([Text.Encoding]::ASCII.GetBytes("ptk.public-contract/1`0"))
+        $hash.AppendData($contractBytes, 0, $contractBytes.Length - 1)
+        [Convert]::ToHexString($hash.GetHashAndReset()).ToLowerInvariant()
+    }
+    finally {
+        $hash.Dispose()
+    }
+}
+
+function Add-PtkBigEndianHashInteger {
+    param(
+        [Parameter(Mandatory)][Security.Cryptography.IncrementalHash]$Hash,
+        [Parameter(Mandatory)][ValidateSet(4, 8)][int]$Width,
+        [Parameter(Mandatory)][uint64]$Value
+    )
+
+    [byte[]]$bytes = if ($Width -eq 4) {
+        [BitConverter]::GetBytes([uint32]$Value)
+    }
+    else {
+        [BitConverter]::GetBytes($Value)
+    }
+    if ([BitConverter]::IsLittleEndian) {
+        [Array]::Reverse($bytes)
+    }
+    $Hash.AppendData($bytes)
+}
+
+function Write-PtkWindowsPackageManifest {
+    param(
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)][ValidateSet('win-x64', 'win-arm64')][string]$TargetRid,
+        [Parameter(Mandatory)][string]$PayloadVersion
+    )
+
+    $definitions = @(
+        [pscustomobject]@{ Path = 'VERSION'; Role = 'version' }
+        [pscustomobject]@{ Path = 'bin/PtkAuditAdmin.exe'; Role = 'audit_admin' }
+        [pscustomobject]@{ Path = 'bin/PtkMcpGuardian.dll'; Role = 'guardian_managed' }
+        [pscustomobject]@{ Path = 'bin/PtkMcpGuardian.exe'; Role = 'guardian_apphost' }
+        [pscustomobject]@{ Path = 'bin/PtkMcpServer.dll'; Role = 'host_managed' }
+        [pscustomobject]@{ Path = 'bin/PtkMcpServer.exe'; Role = 'host_apphost' }
+        [pscustomobject]@{ Path = 'bin/PtkMcpServer.runtimeconfig.json'; Role = 'host_runtime' }
+        [pscustomobject]@{ Path = 'bin/PtkSharedContracts.dll'; Role = 'shared_contract' }
+        [pscustomobject]@{ Path = 'scripts/ptk_init.ps1'; Role = 'script' }
+        [pscustomobject]@{ Path = 'src/PwshTokenCompressor.psm1'; Role = 'module' }
+    )
+    $entries = @()
+    $previousPath = $null
+    foreach ($definition in $definitions) {
+        if ($null -ne $previousPath -and
+            [StringComparer]::Ordinal.Compare($previousPath, $definition.Path) -ge 0) {
+            throw 'Package manifest paths are not in strict ordinal order.'
+        }
+        $previousPath = $definition.Path
+        $relativePlatformPath = $definition.Path.Replace('/', [IO.Path]::DirectorySeparatorChar)
+        $absolutePath = Join-Path $Destination $relativePlatformPath
+        if (-not (Test-Path -LiteralPath $absolutePath -PathType Leaf)) {
+            throw "Package manifest artifact is missing: $($definition.Path)"
+        }
+        $file = Get-Item -LiteralPath $absolutePath
+        $entries += [ordered]@{
+            path = $definition.Path
+            role = $definition.Role
+            bytes = [long]$file.Length
+            sha256 = Get-PtkFileSha256 -Path $file.FullName
+            unix_mode = $null
+        }
+    }
+
+    $hostBuildRoles = @(
+        'containment_helper',
+        'guardian_helper',
+        'host_apphost',
+        'host_managed',
+        'host_runtime',
+        'shared_contract'
+    )
+    $strictUtf8 = [Text.UTF8Encoding]::new($false, $true)
+    $hostBuild = [Security.Cryptography.IncrementalHash]::CreateHash(
+        [Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        $hostBuild.AppendData([Text.Encoding]::ASCII.GetBytes("ptk.host-build/1`0"))
+        foreach ($entry in $entries) {
+            if ($entry.role -notin $hostBuildRoles) { continue }
+            [byte[]]$pathBytes = $strictUtf8.GetBytes([string]$entry.path)
+            Add-PtkBigEndianHashInteger -Hash $hostBuild -Width 4 -Value $pathBytes.Length
+            $hostBuild.AppendData($pathBytes)
+            Add-PtkBigEndianHashInteger -Hash $hostBuild -Width 8 -Value ([uint64]$entry.bytes)
+            $hostBuild.AppendData([Convert]::FromHexString([string]$entry.sha256))
+        }
+        $hostBuildSha256 = [Convert]::ToHexString($hostBuild.GetHashAndReset()).ToLowerInvariant()
+    }
+    finally {
+        $hostBuild.Dispose()
+    }
+
+    $manifest = [ordered]@{
+        schema_version = 'ptk.package-manifest/1'
+        package_version = $PayloadVersion
+        rid = $TargetRid
+        private_protocol_version = 1
+        public_contract_sha256 = Get-PtkPublicContractSha256
+        host_build_sha256 = $hostBuildSha256
+        files = $entries
+    }
+    [byte[]]$manifestBytes = $strictUtf8.GetBytes(
+        (($manifest | ConvertTo-Json -Depth 5 -Compress) + "`n"))
+    [IO.File]::WriteAllBytes(
+        (Join-Path $Destination 'bin' 'ptk-package-manifest.json'),
+        $manifestBytes)
+}
+
 # Publishes every apphost and assembles the canonical layout (bin/, src/,
 # scripts/, VERSION) in $Destination. The one layout generator dev installs
 # and release CI share.
@@ -164,6 +312,16 @@ function New-PtkLayout {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
     Set-Content -LiteralPath (Join-Path $Destination 'VERSION') -Value $PayloadVersion -NoNewline
+    # Unix matched packages require the two native broker roles that land in
+    # the later resilience slices. Until then, keep the transitional Unix
+    # layout usable by the direct development server but manifest-less, so a
+    # production guardian fails closed instead of accepting a partial package.
+    if ($TargetRid -like 'win-*') {
+        Write-PtkWindowsPackageManifest `
+            -Destination $Destination `
+            -TargetRid $TargetRid `
+            -PayloadVersion $PayloadVersion
+    }
 }
 
 # Replaces the installer-owned payload in ~/.ptk with the staged layout.

@@ -1,6 +1,8 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** IMPLEMENTATION ACTIVE. Owner GO received 2026-07-22. Dependency
+**Status:** LOCAL IMPLEMENTATION AND ACCEPTANCE COMPLETE at code head
+`d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`; hosted action-runtime proof is
+pending a separately authorized push. Owner GO received 2026-07-22. Dependency
 inventory cutoff `2026-07-22T17:09:14Z` was frozen at baseline `637be3c`.
 The owner approved updating through current stable major versions, including
 the xUnit v2-to-v3, Coverlet 6-to-10, and SQLitePCLRaw 2-to-3 migrations. The
@@ -345,6 +347,20 @@ After separate push authorization, require the GitHub Actions Ubuntu, macOS,
 and Windows matrices to pass both the server and SIEM jobs at one exact commit.
 Record the run ID and SHA. No local result substitutes for the workflow-action
 runtime proof.
+
+**Local acceptance complete.** Exact code head
+`d1d24e8738fe145d473d0ed3c1de98c2acf96cf3` passed the final cold audit and
+behavior battery on macOS, x64 Linux `magneto`, and x64 Windows `NETWATCH-01`.
+All nine package queries were empty, no `NU1901`-`NU1904` warning appeared,
+all pre-migration test identities remained covered, and the complete
+server/SIEM/conformance, exact Pester 6.0.1, and handshake batteries passed.
+Windows used the xUnit v3 in-process runner plus the host's established
+ordinary-account/SYSTEM identity split; authoritative TRX matching proved
+that SYSTEM passed every one of the 17 PKCS#12 cases unavailable to the SSH
+identity. All validation roots, archives, tasks, scoped processes, test
+residue, and validation-created certificate residue were removed. The only
+remaining acceptance item is the separately authorized six-job hosted run for
+`actions/setup-dotnet@v6`.
 
 ## Completion and failure handling
 

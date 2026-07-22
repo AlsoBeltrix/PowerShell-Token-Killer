@@ -5,8 +5,9 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Dependency-family updates are complete through setup-dotnet v6 on
-  `feature/mcp-resilience-r1`.** The frozen inventory, PowerShell security
+- **Dependency hardening is locally complete at code head `d1d24e8` on
+  `feature/mcp-resilience-r1`; only hosted action-runtime proof remains.** The
+  frozen inventory, PowerShell security
   chain, Hosting, MCP, Roslyn, .NET test-platform, coverage-collector, SQLite,
   Pester, and GitHub Actions runtime slices are committed. Test SDK 17.14.1
   could build xUnit v3 but not run its assemblies, so xUnit 3.2.2, the 3.1.5
@@ -31,9 +32,16 @@ short and update it when important repo facts change.
   PSResourceGet with a Gallery-compatible fallback; exact-version runs pass
   141 with two expected skips on macOS/Linux and 142 with one expected skip on
   Windows. Both CI jobs now pin setup-dotnet v6 while retaining checkout v7
-  and the rolling .NET 10 SDK channel; hosted action-runtime proof still
-  requires a separately authorized push. Final audits and complete
-  cross-platform acceptance remain. No push, merge, release, or
+  and the rolling .NET 10 SDK channel. At exact full code head
+  `d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`, final cold acceptance on macOS,
+  x64 Linux `magneto`, and x64 Windows `NETWATCH-01` found all nine package
+  audits empty and no `NU1901`-`NU1904` warning. The complete architecture 73,
+  Guardian 436, server 1,868, SIEM 91, both conformance 6-test modes, exact
+  Pester, and handshake identities are covered on every platform; Windows
+  used authoritative TRX matching across its established ordinary-account and
+  SYSTEM identity split. All disposable final-validation residue was removed.
+  The separately authorized six-job hosted run is still required before
+  claiming setup-dotnet v6 runtime acceptance. No push, merge, release, or
   installed-payload change is authorized.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is

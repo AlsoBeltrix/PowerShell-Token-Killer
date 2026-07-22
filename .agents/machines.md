@@ -1122,3 +1122,50 @@ execution remains unauthorized and unclaimed._
   setup references, zero v5 references, two checkout v7 references, and two
   rolling .NET 10 declarations. A separately authorized push and one exact
   six-job hosted run remain mandatory for runtime acceptance.
+
+## Dependency hardening final local acceptance (macOS/Linux/Windows, 2026-07-22)
+
+_Exact clean code head `d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`;
+the exact-source ZIP SHA-256 was
+`e0088304fe0694f6b7da882d80cc661f6961728b8d40a26ba5181740115806b8`._
+
+- On `nagatha` (macOS 26.5.2 arm64, PowerShell 7.6.3, .NET SDK 10.0.302),
+  three cold restores succeeded. All nine currency, deprecation, and
+  vulnerability queries were empty. Architecture passed 73/73, Guardian
+  436/436, server 1,868/1,868, SIEM 91/91, and producer conformance 6/6 with
+  the mode absent plus 6/6 in-process. Exact Pester 6.0.1 passed 141 tests
+  with two expected Unix skips, and the complete stdio handshake passed.
+- On `magneto` (Arch Linux x64, PowerShell 7.6.3, .NET SDK 10.0.110), the
+  archive hash matched, three cold restores succeeded, all nine audits were
+  empty, Architecture passed 73/73, and server passed 1,868/1,868. The
+  solution-level Guardian run observed the already-known publication-order
+  test race once while projects contended: 435/436 passed and
+  `Ready_and_recovered_hosts_are_durably_distinguished` read the recovered
+  state before its audit line. The exact case passed 1/1 immediately in an
+  isolated project, then the complete isolated Guardian project passed
+  436/436. SIEM passed 91/91, both conformance modes passed 6/6, exact Pester
+  passed 141 with two expected skips, and the handshake passed.
+- On `NETWATCH-01` (Windows 10.0.26200 x64, PowerShell 7.6.3, .NET SDK
+  10.0.302), three cold restores and all nine empty audits completed under the
+  ordinary SSH identity; exact Pester passed 142 with one expected Windows
+  skip and the handshake passed. Architecture passed 73/73 and Guardian
+  436/436 under the established transient `SYSTEM` identity. The xUnit v3
+  in-process runner covered the complete 1,868-test server identity set:
+  1,851 passed under `NETWATCH-01\\michael`, whose 17 failures were exclusively
+  the established current-user DPAPI/PKCS#12 limitation; a `SYSTEM` selection
+  passed 82/82 and authoritative TRX display-name matching proved that it
+  included every one of those 17 cases. The in-process runner also avoided
+  VSTest testhost's legacy path boundary and passed the seven evidence-path
+  cases that a preliminary direct-VSTest diagnostic could not run from the
+  long service profile. SIEM passed 91/91 and both conformance modes passed
+  6/6 under `SYSTEM`.
+- No final log contained `NU1901`-`NU1904`. The Windows SYSTEM certificate
+  audit was empty before and after the accepted run and created no certificate.
+  Guarded cleanup removed the two ordinary-profile and one SYSTEM-profile
+  anchored-runtime directories left by preliminary diagnostics. Final checks
+  found zero scoped processes, validation roots, transfer archives, scheduled
+  tasks, or exact Linux retry paths; the local transfer archive was removed.
+- This is complete local cross-platform acceptance for the frozen dependency
+  graph. It is not hosted proof of `actions/setup-dotnet@v6`: an authorized
+  push and one six-job green GitHub Actions run at one exact SHA remain
+  mandatory before that runtime claim.

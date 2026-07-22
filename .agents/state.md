@@ -5,7 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Dependency hardening is complete through Coverlet 10.0.1 on
+- **Dependency hardening is complete through SQLitePCLRaw 3.0.4 on
   `feature/mcp-resilience-r1`.** The frozen inventory, PowerShell security
   chain, Hosting, MCP, Roslyn, .NET test-platform, and coverage-collector
   slices are committed. Test SDK 17.14.1 could build xUnit v3 but could not run
@@ -20,12 +20,14 @@ short and update it when important repo facts change.
   unsuppressed because blindly replacing deliberate test cancellation tokens
   is outside this migration. Coverlet ordinary runs pass server 1,868 and SIEM
   91; scoped collection produces one non-empty external Cobertura artifact per
-  project and leaves no repository artifact. The uncommitted SQLitePCLRaw 3.0.4
-  candidate passes SIEM 91/91 on macOS and x64 Linux with one uniform clean
-  package graph, but its mandatory Windows run is blocked by the unavailable
-  recorded hosts. Pester, setup-dotnet, final audits, and remaining direct
-  Windows acceptance remain. No push, merge, release, or installed-payload
-  change is authorized.
+  project and leaves no repository artifact. SQLitePCLRaw 3.0.4 resolves one
+  uniform bundle/config/core/provider graph, has no outdated, deprecated, or
+  vulnerable package, and passes SIEM 91/91 on macOS, x64 Linux, and Windows.
+  A fresh external publish contains one bundle and one provider identity; all
+  disposable validation artifacts and SYSTEM-profile development-certificate
+  residue were removed. Pester, setup-dotnet, final audits, and complete
+  cross-platform acceptance remain. No push, merge, release, or
+  installed-payload change is authorized.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -300,8 +302,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue `.agents/plans/dependency-hardening.md` with SQLite 3.0.4, exact
-   Pester 6.0.1, and setup-dotnet v6 one commit at a time. Finish with the
+1. Continue `.agents/plans/dependency-hardening.md` with exact Pester 6.0.1
+   and setup-dotnet v6 one commit at a time. Finish with the
    frozen package audits and direct macOS/Linux/Windows acceptance. Remove
    `PTK_SIEM_CONFORMANCE_MODE` with `Remove-Item Env:` before ordinary tests.
    Advisories stay visible and non-blocking; do not add warning-as-error,
@@ -355,13 +357,6 @@ short and update it when important repo facts change.
   contract; consider an stdin-EOF guardian watch in a later scoped test-hygiene
   slice.
 ## Blockers
-
-- **Windows is unavailable for the mandatory SQLite 3.0.4 native validation.**
-  On 2026-07-22, both recorded SSH names `ASHBIAMWEB1` and `NETWATCH-01` failed
-  DNS and mDNS resolution; the bounded local-neighbor check found no reachable
-  matching Windows host. The candidate is green on macOS and x64 Linux but
-  remains uncommitted, and later dependency families remain paused behind its
-  one-family-per-commit gate. A reachable Windows hostname or IP is required.
 
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled

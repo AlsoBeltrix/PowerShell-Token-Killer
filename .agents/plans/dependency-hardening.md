@@ -249,16 +249,19 @@ and `SQLITE_FULL` tests must remain green. Confirm the native SQLite library
 loads from the packaged graph on every OS and that no second bundle/provider is
 present in the assets file or publish output.
 
-**Partial verification; do not commit yet.** The 3.0.4 candidate passes all 91
-SIEM tests on macOS and x64 Linux `magneto`. The restored graph resolves the
+**Implemented.** The 3.0.4 candidate passes all 91 SIEM tests on macOS, x64
+Linux `magneto`, and x64 Windows `NETWATCH-01`. The restored graph resolves the
 bundle, config, core, and provider uniformly to 3.0.4 and has zero outdated,
-deprecated, or vulnerable packages. The transferred Linux manifest matches
-local SHA-256
-`a87644c4a259f6ea0809c06964c60a739977e83a4dae457dd6508f959c6edb2b`;
-its disposable checkout was removed. Windows remains mandatory, but the
-recorded `ASHBIAMWEB1` and `NETWATCH-01` names were both unresolvable on
-2026-07-22 and no matching reachable local neighbor was available. Keep the
-manifest change uncommitted until a Windows host completes the 91-test suite.
+deprecated, or vulnerable packages. Its assets contain exactly one bundle and
+one provider identity, and a fresh external publish contains only that managed
+provider plus the bundle's RID-specific native files. The exact manifest
+SHA-256
+`a87644c4a259f6ea0809c06964c60a739977e83a4dae457dd6508f959c6edb2b`
+matched both remote disposable sources. Windows restored and built under the
+ordinary account; the exact built test assembly then passed 91/91 under the
+machine's required transient SYSTEM identity with authoritative TRX counters.
+All disposable roots, transfer archives, scheduled tasks, publish output, and
+validation-created SYSTEM development-certificate residue were removed.
 
 ### 9. Move the PowerShell test workflow to stable Pester 6
 

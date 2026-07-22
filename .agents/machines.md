@@ -1051,10 +1051,10 @@ PowerShell 7.6.3, and Pester 5.7.1._
   throws until the approved native `PtkGuardianBroker` launcher exists, so
   this machine cannot support a Unix R5-completion claim.
 
-## Dependency hardening SQLite 3.0.4 verification (macOS/Linux, 2026-07-22)
+## Dependency hardening SQLite 3.0.4 verification (macOS/Linux/Windows, 2026-07-22)
 
-_Uncommitted SQLite slice candidate based on committed head `5b4eea5`; Windows
-remains mandatory before the family can commit._
+_SQLite slice candidate based on committed head `5b4eea5`; all required
+platform evidence was accepted before the family commit._
 
 - On macOS with .NET SDK 10.0.302, `SQLitePCLRaw.bundle_e_sqlite3` 3.0.4
   restored and built, and the complete SIEM solution passed 91/91. The bundle,
@@ -1066,7 +1066,21 @@ remains mandatory before the family can commit._
   .NET SDK 10.0.110). A clean disposable restore/build succeeded and the full
   native SIEM suite passed 91/91. Both local and remote temporary artifacts
   were removed; neither installed payload nor an existing checkout changed.
-- `ASHBIAMWEB1`, `NETWATCH-01`, and their `.local` forms were unresolvable from
-  the macOS host. A bounded check of existing LAN neighbors identified only
-  Linux/macOS SSH systems and no matching reachable Windows machine. No
-  Windows result is claimed; the candidate manifest remains uncommitted.
+- The same manifest hash matched the disposable source on `NETWATCH-01`
+  (Windows x64, .NET SDK 10.0.302). Ordinary-account restore/build succeeded;
+  its full test run reproduced the machine's established certificate-private-
+  key limitation at 77/91. A transient SYSTEM scheduled task therefore ran the
+  exact already-built test assembly through VSTest 18.6.0. Its 137,149-byte TRX
+  recorded 91 total, 91 executed, 91 passed, zero failed, and zero skipped in
+  four seconds, exercising the packaged Windows native SQLite library.
+- The first incomplete SYSTEM proof attempt had created one ASP.NET development
+  certificate in the SYSTEM profile. A guarded audit identified exact
+  thumbprint `18562DBC043997331DF813B5DAC565F4FA89AC46`, verified the localhost
+  subject, marker OID, and recent creation time, then removed only that
+  certificate. The final pre-run and post-run recent-marker counts were zero.
+  The exact scheduled task, Windows staging root, and transfer archive were
+  removed; wildcard residue checks found no SQLite validation task, staging
+  root, or local archive.
+- A fresh macOS external publish resolved exactly one bundle and one provider
+  identity, both 3.0.4, with only that bundle's RID-specific native files. The
+  temporary publish tree was removed and no repository artifact remained.

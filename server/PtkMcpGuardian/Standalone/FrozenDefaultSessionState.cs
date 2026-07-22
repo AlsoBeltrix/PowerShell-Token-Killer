@@ -22,10 +22,14 @@ internal sealed class FrozenDefaultSessionState :
 
     private readonly GuardianBootId _guardianBootId;
     private readonly FrozenSessionCatalog _catalog;
+    private readonly object _sync = new();
     private readonly GuardianHostWorkerIdentity _workerIdentity;
-    private readonly GuardianHostJobListTarget _target;
+    private readonly GuardianAuditSession _auditSession;
     private readonly WorkerGenerationHighWatermarkEntry _workerHighWatermark;
-    private int _warmStateLost;
+    private PublicSessionState _state = PublicSessionState.Ready;
+    private bool _readyForEffects = true;
+    private bool _warmStateLost;
+    private BootstrapState _bootstrapState = BootstrapState.Restored;
 
     internal FrozenDefaultSessionState(
         GuardianBootId guardianBootId,
@@ -62,12 +66,7 @@ internal sealed class FrozenDefaultSessionState :
         _workerHighWatermark = new WorkerGenerationHighWatermarkEntry(
             alias,
             new WorkerGenerationHighWatermark(workerGeneration.Value));
-        _target = new GuardianHostJobListTarget(
-            alias,
-            transition,
-            _workerIdentity,
-            new GuardianAuditSession(Binding, workerGeneration),
-            readyForEffects: true);
+        _auditSession = new GuardianAuditSession(Binding, workerGeneration);
     }
 
     internal RecoveryBinding Binding { get; }
@@ -93,23 +92,29 @@ internal sealed class FrozenDefaultSessionState :
             identity.HostGeneration);
     }
 
-    public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions() =>
-    [
-        new PublicSessionStateSnapshot(
-            Binding.Alias,
-            Binding.DesiredState,
-            PublicSessionState.Ready,
-            _workerIdentity.BootId,
-            _workerIdentity.Generation,
-            Binding.TransitionVersion,
-            recoveryPhase: null,
-            recoveryAttempt: 0,
-            retryAfterMilliseconds: null,
-            readyForEffects: true,
-            lastFailureCode: null,
-            warmStateLost: Volatile.Read(ref _warmStateLost) != 0,
-            bootstrapState: BootstrapState.Restored),
-    ];
+    public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
+    {
+        lock (_sync)
+        {
+            return
+            [
+                new PublicSessionStateSnapshot(
+                    Binding.Alias,
+                    Binding.DesiredState,
+                    _state,
+                    _workerIdentity.BootId,
+                    _workerIdentity.Generation,
+                    Binding.TransitionVersion,
+                    recoveryPhase: null,
+                    recoveryAttempt: 0,
+                    retryAfterMilliseconds: null,
+                    readyForEffects: _readyForEffects,
+                    lastFailureCode: null,
+                    warmStateLost: _warmStateLost,
+                    bootstrapState: _bootstrapState),
+            ];
+        }
+    }
 
     public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
     {
@@ -117,7 +122,50 @@ internal sealed class FrozenDefaultSessionState :
         if (identity.GuardianBootId != _guardianBootId)
             throw new InvalidOperationException("The ready host belongs to another guardian boot.");
         if (recovered)
-            Interlocked.Exchange(ref _warmStateLost, 1);
+        {
+            lock (_sync) _warmStateLost = true;
+        }
+    }
+
+    public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        if (alias != Binding.Alias)
+        {
+            throw new InvalidOperationException(
+                "The ambiguous lifecycle result belongs to another session.");
+        }
+
+        lock (_sync)
+        {
+            _state = PublicSessionState.RecoveryUnknown;
+            _readyForEffects = false;
+            _warmStateLost = true;
+            _bootstrapState = BootstrapState.Unknown;
+        }
+    }
+
+    public void ObserveSessionOperationResult(
+        GuardianHostSessionOperationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.Alias != Binding.Alias ||
+            result.TransitionVersion != Binding.TransitionVersion ||
+            result.WorkerIdentity is { } worker &&
+                (worker.BootId != _workerIdentity.BootId ||
+                 worker.Generation != _workerIdentity.Generation))
+        {
+            throw new InvalidOperationException(
+                "The session lifecycle result does not match the frozen default binding.");
+        }
+
+        lock (_sync)
+        {
+            _state = result.State;
+            _readyForEffects = result.ReadyForEffects;
+            _warmStateLost |= result.WarmStateLost;
+            _bootstrapState = result.BootstrapState;
+        }
     }
 
     public bool TryGetJobListTarget(
@@ -125,7 +173,17 @@ internal sealed class FrozenDefaultSessionState :
         [NotNullWhen(true)] out GuardianHostJobListTarget? target)
     {
         ArgumentNullException.ThrowIfNull(alias);
-        target = alias == Binding.Alias ? _target : null;
+        lock (_sync)
+        {
+            target = alias == Binding.Alias
+                ? new GuardianHostJobListTarget(
+                    Binding.Alias,
+                    Binding.TransitionVersion,
+                    _workerIdentity,
+                    _auditSession,
+                    _readyForEffects)
+                : null;
+        }
         return target is not null;
     }
 

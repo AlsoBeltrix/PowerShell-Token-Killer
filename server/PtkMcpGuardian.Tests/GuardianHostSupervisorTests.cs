@@ -1238,6 +1238,62 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Ambiguous_reset_blocks_session_work_until_explicit_repair()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.CrashAfterRequest),
+            new AttemptPlan(HostBehavior.Reset));
+        await rig.StartAsync();
+
+        var ambiguousResult = await rig.DispatchPublicResetAsync(
+                session: "default",
+                expectedGeneration: 0,
+                force: false,
+                timeoutSeconds: 30)
+            .WaitAsync(TestTimeout);
+        var ambiguous = DecodeRecovery(ambiguousResult);
+        Assert.Equal(PublicRecoveryDetailCode.OutcomeUnknown, ambiguous.DetailCode);
+        Assert.False(ambiguous.Retryable);
+
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+        var unknown = Assert.Single(rig.Supervisor.SnapshotState().Sessions);
+        Assert.Equal(PublicSessionState.RecoveryUnknown, unknown.State);
+        Assert.False(unknown.ReadyForEffects);
+        Assert.True(unknown.WarmStateLost);
+        Assert.Equal(BootstrapState.Unknown, unknown.BootstrapState);
+
+        var blocked = DecodeRecovery(
+            await rig.DispatchJobListAsync().WaitAsync(TestTimeout));
+        Assert.Equal(
+            PublicRecoveryDetailCode.SessionRecoveryUnknown,
+            blocked.DetailCode);
+        Assert.False(blocked.Retryable);
+        Assert.Equal(0, rig.Factory.Resources[1].OperationCount);
+
+        var repaired = await rig.DispatchPublicResetAsync(
+                session: "default",
+                expectedGeneration: 0,
+                force: false,
+                timeoutSeconds: 30)
+            .WaitAsync(TestTimeout);
+        Assert.False(repaired.IsError);
+        var ready = Assert.Single(rig.Supervisor.SnapshotState().Sessions);
+        Assert.Equal(PublicSessionState.Ready, ready.State);
+        Assert.True(ready.ReadyForEffects);
+        Assert.Equal(BootstrapState.Restored, ready.BootstrapState);
+
+        var fresh = await rig.DispatchJobListAsync().WaitAsync(TestTimeout);
+        Assert.False(fresh.IsError);
+        Assert.Equal("jobs-generation-2", fresh.Text);
+        Assert.Equal(2, rig.Factory.Resources[1].OperationCount);
+    }
+
+    [Fact]
     public async Task Public_reset_rejects_raw_control_facts_not_bound_to_admission()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Reset));
@@ -3371,6 +3427,8 @@ public sealed class GuardianHostSupervisorTests
             private long _recoveryAttempt;
             private bool _readyForEffects = true;
             private bool _warmStateLost;
+            private PublicSessionState _state = PublicSessionState.Ready;
+            private BootstrapState _bootstrapState = BootstrapState.Restored;
             private GuardianHostJobListTargetInvalidation? _invalidation;
 
             internal StaticSessionSource(CanonicalAlias alias)
@@ -3387,9 +3445,7 @@ public sealed class GuardianHostSupervisorTests
                         new PublicSessionStateSnapshot(
                             _alias,
                             DesiredSessionState.Ready,
-                            _readyForEffects
-                                ? PublicSessionState.Ready
-                                : PublicSessionState.Resetting,
+                            _state,
                             Worker.BootId,
                             new WorkerGeneration(_workerGeneration),
                             new SessionTransitionVersion(_transitionVersion),
@@ -3399,8 +3455,48 @@ public sealed class GuardianHostSupervisorTests
                             readyForEffects: _readyForEffects,
                             lastFailureCode: null,
                             warmStateLost: _warmStateLost,
-                            BootstrapState.Restored),
+                            _bootstrapState),
                     ];
+                }
+            }
+
+            public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
+            {
+                ArgumentNullException.ThrowIfNull(alias);
+                if (alias != _alias)
+                {
+                    throw new InvalidOperationException(
+                        "The ambiguous lifecycle result belongs to another test session.");
+                }
+
+                lock (_sync)
+                {
+                    _state = PublicSessionState.RecoveryUnknown;
+                    _readyForEffects = false;
+                    _warmStateLost = true;
+                    _bootstrapState = BootstrapState.Unknown;
+                }
+            }
+
+            public void ObserveSessionOperationResult(
+                GuardianHostSessionOperationResult result)
+            {
+                ArgumentNullException.ThrowIfNull(result);
+                if (result.Alias != _alias)
+                {
+                    throw new InvalidOperationException(
+                        "The session lifecycle result belongs to another test session.");
+                }
+
+                lock (_sync)
+                {
+                    _state = result.State;
+                    _readyForEffects = result.ReadyForEffects;
+                    _warmStateLost |= result.WarmStateLost;
+                    _bootstrapState = result.BootstrapState;
+                    if (result.WorkerIdentity is { } worker)
+                        _workerGeneration = worker.Generation.Value;
+                    _transitionVersion = result.TransitionVersion.Value;
                 }
             }
 
@@ -3444,7 +3540,13 @@ public sealed class GuardianHostSupervisorTests
 
             public void SetReadyForEffects(bool readyForEffects)
             {
-                lock (_sync) _readyForEffects = readyForEffects;
+                lock (_sync)
+                {
+                    _readyForEffects = readyForEffects;
+                    _state = readyForEffects
+                        ? PublicSessionState.Ready
+                        : PublicSessionState.Resetting;
+                }
             }
 
             public void ReplaceReadyWorker(
@@ -3465,6 +3567,8 @@ public sealed class GuardianHostSupervisorTests
                     _workerGeneration = nextGeneration.Value;
                     _transitionVersion = nextTransition.Value;
                     _recoveryAttempt = recoverySnapshot?.RecoveryAttempt ?? 0;
+                    _state = PublicSessionState.Ready;
+                    _readyForEffects = true;
                 }
             }
 

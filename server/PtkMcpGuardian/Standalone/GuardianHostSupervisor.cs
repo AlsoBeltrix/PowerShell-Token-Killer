@@ -1541,6 +1541,7 @@ internal sealed class GuardianHostSupervisor :
                                     tracker,
                                     auditCall,
                                     dispatchGate,
+                                    dispatchedOperation.Kind,
                                     outputRegistration,
                                     jobRegistration,
                                     jobControl?.OperationKind,
@@ -2219,6 +2220,11 @@ internal sealed class GuardianHostSupervisor :
                                 call.DispatchGate));
                     break;
                 case GuardianHostLossDisposition.OutcomeUnknown:
+                    if (IsSessionChangingOperation(call.OperationKind))
+                    {
+                        _sessionSource.ObserveSessionRecoveryUnknown(
+                            call.Target.Alias);
+                    }
                     SignalClassifiedLossTerminal(call, OutcomeUnknown());
                     break;
                 case GuardianHostLossDisposition.RetainedAuthoritativeTerminal:
@@ -2566,6 +2572,25 @@ internal sealed class GuardianHostSupervisor :
         {
             throw new GuardianHostClientException(
                 GuardianHostClientFailureKind.ResponseCorrelationMismatch);
+        }
+
+        if (response is GuardianHostSuccessResponse
+            {
+                Payload: OperationCompleted
+                {
+                    Result: GuardianHostSessionOperationResult sessionResult,
+                },
+            })
+        {
+            _sessionSource.ObserveSessionOperationResult(sessionResult);
+        }
+        else if (response is GuardianHostErrorResponse
+                 {
+                     Error.DetailCode: GuardianHostPrivateDetailCode.OutcomeUnknown,
+                 } &&
+                 IsSessionChangingOperation(call.OperationKind))
+        {
+            _sessionSource.ObserveSessionRecoveryUnknown(call.Target.Alias);
         }
 
         if (StringComparer.Ordinal.Equals(
@@ -2943,6 +2968,13 @@ internal sealed class GuardianHostSupervisor :
         _ => throw new GuardianHostClientException(
             GuardianHostClientFailureKind.ResponseCorrelationMismatch),
     };
+
+    private static bool IsSessionChangingOperation(
+        GuardianHostOperationKind operationKind) => operationKind is
+            GuardianHostOperationKind.Reset or
+            GuardianHostOperationKind.SessionOpen or
+            GuardianHostOperationKind.SessionClose or
+            GuardianHostOperationKind.SessionRestart;
 
     private static string MergeJobLists(string currentJobs, string tombstones) =>
         StringComparer.Ordinal.Equals(currentJobs, "(no jobs)")
@@ -3397,6 +3429,7 @@ internal sealed class GuardianHostSupervisor :
         GuardianCallDeliveryTracker<GuardianHostSupervisorTerminal> tracker,
         GuardianAuditCall auditCall,
         GuardianDispatchGate dispatchGate,
+        GuardianHostOperationKind operationKind,
         GuardianOutputRegistration? outputRegistration,
         GuardianJobRegistration? jobRegistration,
         GuardianHostOperationKind? jobControlOperationKind,
@@ -3409,6 +3442,7 @@ internal sealed class GuardianHostSupervisor :
         internal GuardianAuditCall AuditCall { get; } = auditCall ??
             throw new ArgumentNullException(nameof(auditCall));
         internal GuardianDispatchGate DispatchGate { get; } = dispatchGate;
+        internal GuardianHostOperationKind OperationKind { get; } = operationKind;
         internal GuardianOutputRegistration? OutputRegistration { get; } = outputRegistration;
         internal GuardianJobRegistration? JobRegistration { get; } = jobRegistration;
         internal GuardianHostOperationKind? JobControlOperationKind { get; } =

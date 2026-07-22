@@ -167,6 +167,21 @@ internal interface IGuardianHostSupervisorSessionSource
     /// </summary>
     void ObserveHostReady(GuardianHostIdentity identity, bool recovered);
 
+    /// <summary>
+    /// Commits that a session-changing request may have taken effect but no
+    /// authoritative terminal was retained. The callback runs under
+    /// supervisor authority and must leave ordinary session work blocked until
+    /// an explicit lifecycle result repairs the alias.
+    /// </summary>
+    void ObserveSessionRecoveryUnknown(CanonicalAlias alias);
+
+    /// <summary>
+    /// Commits one authoritative session-changing result. The callback runs
+    /// under supervisor authority after private response correlation succeeds.
+    /// </summary>
+    void ObserveSessionOperationResult(
+        GuardianHostSessionOperationResult result);
+
     bool TryGetJobListTarget(
         CanonicalAlias alias,
         [NotNullWhen(true)] out GuardianHostJobListTarget? target);

@@ -66,6 +66,44 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Ambiguous_lifecycle_stays_blocked_until_an_authoritative_repair()
+    {
+        var state = State();
+        var alias = new CanonicalAlias("default");
+
+        state.ObserveSessionRecoveryUnknown(alias);
+        var ambiguous = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.RecoveryUnknown, ambiguous.State);
+        Assert.False(ambiguous.ReadyForEffects);
+        Assert.True(ambiguous.WarmStateLost);
+        Assert.Equal(BootstrapState.Unknown, ambiguous.BootstrapState);
+        Assert.True(state.TryGetJobListTarget(alias, out var blockedTarget));
+        Assert.False(blockedTarget.ReadyForEffects);
+
+        state.ObserveHostReady(Identity(generation: 2), recovered: true);
+        var recoveredHost = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.RecoveryUnknown, recoveredHost.State);
+        Assert.False(recoveredHost.ReadyForEffects);
+
+        state.ObserveSessionOperationResult(new ResetResult(
+            alias,
+            PublicSessionState.Ready,
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            new SessionTransitionVersion(1),
+            readyForEffects: true,
+            warmStateLost: true,
+            BootstrapState.Restored));
+
+        var repaired = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Ready, repaired.State);
+        Assert.True(repaired.ReadyForEffects);
+        Assert.True(repaired.WarmStateLost);
+        Assert.Equal(BootstrapState.Restored, repaired.BootstrapState);
+        Assert.True(state.TryGetJobListTarget(alias, out var repairedTarget));
+        Assert.True(repairedTarget.ReadyForEffects);
+    }
+
+    [Fact]
     public void Manifest_changes_only_generation_envelope_across_host_attempts()
     {
         var state = State();

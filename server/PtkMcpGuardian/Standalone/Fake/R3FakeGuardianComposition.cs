@@ -327,6 +327,10 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
 {
     private readonly GuardianBootId _guardianBootId;
     private readonly R3FakeHostProfile _profile;
+    private readonly object _sync = new();
+    private PublicSessionState _state = PublicSessionState.Ready;
+    private bool _readyForEffects = true;
+    private BootstrapState _bootstrapState = BootstrapState.Restored;
     private int _warmStateLost;
 
     internal R3FakeSessionSource(
@@ -341,23 +345,26 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
     public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
     {
         var target = _profile.JobListTarget;
-        return
-        [
-            new PublicSessionStateSnapshot(
-                target.Alias,
-                _profile.DesiredState,
-                PublicSessionState.Ready,
-                target.WorkerIdentity.BootId,
-                target.WorkerIdentity.Generation,
-                target.TransitionVersion,
-                recoveryPhase: null,
-                recoveryAttempt: 0,
-                retryAfterMilliseconds: null,
-                readyForEffects: true,
-                lastFailureCode: null,
-                warmStateLost: Volatile.Read(ref _warmStateLost) != 0,
-                bootstrapState: BootstrapState.Restored),
-        ];
+        lock (_sync)
+        {
+            return
+            [
+                new PublicSessionStateSnapshot(
+                    target.Alias,
+                    _profile.DesiredState,
+                    _state,
+                    target.WorkerIdentity.BootId,
+                    target.WorkerIdentity.Generation,
+                    target.TransitionVersion,
+                    recoveryPhase: null,
+                    recoveryAttempt: 0,
+                    retryAfterMilliseconds: null,
+                    readyForEffects: _readyForEffects,
+                    lastFailureCode: null,
+                    warmStateLost: Volatile.Read(ref _warmStateLost) != 0,
+                    bootstrapState: _bootstrapState),
+            ];
+        }
     }
 
     public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
@@ -369,14 +376,61 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
             Interlocked.Exchange(ref _warmStateLost, 1);
     }
 
+    public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        if (alias != _profile.JobListTarget.Alias)
+        {
+            throw new InvalidOperationException(
+                "The ambiguous lifecycle result belongs to another fake session.");
+        }
+
+        lock (_sync)
+        {
+            _state = PublicSessionState.RecoveryUnknown;
+            _readyForEffects = false;
+            _bootstrapState = BootstrapState.Unknown;
+        }
+        Interlocked.Exchange(ref _warmStateLost, 1);
+    }
+
+    public void ObserveSessionOperationResult(
+        GuardianHostSessionOperationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        if (result.Alias != _profile.JobListTarget.Alias)
+        {
+            throw new InvalidOperationException(
+                "The session lifecycle result belongs to another fake session.");
+        }
+
+        lock (_sync)
+        {
+            _state = result.State;
+            _readyForEffects = result.ReadyForEffects;
+            _bootstrapState = result.BootstrapState;
+        }
+        if (result.WarmStateLost)
+            Interlocked.Exchange(ref _warmStateLost, 1);
+    }
+
     public bool TryGetJobListTarget(
         CanonicalAlias alias,
         [NotNullWhen(true)] out GuardianHostJobListTarget? target)
     {
         ArgumentNullException.ThrowIfNull(alias);
-        target = _profile.JobListTarget.Alias == alias
-            ? _profile.JobListTarget
-            : null;
+        lock (_sync)
+        {
+            var source = _profile.JobListTarget;
+            target = source.Alias == alias
+                ? new GuardianHostJobListTarget(
+                    source.Alias,
+                    source.TransitionVersion,
+                    source.WorkerIdentity,
+                    source.AuditSession,
+                    _readyForEffects)
+                : null;
+        }
         return target is not null;
     }
 

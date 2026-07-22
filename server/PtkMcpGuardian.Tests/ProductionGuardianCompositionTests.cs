@@ -615,6 +615,254 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
+    public async Task Windows_composition_requires_explicit_repair_after_ambiguous_reset()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        var auditRoot = TemporaryRoot("ambiguous-reset-audit");
+        var outputRoot = TemporaryRoot("ambiguous-reset-output");
+        var launcher = new GatedContainmentLauncher();
+        launcher.ReleaseFirstContainmentConfirmation();
+        var observer = new RealHostKillingDispatchObserver(
+            RealDispatchBarrier.WriteStarting,
+            launcher);
+        var composition = ProductionGuardianComposition.Create(
+            Package(FindServerAppHost()),
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker,
+            dispatchObserver: observer);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            var initialized = await RequestAsync(
+                writer,
+                reader,
+                requestId: 1,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "production-host-ambiguous-reset-test",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            Assert.True(initialized.TryGetProperty("result", out _), initialized.GetRawText());
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                    @params = new { },
+                },
+                timeout.Token);
+
+            var ambiguousResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 2,
+                "tools/call",
+                new
+                {
+                    name = "ptk_reset",
+                    arguments = new
+                    {
+                        session = "default",
+                        expectedGeneration = 0,
+                        force = false,
+                        timeoutSeconds = 10,
+                    },
+                },
+                timeout.Token);
+            await observer.Triggered.WaitAsync(TimeSpan.FromSeconds(5), timeout.Token);
+            var ambiguous = PublicRecoveryCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(ambiguousResponse, expectedError: true)));
+            Assert.Equal(PublicRecoveryDetailCode.OutcomeUnknown, ambiguous.DetailCode);
+            Assert.False(ambiguous.Retryable);
+
+            _ = await launcher.ReplacementHostProcessId.WaitAsync(timeout.Token);
+            PublicStateSnapshot? recovered = null;
+            var requestId = 3;
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                var stateResponse = await RequestAsync(
+                    writer,
+                    reader,
+                    requestId++,
+                    "tools/call",
+                    new
+                    {
+                        name = "ptk_state",
+                        arguments = new { },
+                    },
+                    timeout.Token);
+                var candidate = PublicStateCodec.Decode(
+                    Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
+                if (candidate.Host.ReadyForEffects)
+                {
+                    recovered = candidate;
+                    break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+
+            Assert.NotNull(recovered);
+            Assert.Equal(2, recovered.Host.Generation?.Value);
+            var unknown = Assert.Single(recovered.Sessions);
+            Assert.Equal(PublicSessionState.RecoveryUnknown, unknown.State);
+            Assert.False(unknown.ReadyForEffects);
+            Assert.True(unknown.WarmStateLost);
+            Assert.Equal(BootstrapState.Unknown, unknown.BootstrapState);
+
+            var blockedResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "'must-not-run'",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var blocked = PublicRecoveryCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(blockedResponse, expectedError: true)));
+            Assert.Equal(
+                PublicRecoveryDetailCode.SessionRecoveryUnknown,
+                blocked.DetailCode);
+            Assert.False(blocked.Retryable);
+            Assert.Equal(2, launcher.LaunchCount);
+
+            var repairResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_reset",
+                    arguments = new
+                    {
+                        session = "default",
+                        expectedGeneration = 0,
+                        force = false,
+                        timeoutSeconds = 10,
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "state=ready",
+                ToolText(repairResponse, expectedError: false),
+                StringComparison.Ordinal);
+
+            var repairedStateResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_state",
+                    arguments = new { },
+                },
+                timeout.Token);
+            var repairedState = PublicStateCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(repairedStateResponse, expectedError: false)));
+            var repaired = Assert.Single(repairedState.Sessions);
+            Assert.Equal(PublicSessionState.Ready, repaired.State);
+            Assert.True(repaired.ReadyForEffects);
+            Assert.Equal(BootstrapState.Restored, repaired.BootstrapState);
+
+            var freshResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "'after-explicit-repair'",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "after-explicit-repair",
+                ToolText(freshResponse, expectedError: false),
+                StringComparison.Ordinal);
+            Assert.Equal(2, launcher.LaunchCount);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+            Assert.Equal(0, composition.Supervisor.OwnedClientCount);
+        }
+        finally
+        {
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            DeleteRoot(auditRoot);
+        }
+
+        Assert.False(Directory.Exists(outputRoot));
+    }
+
+    [Fact]
     public async Task Windows_composition_recovers_a_real_host_on_the_same_public_connection()
     {
         if (!OperatingSystem.IsWindows()) return;

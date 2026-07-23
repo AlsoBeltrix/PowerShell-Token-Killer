@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 using PtkMcpGuardian.Host;
 using PtkMcpGuardian.Lifecycle;
 using PtkMcpGuardian.Ownership;
@@ -37,6 +38,7 @@ internal sealed class GuardianHostSupervisor :
         "The guardian does not own an active job with that identifier; no backend work started.";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly TimeSpan DispatchCapabilityLifetime = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan ControlRequestLifetime = TimeSpan.FromMinutes(1);
 
     private readonly object _stateSync = new();
     private readonly SemaphoreSlim _authority = new(1, 1);
@@ -55,6 +57,8 @@ internal sealed class GuardianHostSupervisor :
     private readonly AuditOutputRequestProtector? _outputProtector;
     private readonly Func<GuardianHostClientException, CancellationToken, ValueTask>
         _beforeClientFatalObservation;
+    private readonly Func<GuardianHostContainmentEvent, CancellationToken, ValueTask>
+        _afterContainmentEventQueued;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<long, ActiveCall> _calls = [];
     private readonly Dictionary<long, GuardianAuditJobTerminalLease> _jobTerminalLeases = [];
@@ -86,7 +90,9 @@ internal sealed class GuardianHostSupervisor :
         GuardianOutputCoordinator? outputCoordinator = null,
         GuardianJobCapabilityRegistry? jobCapabilities = null,
         AuditOutputRequestProtector? outputProtector = null,
-        IGuardianHostLifecycleAudit? lifecycleAudit = null)
+        IGuardianHostLifecycleAudit? lifecycleAudit = null,
+        Func<GuardianHostContainmentEvent, CancellationToken, ValueTask>?
+            afterContainmentEventQueued = null)
     {
         _guardianBootId = guardianBootId ??
             throw new ArgumentNullException(nameof(guardianBootId));
@@ -106,6 +112,12 @@ internal sealed class GuardianHostSupervisor :
         _jobCapabilities = jobCapabilities;
         _outputProtector = outputProtector;
         _beforeClientFatalObservation = beforeClientFatalObservation ??
+            (static (_, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.CompletedTask;
+            });
+        _afterContainmentEventQueued = afterContainmentEventQueued ??
             (static (_, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -1971,14 +1983,20 @@ internal sealed class GuardianHostSupervisor :
                 () => AcquireWriteAuthority(active),
                 _ => AcquireInboundAuthority(active),
                 (_, _) => AcquireInboundAuthority(active),
-                HandleHostEventUnderAuthorityAsync,
+                (hostEvent, cancellationToken) =>
+                    HandleHostEventUnderAuthorityAsync(
+                        active,
+                        hostEvent,
+                        cancellationToken),
                 (request, response, _) => HandleResponseUnderAuthorityAsync(
                     active,
                     request,
                     response),
                 retainedOutputEventCorrelation: _outputCoordinator is null
                     ? null
-                    : _outputCoordinator.MatchesActiveEvent);
+                    : _outputCoordinator.MatchesActiveEvent,
+                controlEventLeaseFactory: static _ =>
+                    NoOpControlClaimLease.Instance);
             lock (_stateSync) _clients.Add(active.Client);
         }
         catch (Exception exception) when (!IsFatalRuntimeException(exception))
@@ -2002,6 +2020,7 @@ internal sealed class GuardianHostSupervisor :
         TrackBackground(WatchClientFatalAsync(active));
         TrackBackground(WatchHostExitAsync(active));
         TrackBackground(WatchStartupDeadlineAsync(active));
+        TrackBackground(RunContainmentControlPumpAsync(active));
         return active;
     }
 
@@ -2482,7 +2501,8 @@ internal sealed class GuardianHostSupervisor :
         return null;
     }
 
-    private ValueTask HandleHostEventUnderAuthorityAsync(
+    private async ValueTask HandleHostEventUnderAuthorityAsync(
+        ActiveAttempt active,
         GuardianHostEvent hostEvent,
         CancellationToken cancellationToken)
     {
@@ -2499,19 +2519,186 @@ internal sealed class GuardianHostSupervisor :
             }
             if (terminalAvailable)
                 CompleteAvailableJobTerminal(jobLifecycle.PublicJobId);
-            return ValueTask.CompletedTask;
+            return;
+        }
+        if (hostEvent is GuardianHostContainmentEvent containmentEvent)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!active.ContainmentControlEvents.Writer.TryWrite(containmentEvent))
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.EventCorrelationMismatch);
+            }
+            await _afterContainmentEventQueued(containmentEvent, cancellationToken)
+                .ConfigureAwait(false);
+            return;
         }
         if (hostEvent is not (OutputChunkEvent or OutputSealEvent))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return ValueTask.CompletedTask;
+            return;
         }
         if (_outputCoordinator is null)
         {
             throw new InvalidOperationException(
                 "The private host emitted output without guardian ownership.");
         }
-        return _outputCoordinator.HandleEventAsync(hostEvent, cancellationToken);
+        await _outputCoordinator.HandleEventAsync(hostEvent, cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async Task RunContainmentControlPumpAsync(ActiveAttempt active)
+    {
+        var cancellationToken = active.PreContainmentToken;
+        try
+        {
+            await foreach (var containmentEvent in
+                active.ContainmentControlEvents.Reader.ReadAllAsync(cancellationToken))
+            {
+                if (!await WaitForHostEventCallbackCompletionAsync(
+                        active,
+                        cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                if (active.Resources is not IUnixWorkerContainmentAuthority authority)
+                {
+                    throw new PlatformNotSupportedException(
+                        "The private host emitted Unix containment control without " +
+                        "an outer registry authority.");
+                }
+
+                switch (containmentEvent)
+                {
+                    case WorkerContainmentPendingEvent pending:
+                        await authority.RegisterPendingAsync(
+                                pending.ContainmentIdentity,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    case WorkerContainmentArmedEvent armed:
+                        await authority.RegisterArmedAsync(
+                                armed.ContainmentIdentity,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    case WorkerContainmentRemoveRequestedEvent remove:
+                        await authority.RemoveAsync(
+                                remove.ContainmentIdentity,
+                                cancellationToken)
+                            .ConfigureAwait(false);
+                        break;
+                    default:
+                        throw new GuardianHostClientException(
+                            GuardianHostClientFailureKind.EventCorrelationMismatch);
+                }
+
+                var deadline = checked(
+                    _timeProvider.GetUtcNow().ToUnixTimeMilliseconds() +
+                    (long)ControlRequestLifetime.TotalMilliseconds);
+                var response = await active.Client!.SendRequestAsync(
+                        (guardian, host, generation, requestId) =>
+                            CreateContainmentAcknowledgement(
+                                containmentEvent,
+                                guardian,
+                                host,
+                                generation,
+                                requestId,
+                                deadline),
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (response is not GuardianHostSuccessResponse
+                    {
+                        Payload: ControlAcknowledged
+                    })
+                {
+                    throw new GuardianHostClientException(
+                        GuardianHostClientFailureKind.ProtocolViolation);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (GuardianHostClientException exception)
+        {
+            await ObserveLossAsync(active, LossReasonFor(exception)).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception exception) when (!IsFatalRuntimeException(exception))
+        {
+            await ObserveLossAsync(active, GuardianHostLossReason.ProtocolFatal)
+                .ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task<bool> WaitForHostEventCallbackCompletionAsync(
+        ActiveAttempt active,
+        CancellationToken cancellationToken)
+    {
+        await _authority.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            return !_stopping &&
+                ReferenceEquals(_active, active) &&
+                active.Lease.Stage == GuardianHostAttemptStage.Ready;
+        }
+        finally
+        {
+            _authority.Release();
+        }
+    }
+
+    private static WorkerContainmentAckRequest CreateContainmentAcknowledgement(
+        GuardianHostContainmentEvent containmentEvent,
+        GuardianBootId guardianBootId,
+        HostBootId hostBootId,
+        HostGeneration hostGeneration,
+        PrivateRequestId requestId,
+        long deadlineUnixTimeMilliseconds)
+    {
+        var worker = containmentEvent.WorkerIdentity ??
+            throw new GuardianHostClientException(
+                GuardianHostClientFailureKind.EventCorrelationMismatch);
+        return containmentEvent switch
+        {
+            WorkerContainmentPendingEvent => new WorkerContainmentPendingAckRequest(
+                guardianBootId,
+                hostBootId,
+                hostGeneration,
+                requestId,
+                deadlineUnixTimeMilliseconds,
+                containmentEvent.SessionAlias,
+                containmentEvent.SessionTransitionVersion,
+                worker,
+                containmentEvent.EventSequence),
+            WorkerContainmentArmedEvent => new WorkerContainmentArmedAckRequest(
+                guardianBootId,
+                hostBootId,
+                hostGeneration,
+                requestId,
+                deadlineUnixTimeMilliseconds,
+                containmentEvent.SessionAlias,
+                containmentEvent.SessionTransitionVersion,
+                worker,
+                containmentEvent.EventSequence),
+            WorkerContainmentRemoveRequestedEvent =>
+                new WorkerContainmentRemoveAckRequest(
+                    guardianBootId,
+                    hostBootId,
+                    hostGeneration,
+                    requestId,
+                    deadlineUnixTimeMilliseconds,
+                    containmentEvent.SessionAlias,
+                    containmentEvent.SessionTransitionVersion,
+                    worker,
+                    containmentEvent.EventSequence),
+            _ => throw new GuardianHostClientException(
+                GuardianHostClientFailureKind.EventCorrelationMismatch),
+        };
     }
 
     private ValueTask HandleResponseUnderAuthorityAsync(
@@ -2519,6 +2706,15 @@ internal sealed class GuardianHostSupervisor :
         GuardianHostMessage request,
         GuardianHostResponse response)
     {
+        if (request is WorkerContainmentAckRequest)
+        {
+            if (!ReferenceEquals(_active, active))
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.UnknownResponse);
+            }
+            return ValueTask.CompletedTask;
+        }
         if (!ReferenceEquals(_active, active) ||
             !_calls.TryGetValue(response.RequestId.Value, out var call) ||
             !ReferenceEquals(call.Attempt, active))
@@ -3383,11 +3579,22 @@ internal sealed class GuardianHostSupervisor :
             _preContainment = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             _startupDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             _containmentDeadline = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
+            ContainmentControlEvents =
+                Channel.CreateBounded<GuardianHostContainmentEvent>(
+                    new BoundedChannelOptions(
+                        GuardianHostClient.MaximumUnacknowledgedControlEvents)
+                    {
+                        AllowSynchronousContinuations = false,
+                        FullMode = BoundedChannelFullMode.Wait,
+                        SingleReader = true,
+                        SingleWriter = true,
+                    });
         }
 
         internal GuardianHostAttemptLease Lease { get; }
         internal IGuardianHostConnectedAttemptResources Resources { get; }
         internal GuardianHostClient? Client { get; set; }
+        internal Channel<GuardianHostContainmentEvent> ContainmentControlEvents { get; }
         internal PublicHostStateSnapshot? PrewriteLossHost { get; set; }
         internal CancellationToken PreContainmentToken => _preContainment.Token;
         internal CancellationToken StartupDeadlineToken => _startupDeadline.Token;
@@ -3462,6 +3669,15 @@ internal sealed class GuardianHostSupervisor :
 
         public void Dispose() =>
             Interlocked.Exchange(ref _authority, null)?.Release();
+    }
+
+    private sealed class NoOpControlClaimLease : IDisposable
+    {
+        internal static readonly NoOpControlClaimLease Instance = new();
+
+        public void Dispose()
+        {
+        }
     }
 
     private sealed class DispatchRefusedException : InvalidOperationException;

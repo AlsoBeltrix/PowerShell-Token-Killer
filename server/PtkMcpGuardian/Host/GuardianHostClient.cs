@@ -175,6 +175,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
     private readonly Func<ManifestId> _manifestIdFactory;
     private readonly Func<IDisposable?> _writeLeaseFactory;
     private readonly Func<GuardianHostEvent, IDisposable?> _eventLeaseFactory;
+    private readonly Func<GuardianHostEvent, IDisposable?> _controlEventLeaseFactory;
     private readonly Func<GuardianHostMessage, GuardianHostResponse, IDisposable?>
         _responseLeaseFactory;
     private readonly Func<GuardianHostEvent, bool> _retainedOutputEventCorrelation;
@@ -216,7 +217,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         Func<GuardianHostMessage, GuardianHostResponse, CancellationToken, ValueTask>
             responseHandler,
         Func<ManifestId>? manifestIdFactory = null,
-        Func<GuardianHostEvent, bool>? retainedOutputEventCorrelation = null)
+        Func<GuardianHostEvent, bool>? retainedOutputEventCorrelation = null,
+        Func<GuardianHostEvent, IDisposable?>? controlEventLeaseFactory = null)
     {
         ArgumentNullException.ThrowIfNull(requestStream);
         ArgumentNullException.ThrowIfNull(eventStream);
@@ -227,6 +229,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             throw new ArgumentNullException(nameof(writeLeaseFactory));
         _eventLeaseFactory = eventLeaseFactory ??
             throw new ArgumentNullException(nameof(eventLeaseFactory));
+        _controlEventLeaseFactory = controlEventLeaseFactory ??
+            _eventLeaseFactory;
         _responseLeaseFactory = responseLeaseFactory ??
             throw new ArgumentNullException(nameof(responseLeaseFactory));
         _reader = new GuardianHostProtocolReader(eventStream, GuardianHostPeer.Host);
@@ -524,7 +528,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             }
             using var controlLease = controlEvent is null
                 ? null
-                : AcquireEventLease(controlEvent);
+                : AcquireControlEventLease(controlEvent);
 
             ValueTask write;
             lock (_sync)
@@ -983,6 +987,26 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         if (lease is null)
             throw new GuardianHostClientException(
                 GuardianHostClientFailureKind.EventCorrelationMismatch);
+        return lease;
+    }
+
+    private IDisposable AcquireControlEventLease(GuardianHostEvent hostEvent)
+    {
+        IDisposable? lease;
+        try
+        {
+            lease = _controlEventLeaseFactory(hostEvent);
+        }
+        catch (Exception exception) when (!IsFatalRuntimeException(exception))
+        {
+            throw new GuardianHostClientException(
+                GuardianHostClientFailureKind.EventCorrelationMismatch);
+        }
+        if (lease is null)
+        {
+            throw new GuardianHostClientException(
+                GuardianHostClientFailureKind.EventCorrelationMismatch);
+        }
         return lease;
     }
 

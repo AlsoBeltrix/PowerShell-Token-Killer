@@ -2132,6 +2132,120 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Containment_control_mutates_the_outer_registry_and_acknowledges_exact_events()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var resource = Assert.Single(rig.Factory.Resources);
+
+        await resource.InjectContainmentControlsAsync();
+        await WaitUntilAsync(() =>
+            resource.ContainmentRegistrations.Count == 3 &&
+            resource.ContainmentAcknowledgements.Count == 3);
+
+        var registrations = resource.ContainmentRegistrations;
+        Assert.Equal(
+            [
+                GuardianHostEventType.WorkerContainmentPending,
+                GuardianHostEventType.WorkerContainmentArmed,
+                GuardianHostEventType.WorkerContainmentRemoveRequested,
+            ],
+            registrations.Select(value => value.EventType));
+        Assert.All(
+            registrations,
+            value =>
+            {
+                Assert.Equal(
+                    resource.ContainmentIdentity.BrokerPid,
+                    value.Identity.BrokerPid);
+                Assert.Equal(
+                    resource.ContainmentIdentity.BrokerStartIdentityHigh,
+                    value.Identity.BrokerStartIdentityHigh);
+                Assert.Equal(
+                    resource.ContainmentIdentity.BrokerStartIdentityLow,
+                    value.Identity.BrokerStartIdentityLow);
+                Assert.Equal(
+                    resource.ContainmentIdentity.WorkerPid,
+                    value.Identity.WorkerPid);
+                Assert.Equal(
+                    resource.ContainmentIdentity.WorkerStartIdentityHigh,
+                    value.Identity.WorkerStartIdentityHigh);
+                Assert.Equal(
+                    resource.ContainmentIdentity.WorkerStartIdentityLow,
+                    value.Identity.WorkerStartIdentityLow);
+            });
+
+        var acknowledgements = resource.ContainmentAcknowledgements;
+        Assert.Collection(
+            acknowledgements,
+            value =>
+            {
+                Assert.IsType<WorkerContainmentPendingAckRequest>(value);
+                Assert.Equal(1, value.SourceEventSequence.Value);
+            },
+            value =>
+            {
+                Assert.IsType<WorkerContainmentArmedAckRequest>(value);
+                Assert.Equal(2, value.SourceEventSequence.Value);
+            },
+            value =>
+            {
+                Assert.IsType<WorkerContainmentRemoveAckRequest>(value);
+                Assert.Equal(3, value.SourceEventSequence.Value);
+            });
+        Assert.All(acknowledgements, value =>
+        {
+            Assert.Equal(TestRig.Alias, value.SessionAlias);
+            Assert.Equal(TestRig.Transition, value.SessionTransitionVersion);
+            Assert.Equal(TestRig.Worker.BootId, value.WorkerIdentity.BootId);
+            Assert.Equal(TestRig.Worker.Generation, value.WorkerIdentity.Generation);
+            Assert.Equal(
+                rig.Clock.GetUtcNow().AddMinutes(1).ToUnixTimeMilliseconds(),
+                value.DeadlineUnixTimeMilliseconds);
+        });
+    }
+
+    [Fact]
+    public async Task Containment_control_waits_for_the_ordered_event_callback_to_return()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var resource = Assert.Single(rig.Factory.Resources);
+        var queued = rig.ContainmentObserver.BlockNextEvent();
+
+        await resource.InjectContainmentPendingAsync();
+        await queued.WaitAsync(TestTimeout);
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+            Assert.False(resource.ContainmentRegistryEntered.IsCompleted);
+            Assert.Empty(resource.ContainmentAcknowledgements);
+        }
+        finally
+        {
+            rig.ContainmentObserver.ReleaseEvent();
+        }
+
+        await resource.ContainmentRegistryEntered.WaitAsync(TestTimeout);
+        await WaitUntilAsync(() => resource.ContainmentAcknowledgements.Count == 1);
+    }
+
+    [Fact]
+    public async Task Containment_registry_failure_contains_the_host_without_false_acknowledgement()
+    {
+        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var resource = Assert.Single(rig.Factory.Resources);
+        resource.FailContainmentRegistry = true;
+
+        await resource.InjectContainmentPendingAsync();
+        await WaitUntilAsync(() => resource.ContainmentBegun);
+
+        Assert.Empty(resource.ContainmentAcknowledgements);
+        await WaitUntilAsync(() => rig.Supervisor.BackgroundFailure is IOException);
+    }
+
+    [Fact]
     public async Task Ready_session_replacement_without_evidence_is_recovery_unknown()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
@@ -2363,11 +2477,12 @@ public sealed class GuardianHostSupervisorTests
             Assert.Equal(0, rig.Scheduler.PendingCount);
             await WaitUntilAsync(() =>
                 rig.Scheduler.EntryCount == 0 &&
-                rig.Supervisor.BackgroundTaskCount == 2 &&
+                rig.Supervisor.BackgroundTaskCount == 3 &&
                 rig.Supervisor.OwnedClientCount == 1);
             Assert.Equal(1, rig.Supervisor.OwnedAttemptWatcherSetCount);
             Assert.Null(rig.Supervisor.BackgroundFailure);
             Assert.Equal(
+                "RunContainmentControlPumpAsync(active)," +
                 "WatchClientFatalAsync(active),WatchHostExitAsync(active)",
                 rig.Supervisor.BackgroundTaskNames);
 
@@ -2390,7 +2505,7 @@ public sealed class GuardianHostSupervisorTests
         Assert.All(resources, value => Assert.Equal(1, value.OperationCount));
         Assert.Equal(1, rig.Supervisor.OwnedClientCount);
         Assert.Equal(1, rig.Supervisor.OwnedAttemptWatcherSetCount);
-        Assert.Equal(2, rig.Supervisor.BackgroundTaskCount);
+        Assert.Equal(3, rig.Supervisor.BackgroundTaskCount);
         Assert.Equal(0, rig.Scheduler.PendingCount);
         Assert.Equal(0, rig.Scheduler.EntryCount);
 
@@ -2744,6 +2859,7 @@ public sealed class GuardianHostSupervisorTests
             Clock = new ManualTimeProvider();
             Scheduler = new ManualScheduler(Clock);
             Observer = new BlockingDispatchObserver();
+            ContainmentObserver = new BlockingContainmentControlObserver();
             Sessions = new StaticSessionSource(sessionAlias);
             Factory = new FakeAttemptFactory(plans, CreatePins(), Clock);
             if (enableOutput)
@@ -2794,12 +2910,14 @@ public sealed class GuardianHostSupervisorTests
                 OutputCoordinator,
                 JobCapabilities,
                 _audit.OutputProtector,
-                LifecycleAudit);
+                LifecycleAudit,
+                ContainmentObserver.AfterEventQueuedAsync);
         }
 
         internal ManualTimeProvider Clock { get; }
         internal ManualScheduler Scheduler { get; }
         internal BlockingDispatchObserver Observer { get; }
+        internal BlockingContainmentControlObserver ContainmentObserver { get; }
         internal ITestSessionControl Sessions { get; }
         internal FakeAttemptFactory Factory { get; }
         internal GuardianHostSupervisor Supervisor { get; }
@@ -3775,6 +3893,50 @@ public sealed class GuardianHostSupervisorTests
         }
     }
 
+    private sealed class BlockingContainmentControlObserver
+    {
+        private readonly object _sync = new();
+        private TaskCompletionSource<bool>? _entered;
+        private TaskCompletionSource<bool>? _release;
+
+        internal Task BlockNextEvent()
+        {
+            lock (_sync)
+            {
+                _entered = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _release = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return _entered.Task;
+            }
+        }
+
+        internal void ReleaseEvent()
+        {
+            lock (_sync)
+                _release?.TrySetResult(true);
+        }
+
+        internal async ValueTask AfterEventQueuedAsync(
+            GuardianHostContainmentEvent containmentEvent,
+            CancellationToken cancellationToken)
+        {
+            Task? release = null;
+            lock (_sync)
+            {
+                if (_entered is not null && _release is not null)
+                {
+                    _entered.TrySetResult(true);
+                    release = _release.Task;
+                    _entered = null;
+                }
+            }
+            if (release is not null)
+                await release.WaitAsync(cancellationToken);
+            _ = containmentEvent;
+        }
+    }
+
     private sealed class ManualTimeProvider : TimeProvider
     {
         private long _timestamp;
@@ -3961,6 +4123,10 @@ public sealed class GuardianHostSupervisorTests
         long DeadlineUnixTimeMilliseconds,
         DispatchCapability DispatchCapability);
 
+    private sealed record ObservedContainmentRegistration(
+        GuardianHostEventType EventType,
+        GuardianHostContainmentIdentity Identity);
+
     private sealed class FakeAttemptFactory : IGuardianHostAttemptFactory
     {
         private readonly object _sync = new();
@@ -4008,8 +4174,10 @@ public sealed class GuardianHostSupervisorTests
     }
 
     private sealed class FakeConnectedResources :
-        IGuardianHostConnectedAttemptResources
+        IGuardianHostConnectedAttemptResources,
+        IUnixWorkerContainmentAuthority
     {
+        private readonly object _containmentSync = new();
         private readonly AttemptPlan _plan;
         private readonly ManualTimeProvider _clock;
         private readonly TestTransportStream _requests = new();
@@ -4024,12 +4192,17 @@ public sealed class GuardianHostSupervisorTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> _outputFinished = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _containmentRegistryEntered = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly List<ObservedContainmentRegistration>
+            _containmentRegistrations = [];
         private readonly FakeHostPeer _peer;
         private ManualResetEventSlim? _disposeRelease;
         private int _launched;
         private int _closed;
         private int _containmentBegun;
         private int _disposed;
+        private int _failContainmentRegistry;
 
         internal FakeConnectedResources(
             GuardianHostIdentity identity,
@@ -4053,6 +4226,29 @@ public sealed class GuardianHostSupervisorTests
         internal IReadOnlyList<ObservedReset> Resets => _peer.Resets;
         internal IReadOnlyList<ObservedSessionLifecycle> SessionLifecycles =>
             _peer.SessionLifecycles;
+        internal IReadOnlyList<ObservedContainmentRegistration>
+            ContainmentRegistrations
+        {
+            get
+            {
+                lock (_containmentSync)
+                    return _containmentRegistrations.ToArray();
+            }
+        }
+        internal IReadOnlyList<WorkerContainmentAckRequest>
+            ContainmentAcknowledgements => _peer.ContainmentAcknowledgements;
+        internal GuardianHostContainmentIdentity ContainmentIdentity { get; } = new(
+            brokerPid: 2001,
+            brokerStartIdentityHigh: 11,
+            brokerStartIdentityLow: 12,
+            workerPid: 2002,
+            workerStartIdentityHigh: 13,
+            workerStartIdentityLow: 14);
+        internal Task ContainmentRegistryEntered => _containmentRegistryEntered.Task;
+        internal bool FailContainmentRegistry
+        {
+            set => Volatile.Write(ref _failContainmentRegistry, value ? 1 : 0);
+        }
         internal bool ContainmentBegun => Volatile.Read(ref _containmentBegun) != 0;
         internal bool IsDisposed => Volatile.Read(ref _disposed) != 0;
         internal Task OutputFinished => _outputFinished.Task;
@@ -4062,6 +4258,12 @@ public sealed class GuardianHostSupervisorTests
 
         internal Task InjectProtocolFatalAsync() =>
             _peer.InjectProtocolFatalAsync();
+
+        internal Task InjectContainmentPendingAsync() =>
+            _peer.InjectContainmentPendingAsync(ContainmentIdentity);
+
+        internal Task InjectContainmentControlsAsync() =>
+            _peer.InjectContainmentControlsAsync(ContainmentIdentity);
 
         internal void ReleaseOutput() => _outputRelease.TrySetResult(true);
 
@@ -4074,6 +4276,30 @@ public sealed class GuardianHostSupervisorTests
         public int HostProcessId { get; }
         public Task HostExited => _hostExited.Task;
         public Task ContainmentConfirmed => _containmentConfirmed.Task;
+
+        public Task RegisterPendingAsync(
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken) =>
+            RecordContainmentAsync(
+                GuardianHostEventType.WorkerContainmentPending,
+                identity,
+                cancellationToken);
+
+        public Task RegisterArmedAsync(
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken) =>
+            RecordContainmentAsync(
+                GuardianHostEventType.WorkerContainmentArmed,
+                identity,
+                cancellationToken);
+
+        public Task RemoveAsync(
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken) =>
+            RecordContainmentAsync(
+                GuardianHostEventType.WorkerContainmentRemoveRequested,
+                identity,
+                cancellationToken);
 
         public GuardianHostLaunchOutcome Launch()
         {
@@ -4122,6 +4348,20 @@ public sealed class GuardianHostSupervisorTests
 
         internal void ReleaseDispose() => _disposeRelease?.Set();
 
+        private Task RecordContainmentAsync(
+            GuardianHostEventType eventType,
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _containmentRegistryEntered.TrySetResult(true);
+            if (Volatile.Read(ref _failContainmentRegistry) != 0)
+                throw new IOException("Injected outer containment registry failure.");
+            lock (_containmentSync)
+                _containmentRegistrations.Add(new(eventType, identity));
+            return Task.CompletedTask;
+        }
+
         public void Dispose()
         {
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
@@ -4148,6 +4388,8 @@ public sealed class GuardianHostSupervisorTests
         private readonly List<ObservedInvoke> _invokes = [];
         private readonly List<ObservedReset> _resets = [];
         private readonly List<ObservedSessionLifecycle> _sessionLifecycles = [];
+        private readonly List<WorkerContainmentAckRequest>
+            _containmentAcknowledgements = [];
         private int _operationCount;
         private long _eventSequence;
 
@@ -4184,6 +4426,15 @@ public sealed class GuardianHostSupervisorTests
         {
             get { lock (_sync) return _sessionLifecycles.ToArray(); }
         }
+        internal IReadOnlyList<WorkerContainmentAckRequest>
+            ContainmentAcknowledgements
+        {
+            get
+            {
+                lock (_sync)
+                    return _containmentAcknowledgements.ToArray();
+            }
+        }
 
         internal void Start(HostBehavior behavior) =>
             _ = Task.Run(() => RunAsync(behavior));
@@ -4209,6 +4460,43 @@ public sealed class GuardianHostSupervisorTests
                 _pins.HostBuildDigest,
                 _pins.PublicContractDigest,
                 _pins.ConfigurationDigest)).AsTask();
+
+        internal Task InjectContainmentPendingAsync(
+            GuardianHostContainmentIdentity containmentIdentity) =>
+            _writer.WriteAsync(new WorkerContainmentPendingEvent(
+                    _owner.Identity.GuardianBootId,
+                    _owner.Identity.HostBootId,
+                    _owner.Identity.HostGeneration,
+                    new HostEventSequence(Interlocked.Increment(ref _eventSequence)),
+                    TestRig.Alias,
+                    TestRig.Transition,
+                    TestRig.Worker,
+                    containmentIdentity))
+                .AsTask();
+
+        internal async Task InjectContainmentControlsAsync(
+            GuardianHostContainmentIdentity containmentIdentity)
+        {
+            await InjectContainmentPendingAsync(containmentIdentity);
+            await _writer.WriteAsync(new WorkerContainmentArmedEvent(
+                _owner.Identity.GuardianBootId,
+                _owner.Identity.HostBootId,
+                _owner.Identity.HostGeneration,
+                new HostEventSequence(Interlocked.Increment(ref _eventSequence)),
+                TestRig.Alias,
+                TestRig.Transition,
+                TestRig.Worker,
+                containmentIdentity));
+            await _writer.WriteAsync(new WorkerContainmentRemoveRequestedEvent(
+                _owner.Identity.GuardianBootId,
+                _owner.Identity.HostBootId,
+                _owner.Identity.HostGeneration,
+                new HostEventSequence(Interlocked.Increment(ref _eventSequence)),
+                TestRig.Alias,
+                TestRig.Transition,
+                TestRig.Worker,
+                containmentIdentity));
+        }
 
         private async Task RunAsync(HostBehavior behavior)
         {
@@ -4270,6 +4558,17 @@ public sealed class GuardianHostSupervisorTests
 
                 while (await ReadAsync() is { } message)
                 {
+                    if (message is WorkerContainmentAckRequest containment)
+                    {
+                        Record(containment.RequestId);
+                        lock (_sync)
+                            _containmentAcknowledgements.Add(containment);
+                        await _writer.WriteAsync(Success(
+                            containment.RequestId,
+                            new ControlAcknowledged(
+                                containment.SourceEventSequence)));
+                        continue;
+                    }
                     if (message is not OperationRequest operation)
                         continue;
                     Record(operation.RequestId);

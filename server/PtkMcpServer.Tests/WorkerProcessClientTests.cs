@@ -100,13 +100,13 @@ public sealed class WorkerProcessClientTests
     {
         internal FakeContainedProcess? Process { get; private set; }
 
-        public IWorkerContainedProcess Launch(
+        public Task<IWorkerContainedProcess> LaunchAsync(
             WorkerLaunchCommand command,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             Process = new FakeContainedProcess(standardOutput, exitBeforeHello);
-            return Process;
+            return Task.FromResult<IWorkerContainedProcess>(Process);
         }
     }
 
@@ -162,6 +162,12 @@ public sealed class WorkerProcessClientTests
 
         public Task WaitForExitAsync(CancellationToken cancellationToken = default) =>
             _exited.Task.WaitAsync(cancellationToken);
+
+        public Task ContainAsync()
+        {
+            Dispose();
+            return _exited.Task;
+        }
 
         internal void Crash()
         {

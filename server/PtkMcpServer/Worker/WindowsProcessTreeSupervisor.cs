@@ -253,6 +253,13 @@ internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
     Task IWorkerContainedProcess.WaitForExitAsync(CancellationToken cancellationToken) =>
         WaitForExitAsync(cancellationToken);
 
+    async Task IWorkerContainedProcess.ContainAsync()
+    {
+        var exited = WaitForExitAsync(CancellationToken.None);
+        Dispose();
+        await exited.ConfigureAwait(false);
+    }
+
     internal void ResumeForContainmentProof()
     {
         var ownership = Current;

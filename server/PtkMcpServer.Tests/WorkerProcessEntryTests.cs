@@ -586,13 +586,10 @@ public sealed class WorkerProcessEntryTests
     {
         var result = await RunPrivateSubprocessAsync("--worker");
 
-        var expectedDetail = OperatingSystem.IsWindows()
-            ? "handle_missing"
-            : "platform_unsupported";
         Assert.Equal(80, result.ExitCode);
         Assert.Equal(string.Empty, result.StandardOutput);
         Assert.Equal(
-            $"ptk_worker_exit kind=bootstrap_failure detail={expectedDetail}\n",
+            "ptk_worker_exit kind=bootstrap_failure detail=handle_missing\n",
             result.StandardError);
     }
 

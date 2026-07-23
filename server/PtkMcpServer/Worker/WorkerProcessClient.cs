@@ -11,11 +11,12 @@ internal interface IWorkerContainedProcess : IDisposable
     Stream StandardOutputReader { get; }
     Stream StandardErrorReader { get; }
     Task WaitForExitAsync(CancellationToken cancellationToken = default);
+    Task ContainAsync();
 }
 
 internal interface IWorkerProcessLauncher
 {
-    IWorkerContainedProcess Launch(
+    Task<IWorkerContainedProcess> LaunchAsync(
         WorkerLaunchCommand command,
         CancellationToken cancellationToken = default);
 }
@@ -34,10 +35,11 @@ internal sealed class WindowsWorkerProcessLauncher : IWorkerProcessLauncher
         _supervisor = supervisor ?? throw new ArgumentNullException(nameof(supervisor));
     }
 
-    public IWorkerContainedProcess Launch(
+    public Task<IWorkerContainedProcess> LaunchAsync(
         WorkerLaunchCommand command,
         CancellationToken cancellationToken = default) =>
-        _supervisor.Launch(command, cancellationToken);
+        Task.FromResult<IWorkerContainedProcess>(
+            _supervisor.Launch(command, cancellationToken));
 }
 
 internal sealed record WorkerDiagnosticSummary(
@@ -127,7 +129,8 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
         if (deadlineUtc <= DateTimeOffset.UtcNow)
             throw new TimeoutException("Worker launch deadline has expired.");
 
-        var process = launcher.Launch(command, cancellationToken) ??
+        var process = await launcher.LaunchAsync(command, cancellationToken)
+            .ConfigureAwait(false) ??
             throw new WorkerProcessException("worker_launch_returned_null");
         WorkerProcessClient? authority = null;
         try
@@ -159,7 +162,8 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
             {
                 try
                 {
-                    process?.Dispose();
+                    if (process is not null)
+                        await process.ContainAsync().ConfigureAwait(false);
                 }
                 catch (Exception exception) when (!IsFatal(exception))
                 {
@@ -317,7 +321,7 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
 
         try
         {
-            _process.Dispose();
+            await _process.ContainAsync().ConfigureAwait(false);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {

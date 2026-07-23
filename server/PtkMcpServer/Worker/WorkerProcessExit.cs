@@ -91,6 +91,7 @@ internal static class WorkerProcessExit
         "platform_unsupported" => "platform_unsupported",
         "handle_missing" => "handle_missing",
         "handle_invalid" => "handle_invalid",
+        "handle_direction_invalid" => "handle_direction_invalid",
         "handle_alias" => "handle_alias",
         "handle_duplication_failed" => "handle_duplication_failed",
         "handle_not_pipe" => "handle_not_pipe",

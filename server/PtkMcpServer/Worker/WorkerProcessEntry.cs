@@ -55,7 +55,7 @@ internal static class WorkerProcessEntry
         CancellationToken cancellationToken = default) =>
         RunCapturedAsync(
             values,
-            openBootstrap: captured => WindowsWorkerBootstrap.Open(captured),
+            openBootstrap: WorkerBootstrap.Open,
             runtimeFactory: CreateRuntimeAsync,
             bootIdFactory: Guid.NewGuid,
             standardErrorFactory: Console.OpenStandardError,

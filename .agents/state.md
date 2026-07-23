@@ -241,8 +241,8 @@ short and update it when important repo facts change.
   content arrival was verified by direct branch diff, and the feature branch
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
-- **R6 live worker execution is active through foreground prepared dispatch at
-  code head `cbfb676`.** `SessionRuntime` is the sole worker runtime adapter.
+- **R6 live worker execution and the host-side contained worker authority are
+  active at code head `a0c759d`.** `SessionRuntime` is the sole worker runtime adapter.
   The initialized worker server now owns live ordinary request/cancel
   scheduling and rejects script-bearing ordinary invoke before runtime
   dispatch. A separate asynchronous owner publishes the immutable hash-bound
@@ -251,11 +251,20 @@ short and update it when important repo facts change.
   facts, and drains admitted terminal writes before runtime shutdown. Focused
   mutation guards cover ordinary dispatch, committed execution, committed
   cancellation, and exact handler ownership; the authoritative clean build
-  and physical-temp in-process server suite pass 1,933/1,933. R6 remains in
-  progress: guardian-reserved background start and worker lifecycle events,
-  the strict host client and platform launch authority, per-alias host
-  cutover, guardian v2 control, recovery wiring, and the cross-platform
-  acceptance matrix remain.
+  and exact handler ownership. One strict process client now binds dynamic
+  worker identity, continuously drains only bounded content-free diagnostics,
+  and converges protocol/process loss on exactly-once containment. Windows
+  uses the existing creation-time nested Job Object. Unix now uses a strict
+  broker-v2 gated fork, authenticated fd 3/4 bootstrap, independently checked
+  Darwin/Linux start identities, pending/armed registry acknowledgements
+  before exec release, and native whole-group TERM/KILL confirmation. The
+  request-descriptor and descendant-containment mutations fail their real
+  process guards; the authoritative clean build and physical-temp in-process
+  server suite pass 1,952/1,952. R6 remains in progress:
+  guardian-reserved background start and worker lifecycle events, the outer
+  guardian broker's real pending/armed/remove registry, per-alias host cutover,
+  guardian v2 control, recovery wiring, and the cross-platform acceptance
+  matrix remain.
 - **The owner-approved two-layer MCP resilience sequence is implemented and
   directly validated through R5 on `feature/mcp-resilience-r1`; the current
   code head is `225b5fc`, with exact platform evidence at Windows `195e7e6`,

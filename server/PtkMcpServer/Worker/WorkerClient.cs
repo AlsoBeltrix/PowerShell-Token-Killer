@@ -14,7 +14,7 @@ internal sealed class WorkerClient : IAsyncDisposable
     private readonly object _gate = new();
     private readonly WorkerProtocolReader _reader;
     private readonly WorkerProtocolWriter _writer;
-    private readonly Guid _workerBootId;
+    private readonly Guid? _expectedWorkerBootId;
     private readonly Func<WorkerEnvelope, CancellationToken, ValueTask> _onEvent;
     private readonly CancellationTokenSource _readerCancellation = new();
     private readonly Dictionary<long, PendingRequest> _pending = [];
@@ -22,30 +22,49 @@ internal sealed class WorkerClient : IAsyncDisposable
         TaskCreationOptions.RunContinuationsAsynchronously);
     private long _requestIdHighWater;
     private long _generation;
+    private Guid _workerBootId;
     private Task? _readerTask;
     private bool _initializing;
     private bool _initialized;
+    private bool _stopping;
     private bool _stopped;
     private int _disposed;
 
     internal WorkerClient(
         Stream requestStream,
         Stream eventStream,
-        Guid workerBootId,
+        Guid? expectedWorkerBootId,
         Func<WorkerEnvelope, CancellationToken, ValueTask>? onEvent = null)
     {
         ArgumentNullException.ThrowIfNull(requestStream);
         ArgumentNullException.ThrowIfNull(eventStream);
-        if (workerBootId == Guid.Empty)
-            throw new ArgumentException("Worker boot ID cannot be empty.", nameof(workerBootId));
+        if (expectedWorkerBootId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Expected worker boot ID cannot be empty.",
+                nameof(expectedWorkerBootId));
+        }
 
         _writer = new WorkerProtocolWriter(requestStream);
         _reader = new WorkerProtocolReader(eventStream);
-        _workerBootId = workerBootId;
+        _expectedWorkerBootId = expectedWorkerBootId;
         _onEvent = onEvent ?? ((_, _) => ValueTask.CompletedTask);
     }
 
     internal Task Fatal => _fatal.Task;
+    internal Guid WorkerBootId
+    {
+        get
+        {
+            lock (_gate)
+            {
+                if (!_initialized)
+                    throw new InvalidOperationException("Worker client is not initialized.");
+                return _workerBootId;
+            }
+        }
+    }
+
     internal long Generation
     {
         get
@@ -227,21 +246,30 @@ internal sealed class WorkerClient : IAsyncDisposable
     internal async Task ShutdownAsync(CancellationToken cancellationToken = default)
     {
         var generation = RequireGeneration();
-        var requestId = ReserveRequest();
-        var response = await SendAsync(
-            Envelope(
-                WorkerMessageKind.Shutdown,
-                requestId,
-                JsonSerializer.SerializeToElement(new { })),
-            requestId,
-            sendCancelOnCancellation: false,
-            cancellationToken).ConfigureAwait(false);
-        _ = ValidateResponse(() =>
+        var requestId = ReserveShutdownRequest();
+        try
         {
-            ValidateStopped(response, requestId, generation);
-            return true;
-        });
-        lock (_gate) _stopped = true;
+            var response = await SendAsync(
+                Envelope(
+                    WorkerMessageKind.Shutdown,
+                    requestId,
+                    JsonSerializer.SerializeToElement(new { })),
+                requestId,
+                sendCancelOnCancellation: false,
+                cancellationToken,
+                allowStopping: true).ConfigureAwait(false);
+            _ = ValidateResponse(() =>
+            {
+                ValidateStopped(response, requestId, generation);
+                return true;
+            });
+            lock (_gate) _stopped = true;
+        }
+        catch
+        {
+            lock (_gate) _stopping = false;
+            throw;
+        }
     }
 
     private async Task<WorkerOperationResponse> SendPreparedTerminalAsync(
@@ -271,9 +299,10 @@ internal sealed class WorkerClient : IAsyncDisposable
         WorkerEnvelope envelope,
         long requestId,
         bool sendCancelOnCancellation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowStopping = false)
     {
-        var pending = RegisterPending(requestId);
+        var pending = RegisterPending(requestId, allowStopping);
         try
         {
             await WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
@@ -307,11 +336,11 @@ internal sealed class WorkerClient : IAsyncDisposable
         }
     }
 
-    private PendingRequest RegisterPending(long requestId)
+    private PendingRequest RegisterPending(long requestId, bool allowStopping)
     {
         lock (_gate)
         {
-            ThrowIfUnavailable();
+            ThrowIfUnavailable(allowStopping);
             if (_pending.Count >= MaximumPendingRequests)
             {
                 throw new WorkerProtocolException(
@@ -344,6 +373,22 @@ internal sealed class WorkerClient : IAsyncDisposable
         }
     }
 
+    private long ReserveShutdownRequest()
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            if (_requestIdHighWater == long.MaxValue)
+            {
+                throw new WorkerProtocolException(
+                    "worker_request_id_exhausted",
+                    "Worker client request ID space is exhausted.");
+            }
+            _stopping = true;
+            return ++_requestIdHighWater;
+        }
+    }
+
     private long RequireGeneration()
     {
         lock (_gate)
@@ -362,7 +407,14 @@ internal sealed class WorkerClient : IAsyncDisposable
                 var envelope = await _reader.ReadAsync(_readerCancellation.Token)
                     .ConfigureAwait(false);
                 if (envelope is null)
+                {
+                    lock (_gate)
+                    {
+                        if (_stopped || _stopping && _pending.Count == 0)
+                            return;
+                    }
                     throw new IOException("Worker event stream ended.");
+                }
                 ValidateOperationalIdentity(envelope);
                 switch (envelope.Kind)
                 {
@@ -462,7 +514,14 @@ internal sealed class WorkerClient : IAsyncDisposable
 
     private void ValidateHello(WorkerEnvelope envelope)
     {
-        ValidateIdentity(envelope);
+        if (!IsCanonicalUuidV4(envelope.WorkerBootId.ToString("D")) ||
+            _expectedWorkerBootId is { } expected &&
+            envelope.WorkerBootId != expected)
+        {
+            throw new WorkerProtocolException(
+                "worker_boot_mismatch",
+                "Worker hello has an invalid or unexpected boot identity.");
+        }
         if (envelope.Kind != WorkerMessageKind.Event ||
             envelope.RequestId is not null)
         {
@@ -477,6 +536,7 @@ internal sealed class WorkerClient : IAsyncDisposable
                 "worker_hello_required",
                 "Worker must emit the exact hello event.");
         }
+        _workerBootId = envelope.WorkerBootId;
     }
 
     private void ValidateReady(
@@ -616,9 +676,11 @@ internal sealed class WorkerClient : IAsyncDisposable
         JsonElement payload) =>
         new(WorkerProtocol.Version, kind, _workerBootId, requestId, payload);
 
-    private void ThrowIfUnavailable()
+    private void ThrowIfUnavailable(bool allowStopping = false)
     {
         ThrowIfStopped();
+        if (_stopping && !allowStopping)
+            throw new InvalidOperationException("Worker client is stopping.");
         if (!_initialized)
             throw new InvalidOperationException("Worker client is not initialized.");
         if (_fatal.Task.IsCompleted)

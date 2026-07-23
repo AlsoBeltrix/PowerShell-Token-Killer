@@ -20,6 +20,19 @@ public sealed class WorkerClientTests
             DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeMilliseconds());
 
     [Fact]
+    public async Task Client_binds_the_workers_hello_identity_when_launch_did_not_preallocate_it()
+    {
+        await using var worker = new ScriptedWorker(expectedBootId: null);
+
+        await worker.InitializeAsync(
+            generation: 5,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(BootId, worker.Client.WorkerBootId);
+        Assert.Equal(5, worker.Client.Generation);
+    }
+
+    [Fact]
     public async Task Client_initializes_executes_state_and_shuts_down_one_generation()
     {
         var runtime = new ClientRuntime();
@@ -168,6 +181,47 @@ public sealed class WorkerClientTests
     }
 
     [Fact]
+    public async Task Client_refuses_new_requests_after_shutdown_is_admitted()
+    {
+        await using var worker = new ScriptedWorker();
+        const long generation = 21;
+        await worker.InitializeAsync(
+            generation,
+            TestContext.Current.CancellationToken);
+
+        var shutdown = worker.Client.ShutdownAsync(
+            TestContext.Current.CancellationToken);
+        var request = await worker.Requests.ReadAsync(
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(request);
+        Assert.Equal(WorkerMessageKind.Shutdown, request.Kind);
+
+        using var unexpectedRequestDeadline = new CancellationTokenSource(
+            TimeSpan.FromSeconds(2));
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            worker.Client.ExecuteAsync(
+                WorkerSessionOperationCodec.StateOperation,
+                new WorkerStateArguments(ListAvailable: false),
+                Deadline,
+                unexpectedRequestDeadline.Token));
+        Assert.Equal("Worker client is stopping.", exception.Message);
+
+        await worker.Events.WriteAsync(
+            new WorkerEnvelope(
+                WorkerProtocol.Version,
+                WorkerMessageKind.Response,
+                BootId,
+                request.RequestId,
+                JsonSerializer.SerializeToElement(new
+                {
+                    status = "stopped",
+                    generation,
+                })),
+            TestContext.Current.CancellationToken);
+        await shutdown;
+    }
+
+    [Fact]
     public async Task Client_rejects_valid_descriptor_that_does_not_correlate_to_prepare()
     {
         await using var worker = new ScriptedWorker();
@@ -281,12 +335,20 @@ public sealed class WorkerClientTests
         private readonly Stream _workerEvents;
 
         internal ScriptedWorker()
+            : this(BootId)
+        {
+        }
+
+        internal ScriptedWorker(Guid? expectedBootId)
         {
             _clientRequests = _requests.Writer.AsStream(leaveOpen: true);
             _workerRequests = _requests.Reader.AsStream(leaveOpen: true);
             _workerEvents = _events.Writer.AsStream(leaveOpen: true);
             _clientEvents = _events.Reader.AsStream(leaveOpen: true);
-            Client = new WorkerClient(_clientRequests, _clientEvents, BootId);
+            Client = new WorkerClient(
+                _clientRequests,
+                _clientEvents,
+                expectedBootId);
             Requests = new WorkerProtocolReader(_workerRequests);
             Events = new WorkerProtocolWriter(_workerEvents);
         }

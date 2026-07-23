@@ -218,7 +218,7 @@ internal sealed class WindowsProcessTreeSupervisor
             AccessViolationException or AppDomainUnloadedException;
 }
 
-internal sealed class ContainedWindowsWorker : IDisposable
+internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
 {
     private Ownership? _ownership;
 
@@ -244,6 +244,14 @@ internal sealed class ContainedWindowsWorker : IDisposable
 
     internal Task WaitForExitAsync(CancellationToken cancellationToken = default) =>
         Current.Process.WaitForExitAsync(cancellationToken);
+
+    int IWorkerContainedProcess.ProcessId => ProcessId;
+    Stream IWorkerContainedProcess.RequestWriter => RequestWriter;
+    Stream IWorkerContainedProcess.EventReader => EventReader;
+    Stream IWorkerContainedProcess.StandardOutputReader => StandardOutputReader;
+    Stream IWorkerContainedProcess.StandardErrorReader => StandardErrorReader;
+    Task IWorkerContainedProcess.WaitForExitAsync(CancellationToken cancellationToken) =>
+        WaitForExitAsync(cancellationToken);
 
     internal void ResumeForContainmentProof()
     {

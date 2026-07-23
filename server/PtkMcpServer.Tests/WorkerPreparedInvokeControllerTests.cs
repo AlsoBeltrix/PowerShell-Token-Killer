@@ -158,6 +158,29 @@ public sealed class WorkerPreparedInvokeControllerTests
         await controller.CancelAndDrainAsync();
     }
 
+    [Fact]
+    public async Task Cancel_after_commit_stops_the_exact_running_prepared_operation()
+    {
+        var runtime = new CancelablePreparedRuntime(Plan());
+        var controller = Controller(runtime);
+        _ = await controller.PrepareAsync(
+            Prepare(),
+            TestContext.Current.CancellationToken);
+        var terminalTask = controller.Commit(Commit());
+        await runtime.ExecutionStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        await controller.Cancel(PlanId);
+        var terminal = await terminalTask.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(WorkerPreparedInvokeTerminalKind.Canceled, terminal.Kind);
+        Assert.Equal("prepared_operation_canceled", terminal.DetailCode);
+        Assert.Equal(1, runtime.ExecutionCount);
+        controller.Release(PlanId);
+        await controller.CancelAndDrainAsync();
+    }
+
     private static WorkerPreparedInvokeController Controller(
         IWorkerPreparedInvokeRuntime runtime,
         Func<DateTimeOffset>? utcNow = null,
@@ -240,6 +263,39 @@ public sealed class WorkerPreparedInvokeControllerTests
             return new WorkerPreparedRuntimeResult(
                 "complete",
                 UserExecutionStarted: true);
+        }
+    }
+
+    private sealed class CancelablePreparedRuntime(ExecutionPlan preparedPlan)
+        : IWorkerPreparedInvokeRuntime
+    {
+        private int _executionCount;
+
+        internal int ExecutionCount => Volatile.Read(ref _executionCount);
+        internal TaskCompletionSource ExecutionStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<WorkerPreparedRuntimeResult> InvokeAsync(
+            WorkerInvokePreparePayload prepare,
+            IInvocationAuthorizer authorizer,
+            CancellationToken cancellationToken)
+        {
+            if (!await authorizer.AuthorizePlanAsync(
+                    preparedPlan,
+                    cancellationToken) ||
+                !await authorizer.AuthorizeDispatchAsync(
+                    ExecutionDispatch.FromPlan(preparedPlan),
+                    cancellationToken))
+            {
+                return new WorkerPreparedRuntimeResult(
+                    "not started",
+                    UserExecutionStarted: false);
+            }
+
+            Interlocked.Increment(ref _executionCount);
+            ExecutionStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("unreachable");
         }
     }
 

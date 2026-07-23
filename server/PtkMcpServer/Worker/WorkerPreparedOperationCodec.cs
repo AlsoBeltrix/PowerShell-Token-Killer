@@ -58,9 +58,8 @@ internal enum WorkerPreparedCorrelationMatch
 }
 
 /// <summary>
-/// Strict value codecs for the deliberately unwired Slice 7h prepared-operation
-/// correlation payloads. These values are not bound to envelopes, a worker
-/// reservation, or a session runtime.
+/// Strict value codecs for prepared-operation correlation payloads and the
+/// immutable audit-safe plan descriptor.
 /// </summary>
 internal static class WorkerPreparedOperationCodec
 {

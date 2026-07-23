@@ -44,6 +44,10 @@ public sealed class Slice7fStagingBoundaryTests
                 "WorkerPreparedInvokeController.cs")),
             Path.GetFullPath(Path.Combine(
                 productionRoot,
+                "Worker",
+                "WorkerPreparedOperationScheduler.cs")),
+            Path.GetFullPath(Path.Combine(
+                productionRoot,
                 "Sessions",
                 "SessionRuntime.cs")),
         };

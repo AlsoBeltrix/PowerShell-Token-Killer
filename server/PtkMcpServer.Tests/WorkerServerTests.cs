@@ -1,4 +1,6 @@
+using System.Collections.Immutable;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
@@ -13,6 +15,8 @@ public sealed class WorkerServerTests
     private static readonly Guid BootId = Guid.Parse("8de8da91-1522-4d93-a768-5a07fe55e6ee");
     private static readonly DateTimeOffset Now =
         new(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
+    private static readonly Guid PreparedPlanId =
+        Guid.ParseExact("22222222-3333-4444-8555-666666666666", "D");
 
     [Fact]
     public async Task Hello_precedes_the_first_read_and_cancellation_never_constructs_a_runtime()
@@ -211,36 +215,6 @@ public sealed class WorkerServerTests
         Assert.Equal(2, (await output.FramesAsync()).Count);
     }
 
-    [Theory]
-    [InlineData((int)WorkerMessageKind.Prepare)]
-    [InlineData((int)WorkerMessageKind.Commit)]
-    [InlineData((int)WorkerMessageKind.Abort)]
-    public async Task Prepared_operation_frames_remain_unwired_after_ready(
-        int kindValue)
-    {
-        var kind = (WorkerMessageKind)kindValue;
-        using var input = new FeedableReadStream();
-        using var output = new CapturingWriteStream();
-        var lifetime = new RecordingLifetime();
-        input.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
-        var server = Server(
-            input,
-            output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
-        var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
-
-        input.Enqueue(Frame(Envelope(kind, 2, EmptyPayload())));
-        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
-
-        Assert.Equal(
-            new WorkerServerExit(WorkerServerExitKind.ProtocolError, "unsupported_message"),
-            exit);
-        Assert.Equal(1, lifetime.ShutdownCount);
-        Assert.Equal(1, lifetime.DisposeCount);
-        Assert.Equal(2, (await output.FramesAsync()).Count);
-    }
-
     [Fact]
     public async Task Ordinary_request_executes_through_worker_runtime_and_correlates_response()
     {
@@ -387,6 +361,240 @@ public sealed class WorkerServerTests
         Assert.Equal(1, runtime.ExecuteCount);
         Assert.Equal(1, runtime.ShutdownCount);
         Assert.Equal(1, runtime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Prepared_invoke_publishes_descriptor_then_executes_once_after_commit()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime();
+        var prepare = PreparedInvoke(generation: 12, script: "Get-Date");
+        input.Enqueue(Frame(Initialize(1, 12, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+
+        var preparedFrame = (await output.FramesAsync())[2];
+        Assert.Equal(2, preparedFrame.RequestId);
+        Assert.Equal("prepared", preparedFrame.Payload.GetProperty("status").GetString());
+        var descriptor = WorkerPreparedOperationCodec.ParsePreparedDescriptor(
+            preparedFrame.Payload.GetProperty("descriptor"));
+        Assert.Equal(PreparedPlanId, descriptor.PlanId);
+        Assert.Equal(BootId, descriptor.WorkerBootId);
+        Assert.Equal(12, descriptor.Generation);
+        Assert.Equal(0, runtime.ExecutionCount);
+        Assert.DoesNotContain(
+            prepare.Arguments.Script,
+            preparedFrame.Payload.GetRawText(),
+            StringComparison.Ordinal);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Commit,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateCommit(new WorkerCommitPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await output.WaitForWritesAsync(1);
+
+        var terminal = WorkerOperationProtocol.ParseResponse(
+            (await output.FramesAsync())[3],
+            BootId,
+            expectedGeneration: 12);
+        Assert.Equal(WorkerOperationStatus.Completed, terminal.Status);
+        Assert.Equal(
+            new WorkerInvokeResult("prepared-result"),
+            WorkerSessionOperationCodec.ParseResult(
+                WorkerSessionOperationCodec.InvokeOperation,
+                terminal.Result!.Value));
+        Assert.Equal(1, runtime.ExecutionCount);
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.Equal(1, runtime.ShutdownCount);
+        Assert.Equal(1, runtime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Prepared_abort_returns_terminal_without_starting_user_execution()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime();
+        var prepare = PreparedInvoke(generation: 6, script: "Get-Location");
+        input.Enqueue(Frame(Initialize(1, 6, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Abort,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateAbort(new WorkerAbortPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await output.WaitForWritesAsync(1);
+
+        var terminal = WorkerOperationProtocol.ParseResponse(
+            (await output.FramesAsync())[3],
+            BootId,
+            expectedGeneration: 6);
+        Assert.Equal(WorkerOperationStatus.Canceled, terminal.Status);
+        Assert.Equal("prepared_operation_aborted", terminal.DetailCode);
+        Assert.Equal(0, runtime.ExecutionCount);
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+    }
+
+    [Fact]
+    public async Task Shutdown_cancels_uncommitted_prepared_plan_before_runtime_drain()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime();
+        var prepare = PreparedInvoke(generation: 10, script: "Get-Command");
+        input.Enqueue(Frame(Initialize(1, 10, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 3, EmptyPayload())));
+        await output.WaitForWritesAsync(1);
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var frames = await output.FramesAsync();
+        Assert.Equal("stopped", frames[3].Payload.GetProperty("status").GetString());
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.Equal(0, runtime.ExecutionCount);
+        Assert.Equal(1, runtime.ShutdownCount);
+        Assert.Equal(1, runtime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Shutdown_waits_for_admitted_prepared_terminal_write_and_handler_cleanup()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new BlockingSecondWriteStream(blockedWriteNumber: 4);
+        var runtime = new PreparedWorkerRuntime();
+        var prepare = PreparedInvoke(generation: 11, script: "Get-Alias");
+        input.Enqueue(Frame(Initialize(1, 11, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Commit,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateCommit(new WorkerCommitPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await output.BlockedWriteEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+
+        Assert.False(run.IsCompleted);
+        output.ReleaseBlockedWrite.TrySetResult();
+        await output.WaitForWritesAsync(2);
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        var frames = await output.FramesAsync();
+        Assert.Equal(
+            ["hello", "ready", "prepared", "completed", "stopped"],
+            frames.Select(frame =>
+                frame.Kind == WorkerMessageKind.Event
+                    ? frame.Payload.GetProperty("event").GetString()
+                    : frame.Payload.GetProperty("status").GetString()));
+    }
+
+    [Fact]
+    public async Task Cancel_targets_the_committed_prepared_request()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime(blockExecution: true);
+        var prepare = PreparedInvoke(generation: 8, script: "Get-ChildItem");
+        input.Enqueue(Frame(Initialize(1, 8, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Commit,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateCommit(new WorkerCommitPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await runtime.ExecutionStarted.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Cancel,
+            requestId: 3,
+            JsonSerializer.SerializeToElement(new { generation = 8 }))));
+        await output.WaitForWritesAsync(1);
+
+        var terminal = WorkerOperationProtocol.ParseResponse(
+            (await output.FramesAsync())[3],
+            BootId,
+            expectedGeneration: 8);
+        Assert.Equal(WorkerOperationStatus.Canceled, terminal.Status);
+        Assert.Equal("prepared_operation_canceled", terminal.DetailCode);
+        Assert.Equal(1, runtime.ExecutionCount);
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
     }
 
     [Fact]
@@ -1439,6 +1647,20 @@ public sealed class WorkerServerTests
                 arguments,
             }));
 
+    private static WorkerInvokePreparePayload PreparedInvoke(
+        long generation,
+        string script)
+    {
+        var scriptDigest = Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(script)));
+        return new WorkerInvokePreparePayload(
+            PreparedPlanId,
+            generation,
+            Now.AddMinutes(1),
+            scriptDigest,
+            new WorkerInvokeArguments(script, Raw: false, WorkerInvokeRoute.Auto));
+    }
+
     private static JsonElement InitializePayload(long generation, DateTimeOffset deadline) =>
         JsonSerializer.SerializeToElement(new
         {
@@ -1591,6 +1813,66 @@ public sealed class WorkerServerTests
         public void Dispose() => DisposeCount++;
     }
 
+    private sealed class PreparedWorkerRuntime(bool blockExecution = false)
+        : IWorkerSessionRuntime
+    {
+        private int _executionCount;
+
+        internal int ExecutionCount => Volatile.Read(ref _executionCount);
+        internal int ShutdownCount { get; private set; }
+        internal int DisposeCount { get; private set; }
+        internal TaskCompletionSource ExecutionStarted { get; } = NewSignal();
+
+        public Task<JsonElement> ExecuteAsync(
+            WorkerOperationRequest request,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("ordinary operation is not expected");
+
+        public async Task<WorkerPreparedRuntimeResult> InvokeAsync(
+            WorkerInvokePreparePayload prepare,
+            IInvocationAuthorizer authorizer,
+            CancellationToken cancellationToken)
+        {
+            var plan = new ExecutionPlan(
+                prepare.Arguments.Script,
+                prepare.Arguments.Script,
+                ExecutionDomain.PowerShell,
+                ExecutionPath.PowerShellDirect,
+                PreExecutionValidation.None,
+                ResolutionContext.Warm,
+                RequestedExecutionRoute.Auto,
+                OutputProvenance.PowerShellObjects,
+                ImmutableArray<ExecutionPath>.Empty,
+                fallbackReason: null,
+                rtkExecutableIdentity: null);
+            if (!await authorizer.AuthorizePlanAsync(plan, cancellationToken) ||
+                !await authorizer.AuthorizeDispatchAsync(
+                    ExecutionDispatch.FromPlan(plan),
+                    cancellationToken))
+            {
+                return new WorkerPreparedRuntimeResult(
+                    "not-started",
+                    UserExecutionStarted: false);
+            }
+
+            Interlocked.Increment(ref _executionCount);
+            ExecutionStarted.TrySetResult();
+            if (blockExecution)
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            return new WorkerPreparedRuntimeResult(
+                "prepared-result",
+                UserExecutionStarted: true);
+        }
+
+        public Task ShutdownAsync()
+        {
+            ShutdownCount++;
+            return Task.CompletedTask;
+        }
+
+        public void Dispose() => DisposeCount++;
+    }
+
     private sealed class ThrowingReadStream : Stream
     {
         public override ValueTask<int> ReadAsync(
@@ -1706,7 +1988,7 @@ public sealed class WorkerServerTests
             throw new NotSupportedException();
     }
 
-    private sealed class BlockingSecondWriteStream : Stream
+    private sealed class BlockingSecondWriteStream(int blockedWriteNumber = 2) : Stream
     {
         private readonly CapturingWriteStream _inner = new();
         private int _writeCount;
@@ -1715,12 +1997,13 @@ public sealed class WorkerServerTests
         internal TaskCompletionSource ReleaseBlockedWrite { get; } = NewSignal();
 
         internal Task<List<WorkerEnvelope>> FramesAsync() => _inner.FramesAsync();
+        internal Task WaitForWritesAsync(int count) => _inner.WaitForWritesAsync(count);
 
         public override async ValueTask WriteAsync(
             ReadOnlyMemory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Increment(ref _writeCount) == 2)
+            if (Interlocked.Increment(ref _writeCount) == blockedWriteNumber)
             {
                 BlockedWriteEntered.TrySetResult();
                 await ReleaseBlockedWrite.Task.WaitAsync(cancellationToken);

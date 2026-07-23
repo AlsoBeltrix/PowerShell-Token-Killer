@@ -335,6 +335,13 @@ internal sealed class WorkerServer
                 WriteEnvelopeAsync,
                 _utcNow,
                 _waitUntilDeadline);
+            ownership.PreparedScheduler = new WorkerPreparedOperationScheduler(
+                _workerBootId,
+                initialize.Generation,
+                workerRuntime,
+                WriteEnvelopeAsync,
+                _utcNow,
+                _waitUntilDeadline);
         }
 
         var requestIdHighWater = initializeRequestId;
@@ -342,25 +349,20 @@ internal sealed class WorkerServer
         {
             ownership.PendingRead ??= ReadEnvelopeAsync(ownership.ReaderToken);
             var schedulerFatal = ownership.OperationScheduler?.Fatal;
+            var preparedFatal = ownership.PreparedScheduler?.Fatal;
             await Task.WhenAny(
                 ownership.PendingRead,
                 ownership.HostCancellation,
-                schedulerFatal ?? Never)
+                schedulerFatal ?? Never,
+                preparedFatal ?? Never)
                 .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            if (schedulerFatal?.IsCompleted == true)
-            {
-                try
-                {
-                    await schedulerFatal.ConfigureAwait(false);
-                }
-                catch (Exception exception) when (!IsFatal(exception))
-                {
-                    throw new WorkerRuntimeException(
-                        "operation_scheduler_failed",
-                        exception);
-                }
-            }
+            await ThrowIfSchedulerFailedAsync(
+                schedulerFatal,
+                "operation_scheduler_failed").ConfigureAwait(false);
+            await ThrowIfSchedulerFailedAsync(
+                preparedFatal,
+                "prepared_scheduler_failed").ConfigureAwait(false);
 
             var envelope = await ownership.TakePendingReadAsync().ConfigureAwait(false);
             if (envelope is null)
@@ -384,13 +386,40 @@ internal sealed class WorkerServer
                     RequireOperationScheduler(ownership).Admit(envelope);
                     continue;
                 }
+                case WorkerMessageKind.Prepare:
+                {
+                    var requestId = RequireRequestId(envelope);
+                    var prepare = WorkerPreparedOperationCodec.ParsePrepare(envelope.Payload);
+                    AdvanceRequestId(ref requestIdHighWater, requestId);
+                    RequirePreparedScheduler(ownership).AdmitPrepare(requestId, prepare);
+                    continue;
+                }
+                case WorkerMessageKind.Commit:
+                {
+                    var requestId = RequireRequestId(envelope);
+                    var commit = WorkerPreparedOperationCodec.ParseCommit(envelope.Payload);
+                    AdvanceRequestId(ref requestIdHighWater, requestId);
+                    RequirePreparedScheduler(ownership).AdmitCommit(requestId, commit);
+                    continue;
+                }
+                case WorkerMessageKind.Abort:
+                {
+                    var requestId = RequireRequestId(envelope);
+                    var abort = WorkerPreparedOperationCodec.ParseAbort(envelope.Payload);
+                    AdvanceRequestId(ref requestIdHighWater, requestId);
+                    RequirePreparedScheduler(ownership).AdmitAbort(requestId, abort);
+                    continue;
+                }
                 case WorkerMessageKind.Cancel:
-                    _ = WorkerOperationProtocol.ParseCancel(
+                {
+                    var cancel = WorkerOperationProtocol.ParseCancel(
                         envelope,
                         _workerBootId,
                         initialize.Generation);
                     RequireOperationScheduler(ownership).Admit(envelope);
+                    RequirePreparedScheduler(ownership).AdmitCancel(cancel.RequestId);
                     continue;
+                }
                 case WorkerMessageKind.Shutdown:
                     break;
                 default:
@@ -436,6 +465,29 @@ internal sealed class WorkerServer
             "runtime_operations_unavailable",
             new InvalidOperationException(
                 "The initialized worker runtime does not implement worker operations."));
+
+    private static WorkerPreparedOperationScheduler RequirePreparedScheduler(
+        WorkerRunOwnership ownership) =>
+        ownership.PreparedScheduler ??
+        throw new WorkerRuntimeException(
+            "runtime_operations_unavailable",
+            new InvalidOperationException(
+                "The initialized worker runtime does not implement prepared operations."));
+
+    private static async Task ThrowIfSchedulerFailedAsync(
+        Task? fatal,
+        string detailCode)
+    {
+        if (fatal?.IsCompleted != true) return;
+        try
+        {
+            await fatal.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            throw new WorkerRuntimeException(detailCode, exception);
+        }
+    }
 
     private static void AdvanceRequestId(ref long highWater, long requestId)
     {
@@ -826,6 +878,7 @@ internal sealed class WorkerServer
         internal Task<WorkerEnvelope?>? PendingRead { get; set; }
         internal ISessionLifetime? Session { get; set; }
         internal WorkerOperationScheduler? OperationScheduler { get; set; }
+        internal WorkerPreparedOperationScheduler? PreparedScheduler { get; set; }
 
         internal Task<WorkerEnvelope?> TakePendingReadAsync()
         {
@@ -863,6 +916,20 @@ internal sealed class WorkerServer
                 try
                 {
                     await scheduler.CancelAndDrainAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    failed = true;
+                }
+            }
+
+            var preparedScheduler = PreparedScheduler;
+            PreparedScheduler = null;
+            if (preparedScheduler is not null)
+            {
+                try
+                {
+                    await preparedScheduler.CancelAndDrainAsync().ConfigureAwait(false);
                 }
                 catch (Exception exception) when (!IsFatal(exception))
                 {

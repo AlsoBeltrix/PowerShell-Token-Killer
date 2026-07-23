@@ -216,6 +216,33 @@ internal sealed class WorkerPreparedInvokeController
         return reservation.Terminal;
     }
 
+    internal Task Cancel(Guid planId)
+    {
+        Reservation? reservation;
+        lock (_gate) _reservations.TryGetValue(planId, out reservation);
+        return reservation?.RequestCancellationAsync() ?? Task.CompletedTask;
+    }
+
+    internal async Task AbandonAsync(Guid planId)
+    {
+        Reservation? reservation;
+        lock (_gate) _reservations.TryGetValue(planId, out reservation);
+        if (reservation is null) return;
+
+        await reservation.RequestCancellationAsync().ConfigureAwait(false);
+        await reservation.Terminal.ConfigureAwait(false);
+        lock (_gate)
+        {
+            if (!_reservations.TryGetValue(planId, out var current) ||
+                !ReferenceEquals(current, reservation))
+            {
+                return;
+            }
+            _reservations.Remove(planId);
+        }
+        reservation.Dispose();
+    }
+
     internal void Release(Guid planId)
     {
         Reservation? reservation;
@@ -237,19 +264,14 @@ internal sealed class WorkerPreparedInvokeController
         lock (_gate)
         {
             if (!_stopped)
-            {
                 _stopped = true;
-                _shutdown.Cancel();
-            }
             reservations = _reservations.Values.ToArray();
         }
 
-        foreach (var reservation in reservations)
-        {
-            reservation.EndBeforeCommit(
-                WorkerPreparedInvokeTerminalKind.Canceled,
-                "prepared_operation_canceled");
-        }
+        await Task.WhenAll(
+                reservations.Select(value => value.RequestCancellationAsync()))
+            .ConfigureAwait(false);
+        await _shutdown.CancelAsync().ConfigureAwait(false);
         await Task.WhenAll(reservations.Select(value => value.Terminal))
             .ConfigureAwait(false);
 
@@ -398,6 +420,30 @@ internal sealed class WorkerPreparedInvokeController
             string detailCode)
         {
             lock (_gate) EndBeforeCommitUnderLock(kind, detailCode);
+        }
+
+        internal Task RequestCancellationAsync()
+        {
+            var cancelExecution = false;
+            lock (_gate)
+            {
+                if (_state is ReservationState.Preparing or ReservationState.Prepared)
+                {
+                    EndBeforeCommitUnderLock(
+                        WorkerPreparedInvokeTerminalKind.Canceled,
+                        "prepared_operation_canceled");
+                    cancelExecution = true;
+                }
+                else if (_state == ReservationState.Committed)
+                {
+                    _state = ReservationState.Canceled;
+                    _terminalDetailCode = "prepared_operation_canceled";
+                    cancelExecution = true;
+                }
+            }
+            return cancelExecution
+                ? CancelExecutionAsync()
+                : Task.CompletedTask;
         }
 
         public async ValueTask<bool> AuthorizePlanAsync(
@@ -708,6 +754,25 @@ internal sealed class WorkerPreparedInvokeController
             }
         }
 
+        private async Task CancelExecutionAsync()
+        {
+            try
+            {
+                await _executionCancellation.CancelAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                lock (_gate)
+                {
+                    if (!IsTerminalState(_state))
+                    {
+                        _state = ReservationState.Failed;
+                        _terminalDetailCode = "prepared_cancellation_failure";
+                    }
+                }
+            }
+        }
+
         private static bool IsTerminalState(ReservationState state) => state is
             ReservationState.ReplanRequired or
             ReservationState.Aborted or
@@ -715,6 +780,10 @@ internal sealed class WorkerPreparedInvokeController
             ReservationState.Canceled or
             ReservationState.Failed or
             ReservationState.Completed;
+
+        private static bool IsFatal(Exception exception) =>
+            exception is OutOfMemoryException or StackOverflowException or
+                AccessViolationException or AppDomainUnloadedException;
 
         public void Dispose()
         {

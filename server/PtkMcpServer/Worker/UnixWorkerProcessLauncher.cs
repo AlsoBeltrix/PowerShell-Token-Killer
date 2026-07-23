@@ -115,6 +115,8 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
                 [WorkerBootstrapEnvironment.EventHandle] =
                     UnixWorkerBootstrap.EventDescriptor.ToString(
                         CultureInfo.InvariantCulture),
+                [WorkerBootstrapEnvironment.BootId] =
+                    command.WorkerBootId.ToString("D"),
             };
             var spawnError = _native.Spawn(
                 _brokerPath,

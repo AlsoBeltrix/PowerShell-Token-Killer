@@ -4,39 +4,47 @@ namespace PtkMcpServer.Tests;
 
 public sealed class WindowsWorkerBootstrapTests
 {
+    private const string BootId = "27e13a09-3106-4c60-936d-2f6e165f54ad";
+
     [Fact]
     public void Capture_reads_each_value_once_then_removes_each_value_once()
     {
-        var source = new RecordingEnvironmentSource("11", "22");
+        var source = new RecordingEnvironmentSource("11", "22", BootId);
 
         var values = WorkerBootstrapCapture.CaptureAndRemove(source);
 
-        Assert.Equal(new WorkerBootstrapValues("11", "22"), values);
+        Assert.Equal(new WorkerBootstrapValues("11", "22", BootId), values);
         Assert.Equal(
             [
                 $"get:{WorkerBootstrapEnvironment.RequestHandle}",
                 $"get:{WorkerBootstrapEnvironment.EventHandle}",
+                $"get:{WorkerBootstrapEnvironment.BootId}",
                 $"remove:{WorkerBootstrapEnvironment.RequestHandle}",
                 $"remove:{WorkerBootstrapEnvironment.EventHandle}",
+                $"remove:{WorkerBootstrapEnvironment.BootId}",
             ],
             source.Calls);
         Assert.Equal(1, source.GetCount(WorkerBootstrapEnvironment.RequestHandle));
         Assert.Equal(1, source.GetCount(WorkerBootstrapEnvironment.EventHandle));
+        Assert.Equal(1, source.GetCount(WorkerBootstrapEnvironment.BootId));
         Assert.Equal(1, source.RemoveCount(WorkerBootstrapEnvironment.RequestHandle));
         Assert.Equal(1, source.RemoveCount(WorkerBootstrapEnvironment.EventHandle));
+        Assert.Equal(1, source.RemoveCount(WorkerBootstrapEnvironment.BootId));
         Assert.Empty(source.Values);
     }
 
     [Theory]
     [InlineData("get_request", "bootstrap_failure")]
     [InlineData("get_event", "bootstrap_failure")]
+    [InlineData("get_boot_id", "bootstrap_failure")]
     [InlineData("remove_request", "environment_removal_failed")]
     [InlineData("remove_event", "environment_removal_failed")]
+    [InlineData("remove_boot_id", "environment_removal_failed")]
     public void Capture_attempts_both_gets_and_both_removals_when_a_boundary_fails(
         string failingBoundary,
         string expectedDetailCode)
     {
-        var source = new RecordingEnvironmentSource("11", "22")
+        var source = new RecordingEnvironmentSource("11", "22", BootId)
         {
             FailingBoundary = failingBoundary,
         };
@@ -49,14 +57,41 @@ public sealed class WindowsWorkerBootstrapTests
             [
                 $"get:{WorkerBootstrapEnvironment.RequestHandle}",
                 $"get:{WorkerBootstrapEnvironment.EventHandle}",
+                $"get:{WorkerBootstrapEnvironment.BootId}",
                 $"remove:{WorkerBootstrapEnvironment.RequestHandle}",
                 $"remove:{WorkerBootstrapEnvironment.EventHandle}",
+                $"remove:{WorkerBootstrapEnvironment.BootId}",
             ],
             source.Calls);
         Assert.Equal(1, source.GetCount(WorkerBootstrapEnvironment.RequestHandle));
         Assert.Equal(1, source.GetCount(WorkerBootstrapEnvironment.EventHandle));
+        Assert.Equal(1, source.GetCount(WorkerBootstrapEnvironment.BootId));
         Assert.Equal(1, source.RemoveCount(WorkerBootstrapEnvironment.RequestHandle));
         Assert.Equal(1, source.RemoveCount(WorkerBootstrapEnvironment.EventHandle));
+        Assert.Equal(1, source.RemoveCount(WorkerBootstrapEnvironment.BootId));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("27E13A09-3106-4C60-936D-2F6E165F54AD")]
+    [InlineData("{27e13a09-3106-4c60-936d-2f6e165f54ad}")]
+    [InlineData("27e13a09-3106-1c60-936d-2f6e165f54ad")]
+    [InlineData("00000000-0000-0000-0000-000000000000")]
+    public void Worker_boot_identity_must_be_canonical_lowercase_uuid_v4(string? value)
+    {
+        var failure = Assert.Throws<WorkerBootstrapException>(
+            () => WorkerBootstrapCapture.ParseWorkerBootId(value));
+
+        Assert.Equal("worker_boot_id_invalid", failure.DetailCode);
+    }
+
+    [Fact]
+    public void Canonical_lowercase_uuid_v4_worker_boot_identity_is_accepted()
+    {
+        Assert.Equal(
+            Guid.ParseExact(BootId, "D"),
+            WorkerBootstrapCapture.ParseWorkerBootId(BootId));
     }
 
     [Theory]
@@ -232,13 +267,15 @@ public sealed class WindowsWorkerBootstrapTests
 
     private sealed class RecordingEnvironmentSource(
         string requestValue,
-        string eventValue) : IWorkerBootstrapEnvironmentSource
+        string eventValue,
+        string bootId) : IWorkerBootstrapEnvironmentSource
     {
         internal Dictionary<string, string> Values { get; } =
             new(StringComparer.Ordinal)
             {
                 [WorkerBootstrapEnvironment.RequestHandle] = requestValue,
                 [WorkerBootstrapEnvironment.EventHandle] = eventValue,
+                [WorkerBootstrapEnvironment.BootId] = bootId,
             };
 
         internal List<string> Calls { get; } = [];
@@ -269,7 +306,9 @@ public sealed class WindowsWorkerBootstrapTests
         private static string Boundary(string operation, string variable) =>
             variable == WorkerBootstrapEnvironment.RequestHandle
                 ? $"{operation}_request"
-                : $"{operation}_event";
+                : variable == WorkerBootstrapEnvironment.EventHandle
+                    ? $"{operation}_event"
+                    : $"{operation}_boot_id";
     }
 
     private sealed class RecordingNative : IWindowsWorkerBootstrapNative

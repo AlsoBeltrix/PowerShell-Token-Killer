@@ -10,6 +10,10 @@ namespace PtkMcpServer.Tests;
 [Collection(WindowsProcessCreationCollection.Name)]
 public sealed class WindowsContainmentIntegrationTests
 {
+    private static readonly Guid WorkerBootId = Guid.ParseExact(
+        "08c12d83-4057-4f6d-be32-ad6315537440",
+        "D");
+
     private static readonly TimeSpan CheckpointTimeout = TimeSpan.FromSeconds(15);
     private const string ExactEnvironmentVariable = "PTK_CONTAINMENT_EXACT_ENV";
     private const string ExactEnvironmentValue = "exact-λ-value";
@@ -186,7 +190,8 @@ public sealed class WindowsContainmentIntegrationTests
             executable,
             arguments,
             fixtureDirectory,
-            environment);
+            environment,
+            WorkerBootId);
     }
 
     private static string ResolveDotnetHost()
@@ -216,7 +221,7 @@ public sealed class WindowsContainmentIntegrationTests
                 key.Contains('=') ||
                 key.Equals(ExactEnvironmentVariable, StringComparison.OrdinalIgnoreCase) ||
                 key.Equals(AmbientLeakEnvironmentVariable, StringComparison.OrdinalIgnoreCase) ||
-                WorkerBootstrapEnvironment.ReservedHandleVariables.Contains(key))
+                WorkerBootstrapEnvironment.ReservedVariables.Contains(key))
             {
                 continue;
             }

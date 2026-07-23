@@ -9,6 +9,9 @@ namespace PtkMcpServer.Tests;
 public sealed class WindowsWorkerLifecycleIntegrationTests
 {
     private static readonly TimeSpan CheckpointTimeout = TimeSpan.FromSeconds(60);
+    private static readonly Guid WorkerBootId = Guid.ParseExact(
+        "16ff4afc-551e-48d0-b8e3-aa76947518e1",
+        "D");
 
     [Fact]
     public async Task Contained_worker_completes_lifecycle_with_silent_diagnostics()
@@ -55,7 +58,8 @@ public sealed class WindowsWorkerLifecycleIntegrationTests
             ResolveDotnetHost(),
             ["exec", serverAssembly, "--worker"],
             serverDirectory,
-            CaptureCurrentEnvironment());
+            CaptureCurrentEnvironment(),
+            WorkerBootId);
     }
 
     private static string ResolveDotnetHost()
@@ -83,7 +87,7 @@ public sealed class WindowsWorkerLifecycleIntegrationTests
         {
             if (entry.Key is not string key || entry.Value is not string value ||
                 key.Contains('=') ||
-                WorkerBootstrapEnvironment.ReservedHandleVariables.Contains(key))
+                WorkerBootstrapEnvironment.ReservedVariables.Contains(key))
             {
                 continue;
             }

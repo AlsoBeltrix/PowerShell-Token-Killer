@@ -10,6 +10,9 @@ namespace PtkMcpServer.Tests;
 public sealed class UnixWorkerProcessLauncherTests
 {
     private static readonly TimeSpan CheckpointTimeout = TimeSpan.FromSeconds(30);
+    private static readonly Guid WorkerBootId = Guid.ParseExact(
+        "0c8e03c5-b8e4-4f8b-9138-6517aca9a885",
+        "D");
 
     [Fact]
     public async Task Production_broker_launches_real_worker_only_after_both_registry_acks()
@@ -213,7 +216,8 @@ public sealed class UnixWorkerProcessLauncherTests
             ResolveDotnetHost(),
             ["exec", serverAssembly, "--worker"],
             serverDirectory,
-            CaptureCurrentEnvironment());
+            CaptureCurrentEnvironment(),
+            WorkerBootId);
     }
 
     private static WorkerLaunchCommand DescendantCommand() =>
@@ -225,14 +229,16 @@ public sealed class UnixWorkerProcessLauncherTests
                 "while :; do sleep 30; done' ptk-worker-descendant-r6 & wait",
             ],
             Path.GetFullPath("/"),
-            CaptureCurrentEnvironment());
+            CaptureCurrentEnvironment(),
+            WorkerBootId);
 
     private static WorkerLaunchCommand IdleCommand() =>
         new(
             "/bin/sh",
             ["-c", "while :; do sleep 30; done"],
             Path.GetFullPath("/"),
-            CaptureCurrentEnvironment());
+            CaptureCurrentEnvironment(),
+            WorkerBootId);
 
     private static bool ProcessExists(int processId)
     {
@@ -281,7 +287,7 @@ public sealed class UnixWorkerProcessLauncherTests
             if (entry.Key is not string key ||
                 entry.Value is not string value ||
                 key.Contains('=') ||
-                WorkerBootstrapEnvironment.ReservedHandleVariables.Contains(key))
+                WorkerBootstrapEnvironment.ReservedVariables.Contains(key))
             {
                 continue;
             }

@@ -98,6 +98,7 @@ internal static class WorkerProcessExit
         "handle_inheritable" => "handle_inheritable",
         "stream_creation_failed" => "stream_creation_failed",
         "environment_removal_failed" => "environment_removal_failed",
+        "worker_boot_id_invalid" => "worker_boot_id_invalid",
         "bootstrap_failure" => "bootstrap_failure",
         _ => "bootstrap_failure",
     };

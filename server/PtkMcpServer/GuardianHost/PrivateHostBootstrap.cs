@@ -478,8 +478,8 @@ internal sealed class PrivateProcessBootstrapBoundary :
         Exception? removalFailure = null;
         foreach (var variable in PrivateHostBootstrapEnvironment.VariablesInCaptureOrder)
             Remove(variable, ref removalFailure);
-        Remove(WorkerBootstrapEnvironment.RequestHandle, ref removalFailure);
-        Remove(WorkerBootstrapEnvironment.EventHandle, ref removalFailure);
+        foreach (var variable in WorkerBootstrapEnvironment.VariablesInCaptureOrder)
+            Remove(variable, ref removalFailure);
         if (removalFailure is not null)
             throw new PrivateHostBootstrapException("environment_removal_failed");
     }

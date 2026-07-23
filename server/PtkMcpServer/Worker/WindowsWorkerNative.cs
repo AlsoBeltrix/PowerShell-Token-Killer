@@ -246,7 +246,8 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
             nativePipes.ChildHandles);
         using var environment = UnicodeEnvironmentBlock.Create(
             command.Environment,
-            nativePipes);
+            nativePipes,
+            command.WorkerBootId);
 
         var startupInfo = new StartupInfoEx
         {
@@ -988,9 +989,10 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
 
         internal static UnicodeEnvironmentBlock Create(
             IReadOnlyDictionary<string, string> source,
-            NativeWorkerPipeSet pipes)
+            NativeWorkerPipeSet pipes,
+            Guid workerBootId)
         {
-            var variables = new List<KeyValuePair<string, string>>(source.Count + 2);
+            var variables = new List<KeyValuePair<string, string>>(source.Count + 3);
             variables.AddRange(source);
             variables.Add(new(
                 WorkerBootstrapEnvironment.RequestHandle,
@@ -998,6 +1000,9 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
             variables.Add(new(
                 WorkerBootstrapEnvironment.EventHandle,
                 HandleValue(pipes.EventChild)));
+            variables.Add(new(
+                WorkerBootstrapEnvironment.BootId,
+                workerBootId.ToString("D")));
 
             var characters = BuildUnicodeEnvironmentBlockText(variables).ToCharArray();
             var pointer = IntPtr.Zero;

@@ -19,7 +19,8 @@ internal sealed class WorkerBootstrapException : Exception
 
 internal readonly record struct WorkerBootstrapValues(
     string? RequestHandle,
-    string? EventHandle);
+    string? EventHandle,
+    string? WorkerBootId = null);
 
 internal interface IWorkerBootstrapEnvironmentSource
 {
@@ -60,6 +61,7 @@ internal static class WorkerBootstrapCapture
         source ??= ProcessEnvironmentSource.Instance;
         string? requestHandle = null;
         string? eventHandle = null;
+        string? workerBootId = null;
         Exception? captureFailure = null;
         Exception? removalFailure = null;
 
@@ -71,13 +73,19 @@ internal static class WorkerBootstrapCapture
             () => source.Get(WorkerBootstrapEnvironment.EventHandle),
             value => eventHandle = value,
             ref captureFailure);
+        Capture(
+            () => source.Get(WorkerBootstrapEnvironment.BootId),
+            value => workerBootId = value,
+            ref captureFailure);
         Attempt(
             () => source.Remove(WorkerBootstrapEnvironment.RequestHandle),
             ref removalFailure);
         Attempt(
             () => source.Remove(WorkerBootstrapEnvironment.EventHandle),
             ref removalFailure);
-
+        Attempt(
+            () => source.Remove(WorkerBootstrapEnvironment.BootId),
+            ref removalFailure);
         if (removalFailure is not null)
         {
             throw new WorkerBootstrapException(
@@ -87,7 +95,28 @@ internal static class WorkerBootstrapCapture
         if (captureFailure is not null)
             throw new WorkerBootstrapException("bootstrap_failure", captureFailure);
 
-        return new WorkerBootstrapValues(requestHandle, eventHandle);
+        return new WorkerBootstrapValues(requestHandle, eventHandle, workerBootId);
+    }
+
+    internal static Guid ParseWorkerBootId(string? value)
+    {
+        if (value is null ||
+            !Guid.TryParseExact(value, "D", out var parsed) ||
+            !string.Equals(parsed.ToString("D"), value, StringComparison.Ordinal))
+        {
+            throw new WorkerBootstrapException("worker_boot_id_invalid");
+        }
+        try
+        {
+            _ = new PtkSharedContracts.WorkerBootId(parsed);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new WorkerBootstrapException(
+                "worker_boot_id_invalid",
+                exception);
+        }
+        return parsed;
     }
 
     private static void Capture(

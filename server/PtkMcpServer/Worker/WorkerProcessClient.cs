@@ -89,6 +89,7 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
 
     private WorkerProcessClient(
         IWorkerContainedProcess process,
+        Guid expectedWorkerBootId,
         Func<WorkerEnvelope, CancellationToken, ValueTask>? onEvent)
     {
         _process = process ?? throw new ArgumentNullException(nameof(process));
@@ -101,7 +102,7 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
         Client = new WorkerClient(
             process.RequestWriter,
             process.EventReader,
-            expectedWorkerBootId: null,
+            expectedWorkerBootId,
             onEvent);
     }
 
@@ -135,7 +136,10 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
         WorkerProcessClient? authority = null;
         try
         {
-            authority = new WorkerProcessClient(process, onEvent);
+            authority = new WorkerProcessClient(
+                process,
+                command.WorkerBootId,
+                onEvent);
             process = null!;
             await authority.InitializeAsync(
                 generation,

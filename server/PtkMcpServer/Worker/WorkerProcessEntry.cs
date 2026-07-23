@@ -57,7 +57,8 @@ internal static class WorkerProcessEntry
             values,
             openBootstrap: WorkerBootstrap.Open,
             runtimeFactory: CreateRuntimeAsync,
-            bootIdFactory: Guid.NewGuid,
+            bootIdFactory: () =>
+                WorkerBootstrapCapture.ParseWorkerBootId(values.WorkerBootId),
             standardErrorFactory: Console.OpenStandardError,
             cancellationToken);
 
@@ -109,9 +110,9 @@ internal static class WorkerProcessEntry
         var serverConstructed = false;
         try
         {
+            var workerBootId = bootIdFactory();
             bootstrap = openBootstrap(values) ?? throw new InvalidOperationException(
                 "Worker bootstrap returned no stream owner.");
-            var workerBootId = bootIdFactory();
             var server = new WorkerServer(
                 bootstrap.RequestStream,
                 bootstrap.EventStream,

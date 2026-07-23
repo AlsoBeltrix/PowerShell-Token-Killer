@@ -6,13 +6,19 @@ internal static class WorkerBootstrapEnvironment
 {
     internal const string RequestHandle = "PTK_WORKER_REQUEST_HANDLE";
     internal const string EventHandle = "PTK_WORKER_EVENT_HANDLE";
+    internal const string BootId = "PTK_WORKER_BOOT_ID";
 
-    internal static readonly IReadOnlySet<string> ReservedHandleVariables =
-        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            RequestHandle,
-            EventHandle,
-        };
+    internal static readonly IReadOnlyList<string> VariablesInCaptureOrder =
+    [
+        RequestHandle,
+        EventHandle,
+        BootId,
+    ];
+
+    internal static readonly IReadOnlySet<string> ReservedVariables =
+        new HashSet<string>(
+            VariablesInCaptureOrder,
+            StringComparer.OrdinalIgnoreCase);
 }
 
 internal sealed class WorkerLaunchCommand
@@ -21,7 +27,8 @@ internal sealed class WorkerLaunchCommand
         string executablePath,
         IEnumerable<string> arguments,
         string workingDirectory,
-        IEnumerable<KeyValuePair<string, string>> environment)
+        IEnumerable<KeyValuePair<string, string>> environment,
+        Guid workerBootId)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executablePath);
         ArgumentNullException.ThrowIfNull(arguments);
@@ -35,6 +42,7 @@ internal sealed class WorkerLaunchCommand
             throw new ArgumentException("Worker executable path must be absolute.", nameof(executablePath));
         if (!Path.IsPathFullyQualified(workingDirectory))
             throw new ArgumentException("Worker working directory must be absolute.", nameof(workingDirectory));
+        _ = new PtkSharedContracts.WorkerBootId(workerBootId);
 
         var frozenArguments = arguments.ToArray();
         if (frozenArguments.Any(argument => argument is null))
@@ -49,8 +57,8 @@ internal sealed class WorkerLaunchCommand
             ArgumentNullException.ThrowIfNull(pair.Value);
             if (pair.Key.Contains('=') || pair.Key.Contains('\0') || pair.Value.Contains('\0'))
                 throw new ArgumentException("Worker environment contains an invalid name or value.", nameof(environment));
-            if (WorkerBootstrapEnvironment.ReservedHandleVariables.Contains(pair.Key))
-                throw new ArgumentException("Worker environment cannot set reserved handle variables.", nameof(environment));
+            if (WorkerBootstrapEnvironment.ReservedVariables.Contains(pair.Key))
+                throw new ArgumentException("Worker environment cannot set reserved bootstrap variables.", nameof(environment));
             if (!frozenEnvironment.TryAdd(pair.Key, pair.Value))
                 throw new ArgumentException("Worker environment contains duplicate names.", nameof(environment));
         }
@@ -59,10 +67,12 @@ internal sealed class WorkerLaunchCommand
         Arguments = Array.AsReadOnly(frozenArguments);
         WorkingDirectory = workingDirectory;
         Environment = new ReadOnlyDictionary<string, string>(frozenEnvironment);
+        WorkerBootId = workerBootId;
     }
 
     internal string ExecutablePath { get; }
     internal IReadOnlyList<string> Arguments { get; }
     internal string WorkingDirectory { get; }
     internal IReadOnlyDictionary<string, string> Environment { get; }
+    internal Guid WorkerBootId { get; }
 }

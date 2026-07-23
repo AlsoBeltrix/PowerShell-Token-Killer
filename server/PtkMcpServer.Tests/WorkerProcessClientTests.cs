@@ -9,6 +9,10 @@ namespace PtkMcpServer.Tests;
 
 public sealed class WorkerProcessClientTests
 {
+    private static readonly Guid WorkerBootId = Guid.ParseExact(
+        "63ed69bc-24ce-4554-9f7c-30db01dd1964",
+        "D");
+
     private static readonly DateTimeOffset Deadline =
         DateTimeOffset.UtcNow.AddMinutes(2);
 
@@ -87,12 +91,33 @@ public sealed class WorkerProcessClientTests
         Assert.Equal(1, launcher.Process!.DisposeCount);
     }
 
-    private static WorkerLaunchCommand Command() =>
+    [Fact]
+    public async Task Launch_rejects_a_worker_that_does_not_own_the_preassigned_boot_identity()
+    {
+        var launcher = new FakeLauncher([]);
+        var wrongBootId = Guid.ParseExact(
+            "f5725287-4d80-412e-8a84-ecfb8fcf8cc8",
+            "D");
+
+        var exception = await Assert.ThrowsAsync<WorkerProtocolException>(() =>
+            WorkerProcessClient.LaunchAsync(
+                launcher,
+                Command(wrongBootId),
+                generation: 49,
+                Deadline,
+                cancellationToken: TestContext.Current.CancellationToken));
+
+        Assert.Equal("worker_boot_mismatch", exception.DetailCode);
+        Assert.Equal(1, launcher.Process!.DisposeCount);
+    }
+
+    private static WorkerLaunchCommand Command(Guid? workerBootId = null) =>
         new(
             Path.GetFullPath("/ptk-test-worker"),
             ["--worker"],
             Path.GetFullPath("/"),
-            []);
+            [],
+            workerBootId ?? WorkerBootId);
 
     private sealed class FakeLauncher(
         byte[] standardOutput,
@@ -112,10 +137,6 @@ public sealed class WorkerProcessClientTests
 
     private sealed class FakeContainedProcess : IWorkerContainedProcess
     {
-        private static readonly Guid BootId = Guid.ParseExact(
-            "63ed69bc-24ce-4554-9f7c-30db01dd1964",
-            "D");
-
         private readonly Pipe _requests = new();
         private readonly Pipe _events = new();
         private readonly Stream _serverRequests;
@@ -146,7 +167,7 @@ public sealed class WorkerProcessClientTests
                     _serverRequests,
                     _serverEvents,
                     (_, _) => Task.FromResult<ISessionLifetime>(Runtime),
-                    BootId);
+                    WorkerBootId);
                 _ = RunServerAsync(server);
             }
         }

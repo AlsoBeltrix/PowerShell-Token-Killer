@@ -8,6 +8,10 @@ namespace PtkMcpServer.Tests;
 
 public sealed class WindowsProcessTreeSupervisorTests
 {
+    private static readonly Guid WorkerBootId = Guid.ParseExact(
+        "9d735e84-fec6-4214-9663-2e3f7beb06ca",
+        "D");
+
     [Fact]
     public void Runnable_launch_uses_the_frozen_sequence_and_transfers_sole_ownership()
     {
@@ -486,7 +490,8 @@ public sealed class WindowsProcessTreeSupervisorTests
             AbsolutePath("ptk-worker-test"),
             arguments,
             AbsolutePath("work"),
-            environment);
+            environment,
+            WorkerBootId);
 
         arguments[0] = "changed";
         arguments.Add("extra");
@@ -495,6 +500,7 @@ public sealed class WindowsProcessTreeSupervisorTests
 
         Assert.Equal(["--worker"], command.Arguments);
         Assert.Equal("original", command.Environment["PTK_TEST_VALUE"]);
+        Assert.Equal(WorkerBootId, command.WorkerBootId);
         Assert.Single(command.Environment);
         Assert.False(command.Environment.ContainsKey("PATH"));
         Assert.Throws<NotSupportedException>(() =>
@@ -506,6 +512,7 @@ public sealed class WindowsProcessTreeSupervisorTests
     [Theory]
     [InlineData(WorkerBootstrapEnvironment.RequestHandle)]
     [InlineData(WorkerBootstrapEnvironment.EventHandle)]
+    [InlineData(WorkerBootstrapEnvironment.BootId)]
     [InlineData("ptk_worker_request_handle")]
     public void Launch_command_rejects_reserved_handle_variables_case_insensitively(
         string variable)
@@ -514,7 +521,8 @@ public sealed class WindowsProcessTreeSupervisorTests
             AbsolutePath("ptk-worker-test"),
             [],
             AbsolutePath("work"),
-            new Dictionary<string, string> { [variable] = "123" }));
+            new Dictionary<string, string> { [variable] = "123" },
+            WorkerBootId));
     }
 
     [Fact]
@@ -524,22 +532,26 @@ public sealed class WindowsProcessTreeSupervisorTests
             "relative-worker",
             [],
             AbsolutePath("work"),
-            []));
+            [],
+            WorkerBootId));
         Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
             AbsolutePath("ptk-worker-test"),
             [],
             "relative-work",
-            []));
+            [],
+            WorkerBootId));
         Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
             AbsolutePath("ptk-worker-test"),
             ["valid", null!],
             AbsolutePath("work"),
-            []));
+            [],
+            WorkerBootId));
         Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
             AbsolutePath("ptk-worker-test"),
             ["invalid\0argument"],
             AbsolutePath("work"),
-            []));
+            [],
+            WorkerBootId));
         Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
             AbsolutePath("ptk-worker-test"),
             [],
@@ -547,12 +559,21 @@ public sealed class WindowsProcessTreeSupervisorTests
             [
                 new KeyValuePair<string, string>("DUPLICATE", "first"),
                 new KeyValuePair<string, string>("duplicate", "second"),
-            ]));
+            ],
+            WorkerBootId));
         Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
             AbsolutePath("ptk-worker-test"),
             [],
             AbsolutePath("work"),
-            new Dictionary<string, string> { ["INVALID=NAME"] = "value" }));
+            new Dictionary<string, string> { ["INVALID=NAME"] = "value" },
+            WorkerBootId));
+
+        Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
+            AbsolutePath("ptk-worker-test"),
+            [],
+            AbsolutePath("work"),
+            [],
+            Guid.Empty));
     }
 
     [Fact]
@@ -563,7 +584,8 @@ public sealed class WindowsProcessTreeSupervisorTests
             executable,
             ["plain", "", "space value", "argument λ with \"quote\" and trailing\\"],
             AbsolutePath("work"),
-            []);
+            [],
+            WorkerBootId);
 
         Assert.Equal(
             $"\"{executable}\" plain \"\" \"space value\" " +
@@ -611,7 +633,8 @@ public sealed class WindowsProcessTreeSupervisorTests
             AbsolutePath("ptk-worker-test"),
             ["--worker"],
             AbsolutePath("work"),
-            new Dictionary<string, string> { ["PTK_TEST"] = "1" });
+            new Dictionary<string, string> { ["PTK_TEST"] = "1" },
+            WorkerBootId);
 
     private static string AbsolutePath(string leaf) =>
         Path.Combine(Path.GetFullPath(Path.GetTempPath()), leaf);

@@ -419,6 +419,7 @@ public sealed class PrivateHostBootstrapTests
                 .. ExpectedHostRemoveTimeline(),
                 "remove:PTK_WORKER_REQUEST_HANDLE",
                 "remove:PTK_WORKER_EVENT_HANDLE",
+                "remove:PTK_WORKER_BOOT_ID",
             ],
             environment.Timeline);
         Assert.Empty(environment.Values);
@@ -437,7 +438,10 @@ public sealed class PrivateHostBootstrapTests
             boundary.PoisonAndRemove);
 
         Assert.Equal("environment_removal_failed", exception.DetailCode);
-        Assert.Equal(ExpectedHostVariables.Length + 2, environment.Timeline.Count);
+        Assert.Equal(
+            ExpectedHostVariables.Length +
+                WorkerBootstrapEnvironment.VariablesInCaptureOrder.Count,
+            environment.Timeline.Count);
         Assert.All(environment.Timeline, item => Assert.StartsWith("remove:", item));
         Assert.Empty(environment.Values);
         AssertNormalized(exception);
@@ -451,13 +455,20 @@ public sealed class PrivateHostBootstrapTests
 
         var values = boundary.CaptureAndRemoveWorker();
 
-        Assert.Equal(new WorkerBootstrapValues("303", "404"), values);
+        Assert.Equal(
+            new WorkerBootstrapValues(
+                "303",
+                "404",
+                "27e13a09-3106-4c60-936d-2f6e165f54ad"),
+            values);
         Assert.Equal(
             [
                 "get:PTK_WORKER_REQUEST_HANDLE",
                 "get:PTK_WORKER_EVENT_HANDLE",
+                "get:PTK_WORKER_BOOT_ID",
                 "remove:PTK_WORKER_REQUEST_HANDLE",
                 "remove:PTK_WORKER_EVENT_HANDLE",
+                "remove:PTK_WORKER_BOOT_ID",
             ],
             environment.Timeline);
         Assert.True(environment.Values.ContainsKey(
@@ -660,6 +671,8 @@ public sealed class PrivateHostBootstrapTests
         var environment = HostEnvironment("101", "202");
         environment.Values[WorkerBootstrapEnvironment.RequestHandle] = "303";
         environment.Values[WorkerBootstrapEnvironment.EventHandle] = "404";
+        environment.Values[WorkerBootstrapEnvironment.BootId] =
+            "27e13a09-3106-4c60-936d-2f6e165f54ad";
         return environment;
     }
 

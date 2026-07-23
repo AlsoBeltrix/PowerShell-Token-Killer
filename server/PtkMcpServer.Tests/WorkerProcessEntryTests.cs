@@ -67,6 +67,7 @@ public sealed class WorkerProcessEntryTests
             {
                 [WorkerBootstrapEnvironment.RequestHandle] = "101",
                 [WorkerBootstrapEnvironment.EventHandle] = "202",
+                [WorkerBootstrapEnvironment.BootId] = BootId.ToString("D"),
             },
             timeline);
         var arguments = new RecordingArguments(
@@ -86,8 +87,10 @@ public sealed class WorkerProcessEntryTests
             [
                 "get:" + WorkerBootstrapEnvironment.RequestHandle,
                 "get:" + WorkerBootstrapEnvironment.EventHandle,
+                "get:" + WorkerBootstrapEnvironment.BootId,
                 "remove:" + WorkerBootstrapEnvironment.RequestHandle,
                 "remove:" + WorkerBootstrapEnvironment.EventHandle,
+                "remove:" + WorkerBootstrapEnvironment.BootId,
                 "arguments:count",
             ],
             timeline);
@@ -108,6 +111,7 @@ public sealed class WorkerProcessEntryTests
                 AssertCaptureAndRemoval(environment);
                 Assert.Equal("101", values.RequestHandle);
                 Assert.Equal("202", values.EventHandle);
+                Assert.Equal(BootId.ToString("D"), values.WorkerBootId);
                 throw new WorkerBootstrapException("platform_unsupported");
             },
             (_, _) =>
@@ -255,7 +259,9 @@ public sealed class WorkerProcessEntryTests
             values =>
             {
                 AssertCaptureAndRemoval(environment);
-                Assert.Equal(new WorkerBootstrapValues("101", "202"), values);
+                Assert.Equal(
+                    new WorkerBootstrapValues("101", "202", BootId.ToString("D")),
+                    values);
                 streams.Opened = true;
                 return streams;
             },
@@ -617,7 +623,9 @@ public sealed class WorkerProcessEntryTests
             values =>
             {
                 AssertCaptureAndRemoval(environment);
-                Assert.Equal(new WorkerBootstrapValues("101", "202"), values);
+                Assert.Equal(
+                    new WorkerBootstrapValues("101", "202", BootId.ToString("D")),
+                    values);
                 streams.Opened = true;
                 return streams;
             },
@@ -728,6 +736,7 @@ public sealed class WorkerProcessEntryTests
         {
             [WorkerBootstrapEnvironment.RequestHandle] = "101",
             [WorkerBootstrapEnvironment.EventHandle] = "202",
+            [WorkerBootstrapEnvironment.BootId] = BootId.ToString("D"),
         });
 
     private static void AssertCaptureAndRemoval(RecordingEnvironment environment)
@@ -736,14 +745,18 @@ public sealed class WorkerProcessEntryTests
             [
                 "get:" + WorkerBootstrapEnvironment.RequestHandle,
                 "get:" + WorkerBootstrapEnvironment.EventHandle,
+                "get:" + WorkerBootstrapEnvironment.BootId,
                 "remove:" + WorkerBootstrapEnvironment.RequestHandle,
                 "remove:" + WorkerBootstrapEnvironment.EventHandle,
+                "remove:" + WorkerBootstrapEnvironment.BootId,
             ],
             environment.Operations);
         Assert.False(environment.Values.ContainsKey(
             WorkerBootstrapEnvironment.RequestHandle));
         Assert.False(environment.Values.ContainsKey(
             WorkerBootstrapEnvironment.EventHandle));
+        Assert.False(environment.Values.ContainsKey(
+            WorkerBootstrapEnvironment.BootId));
     }
 
     private static async Task<SubprocessResult> RunPrivateSubprocessAsync(
@@ -769,6 +782,12 @@ public sealed class WorkerProcessEntryTests
             start.Environment.Remove(variable);
         start.Environment.Remove(WorkerBootstrapEnvironment.RequestHandle);
         start.Environment.Remove(WorkerBootstrapEnvironment.EventHandle);
+        start.Environment.Remove(WorkerBootstrapEnvironment.BootId);
+        if (arguments.Contains("--worker", StringComparer.Ordinal))
+        {
+            start.Environment[WorkerBootstrapEnvironment.BootId] =
+                BootId.ToString("D");
+        }
 
         using var process = Process.Start(start) ??
             throw new InvalidOperationException("Worker subprocess did not start.");

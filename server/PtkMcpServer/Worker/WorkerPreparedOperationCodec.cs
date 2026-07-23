@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Collections.Immutable;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -30,6 +31,25 @@ internal sealed record WorkerAbortPayload(
     string ScriptDigest,
     long Generation,
     DateTimeOffset DeadlineUtc);
+
+internal sealed record WorkerPreparedPlanDescriptor(
+    Guid PlanId,
+    Guid WorkerBootId,
+    string ScriptDigest,
+    long Generation,
+    DateTimeOffset DeadlineUtc,
+    ExecutionDomain? Domain,
+    RequestedExecutionRoute RequestedRoute,
+    ExecutionPath EffectiveRoute,
+    PreExecutionValidation PreExecutionValidation,
+    ResolutionContext ResolutionContext,
+    OutputProvenance OutputProvenance,
+    ImmutableArray<ExecutionPath> PermittedFallbacks,
+    ExecutionFallbackReason? FallbackReason,
+    string? WorkingDirectoryDigest,
+    string? RtkBinaryDigest,
+    string? BashBinaryDigest,
+    string? OutputShapingRtkBinaryDigest);
 
 internal enum WorkerPreparedCorrelationMatch
 {
@@ -165,6 +185,147 @@ internal static class WorkerPreparedOperationCodec
             payload.DeadlineUtc);
     }
 
+    internal static WorkerPreparedPlanDescriptor ProjectPreparedDescriptor(
+        Guid workerBootId,
+        WorkerInvokePreparePayload prepare,
+        ExecutionPlan plan)
+    {
+        ArgumentNullException.ThrowIfNull(prepare);
+        ArgumentNullException.ThrowIfNull(plan);
+        _ = BootId(workerBootId);
+        _ = CreatePrepare(prepare);
+        if (!string.Equals(
+                prepare.Arguments.Script,
+                plan.OriginalScript,
+                StringComparison.Ordinal))
+        {
+            throw ScriptDigestMismatch();
+        }
+        var requestedRoute = prepare.Arguments.Route switch
+        {
+            WorkerInvokeRoute.Auto => RequestedExecutionRoute.Auto,
+            WorkerInvokeRoute.Pwsh => RequestedExecutionRoute.PowerShell,
+            WorkerInvokeRoute.Rtk => RequestedExecutionRoute.Rtk,
+            _ => throw InvalidField(),
+        };
+        if (requestedRoute != plan.RequestedRoute)
+            throw InvalidField();
+
+        var descriptor = new WorkerPreparedPlanDescriptor(
+            prepare.PlanId,
+            workerBootId,
+            prepare.ScriptDigest,
+            prepare.Generation,
+            prepare.DeadlineUtc,
+            plan.Domain,
+            plan.RequestedRoute,
+            plan.ExecutionPath,
+            plan.PreExecutionValidation,
+            plan.ResolutionContext,
+            plan.OutputProvenance,
+            plan.PermittedFallbacks,
+            plan.FallbackReason,
+            plan.WorkingDirectory is null
+                ? null
+                : ComputeUtf8Digest(plan.WorkingDirectory),
+            RequiredIdentityDigest(plan.RtkExecutableIdentity?.AuditBinaryDigest,
+                plan.RtkExecutableIdentity is not null),
+            RequiredIdentityDigest(plan.BashExecutableIdentity?.BinaryDigest,
+                plan.BashExecutableIdentity is not null),
+            RequiredIdentityDigest(plan.OutputShapingRtkIdentity?.AuditBinaryDigest,
+                plan.OutputShapingRtkIdentity is not null));
+        _ = CreatePreparedDescriptor(descriptor);
+        return descriptor;
+    }
+
+    internal static WorkerPreparedPlanDescriptor ParsePreparedDescriptor(
+        JsonElement payload)
+    {
+        var fields = ClosedObject(
+            payload,
+            "planId",
+            "workerBootId",
+            "generation",
+            "deadlineUnixTimeMilliseconds",
+            "scriptDigest",
+            "domain",
+            "requestedRoute",
+            "effectiveRoute",
+            "preExecutionValidation",
+            "resolutionContext",
+            "outputProvenance",
+            "permittedFallbacks",
+            "fallbackReason",
+            "workingDirectoryDigest",
+            "rtkBinaryDigest",
+            "bashBinaryDigest",
+            "outputShapingRtkBinaryDigest",
+            "descriptorDigest");
+        var descriptor = new WorkerPreparedPlanDescriptor(
+            PlanId(Required(fields, "planId")),
+            BootId(Required(fields, "workerBootId")),
+            ScriptDigest(Required(fields, "scriptDigest")),
+            PositiveInt64(Required(fields, "generation")),
+            Deadline(Required(fields, "deadlineUnixTimeMilliseconds")),
+            ParseDomain(Required(fields, "domain")),
+            ParseRequestedRoute(Required(fields, "requestedRoute")),
+            ParseExecutionPath(Required(fields, "effectiveRoute")),
+            ParsePreExecutionValidation(Required(fields, "preExecutionValidation")),
+            ParseResolutionContext(Required(fields, "resolutionContext")),
+            ParseOutputProvenance(Required(fields, "outputProvenance")),
+            ParsePermittedFallbacks(Required(fields, "permittedFallbacks")),
+            ParseFallbackReason(Required(fields, "fallbackReason")),
+            ParseOptionalDigest(Required(fields, "workingDirectoryDigest")),
+            ParseOptionalDigest(Required(fields, "rtkBinaryDigest")),
+            ParseOptionalDigest(Required(fields, "bashBinaryDigest")),
+            ParseOptionalDigest(Required(fields, "outputShapingRtkBinaryDigest")));
+        var expectedDigest = ScriptDigest(Required(fields, "descriptorDigest"));
+        var actualDigest = ComputePreparedDescriptorDigest(descriptor);
+        if (!string.Equals(expectedDigest, actualDigest, StringComparison.Ordinal))
+            throw DescriptorDigestMismatch();
+        return descriptor;
+    }
+
+    internal static JsonElement CreatePreparedDescriptor(
+        WorkerPreparedPlanDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        var core = CreatePreparedDescriptorCore(descriptor);
+        var descriptorDigest = ComputeUtf8Digest(core.GetRawText());
+        var fields = core.EnumerateObject().ToDictionary(
+            property => property.Name,
+            property => property.Value.Clone(),
+            StringComparer.Ordinal);
+        return JsonSerializer.SerializeToElement(new
+        {
+            planId = fields["planId"],
+            workerBootId = fields["workerBootId"],
+            generation = fields["generation"],
+            deadlineUnixTimeMilliseconds = fields["deadlineUnixTimeMilliseconds"],
+            scriptDigest = fields["scriptDigest"],
+            domain = fields["domain"],
+            requestedRoute = fields["requestedRoute"],
+            effectiveRoute = fields["effectiveRoute"],
+            preExecutionValidation = fields["preExecutionValidation"],
+            resolutionContext = fields["resolutionContext"],
+            outputProvenance = fields["outputProvenance"],
+            permittedFallbacks = fields["permittedFallbacks"],
+            fallbackReason = fields["fallbackReason"],
+            workingDirectoryDigest = fields["workingDirectoryDigest"],
+            rtkBinaryDigest = fields["rtkBinaryDigest"],
+            bashBinaryDigest = fields["bashBinaryDigest"],
+            outputShapingRtkBinaryDigest = fields["outputShapingRtkBinaryDigest"],
+            descriptorDigest,
+        });
+    }
+
+    internal static string ComputePreparedDescriptorDigest(
+        WorkerPreparedPlanDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return ComputeUtf8Digest(CreatePreparedDescriptorCore(descriptor).GetRawText());
+    }
+
     internal static WorkerPreparedCorrelationMatch ComparePreparedToPrepare(
         WorkerInvokePreparePayload? prepare,
         WorkerPreparedCorrelation? prepared)
@@ -244,6 +405,258 @@ internal static class WorkerPreparedOperationCodec
         }
         return WorkerPreparedCorrelationMatch.Match;
     }
+
+    private static JsonElement CreatePreparedDescriptorCore(
+        WorkerPreparedPlanDescriptor descriptor)
+    {
+        var planId = PlanId(descriptor.PlanId);
+        var workerBootId = BootId(descriptor.WorkerBootId);
+        var generation = PositiveInt64(descriptor.Generation);
+        var deadline = DeadlineMilliseconds(descriptor.DeadlineUtc);
+        var scriptDigest = ScriptDigest(descriptor.ScriptDigest);
+        var domain = DomainName(descriptor.Domain);
+        var requestedRoute = RequestedRouteName(descriptor.RequestedRoute);
+        var effectiveRoute = ExecutionPathName(descriptor.EffectiveRoute);
+        var preExecutionValidation =
+            PreExecutionValidationName(descriptor.PreExecutionValidation);
+        var resolutionContext = ResolutionContextName(descriptor.ResolutionContext);
+        var outputProvenance = OutputProvenanceName(descriptor.OutputProvenance);
+        var permittedFallbacks = PermittedFallbackNames(
+            descriptor.PermittedFallbacks);
+        var fallbackReason = FallbackReasonName(descriptor.FallbackReason);
+        var workingDirectoryDigest = OptionalDigest(descriptor.WorkingDirectoryDigest);
+        var rtkBinaryDigest = OptionalDigest(descriptor.RtkBinaryDigest);
+        var bashBinaryDigest = OptionalDigest(descriptor.BashBinaryDigest);
+        var outputShapingRtkBinaryDigest =
+            OptionalDigest(descriptor.OutputShapingRtkBinaryDigest);
+
+        return JsonSerializer.SerializeToElement(new
+        {
+            planId,
+            workerBootId,
+            generation,
+            deadlineUnixTimeMilliseconds = deadline,
+            scriptDigest,
+            domain,
+            requestedRoute,
+            effectiveRoute,
+            preExecutionValidation,
+            resolutionContext,
+            outputProvenance,
+            permittedFallbacks,
+            fallbackReason,
+            workingDirectoryDigest,
+            rtkBinaryDigest,
+            bashBinaryDigest,
+            outputShapingRtkBinaryDigest,
+        });
+    }
+
+    private static string? RequiredIdentityDigest(string? digest, bool required)
+    {
+        if (!required)
+        {
+            if (digest is not null) throw InvalidField();
+            return null;
+        }
+        return ScriptDigest(digest);
+    }
+
+    private static string? DomainName(ExecutionDomain? value) => value switch
+    {
+        null => null,
+        ExecutionDomain.PowerShell => "powershell",
+        ExecutionDomain.NativeTerminal => "native_terminal",
+        ExecutionDomain.MixedDataflow => "mixed_dataflow",
+        ExecutionDomain.Bash => "bash",
+        _ => throw InvalidField(),
+    };
+
+    private static ExecutionDomain? ParseDomain(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Null) return null;
+        return StringField(value) switch
+        {
+            "powershell" => ExecutionDomain.PowerShell,
+            "native_terminal" => ExecutionDomain.NativeTerminal,
+            "mixed_dataflow" => ExecutionDomain.MixedDataflow,
+            "bash" => ExecutionDomain.Bash,
+            _ => throw InvalidField(),
+        };
+    }
+
+    private static string RequestedRouteName(RequestedExecutionRoute value) => value switch
+    {
+        RequestedExecutionRoute.Auto => "auto",
+        RequestedExecutionRoute.PowerShell => "pwsh",
+        RequestedExecutionRoute.Rtk => "rtk",
+        _ => throw InvalidField(),
+    };
+
+    private static RequestedExecutionRoute ParseRequestedRoute(JsonElement value) =>
+        StringField(value) switch
+        {
+            "auto" => RequestedExecutionRoute.Auto,
+            "pwsh" => RequestedExecutionRoute.PowerShell,
+            "rtk" => RequestedExecutionRoute.Rtk,
+            _ => throw InvalidField(),
+        };
+
+    private static string ExecutionPathName(ExecutionPath value) => value switch
+    {
+        ExecutionPath.PowerShellDirect => "powershell_direct",
+        ExecutionPath.Rtk => "rtk",
+        ExecutionPath.NativeDirect => "native_direct",
+        ExecutionPath.BashViaRtk => "bash_via_rtk",
+        _ => throw InvalidField(),
+    };
+
+    private static ExecutionPath ParseExecutionPath(JsonElement value) =>
+        StringField(value) switch
+        {
+            "powershell_direct" => ExecutionPath.PowerShellDirect,
+            "rtk" => ExecutionPath.Rtk,
+            "native_direct" => ExecutionPath.NativeDirect,
+            "bash_via_rtk" => ExecutionPath.BashViaRtk,
+            _ => throw InvalidField(),
+        };
+
+    private static string PreExecutionValidationName(
+        PreExecutionValidation value) => value switch
+    {
+        PreExecutionValidation.None => "none",
+        PreExecutionValidation.BashSyntax => "bash_syntax",
+        _ => throw InvalidField(),
+    };
+
+    private static PreExecutionValidation ParsePreExecutionValidation(
+        JsonElement value) => StringField(value) switch
+    {
+        "none" => PreExecutionValidation.None,
+        "bash_syntax" => PreExecutionValidation.BashSyntax,
+        _ => throw InvalidField(),
+    };
+
+    private static string ResolutionContextName(ResolutionContext value) => value switch
+    {
+        ResolutionContext.Warm => "warm",
+        ResolutionContext.Cold => "cold",
+        _ => throw InvalidField(),
+    };
+
+    private static ResolutionContext ParseResolutionContext(JsonElement value) =>
+        StringField(value) switch
+        {
+            "warm" => ResolutionContext.Warm,
+            "cold" => ResolutionContext.Cold,
+            _ => throw InvalidField(),
+        };
+
+    private static string OutputProvenanceName(OutputProvenance value) => value switch
+    {
+        OutputProvenance.PowerShellObjects => "powershell_objects",
+        OutputProvenance.DirectText => "direct_text",
+        OutputProvenance.RtkUnknown => "rtk_unknown",
+        OutputProvenance.RtkFiltered => "rtk_filtered",
+        OutputProvenance.RtkPassthrough => "rtk_passthrough",
+        _ => throw InvalidField(),
+    };
+
+    private static OutputProvenance ParseOutputProvenance(JsonElement value) =>
+        StringField(value) switch
+        {
+            "powershell_objects" => OutputProvenance.PowerShellObjects,
+            "direct_text" => OutputProvenance.DirectText,
+            "rtk_unknown" => OutputProvenance.RtkUnknown,
+            "rtk_filtered" => OutputProvenance.RtkFiltered,
+            "rtk_passthrough" => OutputProvenance.RtkPassthrough,
+            _ => throw InvalidField(),
+        };
+
+    private static string[] PermittedFallbackNames(
+        ImmutableArray<ExecutionPath> values)
+    {
+        if (values.IsDefault || values.Length > 2 ||
+            values.Distinct().Count() != values.Length ||
+            values.Any(value => value is not (
+                ExecutionPath.PowerShellDirect or ExecutionPath.NativeDirect)))
+        {
+            throw InvalidField();
+        }
+        return values.Select(ExecutionPathName).ToArray();
+    }
+
+    private static ImmutableArray<ExecutionPath> ParsePermittedFallbacks(
+        JsonElement value)
+    {
+        if (value.ValueKind != JsonValueKind.Array)
+            throw InvalidField();
+        var builder = ImmutableArray.CreateBuilder<ExecutionPath>();
+        foreach (var item in value.EnumerateArray())
+        {
+            var parsed = ParseExecutionPath(item);
+            if (parsed is not (
+                    ExecutionPath.PowerShellDirect or ExecutionPath.NativeDirect) ||
+                builder.Contains(parsed) ||
+                builder.Count == 2)
+            {
+                throw InvalidField();
+            }
+            builder.Add(parsed);
+        }
+        return builder.ToImmutable();
+    }
+
+    private static string? FallbackReasonName(ExecutionFallbackReason? value) => value switch
+    {
+        null => null,
+        ExecutionFallbackReason.RtkExecutableUnavailable =>
+            "rtk_executable_unavailable",
+        ExecutionFallbackReason.RtkExecutableBecameUnavailable =>
+            "rtk_executable_became_unavailable",
+        ExecutionFallbackReason.RtkIneligibleShape => "rtk_ineligible_shape",
+        ExecutionFallbackReason.RtkSelfInvocation => "rtk_self_invocation",
+        ExecutionFallbackReason.RtkResolutionNotApplication =>
+            "rtk_resolution_not_application",
+        ExecutionFallbackReason.RtkFidelityExclusion => "rtk_fidelity_exclusion",
+        ExecutionFallbackReason.RtkExecutionPreparationFailed =>
+            "rtk_execution_preparation_failed",
+        ExecutionFallbackReason.RtkTargetResolutionChanged =>
+            "rtk_target_resolution_changed",
+        _ => throw InvalidField(),
+    };
+
+    private static ExecutionFallbackReason? ParseFallbackReason(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Null) return null;
+        return StringField(value) switch
+        {
+            "rtk_executable_unavailable" =>
+                ExecutionFallbackReason.RtkExecutableUnavailable,
+            "rtk_executable_became_unavailable" =>
+                ExecutionFallbackReason.RtkExecutableBecameUnavailable,
+            "rtk_ineligible_shape" => ExecutionFallbackReason.RtkIneligibleShape,
+            "rtk_self_invocation" => ExecutionFallbackReason.RtkSelfInvocation,
+            "rtk_resolution_not_application" =>
+                ExecutionFallbackReason.RtkResolutionNotApplication,
+            "rtk_fidelity_exclusion" =>
+                ExecutionFallbackReason.RtkFidelityExclusion,
+            "rtk_execution_preparation_failed" =>
+                ExecutionFallbackReason.RtkExecutionPreparationFailed,
+            "rtk_target_resolution_changed" =>
+                ExecutionFallbackReason.RtkTargetResolutionChanged,
+            _ => throw InvalidField(),
+        };
+    }
+
+    private static string? ParseOptionalDigest(JsonElement value)
+    {
+        if (value.ValueKind == JsonValueKind.Null) return null;
+        return ScriptDigest(value);
+    }
+
+    private static string? OptionalDigest(string? value) =>
+        value is null ? null : ScriptDigest(value);
 
     private static JsonElement PrepareArguments(
         WorkerInvokeArguments? arguments,
@@ -457,6 +870,24 @@ internal static class WorkerPreparedOperationCodec
 
     private static string PlanId(Guid value)
     {
+        return CanonicalUuid4(value);
+    }
+
+    private static Guid BootId(JsonElement value)
+    {
+        var text = StringField(value);
+        if (!Guid.TryParseExact(text, "D", out var parsed) ||
+            !string.Equals(text, BootId(parsed), StringComparison.Ordinal))
+        {
+            throw InvalidField();
+        }
+        return parsed;
+    }
+
+    private static string BootId(Guid value) => CanonicalUuid4(value);
+
+    private static string CanonicalUuid4(Guid value)
+    {
         var text = value.ToString("D", CultureInfo.InvariantCulture);
         if (value == Guid.Empty || text[14] != '4' ||
             text[19] is not ('8' or '9' or 'a' or 'b'))
@@ -490,13 +921,16 @@ internal static class WorkerPreparedOperationCodec
     }
 
     private static string ComputeScriptDigest(string? script)
+        => ComputeUtf8Digest(script);
+
+    private static string ComputeUtf8Digest(string? value)
     {
-        if (script is null) throw InvalidField();
+        if (value is null) throw InvalidField();
 
         int byteCount;
         try
         {
-            byteCount = StrictUtf8.GetByteCount(script);
+            byteCount = StrictUtf8.GetByteCount(value);
         }
         catch (EncoderFallbackException)
         {
@@ -510,7 +944,7 @@ internal static class WorkerPreparedOperationCodec
             try
             {
                 written = StrictUtf8.GetBytes(
-                    script.AsSpan(),
+                    value.AsSpan(),
                     bytes.AsSpan(0, byteCount));
             }
             catch (EncoderFallbackException)
@@ -550,6 +984,11 @@ internal static class WorkerPreparedOperationCodec
         new(
             "prepared_script_digest_mismatch",
             "Worker prepared-operation script digest does not match its script.");
+
+    private static WorkerProtocolException DescriptorDigestMismatch() =>
+        new(
+            "prepared_descriptor_digest_mismatch",
+            "Worker prepared-operation descriptor digest does not match its fields.");
 
     private static WorkerProtocolException NestedArgumentsFailure(
         WorkerProtocolException exception) =>

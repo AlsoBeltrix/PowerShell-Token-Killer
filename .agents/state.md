@@ -242,7 +242,7 @@ short and update it when important repo facts change.
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
 - **R6 live worker execution and the host-side contained worker authority are
-  active at code head `a0c759d`.** `SessionRuntime` is the sole worker runtime adapter.
+  active at code head `901b475`.** `SessionRuntime` is the sole worker runtime adapter.
   The initialized worker server now owns live ordinary request/cancel
   scheduling and rejects script-bearing ordinary invoke before runtime
   dispatch. A separate asynchronous owner publishes the immutable hash-bound
@@ -250,21 +250,22 @@ short and update it when important repo facts change.
   abort/expiry/replan/cancel no-start outcomes, emits validator lifecycle
   facts, and drains admitted terminal writes before runtime shutdown. Focused
   mutation guards cover ordinary dispatch, committed execution, committed
-  cancellation, and exact handler ownership; the authoritative clean build
-  and exact handler ownership. One strict process client now binds dynamic
+  cancellation, and exact handler ownership. One strict process client binds dynamic
   worker identity, continuously drains only bounded content-free diagnostics,
   and converges protocol/process loss on exactly-once containment. Windows
   uses the existing creation-time nested Job Object. Unix now uses a strict
   broker-v2 gated fork, authenticated fd 3/4 bootstrap, independently checked
-  Darwin/Linux start identities, pending/armed registry acknowledgements
-  before exec release, and native whole-group TERM/KILL confirmation. The
-  request-descriptor and descendant-containment mutations fail their real
-  process guards; the authoritative clean build and physical-temp in-process
-  server suite pass 1,952/1,952. R6 remains in progress:
-  guardian-reserved background start and worker lifecycle events, the outer
-  guardian broker's real pending/armed/remove registry, per-alias host cutover,
-  guardian v2 control, recovery wiring, and the cross-platform acceptance
-  matrix remain.
+  Darwin/Linux start identities, a bounded outer-guardian
+  pending/armed/remove registry, acknowledgements before group move and exec
+  release, and native whole-group TERM/KILL confirmation. The false-armed,
+  omitted-group-KILL, broker-TERM, worker-TERM, request-descriptor, and
+  descendant-containment mutations fail their real process guards. As of
+  `901b475`, macOS and x64 Linux clean builds report zero warnings/errors and
+  their physical-temp Guardian/server suites pass 444/444 and 1,953/1,953;
+  Linux ARM64 strictly compiles both native brokers and the registry fixture.
+  R6 remains in progress: guardian-reserved background start and worker
+  lifecycle events, per-alias host cutover, guardian v2 control, automatic
+  recovery wiring, and the remaining Windows/cutover acceptance matrix.
 - **The owner-approved two-layer MCP resilience sequence is implemented and
   directly validated through R5 on `feature/mcp-resilience-r1`; the current
   code head is `225b5fc`, with exact platform evidence at Windows `195e7e6`,

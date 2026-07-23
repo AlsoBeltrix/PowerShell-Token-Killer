@@ -1514,3 +1514,33 @@ GitHub-hosted Ubuntu, Windows, and arm64 macOS._
   `2026-07-23T17:27:44Z`. Its immutable workflow evidence closes the final
   dependency-hardening acceptance gate; no hosted runner residue is
   repository-local.
+
+## R6 Unix outer worker authority validation (macOS and Linux, 2026-07-23)
+
+_Verified at exact pushed code head
+`901b475512521b2adc4ea19429e42a7617d771f4`._
+
+- On the local ARM64 macOS host, both production native brokers and the
+  registry fixture passed the strict C17 warning-as-error compile. The clean
+  solution build reported zero warnings/errors; the physical-temp Guardian
+  and server assemblies passed 444/444 and 1,953/1,953. The real worker
+  shutdown race reproduced within 3 focused iterations before the
+  identity-deferred signal fix and then passed 50/50. Removing the outer armed
+  PGID check, registered-group KILL, inner broker TERM immunity, or gated
+  worker TERM reset each turned its focused process guard red.
+- On `magneto` (Arch Linux x86_64, kernel 7.1.3, .NET SDK 10.0.110), the two
+  production brokers passed strict native compilation. The first exact-SHA
+  registry run exposed and guarded a Linux `/proc/<pid>/stat` delimiter-order
+  defect; corrective code head `4689848` then passed outer registry 5/5 and
+  worker broker 4/4. Final code head `901b475` built with zero
+  warnings/errors and passed Guardian 444/444 plus server 1,953/1,953.
+- Linux full-suite `TMPDIR` must remain outside the clone: placing it below
+  the checkout makes `ModulePathProbeTests` correctly discover the checkout
+  while walking the synthetic base's ancestors. The final passing root was
+  `/tmp/ptk-r6-test-tmp-901b475`, a sibling of the disposable clone.
+- On the Ubuntu ARM64 VM at `192.168.64.5` (kernel 7.0.0-28, .NET SDK
+  10.0.110), both production brokers and the registry fixture passed the same
+  strict C17 compile at `901b475`. The existing ARM64 MSBuild-only `protoc`
+  blocker remains separate and was not reclassified as an R6 failure.
+- Both Linux disposable clones, validation roots, compiled helpers, and all
+  scoped native processes were removed after validation.

@@ -2,8 +2,8 @@
 
 **Status:** THIRD HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
 2026-07-23 AT CODE HEAD
-`9630ff7c8d4c2e399bfd00581c0c1a536a46cbf3`; FINAL HOSTED ACCEPTANCE REMAINS
-SEPARATELY AUTHORIZED.
+`9630ff7c8d4c2e399bfd00581c0c1a536a46cbf3`; FOURTH HOSTED CORRECTIVE
+AMENDMENT AWAITS OWNER APPROVAL.
 The first hosted corrective amendment is implemented locally at code head
 `8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
 `30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
@@ -628,6 +628,47 @@ three product handshakes green.
 - No green hosted claim is made. A new exact-SHA push and one six-job GitHub
   Actions run with all three product handshakes green require separate
   authorization.
+
+## Proposed fourth hosted corrective amendment — owner approval required
+
+GitHub Actions run `30015883142` at exact SHA
+`d50d9741e8a59ede71182755f6c037d31a503b67` passed all three SIEM jobs and
+the Ubuntu and Windows product jobs, including both product handshakes. The
+macOS product job passed Pester, architecture 73/73, and Guardian 442/442,
+then ran all 1,917 server identities with one failure. Its handshake was
+skipped because the server step failed.
+
+### 18. Separate transcript observation time from the native containment deadline
+
+`UnixGuardianBrokerIntegrationTests.Guardian_death_contains_every_creation_barrier`
+timed out waiting for the `before_armed_ack` broker transcript. The native
+fixture owns an exact 10-second containment deadline and records its internal
+completion time in that transcript, while the .NET harness currently allows
+only 15 seconds for the independently scheduled orphan broker to finish,
+`fsync`, and make the transcript observable. The same exact theory case passed
+10/10 focused local runs, and the complete seven-barrier theory passed three
+consecutive local runs.
+
+Add one test-only 30-second transcript-observation timeout and use it only for
+the two `ReadFileLineAsync` calls that await broker transcripts. Keep the
+existing 15-second checkpoint timeout for compilation, barrier readiness,
+direct-process exit, process disappearance, and diagnostic drains. Do not
+change the native source, its exact 2-second TERM-to-KILL interval, its exact
+10-second containment deadline, process signaling, registry protocol, or any
+transcript assertion. In particular, a received transcript must still prove
+`completedAtMs <= deadlineMs == 10000`, zero survivors, zero zombies, both
+groups gone, and correct direct-child reaping.
+
+This change cannot turn a missing or invalid containment proof green: a broker
+that exits without a complete transcript still times out, and a late
+transcript still fails unless its native monotonic evidence satisfies every
+existing bound. It only gives the hosted .NET observer more scheduling margin
+to receive a valid proof.
+
+After approval, commit this one test-harness finding separately. Re-run the
+exact `before_armed_ack` theory repeatedly, the complete seven-barrier theory
+repeatedly, the full macOS product sequence, and the handshake. A new
+exact-SHA push and final six-job hosted run require separate authorization.
 
 ## Completion and failure handling
 

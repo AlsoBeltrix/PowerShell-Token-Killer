@@ -21,7 +21,10 @@ short and update it when important repo facts change.
   to the approved second corrective amendment, now locally complete at code
   head `cf94796`. Run `30008032861` passed five of six jobs and exposed one
   further macOS test-scheduling finding; Slice 17 is locally complete at code
-  head `9630ff7` with exact evidence in
+  head `9630ff7`. Run `30015883142` then passed five jobs and both completed
+  product handshakes, but macOS server testing timed out waiting for one native
+  broker transcript. Proposed test-only Slice 18 awaits owner approval; exact
+  evidence and the preserved containment boundary are in
   `.agents/plans/dependency-hardening.md`.
 - **Dependency hardening and its first hosted corrective amendment are locally
   complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; the approved
@@ -463,9 +466,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Obtain separate authorization for final dependency-hardening hosted
-   acceptance, then require all six GitHub Actions jobs and all three product
-   handshakes green at one exact SHA before making a hosted-green claim.
+1. Obtain owner approval for proposed dependency-hardening Slice 18, implement
+   and verify its test-only transcript observation budget, then obtain separate
+   authorization for one final exact-SHA push. Require all six GitHub Actions
+   jobs and all three product handshakes green before a hosted-green claim.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not

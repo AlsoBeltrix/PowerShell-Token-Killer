@@ -1466,3 +1466,30 @@ changing the installed payload._
   host/runtime loss but intentionally cannot recover guardian death or a
   client-closed public transport. R7 real-Codex validation now explicitly
   carries this distinction.
+
+## Dependency hosted run 30015883142 (2026-07-23)
+
+_Exact pushed SHA `d50d9741e8a59ede71182755f6c037d31a503b67`;
+GitHub-hosted Ubuntu, Windows, and arm64 macOS._
+
+- All three SIEM jobs passed. Ubuntu and Windows product jobs passed their
+  complete Pester, architecture 73, Guardian 442, server 1,917, and stdio
+  handshake steps.
+- macOS passed Pester 141 with two expected platform skips, architecture
+  73/73, and Guardian 442/442. The server assembly ran all 1,917 identities
+  with one failure:
+  `UnixGuardianBrokerIntegrationTests.Guardian_death_contains_every_creation_barrier`
+  at `before_armed_ack` timed out after 15 seconds waiting for the orphan
+  broker's complete transcript. The handshake was consequently skipped.
+- The fixture's unchanged native transcript contract carries an exact
+  10-second containment deadline and rejects completion beyond that deadline.
+  The .NET observation timeout adds only five seconds for independent process
+  scheduling and the transcript `fsync`.
+- At the same code head on the local arm64 macOS host, the exact failing theory
+  passed 10/10 focused runs. The complete seven-barrier theory then passed
+  three consecutive runs. No production or test source changed during this
+  diagnosis.
+- Proposed Slice 18 in `.agents/plans/dependency-hardening.md` separates a
+  30-second .NET transcript-observation budget from the unchanged native
+  10-second containment proof. It remains owner-gated; no hosted-green claim
+  is made.

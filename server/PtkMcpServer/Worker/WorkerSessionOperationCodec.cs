@@ -44,9 +44,7 @@ internal sealed record WorkerJobKillResult(string Text) : WorkerSessionOperation
 internal sealed record WorkerStateResult(string Text) : WorkerSessionOperationResult;
 
 /// <summary>
-/// Strict transport-neutral value codecs for the deliberately unwired Slice 7g
-/// worker operations. These values are not assigned to an envelope kind and
-/// cannot execute a session operation.
+/// Strict transport-neutral value codecs for worker operations.
 /// </summary>
 internal static class WorkerSessionOperationCodec
 {

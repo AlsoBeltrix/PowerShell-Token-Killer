@@ -54,9 +54,8 @@ internal sealed record WorkerOperationResponse(
 }
 
 /// <summary>
-/// Strict outer DTO codec for the deliberately unwired Slice 7f operation
-/// transport. Concrete operation codecs own the contents of arguments/result
-/// before this transport can be connected to a real runtime.
+/// Strict outer DTO codec for ordinary worker operation transport. Concrete
+/// operation codecs own the contents of arguments and results.
 /// </summary>
 internal static class WorkerOperationProtocol
 {

@@ -215,9 +215,7 @@ public sealed class WorkerServerTests
     [InlineData((int)WorkerMessageKind.Prepare)]
     [InlineData((int)WorkerMessageKind.Commit)]
     [InlineData((int)WorkerMessageKind.Abort)]
-    [InlineData((int)WorkerMessageKind.Request)]
-    [InlineData((int)WorkerMessageKind.Cancel)]
-    public async Task Operation_frames_remain_unwired_after_ready(
+    public async Task Prepared_operation_frames_remain_unwired_after_ready(
         int kindValue)
     {
         var kind = (WorkerMessageKind)kindValue;
@@ -241,6 +239,154 @@ public sealed class WorkerServerTests
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
         Assert.Equal(2, (await output.FramesAsync()).Count);
+    }
+
+    [Fact]
+    public async Task Ordinary_request_executes_through_worker_runtime_and_correlates_response()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var executeEntered = NewSignal();
+        var runtime = new RecordingWorkerRuntime((request, _) =>
+        {
+            executeEntered.TrySetResult();
+            Assert.Equal(WorkerSessionOperationCodec.StateOperation, request.Operation);
+            var arguments = Assert.IsType<WorkerStateArguments>(
+                WorkerSessionOperationCodec.ParseArguments(
+                    request.Operation,
+                    request.Arguments));
+            Assert.True(arguments.ListAvailable);
+            return Task.FromResult(WorkerSessionOperationCodec.CreateResult(
+                request.Operation,
+                new WorkerStateResult("live-state")));
+        });
+        input.Enqueue(Frame(Initialize(1, 7, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(OperationRequest(
+            requestId: 2,
+            generation: 7,
+            operation: WorkerSessionOperationCodec.StateOperation,
+            WorkerSessionOperationCodec.CreateArguments(
+                WorkerSessionOperationCodec.StateOperation,
+                new WorkerStateArguments(ListAvailable: true)))));
+        await executeEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var responseWrite = output.WaitForWritesAsync(1);
+        var responseOutcome = await Task.WhenAny(responseWrite, run);
+        Assert.Same(responseWrite, responseOutcome);
+        await responseWrite;
+
+        var response = WorkerOperationProtocol.ParseResponse(
+            (await output.FramesAsync())[2],
+            BootId,
+            expectedGeneration: 7);
+        Assert.Equal(WorkerOperationStatus.Completed, response.Status);
+        Assert.Equal(
+            new WorkerStateResult("live-state"),
+            WorkerSessionOperationCodec.ParseResult(
+                WorkerSessionOperationCodec.StateOperation,
+                response.Result!.Value));
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 3, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.Equal(1, runtime.ExecuteCount);
+        Assert.Equal(1, runtime.ShutdownCount);
+        Assert.Equal(1, runtime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Ordinary_invoke_is_protocol_fatal_before_runtime_execution()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new RecordingWorkerRuntime((_, _) =>
+            throw new InvalidOperationException("ordinary invoke reached the runtime"));
+        input.Enqueue(Frame(Initialize(1, 4, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(OperationRequest(
+            requestId: 2,
+            generation: 4,
+            operation: WorkerSessionOperationCodec.InvokeOperation,
+            WorkerSessionOperationCodec.CreateArguments(
+                WorkerSessionOperationCodec.InvokeOperation,
+                new WorkerInvokeArguments("Get-Process", Raw: false, WorkerInvokeRoute.Auto)))));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            new WorkerServerExit(
+                WorkerServerExitKind.ProtocolError,
+                "ordinary_invoke_forbidden"),
+            exit);
+        Assert.Equal(0, runtime.ExecuteCount);
+        Assert.Equal(1, runtime.ShutdownCount);
+        Assert.Equal(1, runtime.DisposeCount);
+        Assert.Equal(2, (await output.FramesAsync()).Count);
+    }
+
+    [Fact]
+    public async Task Ordinary_cancel_targets_running_request_and_shutdown_follows_terminal()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var entered = NewSignal();
+        var runtime = new RecordingWorkerRuntime(async (_, cancellationToken) =>
+        {
+            entered.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("unreachable");
+        });
+        input.Enqueue(Frame(Initialize(1, 9, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(OperationRequest(
+            requestId: 2,
+            generation: 9,
+            operation: WorkerSessionOperationCodec.StateOperation,
+            WorkerSessionOperationCodec.CreateArguments(
+                WorkerSessionOperationCodec.StateOperation,
+                new WorkerStateArguments(ListAvailable: false)))));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Cancel,
+            requestId: 2,
+            JsonSerializer.SerializeToElement(new { generation = 9 }))));
+        var responseWrite = output.WaitForWritesAsync(1);
+        var responseOutcome = await Task.WhenAny(responseWrite, run);
+        Assert.Same(responseWrite, responseOutcome);
+        await responseWrite;
+
+        var response = WorkerOperationProtocol.ParseResponse(
+            (await output.FramesAsync())[2],
+            BootId,
+            expectedGeneration: 9);
+        Assert.Equal(WorkerOperationStatus.Canceled, response.Status);
+        Assert.Equal("request_canceled", response.DetailCode);
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 3, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.Equal(1, runtime.ExecuteCount);
+        Assert.Equal(1, runtime.ShutdownCount);
+        Assert.Equal(1, runtime.DisposeCount);
     }
 
     [Fact]
@@ -1276,6 +1422,23 @@ public sealed class WorkerServerTests
             requestId,
             InitializePayload(generation, deadline));
 
+    private static WorkerEnvelope OperationRequest(
+        long requestId,
+        long generation,
+        string operation,
+        JsonElement arguments) =>
+        Envelope(
+            WorkerMessageKind.Request,
+            requestId,
+            JsonSerializer.SerializeToElement(new
+            {
+                generation,
+                deadlineUnixTimeMilliseconds = Now.AddMinutes(1)
+                    .ToUnixTimeMilliseconds(),
+                operation,
+                arguments,
+            }));
+
     private static JsonElement InitializePayload(long generation, DateTimeOffset deadline) =>
         JsonSerializer.SerializeToElement(new
         {
@@ -1395,6 +1558,37 @@ public sealed class WorkerServerTests
             Disposed.TrySetResult();
             _dispose();
         }
+    }
+
+    private sealed class RecordingWorkerRuntime(
+        Func<WorkerOperationRequest, CancellationToken, Task<JsonElement>> execute)
+        : IWorkerSessionRuntime
+    {
+        internal int ExecuteCount { get; private set; }
+        internal int ShutdownCount { get; private set; }
+        internal int DisposeCount { get; private set; }
+
+        public Task<JsonElement> ExecuteAsync(
+            WorkerOperationRequest request,
+            CancellationToken cancellationToken)
+        {
+            ExecuteCount++;
+            return execute(request, cancellationToken);
+        }
+
+        public Task<WorkerPreparedRuntimeResult> InvokeAsync(
+            WorkerInvokePreparePayload prepare,
+            IInvocationAuthorizer authorizer,
+            CancellationToken cancellationToken) =>
+            throw new InvalidOperationException("prepared invoke is not expected");
+
+        public Task ShutdownAsync()
+        {
+            ShutdownCount++;
+            return Task.CompletedTask;
+        }
+
+        public void Dispose() => DisposeCount++;
     }
 
     private sealed class ThrowingReadStream : Stream

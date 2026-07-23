@@ -10,9 +10,8 @@ internal interface IWorkerOperationExecutor
 }
 
 /// <summary>
-/// Deliberately unwired owner for operation correlation, cancellation, and
-/// terminal responses. The production worker does not construct this type in
-/// Slice 7f.
+/// Owns live ordinary-operation correlation, cancellation, and terminal
+/// responses for one initialized worker generation.
 /// </summary>
 internal sealed class WorkerOperationScheduler
 {

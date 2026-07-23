@@ -31,6 +31,8 @@ internal readonly record struct WorkerServerExit(
 internal sealed class WorkerServer
 {
     private static readonly TimeSpan MaximumDeadlinePoll = TimeSpan.FromMinutes(1);
+    private static readonly Task Never = new TaskCompletionSource(
+        TaskCreationOptions.RunContinuationsAsynchronously).Task;
 
     private readonly WorkerProtocolReader _reader;
     private readonly WorkerProtocolWriter _writer;
@@ -323,24 +325,82 @@ internal sealed class WorkerServer
             break;
         }
 
+        if (ownership.Session is IWorkerSessionRuntime workerRuntime)
+        {
+            ownership.OperationScheduler = new WorkerOperationScheduler(
+                _workerBootId,
+                initialize.Generation,
+                initializeRequestId,
+                workerRuntime,
+                WriteEnvelopeAsync,
+                _utcNow,
+                _waitUntilDeadline);
+        }
+
+        var requestIdHighWater = initializeRequestId;
         while (true)
         {
+            ownership.PendingRead ??= ReadEnvelopeAsync(ownership.ReaderToken);
+            var schedulerFatal = ownership.OperationScheduler?.Fatal;
             await Task.WhenAny(
                 ownership.PendingRead,
-                ownership.HostCancellation).ConfigureAwait(false);
+                ownership.HostCancellation,
+                schedulerFatal ?? Never)
+                .ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
+            if (schedulerFatal?.IsCompleted == true)
+            {
+                try
+                {
+                    await schedulerFatal.ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    throw new WorkerRuntimeException(
+                        "operation_scheduler_failed",
+                        exception);
+                }
+            }
+
             var envelope = await ownership.TakePendingReadAsync().ConfigureAwait(false);
             if (envelope is null)
                 return new WorkerServerExit(WorkerServerExitKind.Eof, "eof_after_ready");
             ValidateBootId(envelope);
-            if (envelope.Kind != WorkerMessageKind.Shutdown)
+            switch (envelope.Kind)
             {
-                throw new WorkerProtocolException(
-                    "unsupported_message",
-                    $"Worker lifecycle core does not accept '{envelope.Kind}' after initialize.");
+                case WorkerMessageKind.Request:
+                {
+                    var request = WorkerOperationProtocol.ParseRequest(
+                        envelope,
+                        _workerBootId,
+                        initialize.Generation);
+                    AdvanceRequestId(ref requestIdHighWater, request.RequestId);
+                    if (request.Operation == WorkerSessionOperationCodec.InvokeOperation)
+                    {
+                        throw new WorkerProtocolException(
+                            "ordinary_invoke_forbidden",
+                            "Script-bearing invoke requires the prepared operation protocol.");
+                    }
+                    RequireOperationScheduler(ownership).Admit(envelope);
+                    continue;
+                }
+                case WorkerMessageKind.Cancel:
+                    _ = WorkerOperationProtocol.ParseCancel(
+                        envelope,
+                        _workerBootId,
+                        initialize.Generation);
+                    RequireOperationScheduler(ownership).Admit(envelope);
+                    continue;
+                case WorkerMessageKind.Shutdown:
+                    break;
+                default:
+                    throw new WorkerProtocolException(
+                        "unsupported_message",
+                        $"Worker lifecycle core does not accept '{envelope.Kind}' after initialize.");
             }
 
             var shutdownRequestId = RequireRequestId(envelope);
+            AdvanceRequestId(ref requestIdHighWater, shutdownRequestId);
             RequireEmptyPayload(envelope.Payload, WorkerMessageKind.Shutdown);
             var shutdownFailed = await ownership.DrainSessionAsync().ConfigureAwait(false);
             if (shutdownFailed)
@@ -367,6 +427,25 @@ internal sealed class WorkerServer
                 cancellationToken).ConfigureAwait(false);
             return new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown");
         }
+    }
+
+    private static WorkerOperationScheduler RequireOperationScheduler(
+        WorkerRunOwnership ownership) =>
+        ownership.OperationScheduler ??
+        throw new WorkerRuntimeException(
+            "runtime_operations_unavailable",
+            new InvalidOperationException(
+                "The initialized worker runtime does not implement worker operations."));
+
+    private static void AdvanceRequestId(ref long highWater, long requestId)
+    {
+        if (requestId <= highWater)
+        {
+            throw new WorkerProtocolException(
+                "operation_request_replay",
+                "Worker request IDs must increase strictly.");
+        }
+        highWater = requestId;
     }
 
     private async Task<WorkerServerExit> InitializeDeadlineExpiredAsync(
@@ -746,6 +825,7 @@ internal sealed class WorkerServer
         internal Task? DeadlineTask { get; set; }
         internal Task<WorkerEnvelope?>? PendingRead { get; set; }
         internal ISessionLifetime? Session { get; set; }
+        internal WorkerOperationScheduler? OperationScheduler { get; set; }
 
         internal Task<WorkerEnvelope?> TakePendingReadAsync()
         {
@@ -775,10 +855,26 @@ internal sealed class WorkerServer
 
         internal async Task<bool> DrainSessionAsync()
         {
+            var failed = false;
+            var scheduler = OperationScheduler;
+            OperationScheduler = null;
+            if (scheduler is not null)
+            {
+                try
+                {
+                    await scheduler.CancelAndDrainAsync().ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    failed = true;
+                }
+            }
+
             var session = Session;
             Session = null;
-            return session is not null &&
-                await TryDrainSessionAsync(session).ConfigureAwait(false);
+            if (session is not null)
+                failed |= await TryDrainSessionAsync(session).ConfigureAwait(false);
+            return failed;
         }
 
         internal async Task<bool> StopFactoryAsync()

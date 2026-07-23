@@ -10,6 +10,11 @@ namespace PtkMcpServer.Tests;
 public sealed class UnixGuardianBrokerIntegrationTests
 {
     private static readonly TimeSpan CheckpointTimeout = TimeSpan.FromSeconds(15);
+    // The broker's transcript still proves its exact 10-second native deadline.
+    // This larger outer budget only allows an orphaned broker to be scheduled
+    // and make that bounded proof observable on a loaded hosted runner.
+    private static readonly TimeSpan TranscriptObservationTimeout =
+        TimeSpan.FromSeconds(30);
     private static readonly string[] ReadyProperties =
     [
         "barrier", "registry", "guardianPid", "guardianPgid", "brokerPid",
@@ -118,7 +123,7 @@ public sealed class UnixGuardianBrokerIntegrationTests
 
             var transcriptLine = await ReadFileLineAsync(
                 transcriptPath,
-                CheckpointTimeout);
+                TranscriptObservationTimeout);
             var transcript = ParseTranscript(transcriptLine);
 
             Assert.Equal(barrier, transcript.Barrier);
@@ -214,7 +219,7 @@ public sealed class UnixGuardianBrokerIntegrationTests
 
             var transcript = ParseTranscript(await ReadFileLineAsync(
                 transcriptPath,
-                CheckpointTimeout));
+                TranscriptObservationTimeout));
             Assert.Equal("host_gated", transcript.Barrier);
             Assert.Equal("none", transcript.Registry);
             Assert.InRange(transcript.TermAtMs, 0, 25);

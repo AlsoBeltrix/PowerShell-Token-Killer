@@ -31,6 +31,10 @@ public sealed class Slice7fStagingBoundaryTests
                 productionRoot,
                 "Worker",
                 "WorkerPreparedOperationCodec.cs")),
+            Path.GetFullPath(Path.Combine(
+                productionRoot,
+                "Worker",
+                "WorkerPreparedInvokeController.cs")),
         };
         foreach (var path in Directory.EnumerateFiles(
             productionRoot,
@@ -173,6 +177,13 @@ public sealed class Slice7fStagingBoundaryTests
             typeof(WorkerCommitPayload),
             typeof(WorkerAbortPayload),
             typeof(WorkerPreparedCorrelationMatch),
+            typeof(WorkerPreparedPlanDescriptor),
+            typeof(WorkerPreparedRuntimeResult),
+            typeof(IWorkerPreparedInvokeRuntime),
+            typeof(IWorkerPreparedInvokeObserver),
+            typeof(WorkerPreparedInvokeTerminalKind),
+            typeof(WorkerPreparedInvokeTerminal),
+            typeof(WorkerPreparedInvokeController),
         }
         .SelectMany(type => type
             .GetMembers(BindingFlags.Instance | BindingFlags.Static |

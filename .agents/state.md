@@ -241,6 +241,21 @@ short and update it when important repo facts change.
   content arrival was verified by direct branch diff, and the feature branch
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
+- **R6 live worker execution is active through foreground prepared dispatch at
+  code head `cbfb676`.** `SessionRuntime` is the sole worker runtime adapter.
+  The initialized worker server now owns live ordinary request/cancel
+  scheduling and rejects script-bearing ordinary invoke before runtime
+  dispatch. A separate asynchronous owner publishes the immutable hash-bound
+  prepared descriptor, holds execution through exact commit, preserves
+  abort/expiry/replan/cancel no-start outcomes, emits validator lifecycle
+  facts, and drains admitted terminal writes before runtime shutdown. Focused
+  mutation guards cover ordinary dispatch, committed execution, committed
+  cancellation, and exact handler ownership; the authoritative clean build
+  and physical-temp in-process server suite pass 1,933/1,933. R6 remains in
+  progress: guardian-reserved background start and worker lifecycle events,
+  the strict host client and platform launch authority, per-alias host
+  cutover, guardian v2 control, recovery wiring, and the cross-platform
+  acceptance matrix remain.
 - **The owner-approved two-layer MCP resilience sequence is implemented and
   directly validated through R5 on `feature/mcp-resilience-r1`; the current
   code head is `225b5fc`, with exact platform evidence at Windows `195e7e6`,

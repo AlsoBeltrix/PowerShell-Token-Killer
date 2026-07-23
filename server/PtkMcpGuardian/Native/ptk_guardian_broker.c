@@ -406,8 +406,10 @@ static bool read_process_identity(
             errno = 0;
             char *parsed_end = NULL;
             unsigned long long parsed = strtoull(cursor, &parsed_end, 10);
+            bool parsed_valid =
+                errno == 0 && parsed_end != cursor && *parsed_end == '\0';
             *end = saved;
-            if (errno != 0 || parsed_end == cursor || *parsed_end != '\0') {
+            if (!parsed_valid) {
                 return false;
             }
             identity->high = UINT64_C(0);

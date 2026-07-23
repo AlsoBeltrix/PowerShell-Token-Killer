@@ -101,8 +101,26 @@ jobs:
         run: dotnet test siem/PtkSiem.slnx
 
       - name: Producer to SIEM conformance
+        shell: pwsh
         env:
           PTK_SIEM_CONFORMANCE_MODE: in-process
-        run: >-
-          dotnet test
-          server/PtkMcpServer.Tests/SiemConformance/PtkMcpServer.SiemConformance.Tests.csproj
+        run: |
+          $physicalTempRoot = $null
+          $conformanceExitCode = 0
+          try {
+            if ($IsMacOS) {
+              $candidateTempRoot = Join-Path '/private/tmp' "ptk-siem-ci-$([guid]::NewGuid().ToString('N'))"
+              $null = New-Item -ItemType Directory -Path $candidateTempRoot -ErrorAction Stop
+              $physicalTempRoot = $candidateTempRoot
+              $env:TMPDIR = $physicalTempRoot
+            }
+
+            dotnet test server/PtkMcpServer.Tests/SiemConformance/PtkMcpServer.SiemConformance.Tests.csproj
+            $conformanceExitCode = $LASTEXITCODE
+          }
+          finally {
+            if ($null -ne $physicalTempRoot) {
+              Remove-Item -LiteralPath $physicalTempRoot -Recurse -Force -ErrorAction Stop
+            }
+          }
+          exit $conformanceExitCode

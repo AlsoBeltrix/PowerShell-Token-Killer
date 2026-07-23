@@ -45,6 +45,8 @@ internal sealed class GuardianHostSupervisor :
     private readonly GuardianBootId _guardianBootId;
     private readonly GuardianHostLifecycleController _lifecycle;
     private readonly IGuardianHostRecoveryManifestSource _manifestSource;
+    private readonly IGuardianWorkerCreateCapabilityAuthority?
+        _workerCreateCapabilityAuthority;
     private readonly IPrivateRequestIdAllocator _requestIds;
     private readonly TimeProvider _timeProvider;
     private readonly IGuardianHostSupervisorScheduler _scheduler;
@@ -59,6 +61,10 @@ internal sealed class GuardianHostSupervisor :
         _beforeClientFatalObservation;
     private readonly Func<GuardianHostContainmentEvent, CancellationToken, ValueTask>
         _afterContainmentEventQueued;
+    private readonly Func<
+        WorkerCreateCapabilityRequestedEvent,
+        CancellationToken,
+        ValueTask> _afterWorkerCreateEventQueued;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<long, ActiveCall> _calls = [];
     private readonly Dictionary<long, GuardianAuditJobTerminalLease> _jobTerminalLeases = [];
@@ -92,13 +98,18 @@ internal sealed class GuardianHostSupervisor :
         AuditOutputRequestProtector? outputProtector = null,
         IGuardianHostLifecycleAudit? lifecycleAudit = null,
         Func<GuardianHostContainmentEvent, CancellationToken, ValueTask>?
-            afterContainmentEventQueued = null)
+            afterContainmentEventQueued = null,
+        IGuardianWorkerCreateCapabilityAuthority?
+            workerCreateCapabilityAuthority = null,
+        Func<WorkerCreateCapabilityRequestedEvent, CancellationToken, ValueTask>?
+            afterWorkerCreateEventQueued = null)
     {
         _guardianBootId = guardianBootId ??
             throw new ArgumentNullException(nameof(guardianBootId));
         _lifecycle = lifecycle ?? throw new ArgumentNullException(nameof(lifecycle));
         _manifestSource = manifestSource ??
             throw new ArgumentNullException(nameof(manifestSource));
+        _workerCreateCapabilityAuthority = workerCreateCapabilityAuthority;
         _requestIds = requestIds ?? throw new ArgumentNullException(nameof(requestIds));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _scheduler = scheduler ?? throw new ArgumentNullException(nameof(scheduler));
@@ -118,6 +129,12 @@ internal sealed class GuardianHostSupervisor :
                 return ValueTask.CompletedTask;
             });
         _afterContainmentEventQueued = afterContainmentEventQueued ??
+            (static (_, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.CompletedTask;
+            });
+        _afterWorkerCreateEventQueued = afterWorkerCreateEventQueued ??
             (static (_, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -2021,6 +2038,8 @@ internal sealed class GuardianHostSupervisor :
         TrackBackground(WatchHostExitAsync(active));
         TrackBackground(WatchStartupDeadlineAsync(active));
         TrackBackground(RunContainmentControlPumpAsync(active));
+        if (_workerCreateCapabilityAuthority is not null)
+            TrackBackground(RunWorkerCreateControlPumpAsync(active));
         return active;
     }
 
@@ -2546,6 +2565,19 @@ internal sealed class GuardianHostSupervisor :
                 .ConfigureAwait(false);
             return;
         }
+        if (hostEvent is WorkerCreateCapabilityRequestedEvent createEvent)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_workerCreateCapabilityAuthority is null ||
+                !active.WorkerCreateControlEvents.Writer.TryWrite(createEvent))
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.EventCorrelationMismatch);
+            }
+            await _afterWorkerCreateEventQueued(createEvent, cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
         if (hostEvent is not (OutputChunkEvent or OutputSealEvent))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -2558,6 +2590,81 @@ internal sealed class GuardianHostSupervisor :
         }
         await _outputCoordinator.HandleEventAsync(hostEvent, cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private async Task RunWorkerCreateControlPumpAsync(ActiveAttempt active)
+    {
+        var cancellationToken = active.PreContainmentToken;
+        try
+        {
+            await foreach (var createEvent in
+                active.WorkerCreateControlEvents.Reader.ReadAllAsync(cancellationToken))
+            {
+                if (!await WaitForHostEventCallbackCompletionAsync(
+                        active,
+                        cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                var now = _timeProvider.GetUtcNow().ToUnixTimeMilliseconds();
+                var maximumDeadline = FutureUnixTimeMilliseconds(
+                    ControlRequestLifetime);
+                GuardianWorkerCreateCapability capability;
+                try
+                {
+                    capability = _workerCreateCapabilityAuthority!
+                        .GrantWorkerCreateCapability(
+                            createEvent,
+                            now,
+                            maximumDeadline);
+                }
+                catch (Exception exception) when (!IsFatalRuntimeException(exception))
+                {
+                    throw new GuardianHostClientException(
+                        GuardianHostClientFailureKind.EventCorrelationMismatch);
+                }
+
+                var response = await active.Client!.SendRequestAsync(
+                        (guardian, host, generation, requestId) =>
+                            new WorkerCreateCapabilityGrantRequest(
+                                guardian,
+                                host,
+                                generation,
+                                requestId,
+                                createEvent.StartupDeadlineUnixTimeMilliseconds,
+                                createEvent.SessionAlias,
+                                createEvent.SessionTransitionVersion,
+                                capability.WorkerGeneration,
+                                createEvent.EventSequence,
+                                capability.Token),
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (response is not GuardianHostSuccessResponse
+                    {
+                        Payload: ControlAcknowledged
+                    })
+                {
+                    throw new GuardianHostClientException(
+                        GuardianHostClientFailureKind.ProtocolViolation);
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (GuardianHostClientException exception)
+        {
+            await ObserveLossAsync(active, LossReasonFor(exception)).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception exception) when (!IsFatalRuntimeException(exception))
+        {
+            await ObserveLossAsync(active, GuardianHostLossReason.ProtocolFatal)
+                .ConfigureAwait(false);
+            throw;
+        }
     }
 
     private async Task RunContainmentControlPumpAsync(ActiveAttempt active)
@@ -2721,7 +2828,8 @@ internal sealed class GuardianHostSupervisor :
         GuardianHostMessage request,
         GuardianHostResponse response)
     {
-        if (request is WorkerContainmentAckRequest)
+        if (request is WorkerContainmentAckRequest or
+            WorkerCreateCapabilityGrantRequest)
         {
             if (!ReferenceEquals(_active, active))
             {
@@ -3604,12 +3712,24 @@ internal sealed class GuardianHostSupervisor :
                         SingleReader = true,
                         SingleWriter = true,
                     });
+            WorkerCreateControlEvents =
+                Channel.CreateBounded<WorkerCreateCapabilityRequestedEvent>(
+                    new BoundedChannelOptions(
+                        GuardianHostClient.MaximumUnacknowledgedControlEvents)
+                    {
+                        AllowSynchronousContinuations = false,
+                        FullMode = BoundedChannelFullMode.Wait,
+                        SingleReader = true,
+                        SingleWriter = true,
+                    });
         }
 
         internal GuardianHostAttemptLease Lease { get; }
         internal IGuardianHostConnectedAttemptResources Resources { get; }
         internal GuardianHostClient? Client { get; set; }
         internal Channel<GuardianHostContainmentEvent> ContainmentControlEvents { get; }
+        internal Channel<WorkerCreateCapabilityRequestedEvent>
+            WorkerCreateControlEvents { get; }
         internal PublicHostStateSnapshot? PrewriteLossHost { get; set; }
         internal CancellationToken PreContainmentToken => _preContainment.Token;
         internal CancellationToken StartupDeadlineToken => _startupDeadline.Token;

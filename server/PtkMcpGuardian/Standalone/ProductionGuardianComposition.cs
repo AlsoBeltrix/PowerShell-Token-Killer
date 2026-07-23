@@ -161,7 +161,8 @@ internal sealed class ProductionGuardianComposition : IAsyncDisposable
                 outputCoordinator: outputCoordinator,
                 jobCapabilities: jobCapabilities,
                 outputProtector: audit.OutputProtector,
-                lifecycleAudit: new GuardianHostLifecycleAudit(audit.Runtime));
+                lifecycleAudit: new GuardianHostLifecycleAudit(audit.Runtime),
+                workerCreateCapabilityAuthority: sessionState);
             var application = new GuardianMcpApplication(
                 supervisor,
                 audit.Runtime,

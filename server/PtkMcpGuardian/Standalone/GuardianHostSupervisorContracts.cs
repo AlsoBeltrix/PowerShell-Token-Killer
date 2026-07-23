@@ -33,6 +33,35 @@ internal interface IGuardianHostRecoveryManifestSource
     RecoveryManifest Create(GuardianHostIdentity identity);
 }
 
+internal sealed record GuardianWorkerCreateCapability
+{
+    internal GuardianWorkerCreateCapability(
+        WorkerGeneration workerGeneration,
+        CapabilityToken token)
+    {
+        WorkerGeneration = workerGeneration ??
+            throw new ArgumentNullException(nameof(workerGeneration));
+        Token = token ?? throw new ArgumentNullException(nameof(token));
+    }
+
+    internal WorkerGeneration WorkerGeneration { get; }
+
+    internal CapabilityToken Token { get; }
+}
+
+/// <summary>
+/// Guardian-lifetime authority for irreversible per-alias worker-generation
+/// allocation. Validation must complete before allocation; a returned grant
+/// has consumed its generation even if it never reaches process creation.
+/// </summary>
+internal interface IGuardianWorkerCreateCapabilityAuthority
+{
+    GuardianWorkerCreateCapability GrantWorkerCreateCapability(
+        WorkerCreateCapabilityRequestedEvent request,
+        long nowUnixTimeMilliseconds,
+        long maximumDeadlineUnixTimeMilliseconds);
+}
+
 /// <summary>
 /// The one injected timer boundary. Snapshot reads never call this interface;
 /// only explicit startup, containment, stability, and retry loops do.

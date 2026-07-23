@@ -15,7 +15,8 @@ namespace PtkMcpGuardian.Standalone;
 /// </summary>
 internal sealed class FrozenDefaultSessionState :
     IGuardianHostRecoveryManifestSource,
-    IGuardianHostSupervisorSessionSource
+    IGuardianHostSupervisorSessionSource,
+    IGuardianWorkerCreateCapabilityAuthority
 {
     private static ReadOnlySpan<byte> ConfigurationDigestDomain =>
         "ptk.guardian-configuration/1\0"u8;
@@ -25,7 +26,9 @@ internal sealed class FrozenDefaultSessionState :
     private readonly object _sync = new();
     private readonly GuardianHostWorkerIdentity _workerIdentity;
     private readonly GuardianAuditSession _auditSession;
-    private readonly WorkerGenerationHighWatermarkEntry _workerHighWatermark;
+    private readonly IWorkerGenerationAllocator _workerGenerations;
+    private readonly Func<CapabilityToken> _createCapabilityToken;
+    private WorkerGenerationHighWatermarkEntry _workerHighWatermark;
     private PublicSessionState _state = PublicSessionState.Ready;
     private bool _readyForEffects = true;
     private bool _warmStateLost;
@@ -35,7 +38,8 @@ internal sealed class FrozenDefaultSessionState :
         GuardianBootId guardianBootId,
         WorkerBootId workerBootId,
         FrozenSessionCatalog catalog,
-        bool allowColdBackground)
+        bool allowColdBackground,
+        Func<CapabilityToken>? createCapabilityToken = null)
     {
         _guardianBootId = guardianBootId ??
             throw new ArgumentNullException(nameof(guardianBootId));
@@ -66,6 +70,9 @@ internal sealed class FrozenDefaultSessionState :
         _workerHighWatermark = new WorkerGenerationHighWatermarkEntry(
             alias,
             new WorkerGenerationHighWatermark(workerGeneration.Value));
+        _workerGenerations = new PerAliasWorkerGenerationAllocator(
+            [_workerHighWatermark]);
+        _createCapabilityToken = createCapabilityToken ?? NewCapabilityToken;
         _auditSession = new GuardianAuditSession(Binding, workerGeneration);
     }
 
@@ -81,15 +88,54 @@ internal sealed class FrozenDefaultSessionState :
         if (identity.GuardianBootId != _guardianBootId)
             throw new InvalidOperationException("The host identity belongs to another guardian boot.");
 
-        return new RecoveryManifest(
-            _guardianBootId,
-            identity.HostGeneration,
-            CatalogDigest,
-            ConfigurationDigest,
-            _catalog.Snapshot(),
-            [Binding],
-            [_workerHighWatermark],
-            identity.HostGeneration);
+        lock (_sync)
+        {
+            return new RecoveryManifest(
+                _guardianBootId,
+                identity.HostGeneration,
+                CatalogDigest,
+                ConfigurationDigest,
+                _catalog.Snapshot(),
+                [Binding],
+                [_workerHighWatermark],
+                identity.HostGeneration);
+        }
+    }
+
+    public GuardianWorkerCreateCapability GrantWorkerCreateCapability(
+        WorkerCreateCapabilityRequestedEvent request,
+        long nowUnixTimeMilliseconds,
+        long maximumDeadlineUnixTimeMilliseconds)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (maximumDeadlineUnixTimeMilliseconds <= nowUnixTimeMilliseconds)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maximumDeadlineUnixTimeMilliseconds));
+        }
+        if (request.GuardianBootId != _guardianBootId ||
+            request.SessionAlias != Binding.Alias ||
+            request.SessionTransitionVersion != Binding.TransitionVersion ||
+            request.BindingDigest != Binding.BindingDigest ||
+            request.StartupDeadlineUnixTimeMilliseconds <= nowUnixTimeMilliseconds ||
+            request.StartupDeadlineUnixTimeMilliseconds >
+                maximumDeadlineUnixTimeMilliseconds)
+        {
+            throw new InvalidOperationException(
+                "The worker create request does not match the frozen session binding.");
+        }
+
+        var token = _createCapabilityToken() ??
+            throw new InvalidOperationException(
+                "The worker create capability token source returned null.");
+        lock (_sync)
+        {
+            var generation = _workerGenerations.Allocate(Binding.Alias);
+            _workerHighWatermark = new WorkerGenerationHighWatermarkEntry(
+                Binding.Alias,
+                new WorkerGenerationHighWatermark(generation.Value));
+            return new GuardianWorkerCreateCapability(generation, token);
+        }
     }
 
     public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
@@ -216,5 +262,15 @@ internal sealed class FrozenDefaultSessionState :
         hash.AppendData(Convert.FromHexString(bindingDigest.Value));
         return new Sha256Digest(
             Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant());
+    }
+
+    private static CapabilityToken NewCapabilityToken()
+    {
+        Span<byte> bytes = stackalloc byte[ContractLimits.CapabilityTokenBytes];
+        RandomNumberGenerator.Fill(bytes);
+        return new CapabilityToken(Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_'));
     }
 }

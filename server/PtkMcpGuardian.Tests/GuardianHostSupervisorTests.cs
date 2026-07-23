@@ -2246,6 +2246,42 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Initial_worker_create_grant_waits_for_callback_and_precedes_host_ready()
+    {
+        var authority = new RecordingWorkerCreateCapabilityAuthority();
+        await using var rig = new TestRig(
+            authority,
+            new AttemptPlan(HostBehavior.InitializingWorkerCreate));
+        var callback = rig.WorkerCreateObserver.BlockNextEvent();
+
+        var start = rig.StartAsync();
+        await callback.WaitAsync(TestTimeout);
+        var resource = Assert.Single(rig.Factory.Resources);
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+            Assert.Equal(0, authority.GrantCount);
+            Assert.Empty(resource.WorkerCreateGrants);
+            Assert.False(start.IsCompleted);
+        }
+        finally
+        {
+            rig.WorkerCreateObserver.ReleaseEvent();
+        }
+
+        await start.WaitAsync(TestTimeout);
+        var grant = Assert.Single(resource.WorkerCreateGrants);
+        Assert.Equal(1, authority.GrantCount);
+        Assert.Equal(2, grant.WorkerGeneration.Value);
+        Assert.Equal(Token(77), grant.Token);
+        Assert.Equal(1, grant.SourceEventSequence.Value);
+        Assert.Equal(
+            rig.Clock.GetUtcNow().AddSeconds(30).ToUnixTimeMilliseconds(),
+            grant.DeadlineUnixTimeMilliseconds);
+        Assert.Equal(PublicHostState.Ready, rig.Supervisor.SnapshotState().Host.State);
+    }
+
+    [Fact]
     public async Task Containment_control_waits_for_the_ordered_event_callback_to_return()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
@@ -2843,6 +2879,19 @@ public sealed class GuardianHostSupervisorTests
         {
         }
 
+        internal TestRig(
+            IGuardianWorkerCreateCapabilityAuthority workerCreateCapabilityAuthority,
+            params AttemptPlan[] plans)
+            : this(
+                enableOutput: false,
+                enableJobs: false,
+                GuardianJobCapabilityRegistry.DefaultMaximumTrackedJobs,
+                Alias,
+                workerCreateCapabilityAuthority,
+                plans)
+        {
+        }
+
         internal TestRig(bool enableOutput, params AttemptPlan[] plans)
             : this(enableOutput, enableJobs: enableOutput, plans)
         {
@@ -2894,12 +2943,31 @@ public sealed class GuardianHostSupervisorTests
             int maximumTrackedJobs,
             CanonicalAlias sessionAlias,
             params AttemptPlan[] plans)
+            : this(
+                enableOutput,
+                enableJobs,
+                maximumTrackedJobs,
+                sessionAlias,
+                workerCreateCapabilityAuthority: null,
+                plans)
+        {
+        }
+
+        private TestRig(
+            bool enableOutput,
+            bool enableJobs,
+            int maximumTrackedJobs,
+            CanonicalAlias sessionAlias,
+            IGuardianWorkerCreateCapabilityAuthority?
+                workerCreateCapabilityAuthority,
+            params AttemptPlan[] plans)
         {
             ArgumentNullException.ThrowIfNull(sessionAlias);
             Clock = new ManualTimeProvider();
             Scheduler = new ManualScheduler(Clock);
             Observer = new BlockingDispatchObserver();
             ContainmentObserver = new BlockingContainmentControlObserver();
+            WorkerCreateObserver = new BlockingWorkerCreateControlObserver();
             Sessions = new StaticSessionSource(sessionAlias);
             Factory = new FakeAttemptFactory(plans, CreatePins(), Clock);
             if (enableOutput)
@@ -2951,13 +3019,16 @@ public sealed class GuardianHostSupervisorTests
                 JobCapabilities,
                 _audit.OutputProtector,
                 LifecycleAudit,
-                ContainmentObserver.AfterEventQueuedAsync);
+                ContainmentObserver.AfterEventQueuedAsync,
+                workerCreateCapabilityAuthority,
+                WorkerCreateObserver.AfterEventQueuedAsync);
         }
 
         internal ManualTimeProvider Clock { get; }
         internal ManualScheduler Scheduler { get; }
         internal BlockingDispatchObserver Observer { get; }
         internal BlockingContainmentControlObserver ContainmentObserver { get; }
+        internal BlockingWorkerCreateControlObserver WorkerCreateObserver { get; }
         internal ITestSessionControl Sessions { get; }
         internal FakeAttemptFactory Factory { get; }
         internal GuardianHostSupervisor Supervisor { get; }
@@ -3977,6 +4048,78 @@ public sealed class GuardianHostSupervisorTests
         }
     }
 
+    private sealed class BlockingWorkerCreateControlObserver
+    {
+        private readonly object _sync = new();
+        private TaskCompletionSource<bool>? _entered;
+        private TaskCompletionSource<bool>? _release;
+
+        internal Task BlockNextEvent()
+        {
+            lock (_sync)
+            {
+                _entered = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _release = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return _entered.Task;
+            }
+        }
+
+        internal void ReleaseEvent()
+        {
+            lock (_sync)
+                _release?.TrySetResult(true);
+        }
+
+        internal async ValueTask AfterEventQueuedAsync(
+            WorkerCreateCapabilityRequestedEvent createEvent,
+            CancellationToken cancellationToken)
+        {
+            Task? release = null;
+            lock (_sync)
+            {
+                if (_entered is not null && _release is not null)
+                {
+                    _entered.TrySetResult(true);
+                    release = _release.Task;
+                    _entered = null;
+                }
+            }
+            if (release is not null)
+                await release.WaitAsync(cancellationToken);
+            _ = createEvent;
+        }
+    }
+
+    private sealed class RecordingWorkerCreateCapabilityAuthority :
+        IGuardianWorkerCreateCapabilityAuthority
+    {
+        private int _grantCount;
+
+        internal int GrantCount => Volatile.Read(ref _grantCount);
+
+        public GuardianWorkerCreateCapability GrantWorkerCreateCapability(
+            WorkerCreateCapabilityRequestedEvent request,
+            long nowUnixTimeMilliseconds,
+            long maximumDeadlineUnixTimeMilliseconds)
+        {
+            Assert.Equal(TestRig.Alias, request.SessionAlias);
+            Assert.Equal(TestRig.Transition, request.SessionTransitionVersion);
+            Assert.Equal(TestRig.BindingDigest, request.BindingDigest);
+            Assert.True(
+                request.StartupDeadlineUnixTimeMilliseconds >
+                    nowUnixTimeMilliseconds);
+            Assert.True(
+                request.StartupDeadlineUnixTimeMilliseconds <=
+                    maximumDeadlineUnixTimeMilliseconds);
+            Interlocked.Increment(ref _grantCount);
+            return new GuardianWorkerCreateCapability(
+                new WorkerGeneration(2),
+                Token(77));
+        }
+    }
+
     private sealed class ManualTimeProvider : TimeProvider
     {
         private long _timestamp;
@@ -4117,6 +4260,7 @@ public sealed class GuardianHostSupervisorTests
         CrashAfterRequest,
         Hold,
         InitializingContainment,
+        InitializingWorkerCreate,
         ProvedNoChild,
         RejectOperation,
         Reset,
@@ -4278,6 +4422,10 @@ public sealed class GuardianHostSupervisorTests
         }
         internal IReadOnlyList<WorkerContainmentAckRequest>
             ContainmentAcknowledgements => _peer.ContainmentAcknowledgements;
+        internal IReadOnlyList<WorkerCreateCapabilityGrantRequest>
+            WorkerCreateGrants => _peer.WorkerCreateGrants;
+        internal long CurrentUnixTimeMilliseconds =>
+            _clock.GetUtcNow().ToUnixTimeMilliseconds();
         internal GuardianHostContainmentIdentity ContainmentIdentity { get; } = new(
             brokerPid: 2001,
             brokerStartIdentityHigh: 11,
@@ -4431,6 +4579,8 @@ public sealed class GuardianHostSupervisorTests
         private readonly List<ObservedSessionLifecycle> _sessionLifecycles = [];
         private readonly List<WorkerContainmentAckRequest>
             _containmentAcknowledgements = [];
+        private readonly List<WorkerCreateCapabilityGrantRequest>
+            _workerCreateGrants = [];
         private int _operationCount;
         private long _eventSequence;
 
@@ -4474,6 +4624,14 @@ public sealed class GuardianHostSupervisorTests
             {
                 lock (_sync)
                     return _containmentAcknowledgements.ToArray();
+            }
+        }
+        internal IReadOnlyList<WorkerCreateCapabilityGrantRequest> WorkerCreateGrants
+        {
+            get
+            {
+                lock (_sync)
+                    return _workerCreateGrants.ToArray();
             }
         }
 
@@ -4600,6 +4758,30 @@ public sealed class GuardianHostSupervisorTests
                         containment.RequestId,
                         new ControlAcknowledged(
                             containment.SourceEventSequence)));
+                }
+                if (behavior == HostBehavior.InitializingWorkerCreate)
+                {
+                    var deadline = _owner.CurrentUnixTimeMilliseconds +
+                        (long)TimeSpan.FromSeconds(30).TotalMilliseconds;
+                    await _writer.WriteAsync(new WorkerCreateCapabilityRequestedEvent(
+                        identity.GuardianBootId,
+                        identity.HostBootId,
+                        identity.HostGeneration,
+                        new HostEventSequence(
+                            Interlocked.Increment(ref _eventSequence)),
+                        TestRig.Alias,
+                        TestRig.Transition,
+                        TestRig.BindingDigest,
+                        deadline));
+                    var grant = Assert.IsType<WorkerCreateCapabilityGrantRequest>(
+                        await ReadAsync());
+                    Record(grant.RequestId);
+                    lock (_sync)
+                        _workerCreateGrants.Add(grant);
+                    await _writer.WriteAsync(Success(
+                        grant.RequestId,
+                        new ControlAcknowledged(
+                            grant.SourceEventSequence)));
                 }
                 await _writer.WriteAsync(new GuardianHostReady(
                     identity.GuardianBootId,

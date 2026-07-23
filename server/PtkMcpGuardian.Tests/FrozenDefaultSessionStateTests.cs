@@ -127,6 +127,110 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Exact_worker_create_grants_irreversibly_advance_the_manifest_high_water()
+    {
+        var token = Token(7);
+        var state = new FrozenDefaultSessionState(
+            Guardian,
+            Worker,
+            new FrozenSessionCatalog([]),
+            allowColdBackground: true,
+            createCapabilityToken: () => token);
+
+        var first = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+
+        Assert.Equal(2, first.WorkerGeneration.Value);
+        Assert.Same(token, first.Token);
+        Assert.Equal(
+            2,
+            Assert.Single(state.Create(Identity(1)).WorkerGenerationHighWatermarks)
+                .Generation.Value);
+
+        var second = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 550),
+            nowUnixTimeMilliseconds: 200,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(3, second.WorkerGeneration.Value);
+        Assert.Equal(
+            3,
+            Assert.Single(state.Create(Identity(2)).WorkerGenerationHighWatermarks)
+                .Generation.Value);
+    }
+
+    [Fact]
+    public void Refused_worker_create_request_consumes_no_generation_or_token()
+    {
+        var tokenCalls = 0;
+        var state = new FrozenDefaultSessionState(
+            Guardian,
+            Worker,
+            new FrozenSessionCatalog([]),
+            allowColdBackground: true,
+            createCapabilityToken: () =>
+            {
+                tokenCalls++;
+                return Token(8);
+            });
+        var exact = CreateRequest(state, deadlineUnixTimeMilliseconds: 500);
+        var wrongDigest = new WorkerCreateCapabilityRequestedEvent(
+            exact.GuardianBootId,
+            exact.HostBootId,
+            exact.HostGeneration,
+            exact.EventSequence,
+            exact.SessionAlias,
+            exact.SessionTransitionVersion,
+            new Sha256Digest(new string('f', 64)),
+            exact.StartupDeadlineUnixTimeMilliseconds);
+        var wrongGuardian = new WorkerCreateCapabilityRequestedEvent(
+            new GuardianBootId(
+                Guid.Parse("99999999-9999-4999-8999-999999999999")),
+            exact.HostBootId,
+            exact.HostGeneration,
+            exact.EventSequence,
+            exact.SessionAlias,
+            exact.SessionTransitionVersion,
+            exact.BindingDigest,
+            exact.StartupDeadlineUnixTimeMilliseconds);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            state.GrantWorkerCreateCapability(
+                wrongDigest,
+                nowUnixTimeMilliseconds: 100,
+                maximumDeadlineUnixTimeMilliseconds: 600));
+        Assert.Throws<InvalidOperationException>(() =>
+            state.GrantWorkerCreateCapability(
+                wrongGuardian,
+                nowUnixTimeMilliseconds: 100,
+                maximumDeadlineUnixTimeMilliseconds: 600));
+        Assert.Throws<InvalidOperationException>(() =>
+            state.GrantWorkerCreateCapability(
+                exact,
+                nowUnixTimeMilliseconds: 500,
+                maximumDeadlineUnixTimeMilliseconds: 600));
+        Assert.Throws<InvalidOperationException>(() =>
+            state.GrantWorkerCreateCapability(
+                exact,
+                nowUnixTimeMilliseconds: 100,
+                maximumDeadlineUnixTimeMilliseconds: 499));
+
+        Assert.Equal(0, tokenCalls);
+        Assert.Equal(
+            1,
+            Assert.Single(state.Create(Identity(1)).WorkerGenerationHighWatermarks)
+                .Generation.Value);
+
+        var granted = state.GrantWorkerCreateCapability(
+            exact,
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(2, granted.WorkerGeneration.Value);
+        Assert.Equal(1, tokenCalls);
+    }
+
+    [Fact]
     public void Dispatch_target_is_exact_and_foreign_guardian_manifest_is_rejected()
     {
         var state = State();
@@ -165,6 +269,28 @@ public sealed class FrozenDefaultSessionStateTests
         Worker,
         new FrozenSessionCatalog([]),
         allowColdBackground);
+
+    private static WorkerCreateCapabilityRequestedEvent CreateRequest(
+        FrozenDefaultSessionState state,
+        long deadlineUnixTimeMilliseconds) => new(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(1),
+            state.Binding.Alias,
+            state.Binding.TransitionVersion,
+            state.Binding.BindingDigest,
+            deadlineUnixTimeMilliseconds);
+
+    private static CapabilityToken Token(byte marker)
+    {
+        Span<byte> bytes = stackalloc byte[ContractLimits.CapabilityTokenBytes];
+        bytes.Fill(marker);
+        return new CapabilityToken(Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_'));
+    }
 
     private static GuardianHostIdentity Identity(long generation) => new(
         Guardian,

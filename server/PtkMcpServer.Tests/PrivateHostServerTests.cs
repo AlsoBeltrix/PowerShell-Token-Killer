@@ -496,6 +496,219 @@ public sealed class PrivateHostServerTests
     }
 
     [Fact]
+    public async Task Control_exchange_is_retained_before_wire_and_completes_after_response_write()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        using var blockedOutput = new BlockingWriteStream(hostToGuardian);
+        var identity = new PrivateHostServerIdentity(
+            Guardian,
+            Host,
+            Generation,
+            hostPid: 4242);
+        var outbound = new PrivateHostOutboundChannel(blockedOutput, identity);
+        var server = new PrivateHostServer(
+            guardianToHost,
+            outbound,
+            identity,
+            Pins(),
+            new ImmediatePrivateHostRuntime());
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = server.RunAsync(timeout.Token);
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        _ = Assert.IsType<GuardianHostReady>(await reader.ReadAsync(timeout.Token));
+
+        var containmentIdentity = ContainmentIdentity();
+        var exchange = ((IPrivateHostControlEventSink)outbound).ExchangeControlAsync(
+            sequence => new WorkerContainmentPendingEvent(
+                Guardian,
+                Host,
+                Generation,
+                sequence,
+                Alias,
+                Transition,
+                Worker,
+                containmentIdentity),
+            timeout.Token);
+        var source = Assert.IsType<WorkerContainmentPendingEvent>(
+            await reader.ReadAsync(timeout.Token));
+        Assert.False(exchange.IsCompleted);
+
+        var responseWriteEntered = blockedOutput.BlockNextWrite();
+        await writer.WriteAsync(
+            new WorkerContainmentPendingAckRequest(
+                Guardian,
+                Host,
+                Generation,
+                new PrivateRequestId(5),
+                FutureDeadline(),
+                Alias,
+                Transition,
+                Worker,
+                source.EventSequence),
+            timeout.Token);
+        await responseWriteEntered.WaitAsync(timeout.Token);
+        try
+        {
+            Assert.False(exchange.IsCompleted);
+        }
+        finally
+        {
+            blockedOutput.ReleaseWrite();
+        }
+        var acknowledged = AssertSuccess<ControlAcknowledged>(
+            await reader.ReadAsync(timeout.Token),
+            requestId: 5);
+        Assert.Equal(source.EventSequence, acknowledged.SourceEventSequence);
+        var request = Assert.IsType<WorkerContainmentPendingAckRequest>(
+            await exchange.WaitAsync(timeout.Token));
+        Assert.Equal(source.EventSequence, request.SourceEventSequence);
+
+        await writer.WriteAsync(Shutdown(requestId: 6), timeout.Token);
+        _ = AssertSuccess<ShutdownAccepted>(
+            await reader.ReadAsync(timeout.Token),
+            requestId: 6);
+        await run.WaitAsync(timeout.Token);
+        Assert.Equal(PrivateHostServerState.Stopped, server.State);
+    }
+
+    [Fact]
+    public async Task Mismatched_control_acknowledgement_faults_without_releasing_the_waiter()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        var identity = new PrivateHostServerIdentity(
+            Guardian,
+            Host,
+            Generation,
+            hostPid: 4242);
+        var outbound = new PrivateHostOutboundChannel(hostToGuardian, identity);
+        var server = new PrivateHostServer(
+            guardianToHost,
+            outbound,
+            identity,
+            Pins(),
+            new ImmediatePrivateHostRuntime());
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = server.RunAsync(timeout.Token);
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        _ = Assert.IsType<GuardianHostReady>(await reader.ReadAsync(timeout.Token));
+
+        var exchange = ((IPrivateHostControlEventSink)outbound).ExchangeControlAsync(
+            sequence => new WorkerContainmentPendingEvent(
+                Guardian,
+                Host,
+                Generation,
+                sequence,
+                Alias,
+                Transition,
+                Worker,
+                ContainmentIdentity()),
+            timeout.Token);
+        var source = Assert.IsType<WorkerContainmentPendingEvent>(
+            await reader.ReadAsync(timeout.Token));
+
+        await writer.WriteAsync(
+            new WorkerContainmentArmedAckRequest(
+                Guardian,
+                Host,
+                Generation,
+                new PrivateRequestId(5),
+                FutureDeadline(),
+                Alias,
+                Transition,
+                Worker,
+                source.EventSequence),
+            timeout.Token);
+
+        var failure = await Assert.ThrowsAsync<GuardianHostProtocolException>(
+            () => run.WaitAsync(timeout.Token));
+        Assert.Equal("control_correlation_invalid", failure.DetailCode);
+        var waiterFailure = await Assert.ThrowsAsync<GuardianHostProtocolException>(
+            () => exchange.WaitAsync(timeout.Token));
+        Assert.Equal("control_channel_stopped", waiterFailure.DetailCode);
+        Assert.False(hostToGuardian.HasPendingWrite);
+        Assert.Equal(PrivateHostServerState.Faulted, server.State);
+    }
+
+    [Fact]
+    public async Task Expired_control_acknowledgement_faults_without_releasing_the_waiter()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        var identity = new PrivateHostServerIdentity(
+            Guardian,
+            Host,
+            Generation,
+            hostPid: 4242);
+        var outbound = new PrivateHostOutboundChannel(hostToGuardian, identity);
+        var server = new PrivateHostServer(
+            guardianToHost,
+            outbound,
+            identity,
+            Pins(),
+            new ImmediatePrivateHostRuntime(),
+            unixTimeMilliseconds: () => 1000);
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = server.RunAsync(timeout.Token);
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        _ = Assert.IsType<GuardianHostReady>(await reader.ReadAsync(timeout.Token));
+
+        var exchange = ((IPrivateHostControlEventSink)outbound).ExchangeControlAsync(
+            sequence => new WorkerContainmentPendingEvent(
+                Guardian,
+                Host,
+                Generation,
+                sequence,
+                Alias,
+                Transition,
+                Worker,
+                ContainmentIdentity()),
+            timeout.Token);
+        var source = Assert.IsType<WorkerContainmentPendingEvent>(
+            await reader.ReadAsync(timeout.Token));
+        await writer.WriteAsync(
+            new WorkerContainmentPendingAckRequest(
+                Guardian,
+                Host,
+                Generation,
+                new PrivateRequestId(5),
+                deadlineUnixTimeMilliseconds: 1000,
+                Alias,
+                Transition,
+                Worker,
+                source.EventSequence),
+            timeout.Token);
+
+        var failure = await Assert.ThrowsAsync<GuardianHostProtocolException>(
+            () => run.WaitAsync(timeout.Token));
+        Assert.Equal("control_deadline_expired", failure.DetailCode);
+        var waiterFailure = await Assert.ThrowsAsync<GuardianHostProtocolException>(
+            () => exchange.WaitAsync(timeout.Token));
+        Assert.Equal("control_channel_stopped", waiterFailure.DetailCode);
+        Assert.False(hostToGuardian.HasPendingWrite);
+        Assert.Equal(PrivateHostServerState.Faulted, server.State);
+    }
+
+    [Fact]
     public async Task Cancel_targets_only_the_named_active_request_and_emits_no_cancel_response()
     {
         using var guardianToHost = new ChannelStream();
@@ -1478,6 +1691,21 @@ public sealed class PrivateHostServerTests
 
     private static Sha256Digest Digest(char value) => new(new string(value, 64));
 
+    private static PrivateHostServerPins Pins() => new(
+        ExecutableDigest,
+        BuildDigest,
+        ContractDigest,
+        ConfigurationDigest,
+        PackageDigest);
+
+    private static GuardianHostContainmentIdentity ContainmentIdentity() => new(
+        brokerPid: 2001,
+        brokerStartIdentityHigh: 11,
+        brokerStartIdentityLow: 12,
+        workerPid: 2002,
+        workerStartIdentityHigh: 13,
+        workerStartIdentityLow: 14);
+
     private static long FutureDeadline() =>
         DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() + 30_000;
 
@@ -1522,6 +1750,75 @@ public sealed class PrivateHostServerTests
             ReadOnlyMemory<byte> buffer,
             CancellationToken cancellationToken = default) =>
             ValueTask.FromException(new IOException("Injected host writer failure."));
+    }
+
+    private sealed class BlockingWriteStream(Stream inner) : Stream
+    {
+        private readonly object _sync = new();
+        private TaskCompletionSource? _entered;
+        private TaskCompletionSource? _release;
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        internal Task BlockNextWrite()
+        {
+            lock (_sync)
+            {
+                _entered = NewSignal();
+                _release = NewSignal();
+                return _entered.Task;
+            }
+        }
+
+        internal void ReleaseWrite()
+        {
+            lock (_sync)
+                (_release ?? throw new InvalidOperationException()).TrySetResult();
+        }
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            Task? release = null;
+            lock (_sync)
+            {
+                if (_entered is not null && _release is not null)
+                {
+                    _entered.TrySetResult();
+                    release = _release.Task;
+                    _entered = null;
+                }
+            }
+            if (release is not null)
+                await release.WaitAsync(cancellationToken);
+            await inner.WriteAsync(buffer, cancellationToken);
+        }
+
+        public override void Flush() => inner.Flush();
+
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            inner.FlushAsync(cancellationToken);
+
+        public override void Write(byte[] buffer, int offset, int count) =>
+            WriteAsync(buffer.AsMemory(offset, count)).AsTask().GetAwaiter().GetResult();
+
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
     }
 
     private sealed class ImmediatePrivateHostRuntime : IPrivateHostRuntime

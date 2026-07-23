@@ -166,6 +166,7 @@ internal sealed class PrivateHostServer
         }
         catch
         {
+            _outbound.FailPendingControls();
             SetState(PrivateHostServerState.Faulted);
             throw;
         }
@@ -182,6 +183,7 @@ internal sealed class PrivateHostServer
         }
         catch
         {
+            _outbound.FailPendingControls();
             SetState(PrivateHostServerState.Faulted);
             throw;
         }
@@ -357,6 +359,18 @@ internal sealed class PrivateHostServer
 
                 switch (message)
                 {
+                    case WorkerCreateCapabilityGrantRequest control:
+                        await CompleteControlAcknowledgementAsync(
+                            control,
+                            cancellationToken).ConfigureAwait(false);
+                        break;
+
+                    case WorkerContainmentAckRequest control:
+                        await CompleteControlAcknowledgementAsync(
+                            control,
+                            cancellationToken).ConfigureAwait(false);
+                        break;
+
                     case OperationRequest request:
                         ValidateOperationalRequest(request);
                         if (active.Count >= ContractLimits.MaximumOutstandingPrivateRequests)
@@ -395,7 +409,8 @@ internal sealed class PrivateHostServer
                             ValidateIdentity(message);
                             throw Protocol(
                                 "operational_message_invalid",
-                                "Private host accepts only operation, cancel, or shutdown after readiness.");
+                                "Private host accepts only retained control, operation, " +
+                                "cancel, or shutdown messages after readiness.");
                         }
                         finally
                         {
@@ -408,6 +423,7 @@ internal sealed class PrivateHostServer
         finally
         {
             await CancelIgnoringFailureAsync(readCancellation).ConfigureAwait(false);
+            _outbound.FailPendingControls();
             foreach (var operation in active.Values)
                 operation.RequestCancellation(OperationCancellationReason.ServerFailure);
 
@@ -437,6 +453,29 @@ internal sealed class PrivateHostServer
             }
             active.Clear();
         }
+    }
+
+    private async Task CompleteControlAcknowledgementAsync(
+        GuardianHostRequest request,
+        CancellationToken cancellationToken)
+    {
+        ValidateOperationalControl(request);
+        using var acknowledgement = _outbound.ClaimControlAcknowledgement(request);
+        var sourceSequence = request switch
+        {
+            WorkerCreateCapabilityGrantRequest grant =>
+                grant.SourceEventSequence,
+            WorkerContainmentAckRequest containment =>
+                containment.SourceEventSequence,
+            _ => throw new InvalidOperationException(
+                "Unsupported host control acknowledgement."),
+        };
+        await WriteSuccessAsync(
+                request.RequestId,
+                new ControlAcknowledged(sourceSequence),
+                cancellationToken)
+            .ConfigureAwait(false);
+        acknowledgement.Complete();
     }
 
     private async Task RunOperationAsync(ActiveOperation active)
@@ -613,6 +652,7 @@ internal sealed class PrivateHostServer
                 operation.Dispose();
             active.Clear();
 
+            _outbound.FailPendingControls();
             await _runtime.ShutdownAsync(
                 shutdown,
                 shutdownCancellation.Token).ConfigureAwait(false);
@@ -682,6 +722,19 @@ internal sealed class PrivateHostServer
     {
         ValidateIdentity(shutdown);
         ValidateNextRequestId(shutdown.RequestId);
+    }
+
+    private void ValidateOperationalControl(GuardianHostRequest request)
+    {
+        ValidateIdentity(request);
+        ValidateNextRequestId(request.RequestId);
+        if (request.DeadlineUnixTimeMilliseconds is not { } deadline ||
+            deadline <= _unixTimeMilliseconds())
+        {
+            throw Protocol(
+                "control_deadline_expired",
+                "Guardian control acknowledgement arrived after its deadline.");
+        }
     }
 
     private void ValidateNextRequestId(PrivateRequestId requestId)

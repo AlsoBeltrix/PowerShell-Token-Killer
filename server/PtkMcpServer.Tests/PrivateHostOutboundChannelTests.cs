@@ -224,6 +224,45 @@ public sealed class PrivateHostOutboundChannelTests
         Assert.Equal(1, assigned);
     }
 
+    [Fact]
+    public async Task Pending_control_events_are_bounded_and_cancellation_releases_capacity()
+    {
+        using var stream = new MemoryStream();
+        var channel = new PrivateHostOutboundChannel(stream, Identity);
+        using var cancellation = new CancellationTokenSource();
+
+        var pending = Enumerable.Range(
+                0,
+                ContractLimits.MaximumPendingControlEvents)
+            .Select(index => ((IPrivateHostControlEventSink)channel)
+                .ExchangeControlAsync(
+                    sequence => Event(
+                        sequence,
+                        Sha256Digest.Compute([(byte)index])),
+                    cancellation.Token))
+            .ToArray();
+        using (var wait = new CancellationTokenSource(TestTimeout))
+        {
+            while (channel.PendingControlCount != pending.Length)
+                await Task.Delay(5, wait.Token);
+        }
+
+        var failure = await Assert.ThrowsAsync<GuardianHostProtocolException>(() =>
+            ((IPrivateHostControlEventSink)channel).ExchangeControlAsync(
+                sequence => Event(sequence, 'f'),
+                cancellation.Token));
+        Assert.Equal("outbound_control_limit_exceeded", failure.DetailCode);
+        Assert.Equal(pending.Length, channel.PendingControlCount);
+
+        await cancellation.CancelAsync();
+        foreach (var exchange in pending)
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => exchange);
+        }
+        Assert.Equal(0, channel.PendingControlCount);
+    }
+
     private static WorkerCreateCapabilityRequestedEvent Event(
         HostEventSequence sequence,
         char digest,

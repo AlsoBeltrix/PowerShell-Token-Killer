@@ -15,15 +15,31 @@ internal interface IPrivateHostEventSink
 }
 
 /// <summary>
+/// The host-side source-event correlation authority. A control event is
+/// retained before its first wire byte and completes only after the protocol
+/// server has written the exactly matched guardian response.
+/// </summary>
+internal interface IPrivateHostControlEventSink
+{
+    Task<GuardianHostRequest> ExchangeControlAsync(
+        Func<HostEventSequence, GuardianHostEvent> createEvent,
+        CancellationToken cancellationToken = default);
+}
+
+/// <summary>
 /// Owns the host-to-guardian serialization point. All ordinary host frames
 /// share one gate with event creation, so an event sequence is allocated only
 /// after its exact wire position is owned.
 /// </summary>
-internal sealed class PrivateHostOutboundChannel : IPrivateHostEventSink
+internal sealed class PrivateHostOutboundChannel :
+    IPrivateHostEventSink,
+    IPrivateHostControlEventSink
 {
+    private readonly object _controlSync = new();
     private readonly SemaphoreSlim _serialization = new(1, 1);
     private readonly GuardianHostProtocolWriter _writer;
     private readonly PrivateHostServerIdentity _identity;
+    private readonly Dictionary<long, PendingControlEvent> _pendingControls = [];
     private long _lastAllocatedEventSequence;
 
     internal PrivateHostOutboundChannel(
@@ -41,6 +57,15 @@ internal sealed class PrivateHostOutboundChannel : IPrivateHostEventSink
             hostEventStream,
             GuardianHostPeer.Host);
         _identity = identity;
+    }
+
+    internal int PendingControlCount
+    {
+        get
+        {
+            lock (_controlSync)
+                return _pendingControls.Count;
+        }
     }
 
     internal async ValueTask WriteFrameAsync(
@@ -115,6 +140,211 @@ internal sealed class PrivateHostOutboundChannel : IPrivateHostEventSink
         CancellationToken cancellationToken) =>
         WriteEventAsync(createEvent, cancellationToken);
 
+    public async Task<GuardianHostRequest> ExchangeControlAsync(
+        Func<HostEventSequence, GuardianHostEvent> createEvent,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(createEvent);
+        PendingControlEvent? pending = null;
+        try
+        {
+            await WriteEventAsync(
+                    sequence =>
+                    {
+                        var sourceEvent = createEvent(sequence) ??
+                            throw Protocol(
+                                "outbound_control_event_invalid",
+                                "Host control event factory returned no event.");
+                        if (!IsSupportedControlEvent(sourceEvent))
+                        {
+                            throw Protocol(
+                                "outbound_control_event_invalid",
+                                "Host control exchange received an unsupported event.");
+                        }
+
+                        var created = new PendingControlEvent(sourceEvent);
+                        lock (_controlSync)
+                        {
+                            if (_pendingControls.Count >=
+                                ContractLimits.MaximumPendingControlEvents)
+                            {
+                                throw Protocol(
+                                    "outbound_control_limit_exceeded",
+                                    "Host pending control-event capacity is exhausted.");
+                            }
+                            _pendingControls.Add(sequence.Value, created);
+                        }
+                        pending = created;
+                        return sourceEvent;
+                    },
+                    cancellationToken)
+                .ConfigureAwait(false);
+
+            return await pending!.Completion.Task
+                .WaitAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch
+        {
+            if (pending is not null)
+                AbandonControl(pending, cancellationToken);
+            throw;
+        }
+    }
+
+    internal PrivateHostControlAcknowledgement ClaimControlAcknowledgement(
+        GuardianHostRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var sourceSequence = request switch
+        {
+            WorkerCreateCapabilityGrantRequest grant =>
+                grant.SourceEventSequence,
+            WorkerContainmentAckRequest acknowledgement =>
+                acknowledgement.SourceEventSequence,
+            _ => throw Protocol(
+                "control_request_invalid",
+                "Guardian request is not a supported host control acknowledgement."),
+        };
+
+        lock (_controlSync)
+        {
+            if (!_pendingControls.TryGetValue(
+                    sourceSequence.Value,
+                    out var pending) ||
+                pending.Claimed ||
+                !ControlPairMatches(pending.SourceEvent, request))
+            {
+                throw Protocol(
+                    "control_correlation_invalid",
+                    "Guardian control request does not match one pending host event.");
+            }
+            pending.Claimed = true;
+            return new PrivateHostControlAcknowledgement(
+                this,
+                pending,
+                request);
+        }
+    }
+
+    internal void FailPendingControls()
+    {
+        PendingControlEvent[] pending;
+        lock (_controlSync)
+        {
+            pending = _pendingControls.Values.ToArray();
+            _pendingControls.Clear();
+        }
+        foreach (var item in pending)
+        {
+            item.Completion.TrySetException(Protocol(
+                "control_channel_stopped",
+                "Host control exchange stopped before acknowledgement."));
+        }
+    }
+
+    private void CompleteControl(
+        PendingControlEvent pending,
+        GuardianHostRequest request)
+    {
+        lock (_controlSync)
+        {
+            if (!_pendingControls.Remove(
+                    pending.SourceEvent.EventSequence.Value,
+                    out var removed) ||
+                !ReferenceEquals(removed, pending) ||
+                !pending.Claimed)
+            {
+                throw new InvalidOperationException(
+                    "Host control acknowledgement lost its pending source event.");
+            }
+        }
+        if (!pending.Completion.TrySetResult(request))
+        {
+            throw new InvalidOperationException(
+                "Host control acknowledgement completed more than once.");
+        }
+    }
+
+    private void FailControl(PendingControlEvent pending)
+    {
+        lock (_controlSync)
+        {
+            if (!_pendingControls.Remove(
+                    pending.SourceEvent.EventSequence.Value,
+                    out var removed) ||
+                !ReferenceEquals(removed, pending))
+            {
+                return;
+            }
+        }
+        pending.Completion.TrySetException(Protocol(
+            "control_response_not_written",
+            "Host control acknowledgement response was not written."));
+    }
+
+    private void AbandonControl(
+        PendingControlEvent pending,
+        CancellationToken cancellationToken)
+    {
+        lock (_controlSync)
+        {
+            if (!_pendingControls.Remove(
+                    pending.SourceEvent.EventSequence.Value,
+                    out var removed) ||
+                !ReferenceEquals(removed, pending))
+            {
+                return;
+            }
+        }
+        pending.Completion.TrySetCanceled(cancellationToken);
+    }
+
+    private static bool IsSupportedControlEvent(GuardianHostEvent sourceEvent) =>
+        sourceEvent is
+            WorkerCreateCapabilityRequestedEvent or
+            WorkerContainmentPendingEvent or
+            WorkerContainmentArmedEvent or
+            WorkerContainmentRemoveRequestedEvent;
+
+    private static bool ControlPairMatches(
+        GuardianHostEvent sourceEvent,
+        GuardianHostRequest request)
+    {
+        if (sourceEvent.SessionAlias != request.SessionAlias ||
+            sourceEvent.SessionTransitionVersion !=
+                request.SessionTransitionVersion)
+        {
+            return false;
+        }
+
+        return (sourceEvent, request) switch
+        {
+            (WorkerCreateCapabilityRequestedEvent created,
+                WorkerCreateCapabilityGrantRequest grant) =>
+                grant.DeadlineUnixTimeMilliseconds ==
+                    created.StartupDeadlineUnixTimeMilliseconds,
+            (WorkerContainmentPendingEvent pending,
+                WorkerContainmentPendingAckRequest acknowledgement) =>
+                WorkerMatches(pending.WorkerIdentity, acknowledgement.WorkerIdentity),
+            (WorkerContainmentArmedEvent armed,
+                WorkerContainmentArmedAckRequest acknowledgement) =>
+                WorkerMatches(armed.WorkerIdentity, acknowledgement.WorkerIdentity),
+            (WorkerContainmentRemoveRequestedEvent remove,
+                WorkerContainmentRemoveAckRequest acknowledgement) =>
+                WorkerMatches(remove.WorkerIdentity, acknowledgement.WorkerIdentity),
+            _ => false,
+        };
+    }
+
+    private static bool WorkerMatches(
+        GuardianHostWorkerIdentity? left,
+        GuardianHostWorkerIdentity? right) =>
+        left is not null &&
+        right is not null &&
+        left.BootId == right.BootId &&
+        left.Generation == right.Generation;
+
     private void ValidateIdentity(GuardianHostMessage message)
     {
         if (message.Sender != GuardianHostPeer.Host ||
@@ -131,4 +361,31 @@ internal sealed class PrivateHostOutboundChannel : IPrivateHostEventSink
     private static GuardianHostProtocolException Protocol(
         string detailCode,
         string message) => new(detailCode, message);
+
+    internal sealed class PendingControlEvent(GuardianHostEvent sourceEvent)
+    {
+        internal GuardianHostEvent SourceEvent { get; } = sourceEvent;
+        internal TaskCompletionSource<GuardianHostRequest> Completion { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        internal bool Claimed { get; set; }
+    }
+
+    internal sealed class PrivateHostControlAcknowledgement(
+        PrivateHostOutboundChannel owner,
+        PendingControlEvent pending,
+        GuardianHostRequest request) : IDisposable
+    {
+        private PrivateHostOutboundChannel? _owner = owner;
+
+        internal void Complete()
+        {
+            var claimedOwner = Interlocked.Exchange(ref _owner, null) ??
+                throw new InvalidOperationException(
+                    "Host control acknowledgement completed more than once.");
+            claimedOwner.CompleteControl(pending, request);
+        }
+
+        public void Dispose() =>
+            Interlocked.Exchange(ref _owner, null)?.FailControl(pending);
+    }
 }

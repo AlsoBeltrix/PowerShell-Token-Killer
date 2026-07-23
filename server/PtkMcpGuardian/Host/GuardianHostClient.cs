@@ -164,7 +164,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
 {
     internal const int MaximumOutstandingRequests =
         ContractLimits.MaximumOutstandingPrivateRequests;
-    internal const int MaximumUnacknowledgedControlEvents = 64;
+    internal const int MaximumUnacknowledgedControlEvents =
+        ContractLimits.MaximumPendingControlEvents;
 
     private readonly object _sync = new();
     private readonly GuardianHostClientPins _pins;

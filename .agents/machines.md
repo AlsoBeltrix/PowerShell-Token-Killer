@@ -1414,6 +1414,26 @@ _GitHub Actions run `30008032861` at exact SHA
   reproduced the hosted failure on its first normally parallel run. The same
   two identities passed 2/2 in three consecutive runs with collection
   parallelism disabled.
-- Proposed Slice 17 assigns the complete stdio child fixture to the existing
-  `ProcessEnvironment` collection. It changes only test scheduling and awaits
-  owner approval; no production or test code was changed during diagnosis.
+- Slice 17 was subsequently approved and committed as `9630ff7`; its local
+  acceptance is recorded below.
+
+## Dependency third hosted corrective local acceptance (macOS, 2026-07-23)
+
+_Verified at code head
+`9630ff7c8d4c2e399bfd00581c0c1a536a46cbf3`. The sole code commit assigns
+`StdioChildStdinTests` to the existing implicit `ProcessEnvironment`
+collection; no production source or assertion changed._
+
+- A direct xUnit v3 selection of
+  `StdioChildStdinTests.Native_utf8_output_roundtrips_without_mojibake` and
+  `JobManagerTests.Job_uses_the_startup_pinned_pwsh_while_inheriting_live_environment`
+  passed 2/2 three consecutive times under normal collection parallelism.
+- The workflow-equivalent product server sequence built the solution once,
+  then the sequential in-process assemblies passed architecture 73/73,
+  Guardian 442/442, and server 1,917/1,917. The complete stdio handshake
+  passed.
+- The focused and full physical `/private/tmp` roots were removed in
+  `finally`. Final checks found both paths absent and zero matching scoped
+  processes.
+- No hosted-green claim is made. A separately authorized exact-SHA push must
+  produce all six jobs and all three product handshakes green.

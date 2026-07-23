@@ -20,12 +20,14 @@ short and update it when important repo facts change.
   head `8b5a66d`. Hosted run `30004132833` narrowed the remaining runner faults
   to the approved second corrective amendment, now locally complete at code
   head `cf94796`. Run `30008032861` passed five of six jobs and exposed one
-  further macOS test-scheduling finding; Slice 17 is approved and now in
-  progress under `.agents/plans/dependency-hardening.md`.
+  further macOS test-scheduling finding; Slice 17 is locally complete at code
+  head `9630ff7` with exact evidence in
+  `.agents/plans/dependency-hardening.md`.
 - **Dependency hardening and its first hosted corrective amendment are locally
   complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; the approved
-  second amendment is locally complete at code head `cf94796`, and final
-  hosted exact-SHA acceptance remains separately authorized.** The
+  second amendment is locally complete at code head `cf94796`, the third
+  amendment is locally complete at code head `9630ff7`, and final hosted
+  exact-SHA acceptance remains separately authorized.** The
   frozen inventory, PowerShell security
   chain, Hosting, MCP, Roslyn, .NET test-platform, coverage-collector, SQLite,
   Pester, and GitHub Actions runtime slices are committed. Test SDK 17.14.1
@@ -97,9 +99,12 @@ short and update it when important repo facts change.
   1,916/1,917 because a parallel `JobManagerTests` identity temporarily
   replaced process-wide `PATH`. The two selected identities reproduced 1/2
   under normal collection parallelism and passed 2/2 three consecutive times
-  when serialized. Assigning the stdio fixture to the existing
-  `ProcessEnvironment` collection is approved as Slice 17 and is now in
-  progress.
+  when serialized. Commit `9630ff7` assigns the complete stdio fixture to the
+  existing `ProcessEnvironment` collection. The formerly racing pair passed
+  2/2 in three consecutive normally parallel runs; the workflow-equivalent
+  macOS product sequence passed architecture 73, Guardian 442, and server
+  1,917, and the complete handshake passed. Both physical temporary roots were
+  removed with zero scoped processes.
 - **Owner handoff contract (2026-07-22): Git workspace mechanics are entirely
   agent-owned.** An agent must inspect and resume the exact active workspace
   without asking the owner to fetch, switch, push, select, or recover it. The
@@ -447,10 +452,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Implement approved dependency-hardening Slice 17: assign
-   `StdioChildStdinTests` to the existing `ProcessEnvironment` collection,
-   verify the focused race and full macOS product command, then separately
-   authorize final exact-SHA hosted acceptance.
+1. Obtain separate authorization for final dependency-hardening hosted
+   acceptance, then require all six GitHub Actions jobs and all three product
+   handshakes green at one exact SHA before making a hosted-green claim.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence. Do not fold the separate ARM64
    MSBuild-only `protoc` investigation into resilience work.

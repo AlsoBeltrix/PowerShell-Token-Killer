@@ -1,9 +1,9 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** THIRD HOSTED CORRECTIVE AMENDMENT APPROVED 2026-07-23; SLICE 17
-IMPLEMENTATION IN PROGRESS. THE SECOND AMENDMENT REMAINS LOCALLY ACCEPTED AT
-CODE HEAD `cf947965795bf190da2fc7034c5a3bb31bb2c289`; HOSTED RUN `30008032861`
-EXPOSED THE SINGLE TEST-SCHEDULING FINDING ADDRESSED BY SLICE 17.
+**Status:** THIRD HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
+2026-07-23 AT CODE HEAD
+`9630ff7c8d4c2e399bfd00581c0c1a536a46cbf3`; FINAL HOSTED ACCEPTANCE REMAINS
+SEPARATELY AUTHORIZED.
 The first hosted corrective amendment is implemented locally at code head
 `8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
 `30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
@@ -579,7 +579,7 @@ green at one exact SHA.
   separately authorized exact-SHA GitHub Actions run with all six jobs and all
   three product handshakes green.
 
-## Approved third hosted corrective amendment — implementation in progress
+## Approved third hosted corrective amendment — implemented locally
 
 GitHub Actions run `30008032861` at exact SHA
 `85dc709d2fc0940b65b9a83da088217186d95f60` passed all three SIEM jobs and
@@ -608,6 +608,26 @@ parallel two-class selection passes repeatedly after the collection assignment,
 then run the exact full macOS product command and handshake. Final acceptance
 still requires a separately authorized exact-SHA six-job hosted run with all
 three product handshakes green.
+
+## Third hosted corrective local acceptance
+
+- Slice 17 is committed as `9630ff7`. The complete `StdioChildStdinTests`
+  fixture now shares the existing implicit `ProcessEnvironment` collection
+  with `JobManagerTests`; production command resolution, the process-wide
+  environment mutator, normal collection parallelism, and the UTF-8 assertion
+  are unchanged.
+- The exact previously racing UTF-8 and pinned-PowerShell identities passed
+  2/2 in three consecutive direct xUnit v3 runs under normal collection
+  parallelism.
+- The workflow-equivalent macOS product server sequence built once and then
+  passed architecture 73/73, Guardian 442/442, and server 1,917/1,917 through
+  the sequential xUnit v3 in-process assemblies. The complete stdio handshake
+  passed.
+- Both physical macOS temporary roots were removed by their `finally` blocks;
+  final path and scoped-process probes were zero.
+- No green hosted claim is made. A new exact-SHA push and one six-job GitHub
+  Actions run with all three product handshakes green require separate
+  authorization.
 
 ## Completion and failure handling
 

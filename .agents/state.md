@@ -14,8 +14,8 @@ short and update it when important repo facts change.
   all disposable validation residue was removed, and the exact evidence is
   canonical in `.agents/plans/master-feature-reconciliation.md` and
   `.agents/machines.md`. This completes only the feature-branch
-  reconciliation; landing it on `master`, publishing, releasing, changing an
-  installed payload, or beginning resilience R6 requires separate authority.
+  reconciliation; the installed payload remains unchanged until the
+  already-authorized atomic R7 cutover.
   The first three hosted-CI corrective patches are locally complete at code
   head `8b5a66d`. Hosted run `30004132833` narrowed the remaining runner faults
   to the approved second corrective amendment, now locally complete at code
@@ -125,6 +125,14 @@ short and update it when important repo facts change.
   current active line is `feature/mcp-resilience-r1`; work is delivered only
   after verified content is integrated into `master` and published. Until then
   report it as in progress.
+- **Owner completion authority (2026-07-23): do not stop for individual
+  approval prompts.** Fix the remaining issues and finish the app. This covers
+  corrective implementation, commits, required exact-SHA pushes and hosted
+  runs, the already-approved R6/R7 sequence, atomic development cutover, final
+  integration into `master`, and repository publication of verified refs.
+  Public release artifacts and history rewriting remain out of scope. Preserve
+  every technical gate; stop only for a real technical, credential, safety, or
+  unresolved scope blocker.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -466,10 +474,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Obtain owner approval for proposed dependency-hardening Slice 18, implement
-   and verify its test-only transcript observation budget, then obtain separate
-   authorization for one final exact-SHA push. Require all six GitHub Actions
-   jobs and all three product handshakes green before a hosted-green claim.
+1. Implement and verify dependency-hardening Slice 18, push its exact SHA, and
+   require all six GitHub Actions jobs and all three product handshakes green
+   before a hosted-green claim.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not

@@ -3,7 +3,7 @@
 **Status:** THIRD HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
 2026-07-23 AT CODE HEAD
 `9630ff7c8d4c2e399bfd00581c0c1a536a46cbf3`; FOURTH HOSTED CORRECTIVE
-AMENDMENT AWAITS OWNER APPROVAL.
+AMENDMENT OWNER-APPROVED 2026-07-23 AND IMPLEMENTATION ACTIVE.
 The first hosted corrective amendment is implemented locally at code head
 `8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
 `30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
@@ -29,6 +29,14 @@ owner rejected any policy that makes vulnerability advisories build- or
 install-blocking: users retain the choice to build when an advisory has no
 patched version. This work runs before resilience R6 and does not authorize a
 push, merge, release, or installed-payload update.
+
+On 2026-07-23 the owner gave blanket completion authority: fix the remaining
+issues, finish the app, and do not stop for individual approval prompts. That
+authorization covers Slice 18, its verification, the exact-SHA hosted runs
+needed for acceptance, the already-approved R6/R7 sequence, final integration
+into `master`, and repository publication of the verified refs. It does not
+authorize a public release artifact or relax any technical acceptance,
+containment, no-replay, or rollback boundary.
 
 ## Outcome
 
@@ -629,7 +637,7 @@ three product handshakes green.
   Actions run with all three product handshakes green require separate
   authorization.
 
-## Proposed fourth hosted corrective amendment — owner approval required
+## Approved fourth hosted corrective amendment — implementation active
 
 GitHub Actions run `30015883142` at exact SHA
 `d50d9741e8a59ede71182755f6c037d31a503b67` passed all three SIEM jobs and

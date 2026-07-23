@@ -117,6 +117,16 @@ includes the R7 development-registration cutover and its rollback validation;
 it does not authorize a push, main-branch merge, history rewrite, or public
 release publication.
 
+On 2026-07-23 the owner extended that authority through app completion and
+directed agents not to stop for individual approval prompts. After the
+dependency-hardening acceptance gate, execute R6 and R7, their required
+exact-SHA hosted runs, the atomic development cutover, final integration into
+`master`, and repository publication of the verified refs without another
+routine go. This does not authorize a public release artifact, history
+rewriting, or weakening any acceptance, rollback, containment, audit, or
+no-replay rule; stop only for a real technical, credential, safety, or
+unresolved scope blocker.
+
 `.agents/decisions.md` remains under the owner's existing hold and is not
 amended by this plan. This plan is the canonical source for MCP transport and
 backend recovery. It narrowly supersedes the target topology and the

@@ -2,6 +2,7 @@ using System.Diagnostics;
 
 namespace PtkMcpServer.Tests;
 
+[Collection(ResilienceProcessCreationCollection.Name)]
 public sealed class ProcessTreeContainmentTests : IDisposable
 {
     private readonly string _root =

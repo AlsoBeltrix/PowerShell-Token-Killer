@@ -986,6 +986,64 @@ rewriting, or public release publication.
   and per-alias circuit state.
 - Prove one worker loss neither restarts the host nor affects another session.
 
+Implement R6 as the following separately committed, continuously green
+sub-slices. The ordering is a safety dependency, not a license to leave a
+second live execution path after the final sub-slice.
+
+1. **Complete the worker execution protocol.** Replace the Slice 7f-7h
+   staging-only boundary with one live worker-side owner for ordinary
+   request/cancel scheduling, foreground-invoke prepare/commit/abort
+   reservations, guardian-reserved background job IDs, asynchronous job
+   terminals, and bounded output/diagnostic events. An ordinary `request`
+   can never carry script-bearing work. A prepared invoke executes at most
+   once only after exact correlation and commit; expiry, abort, mismatch, and
+   duplicate commit retain their proved-no-start/idempotent outcomes. Bind
+   `SessionRuntime` only behind this owner and replace every removed
+   unwired-staging assertion with a live no-bypass/no-ordinary-invoke guard.
+2. **Add one strict host-side worker client and platform launch authority.**
+   It owns initialization, monotonic request IDs, prepared correlation,
+   response/event validation, cancellation, EOF/process/broker races, bounded
+   diagnostic drains, and exactly-once containment. On Windows, launch the
+   exact apphost into the creation-time nested Job Object using the existing
+   five-handle primitive. On Unix, replace the packaged exit-78 containment
+   stub with the approved per-worker broker and extend the outer guardian
+   broker with its identity-fenced pending/armed/remove registry. No managed
+   spawn, post-start attach, detached group, or containment fallback is
+   permitted.
+3. **Cut the private host over to per-alias worker slots.** Replace
+   `DefaultPrivateHostSessionFactory` and direct `IPrivateSessionOperations`
+   dispatch with a worker-session supervisor that consumes guardian create
+   capabilities, completes both Unix containment acknowledgements before
+   release, routes operations through the exact current worker, and owns
+   lifecycle gates. Move reset/restart/close to whole-worker replacement;
+   add dynamic aliases and frozen template bootstrap without reintroducing an
+   in-process fallback. The private host protocol server must accept only the
+   four already-frozen guardian control acknowledgements in addition to
+   operation/cancel/shutdown, and correlate each to one emitted control event.
+4. **Make guardian worker control authoritative.** Replace
+   `FrozenDefaultSessionState` with a guardian-lifetime multi-alias declared
+   state/catalog owner. It alone grants nonreusing worker generations and
+   single-use create tokens, mutates the outer Unix registry, projects public
+   session state, and retains public job/output/audit identity across worker
+   replacement. Control work is scheduled after the ordered host-event
+   callback returns, then sent through the existing exact source-event
+   correlation; no guardian request is recursively written from that callback.
+5. **Wire automatic recovery.** Connect one `SessionRecoveryStateMachine` to
+   each alias's real launch/containment/bootstrap resources. Unexpected exit,
+   protocol loss, broker loss, and execution-timeout containment converge on
+   one loss lease. Confirmed death permits only the next generation and exact
+   frozen baseline; ambiguity becomes `recovery_unknown`; deterministic
+   bootstrap/configuration failure faults only that alias; retry/backoff,
+   half-open, and stability reset remain per alias. Host loss continues to use
+   the independent outer host recovery path.
+6. **Close the R6 acceptance matrix before R7.** Prove real apphost
+   initialize/invoke/state/job behavior, prepared no-replay barriers, reset
+   and named-session isolation, nested Windows and native Unix containment,
+   guardian-death cleanup, and one-alias crash/recovery while a second alias
+   keeps its PID, generation, warm state, and successful operation. Run the
+   complete repository battery and stdio handshake on macOS, x64 Linux, and
+   Windows, remove all scoped residue, and record exact committed evidence.
+
 ### R7 — development registration, package fixture, and end-to-end cutover
 
 - In one cutover commit, change every existing development installer,

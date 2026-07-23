@@ -284,8 +284,9 @@ internal sealed class PrivateHostServer
                 initialize.RequestId,
                 header.ManifestId,
                 header.ManifestDigest);
+            _lastRequestId = lastRequestId;
             SetState(PrivateHostServerState.InitializingRuntime);
-            await _runtime.InitializeAsync(initialization, cancellationToken).ConfigureAwait(false);
+            await InitializeRuntimeAsync(initialization, cancellationToken).ConfigureAwait(false);
 
             await _outbound.WriteFrameAsync(
                 new GuardianHostReady(
@@ -298,7 +299,6 @@ internal sealed class PrivateHostServer
                     _identity.HostPid),
                 cancellationToken).ConfigureAwait(false);
 
-            _lastRequestId = lastRequestId;
             SetState(PrivateHostServerState.Ready);
             return initialization;
         }
@@ -306,6 +306,122 @@ internal sealed class PrivateHostServer
         {
             if (manifestBytes is not null)
                 CryptographicOperations.ZeroMemory(manifestBytes);
+        }
+    }
+
+    private async Task InitializeRuntimeAsync(
+        PrivateHostInitialization initialization,
+        CancellationToken cancellationToken)
+    {
+        using var phaseCancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken);
+        var runtimeInitialization = _runtime.InitializeAsync(
+                initialization,
+                phaseCancellation.Token)
+            .AsTask();
+        Task<GuardianHostMessage?>? pendingRead = null;
+        var runtimeCompletedSuccessfully = false;
+
+        try
+        {
+            while (!runtimeInitialization.IsCompleted)
+            {
+                pendingRead ??= _reader.ReadAsync(phaseCancellation.Token).AsTask();
+                _ = await Task.WhenAny(
+                        pendingRead,
+                        runtimeInitialization)
+                    .ConfigureAwait(false);
+                if (!pendingRead.IsCompleted)
+                    break;
+
+                var message = await pendingRead.ConfigureAwait(false);
+                pendingRead = null;
+                if (message is null)
+                {
+                    throw Protocol(
+                        "unexpected_eof",
+                        "Private guardian channel ended during runtime initialization.");
+                }
+
+                switch (message)
+                {
+                    case WorkerCreateCapabilityGrantRequest control:
+                        await CompleteControlAcknowledgementAsync(
+                                control,
+                                phaseCancellation.Token)
+                            .ConfigureAwait(false);
+                        break;
+
+                    case WorkerContainmentAckRequest control:
+                        await CompleteControlAcknowledgementAsync(
+                                control,
+                                phaseCancellation.Token)
+                            .ConfigureAwait(false);
+                        break;
+
+                    default:
+                        try
+                        {
+                            ValidateIdentity(message);
+                            throw Protocol(
+                                "initialization_message_invalid",
+                                "Private host accepts only retained worker-control " +
+                                "acknowledgements during runtime initialization.");
+                        }
+                        finally
+                        {
+                            if (message is IDisposable disposable)
+                                disposable.Dispose();
+                        }
+                }
+            }
+
+            await runtimeInitialization.ConfigureAwait(false);
+            runtimeCompletedSuccessfully = true;
+        }
+        finally
+        {
+            await CancelIgnoringFailureAsync(phaseCancellation).ConfigureAwait(false);
+            if (pendingRead is not null)
+            {
+                try
+                {
+                    var unread = await pendingRead.ConfigureAwait(false);
+                    if (unread is not null)
+                    {
+                        using (unread as IDisposable)
+                        {
+                            if (runtimeCompletedSuccessfully)
+                            {
+                                throw Protocol(
+                                    "initialization_message_invalid",
+                                    "A private guardian message raced runtime readiness.");
+                            }
+                        }
+                    }
+                }
+                catch (OperationCanceledException) when (
+                    phaseCancellation.IsCancellationRequested)
+                {
+                }
+                catch (Exception exception) when (
+                    !runtimeCompletedSuccessfully &&
+                    !IsFatal(exception))
+                {
+                    // Preserve the runtime/protocol failure already in flight.
+                }
+            }
+
+            if (!runtimeCompletedSuccessfully)
+            {
+                try
+                {
+                    await runtimeInitialization.ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                }
+            }
         }
     }
 

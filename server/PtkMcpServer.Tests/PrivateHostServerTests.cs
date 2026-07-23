@@ -425,6 +425,195 @@ public sealed class PrivateHostServerTests
     }
 
     [Fact]
+    public async Task Runtime_initialization_services_exact_control_before_publishing_ready()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        var identity = new PrivateHostServerIdentity(
+            Guardian,
+            Host,
+            Generation,
+            hostPid: 4242);
+        var outbound = new PrivateHostOutboundChannel(hostToGuardian, identity);
+        var controlCompleted = NewSignal();
+        var runtime = new DelegatingPrivateHostRuntime(
+            initialize: async (_, cancellationToken) =>
+            {
+                var acknowledgement = await
+                    ((IPrivateHostControlEventSink)outbound).ExchangeControlAsync(
+                        sequence => new WorkerContainmentPendingEvent(
+                            Guardian,
+                            Host,
+                            Generation,
+                            sequence,
+                            Alias,
+                            Transition,
+                            Worker,
+                            ContainmentIdentity()),
+                        cancellationToken);
+                Assert.IsType<WorkerContainmentPendingAckRequest>(acknowledgement);
+                controlCompleted.TrySetResult();
+            });
+        var server = new PrivateHostServer(
+            guardianToHost,
+            outbound,
+            identity,
+            Pins(),
+            runtime);
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var initialization = server.InitializeAsync(timeout.Token).AsTask();
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        var source = Assert.IsType<WorkerContainmentPendingEvent>(
+            await reader.ReadAsync(timeout.Token));
+        Assert.Equal(PrivateHostServerState.InitializingRuntime, server.State);
+        Assert.False(controlCompleted.Task.IsCompleted);
+        Assert.False(hostToGuardian.HasPendingWrite);
+
+        await writer.WriteAsync(
+            new WorkerContainmentPendingAckRequest(
+                Guardian,
+                Host,
+                Generation,
+                new PrivateRequestId(5),
+                FutureDeadline(),
+                Alias,
+                Transition,
+                Worker,
+                source.EventSequence),
+            timeout.Token);
+        var acknowledged = AssertSuccess<ControlAcknowledged>(
+            await reader.ReadAsync(timeout.Token),
+            requestId: 5);
+        Assert.Equal(source.EventSequence, acknowledged.SourceEventSequence);
+        await controlCompleted.Task.WaitAsync(timeout.Token);
+
+        _ = Assert.IsType<GuardianHostReady>(
+            await reader.ReadAsync(timeout.Token));
+        _ = await initialization;
+        Assert.Equal(PrivateHostServerState.Ready, server.State);
+        Assert.Equal(0, outbound.PendingControlCount);
+    }
+
+    [Fact]
+    public async Task Runtime_initialization_rejects_operations_and_cancels_runtime_before_fault()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        var entered = NewSignal();
+        var canceled = NewSignal();
+        var runtime = new DelegatingPrivateHostRuntime(
+            initialize: async (_, cancellationToken) =>
+            {
+                entered.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+                finally
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                        canceled.TrySetResult();
+                }
+            });
+        var server = NewServer(
+            guardianToHost,
+            hostToGuardian,
+            runtime: runtime);
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var initialization = server.InitializeAsync(timeout.Token).AsTask();
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        await entered.Task.WaitAsync(timeout.Token);
+        await writer.WriteAsync(JobListRequest(requestId: 5), timeout.Token);
+
+        var failure = await Assert.ThrowsAsync<GuardianHostProtocolException>(
+            () => initialization);
+        Assert.Equal("initialization_message_invalid", failure.DetailCode);
+        await canceled.Task.WaitAsync(timeout.Token);
+        Assert.False(hostToGuardian.HasPendingWrite);
+        Assert.Equal(PrivateHostServerState.Faulted, server.State);
+        Assert.Equal(0, runtime.ExecuteCount);
+    }
+
+    [Fact]
+    public async Task Runtime_initialization_control_preserves_manifest_request_high_water()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        var identity = new PrivateHostServerIdentity(
+            Guardian,
+            Host,
+            Generation,
+            hostPid: 4242);
+        var outbound = new PrivateHostOutboundChannel(hostToGuardian, identity);
+        var runtime = new DelegatingPrivateHostRuntime(
+            initialize: async (_, cancellationToken) =>
+            {
+                await ((IPrivateHostControlEventSink)outbound).ExchangeControlAsync(
+                    sequence => new WorkerContainmentPendingEvent(
+                        Guardian,
+                        Host,
+                        Generation,
+                        sequence,
+                        Alias,
+                        Transition,
+                        Worker,
+                        ContainmentIdentity()),
+                    cancellationToken);
+            });
+        var server = new PrivateHostServer(
+            guardianToHost,
+            outbound,
+            identity,
+            Pins(),
+            runtime);
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+
+        var initialization = server.InitializeAsync(timeout.Token).AsTask();
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        var source = Assert.IsType<WorkerContainmentPendingEvent>(
+            await reader.ReadAsync(timeout.Token));
+        await writer.WriteAsync(
+            new WorkerContainmentPendingAckRequest(
+                Guardian,
+                Host,
+                Generation,
+                new PrivateRequestId(4),
+                FutureDeadline(),
+                Alias,
+                Transition,
+                Worker,
+                source.EventSequence),
+            timeout.Token);
+
+        var failure = await Assert.ThrowsAsync<GuardianHostProtocolException>(
+            () => initialization);
+        Assert.Equal("request_id_not_increasing", failure.DetailCode);
+        Assert.False(hostToGuardian.HasPendingWrite);
+        Assert.Equal(PrivateHostServerState.Faulted, server.State);
+        Assert.Equal(0, outbound.PendingControlCount);
+    }
+
+    [Fact]
     public async Task Runtime_initialization_failure_is_generation_fatal_and_never_emits_ready()
     {
         using var guardianToHost = new ChannelStream();

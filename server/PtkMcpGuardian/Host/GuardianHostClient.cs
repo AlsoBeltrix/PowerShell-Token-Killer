@@ -528,7 +528,9 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                 RequireRequestCapacityLocked(
                     hostBootId,
                     requestId,
-                    allowInitializingControl: controlEvent is not null);
+                    allowInitializingControl:
+                        controlEvent is not null &&
+                        IsBootstrapControlEvent(controlEvent.EventType));
             }
             using var controlLease = controlEvent is null
                 ? null
@@ -541,7 +543,9 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                 RequireRequestCapacityLocked(
                     hostBootId,
                     requestId,
-                    allowInitializingControl: controlEvent is not null);
+                    allowInitializingControl:
+                        controlEvent is not null &&
+                        IsBootstrapControlEvent(controlEvent.EventType));
                 if (controlEvent is not null &&
                     !ReferenceEquals(ValidateControlEventLocked(request), controlEvent))
                     throw new InvalidOperationException("The private control event changed before dispatch.");
@@ -975,7 +979,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                         await CompleteResponseAsync(response).ConfigureAwait(false);
                         break;
                     case GuardianHostEvent hostEvent
-                        when IsControlEvent(hostEvent.EventType):
+                        when IsBootstrapControlEvent(hostEvent.EventType):
                         await CompleteEventAsync(hostEvent).ConfigureAwait(false);
                         break;
                     default:
@@ -1254,7 +1258,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             WorkerCreateCapabilityGrantRequest or
             WorkerContainmentPendingAckRequest or
             WorkerContainmentArmedAckRequest or
-            WorkerContainmentRemoveAckRequest))
+            WorkerContainmentRemoveAckRequest or
+            PreparedDispatchAuthorizeRequest))
         {
             return null;
         }
@@ -1263,6 +1268,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         {
             WorkerCreateCapabilityGrantRequest value => value.SourceEventSequence,
             WorkerContainmentAckRequest value => value.SourceEventSequence,
+            PreparedDispatchAuthorizeRequest value => value.SourceEventSequence,
             _ => throw new InvalidOperationException(),
         };
         if (!_unacknowledgedControlEvents.TryGetValue(
@@ -1602,6 +1608,9 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             WorkerContainmentAckRequest containment =>
                 success.Payload is ControlAcknowledged acknowledged &&
                 acknowledged.SourceEventSequence == containment.SourceEventSequence,
+            PreparedDispatchAuthorizeRequest authorization =>
+                success.Payload is ControlAcknowledged acknowledged &&
+                acknowledged.SourceEventSequence == authorization.SourceEventSequence,
             GuardianHostShutdown => success.Payload is ShutdownAccepted,
             _ => false,
         };
@@ -1645,6 +1654,18 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                 OperationMatches(value.OperationIdentity, request.OperationIdentity) &&
                 request.Operation.OutputCapability is { } output &&
                 value.OutputCapabilityToken == output.Token,
+            PreparedDispatchAuthorizationRequestedEvent value =>
+                WorkerMatches(value.WorkerIdentity, request.WorkerIdentity) &&
+                OperationMatches(value.OperationIdentity, request.OperationIdentity) &&
+                value.Descriptor.DeadlineUnixTimeMilliseconds ==
+                    request.DeadlineUnixTimeMilliseconds &&
+                ScriptDigestMatches(value.Descriptor.ScriptDigest, request.Operation) &&
+                RequestedRouteMatches(value.Descriptor.RequestedRoute, request.Operation),
+            PreparedValidatorLifecycleEvent value =>
+                WorkerMatches(value.WorkerIdentity, request.WorkerIdentity) &&
+                OperationMatches(value.OperationIdentity, request.OperationIdentity) &&
+                request.Operation is InvokeForegroundOperation or
+                    InvokeBackgroundOperation,
             SessionLifecycleEvent value =>
                 (IsSessionChangingOperation(request.Operation.Kind) ||
                     WorkerMatches(value.WorkerIdentity, request.WorkerIdentity)) &&
@@ -1715,7 +1736,49 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             _ => false,
         };
 
+    private static bool ScriptDigestMatches(
+        Sha256Digest actual,
+        GuardianHostOperation operation)
+    {
+        var script = operation switch
+        {
+            InvokeForegroundOperation value => value.Script,
+            InvokeBackgroundOperation value => value.Script,
+            _ => null,
+        };
+        return script is not null &&
+            actual == Sha256Digest.Compute(
+                System.Text.Encoding.UTF8.GetBytes(script));
+    }
+
+    private static bool RequestedRouteMatches(
+        GuardianHostRequestedExecutionRoute actual,
+        GuardianHostOperation operation)
+    {
+        var requested = operation switch
+        {
+            InvokeForegroundOperation value => value.Route,
+            InvokeBackgroundOperation value => value.Route,
+            _ => (GuardianHostInvokeRoute?)null,
+        };
+        return (actual, requested) switch
+        {
+            (GuardianHostRequestedExecutionRoute.Auto, GuardianHostInvokeRoute.Auto) => true,
+            (GuardianHostRequestedExecutionRoute.Pwsh, GuardianHostInvokeRoute.Pwsh) => true,
+            (GuardianHostRequestedExecutionRoute.Rtk, GuardianHostInvokeRoute.Rtk) => true,
+            _ => false,
+        };
+    }
+
     private static bool IsControlEvent(GuardianHostEventType eventType) => eventType is
+        GuardianHostEventType.WorkerCreateCapabilityRequested or
+        GuardianHostEventType.WorkerContainmentPending or
+        GuardianHostEventType.WorkerContainmentArmed or
+        GuardianHostEventType.WorkerContainmentRemoveRequested or
+        GuardianHostEventType.PreparedDispatchAuthorizationRequested;
+
+    private static bool IsBootstrapControlEvent(
+        GuardianHostEventType eventType) => eventType is
         GuardianHostEventType.WorkerCreateCapabilityRequested or
         GuardianHostEventType.WorkerContainmentPending or
         GuardianHostEventType.WorkerContainmentArmed or
@@ -1734,6 +1797,8 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                 GuardianHostRequestMethod.WorkerContainmentArmedAck) => true,
             (GuardianHostEventType.WorkerContainmentRemoveRequested,
                 GuardianHostRequestMethod.WorkerContainmentRemoveAck) => true,
+            (GuardianHostEventType.PreparedDispatchAuthorizationRequested,
+                GuardianHostRequestMethod.PreparedDispatchAuthorize) => true,
             _ => false,
         };
 
@@ -1756,6 +1821,18 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             (GuardianHostContainmentEvent containment,
                 WorkerContainmentAckRequest acknowledgement) =>
                 WorkerMatches(containment.WorkerIdentity, acknowledgement.WorkerIdentity),
+            (PreparedDispatchAuthorizationRequestedEvent prepared,
+                PreparedDispatchAuthorizeRequest authorization) =>
+                WorkerMatches(
+                    prepared.WorkerIdentity,
+                    authorization.WorkerIdentity) &&
+                OperationMatches(
+                    prepared.OperationIdentity,
+                    authorization.OperationIdentity) &&
+                authorization.DeadlineUnixTimeMilliseconds ==
+                    prepared.Descriptor.DeadlineUnixTimeMilliseconds &&
+                authorization.DescriptorDigest ==
+                    prepared.Descriptor.DescriptorDigest,
             _ => false,
         };
     }

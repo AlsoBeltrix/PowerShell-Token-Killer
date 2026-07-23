@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://powershell-token-killer.invalid/schemas/ptk-guardian-host-protocol-1.json",
-  "title": "PTK guardian-host private protocol v1 frame",
+  "$id": "https://powershell-token-killer.invalid/schemas/ptk-guardian-host-protocol-2.json",
+  "title": "PTK guardian-host private protocol v2 frame",
   "oneOf": [
     { "$ref": "#/$defs/hello" },
     { "$ref": "#/$defs/initialize" },
@@ -32,6 +32,7 @@
     "worker_containment_pending_ack": "control_acknowledged",
     "worker_containment_armed_ack": "control_acknowledged",
     "worker_containment_remove_ack": "control_acknowledged",
+    "prepared_dispatch_authorize": "control_acknowledged",
     "shutdown": "shutdown_accepted"
   },
   "x-ptk-cross-frame-invariants": {
@@ -40,7 +41,8 @@
     "cancel_terminal_owner": "target_request_id original request owns the sole terminal",
     "operation_response": "operation_completed.operation=originating_operation_request.operation",
     "delivery_event": "operation_delivery.dispatch_token=originating_operation_request.dispatch_capability.token",
-    "control_ack": "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence"
+    "control_ack": "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence",
+    "prepared_dispatch_authorization": "prepared_dispatch_authorize.descriptor_sha256=prepared_dispatch_authorization_requested.descriptor_sha256"
   },
   "$defs": {
     "uuidv4": {
@@ -83,7 +85,7 @@
         "configuration_sha256", "request_channel_owned", "event_channel_owned"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "hello" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -113,14 +115,14 @@
         "maximum_manifest_chunk_raw_bytes", "maximum_aliases", "maximum_templates"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "initialize" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_generation": { "$ref": "#/$defs/positive_int64" },
         "request_id": { "$ref": "#/$defs/positive_int64" },
-        "guardian_protocol_version": { "const": 1 },
-        "host_protocol_version": { "const": 1 },
+        "guardian_protocol_version": { "const": 2 },
+        "host_protocol_version": { "const": 2 },
         "host_executable_sha256": { "$ref": "#/$defs/sha256" },
         "host_build_sha256": { "$ref": "#/$defs/sha256" },
         "public_contract_sha256": { "$ref": "#/$defs/sha256" },
@@ -147,7 +149,7 @@
         "initialize_request_id", "manifest_id", "manifest_sha256", "host_pid"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "ready" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -172,7 +174,7 @@
         "operation_id", "payload"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "request" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -182,7 +184,8 @@
           "enum": [
             "manifest_header", "manifest_chunk", "manifest_seal", "operation",
             "worker_create_capability_grant", "worker_containment_pending_ack",
-            "worker_containment_armed_ack", "worker_containment_remove_ack"
+            "worker_containment_armed_ack", "worker_containment_remove_ack",
+            "prepared_dispatch_authorize"
           ]
         },
         "deadline_unix_time_milliseconds": { "$ref": "#/$defs/nullable_positive_int64" },
@@ -390,6 +393,19 @@
             "operation_id": { "type": "null" },
             "payload": { "$ref": "#/$defs/source_event_ack" }
           }
+        },
+        {
+          "properties": {
+            "method": { "const": "prepared_dispatch_authorize" },
+            "deadline_unix_time_milliseconds": { "$ref": "#/$defs/positive_int64" },
+            "session_alias": { "$ref": "#/$defs/alias" },
+            "session_transition_version": { "$ref": "#/$defs/positive_int64" },
+            "worker_boot_id": { "$ref": "#/$defs/uuidv4" },
+            "worker_generation": { "$ref": "#/$defs/positive_int64" },
+            "plan_id": { "$ref": "#/$defs/uuidv4" },
+            "operation_id": { "$ref": "#/$defs/uuidv4" },
+            "payload": { "$ref": "#/$defs/prepared_dispatch_authorize" }
+          }
         }
       ]
     },
@@ -402,7 +418,7 @@
         "request_id", "target_request_id", "reason"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "cancel" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -426,7 +442,7 @@
         "operation_id", "payload"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "event" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -436,9 +452,10 @@
           "enum": [
             "worker_create_capability_requested", "worker_containment_pending",
             "worker_containment_armed", "worker_containment_remove_requested",
+            "prepared_dispatch_authorization_requested",
             "operation_delivery", "session_lifecycle", "worker_lost",
             "worker_diagnostic_chunk", "worker_diagnostic_truncated",
-            "job_lifecycle", "output_chunk", "output_seal"
+            "job_lifecycle", "output_chunk", "output_seal", "prepared_validator_lifecycle"
           ]
         },
         "request_id": { "$ref": "#/$defs/nullable_positive_int64" },
@@ -535,6 +552,32 @@
         },
         {
           "properties": {
+            "event_type": { "const": "prepared_dispatch_authorization_requested" },
+            "request_id": { "$ref": "#/$defs/positive_int64" },
+            "session_alias": { "$ref": "#/$defs/alias" },
+            "session_transition_version": { "$ref": "#/$defs/positive_int64" },
+            "worker_boot_id": { "$ref": "#/$defs/uuidv4" },
+            "worker_generation": { "$ref": "#/$defs/positive_int64" },
+            "plan_id": { "$ref": "#/$defs/uuidv4" },
+            "operation_id": { "$ref": "#/$defs/uuidv4" },
+            "payload": { "$ref": "#/$defs/prepared_dispatch_authorization_requested" }
+          }
+        },
+        {
+          "properties": {
+            "event_type": { "const": "prepared_validator_lifecycle" },
+            "request_id": { "$ref": "#/$defs/positive_int64" },
+            "session_alias": { "$ref": "#/$defs/alias" },
+            "session_transition_version": { "$ref": "#/$defs/positive_int64" },
+            "worker_boot_id": { "$ref": "#/$defs/uuidv4" },
+            "worker_generation": { "$ref": "#/$defs/positive_int64" },
+            "plan_id": { "$ref": "#/$defs/uuidv4" },
+            "operation_id": { "$ref": "#/$defs/uuidv4" },
+            "payload": { "$ref": "#/$defs/prepared_validator_lifecycle" }
+          }
+        },
+        {
+          "properties": {
             "event_type": { "const": "session_lifecycle" },
             "session_alias": { "$ref": "#/$defs/alias" },
             "session_transition_version": { "$ref": "#/$defs/positive_int64" },
@@ -599,7 +642,7 @@
         "request_id", "status", "payload", "error"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "response" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -642,7 +685,7 @@
         "request_id", "deadline_unix_time_milliseconds", "reason"
       ],
       "properties": {
-        "protocol_version": { "const": 1 },
+        "protocol_version": { "const": 2 },
         "kind": { "const": "shutdown" },
         "guardian_boot_id": { "$ref": "#/$defs/uuidv4" },
         "host_boot_id": { "$ref": "#/$defs/uuidv4" },
@@ -898,6 +941,16 @@
       "required": ["source_event_sequence"],
       "additionalProperties": false
     },
+    "prepared_dispatch_authorize": {
+      "type": "object",
+      "x-ptk-property-order": ["source_event_sequence", "descriptor_sha256"],
+      "properties": {
+        "source_event_sequence": { "$ref": "#/$defs/positive_int64" },
+        "descriptor_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["source_event_sequence", "descriptor_sha256"],
+      "additionalProperties": false
+    },
     "worker_create_capability_requested": {
       "type": "object",
       "x-ptk-property-order": ["binding_digest", "startup_deadline_unix_time_milliseconds"],
@@ -955,6 +1008,128 @@
     "worker_containment_pending": { "$ref": "#/$defs/containment_identity_pending" },
     "worker_containment_armed": { "$ref": "#/$defs/containment_identity_armed" },
     "worker_containment_remove_requested": { "$ref": "#/$defs/containment_identity_armed" },
+    "prepared_plan_descriptor": {
+      "type": "object",
+      "x-ptk-property-order": [
+        "plan_id", "worker_boot_id", "worker_generation",
+        "deadline_unix_time_milliseconds", "script_sha256", "domain",
+        "requested_route", "effective_route", "pre_execution_validation",
+        "resolution_context", "output_provenance", "permitted_fallbacks",
+        "fallback_reason", "working_directory_sha256", "rtk_binary_sha256",
+        "bash_binary_sha256", "output_shaping_rtk_binary_sha256"
+      ],
+      "properties": {
+        "plan_id": { "$ref": "#/$defs/uuidv4" },
+        "worker_boot_id": { "$ref": "#/$defs/uuidv4" },
+        "worker_generation": { "$ref": "#/$defs/positive_int64" },
+        "deadline_unix_time_milliseconds": { "$ref": "#/$defs/positive_int64" },
+        "script_sha256": { "$ref": "#/$defs/sha256" },
+        "domain": {
+          "oneOf": [
+            { "type": "null" },
+            { "enum": ["powershell", "native_terminal", "mixed_dataflow", "bash"] }
+          ]
+        },
+        "requested_route": { "enum": ["auto", "pwsh", "rtk"] },
+        "effective_route": {
+          "enum": ["powershell_direct", "rtk", "native_direct", "bash_via_rtk"]
+        },
+        "pre_execution_validation": { "enum": ["none", "bash_syntax"] },
+        "resolution_context": { "enum": ["warm", "cold"] },
+        "output_provenance": {
+          "enum": [
+            "powershell_objects", "direct_text", "rtk_unknown",
+            "rtk_filtered", "rtk_passthrough"
+          ]
+        },
+        "permitted_fallbacks": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 2,
+          "uniqueItems": true,
+          "items": { "enum": ["powershell_direct", "native_direct"] }
+        },
+        "fallback_reason": {
+          "oneOf": [
+            { "type": "null" },
+            {
+              "enum": [
+                "rtk_executable_unavailable", "rtk_executable_became_unavailable",
+                "rtk_ineligible_shape", "rtk_self_invocation",
+                "rtk_resolution_not_application", "rtk_fidelity_exclusion",
+                "rtk_execution_preparation_failed", "rtk_target_resolution_changed"
+              ]
+            }
+          ]
+        },
+        "working_directory_sha256": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+        },
+        "rtk_binary_sha256": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+        },
+        "bash_binary_sha256": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+        },
+        "output_shaping_rtk_binary_sha256": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/sha256" }]
+        }
+      },
+      "required": [
+        "plan_id", "worker_boot_id", "worker_generation",
+        "deadline_unix_time_milliseconds", "script_sha256", "domain",
+        "requested_route", "effective_route", "pre_execution_validation",
+        "resolution_context", "output_provenance", "permitted_fallbacks",
+        "fallback_reason", "working_directory_sha256", "rtk_binary_sha256",
+        "bash_binary_sha256", "output_shaping_rtk_binary_sha256"
+      ],
+      "additionalProperties": false
+    },
+    "prepared_dispatch_authorization_requested": {
+      "type": "object",
+      "x-ptk-property-order": ["descriptor", "descriptor_sha256"],
+      "properties": {
+        "descriptor": { "$ref": "#/$defs/prepared_plan_descriptor" },
+        "descriptor_sha256": { "$ref": "#/$defs/sha256" }
+      },
+      "required": ["descriptor", "descriptor_sha256"],
+      "additionalProperties": false,
+      "x-ptk-invariant": "descriptor_sha256=sha256(canonical_descriptor)"
+    },
+    "prepared_validator_lifecycle": {
+      "type": "object",
+      "x-ptk-property-order": ["phase", "validator_binary_sha256", "exit_code"],
+      "properties": {
+        "phase": { "enum": ["started", "completed"] },
+        "validator_binary_sha256": { "$ref": "#/$defs/sha256" },
+        "exit_code": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 }
+          ]
+        }
+      },
+      "required": ["phase", "validator_binary_sha256", "exit_code"],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "phase": { "const": "started" },
+            "exit_code": { "type": "null" }
+          }
+        },
+        {
+          "properties": {
+            "phase": { "const": "completed" },
+            "exit_code": {
+              "type": "integer",
+              "minimum": -2147483648,
+              "maximum": 2147483647
+            }
+          }
+        }
+      ]
+    },
     "operation_delivery": {
       "type": "object",
       "x-ptk-cross-frame-invariant": "dispatch_token=originating_operation_request.dispatch_capability.token",

@@ -299,7 +299,7 @@ function Write-PtkPackageManifest {
         schema_version = 'ptk.package-manifest/1'
         package_version = $PayloadVersion
         rid = $TargetRid
-        private_protocol_version = 1
+        private_protocol_version = 2
         public_contract_sha256 = Get-PtkPublicContractSha256
         host_build_sha256 = $hostBuildSha256
         files = $entries

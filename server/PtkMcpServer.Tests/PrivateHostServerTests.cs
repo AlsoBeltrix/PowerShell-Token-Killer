@@ -768,6 +768,82 @@ public sealed class PrivateHostServerTests
     }
 
     [Fact]
+    public async Task Operational_server_accepts_the_exact_prepared_dispatch_control()
+    {
+        using var guardianToHost = new ChannelStream();
+        using var hostToGuardian = new ChannelStream();
+        var identity = new PrivateHostServerIdentity(
+            Guardian,
+            Host,
+            Generation,
+            hostPid: 4242);
+        var outbound = new PrivateHostOutboundChannel(hostToGuardian, identity);
+        var server = new PrivateHostServer(
+            guardianToHost,
+            outbound,
+            identity,
+            Pins(),
+            new ImmediatePrivateHostRuntime());
+        var writer = new GuardianHostProtocolWriter(
+            guardianToHost,
+            GuardianHostPeer.Guardian);
+        var reader = new GuardianHostProtocolReader(
+            hostToGuardian,
+            GuardianHostPeer.Host);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var run = server.RunAsync(timeout.Token);
+        await TransferInitializationThroughSealAsync(writer, reader, timeout.Token);
+        _ = Assert.IsType<GuardianHostReady>(await reader.ReadAsync(timeout.Token));
+
+        var operationIdentity = new GuardianHostOperationIdentity(
+            new PlanId(Guid.Parse("ffffffff-ffff-4fff-8fff-ffffffffffff")),
+            new OperationId(Guid.Parse("11111111-1111-4111-8111-111111111111")));
+        var descriptor = PreparedDescriptor(operationIdentity.PlanId);
+        var exchange = ((IPrivateHostControlEventSink)outbound).ExchangeControlAsync(
+            sequence => new PreparedDispatchAuthorizationRequestedEvent(
+                Guardian,
+                Host,
+                Generation,
+                sequence,
+                new PrivateRequestId(4),
+                Alias,
+                Transition,
+                Worker,
+                operationIdentity,
+                descriptor),
+            timeout.Token);
+        var source = Assert.IsType<PreparedDispatchAuthorizationRequestedEvent>(
+            await reader.ReadAsync(timeout.Token));
+        await writer.WriteAsync(
+            new PreparedDispatchAuthorizeRequest(
+                Guardian,
+                Host,
+                Generation,
+                new PrivateRequestId(5),
+                descriptor.DeadlineUnixTimeMilliseconds,
+                Alias,
+                Transition,
+                Worker,
+                operationIdentity,
+                source.EventSequence,
+                descriptor.DescriptorDigest),
+            timeout.Token);
+
+        var acknowledged = AssertSuccess<ControlAcknowledged>(
+            await reader.ReadAsync(timeout.Token),
+            requestId: 5);
+        Assert.Equal(source.EventSequence, acknowledged.SourceEventSequence);
+        Assert.IsType<PreparedDispatchAuthorizeRequest>(
+            await exchange.WaitAsync(timeout.Token));
+
+        await writer.WriteAsync(Shutdown(requestId: 6), timeout.Token);
+        _ = AssertSuccess<ShutdownAccepted>(
+            await reader.ReadAsync(timeout.Token),
+            requestId: 6);
+        await run.WaitAsync(timeout.Token);
+    }
+
+    [Fact]
     public async Task Mismatched_control_acknowledgement_faults_without_releasing_the_waiter()
     {
         using var guardianToHost = new ChannelStream();
@@ -1879,6 +1955,25 @@ public sealed class PrivateHostServerTests
     }
 
     private static Sha256Digest Digest(char value) => new(new string(value, 64));
+
+    private static GuardianHostPreparedPlanDescriptor PreparedDescriptor(
+        PlanId planId) => new(
+        planId,
+        Worker,
+        FutureDeadline(),
+        Digest('8'),
+        GuardianHostExecutionDomain.PowerShell,
+        GuardianHostRequestedExecutionRoute.Pwsh,
+        GuardianHostEffectiveExecutionRoute.PowerShellDirect,
+        GuardianHostPreExecutionValidation.None,
+        GuardianHostResolutionContext.Warm,
+        GuardianHostOutputProvenance.PowerShellObjects,
+        Array.Empty<GuardianHostEffectiveExecutionRoute>(),
+        null,
+        Digest('9'),
+        null,
+        null,
+        null);
 
     private static PrivateHostServerPins Pins() => new(
         ExecutableDigest,

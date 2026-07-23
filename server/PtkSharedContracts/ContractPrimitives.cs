@@ -4,7 +4,7 @@ namespace PtkSharedContracts;
 
 public static class ContractLimits
 {
-    public const int GuardianHostProtocolVersion = 1;
+    public const int GuardianHostProtocolVersion = 2;
     public const int MaximumEncodedFrameBytes = 1_048_576;
     public const int MaximumJsonDepth = 32;
     public const int MaximumOutstandingPrivateRequests = 64;

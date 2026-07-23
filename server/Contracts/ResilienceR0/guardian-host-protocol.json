@@ -1,7 +1,7 @@
 {
-  "schema_version": "ptk.guardian-host-contract/1",
+  "schema_version": "ptk.guardian-host-contract/2",
   "machine_schema": "guardian-host-protocol.schema.json",
-  "protocol_version": 1,
+  "protocol_version": 2,
   "transport": {
     "encoding": "strict_utf8",
     "bom": false,
@@ -96,8 +96,8 @@
         "maximum_templates"
       ],
       "rules": {
-        "guardian_protocol_version": 1,
-        "host_protocol_version": 1,
+        "guardian_protocol_version": 2,
+        "host_protocol_version": 2,
         "maximum_manifest_bytes": 25165824,
         "maximum_manifest_chunk_raw_bytes": 524288,
         "maximum_aliases": 128,
@@ -337,6 +337,19 @@
       "payload_rules": {
         "source_event_sequence": "matches_one_unanswered_worker_containment_remove_requested_event"
       }
+    },
+    {
+      "name": "prepared_dispatch_authorize",
+      "direction": "guardian_to_host",
+      "allowed_before_ready": false,
+      "payload_property_order": [
+        "source_event_sequence",
+        "descriptor_sha256"
+      ],
+      "payload_rules": {
+        "source_event_sequence": "matches_one_unanswered_prepared_dispatch_authorization_requested_event",
+        "descriptor_sha256": "matches_the_exact_canonical_prepared_plan_descriptor"
+      }
     }
   ],
   "host_control_events": [
@@ -440,6 +453,24 @@
         "worker_generation"
       ],
       "envelope_null": ["plan_id", "operation_id"]
+    },
+    {
+      "name": "prepared_dispatch_authorization_requested",
+      "direction": "host_to_guardian",
+      "payload_property_order": ["descriptor", "descriptor_sha256"],
+      "payload_rules": {
+        "descriptor": "complete_bounded_immutable_worker_prepared_plan_projection",
+        "descriptor_sha256": "sha256_of_the_exact_canonical_descriptor"
+      },
+      "envelope_nonnull": [
+        "request_id",
+        "session_alias",
+        "session_transition_version",
+        "worker_boot_id",
+        "worker_generation",
+        "plan_id",
+        "operation_id"
+      ]
     }
   ],
   "host_operational_events": [
@@ -450,7 +481,8 @@
     "worker_diagnostic_truncated",
     "job_lifecycle",
     "output_chunk",
-    "output_seal"
+    "output_seal",
+    "prepared_validator_lifecycle"
   ],
   "operation_delivery_states": [
     "not_dispatched",
@@ -488,6 +520,10 @@
       {
         "event": "worker_containment_remove_requested",
         "request": "worker_containment_remove_ack"
+      },
+      {
+        "event": "prepared_dispatch_authorization_requested",
+        "request": "prepared_dispatch_authorize"
       }
     ]
   },
@@ -497,7 +533,8 @@
     "cancel_terminal_owner": "target_request_id original request owns the sole terminal",
     "operation_response": "operation_completed.operation=originating_operation_request.operation",
     "delivery_event": "operation_delivery.dispatch_token=originating_operation_request.dispatch_capability.token",
-    "control_ack": "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence"
+    "control_ack": "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence",
+    "prepared_dispatch_authorization": "prepared_dispatch_authorize.descriptor_sha256=prepared_dispatch_authorization_requested.descriptor_sha256"
   },
   "manifest_transfer": {
     "schema_version": "ptk.recovery-manifest/1",

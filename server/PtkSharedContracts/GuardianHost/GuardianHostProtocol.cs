@@ -25,7 +25,7 @@ public enum GuardianHostMessageKind
 }
 
 /// <summary>
-/// A parsed guardian/host v1 envelope. Values contains exactly the fields that
+/// A parsed guardian/host v2 envelope. Values contains exactly the fields that
 /// follow the five common envelope fields; each JsonElement owns its data.
 /// </summary>
 internal sealed record GuardianHostRawEnvelope
@@ -83,7 +83,7 @@ public sealed class GuardianHostProtocolException : IOException
 
 /// <summary>
 /// Strict bounded framing/envelope codec for the complete frozen guardian/host
-/// v1 union. Encode and Decode operate on a frame without its required LF; the
+/// v2 union. Encode and Decode operate on a frame without its required LF; the
 /// reader and writer own that NDJSON terminator.
 /// </summary>
 internal static class GuardianHostRawProtocol

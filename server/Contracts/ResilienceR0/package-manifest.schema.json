@@ -21,7 +21,7 @@
     "schema_version": { "const": "ptk.package-manifest/1" },
     "package_version": { "type": "string", "minLength": 1, "maxLength": 128 },
     "rid": { "enum": ["win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-arm64"] },
-    "private_protocol_version": { "const": 1 },
+    "private_protocol_version": { "const": 2 },
     "public_contract_sha256": { "$ref": "#/$defs/sha256" },
     "host_build_sha256": { "$ref": "#/$defs/sha256" },
     "files": {

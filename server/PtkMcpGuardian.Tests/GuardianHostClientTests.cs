@@ -551,6 +551,84 @@ public sealed class GuardianHostClientTests
     }
 
     [Fact]
+    public async Task Prepared_dispatch_control_claims_only_the_exact_admitted_descriptor()
+    {
+        PreparedDispatchAuthorizationRequestedEvent? source = null;
+        var handled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = new HostHarness((hostEvent, _) =>
+        {
+            source = Assert.IsType<PreparedDispatchAuthorizationRequestedEvent>(
+                hostEvent);
+            handled.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
+        await harness.InitializeAsync();
+        var operationCompletion = harness.Client.SendRequestAsync(
+            CreateForegroundRequest);
+        var operationRequest = Assert.IsType<OperationRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        var descriptor = CreatePreparedDescriptor();
+        await harness.HostWriter.WriteAsync(
+            new PreparedDispatchAuthorizationRequestedEvent(
+                Guardian,
+                Host,
+                Generation,
+                new HostEventSequence(1),
+                operationRequest.RequestId,
+                Alias,
+                Transition,
+                Worker,
+                OperationIdentity,
+                descriptor));
+        await handled.Task.WaitAsync(TestTimeout);
+
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            harness.Client.SendRequestAsync(
+                (guardian, host, generation, requestId) =>
+                    new PreparedDispatchAuthorizeRequest(
+                        guardian,
+                        host,
+                        generation,
+                        requestId,
+                        descriptor.DeadlineUnixTimeMilliseconds,
+                        Alias,
+                        Transition,
+                        Worker,
+                        OperationIdentity,
+                        source!.EventSequence,
+                        Digest('f'))));
+        Assert.Equal(1, harness.Client.OutstandingRequestCount);
+
+        var authorizationCompletion = harness.Client.SendRequestAsync(
+            (guardian, host, generation, requestId) =>
+                new PreparedDispatchAuthorizeRequest(
+                    guardian,
+                    host,
+                    generation,
+                    requestId,
+                    descriptor.DeadlineUnixTimeMilliseconds,
+                    Alias,
+                    Transition,
+                    Worker,
+                    OperationIdentity,
+                    source!.EventSequence,
+                    descriptor.DescriptorDigest));
+        var authorization = Assert.IsType<PreparedDispatchAuthorizeRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        await harness.HostWriter.WriteAsync(Success(
+            authorization.RequestId,
+            new ControlAcknowledged(authorization.SourceEventSequence)));
+        await authorizationCompletion.WaitAsync(TestTimeout);
+
+        await harness.HostWriter.WriteAsync(Success(
+            operationRequest.RequestId,
+            new OperationCompleted(new InvokeForegroundResult("complete"))));
+        await operationCompletion.WaitAsync(TestTimeout);
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+    }
+
+    [Fact]
     public async Task Eof_and_malformed_frames_are_bounded_generation_fatals()
     {
         await using (var eof = new HostHarness())
@@ -2299,6 +2377,24 @@ public sealed class GuardianHostClientTests
         Transition,
         BindingDigest,
         100);
+
+    private static GuardianHostPreparedPlanDescriptor CreatePreparedDescriptor() => new(
+        Plan,
+        Worker,
+        deadlineUnixTimeMilliseconds: 100,
+        Sha256Digest.Compute(System.Text.Encoding.UTF8.GetBytes("Get-Date")),
+        GuardianHostExecutionDomain.PowerShell,
+        GuardianHostRequestedExecutionRoute.Pwsh,
+        GuardianHostEffectiveExecutionRoute.PowerShellDirect,
+        GuardianHostPreExecutionValidation.None,
+        GuardianHostResolutionContext.Warm,
+        GuardianHostOutputProvenance.PowerShellObjects,
+        Array.Empty<GuardianHostEffectiveExecutionRoute>(),
+        null,
+        Digest('a'),
+        null,
+        null,
+        null);
 
     private static SessionLifecycleEvent CreateSessionEvent(long sequence) => new(
         Guardian,

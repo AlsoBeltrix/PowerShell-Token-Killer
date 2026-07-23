@@ -38,6 +38,23 @@ public sealed class GuardianHostTypedProtocolTests
     private static readonly CapabilityToken JobToken = Capability(3);
     private static readonly GuardianHostWorkerIdentity Worker = new(WorkerBoot, WorkerGeneration);
     private static readonly GuardianHostOperationIdentity OperationIdentity = new(Plan, Operation);
+    private static readonly GuardianHostPreparedPlanDescriptor PreparedDescriptor = new(
+        Plan,
+        Worker,
+        100,
+        Digest,
+        GuardianHostExecutionDomain.PowerShell,
+        GuardianHostRequestedExecutionRoute.Pwsh,
+        GuardianHostEffectiveExecutionRoute.PowerShellDirect,
+        GuardianHostPreExecutionValidation.None,
+        GuardianHostResolutionContext.Warm,
+        GuardianHostOutputProvenance.PowerShellObjects,
+        Array.Empty<GuardianHostEffectiveExecutionRoute>(),
+        null,
+        Digest,
+        null,
+        null,
+        null);
 
     [Fact]
     public void Typed_codec_round_trips_the_complete_frozen_union_canonically()
@@ -47,12 +64,12 @@ public sealed class GuardianHostTypedProtocolTests
         Assert.Equal(8, messages.Select(value => value.Kind).Distinct().Count());
 
         var requests = messages.OfType<GuardianHostRequest>().ToArray();
-        Assert.Equal(8, requests.Select(value => value.Method).Distinct().Count());
+        Assert.Equal(9, requests.Select(value => value.Method).Distinct().Count());
         Assert.Equal(10, requests.OfType<OperationRequest>()
             .Select(value => value.Operation.Kind).Distinct().Count());
 
         var events = messages.OfType<GuardianHostEvent>().ToArray();
-        Assert.Equal(12, events.Select(value => value.EventType).Distinct().Count());
+        Assert.Equal(14, events.Select(value => value.EventType).Distinct().Count());
 
         var successPayloads = messages.OfType<GuardianHostSuccessResponse>()
             .Select(value => value.Payload).ToArray();
@@ -285,6 +302,7 @@ public sealed class GuardianHostTypedProtocolTests
             type == typeof(GuardianHostWorkerIdentity) ||
             type == typeof(GuardianHostOperationIdentity) ||
             type == typeof(GuardianHostContainmentIdentity) ||
+            type == typeof(GuardianHostPreparedPlanDescriptor) ||
             type == typeof(DispatchCapability) ||
             type == typeof(OutputCapability));
         foreach (var type in dtoTypes)
@@ -316,6 +334,28 @@ public sealed class GuardianHostTypedProtocolTests
     }
 
     [Fact]
+    public void Prepared_dispatch_descriptor_digest_is_canonical_and_tamper_evident()
+    {
+        var prepared = Events()
+            .OfType<PreparedDispatchAuthorizationRequestedEvent>()
+            .Single();
+        var encoded = Encoding.UTF8.GetString(
+            GuardianHostProtocolCodec.Encode(prepared));
+        var tampered = encoded.Replace(
+            "\"resolution_context\":\"warm\"",
+            "\"resolution_context\":\"cold\"",
+            StringComparison.Ordinal);
+        Assert.NotEqual(encoded, tampered);
+
+        var mismatch = Assert.Throws<GuardianHostProtocolException>(() =>
+            GuardianHostProtocolCodec.Decode(
+                Encoding.UTF8.GetBytes(tampered),
+                GuardianHostPeer.Host));
+
+        Assert.Equal("invalid_field", mismatch.DetailCode);
+    }
+
+    [Fact]
     public void Typed_codec_round_trips_nullable_and_conditional_subbranches()
     {
         var dispatch = new DispatchCapability(DispatchToken, Call, 100);
@@ -343,6 +383,10 @@ public sealed class GuardianHostTypedProtocolTests
                 Transition, Worker, null, PublicSessionState.Ready,
                 GuardianHostSessionLifecycleReason.AutomaticRecovery,
                 true, true, BootstrapState.Restored),
+            new PreparedValidatorLifecycleEvent(
+                Guardian, Host, HostGeneration, EventSequence(83), RequestId(80), Alias,
+                Transition, Worker, OperationIdentity, GuardianHostValidatorPhase.Started,
+                Digest, null),
             Success(85, new OperationCompleted(new SessionCloseResult(
                 Alias, PublicSessionState.Cold, null, Transition,
                 false, true, BootstrapState.NotApplicable))),
@@ -453,6 +497,10 @@ public sealed class GuardianHostTypedProtocolTests
         yield return new WorkerContainmentRemoveAckRequest(
             Guardian, Host, HostGeneration, RequestId(requestId), 100, Alias, Transition,
             Worker, new HostEventSequence(4));
+        yield return new PreparedDispatchAuthorizeRequest(
+            Guardian, Host, HostGeneration, RequestId(++requestId), 100, Alias, Transition,
+            Worker, OperationIdentity, new HostEventSequence(5),
+            PreparedDescriptor.DescriptorDigest);
     }
 
     private static IEnumerable<GuardianHostOperation> Operations()
@@ -521,6 +569,13 @@ public sealed class GuardianHostTypedProtocolTests
             Guardian, Host, HostGeneration, EventSequence(sequence), RequestId(41), Alias,
             Transition, Worker, null, OutputToken, GuardianHostOutputSealState.Complete,
             raw.Length, Sha256Digest.Compute(raw));
+        yield return new PreparedDispatchAuthorizationRequestedEvent(
+            Guardian, Host, HostGeneration, EventSequence(++sequence), RequestId(42), Alias,
+            Transition, Worker, OperationIdentity, PreparedDescriptor);
+        yield return new PreparedValidatorLifecycleEvent(
+            Guardian, Host, HostGeneration, EventSequence(++sequence), RequestId(42), Alias,
+            Transition, Worker, OperationIdentity, GuardianHostValidatorPhase.Completed,
+            Digest, 0);
     }
 
     private static IEnumerable<GuardianHostSuccessResponse> SuccessResponses()

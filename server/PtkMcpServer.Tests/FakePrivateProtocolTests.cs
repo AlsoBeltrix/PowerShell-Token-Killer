@@ -10,9 +10,9 @@ namespace PtkMcpServer.Tests;
 public sealed class GuardianHostProtocolTests
 {
     [Fact]
-    public async Task Fixture_v1_codec_is_strict_bounded_directional_and_preserves_validated_raw_bytes()
+    public async Task Fixture_v2_codec_is_strict_bounded_directional_and_preserves_validated_raw_bytes()
     {
-        Assert.Equal(1, GuardianHostRawProtocol.Version);
+        Assert.Equal(2, GuardianHostRawProtocol.Version);
         Assert.Equal(1_048_576, GuardianHostRawProtocol.MaximumEncodedFrameBytes);
         Assert.Equal(32, GuardianHostRawProtocol.MaximumJsonDepth);
 
@@ -26,7 +26,7 @@ public sealed class GuardianHostProtocolTests
 
         var exact = Encoding.UTF8.GetString(encoded);
         Assert.StartsWith(
-            "{\"protocol_version\":1,\"kind\":\"hello\",\"guardian_boot_id\":",
+            "{\"protocol_version\":2,\"kind\":\"hello\",\"guardian_boot_id\":",
             exact,
             StringComparison.Ordinal);
         Assert.DoesNotContain('\r', exact);
@@ -56,16 +56,16 @@ public sealed class GuardianHostProtocolTests
             GuardianHostRawProtocol.Decode(Encoding.UTF8.GetBytes(duplicate), GuardianHostPeer.Host));
 
         var outOfOrder = exact.Replace(
-            "{\"protocol_version\":1,\"kind\":\"hello\"",
-            "{\"kind\":\"hello\",\"protocol_version\":1",
+            "{\"protocol_version\":2,\"kind\":\"hello\"",
+            "{\"kind\":\"hello\",\"protocol_version\":2",
             StringComparison.Ordinal);
         Assert.NotEqual(exact, outOfOrder);
         AssertProtocolFailure("property_order", () =>
             GuardianHostRawProtocol.Decode(Encoding.UTF8.GetBytes(outOfOrder), GuardianHostPeer.Host));
 
         var unknownVersion = exact.Replace(
-            "\"protocol_version\":1",
             "\"protocol_version\":2",
+            "\"protocol_version\":1",
             StringComparison.Ordinal);
         AssertProtocolFailure("unknown_version", () =>
             GuardianHostRawProtocol.Decode(
@@ -284,7 +284,7 @@ public sealed class GuardianHostProtocolTests
     }
 
     [Fact]
-    public void Handshake_and_operation_frames_use_the_frozen_v1_payload_shapes()
+    public void Handshake_and_operation_frames_use_the_frozen_v2_payload_shapes()
     {
         using var schema = JsonDocument.Parse(File.ReadAllBytes(ContractPath(
             "guardian-host-protocol.schema.json")));
@@ -569,8 +569,8 @@ public sealed class GuardianHostProtocolTests
                 host,
                 1,
                 ("request_id", 1L),
-                ("guardian_protocol_version", 1),
-                ("host_protocol_version", 1),
+                ("guardian_protocol_version", 2),
+                ("host_protocol_version", 2),
                 ("host_executable_sha256", digest),
                 ("host_build_sha256", digest),
                 ("public_contract_sha256", digest),

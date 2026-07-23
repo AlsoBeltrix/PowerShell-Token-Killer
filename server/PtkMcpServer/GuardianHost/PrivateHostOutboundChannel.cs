@@ -202,6 +202,8 @@ internal sealed class PrivateHostOutboundChannel :
                 grant.SourceEventSequence,
             WorkerContainmentAckRequest acknowledgement =>
                 acknowledgement.SourceEventSequence,
+            PreparedDispatchAuthorizeRequest authorization =>
+                authorization.SourceEventSequence,
             _ => throw Protocol(
                 "control_request_invalid",
                 "Guardian request is not a supported host control acknowledgement."),
@@ -305,7 +307,8 @@ internal sealed class PrivateHostOutboundChannel :
             WorkerCreateCapabilityRequestedEvent or
             WorkerContainmentPendingEvent or
             WorkerContainmentArmedEvent or
-            WorkerContainmentRemoveRequestedEvent;
+            WorkerContainmentRemoveRequestedEvent or
+            PreparedDispatchAuthorizationRequestedEvent;
 
     private static bool ControlPairMatches(
         GuardianHostEvent sourceEvent,
@@ -333,6 +336,18 @@ internal sealed class PrivateHostOutboundChannel :
             (WorkerContainmentRemoveRequestedEvent remove,
                 WorkerContainmentRemoveAckRequest acknowledgement) =>
                 WorkerMatches(remove.WorkerIdentity, acknowledgement.WorkerIdentity),
+            (PreparedDispatchAuthorizationRequestedEvent prepared,
+                PreparedDispatchAuthorizeRequest authorization) =>
+                WorkerMatches(
+                    prepared.WorkerIdentity,
+                    authorization.WorkerIdentity) &&
+                OperationMatches(
+                    prepared.OperationIdentity,
+                    authorization.OperationIdentity) &&
+                authorization.DeadlineUnixTimeMilliseconds ==
+                    prepared.Descriptor.DeadlineUnixTimeMilliseconds &&
+                authorization.DescriptorDigest ==
+                    prepared.Descriptor.DescriptorDigest,
             _ => false,
         };
     }
@@ -344,6 +359,14 @@ internal sealed class PrivateHostOutboundChannel :
         right is not null &&
         left.BootId == right.BootId &&
         left.Generation == right.Generation;
+
+    private static bool OperationMatches(
+        GuardianHostOperationIdentity? left,
+        GuardianHostOperationIdentity? right) =>
+        left is not null &&
+        right is not null &&
+        left.PlanId == right.PlanId &&
+        left.OperationId == right.OperationId;
 
     private void ValidateIdentity(GuardianHostMessage message)
     {

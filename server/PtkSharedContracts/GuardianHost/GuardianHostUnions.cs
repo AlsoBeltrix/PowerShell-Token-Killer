@@ -10,6 +10,7 @@ public enum GuardianHostRequestMethod
     WorkerContainmentPendingAck,
     WorkerContainmentArmedAck,
     WorkerContainmentRemoveAck,
+    PreparedDispatchAuthorize,
 }
 
 public enum GuardianHostOperationKind
@@ -40,6 +41,8 @@ public enum GuardianHostEventType
     JobLifecycle,
     OutputChunk,
     OutputSeal,
+    PreparedDispatchAuthorizationRequested,
+    PreparedValidatorLifecycle,
 }
 
 public enum GuardianHostResponseType

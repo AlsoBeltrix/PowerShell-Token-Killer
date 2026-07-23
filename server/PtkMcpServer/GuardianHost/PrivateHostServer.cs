@@ -487,6 +487,12 @@ internal sealed class PrivateHostServer
                             cancellationToken).ConfigureAwait(false);
                         break;
 
+                    case PreparedDispatchAuthorizeRequest control:
+                        await CompleteControlAcknowledgementAsync(
+                            control,
+                            cancellationToken).ConfigureAwait(false);
+                        break;
+
                     case OperationRequest request:
                         ValidateOperationalRequest(request);
                         if (active.Count >= ContractLimits.MaximumOutstandingPrivateRequests)
@@ -583,6 +589,8 @@ internal sealed class PrivateHostServer
                 grant.SourceEventSequence,
             WorkerContainmentAckRequest containment =>
                 containment.SourceEventSequence,
+            PreparedDispatchAuthorizeRequest authorization =>
+                authorization.SourceEventSequence,
             _ => throw new InvalidOperationException(
                 "Unsupported host control acknowledgement."),
         };

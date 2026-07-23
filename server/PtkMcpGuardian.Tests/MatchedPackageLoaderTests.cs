@@ -250,8 +250,8 @@ public sealed class MatchedPackageLoaderTests
 
         using var protocol = TestPackage.Create();
         protocol.ReplaceManifestText(text => text.Replace(
-            "\"private_protocol_version\":1",
             "\"private_protocol_version\":2",
+            "\"private_protocol_version\":1",
             StringComparison.Ordinal));
         AssertFailure(protocol, "private_protocol_mismatch");
 
@@ -567,7 +567,9 @@ public sealed class MatchedPackageLoaderTests
                 writer.WriteString("schema_version", "ptk.package-manifest/1");
                 writer.WriteString("package_version", Version);
                 writer.WriteString("rid", Rid);
-                writer.WriteNumber("private_protocol_version", 1);
+                writer.WriteNumber(
+                    "private_protocol_version",
+                    ContractLimits.GuardianHostProtocolVersion);
                 writer.WriteString("public_contract_sha256", PublicContractDigest.Value);
                 writer.WriteString("host_build_sha256", HostBuildDigest.Value);
                 writer.WriteStartArray("files");

@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "350e2a01f073a3e6ccef06f96977866559cab0d732a5c3e4f0164999d7362897";
+    private const string ContractSha256 = "1101bfd546e1462632c5823c6a93e886d55ac0d317980c7338feb2fc8fc1986e";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 
@@ -269,7 +269,7 @@ public sealed class McpResilienceR0ContractTests
     }
 
     [Fact]
-    public void Private_v1_cross_frame_capability_and_terminal_ownership_are_closed()
+    public void Private_v2_cross_frame_capability_and_terminal_ownership_are_closed()
     {
         using var schema = ReadStrictJson("guardian-host-protocol.schema.json");
         var responseMap = schema.RootElement.GetProperty("x-ptk-response-type-by-request");
@@ -285,6 +285,7 @@ public sealed class McpResilienceR0ContractTests
             ["operation_response"] = "operation_completed.operation=originating_operation_request.operation",
             ["delivery_event"] = "operation_delivery.dispatch_token=originating_operation_request.dispatch_capability.token",
             ["control_ack"] = "control_acknowledged.source_event_sequence=originating_guardian_request.payload.source_event_sequence",
+            ["prepared_dispatch_authorization"] = "prepared_dispatch_authorize.descriptor_sha256=prepared_dispatch_authorization_requested.descriptor_sha256",
         };
         var schemaInvariants = schema.RootElement.GetProperty("x-ptk-cross-frame-invariants");
         Assert.Equal(expected.Keys, schemaInvariants.EnumerateObject().Select(property => property.Name));
@@ -314,11 +315,11 @@ public sealed class McpResilienceR0ContractTests
     }
 
     [Fact]
-    public void Private_v1_protocol_freezes_handshake_correlation_and_bounded_manifest_transfer()
+    public void Private_v2_protocol_freezes_handshake_correlation_and_bounded_manifest_transfer()
     {
         using var protocol = ReadStrictJson("guardian-host-protocol.json");
         var root = protocol.RootElement;
-        Assert.Equal(1, root.GetProperty("protocol_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("protocol_version").GetInt32());
         var transport = root.GetProperty("transport");
         Assert.Equal("strict_utf8", transport.GetProperty("encoding").GetString());
         Assert.False(transport.GetProperty("bom").GetBoolean());
@@ -385,6 +386,7 @@ public sealed class McpResilienceR0ContractTests
                 "manifest_header", "manifest_chunk", "manifest_seal", "operation",
                 "worker_create_capability_grant", "worker_containment_pending_ack",
                 "worker_containment_armed_ack", "worker_containment_remove_ack",
+                "prepared_dispatch_authorize",
             ],
             requestMethods.Select(method => method.GetProperty("name").GetString()));
         Assert.All(requestMethods, method =>
@@ -411,6 +413,7 @@ public sealed class McpResilienceR0ContractTests
             [
                 "worker_create_capability_requested", "worker_containment_pending",
                 "worker_containment_armed", "worker_containment_remove_requested",
+                "prepared_dispatch_authorization_requested",
             ],
             controlEvents.Select(hostEvent => hostEvent.GetProperty("name").GetString()));
         Assert.All(controlEvents, hostEvent =>
@@ -450,12 +453,16 @@ public sealed class McpResilienceR0ContractTests
         Assert.Equal(
             ["source_event_sequence", "token", "worker_generation"],
             Strings(requestMethods[4].GetProperty("payload_property_order")));
-        Assert.All(requestMethods.Skip(5), method =>
+        Assert.All(requestMethods.Skip(5).Take(3), method =>
             Assert.Equal(["source_event_sequence"], Strings(method.GetProperty("payload_property_order"))));
+        Assert.Equal(
+            ["source_event_sequence", "descriptor_sha256"],
+            Strings(requestMethods[8].GetProperty("payload_property_order")));
         Assert.Equal(
             [
                 "operation_delivery", "session_lifecycle", "worker_lost", "worker_diagnostic_chunk",
                 "worker_diagnostic_truncated", "job_lifecycle", "output_chunk", "output_seal",
+                "prepared_validator_lifecycle",
             ],
             Strings(root.GetProperty("host_operational_events")));
         Assert.Equal(
@@ -602,7 +609,7 @@ public sealed class McpResilienceR0ContractTests
         var root = manifest.RootElement;
 
         Assert.Equal("ptk.package-manifest/1", root.GetProperty("schema_version").GetString());
-        Assert.Equal(1, root.GetProperty("private_protocol_version").GetInt32());
+        Assert.Equal(2, root.GetProperty("private_protocol_version").GetInt32());
         Assert.Equal("ptk.package-manifest/1", schema.RootElement.GetProperty("properties")
             .GetProperty("schema_version").GetProperty("const").GetString());
 

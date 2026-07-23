@@ -24,6 +24,125 @@ public enum GuardianHostJobState
 { Queued, Running, Completed, Failed, Canceled, TimedOut, Lost, OutcomeUnknown }
 public enum GuardianHostOutputState { None, Streaming, Sealed, SealedIncomplete, Unavailable }
 public enum GuardianHostOutputSealState { Complete, Incomplete }
+public enum GuardianHostExecutionDomain { PowerShell, NativeTerminal, MixedDataflow, Bash }
+public enum GuardianHostRequestedExecutionRoute { Auto, Pwsh, Rtk }
+public enum GuardianHostEffectiveExecutionRoute
+{ PowerShellDirect, Rtk, NativeDirect, BashViaRtk }
+public enum GuardianHostPreExecutionValidation { None, BashSyntax }
+public enum GuardianHostResolutionContext { Warm, Cold }
+public enum GuardianHostOutputProvenance
+{ PowerShellObjects, DirectText, RtkUnknown, RtkFiltered, RtkPassthrough }
+public enum GuardianHostExecutionFallbackReason
+{
+    RtkExecutableUnavailable,
+    RtkExecutableBecameUnavailable,
+    RtkIneligibleShape,
+    RtkSelfInvocation,
+    RtkResolutionNotApplication,
+    RtkFidelityExclusion,
+    RtkExecutionPreparationFailed,
+    RtkTargetResolutionChanged,
+}
+public enum GuardianHostValidatorPhase { Started, Completed }
+
+public sealed class GuardianHostPreparedPlanDescriptor
+{
+    private readonly IReadOnlyList<GuardianHostEffectiveExecutionRoute>
+        _permittedFallbacks;
+
+    public GuardianHostPreparedPlanDescriptor(
+        PlanId planId,
+        GuardianHostWorkerIdentity workerIdentity,
+        long deadlineUnixTimeMilliseconds,
+        Sha256Digest scriptDigest,
+        GuardianHostExecutionDomain? domain,
+        GuardianHostRequestedExecutionRoute requestedRoute,
+        GuardianHostEffectiveExecutionRoute effectiveRoute,
+        GuardianHostPreExecutionValidation preExecutionValidation,
+        GuardianHostResolutionContext resolutionContext,
+        GuardianHostOutputProvenance outputProvenance,
+        IReadOnlyList<GuardianHostEffectiveExecutionRoute> permittedFallbacks,
+        GuardianHostExecutionFallbackReason? fallbackReason,
+        Sha256Digest? workingDirectoryDigest,
+        Sha256Digest? rtkBinaryDigest,
+        Sha256Digest? bashBinaryDigest,
+        Sha256Digest? outputShapingRtkBinaryDigest)
+    {
+        GuardianHostDtoValidation.Require(planId);
+        ArgumentNullException.ThrowIfNull(workerIdentity);
+        GuardianHostDtoValidation.RequirePositive(
+            deadlineUnixTimeMilliseconds,
+            nameof(deadlineUnixTimeMilliseconds));
+        GuardianHostDtoValidation.Require(scriptDigest);
+        if (domain is not null)
+            GuardianHostDtoValidation.RequireDefined(domain.Value, nameof(domain));
+        GuardianHostDtoValidation.RequireDefined(requestedRoute, nameof(requestedRoute));
+        GuardianHostDtoValidation.RequireDefined(effectiveRoute, nameof(effectiveRoute));
+        GuardianHostDtoValidation.RequireDefined(
+            preExecutionValidation,
+            nameof(preExecutionValidation));
+        GuardianHostDtoValidation.RequireDefined(resolutionContext, nameof(resolutionContext));
+        GuardianHostDtoValidation.RequireDefined(outputProvenance, nameof(outputProvenance));
+        ArgumentNullException.ThrowIfNull(permittedFallbacks);
+        if (permittedFallbacks.Count > 2 ||
+            permittedFallbacks.Distinct().Count() != permittedFallbacks.Count ||
+            permittedFallbacks.Any(value => value is not (
+                GuardianHostEffectiveExecutionRoute.PowerShellDirect or
+                GuardianHostEffectiveExecutionRoute.NativeDirect)))
+        {
+            throw new ArgumentException(
+                "Permitted fallbacks are not a bounded canonical set.",
+                nameof(permittedFallbacks));
+        }
+        if (fallbackReason is not null)
+            GuardianHostDtoValidation.RequireDefined(fallbackReason.Value, nameof(fallbackReason));
+        if (workingDirectoryDigest is not null)
+            GuardianHostDtoValidation.Require(workingDirectoryDigest);
+        if (rtkBinaryDigest is not null)
+            GuardianHostDtoValidation.Require(rtkBinaryDigest);
+        if (bashBinaryDigest is not null)
+            GuardianHostDtoValidation.Require(bashBinaryDigest);
+        if (outputShapingRtkBinaryDigest is not null)
+            GuardianHostDtoValidation.Require(outputShapingRtkBinaryDigest);
+
+        PlanId = planId;
+        WorkerIdentity = workerIdentity;
+        DeadlineUnixTimeMilliseconds = deadlineUnixTimeMilliseconds;
+        ScriptDigest = scriptDigest;
+        Domain = domain;
+        RequestedRoute = requestedRoute;
+        EffectiveRoute = effectiveRoute;
+        PreExecutionValidation = preExecutionValidation;
+        ResolutionContext = resolutionContext;
+        OutputProvenance = outputProvenance;
+        _permittedFallbacks = Array.AsReadOnly(permittedFallbacks.ToArray());
+        FallbackReason = fallbackReason;
+        WorkingDirectoryDigest = workingDirectoryDigest;
+        RtkBinaryDigest = rtkBinaryDigest;
+        BashBinaryDigest = bashBinaryDigest;
+        OutputShapingRtkBinaryDigest = outputShapingRtkBinaryDigest;
+        DescriptorDigest = GuardianHostPreparedPlanDescriptorCodec.ComputeDigest(this);
+    }
+
+    public PlanId PlanId { get; }
+    public GuardianHostWorkerIdentity WorkerIdentity { get; }
+    public long DeadlineUnixTimeMilliseconds { get; }
+    public Sha256Digest ScriptDigest { get; }
+    public GuardianHostExecutionDomain? Domain { get; }
+    public GuardianHostRequestedExecutionRoute RequestedRoute { get; }
+    public GuardianHostEffectiveExecutionRoute EffectiveRoute { get; }
+    public GuardianHostPreExecutionValidation PreExecutionValidation { get; }
+    public GuardianHostResolutionContext ResolutionContext { get; }
+    public GuardianHostOutputProvenance OutputProvenance { get; }
+    public IReadOnlyList<GuardianHostEffectiveExecutionRoute> PermittedFallbacks =>
+        _permittedFallbacks;
+    public GuardianHostExecutionFallbackReason? FallbackReason { get; }
+    public Sha256Digest? WorkingDirectoryDigest { get; }
+    public Sha256Digest? RtkBinaryDigest { get; }
+    public Sha256Digest? BashBinaryDigest { get; }
+    public Sha256Digest? OutputShapingRtkBinaryDigest { get; }
+    public Sha256Digest DescriptorDigest { get; }
+}
 
 public sealed class GuardianHostWorkerIdentity
 {
@@ -567,6 +686,59 @@ public sealed class WorkerContainmentRemoveAckRequest : WorkerContainmentAckRequ
         : base(guardianBootId, hostBootId, hostGeneration, requestId, deadlineUnixTimeMilliseconds,
             sessionAlias, sessionTransitionVersion, workerIdentity, sourceEventSequence) { }
     public override GuardianHostRequestMethod Method => GuardianHostRequestMethod.WorkerContainmentRemoveAck;
+}
+
+public sealed class PreparedDispatchAuthorizeRequest : GuardianHostRequest
+{
+    private readonly long _deadline;
+    private readonly CanonicalAlias _alias;
+    private readonly SessionTransitionVersion _transitionVersion;
+
+    public PreparedDispatchAuthorizeRequest(
+        GuardianBootId guardianBootId,
+        HostBootId hostBootId,
+        HostGeneration hostGeneration,
+        PrivateRequestId requestId,
+        long deadlineUnixTimeMilliseconds,
+        CanonicalAlias sessionAlias,
+        SessionTransitionVersion sessionTransitionVersion,
+        GuardianHostWorkerIdentity workerIdentity,
+        GuardianHostOperationIdentity operationIdentity,
+        HostEventSequence sourceEventSequence,
+        Sha256Digest descriptorDigest)
+        : base(guardianBootId, hostBootId, hostGeneration, requestId)
+    {
+        GuardianHostDtoValidation.RequirePositive(
+            deadlineUnixTimeMilliseconds,
+            nameof(deadlineUnixTimeMilliseconds));
+        GuardianHostDtoValidation.Require(sessionAlias);
+        GuardianHostDtoValidation.RequirePositive(
+            sessionTransitionVersion,
+            nameof(sessionTransitionVersion));
+        ArgumentNullException.ThrowIfNull(workerIdentity);
+        ArgumentNullException.ThrowIfNull(operationIdentity);
+        GuardianHostDtoValidation.Require(sourceEventSequence);
+        GuardianHostDtoValidation.Require(descriptorDigest);
+        _deadline = deadlineUnixTimeMilliseconds;
+        _alias = sessionAlias;
+        _transitionVersion = sessionTransitionVersion;
+        Worker = workerIdentity;
+        Identity = operationIdentity;
+        SourceEventSequence = sourceEventSequence;
+        DescriptorDigest = descriptorDigest;
+    }
+
+    public override GuardianHostRequestMethod Method =>
+        GuardianHostRequestMethod.PreparedDispatchAuthorize;
+    public override long? DeadlineUnixTimeMilliseconds => _deadline;
+    public override CanonicalAlias? SessionAlias => _alias;
+    public override SessionTransitionVersion? SessionTransitionVersion => _transitionVersion;
+    public override GuardianHostWorkerIdentity WorkerIdentity => Worker;
+    public override GuardianHostOperationIdentity OperationIdentity => Identity;
+    public GuardianHostWorkerIdentity Worker { get; }
+    public GuardianHostOperationIdentity Identity { get; }
+    public HostEventSequence SourceEventSequence { get; }
+    public Sha256Digest DescriptorDigest { get; }
 }
 
 public sealed class GuardianHostCancel : GuardianHostMessage
@@ -1165,6 +1337,93 @@ public sealed class OutputSealEvent : GuardianHostEvent
     public GuardianHostOutputSealState State { get; }
     public int TotalBytes { get; }
     public Sha256Digest OutputDigest { get; }
+}
+
+public sealed class PreparedDispatchAuthorizationRequestedEvent : GuardianHostEvent
+{
+    public PreparedDispatchAuthorizationRequestedEvent(
+        GuardianBootId guardianBootId,
+        HostBootId hostBootId,
+        HostGeneration hostGeneration,
+        HostEventSequence eventSequence,
+        PrivateRequestId requestId,
+        CanonicalAlias sessionAlias,
+        SessionTransitionVersion sessionTransitionVersion,
+        GuardianHostWorkerIdentity workerIdentity,
+        GuardianHostOperationIdentity operationIdentity,
+        GuardianHostPreparedPlanDescriptor descriptor)
+        : base(
+            guardianBootId,
+            hostBootId,
+            hostGeneration,
+            eventSequence,
+            sessionAlias,
+            sessionTransitionVersion,
+            requestId,
+            workerIdentity ?? throw new ArgumentNullException(nameof(workerIdentity)),
+            operationIdentity ?? throw new ArgumentNullException(nameof(operationIdentity)))
+    {
+        Descriptor = descriptor ?? throw new ArgumentNullException(nameof(descriptor));
+        if (descriptor.PlanId != operationIdentity.PlanId ||
+            descriptor.WorkerIdentity.BootId != workerIdentity.BootId ||
+            descriptor.WorkerIdentity.Generation != workerIdentity.Generation)
+        {
+            throw new ArgumentException(
+                "Prepared descriptor identity must match the event envelope.",
+                nameof(descriptor));
+        }
+    }
+
+    public override GuardianHostEventType EventType =>
+        GuardianHostEventType.PreparedDispatchAuthorizationRequested;
+    public GuardianHostPreparedPlanDescriptor Descriptor { get; }
+}
+
+public sealed class PreparedValidatorLifecycleEvent : GuardianHostEvent
+{
+    public PreparedValidatorLifecycleEvent(
+        GuardianBootId guardianBootId,
+        HostBootId hostBootId,
+        HostGeneration hostGeneration,
+        HostEventSequence eventSequence,
+        PrivateRequestId requestId,
+        CanonicalAlias sessionAlias,
+        SessionTransitionVersion sessionTransitionVersion,
+        GuardianHostWorkerIdentity workerIdentity,
+        GuardianHostOperationIdentity operationIdentity,
+        GuardianHostValidatorPhase phase,
+        Sha256Digest validatorBinaryDigest,
+        int? exitCode)
+        : base(
+            guardianBootId,
+            hostBootId,
+            hostGeneration,
+            eventSequence,
+            sessionAlias,
+            sessionTransitionVersion,
+            requestId,
+            workerIdentity ?? throw new ArgumentNullException(nameof(workerIdentity)),
+            operationIdentity ?? throw new ArgumentNullException(nameof(operationIdentity)))
+    {
+        GuardianHostDtoValidation.RequireDefined(phase, nameof(phase));
+        GuardianHostDtoValidation.Require(validatorBinaryDigest);
+        if (phase == GuardianHostValidatorPhase.Started && exitCode is not null ||
+            phase == GuardianHostValidatorPhase.Completed && exitCode is null)
+        {
+            throw new ArgumentException(
+                "Validator start has no exit code and completion requires one.",
+                nameof(exitCode));
+        }
+        Phase = phase;
+        ValidatorBinaryDigest = validatorBinaryDigest;
+        ExitCode = exitCode;
+    }
+
+    public override GuardianHostEventType EventType =>
+        GuardianHostEventType.PreparedValidatorLifecycle;
+    public GuardianHostValidatorPhase Phase { get; }
+    public Sha256Digest ValidatorBinaryDigest { get; }
+    public int? ExitCode { get; }
 }
 
 public abstract class GuardianHostResponse : GuardianHostMessage

@@ -9,7 +9,7 @@ namespace PtkSharedContracts;
 
 /// <summary>
 /// Evaluates the deliberately small, frozen JSON-Schema vocabulary used by
-/// the guardian/host v1 contract. Keeping the schema as the branch authority
+/// the guardian/host v2 contract. Keeping the schema as the branch authority
 /// prevents the executable codec and the published contract from drifting.
 /// Cross-frame invariants remain lifecycle-state-machine responsibilities.
 /// </summary>
@@ -24,7 +24,7 @@ internal static class GuardianHostProtocolSchema
         if (!Matches(value, SchemaRoot))
             throw new GuardianHostProtocolException(
                 "invalid_field",
-                "Private protocol frame does not match the frozen guardian/host v1 schema.");
+                "Private protocol frame does not match the frozen guardian/host v2 schema.");
     }
 
     private static bool Matches(JsonElement value, JsonElement schema)
@@ -114,6 +114,17 @@ internal static class GuardianHostProtocolSchema
         if (schema.TryGetProperty("items", out var items) &&
             value.EnumerateArray().Any(item => !Matches(item, items)))
             return false;
+        if (schema.TryGetProperty("uniqueItems", out var unique) &&
+            unique.ValueKind == JsonValueKind.True)
+        {
+            var itemsArray = value.EnumerateArray().ToArray();
+            for (var index = 0; index < itemsArray.Length; index++)
+            {
+                if (itemsArray.Skip(index + 1).Any(
+                        item => JsonElement.DeepEquals(itemsArray[index], item)))
+                    return false;
+            }
+        }
         return true;
     }
 
@@ -181,6 +192,26 @@ internal static class GuardianHostProtocolSchema
                 case "pgid=worker_pid":
                     if (value.GetProperty("pgid").GetInt32() != value.GetProperty("worker_pid").GetInt32())
                         return false;
+                    break;
+                case "descriptor_sha256=sha256(canonical_descriptor)":
+                    try
+                    {
+                        var descriptor = GuardianHostPreparedPlanDescriptorCodec.Parse(
+                            value.GetProperty("descriptor"));
+                        if (!string.Equals(
+                                descriptor.DescriptorDigest.Value,
+                                value.GetProperty("descriptor_sha256").GetString(),
+                                StringComparison.Ordinal))
+                            return false;
+                    }
+                    catch (Exception exception) when (
+                        exception is ArgumentException or
+                        InvalidOperationException or
+                        FormatException or
+                        OverflowException)
+                    {
+                        return false;
+                    }
                     break;
             }
         }

@@ -6,7 +6,7 @@ using System.Text.Json;
 namespace PtkSharedContracts;
 
 /// <summary>
-/// Strict typed codec for the complete frozen guardian/host protocol v1 union.
+/// Strict typed codec for the complete frozen guardian/host protocol v2 union.
 /// Encoded frames exclude the required transport LF; the reader and writer own
 /// that delimiter.
 /// </summary>
@@ -153,6 +153,9 @@ public static class GuardianHostProtocolCodec
             ("worker_generation", item.GrantedWorkerGeneration.Value)),
         WorkerContainmentAckRequest item => Object(
             ("source_event_sequence", item.SourceEventSequence.Value)),
+        PreparedDispatchAuthorizeRequest item => Object(
+            ("source_event_sequence", item.SourceEventSequence.Value),
+            ("descriptor_sha256", item.DescriptorDigest.Value)),
         _ => throw new ArgumentException("Request is outside the frozen method union.", nameof(value)),
     };
 
@@ -269,6 +272,14 @@ public static class GuardianHostProtocolCodec
             ("state", Wire(item.State)),
             ("total_bytes", item.TotalBytes),
             ("output_sha256", item.OutputDigest.Value)),
+        PreparedDispatchAuthorizationRequestedEvent item => Object(
+            ("descriptor", GuardianHostPreparedPlanDescriptorCodec.CreateElement(
+                item.Descriptor)),
+            ("descriptor_sha256", item.Descriptor.DescriptorDigest.Value)),
+        PreparedValidatorLifecycleEvent item => Object(
+            ("phase", Wire(item.Phase)),
+            ("validator_binary_sha256", item.ValidatorBinaryDigest.Value),
+            ("exit_code", item.ExitCode)),
         _ => throw new ArgumentException("Event is outside the frozen union.", nameof(value)),
     };
 
@@ -472,6 +483,20 @@ public static class GuardianHostProtocolCodec
                 DecodeContainmentAck<WorkerContainmentRemoveAckRequest>(raw, payload,
                     static (g, h, hg, r, d, a, t, w, s) =>
                         new WorkerContainmentRemoveAckRequest(g, h, hg, r, d, a, t, w, s)),
+            GuardianHostRequestMethod.PreparedDispatchAuthorize =>
+                new PreparedDispatchAuthorizeRequest(
+                    guardian,
+                    host,
+                    hostGeneration,
+                    requestId,
+                    Int64(raw.Value("deadline_unix_time_milliseconds")),
+                    Alias(raw.Value("session_alias")),
+                    Transition(raw.Value("session_transition_version")),
+                    RequiredWorker(raw),
+                    RequiredOperationIdentity(raw),
+                    new HostEventSequence(
+                        Int64(payload.GetProperty("source_event_sequence"))),
+                    Digest(payload.GetProperty("descriptor_sha256"))),
             _ => throw InvalidField("method"),
         };
     }
@@ -668,8 +693,67 @@ public static class GuardianHostProtocolCodec
                 Parse<GuardianHostOutputSealState>(payload.GetProperty("state"), "state"),
                 Int32(payload.GetProperty("total_bytes")),
                 Digest(payload.GetProperty("output_sha256"))),
+            GuardianHostEventType.PreparedDispatchAuthorizationRequested =>
+                DecodePreparedDispatchAuthorizationRequested(
+                    guardian,
+                    host,
+                    hostGeneration,
+                    sequence,
+                    requestId,
+                    alias,
+                    transition,
+                    worker,
+                    operation,
+                    payload),
+            GuardianHostEventType.PreparedValidatorLifecycle =>
+                new PreparedValidatorLifecycleEvent(
+                    guardian,
+                    host,
+                    hostGeneration,
+                    sequence,
+                    Required(requestId, "request_id"),
+                    alias,
+                    transition,
+                    Required(worker, "worker_boot_id"),
+                    Required(operation, "plan_id"),
+                    Parse<GuardianHostValidatorPhase>(
+                        payload.GetProperty("phase"),
+                        "phase"),
+                    Digest(payload.GetProperty("validator_binary_sha256")),
+                    NullableInt32(payload.GetProperty("exit_code"))),
             _ => throw InvalidField("event_type"),
         };
+    }
+
+    private static PreparedDispatchAuthorizationRequestedEvent
+        DecodePreparedDispatchAuthorizationRequested(
+            GuardianBootId guardian,
+            HostBootId host,
+            HostGeneration hostGeneration,
+            HostEventSequence sequence,
+            PrivateRequestId? requestId,
+            CanonicalAlias alias,
+            SessionTransitionVersion transition,
+            GuardianHostWorkerIdentity? worker,
+            GuardianHostOperationIdentity? operation,
+            JsonElement payload)
+    {
+        var descriptor = GuardianHostPreparedPlanDescriptorCodec.Parse(
+            payload.GetProperty("descriptor"));
+        var transmittedDigest = Digest(payload.GetProperty("descriptor_sha256"));
+        if (descriptor.DescriptorDigest != transmittedDigest)
+            throw InvalidField("descriptor_sha256");
+        return new PreparedDispatchAuthorizationRequestedEvent(
+            guardian,
+            host,
+            hostGeneration,
+            sequence,
+            Required(requestId, "request_id"),
+            alias,
+            transition,
+            Required(worker, "worker_boot_id"),
+            Required(operation, "plan_id"),
+            descriptor);
     }
 
     private static GuardianHostContainmentIdentity DecodeContainment(JsonElement value) => new(
@@ -842,6 +926,10 @@ public static class GuardianHostProtocolCodec
                 new PlanId(GuidValue(plan)),
                 new OperationId(GuidValue(raw.Value("operation_id"))));
     }
+
+    private static GuardianHostOperationIdentity RequiredOperationIdentity(
+        GuardianHostRawEnvelope raw) =>
+        Required(NullableOperationIdentity(raw), "plan_id");
 
     private static ManifestChunkRequest DecodeManifestChunk(
         GuardianBootId guardian,

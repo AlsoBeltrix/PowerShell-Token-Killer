@@ -18,7 +18,7 @@ public sealed class GuardianHostUnionContractTests
     [Fact]
     public void Every_request_method_and_operation_branch_round_trips()
     {
-        Assert.Equal(8, Enum.GetValues<GuardianHostRequestMethod>().Length);
+        Assert.Equal(9, Enum.GetValues<GuardianHostRequestMethod>().Length);
         Assert.Equal(10, Enum.GetValues<GuardianHostOperationKind>().Length);
 
         var manifestId = Guid.Parse("ffffffff-ffff-4fff-8fff-ffffffffffff");
@@ -55,6 +55,8 @@ public sealed class GuardianHostUnionContractTests
                 Object(("source_event_sequence", 3))),
             Request("worker_containment_remove_ack", 100, "default", 1, WorkerId, 2, null, null,
                 Object(("source_event_sequence", 4))),
+            Request("prepared_dispatch_authorize", 100, "default", 1, WorkerId, 2, PlanId, OperationId,
+                Object(("source_event_sequence", 5), ("descriptor_sha256", Digest))),
         };
 
         foreach (var (operation, arguments, outputCapability, worker, plan) in OperationArguments())
@@ -77,7 +79,7 @@ public sealed class GuardianHostUnionContractTests
                 payload));
         }
 
-        Assert.Equal(17, requests.Count);
+        Assert.Equal(18, requests.Count);
         foreach (var request in requests)
         {
             var encoded = GuardianHostRawProtocol.Encode(request, GuardianHostPeer.Guardian);
@@ -89,8 +91,11 @@ public sealed class GuardianHostUnionContractTests
     [Fact]
     public void Every_host_event_branch_round_trips()
     {
-        Assert.Equal(12, Enum.GetValues<GuardianHostEventType>().Length);
+        Assert.Equal(14, Enum.GetValues<GuardianHostEventType>().Length);
         var raw = "x"u8.ToArray();
+        var descriptor = PreparedDescriptor();
+        var descriptorDigest = Sha256(
+            Encoding.UTF8.GetBytes(descriptor.GetRawText()));
         var pending = Object(
             ("broker_pid", 11),
             ("broker_start_identity_high", 0UL),
@@ -115,6 +120,11 @@ public sealed class GuardianHostUnionContractTests
             Event("worker_containment_pending", null, "default", 1, WorkerId, 2, null, null, pending),
             Event("worker_containment_armed", null, "default", 1, WorkerId, 2, null, null, armed),
             Event("worker_containment_remove_requested", null, "default", 1, WorkerId, 2, null, null, armed),
+            Event("prepared_dispatch_authorization_requested", 9, "default", 1, WorkerId, 2,
+                PlanId, OperationId,
+                Object(
+                    ("descriptor", descriptor),
+                    ("descriptor_sha256", descriptorDigest))),
             Event("operation_delivery", 9, "default", 1, WorkerId, 2, PlanId, OperationId,
                 Object(("dispatch_token", Token), ("delivery_state", "write_started"), ("worker_request_id", 7))),
             Event("session_lifecycle", null, "default", 1, null, null, null, null,
@@ -164,6 +174,12 @@ public sealed class GuardianHostUnionContractTests
                     ("state", "complete"),
                     ("total_bytes", raw.Length),
                     ("output_sha256", Sha256(raw)))),
+            Event("prepared_validator_lifecycle", 9, "default", 1, WorkerId, 2,
+                PlanId, OperationId,
+                Object(
+                    ("phase", "completed"),
+                    ("validator_binary_sha256", Digest),
+                    ("exit_code", 0))),
         };
 
         foreach (var value in events)
@@ -580,6 +596,25 @@ public sealed class GuardianHostUnionContractTests
         ("token", Token),
         ("maximum_bytes", 1024),
         ("expires_unix_time_milliseconds", 100));
+
+    private static JsonElement PreparedDescriptor() => Object(
+        ("plan_id", PlanId),
+        ("worker_boot_id", WorkerId),
+        ("worker_generation", 2),
+        ("deadline_unix_time_milliseconds", 100),
+        ("script_sha256", Digest),
+        ("domain", "powershell"),
+        ("requested_route", "pwsh"),
+        ("effective_route", "powershell_direct"),
+        ("pre_execution_validation", "none"),
+        ("resolution_context", "warm"),
+        ("output_provenance", "powershell_objects"),
+        ("permitted_fallbacks", Array.Empty<string>()),
+        ("fallback_reason", null),
+        ("working_directory_sha256", Digest),
+        ("rtk_binary_sha256", null),
+        ("bash_binary_sha256", null),
+        ("output_shaping_rtk_binary_sha256", null));
 
     private static GuardianHostRawEnvelope Request(
         string method,

@@ -263,6 +263,71 @@ public sealed class PrivateHostOutboundChannelTests
         Assert.Equal(0, channel.PendingControlCount);
     }
 
+    [Fact]
+    public async Task Prepared_dispatch_control_requires_the_exact_descriptor_and_envelope()
+    {
+        using var stream = new MemoryStream();
+        var channel = new PrivateHostOutboundChannel(stream, Identity);
+        var worker = new GuardianHostWorkerIdentity(
+            new WorkerBootId(
+                Guid.Parse("cccccccc-cccc-4ccc-8ccc-cccccccccccc")),
+            new WorkerGeneration(2));
+        var operation = new GuardianHostOperationIdentity(
+            new PlanId(Guid.Parse("dddddddd-dddd-4ddd-8ddd-dddddddddddd")),
+            new OperationId(Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee")));
+        var descriptor = PreparedDescriptor(worker, operation.PlanId);
+        PreparedDispatchAuthorizationRequestedEvent? source = null;
+        var exchange = ((IPrivateHostControlEventSink)channel).ExchangeControlAsync(
+            sequence => source = new PreparedDispatchAuthorizationRequestedEvent(
+                Guardian,
+                Host,
+                Generation,
+                sequence,
+                new PrivateRequestId(9),
+                Alias,
+                Transition,
+                worker,
+                operation,
+                descriptor));
+        using var timeout = new CancellationTokenSource(TestTimeout);
+        while (source is null)
+            await Task.Delay(5, timeout.Token);
+
+        var wrong = new PreparedDispatchAuthorizeRequest(
+            Guardian,
+            Host,
+            Generation,
+            new PrivateRequestId(10),
+            descriptor.DeadlineUnixTimeMilliseconds,
+            Alias,
+            Transition,
+            worker,
+            operation,
+            source.EventSequence,
+            Digest('f'));
+        var mismatch = Assert.Throws<GuardianHostProtocolException>(
+            () => channel.ClaimControlAcknowledgement(wrong));
+        Assert.Equal("control_correlation_invalid", mismatch.DetailCode);
+
+        var exact = new PreparedDispatchAuthorizeRequest(
+            Guardian,
+            Host,
+            Generation,
+            new PrivateRequestId(11),
+            descriptor.DeadlineUnixTimeMilliseconds,
+            Alias,
+            Transition,
+            worker,
+            operation,
+            source.EventSequence,
+            descriptor.DescriptorDigest);
+        using (var acknowledgement = channel.ClaimControlAcknowledgement(exact))
+            acknowledgement.Complete();
+
+        Assert.Same(exact, await exchange.WaitAsync(TestTimeout));
+        Assert.Equal(0, channel.PendingControlCount);
+    }
+
     private static WorkerCreateCapabilityRequestedEvent Event(
         HostEventSequence sequence,
         char digest,
@@ -292,6 +357,26 @@ public sealed class PrivateHostOutboundChannelTests
             startupDeadlineUnixTimeMilliseconds: 1);
 
     private static Sha256Digest Digest(char value) => new(new string(value, 64));
+
+    private static GuardianHostPreparedPlanDescriptor PreparedDescriptor(
+        GuardianHostWorkerIdentity worker,
+        PlanId planId) => new(
+        planId,
+        worker,
+        deadlineUnixTimeMilliseconds: 100,
+        Digest('a'),
+        GuardianHostExecutionDomain.PowerShell,
+        GuardianHostRequestedExecutionRoute.Pwsh,
+        GuardianHostEffectiveExecutionRoute.PowerShellDirect,
+        GuardianHostPreExecutionValidation.None,
+        GuardianHostResolutionContext.Warm,
+        GuardianHostOutputProvenance.PowerShellObjects,
+        Array.Empty<GuardianHostEffectiveExecutionRoute>(),
+        null,
+        Digest('b'),
+        null,
+        null,
+        null);
 
     private static async Task<List<GuardianHostMessage>> ReadAllAsync(MemoryStream stream)
     {

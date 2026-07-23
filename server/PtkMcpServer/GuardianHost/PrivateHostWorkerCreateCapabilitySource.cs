@@ -6,6 +6,15 @@ internal readonly record struct ConsumedWorkerCreateCapability(
     WorkerGeneration WorkerGeneration,
     CapabilityToken Token);
 
+internal interface IPrivateHostWorkerCreateCapabilitySource
+{
+    ValueTask<PrivateHostWorkerCreateCapability> RequestAsync(
+        RecoveryBinding binding,
+        WorkerGenerationHighWatermark generationHighWatermark,
+        long startupDeadlineUnixTimeMilliseconds,
+        CancellationToken cancellationToken);
+}
+
 /// <summary>
 /// A guardian-granted, host-generation-bound permission to perform exactly one
 /// worker creation attempt. Consumption is local and one-shot; the guardian's
@@ -52,7 +61,8 @@ internal sealed class PrivateHostWorkerCreateCapability
 /// validates the exact retained control response before exposing a one-shot
 /// launch capability to host runtime composition.
 /// </summary>
-internal sealed class PrivateHostWorkerCreateCapabilitySource
+internal sealed class PrivateHostWorkerCreateCapabilitySource :
+    IPrivateHostWorkerCreateCapabilitySource
 {
     private readonly PrivateHostServerIdentity _host;
     private readonly IPrivateHostControlEventSink _control;
@@ -69,7 +79,7 @@ internal sealed class PrivateHostWorkerCreateCapabilitySource
             (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
     }
 
-    internal async ValueTask<PrivateHostWorkerCreateCapability> RequestAsync(
+    public async ValueTask<PrivateHostWorkerCreateCapability> RequestAsync(
         RecoveryBinding binding,
         WorkerGenerationHighWatermark generationHighWatermark,
         long startupDeadlineUnixTimeMilliseconds,

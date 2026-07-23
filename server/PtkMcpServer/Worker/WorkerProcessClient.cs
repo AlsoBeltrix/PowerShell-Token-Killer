@@ -21,6 +21,53 @@ internal interface IWorkerProcessLauncher
         CancellationToken cancellationToken = default);
 }
 
+internal interface IWorkerProcessClient : IAsyncDisposable
+{
+    WorkerClient Client { get; }
+    int ProcessId { get; }
+    Guid WorkerBootId { get; }
+    long Generation { get; }
+    Task Fatal { get; }
+    Task<WorkerDiagnosticReport> Diagnostics { get; }
+    Task ShutdownAsync(CancellationToken cancellationToken = default);
+}
+
+internal interface IWorkerProcessClientFactory
+{
+    Task<IWorkerProcessClient> LaunchAsync(
+        IWorkerProcessLauncher launcher,
+        WorkerLaunchCommand command,
+        long generation,
+        DateTimeOffset deadlineUtc,
+        Func<WorkerEnvelope, CancellationToken, ValueTask>? onEvent = null,
+        CancellationToken cancellationToken = default);
+}
+
+internal sealed class WorkerProcessClientFactory : IWorkerProcessClientFactory
+{
+    internal static WorkerProcessClientFactory Instance { get; } = new();
+
+    private WorkerProcessClientFactory()
+    {
+    }
+
+    public async Task<IWorkerProcessClient> LaunchAsync(
+        IWorkerProcessLauncher launcher,
+        WorkerLaunchCommand command,
+        long generation,
+        DateTimeOffset deadlineUtc,
+        Func<WorkerEnvelope, CancellationToken, ValueTask>? onEvent = null,
+        CancellationToken cancellationToken = default) =>
+        await WorkerProcessClient.LaunchAsync(
+                launcher,
+                command,
+                generation,
+                deadlineUtc,
+                onEvent,
+                cancellationToken)
+            .ConfigureAwait(false);
+}
+
 internal sealed class WindowsWorkerProcessLauncher : IWorkerProcessLauncher
 {
     private readonly WindowsProcessTreeSupervisor _supervisor;
@@ -70,7 +117,7 @@ internal sealed class WorkerProcessException : Exception
 /// path. Diagnostic streams are continuously drained into bounded, content-free
 /// summaries so user output can never become a protocol frame or host log.
 /// </summary>
-internal sealed class WorkerProcessClient : IAsyncDisposable
+internal sealed class WorkerProcessClient : IWorkerProcessClient
 {
     internal const int MaximumDiagnosticBytesPerStream = 64 * 1024;
 
@@ -106,13 +153,13 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
             onEvent);
     }
 
-    internal WorkerClient Client { get; }
-    internal int ProcessId => _process.ProcessId;
-    internal Guid WorkerBootId => Client.WorkerBootId;
-    internal long Generation => Client.Generation;
-    internal Task Fatal => _fatal.Task;
+    public WorkerClient Client { get; }
+    public int ProcessId => _process.ProcessId;
+    public Guid WorkerBootId => Client.WorkerBootId;
+    public long Generation => Client.Generation;
+    public Task Fatal => _fatal.Task;
 
-    internal Task<WorkerDiagnosticReport> Diagnostics => ReadDiagnosticsAsync();
+    public Task<WorkerDiagnosticReport> Diagnostics => ReadDiagnosticsAsync();
 
     internal static async Task<WorkerProcessClient> LaunchAsync(
         IWorkerProcessLauncher launcher,
@@ -177,7 +224,7 @@ internal sealed class WorkerProcessClient : IAsyncDisposable
         }
     }
 
-    internal async Task ShutdownAsync(CancellationToken cancellationToken = default)
+    public async Task ShutdownAsync(CancellationToken cancellationToken = default)
     {
         if (Interlocked.CompareExchange(ref _shutdownOrDispose, 1, 0) != 0)
             throw new InvalidOperationException("Worker process shutdown is one-shot.");

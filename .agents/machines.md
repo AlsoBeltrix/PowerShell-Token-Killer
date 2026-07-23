@@ -1169,3 +1169,37 @@ the exact-source ZIP SHA-256 was
   graph. It is not hosted proof of `actions/setup-dotnet@v6`: an authorized
   push and one six-job green GitHub Actions run at one exact SHA remain
   mandatory before that runtime claim.
+
+## Dependency hardening first hosted run (GitHub Actions, 2026-07-22)
+
+_Run `29967333249` at exact pushed SHA
+`68c5b3495c688704e47a4b60cc2ebcd8f9339b4e`; conclusion `failure`._
+
+- Every checkout and every `actions/setup-dotnet@v6` invocation succeeded.
+  Exact Pester 6.0.1 succeeded in all three product jobs. All three SIEM jobs,
+  including producer conformance, completed successfully. This directly proves
+  the v6 action loads and provisions the rolling .NET 10 SDK on the current
+  Ubuntu, macOS, and Windows hosted images.
+- Ubuntu architecture passed 73/73 and server passed 1,868/1,868. Guardian
+  failed five native-broker compilation consumers because the hosted fortified
+  `read(2)` declaration rejects an ignored return value under the existing
+  `-Werror` policy. The production source contains the same discarded read at
+  each of its three guardian-liveness poll stages; the plan amendment requires
+  consuming those results without weakening compilation or containment.
+- macOS architecture passed 73/73. Guardian failed 101/436 and server failed
+  3/1,868 because `Path.GetTempPath()` resolved beneath the hosted runner's
+  symlink-traversing temp root. `SecureAuditStorage` and transferred-output
+  storage correctly rejected that protected path. The plan amendment supplies
+  a unique physical `/private/tmp` root only to the CI test step and leaves the
+  product's fail-closed path validation unchanged.
+- Windows architecture passed 73/73. Guardian failed two real-composition
+  state observations, and server failed the same seven evidence-path cases
+  that direct VSTest could not run from the long service profile on
+  `NETWATCH-01`. The accepted xUnit v3 in-process Windows run covered those
+  seven identities; the plan amendment builds once and invokes architecture,
+  Guardian, and server assemblies directly and sequentially instead of using
+  concurrent solution-level VSTest hosts.
+- All three product handshakes were skipped after `Server tests` failed. No
+  green six-job hosted acceptance is claimed. The corrective plan amendment is
+  proposed but not approved, and a repaired exact-SHA push requires separate
+  authorization.

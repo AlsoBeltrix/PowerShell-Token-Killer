@@ -6,7 +6,9 @@ short and update it when important repo facts change.
 ## Now
 
 - **Dependency hardening is locally complete at code head `d1d24e8` on
-  `feature/mcp-resilience-r1`; only hosted action-runtime proof remains.** The
+  `feature/mcp-resilience-r1`; the first hosted run proved the action runtime
+  but exposed three CI portability findings whose corrective amendment awaits
+  owner approval.** The
   frozen inventory, PowerShell security
   chain, Hosting, MCP, Roslyn, .NET test-platform, coverage-collector, SQLite,
   Pester, and GitHub Actions runtime slices are committed. Test SDK 17.14.1
@@ -40,9 +42,18 @@ short and update it when important repo facts change.
   Pester, and handshake identities are covered on every platform; Windows
   used authoritative TRX matching across its established ordinary-account and
   SYSTEM identity split. All disposable final-validation residue was removed.
-  The separately authorized six-job hosted run is still required before
-  claiming setup-dotnet v6 runtime acceptance. No push, merge, release, or
-  installed-payload change is authorized.
+  GitHub Actions run `29967333249` at exact documentation descendant `68c5b34`
+  successfully loaded `setup-dotnet@v6` in all six jobs, passed all three
+  Pester steps and all three SIEM jobs, then failed each product job in server
+  tests: fortified Linux compilation rejects three discarded native `read`
+  results, hosted macOS temp paths traverse a symlink rejected by secure
+  storage, and Windows VSTest reproduces its known long-path failures while
+  also exposing two project-host state-observation failures. The proposed
+  plan amendment preserves product security behavior, consumes the native
+  read result, supplies a physical macOS test temp root, and runs the three
+  xUnit v3 product assemblies in-process and sequentially. No corrective code
+  change or further push is authorized; merge, release, and installed-payload
+  changes remain unauthorized.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

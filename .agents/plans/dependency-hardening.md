@@ -1,9 +1,15 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** LOCAL IMPLEMENTATION AND ACCEPTANCE COMPLETE at code head
-`d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`; hosted action-runtime proof is
-pending a separately authorized push. Owner GO received 2026-07-22. Dependency
-inventory cutoff `2026-07-22T17:09:14Z` was frozen at baseline `637be3c`.
+**Status:** HOSTED CORRECTIVE AMENDMENT PROPOSED; OWNER APPROVAL REQUIRED.
+Local dependency implementation and acceptance are complete at code head
+`d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`. Owner GO received 2026-07-22 for
+the first exact-SHA push. GitHub Actions run `29967333249` at documentation
+descendant `68c5b3495c688704e47a4b60cc2ebcd8f9339b4e` proved
+`actions/setup-dotnet@v6` loads in all six jobs, but three product jobs exposed
+the independent CI portability findings specified in the proposed amendment
+below. Do not change code or the workflow for that amendment until the owner
+approves it. Dependency inventory cutoff `2026-07-22T17:09:14Z` was frozen at
+baseline `637be3c`.
 The owner approved updating through current stable major versions, including
 the xUnit v2-to-v3, Coverlet 6-to-10, and SQLitePCLRaw 2-to-3 migrations. The
 owner rejected any policy that makes vulnerability advisories build- or
@@ -359,8 +365,75 @@ ordinary-account/SYSTEM identity split; authoritative TRX matching proved
 that SYSTEM passed every one of the 17 PKCS#12 cases unavailable to the SSH
 identity. All validation roots, archives, tasks, scoped processes, test
 residue, and validation-created certificate residue were removed. The only
-remaining acceptance item is the separately authorized six-job hosted run for
-`actions/setup-dotnet@v6`.
+remaining acceptance item was the separately authorized six-job hosted run for
+`actions/setup-dotnet@v6`; run `29967333249` proved the action runtime but did
+not satisfy the green product-job requirement, so the proposed corrective
+amendment below now gates final acceptance.
+
+## Proposed hosted corrective amendment
+
+This amendment is not approved. Hosted run `29967333249` at exact SHA
+`68c5b3495c688704e47a4b60cc2ebcd8f9339b4e` completed all six
+`actions/setup-dotnet@v6` setup steps, all three Pester steps, and all three
+SIEM jobs. Each product job then failed only in `Server tests`; each handshake
+was consequently skipped. Preserve the accepted dependency graph and the
+secure-storage, containment, audit, and test-count contracts while repairing
+the runner-specific faults below. Each numbered item is one finding and one
+commit.
+
+### 11. Consume Unix guardian-liveness reads without discarding the result
+
+The hosted Ubuntu compiler enables a fortified `read(2)` declaration whose
+return value is `warn_unused_result`. It therefore rejects the three
+`(void)read(...)` liveness paths in
+`server/PtkMcpGuardian/Native/ptk_guardian_broker.c` under the existing
+`-Werror` policy. Introduce one private helper that stores the `ssize_t` result
+and retries only `EINTR`, then use it at all three liveness events. The result
+does not decide containment: any liveness data, EOF, or read error must retain
+the existing immediate fail-closed containment path. Do not weaken compiler
+flags or suppress the diagnostic.
+
+Reproduce the fortified warning with the pre-fix source on x64 Linux, then
+prove the repaired native broker builds under the same flags. Run the focused
+Unix private-launcher and production-composition tests, the complete Guardian
+project, and the complete server project before committing.
+
+### 12. Give hosted macOS product tests a physical temporary root
+
+GitHub's macOS temporary directory traverses a symlink, while protected audit
+and transferred-output storage correctly rejects every link or reparse point
+in its root. In the product job's `Server tests` step, create a unique physical
+directory directly beneath `/private/tmp`, set `TMPDIR` only for that step,
+and remove the exact directory in `finally`. Leave product path validation and
+all test assertions unchanged; do not canonicalize an unsafe caller path
+inside production code or relax the fail-closed link check.
+
+On macOS, first reproduce rejection with a symlink-traversing temp root. Then
+run the architecture, Guardian, and server projects against the physical root,
+confirm their full pre-migration identities pass, and confirm the scoped root
+is removed even on a failed child command.
+
+### 13. Run xUnit v3 product assemblies in-process and sequentially in CI
+
+The Windows hosted VSTest path reproduces the testhost long-path boundary
+already diagnosed on `NETWATCH-01`: seven evidence-path tests fail although
+the xUnit v3 in-process runner passes the same identities. The hosted solution
+run also executes project hosts concurrently and exposed two Guardian
+state-observation failures absent from the accepted isolated project run.
+Replace only the product job's solution-level `dotnet test` command with one
+solution build followed by direct `dotnet <test-assembly.dll>` execution of
+the architecture, Guardian, and server xUnit v3 assemblies, in that order and
+one project at a time. Fail immediately on a nonzero assembly exit. Retain
+normal intra-project xUnit behavior, visible console results, Pester, the
+stdio handshake, and the separate SIEM job. Do not filter or skip tests.
+
+Validate the exact workflow command locally on macOS, x64 Linux `magneto`, and
+Windows `NETWATCH-01`. Require architecture 73, Guardian 436, and server 1,868
+identities on each platform, using the already-established Windows
+ordinary-account/SYSTEM split only where credential-bound PKCS#12 coverage
+requires it. Re-run workflow syntax and structural checks. After a separate
+push authorization, require all six GitHub Actions jobs and all three
+handshakes to pass at one exact SHA; record the run ID and SHA.
 
 ## Completion and failure handling
 

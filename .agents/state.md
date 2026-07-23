@@ -20,8 +20,8 @@ short and update it when important repo facts change.
   head `8b5a66d`. Hosted run `30004132833` narrowed the remaining runner faults
   to the approved second corrective amendment, now locally complete at code
   head `cf94796`. Run `30008032861` passed five of six jobs and exposed one
-  further macOS test-scheduling finding; its proposed correction and exact
-  evidence are canonical in `.agents/plans/dependency-hardening.md`.
+  further macOS test-scheduling finding; Slice 17 is approved and now in
+  progress under `.agents/plans/dependency-hardening.md`.
 - **Dependency hardening and its first hosted corrective amendment are locally
   complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; the approved
   second amendment is locally complete at code head `cf94796`, and final
@@ -98,8 +98,8 @@ short and update it when important repo facts change.
   replaced process-wide `PATH`. The two selected identities reproduced 1/2
   under normal collection parallelism and passed 2/2 three consecutive times
   when serialized. Assigning the stdio fixture to the existing
-  `ProcessEnvironment` collection is proposed as Slice 17 and awaits owner
-  approval.
+  `ProcessEnvironment` collection is approved as Slice 17 and is now in
+  progress.
 - **Owner handoff contract (2026-07-22): Git workspace mechanics are entirely
   agent-owned.** An agent must inspect and resume the exact active workspace
   without asking the owner to fetch, switch, push, select, or recover it. The
@@ -447,10 +447,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Obtain owner approval or rejection for proposed dependency-hardening Slice
-   17: assign `StdioChildStdinTests` to the existing `ProcessEnvironment`
-   collection, verify the focused race and full macOS product command, then
-   separately authorize final exact-SHA hosted acceptance.
+1. Implement approved dependency-hardening Slice 17: assign
+   `StdioChildStdinTests` to the existing `ProcessEnvironment` collection,
+   verify the focused race and full macOS product command, then separately
+   authorize final exact-SHA hosted acceptance.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence. Do not fold the separate ARM64
    MSBuild-only `protoc` investigation into resilience work.

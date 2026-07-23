@@ -1,10 +1,9 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** SECOND HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
-2026-07-23 AT CODE HEAD
-`cf947965795bf190da2fc7034c5a3bb31bb2c289`; HOSTED RUN `30008032861`
-EXPOSED ONE FURTHER TEST-SCHEDULING FINDING; SLICE 17 IS PROPOSED AND AWAITS
-OWNER APPROVAL.
+**Status:** THIRD HOSTED CORRECTIVE AMENDMENT APPROVED 2026-07-23; SLICE 17
+IMPLEMENTATION IN PROGRESS. THE SECOND AMENDMENT REMAINS LOCALLY ACCEPTED AT
+CODE HEAD `cf947965795bf190da2fc7034c5a3bb31bb2c289`; HOSTED RUN `30008032861`
+EXPOSED THE SINGLE TEST-SCHEDULING FINDING ADDRESSED BY SLICE 17.
 The first hosted corrective amendment is implemented locally at code head
 `8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
 `30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
@@ -580,14 +579,15 @@ green at one exact SHA.
   separately authorized exact-SHA GitHub Actions run with all six jobs and all
   three product handshakes green.
 
-## Proposed third hosted corrective amendment — awaiting approval
+## Approved third hosted corrective amendment — implementation in progress
 
 GitHub Actions run `30008032861` at exact SHA
 `85dc709d2fc0940b65b9a83da088217186d95f60` passed all three SIEM jobs and
 the Ubuntu and Windows product jobs, including both product handshakes. The
 macOS product job passed Pester, architecture 73/73, and Guardian 442/442, then
 ran all 1,917 server identities with one failure. Its handshake was skipped
-because the server step failed.
+because the server step failed. Owner GO received 2026-07-23 for the single
+corrective slice below.
 
 ### 17. Serialize the stdio child fixture with process-environment mutators
 
@@ -600,7 +600,7 @@ expected `em—dash`. A local two-identity run reproduced the failure on its
 first parallel attempt; the same two identities passed 2/2 in three
 consecutive runs with collection parallelism disabled.
 
-If approved, assign the entire `StdioChildStdinTests` class to the existing
+Assign the entire `StdioChildStdinTests` class to the existing
 `ProcessEnvironment` collection. Do not change production command resolution,
 hard-code a PowerShell path, disable parallelism globally, or weaken the UTF-8
 assertion. Commit this one scheduling finding separately. Prove the normal

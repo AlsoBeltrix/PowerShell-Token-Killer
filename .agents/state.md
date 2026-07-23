@@ -105,6 +105,17 @@ short and update it when important repo facts change.
   macOS product sequence passed architecture 73, Guardian 442, and server
   1,917, and the complete handshake passed. Both physical temporary roots were
   removed with zero scoped processes.
+- **GitHub issue #11 tracks a Codex stale ptk transport after the transitional
+  direct public server exited.** The failed connection's artifact names
+  identify server PID 14245, which was absent with no macOS crash report;
+  other live server processes belonged to different Codex/ChatGPT parents.
+  A fresh installed 0.2.0 process completed initialize and tools/list, so
+  general installed-binary startup is not broken. R7's already-approved
+  guardian cutover owns the repo-side mitigation and same-pipe private-host
+  recovery. It must not claim recovery from guardian death or client closure;
+  real-Codex cutover validation will record whether a fresh MCP session
+  reconnects after deliberate guardian termination. Canonical scope is in
+  `.agents/plans/mcp-resilience.md`.
 - **Owner handoff contract (2026-07-22): Git workspace mechanics are entirely
   agent-owned.** An agent must inspect and resume the exact active workspace
   without asking the owner to fetch, switch, push, select, or recover it. The
@@ -456,8 +467,10 @@ short and update it when important repo facts change.
    acceptance, then require all six GitHub Actions jobs and all three product
    handshakes green at one exact SHA before making a hosted-green claim.
 2. After dependency acceptance, continue directly into the
-   already-authorized R6 and R7 sequence. Do not fold the separate ARM64
-   MSBuild-only `protoc` investigation into resilience work.
+   already-authorized R6 and R7 sequence, carrying issue #11's explicit
+   product/client boundary through the real-Codex cutover validation. Do not
+   fold the separate ARM64 MSBuild-only `protoc` investigation into resilience
+   work.
 3. After the current active work is complete, retain and merge each remaining
    work-carrying branch into `master` one at a time:
    `feature/mcp-resilience-r1`, `feat/closed-prefix-reader`,

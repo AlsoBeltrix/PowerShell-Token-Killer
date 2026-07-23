@@ -236,6 +236,32 @@ registration usable; it is operational continuity for this checkout, not a
 compatibility surface. R7 changes registration and removes that transitional
 public entry in one atomic slice.
 
+### Codex stale-transport issue #11
+
+Issue `https://github.com/AlsoBeltrix/PowerShell-Token-Killer/issues/11`
+records a 2026-07-23 Codex session whose transitional direct public server
+exited and whose client retained a dead MCP connection. Background artifact
+names identify the failed server as PID 14245; that PID was absent during
+diagnosis and had no macOS crash report. Other live `PtkMcpServer` processes
+belonged to different Codex/ChatGPT parents and were not evidence that the
+failed process survived. A fresh launch of the installed 0.2.0 payload
+completed MCP initialize and tools/list, proving the installed executable's
+stdio transport still starts normally. The original exit cause and Codex's
+failure to spawn a fresh configured process remain unproven integration facts,
+not a diagnosed server crash.
+
+R7 is the repository-side mitigation already authorized by this plan: fallible
+host/session work moves behind the stable public guardian, and the existing
+same-pipe host-loss acceptance must close issue #11's product-owned boundary.
+Do not overclaim that result. Guardian death, client closure of public stdio,
+and Codex reconnection after the public process exits remain outside the
+same-pipe private-host recovery contract. During R7 end-to-end validation,
+also terminate the public guardian once from a real Codex registration and
+record whether a fresh Codex MCP session initializes a new matched guardian.
+If the existing Codex session retains a dead connection, preserve that as a
+client-integration residual rather than adding an in-process guardian-restart
+claim this architecture cannot satisfy.
+
 ## Target topology and ownership
 
 ```text

@@ -1437,3 +1437,32 @@ collection; no production source or assertion changed._
   processes.
 - No hosted-green claim is made. A separately authorized exact-SHA push must
   produce all six jobs and all three product handshakes green.
+
+## Codex stale ptk transport diagnosis (macOS, 2026-07-23)
+
+_Tracked as GitHub issue
+`https://github.com/AlsoBeltrix/PowerShell-Token-Killer/issues/11`; diagnosed
+from repository head `d50d9741e8a59ede71182755f6c037d31a503b67` without
+changing the installed payload._
+
+- Codex continued exposing the ptk tool schemas, but `ptk_invoke` and
+  `ptk_state` both failed immediately with `Transport closed` across turns and
+  after tool rediscovery. The product's own reset and state surfaces were
+  therefore unreachable.
+- Background artifacts `job-14245-*` identify the failed connection's server
+  PID as 14245. That PID was absent during diagnosis and no matching macOS
+  diagnostic report existed. Five other `PtkMcpServer` processes were alive,
+  but their ChatGPT/Codex parents proved they belonged to other sessions; they
+  were not the failed connection.
+- The configured command was the transitional direct
+  `/Users/michael/.ptk/bin/PtkMcpServer`. The installed arm64 binary was
+  version 0.2.0.0, modified `2026-07-10T19:55:42Z`, and had SHA-256
+  `e06d25635adcc07deaf6dea82716ce70bf8fa29f5c3e64c7e1756acd562cb0ca`.
+  A fresh isolated launch completed MCP initialize and tools/list; the current
+  checkout's handshake then stopped only because that old payload correctly
+  lacked the later `ptk_output` tool.
+- The evidence does not establish why PID 14245 exited or why Codex retained
+  its stale connection. The approved R7 guardian cutover mitigates private
+  host/runtime loss but intentionally cannot recover guardian death or a
+  client-closed public transport. R7 real-Codex validation now explicitly
+  carries this distinction.

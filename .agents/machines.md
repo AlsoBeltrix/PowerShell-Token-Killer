@@ -1497,3 +1497,20 @@ GitHub-hosted Ubuntu, Windows, and arm64 macOS._
   Guardian 442/442, server 1,917/1,917, and the complete stdio handshake. The
   physical validation root was removed with zero scoped processes. No
   hosted-green claim is made until a new six-job run passes.
+
+## Dependency final hosted acceptance run 30028799399 (2026-07-23)
+
+_Exact pushed SHA `63a4de613fd8d81e78bf1312768f6e802eaaebba`;
+GitHub-hosted Ubuntu, Windows, and arm64 macOS._
+
+- All six jobs completed successfully. The three product jobs passed exact
+  Pester 6.0.1, architecture 73/73, Guardian 442/442, server 1,917/1,917, and
+  the complete stdio handshake. Pester passed 141 with two expected skips on
+  Ubuntu/macOS and 142 with one expected skip on Windows.
+- The three SIEM jobs each passed receiver 247/247 and producer conformance
+  6/6. Every setup-dotnet v6, checkout v7, build, test, conformance, and
+  post-action step was green.
+- The run started at `2026-07-23T17:17:45Z` and completed at
+  `2026-07-23T17:27:44Z`. Its immutable workflow evidence closes the final
+  dependency-hardening acceptance gate; no hosted runner residue is
+  repository-local.

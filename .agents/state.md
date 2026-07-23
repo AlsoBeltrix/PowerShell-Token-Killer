@@ -27,12 +27,11 @@ short and update it when important repo facts change.
   `3e3d7b4`: the outer transcript observation budget is now 30 seconds while
   the native 10-second containment proof remains unchanged. Exact evidence and
   the preserved containment boundary are in
-  `.agents/plans/dependency-hardening.md`.
-- **Dependency hardening and its first hosted corrective amendment are locally
-  complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; the approved
-  second amendment is locally complete at code head `cf94796`, the third
-  amendment is locally complete at code head `9630ff7`, and final hosted
-  exact-SHA acceptance remains separately authorized.** The
+  `.agents/plans/dependency-hardening.md`. Final hosted run `30028799399`
+  passed all six jobs and all three product handshakes at exact SHA
+  `63a4de613fd8d81e78bf1312768f6e802eaaebba`.
+- **Dependency hardening is complete and hosted-accepted at exact SHA
+  `63a4de613fd8d81e78bf1312768f6e802eaaebba`.** The
   frozen inventory, PowerShell security
   chain, Hosting, MCP, Roslyn, .NET test-platform, coverage-collector, SQLite,
   Pester, and GitHub Actions runtime slices are committed. Test SDK 17.14.1
@@ -80,8 +79,9 @@ short and update it when important repo facts change.
   73, Guardian 442, and server 1,917 identities on macOS and Linux; Windows
   covered the same identities through its established ordinary-account/SYSTEM
   DPAPI split with authoritative TRX matching. All disposable roots,
-  processes, and tasks were removed. A further push, merge into `master`,
-  release, and installed-payload changes remain unauthorized. GitHub Actions
+  processes, and tasks were removed. Public release artifacts remain outside
+  the completion authority; development publication, master integration, and
+  the R7 atomic installed-payload cutover are authorized. GitHub Actions
   run `30004132833` at exact SHA `30c2e70` passed the Windows product job and
   Ubuntu/Windows SIEM jobs. Ubuntu product packaging selected two `cc`
   applications as one invalid command, macOS SIEM conformance inherited the
@@ -109,7 +109,10 @@ short and update it when important repo facts change.
   2/2 in three consecutive normally parallel runs; the workflow-equivalent
   macOS product sequence passed architecture 73, Guardian 442, and server
   1,917, and the complete handshake passed. Both physical temporary roots were
-  removed with zero scoped processes.
+  removed with zero scoped processes. Final run `30028799399` then passed the
+  Ubuntu, Windows, and macOS product and SIEM jobs at the exact SHA above:
+  Pester 141/142 as platform-appropriate, architecture 73, Guardian 442,
+  server 1,917, SIEM 247, conformance 6, and all three handshakes.
 - **GitHub issue #11 tracks a Codex stale ptk transport after the transitional
   direct public server exited.** The failed connection's artifact names
   identify server PID 14245, which was absent with no macOS crash report;
@@ -476,10 +479,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Push the Slice 18 acceptance head and require all six GitHub Actions jobs
-   and all three product handshakes green before a hosted-green claim.
-2. After dependency acceptance, continue directly into the
-   already-authorized R6 and R7 sequence, carrying issue #11's explicit
+1. Complete the already-authorized R6 live worker dispatch, platform
+   containment, per-alias lifecycle, and automatic-recovery sequence recorded
+   in `.agents/plans/mcp-resilience.md`.
+2. Continue directly into R7, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not
    fold the separate ARM64 MSBuild-only `protoc` investigation into resilience
    work.

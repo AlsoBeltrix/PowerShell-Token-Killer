@@ -418,32 +418,38 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Re-evaluate the dependency plan's unapproved hosted-CI correction against
-   the reconciled tree. Present any changed decision to the owner before code;
-   a new exact-SHA hosted run still requires separate push authorization.
+1. Evaluate the six-job hosted run triggered by the authorized exact-SHA push
+   of `30c2e70`; require all three product handshakes and all three SIEM jobs
+   to pass before recording hosted acceptance.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence. Do not fold the separate ARM64
    MSBuild-only `protoc` investigation into resilience work.
-3. rbc-15 is closed and merged locally (`f0d17f6`); its residual
+3. After the current active work is complete, retain and merge each remaining
+   work-carrying branch into `master` one at a time:
+   `feature/mcp-resilience-r1`, `feat/closed-prefix-reader`,
+   `feat/config-retry-capability`, and `fix/locked-prefix-reconcile`. Re-check
+   content arrival and the relevant verification before deleting any retained
+   branch.
+4. rbc-15 is closed and merged locally (`f0d17f6`); its residual
    recycled-PID incarnation hardening is a tracked follow-up dev task (no
    further paid review rounds). Do not continue or commit the saved rbc-5
    post-start attach WIP.
-4. Close out the rbc batch remainders: rbc-8's targeted drain-replay guard
+5. Close out the rbc batch remainders: rbc-8's targeted drain-replay guard
    test lands in the worker-subsystem pass; rbc-11 stays gated on the owner's
    S3H land/park decision; rbc-5 closes via resilience R7. Reassess
    per-finding whether work is safeguard-sensitive and route out if so.
-5. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
+6. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
    When producer-owned v3 request bytes land, execute S4 from the complete
    producer corpus; do not substitute receiver-authored fixtures. Do not begin
    S4–S6 or modify PTK runtime for SIEM work.
-6. Release-distribution slice 3 is ordered after resilience R7 and consumes
+7. Release-distribution slice 3 is ordered after resilience R7 and consumes
    only its matched guardian layout; there is no legacy migration path. Do not
    execute it before R7 lands. Re-present the hook-default choice before release
    slice 4.
-7. When the owner releases the decisions hold, reconcile the rejected
+8. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
-8. On Microsoft's #7 verdict, execute the on-verdict steps in
+9. On Microsoft's #7 verdict, execute the on-verdict steps in
    `.agents/plans/defender-fp-submission.md`. Meanwhile the unblocked CI
    remainders are the Windows kill-path test diagnosis (2/1587 failures) and
    the pre-existing `tls_protection` SIEM conformance-host TLS-material

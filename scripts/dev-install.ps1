@@ -317,7 +317,8 @@ function Build-PtkUnixBroker {
         [Parameter(Mandatory)][string]$Output
     )
 
-    $compiler = Get-Command cc -CommandType Application -ErrorAction SilentlyContinue
+    $compiler = Get-Command cc -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
     if (-not $compiler) {
         throw 'The native Unix broker build requires cc on PATH.'
     }

@@ -68,6 +68,95 @@ public sealed class GuardianHostClientTests
     }
 
     [Fact]
+    public async Task Initialize_services_exact_control_exchange_before_host_ready()
+    {
+        WorkerCreateCapabilityRequestedEvent? source = null;
+        var handled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = new HostHarness(
+            (hostEvent, _) =>
+            {
+                source = Assert.IsType<WorkerCreateCapabilityRequestedEvent>(hostEvent);
+                handled.TrySetResult();
+                return ValueTask.CompletedTask;
+            });
+
+        var initialize = harness.Client.InitializeAsync(harness.Manifest);
+        var transcript = await harness.CompleteHandshakeThroughSealAsync();
+        await harness.HostWriter.WriteAsync(CreateCapabilityEvent(sequence: 1));
+        await handled.Task.WaitAsync(TestTimeout);
+        Assert.Equal(GuardianHostClientState.Initializing, harness.Client.State);
+        Assert.False(initialize.IsCompleted);
+
+        var control = harness.Client.SendRequestAsync(
+            (guardian, host, generation, requestId) =>
+                new WorkerCreateCapabilityGrantRequest(
+                    guardian,
+                    host,
+                    generation,
+                    requestId,
+                    source!.StartupDeadlineUnixTimeMilliseconds,
+                    source.SessionAlias,
+                    source.SessionTransitionVersion,
+                    new WorkerGeneration(2),
+                    source.EventSequence,
+                    Capability(9)));
+        var grant = Assert.IsType<WorkerCreateCapabilityGrantRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        await harness.HostWriter.WriteAsync(Success(
+            grant.RequestId,
+            new ControlAcknowledged(grant.SourceEventSequence)));
+        _ = await control.WaitAsync(TestTimeout);
+
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+        Assert.Equal(GuardianHostClientState.Initializing, harness.Client.State);
+        await harness.WriteReadyAsync(transcript);
+        await initialize.WaitAsync(TestTimeout);
+        Assert.Equal(GuardianHostClientState.Ready, harness.Client.State);
+        Assert.Equal([1L, 2L, 3L, 4L, 5L], [
+            .. transcript.GuardianRequestIds,
+            grant.RequestId.Value,
+        ]);
+    }
+
+    [Fact]
+    public async Task Initialize_refuses_ordinary_requests_before_host_ready()
+    {
+        await using var harness = new HostHarness();
+        var initialize = harness.Client.InitializeAsync(harness.Manifest);
+        var transcript = await harness.CompleteHandshakeThroughSealAsync();
+
+        var failure = await Assert.ThrowsAsync<GuardianHostClientException>(() =>
+            harness.Client.SendRequestAsync(CreateJobListRequest));
+
+        Assert.Equal(GuardianHostClientFailureKind.ProtocolViolation, failure.DetailKind);
+        Assert.Equal(4, harness.RequestTransport.WriteCount);
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+        Assert.False(initialize.IsCompleted);
+
+        await harness.WriteReadyAsync(transcript);
+        await initialize.WaitAsync(TestTimeout);
+        Assert.Equal(GuardianHostClientState.Ready, harness.Client.State);
+    }
+
+    [Fact]
+    public async Task Initialize_rejects_noncontrol_host_events_before_ready()
+    {
+        await using var harness = new HostHarness();
+        var initialize = harness.Client.InitializeAsync(harness.Manifest);
+        _ = await harness.CompleteHandshakeThroughSealAsync();
+
+        await harness.HostWriter.WriteAsync(CreateSessionEvent(sequence: 1));
+
+        var failure = await Assert.ThrowsAsync<GuardianHostClientException>(() =>
+            initialize.WaitAsync(TestTimeout));
+        Assert.Equal(GuardianHostClientFailureKind.ProtocolViolation, failure.DetailKind);
+        Assert.Equal(GuardianHostClientState.Faulted, harness.Client.State);
+        Assert.Same(failure, await harness.Client.Fatal.WaitAsync(TestTimeout));
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+    }
+
+    [Fact]
     public async Task Dispose_joins_a_cancellation_ignoring_handshake_write()
     {
         await using var harness = new HostHarness();
@@ -2333,7 +2422,8 @@ public sealed class GuardianHostClientTests
     private sealed record HandshakeTranscript(
         IReadOnlyList<long> GuardianRequestIds,
         byte[] ManifestBytes,
-        Sha256Digest ManifestDigest);
+        Sha256Digest ManifestDigest,
+        PrivateRequestId InitializeRequestId);
 
     private sealed class HostHarness : IAsyncDisposable
     {
@@ -2383,6 +2473,18 @@ public sealed class GuardianHostClientTests
             return await host;
         }
 
+        internal async Task WriteReadyAsync(HandshakeTranscript transcript)
+        {
+            await HostWriter.WriteAsync(new GuardianHostReady(
+                Guardian,
+                Host,
+                Generation,
+                transcript.InitializeRequestId,
+                GuardianHostClientTests.Manifest,
+                transcript.ManifestDigest,
+                42));
+        }
+
         internal GuardianHostHello CreateHello(string? mismatch = null) => new(
             mismatch == "guardian"
                 ? new GuardianBootId(Guid.Parse("99999999-9999-4999-8999-999999999999"))
@@ -2396,6 +2498,13 @@ public sealed class GuardianHostClientTests
             mismatch == "configuration" ? Digest('8') : ConfigurationDigest);
 
         private async Task<HandshakeTranscript> CompleteHandshakeAsync()
+        {
+            var transcript = await CompleteHandshakeThroughSealAsync();
+            await WriteReadyAsync(transcript);
+            return transcript;
+        }
+
+        internal async Task<HandshakeTranscript> CompleteHandshakeThroughSealAsync()
         {
             await HostWriter.WriteAsync(CreateHello());
             var requestIds = new List<long>();
@@ -2450,15 +2559,11 @@ public sealed class GuardianHostClientTests
             await HostWriter.WriteAsync(Success(
                 seal.RequestId,
                 new ManifestSealed(seal.ManifestId, digest, transferredBytes.Length)));
-            await HostWriter.WriteAsync(new GuardianHostReady(
-                Guardian,
-                Host,
-                Generation,
-                initialize.RequestId,
-                seal.ManifestId,
+            return new HandshakeTranscript(
+                requestIds,
+                transferredBytes,
                 digest,
-                42));
-            return new HandshakeTranscript(requestIds, transferredBytes, digest);
+                initialize.RequestId);
         }
 
         public async ValueTask DisposeAsync()

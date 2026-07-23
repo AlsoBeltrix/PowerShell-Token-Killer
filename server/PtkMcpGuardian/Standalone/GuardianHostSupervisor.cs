@@ -2471,8 +2471,19 @@ internal sealed class GuardianHostSupervisor :
         try
         {
             SynchronizeFaultedClientLossLocked(active);
-            if (_stopping || !ReferenceEquals(_active, active) ||
-                active.Lease.Stage != GuardianHostAttemptStage.Ready ||
+            if (_stopping || !ReferenceEquals(_active, active))
+            {
+                return null;
+            }
+
+            if (active.Lease.Stage == GuardianHostAttemptStage.Bootstrapping &&
+                active.Client?.State == GuardianHostClientState.Initializing)
+            {
+                release = false;
+                return new AuthorityLease(_authority);
+            }
+
+            if (active.Lease.Stage != GuardianHostAttemptStage.Ready ||
                 _lifecycle.BeginFirstWrite(active.Lease, static _ => { }) !=
                     GuardianHostWriteDisposition.Began)
             {
@@ -2492,7 +2503,9 @@ internal sealed class GuardianHostSupervisor :
     {
         _authority.Wait();
         if (!_stopping && ReferenceEquals(_active, active) &&
-            active.Lease.Stage == GuardianHostAttemptStage.Ready)
+            (active.Lease.Stage == GuardianHostAttemptStage.Ready ||
+                active.Lease.Stage == GuardianHostAttemptStage.Bootstrapping &&
+                active.Client?.State == GuardianHostClientState.Initializing))
         {
             return new AuthorityLease(_authority);
         }
@@ -2644,7 +2657,9 @@ internal sealed class GuardianHostSupervisor :
         {
             return !_stopping &&
                 ReferenceEquals(_active, active) &&
-                active.Lease.Stage == GuardianHostAttemptStage.Ready;
+                (active.Lease.Stage == GuardianHostAttemptStage.Ready ||
+                    active.Lease.Stage == GuardianHostAttemptStage.Bootstrapping &&
+                    active.Client?.State == GuardianHostClientState.Initializing);
         }
         finally
         {

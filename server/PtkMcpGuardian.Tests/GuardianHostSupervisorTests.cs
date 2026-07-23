@@ -2206,6 +2206,46 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Initial_worker_containment_control_completes_before_host_ready()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.InitializingContainment));
+
+        await rig.StartAsync();
+
+        var resource = Assert.Single(rig.Factory.Resources);
+        var registration = Assert.Single(resource.ContainmentRegistrations);
+        Assert.Equal(
+            GuardianHostEventType.WorkerContainmentPending,
+            registration.EventType);
+        Assert.Equal(
+            resource.ContainmentIdentity.BrokerPid,
+            registration.Identity.BrokerPid);
+        Assert.Equal(
+            resource.ContainmentIdentity.BrokerStartIdentityHigh,
+            registration.Identity.BrokerStartIdentityHigh);
+        Assert.Equal(
+            resource.ContainmentIdentity.BrokerStartIdentityLow,
+            registration.Identity.BrokerStartIdentityLow);
+        Assert.Equal(
+            resource.ContainmentIdentity.ProcessGroupId,
+            registration.Identity.ProcessGroupId);
+        Assert.Equal(
+            resource.ContainmentIdentity.WorkerPid,
+            registration.Identity.WorkerPid);
+        Assert.Equal(
+            resource.ContainmentIdentity.WorkerStartIdentityHigh,
+            registration.Identity.WorkerStartIdentityHigh);
+        Assert.Equal(
+            resource.ContainmentIdentity.WorkerStartIdentityLow,
+            registration.Identity.WorkerStartIdentityLow);
+        var acknowledgement = Assert.IsType<WorkerContainmentPendingAckRequest>(
+            Assert.Single(resource.ContainmentAcknowledgements));
+        Assert.Equal(1, acknowledgement.SourceEventSequence.Value);
+        Assert.Equal(PublicHostState.Ready, rig.Supervisor.SnapshotState().Host.State);
+    }
+
+    [Fact]
     public async Task Containment_control_waits_for_the_ordered_event_callback_to_return()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
@@ -4076,6 +4116,7 @@ public sealed class GuardianHostSupervisorTests
         ContractMismatchHello,
         CrashAfterRequest,
         Hold,
+        InitializingContainment,
         ProvedNoChild,
         RejectOperation,
         Reset,
@@ -4547,6 +4588,19 @@ public sealed class GuardianHostSupervisorTests
                 await _writer.WriteAsync(Success(
                     seal.RequestId,
                     new ManifestSealed(seal.ManifestId, digest, transferredBytes.Length)));
+                if (behavior == HostBehavior.InitializingContainment)
+                {
+                    await InjectContainmentPendingAsync(_owner.ContainmentIdentity);
+                    var containment = Assert.IsType<WorkerContainmentPendingAckRequest>(
+                        await ReadAsync());
+                    Record(containment.RequestId);
+                    lock (_sync)
+                        _containmentAcknowledgements.Add(containment);
+                    await _writer.WriteAsync(Success(
+                        containment.RequestId,
+                        new ControlAcknowledged(
+                            containment.SourceEventSequence)));
+                }
                 await _writer.WriteAsync(new GuardianHostReady(
                     identity.GuardianBootId,
                     identity.HostBootId,

@@ -451,7 +451,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                     GuardianHostClientFailureKind.ResponseCorrelationMismatch);
             }
 
-            var ready = await ReadRequiredAsync<GuardianHostReady>(linked.Token)
+            var ready = await ReadUntilReadyAsync(linked.Token)
                 .ConfigureAwait(false);
             ValidateIdentity(ready);
             if (ready.InitializeRequestId != initializeId ||
@@ -511,7 +511,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         {
             using var writeLease = AcquireWriteLease();
             cancellationToken.ThrowIfCancellationRequested();
-            var hostBootId = RequireReadyHost();
+            var hostBootId = RequireRequestHost();
             var requestId = NextRequestId();
             var request = requestFactory(
                 _pins.GuardianBootId,
@@ -524,8 +524,11 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             GuardianHostEvent? controlEvent;
             lock (_sync)
             {
-                RequireRequestCapacityLocked(hostBootId, requestId);
                 controlEvent = ValidateControlEventLocked(request);
+                RequireRequestCapacityLocked(
+                    hostBootId,
+                    requestId,
+                    allowInitializingControl: controlEvent is not null);
             }
             using var controlLease = controlEvent is null
                 ? null
@@ -535,7 +538,10 @@ internal sealed class GuardianHostClient : IAsyncDisposable
             lock (_sync)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                RequireRequestCapacityLocked(hostBootId, requestId);
+                RequireRequestCapacityLocked(
+                    hostBootId,
+                    requestId,
+                    allowInitializingControl: controlEvent is not null);
                 if (controlEvent is not null &&
                     !ReferenceEquals(ValidateControlEventLocked(request), controlEvent))
                     throw new InvalidOperationException("The private control event changed before dispatch.");
@@ -926,35 +932,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                             await CompleteResponseAsync(response).ConfigureAwait(false);
                             break;
                         case GuardianHostEvent hostEvent:
-                            using (AcquireEventLease(hostEvent))
-                            {
-                                ValidateAndReserveEvent(hostEvent);
-                                lock (_sync)
-                                {
-                                    if (!IsInboundActiveLocked())
-                                        throw CurrentStateExceptionLocked();
-                                }
-                                _dispatchingInbound.Value = true;
-                                try
-                                {
-                                    await _eventHandler(hostEvent, _lifetime.Token)
-                                        .ConfigureAwait(false);
-                                }
-                                catch (OperationCanceledException) when (
-                                    _lifetime.IsCancellationRequested)
-                                {
-                                    throw;
-                                }
-                                catch (Exception exception) when (!IsFatalRuntimeException(exception))
-                                {
-                                    throw new GuardianHostClientException(
-                                        GuardianHostClientFailureKind.EventHandlerFailed);
-                                }
-                                finally
-                                {
-                                    _dispatchingInbound.Value = false;
-                                }
-                            }
+                            await CompleteEventAsync(hostEvent).ConfigureAwait(false);
                             break;
                         default:
                             throw new GuardianHostClientException(
@@ -970,6 +948,74 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         {
             var failure = Fault(NormalizeFailure(exception));
             throw failure;
+        }
+    }
+
+    private async Task<GuardianHostReady> ReadUntilReadyAsync(
+        CancellationToken cancellationToken)
+    {
+        while (true)
+        {
+            var message = await _reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+            if (message is null)
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.UnexpectedEof);
+            }
+
+            if (message is GuardianHostReady ready)
+                return ready;
+
+            using (message as IDisposable)
+            {
+                ValidateIdentity(message);
+                switch (message)
+                {
+                    case GuardianHostResponse response:
+                        await CompleteResponseAsync(response).ConfigureAwait(false);
+                        break;
+                    case GuardianHostEvent hostEvent
+                        when IsControlEvent(hostEvent.EventType):
+                        await CompleteEventAsync(hostEvent).ConfigureAwait(false);
+                        break;
+                    default:
+                        throw new GuardianHostClientException(
+                            GuardianHostClientFailureKind.ProtocolViolation);
+                }
+            }
+        }
+    }
+
+    private async Task CompleteEventAsync(GuardianHostEvent hostEvent)
+    {
+        using (AcquireEventLease(hostEvent))
+        {
+            ValidateAndReserveEvent(hostEvent);
+            lock (_sync)
+            {
+                if (!IsInboundActiveLocked())
+                    throw CurrentStateExceptionLocked();
+            }
+            _dispatchingInbound.Value = true;
+            try
+            {
+                await _eventHandler(hostEvent, _lifetime.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                _lifetime.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception exception) when (!IsFatalRuntimeException(exception))
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.EventHandlerFailed);
+            }
+            finally
+            {
+                _dispatchingInbound.Value = false;
+            }
         }
     }
 
@@ -1242,9 +1288,19 @@ internal sealed class GuardianHostClient : IAsyncDisposable
 
     private void RequireRequestCapacityLocked(
         HostBootId hostBootId,
-        PrivateRequestId requestId)
+        PrivateRequestId requestId,
+        bool allowInitializingControl)
     {
-        RequireReadyLocked(hostBootId);
+        if (_state == GuardianHostClientState.Initializing &&
+            allowInitializingControl)
+        {
+            if (_hostBootId is null || _hostBootId != hostBootId)
+                throw CurrentStateExceptionLocked();
+        }
+        else
+        {
+            RequireReadyLocked(hostBootId);
+        }
         if (_pending.Count >= MaximumOutstandingRequests)
             throw new InvalidOperationException("Private request capacity is exhausted.");
         if (_pending.ContainsKey(requestId.Value))
@@ -1390,6 +1446,19 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         }
     }
 
+    private HostBootId RequireRequestHost()
+    {
+        lock (_sync)
+        {
+            if (_state is not (
+                    GuardianHostClientState.Initializing or
+                    GuardianHostClientState.Ready) ||
+                _hostBootId is null)
+                throw CurrentStateExceptionLocked();
+            return _hostBootId;
+        }
+    }
+
     private HostBootId RequireReadyHost()
     {
         lock (_sync)
@@ -1432,7 +1501,9 @@ internal sealed class GuardianHostClient : IAsyncDisposable
     }
 
     private bool IsInboundActiveLocked() => _state is
-        GuardianHostClientState.Ready or GuardianHostClientState.Stopping;
+        GuardianHostClientState.Initializing or
+        GuardianHostClientState.Ready or
+        GuardianHostClientState.Stopping;
 
     private Exception CurrentStateExceptionLocked() => _failure ??
         new GuardianHostClientException(

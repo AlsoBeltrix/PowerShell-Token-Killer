@@ -4,6 +4,7 @@ using Microsoft.Win32.SafeHandles;
 using PtkMcpGuardian.Lifecycle;
 using PtkMcpGuardian.Package;
 using PtkMcpGuardian.Standalone;
+using PtkSharedContracts;
 
 namespace PtkMcpGuardian.Host;
 
@@ -32,6 +33,21 @@ internal interface IPrivateHostLaunchedProcess : IDisposable
     Task ContainmentConfirmed { get; }
 
     void BeginContainment(GuardianHostContainmentDeadline deadline);
+}
+
+internal interface IUnixWorkerContainmentAuthority
+{
+    Task RegisterPendingAsync(
+        GuardianHostContainmentIdentity identity,
+        CancellationToken cancellationToken);
+
+    Task RegisterArmedAsync(
+        GuardianHostContainmentIdentity identity,
+        CancellationToken cancellationToken);
+
+    Task RemoveAsync(
+        GuardianHostContainmentIdentity identity,
+        CancellationToken cancellationToken);
 }
 
 internal sealed class PrivateHostProcessLaunchResult
@@ -163,7 +179,8 @@ internal sealed class PrivateHostAttemptFactory : IGuardianHostAttemptFactory
 }
 
 internal sealed class PrivateHostAttemptResources :
-    IGuardianHostConnectedAttemptResources
+    IGuardianHostConnectedAttemptResources,
+    IUnixWorkerContainmentAuthority
 {
     private readonly object _sync = new();
     private readonly AnonymousPipeServerStream _requestWrite;
@@ -211,6 +228,27 @@ internal sealed class PrivateHostAttemptResources :
     public Task HostExited => _hostExited.Task;
 
     public Task ContainmentConfirmed => _containmentConfirmed.Task;
+
+    public Task RegisterPendingAsync(
+        GuardianHostContainmentIdentity identity,
+        CancellationToken cancellationToken) =>
+        WorkerContainmentAuthority().RegisterPendingAsync(
+            identity,
+            cancellationToken);
+
+    public Task RegisterArmedAsync(
+        GuardianHostContainmentIdentity identity,
+        CancellationToken cancellationToken) =>
+        WorkerContainmentAuthority().RegisterArmedAsync(
+            identity,
+            cancellationToken);
+
+    public Task RemoveAsync(
+        GuardianHostContainmentIdentity identity,
+        CancellationToken cancellationToken) =>
+        WorkerContainmentAuthority().RemoveAsync(
+            identity,
+            cancellationToken);
 
     public GuardianHostLaunchOutcome Launch()
     {
@@ -328,6 +366,22 @@ internal sealed class PrivateHostAttemptResources :
     {
         if (_disposed)
             throw new ObjectDisposedException(nameof(PrivateHostAttemptResources));
+    }
+
+    private IUnixWorkerContainmentAuthority WorkerContainmentAuthority()
+    {
+        lock (_sync)
+        {
+            ThrowIfDisposedLocked();
+            if (_containmentStarted)
+            {
+                throw new InvalidOperationException(
+                    "The host containment registry is stopping.");
+            }
+            return _process as IUnixWorkerContainmentAuthority ??
+                throw new PlatformNotSupportedException(
+                    "This host attempt has no Unix worker containment authority.");
+        }
     }
 
     private static async Task RelayCompletionAsync(

@@ -76,6 +76,174 @@ public sealed class UnixPrivateHostProcessLauncherTests
     }
 
     [Fact]
+    public async Task Native_broker_registry_contains_a_moved_worker_group()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var root = TemporaryRoot();
+        var broker = Path.Combine(root, "PtkGuardianBroker");
+        var host = Path.Combine(root, "ptk-unix-registry-host-fixture");
+        var factsMarker = Path.Combine(root, "registry-facts.txt");
+        var armMarker = Path.Combine(root, "arm.marker");
+        var armedMarker = Path.Combine(root, "armed.txt");
+        var releaseMarker = Path.Combine(root, "release.marker");
+        var descendantMarker = Path.Combine(root, "descendant.txt");
+        int[] identities = [];
+        IPrivateHostLaunchedProcess? authority = null;
+        await CompileAsync(BrokerSourcePath(), broker);
+        await CompileAsync(RegistryHostSourcePath(), host);
+
+        using var request = new AnonymousPipeServerStream(
+            PipeDirection.Out,
+            HandleInheritability.Inheritable);
+        using var events = new AnonymousPipeServerStream(
+            PipeDirection.In,
+            HandleInheritability.Inheritable);
+        var package = Package(host, broker);
+        var command = new PrivateHostLaunchCommand(
+            package,
+            Pins(package),
+            new GuardianHostIdentity(
+                new GuardianBootId(Guid.Parse("55555555-5555-4555-8555-555555555555")),
+                new HostBootId(Guid.Parse("66666666-6666-4666-8666-666666666666")),
+                new HostGeneration(1)),
+            EnvironmentWithRegistryMarkers(
+                factsMarker,
+                armMarker,
+                armedMarker,
+                releaseMarker,
+                descendantMarker),
+            Handle(request.ClientSafePipeHandle),
+            Handle(events.ClientSafePipeHandle));
+        var launch = new UnixPrivateHostProcessLauncher(broker).Launch(command);
+        request.DisposeLocalCopyOfClientHandle();
+        events.DisposeLocalCopyOfClientHandle();
+        authority = Assert.IsAssignableFrom<IPrivateHostLaunchedProcess>(
+            launch.LaunchedHost);
+        var registry = Assert.IsAssignableFrom<IUnixWorkerContainmentAuthority>(
+            launch.LaunchedHost);
+        try
+        {
+            Assert.Equal(GuardianHostLaunchOutcome.Started, launch.Outcome);
+            var facts = await ReadRegistryFactsAsync(factsMarker, TestTimeout);
+            identities = [facts.HostPid, facts.BrokerPid, facts.WorkerPid];
+            Assert.Equal(authority.ProcessId, facts.HostPid);
+            Assert.Equal(facts.HostPid, GetProcessGroup(facts.BrokerPid));
+            Assert.Equal(facts.HostPid, GetProcessGroup(facts.WorkerPid));
+
+            var identity = facts.ToContainmentIdentity();
+            using var cancellation = new CancellationTokenSource(TestTimeout);
+            await registry.RegisterPendingAsync(identity, cancellation.Token);
+            await File.WriteAllTextAsync(
+                armMarker,
+                "arm\n",
+                cancellation.Token);
+            Assert.Equal(
+                facts.WorkerPid,
+                await ReadProcessIdAsync(armedMarker, TestTimeout));
+            Assert.Equal(facts.WorkerPid, GetProcessGroup(facts.WorkerPid));
+            await registry.RegisterArmedAsync(identity, cancellation.Token);
+
+            await File.WriteAllTextAsync(
+                releaseMarker,
+                "release\n",
+                cancellation.Token);
+            var descendant =
+                await ReadProcessIdAsync(descendantMarker, TestTimeout);
+            identities = [.. identities, descendant];
+            Assert.Equal(facts.WorkerPid, GetProcessGroup(descendant));
+
+            var started = Stopwatch.GetTimestamp();
+            authority.BeginContainment(new GuardianHostContainmentDeadline(
+                started,
+                started + Stopwatch.Frequency * 10));
+            await authority.Exited.WaitAsync(TestTimeout);
+            await authority.ContainmentConfirmed.WaitAsync(TestTimeout);
+            await AssertProcessesGoneAsync(identities, TestTimeout);
+        }
+        finally
+        {
+            authority?.Dispose();
+            KillBestEffort(identities);
+            DeleteBestEffort(root);
+        }
+    }
+
+    [Fact]
+    public async Task Native_broker_rejects_armed_before_the_worker_group_moves()
+    {
+        if (OperatingSystem.IsWindows()) return;
+
+        var root = TemporaryRoot();
+        var broker = Path.Combine(root, "PtkGuardianBroker");
+        var host = Path.Combine(root, "ptk-unix-registry-host-fixture");
+        var factsMarker = Path.Combine(root, "registry-facts.txt");
+        var armMarker = Path.Combine(root, "arm.marker");
+        var armedMarker = Path.Combine(root, "armed.txt");
+        var releaseMarker = Path.Combine(root, "release.marker");
+        var descendantMarker = Path.Combine(root, "descendant.txt");
+        int[] identities = [];
+        IPrivateHostLaunchedProcess? authority = null;
+        await CompileAsync(BrokerSourcePath(), broker);
+        await CompileAsync(RegistryHostSourcePath(), host);
+
+        using var request = new AnonymousPipeServerStream(
+            PipeDirection.Out,
+            HandleInheritability.Inheritable);
+        using var events = new AnonymousPipeServerStream(
+            PipeDirection.In,
+            HandleInheritability.Inheritable);
+        var package = Package(host, broker);
+        var command = new PrivateHostLaunchCommand(
+            package,
+            Pins(package),
+            new GuardianHostIdentity(
+                new GuardianBootId(Guid.Parse("77777777-7777-4777-8777-777777777777")),
+                new HostBootId(Guid.Parse("88888888-8888-4888-8888-888888888888")),
+                new HostGeneration(1)),
+            EnvironmentWithRegistryMarkers(
+                factsMarker,
+                armMarker,
+                armedMarker,
+                releaseMarker,
+                descendantMarker),
+            Handle(request.ClientSafePipeHandle),
+            Handle(events.ClientSafePipeHandle));
+        var launch = new UnixPrivateHostProcessLauncher(broker).Launch(command);
+        request.DisposeLocalCopyOfClientHandle();
+        events.DisposeLocalCopyOfClientHandle();
+        authority = Assert.IsAssignableFrom<IPrivateHostLaunchedProcess>(
+            launch.LaunchedHost);
+        var registry = Assert.IsAssignableFrom<IUnixWorkerContainmentAuthority>(
+            launch.LaunchedHost);
+        try
+        {
+            Assert.Equal(GuardianHostLaunchOutcome.Started, launch.Outcome);
+            var facts = await ReadRegistryFactsAsync(factsMarker, TestTimeout);
+            identities = [facts.HostPid, facts.BrokerPid, facts.WorkerPid];
+            Assert.Equal(facts.HostPid, GetProcessGroup(facts.WorkerPid));
+
+            var identity = facts.ToContainmentIdentity();
+            using var cancellation = new CancellationTokenSource(TestTimeout);
+            await registry.RegisterPendingAsync(identity, cancellation.Token);
+            await Assert.ThrowsAsync<InvalidOperationException>(
+                () => registry.RegisterArmedAsync(identity, cancellation.Token));
+
+            await authority.Exited.WaitAsync(TestTimeout);
+            await authority.ContainmentConfirmed.WaitAsync(TestTimeout);
+            await AssertProcessesGoneAsync(identities, TestTimeout);
+            Assert.False(File.Exists(armedMarker));
+            Assert.False(File.Exists(descendantMarker));
+        }
+        finally
+        {
+            authority?.Dispose();
+            KillBestEffort(identities);
+            DeleteBestEffort(root);
+        }
+    }
+
+    [Fact]
     public async Task Closing_the_guardian_liveness_owner_contains_the_host_group()
     {
         if (OperatingSystem.IsWindows()) return;
@@ -147,10 +315,25 @@ public sealed class UnixPrivateHostProcessLauncherTests
         Assert.Matches(
             new Regex(@"#define\s+PTK_IDENTITY_POLL_MILLISECONDS\s+25\b"),
             source);
+        Assert.Matches(
+            new Regex(@"#define\s+PTK_MAXIMUM_WORKER_GROUPS\s+128\b"),
+            source);
         Assert.Single(Regex.Matches(source, @"\bwaitpid\s*\(").Cast<Match>());
         Assert.Contains("waitpid(host_pid, &status, WNOHANG)", source, StringComparison.Ordinal);
         Assert.DoesNotMatch(new Regex(@"\b(?:waitid|wait3|wait4|system|popen|setsid|setpgrp)\s*\("), source);
         Assert.DoesNotContain("kill(-1", source, StringComparison.Ordinal);
+        Assert.Contains(
+            "getpgid(command->worker_broker_pid) != host_pid",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "getpgid(command->worker_pid) != host_pid",
+            source,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "getpgid(entry->worker_pid) != entry->process_group",
+            source,
+            StringComparison.Ordinal);
         var brokerMain = source[source.IndexOf("static int broker_main(", StringComparison.Ordinal)..];
         AssertOrder(
             brokerMain,
@@ -158,7 +341,7 @@ public sealed class UnixPrivateHostProcessLauncherTests
             "setpgid(host_pid, host_pid)",
             "getpgid(host_pid) != host_pid",
             "EVENT_READY",
-            "wait_for_start_command(command_read, liveness_read)",
+            "received = receive_command(",
             "write_full(child_release[1], &release");
         var gatedHostStart = source.IndexOf("static void exec_gated_host(", StringComparison.Ordinal);
         var childGate = source[gatedHostStart..source.IndexOf(
@@ -168,16 +351,19 @@ public sealed class UnixPrivateHostProcessLauncherTests
         AssertOrder(
             childGate,
             "setpgid(0, 0)",
-            "read_full(release_read, &release",
+            "read(release_read, &release",
             "execv(host_path, arguments)");
         AssertOrder(
             source,
+            "signal_registered_groups(entries, SIGTERM)",
             "signal_host_group(host_pid, SIGTERM)",
             "PTK_TERM_TO_KILL_MILLISECONDS",
+            "signal_registered_groups(entries, SIGKILL)",
             "signal_host_group(host_pid, SIGKILL)",
             "PTK_CONTAINMENT_DEADLINE_MILLISECONDS",
             "reap_direct_host(host_pid, &host_reaped)",
             "!group_exists(host_pid)",
+            "registry_is_gone(entries)",
             "EVENT_CONTAINMENT_CONFIRMED");
     }
 
@@ -234,6 +420,74 @@ public sealed class UnixPrivateHostProcessLauncherTests
         throw new TimeoutException("The Unix host fixture did not publish its process tree.");
     }
 
+    private static async Task<RegistryFixtureFacts> ReadRegistryFactsAsync(
+        string path,
+        TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var values = (await File.ReadAllTextAsync(path))
+                        .Trim()
+                        .Split(' ');
+                    if (values.Length == 7)
+                    {
+                        return new RegistryFixtureFacts(
+                            int.Parse(values[0], CultureInfo.InvariantCulture),
+                            int.Parse(values[1], CultureInfo.InvariantCulture),
+                            ulong.Parse(values[2], CultureInfo.InvariantCulture),
+                            ulong.Parse(values[3], CultureInfo.InvariantCulture),
+                            int.Parse(values[4], CultureInfo.InvariantCulture),
+                            ulong.Parse(values[5], CultureInfo.InvariantCulture),
+                            ulong.Parse(values[6], CultureInfo.InvariantCulture));
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException(
+            "The Unix registry fixture did not publish its process identities.");
+    }
+
+    private static async Task<int> ReadProcessIdAsync(
+        string path,
+        TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow + timeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var value = (await File.ReadAllTextAsync(path)).Trim();
+                    if (int.TryParse(
+                            value,
+                            NumberStyles.None,
+                            CultureInfo.InvariantCulture,
+                            out var processId) &&
+                        processId > 0)
+                    {
+                        return processId;
+                    }
+                }
+            }
+            catch (IOException)
+            {
+            }
+            await Task.Delay(25);
+        }
+        throw new TimeoutException(
+            "The Unix registry fixture did not publish its process ID.");
+    }
+
     private static async Task AssertProcessesGoneAsync(IEnumerable<int> processIds, TimeSpan timeout)
     {
         var remaining = processIds.ToHashSet();
@@ -269,6 +523,36 @@ public sealed class UnixPrivateHostProcessLauncherTests
                 yield return new KeyValuePair<string, string>(key, text);
         }
         yield return new KeyValuePair<string, string>("PTK_UNIX_HOST_FIXTURE_MARKER", marker);
+    }
+
+    private static IEnumerable<KeyValuePair<string, string>> EnvironmentWithRegistryMarkers(
+        string facts,
+        string arm,
+        string armed,
+        string release,
+        string descendant)
+    {
+        foreach (System.Collections.DictionaryEntry value in
+                 Environment.GetEnvironmentVariables())
+        {
+            if (value.Key is string key && value.Value is string text)
+                yield return new KeyValuePair<string, string>(key, text);
+        }
+        yield return new KeyValuePair<string, string>(
+            "PTK_UNIX_REGISTRY_FIXTURE_FACTS",
+            facts);
+        yield return new KeyValuePair<string, string>(
+            "PTK_UNIX_REGISTRY_FIXTURE_ARM",
+            arm);
+        yield return new KeyValuePair<string, string>(
+            "PTK_UNIX_REGISTRY_FIXTURE_ARMED",
+            armed);
+        yield return new KeyValuePair<string, string>(
+            "PTK_UNIX_REGISTRY_FIXTURE_RELEASE",
+            release);
+        yield return new KeyValuePair<string, string>(
+            "PTK_UNIX_REGISTRY_FIXTURE_DESCENDANT",
+            descendant);
     }
 
     private static MatchedPackageFacts Package(string host, string broker) => new(
@@ -322,6 +606,13 @@ public sealed class UnixPrivateHostProcessLauncherTests
         "Native",
         "ptk_unix_host_fixture.c");
 
+    private static string RegistryHostSourcePath() => Path.Combine(
+        FindRepositoryRoot(),
+        "server",
+        "PtkMcpGuardian.Tests",
+        "Native",
+        "ptk_unix_registry_host_fixture.c");
+
     private static string TemporaryRoot()
     {
         var path = Path.Combine(Path.GetTempPath(), $"ptk-unix-launcher-{Guid.NewGuid():N}");
@@ -371,5 +662,23 @@ public sealed class UnixPrivateHostProcessLauncherTests
             {
             }
         }
+    }
+
+    private sealed record RegistryFixtureFacts(
+        int HostPid,
+        int BrokerPid,
+        ulong BrokerStartIdentityHigh,
+        ulong BrokerStartIdentityLow,
+        int WorkerPid,
+        ulong WorkerStartIdentityHigh,
+        ulong WorkerStartIdentityLow)
+    {
+        internal GuardianHostContainmentIdentity ToContainmentIdentity() => new(
+            checked((uint)BrokerPid),
+            BrokerStartIdentityHigh,
+            BrokerStartIdentityLow,
+            checked((uint)WorkerPid),
+            WorkerStartIdentityHigh,
+            WorkerStartIdentityLow);
     }
 }

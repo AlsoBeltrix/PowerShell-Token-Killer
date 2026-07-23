@@ -124,6 +124,52 @@ public sealed class UnixWorkerProcessLauncherTests
         }
     }
 
+    [Fact]
+    public async Task Outer_term_preserves_the_broker_but_not_its_worker()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var scratch = Directory.CreateTempSubdirectory("ptk-worker-outer-term-").FullName;
+        var brokerPath = Path.Combine(scratch, "PtkContainmentBroker");
+        IWorkerContainedProcess? contained = null;
+        try
+        {
+            await CompileBrokerAsync(brokerPath);
+            contained = await new UnixWorkerProcessLauncher(
+                brokerPath,
+                new RecordingRegistry()).LaunchAsync(
+                    IdleCommand(),
+                    TestContext.Current.CancellationToken);
+            var brokerField = contained.GetType().GetField(
+                "_brokerProcessId",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(brokerField);
+            var brokerProcessId = Assert.IsType<int>(
+                brokerField.GetValue(contained));
+            var workerProcessId = contained.ProcessId;
+
+            Assert.Equal(0, KillProcess(brokerProcessId, TermSignal));
+            await Task.Delay(100, TestContext.Current.CancellationToken);
+            Assert.True(ProcessExists(brokerProcessId));
+
+            Assert.Equal(0, KillProcess(workerProcessId, TermSignal));
+            await contained.WaitForExitAsync(
+                TestContext.Current.CancellationToken).WaitAsync(CheckpointTimeout);
+            await AssertProcessGoneAsync(workerProcessId);
+            Assert.True(ProcessExists(brokerProcessId));
+
+            await contained.ContainAsync().WaitAsync(CheckpointTimeout);
+            Assert.False(ProcessExists(brokerProcessId));
+        }
+        finally
+        {
+            contained?.Dispose();
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
     private static async Task CompileBrokerAsync(string outputPath)
     {
         const string compiler = "/usr/bin/cc";
@@ -181,6 +227,13 @@ public sealed class UnixWorkerProcessLauncherTests
             Path.GetFullPath("/"),
             CaptureCurrentEnvironment());
 
+    private static WorkerLaunchCommand IdleCommand() =>
+        new(
+            "/bin/sh",
+            ["-c", "while :; do sleep 30; done"],
+            Path.GetFullPath("/"),
+            CaptureCurrentEnvironment());
+
     private static bool ProcessExists(int processId)
     {
         try
@@ -192,6 +245,14 @@ public sealed class UnixWorkerProcessLauncherTests
         {
             return false;
         }
+    }
+
+    private static async Task AssertProcessGoneAsync(int processId)
+    {
+        var deadline = DateTimeOffset.UtcNow + CheckpointTimeout;
+        while (ProcessExists(processId) && DateTimeOffset.UtcNow < deadline)
+            await Task.Delay(25, TestContext.Current.CancellationToken);
+        Assert.False(ProcessExists(processId));
     }
 
     private static string ResolveDotnetHost()
@@ -237,6 +298,11 @@ public sealed class UnixWorkerProcessLauncherTests
             "PtkMcpGuardian",
             "Native",
             "ptk_containment_broker.c"));
+
+    private const int TermSignal = 15;
+
+    [DllImport("libc", EntryPoint = "kill", SetLastError = true)]
+    private static extern int KillProcess(int processId, int signal);
 
     private sealed class RecordingRegistry : IUnixWorkerContainmentRegistry
     {

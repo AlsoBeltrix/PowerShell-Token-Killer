@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO.Pipes;
 using System.Runtime.InteropServices;
 using PtkMcpGuardian.Lifecycle;
+using PtkSharedContracts;
 
 namespace PtkMcpGuardian.Host;
 
@@ -56,7 +57,7 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
             var arguments = new[]
             {
                 _brokerPath,
-                "--broker-v1",
+                "--broker-v2",
                 Descriptor(liveness.ClientSafePipeHandle).ToString(CultureInfo.InvariantCulture),
                 Descriptor(brokerCommands.ClientSafePipeHandle).ToString(CultureInfo.InvariantCulture),
                 Descriptor(brokerEvents.ClientSafePipeHandle).ToString(CultureInfo.InvariantCulture),
@@ -152,7 +153,9 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
     private static bool IsFatal(Exception exception) => exception is
         OutOfMemoryException or StackOverflowException or AccessViolationException;
 
-    private sealed class UnixPrivateHostAuthority : IPrivateHostLaunchedProcess
+    private sealed class UnixPrivateHostAuthority :
+        IPrivateHostLaunchedProcess,
+        IUnixWorkerContainmentAuthority
     {
         private readonly object _sync = new();
         private readonly int _brokerProcessId;
@@ -164,8 +167,10 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
         private readonly TaskCompletionSource _containment = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly Task _brokerExit;
+        private readonly Dictionary<ulong, PendingRegistryCommand> _registryCommands = [];
 
         private int _hostProcessId;
+        private ulong _nextRegistryRequestId;
         private bool _eventPumpStarted;
         private bool _containmentStarted;
         private bool _disposed;
@@ -209,6 +214,7 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
                 ready.HostProcessId <= 0 ||
                 ready.BrokerProcessId != _brokerProcessId ||
                 ready.Value != ready.HostProcessId ||
+                ready.RequestId != 0 ||
                 ready.HostProcessId == _brokerProcessId)
             {
                 throw new InvalidDataException("The Unix guardian broker ready frame is invalid.");
@@ -233,6 +239,33 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
             ArgumentNullException.ThrowIfNull(deadline);
             StartContainment();
         }
+
+        public Task RegisterPendingAsync(
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken) =>
+            SendRegistryCommandAsync(
+                BrokerCommandKind.RegisterPending,
+                BrokerEventKind.RegistryPending,
+                identity,
+                cancellationToken);
+
+        public Task RegisterArmedAsync(
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken) =>
+            SendRegistryCommandAsync(
+                BrokerCommandKind.RegisterArmed,
+                BrokerEventKind.RegistryArmed,
+                identity,
+                cancellationToken);
+
+        public Task RemoveAsync(
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken) =>
+            SendRegistryCommandAsync(
+                BrokerCommandKind.Remove,
+                BrokerEventKind.RegistryRemoved,
+                identity,
+                cancellationToken);
 
         public void Dispose()
         {
@@ -259,13 +292,7 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
         private bool SendCommand(BrokerCommandKind kind)
         {
             var frame = new byte[BrokerProtocol.CommandBytes];
-            BinaryPrimitives.WriteUInt32BigEndian(frame, BrokerProtocol.Magic);
-            BinaryPrimitives.WriteUInt32BigEndian(
-                frame.AsSpan(4),
-                BrokerProtocol.Version);
-            BinaryPrimitives.WriteUInt32BigEndian(
-                frame.AsSpan(8),
-                (uint)kind);
+            WriteCommandHeader(frame, kind, requestId: 0);
             try
             {
                 lock (_sync)
@@ -283,6 +310,102 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
             }
         }
 
+        private async Task SendRegistryCommandAsync(
+            BrokerCommandKind commandKind,
+            BrokerEventKind expectedEvent,
+            GuardianHostContainmentIdentity identity,
+            CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(identity);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (identity.BrokerPid > int.MaxValue ||
+                identity.WorkerPid > int.MaxValue ||
+                identity.BrokerPid == identity.WorkerPid ||
+                identity.BrokerStartIdentityHigh == 0 &&
+                    identity.BrokerStartIdentityLow == 0 ||
+                identity.WorkerStartIdentityHigh == 0 &&
+                    identity.WorkerStartIdentityLow == 0)
+            {
+                throw new ArgumentException(
+                    "The Unix worker containment identity is invalid.",
+                    nameof(identity));
+            }
+
+            Task completion;
+            lock (_sync)
+            {
+                if (_disposed || _containmentStarted ||
+                    _commands.SafePipeHandle.IsClosed)
+                {
+                    throw new InvalidOperationException(
+                        "The Unix guardian broker registry is unavailable.");
+                }
+                var requestId = checked(++_nextRegistryRequestId);
+                var pending = new PendingRegistryCommand(
+                    expectedEvent,
+                    new TaskCompletionSource(
+                        TaskCreationOptions.RunContinuationsAsynchronously));
+                if (!_registryCommands.TryAdd(requestId, pending))
+                {
+                    throw new InvalidOperationException(
+                        "The Unix guardian broker request ID was reused.");
+                }
+
+                var frame = new byte[BrokerProtocol.CommandBytes];
+                WriteCommandHeader(frame, commandKind, requestId);
+                BinaryPrimitives.WriteUInt32BigEndian(
+                    frame.AsSpan(24),
+                    identity.BrokerPid);
+                BinaryPrimitives.WriteUInt32BigEndian(
+                    frame.AsSpan(28),
+                    identity.WorkerPid);
+                BinaryPrimitives.WriteUInt32BigEndian(
+                    frame.AsSpan(32),
+                    identity.ProcessGroupId);
+                BinaryPrimitives.WriteUInt64BigEndian(
+                    frame.AsSpan(40),
+                    identity.BrokerStartIdentityHigh);
+                BinaryPrimitives.WriteUInt64BigEndian(
+                    frame.AsSpan(48),
+                    identity.BrokerStartIdentityLow);
+                BinaryPrimitives.WriteUInt64BigEndian(
+                    frame.AsSpan(56),
+                    identity.WorkerStartIdentityHigh);
+                BinaryPrimitives.WriteUInt64BigEndian(
+                    frame.AsSpan(64),
+                    identity.WorkerStartIdentityLow);
+                try
+                {
+                    _commands.Write(frame);
+                    _commands.Flush();
+                }
+                catch (Exception exception) when (exception is
+                    IOException or ObjectDisposedException)
+                {
+                    _registryCommands.Remove(requestId);
+                    throw new IOException(
+                        "The Unix guardian broker registry write failed.",
+                        exception);
+                }
+                completion = pending.Completion.Task;
+            }
+
+            await completion.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        private static void WriteCommandHeader(
+            Span<byte> frame,
+            BrokerCommandKind kind,
+            ulong requestId)
+        {
+            BinaryPrimitives.WriteUInt32BigEndian(frame, BrokerProtocol.Magic);
+            BinaryPrimitives.WriteUInt32BigEndian(
+                frame[4..],
+                BrokerProtocol.Version);
+            BinaryPrimitives.WriteUInt32BigEndian(frame[8..], (uint)kind);
+            BinaryPrimitives.WriteUInt64BigEndian(frame[16..], requestId);
+        }
+
         private async Task PumpEventsAsync()
         {
             try
@@ -292,7 +415,7 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
                     var message = await ReadEventAsync(_events, CancellationToken.None)
                         .ConfigureAwait(false);
                     if (message.BrokerProcessId != _brokerProcessId ||
-                        message.HostProcessId != ProcessId || message.Value != 0)
+                        message.HostProcessId != ProcessId)
                     {
                         StartContainment();
                         return;
@@ -300,29 +423,116 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
                     switch (message.Kind)
                     {
                         case BrokerEventKind.HostExited:
+                            if (message.Value != 0 || message.RequestId != 0)
+                            {
+                                StartContainment();
+                                return;
+                            }
                             _exited.TrySetResult();
                             break;
                         case BrokerEventKind.ContainmentConfirmed:
+                            if (message.Value != 0 || message.RequestId != 0)
+                            {
+                                StartContainment();
+                                return;
+                            }
                             _exited.TrySetResult();
                             _containment.TrySetResult();
                             return;
                         case BrokerEventKind.ContainmentFailed:
+                            if (message.Value != 0 || message.RequestId != 0)
+                            {
+                                StartContainment();
+                                return;
+                            }
                             _exited.TrySetResult();
                             return;
+                        case BrokerEventKind.RegistryPending:
+                        case BrokerEventKind.RegistryArmed:
+                        case BrokerEventKind.RegistryRemoved:
+                            if (message.Value != 0 ||
+                                !CompleteRegistryCommand(message))
+                            {
+                                StartContainment();
+                                return;
+                            }
+                            break;
+                        case BrokerEventKind.RegistryRejected:
+                            if (message.Value == 0 ||
+                                !RejectRegistryCommand(message))
+                            {
+                                StartContainment();
+                                return;
+                            }
+                            StartContainment();
+                            break;
                         default:
                             StartContainment();
                             return;
                     }
                 }
             }
-            catch (Exception exception) when (exception is
-                IOException or EndOfStreamException or ObjectDisposedException)
+            catch (Exception exception) when (!IsFatal(exception))
             {
+                StartContainment();
                 _exited.TrySetResult();
             }
             finally
             {
+                FailRegistryCommands();
                 _events.Dispose();
+            }
+        }
+
+        private bool CompleteRegistryCommand(BrokerEvent message)
+        {
+            PendingRegistryCommand pending;
+            lock (_sync)
+            {
+                if (message.RequestId == 0 ||
+                    !_registryCommands.Remove(message.RequestId, out pending!))
+                {
+                    return false;
+                }
+            }
+            if (pending.ExpectedEvent != message.Kind)
+            {
+                pending.Completion.TrySetException(new InvalidDataException(
+                    "The Unix guardian broker registry acknowledgment is invalid."));
+                return false;
+            }
+            pending.Completion.TrySetResult();
+            return true;
+        }
+
+        private bool RejectRegistryCommand(BrokerEvent message)
+        {
+            PendingRegistryCommand pending;
+            lock (_sync)
+            {
+                if (message.RequestId == 0 ||
+                    !_registryCommands.Remove(message.RequestId, out pending!))
+                {
+                    return false;
+                }
+            }
+            pending.Completion.TrySetException(new InvalidOperationException(
+                "The Unix guardian broker rejected a containment registry transition."));
+            return true;
+        }
+
+        private void FailRegistryCommands()
+        {
+            PendingRegistryCommand[] pending;
+            lock (_sync)
+            {
+                pending = _registryCommands.Values.ToArray();
+                _registryCommands.Clear();
+            }
+            foreach (var command in pending)
+            {
+                command.Completion.TrySetException(new IOException(
+                    "The Unix guardian broker registry stopped."));
             }
         }
 
@@ -366,6 +576,9 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
     {
         Start = 1,
         Stop = 2,
+        RegisterPending = 3,
+        RegisterArmed = 4,
+        Remove = 5,
     }
 
     private enum BrokerEventKind : uint
@@ -374,20 +587,29 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
         HostExited = 2,
         ContainmentConfirmed = 3,
         ContainmentFailed = 4,
+        RegistryPending = 5,
+        RegistryArmed = 6,
+        RegistryRemoved = 7,
+        RegistryRejected = 8,
     }
 
     private readonly record struct BrokerEvent(
         BrokerEventKind Kind,
         int HostProcessId,
         int BrokerProcessId,
-        int Value);
+        int Value,
+        ulong RequestId);
+
+    private sealed record PendingRegistryCommand(
+        BrokerEventKind ExpectedEvent,
+        TaskCompletionSource Completion);
 
     private static class BrokerProtocol
     {
         internal const uint Magic = 0x50544b42;
-        internal const uint Version = 1;
-        internal const int EventBytes = 32;
-        internal const int CommandBytes = 16;
+        internal const uint Version = 2;
+        internal const int EventBytes = 48;
+        internal const int CommandBytes = 80;
     }
 
     private static async ValueTask<BrokerEvent> ReadEventAsync(
@@ -399,7 +621,8 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
         if (BinaryPrimitives.ReadUInt32BigEndian(frame) != BrokerProtocol.Magic ||
             BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(4)) != BrokerProtocol.Version ||
             BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(12)) != 0 ||
-            BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(28)) != 0)
+            BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(28)) != 0 ||
+            BinaryPrimitives.ReadUInt64BigEndian(frame.AsSpan(40)) != 0)
         {
             throw new InvalidDataException("The Unix guardian broker event frame is invalid.");
         }
@@ -410,7 +633,8 @@ internal sealed class UnixPrivateHostProcessLauncher : IPrivateHostProcessLaunch
             kind,
             checked((int)BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(16))),
             checked((int)BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(20))),
-            checked((int)BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(24))));
+            checked((int)BinaryPrimitives.ReadUInt32BigEndian(frame.AsSpan(24))),
+            BinaryPrimitives.ReadUInt64BigEndian(frame.AsSpan(32)));
     }
 
     private static class UnixNative

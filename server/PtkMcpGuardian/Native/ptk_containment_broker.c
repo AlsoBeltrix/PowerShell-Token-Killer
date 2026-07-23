@@ -74,6 +74,12 @@ enum receive_result {
     RECEIVE_OK = 1
 };
 
+enum signal_result {
+    SIGNAL_ERROR = -1,
+    SIGNAL_DEFERRED = 0,
+    SIGNAL_DELIVERED = 1
+};
+
 struct process_identity {
     uint64_t high;
     uint64_t low;
@@ -401,7 +407,7 @@ static bool reap_worker(pid_t worker_pid, bool *reaped)
     return result == 0;
 }
 
-static bool signal_worker(
+static enum signal_result signal_worker(
     pid_t worker_pid,
     struct process_identity identity,
     bool armed,
@@ -410,18 +416,22 @@ static bool signal_worker(
 {
     if (worker_reaped) {
         if (!armed || !group_exists(worker_pid)) {
-            return true;
+            return SIGNAL_DELIVERED;
         }
-        return kill(-worker_pid, signal_number) == 0 || errno == ESRCH;
+        return kill(-worker_pid, signal_number) == 0 || errno == ESRCH
+            ? SIGNAL_DELIVERED
+            : SIGNAL_ERROR;
     }
     bool identity_unknown =
         identity.high == UINT64_C(0) && identity.low == UINT64_C(0);
     if ((!identity_unknown || armed) &&
         !identity_is_live(worker_pid, identity)) {
-        return false;
+        return SIGNAL_DEFERRED;
     }
     pid_t target = armed ? -worker_pid : worker_pid;
-    return kill(target, signal_number) == 0 || errno == ESRCH;
+    return kill(target, signal_number) == 0 || errno == ESRCH
+        ? SIGNAL_DELIVERED
+        : SIGNAL_ERROR;
 }
 
 static bool worker_contained(
@@ -439,13 +449,7 @@ static bool contain_worker(
 {
     bool reaped = false;
     uint64_t started = monotonic_milliseconds();
-    if (!reap_worker(worker_pid, &reaped)) {
-        return false;
-    }
-    if (!worker_contained(worker_pid, armed, reaped) &&
-        !signal_worker(worker_pid, identity, armed, reaped, SIGTERM)) {
-        return false;
-    }
+    bool term_delivered = false;
     while (monotonic_milliseconds() - started <
            PTK_TERM_TO_KILL_MILLISECONDS) {
         if (!reap_worker(worker_pid, &reaped)) {
@@ -454,11 +458,21 @@ static bool contain_worker(
         if (worker_contained(worker_pid, armed, reaped)) {
             return true;
         }
+        if (!term_delivered) {
+            enum signal_result result = signal_worker(
+                worker_pid,
+                identity,
+                armed,
+                reaped,
+                SIGTERM);
+            if (result == SIGNAL_ERROR) {
+                return false;
+            }
+            term_delivered = result == SIGNAL_DELIVERED;
+        }
         sleep_milliseconds(PTK_POLL_MILLISECONDS);
     }
-    if (!signal_worker(worker_pid, identity, armed, reaped, SIGKILL)) {
-        return false;
-    }
+    bool kill_delivered = false;
     while (monotonic_milliseconds() - started <=
            PTK_CONTAINMENT_DEADLINE_MILLISECONDS) {
         if (!reap_worker(worker_pid, &reaped)) {
@@ -466,6 +480,18 @@ static bool contain_worker(
         }
         if (worker_contained(worker_pid, armed, reaped)) {
             return true;
+        }
+        if (!kill_delivered) {
+            enum signal_result result = signal_worker(
+                worker_pid,
+                identity,
+                armed,
+                reaped,
+                SIGKILL);
+            if (result == SIGNAL_ERROR) {
+                return false;
+            }
+            kill_delivered = result == SIGNAL_DELIVERED;
         }
         sleep_milliseconds(PTK_POLL_MILLISECONDS);
     }
@@ -557,6 +583,9 @@ static void gated_worker_main(
     close_quietly(PTK_LIVENESS_READ);
     close_quietly(PTK_CONTROL_READ);
     close_quietly(PTK_EVENT_WRITE);
+    if (signal(SIGTERM, SIG_DFL) == SIG_ERR) {
+        _exit(71);
+    }
     const uint8_t gated = UINT8_C(1);
     if (!write_full(gated_write, &gated, sizeof(gated))) {
         _exit(71);
@@ -751,7 +780,8 @@ static int broker_main(
     const char *working_directory,
     char *const worker_arguments[])
 {
-    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR ||
+        signal(SIGTERM, SIG_IGN) == SIG_ERR) {
         return 70;
     }
     for (int descriptor = PTK_LIVENESS_READ;

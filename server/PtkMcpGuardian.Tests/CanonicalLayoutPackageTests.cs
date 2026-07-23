@@ -69,7 +69,7 @@ public sealed class CanonicalLayoutPackageTests
                 [],
                 closeStandardInput: true,
                 TimeSpan.FromSeconds(10));
-            Assert.Equal(78, containmentHelper.ExitCode);
+            Assert.Equal(64, containmentHelper.ExitCode);
             Assert.Empty(containmentHelper.StandardOutput);
             Assert.Empty(containmentHelper.StandardError);
 

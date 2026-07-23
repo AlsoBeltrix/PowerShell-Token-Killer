@@ -130,7 +130,8 @@ internal sealed class WorkerClient : IAsyncDisposable
         string operation,
         WorkerSessionOperationArguments arguments,
         DateTimeOffset deadlineUtc,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
         if (string.Equals(
                 operation,
@@ -154,6 +155,7 @@ internal sealed class WorkerClient : IAsyncDisposable
                 payload),
             requestId,
             sendCancelOnCancellation: true,
+            beforeWrite,
             cancellationToken).ConfigureAwait(false);
         return ValidateResponse(() =>
             WorkerOperationProtocol.ParseResponse(
@@ -164,7 +166,8 @@ internal sealed class WorkerClient : IAsyncDisposable
 
     internal async Task<WorkerPreparedPlanDescriptor> PrepareAsync(
         WorkerInvokePreparePayload prepare,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
         ArgumentNullException.ThrowIfNull(prepare);
         var generation = RequireGeneration();
@@ -180,6 +183,7 @@ internal sealed class WorkerClient : IAsyncDisposable
                 WorkerPreparedOperationCodec.CreatePrepare(prepare)),
             requestId,
             sendCancelOnCancellation: true,
+            beforeWrite,
             cancellationToken).ConfigureAwait(false);
         return ValidateResponse(() =>
         {
@@ -206,25 +210,29 @@ internal sealed class WorkerClient : IAsyncDisposable
 
     internal Task<WorkerOperationResponse> CommitAsync(
         WorkerCommitPayload commit,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
         ArgumentNullException.ThrowIfNull(commit);
         return SendPreparedTerminalAsync(
             WorkerMessageKind.Commit,
             WorkerPreparedOperationCodec.CreateCommit(commit),
             commit.Generation,
+            beforeWrite,
             cancellationToken);
     }
 
     internal Task<WorkerOperationResponse> AbortAsync(
         WorkerAbortPayload abort,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
         ArgumentNullException.ThrowIfNull(abort);
         return SendPreparedTerminalAsync(
             WorkerMessageKind.Abort,
             WorkerPreparedOperationCodec.CreateAbort(abort),
             abort.Generation,
+            beforeWrite,
             cancellationToken);
     }
 
@@ -256,6 +264,7 @@ internal sealed class WorkerClient : IAsyncDisposable
                     JsonSerializer.SerializeToElement(new { })),
                 requestId,
                 sendCancelOnCancellation: false,
+                beforeWrite: null,
                 cancellationToken,
                 allowStopping: true).ConfigureAwait(false);
             _ = ValidateResponse(() =>
@@ -276,6 +285,7 @@ internal sealed class WorkerClient : IAsyncDisposable
         WorkerMessageKind kind,
         JsonElement payload,
         long generation,
+        Func<long, CancellationToken, ValueTask>? beforeWrite,
         CancellationToken cancellationToken)
     {
         if (generation != RequireGeneration())
@@ -287,6 +297,7 @@ internal sealed class WorkerClient : IAsyncDisposable
             Envelope(kind, requestId, payload),
             requestId,
             sendCancelOnCancellation: true,
+            beforeWrite,
             cancellationToken).ConfigureAwait(false);
         return ValidateResponse(() =>
             WorkerOperationProtocol.ParseResponse(
@@ -299,12 +310,18 @@ internal sealed class WorkerClient : IAsyncDisposable
         WorkerEnvelope envelope,
         long requestId,
         bool sendCancelOnCancellation,
+        Func<long, CancellationToken, ValueTask>? beforeWrite,
         CancellationToken cancellationToken,
         bool allowStopping = false)
     {
         var pending = RegisterPending(requestId, allowStopping);
         try
         {
+            if (beforeWrite is not null)
+            {
+                await beforeWrite(requestId, cancellationToken)
+                    .ConfigureAwait(false);
+            }
             await WriteAsync(envelope, cancellationToken).ConfigureAwait(false);
         }
         catch

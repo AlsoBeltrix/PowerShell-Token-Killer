@@ -23,12 +23,29 @@ internal interface IWorkerProcessLauncher
 
 internal interface IWorkerProcessClient : IAsyncDisposable
 {
-    WorkerClient Client { get; }
     int ProcessId { get; }
     Guid WorkerBootId { get; }
     long Generation { get; }
     Task Fatal { get; }
     Task<WorkerDiagnosticReport> Diagnostics { get; }
+    Task<WorkerOperationResponse> ExecuteAsync(
+        string operation,
+        WorkerSessionOperationArguments arguments,
+        DateTimeOffset deadlineUtc,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null);
+    Task<WorkerPreparedPlanDescriptor> PrepareAsync(
+        WorkerInvokePreparePayload prepare,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null);
+    Task<WorkerOperationResponse> CommitAsync(
+        WorkerCommitPayload commit,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null);
+    Task<WorkerOperationResponse> AbortAsync(
+        WorkerAbortPayload abort,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null);
     Task ShutdownAsync(CancellationToken cancellationToken = default);
 }
 
@@ -153,13 +170,44 @@ internal sealed class WorkerProcessClient : IWorkerProcessClient
             onEvent);
     }
 
-    public WorkerClient Client { get; }
+    internal WorkerClient Client { get; }
     public int ProcessId => _process.ProcessId;
     public Guid WorkerBootId => Client.WorkerBootId;
     public long Generation => Client.Generation;
     public Task Fatal => _fatal.Task;
 
     public Task<WorkerDiagnosticReport> Diagnostics => ReadDiagnosticsAsync();
+
+    public Task<WorkerOperationResponse> ExecuteAsync(
+        string operation,
+        WorkerSessionOperationArguments arguments,
+        DateTimeOffset deadlineUtc,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+        Client.ExecuteAsync(
+            operation,
+            arguments,
+            deadlineUtc,
+            cancellationToken,
+            beforeWrite);
+
+    public Task<WorkerPreparedPlanDescriptor> PrepareAsync(
+        WorkerInvokePreparePayload prepare,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+        Client.PrepareAsync(prepare, cancellationToken, beforeWrite);
+
+    public Task<WorkerOperationResponse> CommitAsync(
+        WorkerCommitPayload commit,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+        Client.CommitAsync(commit, cancellationToken, beforeWrite);
+
+    public Task<WorkerOperationResponse> AbortAsync(
+        WorkerAbortPayload abort,
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+        Client.AbortAsync(abort, cancellationToken, beforeWrite);
 
     internal static async Task<WorkerProcessClient> LaunchAsync(
         IWorkerProcessLauncher launcher,

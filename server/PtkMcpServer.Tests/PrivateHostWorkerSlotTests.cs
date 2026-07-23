@@ -179,7 +179,6 @@ public sealed class PrivateHostWorkerSlotTests
     {
         private int _disposed;
 
-        public WorkerClient Client => null!;
         public int ProcessId => 42;
         public Guid WorkerBootId { get; } = bootId;
         public long Generation { get; } = generation;
@@ -189,6 +188,32 @@ public sealed class PrivateHostWorkerSlotTests
                 new WorkerDiagnosticSummary(0, 0, false, new string('0', 64)),
                 new WorkerDiagnosticSummary(0, 0, false, new string('0', 64))));
         internal bool Disposed => Volatile.Read(ref _disposed) != 0;
+
+        public Task<WorkerOperationResponse> ExecuteAsync(
+            string operation,
+            WorkerSessionOperationArguments arguments,
+            DateTimeOffset deadlineUtc,
+            CancellationToken cancellationToken = default,
+            Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+            throw new NotSupportedException();
+
+        public Task<WorkerPreparedPlanDescriptor> PrepareAsync(
+            WorkerInvokePreparePayload prepare,
+            CancellationToken cancellationToken = default,
+            Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+            throw new NotSupportedException();
+
+        public Task<WorkerOperationResponse> CommitAsync(
+            WorkerCommitPayload commit,
+            CancellationToken cancellationToken = default,
+            Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+            throw new NotSupportedException();
+
+        public Task<WorkerOperationResponse> AbortAsync(
+            WorkerAbortPayload abort,
+            CancellationToken cancellationToken = default,
+            Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
+            throw new NotSupportedException();
 
         public Task ShutdownAsync(CancellationToken cancellationToken = default)
         {

@@ -64,6 +64,66 @@ public sealed class WorkerClientTests
     }
 
     [Fact]
+    public async Task Client_exposes_the_reserved_request_id_before_any_operation_byte()
+    {
+        await using var worker = new ScriptedWorker();
+        const long generation = 8;
+        await worker.InitializeAsync(
+            generation,
+            TestContext.Current.CancellationToken);
+        var callbackEntered = new TaskCompletionSource<long>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var operation = worker.Client.ExecuteAsync(
+            WorkerSessionOperationCodec.StateOperation,
+            new WorkerStateArguments(ListAvailable: true),
+            Deadline,
+            TestContext.Current.CancellationToken,
+            async (requestId, cancellationToken) =>
+            {
+                callbackEntered.TrySetResult(requestId);
+                await callbackRelease.Task.WaitAsync(cancellationToken);
+            });
+
+        Assert.Equal(
+            2,
+            await callbackEntered.Task.WaitAsync(
+                TestContext.Current.CancellationToken));
+        var requestRead = worker.Requests.ReadAsync(
+            TestContext.Current.CancellationToken).AsTask();
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+            Assert.False(requestRead.IsCompleted);
+        }
+        finally
+        {
+            callbackRelease.TrySetResult();
+        }
+        var request = await requestRead.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(request);
+        Assert.Equal(WorkerMessageKind.Request, request.Kind);
+        Assert.Equal(2, request.RequestId);
+        await worker.Events.WriteAsync(
+            WorkerOperationProtocol.CreateResponseEnvelope(
+                BootId,
+                WorkerOperationResponse.Completed(
+                    request.RequestId!.Value,
+                    generation,
+                    WorkerSessionOperationCodec.CreateResult(
+                        WorkerSessionOperationCodec.StateOperation,
+                        new WorkerStateResult("received")))),
+            TestContext.Current.CancellationToken);
+
+        var response = await operation.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal(WorkerOperationStatus.Completed, response.Status);
+    }
+
+    [Fact]
     public async Task Client_prepares_hash_bound_plan_and_commits_exactly_once()
     {
         var runtime = new ClientRuntime();

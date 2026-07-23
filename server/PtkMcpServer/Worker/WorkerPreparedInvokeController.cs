@@ -1,3 +1,5 @@
+using PtkMcpServer.Sessions;
+
 namespace PtkMcpServer.Worker;
 
 internal sealed record WorkerPreparedRuntimeResult(
@@ -10,6 +12,13 @@ internal interface IWorkerPreparedInvokeRuntime
         WorkerInvokePreparePayload prepare,
         IInvocationAuthorizer authorizer,
         CancellationToken cancellationToken);
+}
+
+internal interface IWorkerSessionRuntime :
+    ISessionLifetime,
+    IWorkerPreparedInvokeRuntime,
+    IWorkerOperationExecutor
+{
 }
 
 internal interface IWorkerPreparedInvokeObserver

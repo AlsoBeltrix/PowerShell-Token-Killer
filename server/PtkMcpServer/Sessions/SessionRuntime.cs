@@ -1,5 +1,6 @@
 using System.Text;
 using PtkMcpServer.Audit;
+using PtkMcpServer.Worker;
 using PtkSharedContracts;
 
 namespace PtkMcpServer.Sessions;
@@ -15,6 +16,7 @@ public sealed class SessionRuntime :
     ISessionOperations,
     ISessionLifetime,
     IPrivateSessionOperations,
+    IWorkerSessionRuntime,
     IDisposable
 {
     private readonly RunspaceHost _host;
@@ -139,6 +141,82 @@ public sealed class SessionRuntime :
         ResetOperation operation,
         CancellationToken cancellationToken) =>
         ResetAsync(operationAuthority, operation, cancellationToken);
+
+    async Task<WorkerPreparedRuntimeResult> IWorkerPreparedInvokeRuntime.InvokeAsync(
+        WorkerInvokePreparePayload prepare,
+        IInvocationAuthorizer authorizer,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(prepare);
+        ArgumentNullException.ThrowIfNull(authorizer);
+        var arguments = prepare.Arguments;
+        if (arguments.Raw)
+        {
+            Console.Error.WriteLine(
+                $"ptk: raw=true call #{_rawUsage.Increment()} this session");
+        }
+
+        var result = await _host.InvokeAsync(
+            arguments.Script,
+            authorizer,
+            cancellationToken: cancellationToken,
+            route: WorkerRoute(arguments.Route),
+            deadline: prepare.DeadlineUtc).ConfigureAwait(false);
+        return new WorkerPreparedRuntimeResult(
+            RenderInvokeResult(result),
+            result.UserExecutionStarted);
+    }
+
+    async Task<System.Text.Json.JsonElement> IWorkerOperationExecutor.ExecuteAsync(
+        WorkerOperationRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (string.Equals(
+                request.Operation,
+                WorkerSessionOperationCodec.InvokeOperation,
+                StringComparison.Ordinal))
+        {
+            throw new WorkerProtocolException(
+                "ordinary_invoke_forbidden",
+                "Script-bearing invocation requires the prepared-operation protocol.");
+        }
+
+        var arguments = WorkerSessionOperationCodec.ParseArguments(
+            request.Operation,
+            request.Arguments);
+        WorkerSessionOperationResult result = arguments switch
+        {
+            WorkerJobListArguments =>
+                new WorkerJobListResult(await JobAsync(
+                    "list",
+                    cancellationToken).ConfigureAwait(false)),
+            WorkerJobStatusArguments value =>
+                new WorkerJobStatusResult(await JobAsync(
+                    "status",
+                    cancellationToken,
+                    id: value.JobId).ConfigureAwait(false)),
+            WorkerJobOutputArguments value =>
+                new WorkerJobOutputResult(await JobAsync(
+                    "output",
+                    cancellationToken,
+                    id: value.JobId,
+                    offset: value.Offset).ConfigureAwait(false)),
+            WorkerJobKillArguments value =>
+                new WorkerJobKillResult(await JobAsync(
+                    "kill",
+                    cancellationToken,
+                    id: value.JobId).ConfigureAwait(false)),
+            WorkerStateArguments value =>
+                new WorkerStateResult(await StateAsync(
+                    value.ListAvailable,
+                    cancellationToken).ConfigureAwait(false)),
+            _ => throw new WorkerProtocolException(
+                "unsupported_operation",
+                "Worker operation is not supported by the session runtime."),
+        };
+        return WorkerSessionOperationCodec.CreateResult(request.Operation, result);
+    }
 
     Task PtkMcpGuardian.Ownership.IOrderedOwnedLifetime.ShutdownAsync() => ShutdownAsync();
 
@@ -662,6 +740,16 @@ public sealed class SessionRuntime :
                 deadline: executionDeadline ?? audit.Metadata.Request.DeadlineUtc,
                 outputCapture: outputCapture);
 
+        var response = RenderInvokeResult(result);
+        if (audit?.AuthorizationPersistenceFailed == true && !result.UserExecutionStarted)
+            response = AuditCallContext.NotStartedMessage;
+        audit?.RecordInvokeResult(result, response);
+        return response;
+    }
+
+    private static string RenderInvokeResult(InvokeResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
         var sb = new StringBuilder();
         var output = result.Output.TrimEnd();
         sb.Append(output.Length > 0 ? output : "(no output)");
@@ -721,11 +809,7 @@ public sealed class SessionRuntime :
                     : "recovery=unavailable: output capture unavailable; command was not rerun");
         }
 
-        var response = sb.ToString().TrimEnd();
-        if (audit?.AuthorizationPersistenceFailed == true && !result.UserExecutionStarted)
-            response = AuditCallContext.NotStartedMessage;
-        audit?.RecordInvokeResult(result, response);
-        return response;
+        return sb.ToString().TrimEnd();
     }
 
     private static string Route(GuardianHostInvokeRoute route) => route switch
@@ -733,6 +817,14 @@ public sealed class SessionRuntime :
         GuardianHostInvokeRoute.Auto => "auto",
         GuardianHostInvokeRoute.Pwsh => "pwsh",
         GuardianHostInvokeRoute.Rtk => "rtk",
+        _ => throw new ArgumentOutOfRangeException(nameof(route)),
+    };
+
+    private static string WorkerRoute(WorkerInvokeRoute route) => route switch
+    {
+        WorkerInvokeRoute.Auto => "auto",
+        WorkerInvokeRoute.Pwsh => "pwsh",
+        WorkerInvokeRoute.Rtk => "rtk",
         _ => throw new ArgumentOutOfRangeException(nameof(route)),
     };
 

@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 public sealed class Slice7fStagingBoundaryTests
 {
     [Fact]
-    public void Operation_transport_remains_unwired_from_production()
+    public void Session_runtime_is_the_only_live_worker_operation_adapter()
     {
         var root = FindRepositoryRoot();
         var productionRoot = Path.Combine(root, "server", "PtkMcpServer");
@@ -31,17 +31,26 @@ public sealed class Slice7fStagingBoundaryTests
                 productionRoot,
                 "Worker",
                 "WorkerPreparedOperationCodec.cs")),
+        };
+        var liveAdapterFiles = new HashSet<string>(StringComparer.Ordinal)
+        {
             Path.GetFullPath(Path.Combine(
                 productionRoot,
                 "Worker",
                 "WorkerPreparedInvokeController.cs")),
+            Path.GetFullPath(Path.Combine(
+                productionRoot,
+                "Sessions",
+                "SessionRuntime.cs")),
         };
         foreach (var path in Directory.EnumerateFiles(
             productionRoot,
             "*.cs",
             SearchOption.AllDirectories))
         {
-            if (stagingFiles.Contains(Path.GetFullPath(path))) continue;
+            var fullPath = Path.GetFullPath(path);
+            if (stagingFiles.Contains(fullPath) || liveAdapterFiles.Contains(fullPath))
+                continue;
             var source = File.ReadAllText(path);
             Assert.DoesNotContain("WorkerOperationScheduler", source, StringComparison.Ordinal);
             Assert.DoesNotContain("IWorkerOperationExecutor", source, StringComparison.Ordinal);
@@ -95,11 +104,45 @@ public sealed class Slice7fStagingBoundaryTests
         {
             Assert.DoesNotContain(forbidden, concreteCodec, StringComparison.Ordinal);
         }
-        Assert.DoesNotContain(
-            typeof(WorkerOperationScheduler).Assembly.GetTypes(),
-            type => !type.IsAbstract &&
+        foreach (var controllerSource in liveAdapterFiles
+            .Where(path => path.EndsWith(
+                "WorkerPreparedInvokeController.cs",
+                StringComparison.Ordinal))
+            .Select(File.ReadAllText))
+        {
+            Assert.DoesNotMatch(@"\bSessionRuntime\b", controllerSource);
+        }
+        var executorImplementations = typeof(WorkerOperationScheduler).Assembly
+            .GetTypes()
+            .Where(type => !type.IsAbstract &&
                 !type.IsInterface &&
-                typeof(IWorkerOperationExecutor).IsAssignableFrom(type));
+                typeof(IWorkerOperationExecutor).IsAssignableFrom(type))
+            .ToArray();
+        Assert.Equal([typeof(SessionRuntime)], executorImplementations);
+        var runtimeImplementations = typeof(WorkerOperationScheduler).Assembly
+            .GetTypes()
+            .Where(type => !type.IsAbstract &&
+                !type.IsInterface &&
+                typeof(IWorkerSessionRuntime).IsAssignableFrom(type))
+            .ToArray();
+        Assert.Equal([typeof(SessionRuntime)], runtimeImplementations);
+
+        var runtimeAdapter = File.ReadAllText(Path.Combine(
+            productionRoot,
+            "Sessions",
+            "SessionRuntime.cs"));
+        Assert.Contains(
+            "IWorkerPreparedInvokeRuntime.InvokeAsync",
+            runtimeAdapter,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "IWorkerOperationExecutor.ExecuteAsync",
+            runtimeAdapter,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "ordinary_invoke_forbidden",
+            runtimeAdapter,
+            StringComparison.Ordinal);
 
         var preparedCodec = File.ReadAllText(Path.Combine(
             productionRoot,

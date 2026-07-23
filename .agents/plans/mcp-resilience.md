@@ -542,6 +542,41 @@ event sequences are acknowledged by a new guardian request carrying
 request ID. The exact four event/request pairs and payload orders are frozen in
 the v1 asset; no bidirectional request-ID namespace exists.
 
+R6 necessarily replaces that historical R0 v1 union with one exact v2 union
+before live worker execution is enabled. V1 has no message that can carry the
+worker's immutable prepared-plan descriptor to the guardian, so treating the
+earlier outer `guardian.dispatch_authorized` record as effect authorization
+would bypass the mandatory plan-specific audit barrier. V2 adds exactly one
+control pair:
+
+```text
+prepared_dispatch_authorization_requested event
+  -> prepared_dispatch_authorize request
+```
+
+The event binds its source event sequence and original private request to the
+alias transition, worker boot/generation, operation/plan IDs, script digest,
+absolute deadline, and the complete bounded audit projection of the immutable
+worker plan: domain, requested/effective route, pre-execution validation,
+resolution context, output provenance, bounded permitted-fallback set,
+fallback reason, working-directory digest, and executable identity digests
+where applicable. It also carries a SHA-256 digest of that canonical
+descriptor. The guardian validates those facts against the admitted public
+call and current ready generation, durably appends the exact plan and
+pre-effect dispatch authorization, then sends the authorization request with
+the source event sequence and identical descriptor digest. Only that matched
+request permits the host to send worker `commit`. A mismatch, audit failure,
+deadline, cancellation, host/worker transition, or lost control response sends
+`abort` where possible and starts no user effect.
+
+V2 also adds a host event for validator start/completion facts already covered
+by the authorized Bash plan. It has no reverse control message and cannot
+authorize execution. The outer operation-delivery authorization remains only
+permission to deliver non-executing `prepare`; it is never a substitute for
+the v2 plan-specific barrier. R6 updates the strict contract assets, generated
+schema/hash pins, codecs, and both peers atomically and retains no v1
+compatibility shim at the R7 cutover.
+
 Private kinds are closed to:
 
 ```text
@@ -1018,8 +1053,10 @@ second live execution path after the final sub-slice.
    lifecycle gates. Move reset/restart/close to whole-worker replacement;
    add dynamic aliases and frozen template bootstrap without reintroducing an
    in-process fallback. The private host protocol server must accept only the
-   four already-frozen guardian control acknowledgements in addition to
-   operation/cancel/shutdown, and correlate each to one emitted control event.
+   four historical worker-control acknowledgements plus the v2
+   `prepared_dispatch_authorize` control in addition to
+   operation/cancel/shutdown, and correlate every control to exactly one
+   retained source event.
 4. **Make guardian worker control authoritative.** Replace
    `FrozenDefaultSessionState` with a guardian-lifetime multi-alias declared
    state/catalog owner. It alone grants nonreusing worker generations and

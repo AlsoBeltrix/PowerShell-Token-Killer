@@ -1,8 +1,14 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** HOSTED CORRECTIVE AMENDMENT IMPLEMENTED LOCALLY AT CODE HEAD
-`8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`; HOSTED ACCEPTANCE PENDING
-SEPARATE PUSH AUTHORIZATION.
+**Status:** SECOND HOSTED CORRECTIVE AMENDMENT APPROVED 2026-07-23;
+IMPLEMENTATION IN PROGRESS.
+The first hosted corrective amendment is implemented locally at code head
+`8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
+`30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
+proved the Windows product job and the Ubuntu/Windows SIEM jobs green, then
+exposed the three independent runner-specific findings in Slices 14-16 below.
+The owner approved all three corrective slices on 2026-07-23. A further push
+and final hosted acceptance remain separately authorized.
 Local dependency implementation and acceptance are complete at code head
 `d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`. Owner GO received 2026-07-22 for
 the first exact-SHA push. GitHub Actions run `29967333249` at documentation
@@ -475,6 +481,67 @@ handshakes to pass at one exact SHA; record the run ID and SHA.
 - The corrective amendment is locally complete. A new exact-SHA push and one
   green six-job GitHub Actions run, including all three product handshakes,
   remain separately authorized acceptance work; no hosted-green claim is made.
+
+## Approved second hosted corrective amendment — implementation in progress
+
+Owner GO received 2026-07-23 for the three findings exposed by GitHub Actions
+run `30004132833` at exact SHA
+`30c2e701c0e3ad6642085c856510091b94253c80`. The Windows product job and the
+Ubuntu and Windows SIEM jobs passed. The Ubuntu product job failed in Guardian
+packaging, the macOS SIEM job failed only in producer conformance, and the
+macOS product job failed only two process-containment fixture preconditions.
+Preserve compiler hardening, protected-path enforcement, product containment,
+and all test identities while repairing the runner-specific faults below.
+Each numbered item is one finding and one commit.
+
+### 14. Select one PATH-resolved C compiler for Unix packaging
+
+On hosted Ubuntu, `Get-Command cc -CommandType Application` returns both
+`/usr/bin/cc` and `/bin/cc`. `scripts/dev-install.ps1` dereferences `.Source`
+on the resulting array, producing the invalid combined command string
+`/usr/bin/cc /bin/cc`. Select the first PATH-resolved application
+deterministically before reading `.Source`. Do not weaken compiler flags,
+change the native source, or fall back after a selected compiler fails.
+
+Prove the pre-fix lookup becomes multi-valued with duplicate `cc` entries and
+the repaired lookup remains one application, then run the canonical-layout
+Guardian packaging test and the complete Guardian project on x64 Linux.
+
+### 15. Give hosted macOS SIEM conformance a physical temporary root
+
+The live SIEM conformance host creates protected TLS material beneath the
+hosted runner's symlink-traversing default temporary directory. The receiver
+correctly rejects that path. In only the SIEM job's `Producer to SIEM
+conformance` step on macOS, create a unique physical directory directly below
+`/private/tmp`, scope `TMPDIR` to the step, and remove that exact directory in
+`finally`. Leave the receiver's protected-path rules, conformance assertions,
+and non-macOS environment unchanged.
+
+On macOS, reproduce the protected-path rejection through a symlink-traversing
+temporary root, then pass all six live SIEM conformance identities under the
+physical root. Deliberately fail a child command and prove the exact root is
+still removed. Re-run workflow syntax and structural checks.
+
+### 16. Isolate the native process-containment fixture
+
+Hosted macOS ran `ProcessTreeContainmentTests` concurrently with other
+process-creation fixtures. Its two escaped-orphan cases reached their
+pre-kill assertion after another containment sweep had already reaped the
+marked orphan. Assign `ProcessTreeContainmentTests` to the existing
+`ResilienceProcessCreationCollection`, whose disabled parallelization already
+isolates native resilience fixtures. Do not disable parallelism globally,
+change production containment, add sleeps, or weaken the pre-kill assertions.
+
+Run the two hosted-failing test identities repeatedly with the other native
+process-creation fixtures, then run the complete server project on macOS.
+Retain the hosted failures as the pre-fix red evidence and require all 1,917
+server identities to remain present.
+
+After all three commits, run the exact product and SIEM workflow commands on
+macOS and x64 Linux, plus workflow syntax and structural checks. A separate
+push authorization is required before triggering a new exact-SHA hosted run.
+Final acceptance still requires all six jobs and all three product handshakes
+green at one exact SHA.
 
 ## Completion and failure handling
 

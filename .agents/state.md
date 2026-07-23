@@ -16,12 +16,14 @@ short and update it when important repo facts change.
   `.agents/machines.md`. This completes only the feature-branch
   reconciliation; landing it on `master`, publishing, releasing, changing an
   installed payload, or beginning resilience R6 requires separate authority.
-  The three hosted-CI corrective patches are locally complete at code head
-  `8b5a66d`; their evidence and remaining hosted gate are canonical in
-  `.agents/plans/dependency-hardening.md`.
-- **Dependency hardening and its hosted corrective amendment are locally
-  complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; final hosted
-  exact-SHA acceptance requires separate push authorization.** The
+  The first three hosted-CI corrective patches are locally complete at code
+  head `8b5a66d`. Hosted run `30004132833` narrowed the remaining runner faults
+  to the approved second corrective amendment now in progress; its exact scope
+  and evidence are canonical in `.agents/plans/dependency-hardening.md`.
+- **Dependency hardening and its first hosted corrective amendment are locally
+  complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; the approved
+  second amendment is in progress, and final hosted exact-SHA acceptance
+  requires separate push authorization.** The
   frozen inventory, PowerShell security
   chain, Hosting, MCP, Roslyn, .NET test-platform, coverage-collector, SQLite,
   Pester, and GitHub Actions runtime slices are committed. Test SDK 17.14.1
@@ -70,7 +72,14 @@ short and update it when important repo facts change.
   covered the same identities through its established ordinary-account/SYSTEM
   DPAPI split with authoritative TRX matching. All disposable roots,
   processes, and tasks were removed. A further push, merge into `master`,
-  release, and installed-payload changes remain unauthorized.
+  release, and installed-payload changes remain unauthorized. GitHub Actions
+  run `30004132833` at exact SHA `30c2e70` passed the Windows product job and
+  Ubuntu/Windows SIEM jobs. Ubuntu product packaging selected two `cc`
+  applications as one invalid command, macOS SIEM conformance inherited the
+  runner's symlink-traversing temporary root, and macOS product testing exposed
+  two escaped-orphan fixture preconditions racing another containment sweep.
+  The owner approved one corrective commit for each finding on 2026-07-23;
+  implementation is in progress and no further push is authorized.
 - **Owner handoff contract (2026-07-22): Git workspace mechanics are entirely
   agent-owned.** An agent must inspect and resume the exact active workspace
   without asking the owner to fetch, switch, push, select, or recover it. The
@@ -418,9 +427,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Evaluate the six-job hosted run triggered by the authorized exact-SHA push
-   of `30c2e70`; require all three product handshakes and all three SIEM jobs
-   to pass before recording hosted acceptance.
+1. Implement and locally verify approved dependency-hardening Slices 14-16,
+   one finding per commit: deterministic single-compiler selection, a physical
+   macOS SIEM conformance temp root, and native process-fixture isolation.
+   A further exact-SHA push and hosted acceptance run require separate
+   authorization.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence. Do not fold the separate ARM64
    MSBuild-only `protoc` investigation into resilience work.

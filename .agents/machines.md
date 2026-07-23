@@ -1347,3 +1347,48 @@ the digest matched on all three machines._
   pre-existing remote checkout changed.
 - No green hosted claim is made. A new exact-SHA push and one six-job GitHub
   Actions run with all three handshakes green require separate authorization.
+
+## Dependency second hosted corrective local acceptance (Mac and Linux, 2026-07-23)
+
+_Verified at code head
+`cf947965795bf190da2fc7034c5a3bb31bb2c289`. One-finding commits are Unix
+compiler selection `c287e24`, macOS SIEM conformance temp isolation `5a0ddd4`,
+and native containment-fixture isolation `cf94796`._
+
+- On x64 Linux `magneto` (.NET SDK 10.0.110), three temporary PATH-visible
+  `cc` applications reproduced the old multi-source combined-command failure.
+  The corrected lookup selected one application and executed GCC 16.1.1.
+  Canonical-layout packaging passed 1/1. The first complete Guardian run had
+  one unrelated state-observation failure; that identity passed alone and a
+  fresh complete Guardian run passed 442/442.
+- On `nagatha.local` (macOS arm64, .NET SDK 10.0.302), a deliberately
+  symlink-traversing temp root reproduced the conformance protected-path
+  rejection at 5/6. A physical `/private/tmp` root passed 6/6. A deliberate
+  child exit 23 retained status 23 and removed the exact root.
+- The two hosted-failing containment identities remain the pre-fix red
+  evidence. After collection isolation, the combined
+  `ProcessTreeContainmentTests` and `UnixGuardianBrokerIntegrationTests` group
+  passed 17/17 three consecutive times. Two full VSTest attempts surfaced
+  different unrelated Bash-deadline and audit-state failures; all five
+  identities passed in isolation. The authoritative workflow-equivalent
+  sequential xUnit v3 runner passed server 1,917/1,917.
+- Final exact-head macOS acceptance passed Pester 141 with two expected skips,
+  architecture 73/73, Guardian 442/442, server 1,917/1,917, the stdio
+  handshake, SIEM 247/247, and conformance 6/6. Both physical temp roots were
+  removed by their `finally` blocks. The SDK subsequently recreated a
+  `NuGetScratch`-only product root; it was removed exactly after the job and
+  stayed absent with zero scoped processes.
+- Final x64 Linux acceptance used a 1,780,415-byte exact `git archive` with
+  SHA-256
+  `317ca6c238ab3e21163f46ea5e011abc08fbe085318a6b1d82b0a67cfeec4e23`.
+  It passed Pester 141 with two expected skips, architecture 73/73, Guardian
+  442/442, server 1,917/1,917, the stdio handshake, SIEM 247/247, and
+  conformance 6/6.
+- Workflow YAML parsing passed. Structural checks found exactly one producer
+  conformance step with PowerShell, a macOS-only physical `/private/tmp` root,
+  scoped `TMPDIR`, literal cleanup in `finally`, preserved child exit status,
+  and unchanged in-process mode.
+- Exact local and remote roots, archives, Pester result output, and scoped
+  processes were removed. No installed payload or pre-existing checkout was
+  changed. Final hosted acceptance remains separately authorized and requires
+  all six jobs plus all three product handshakes green at one exact SHA.

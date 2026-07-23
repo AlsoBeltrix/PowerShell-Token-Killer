@@ -1,14 +1,17 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** SECOND HOSTED CORRECTIVE AMENDMENT APPROVED 2026-07-23;
-IMPLEMENTATION IN PROGRESS.
+**Status:** SECOND HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
+2026-07-23 AT CODE HEAD
+`cf947965795bf190da2fc7034c5a3bb31bb2c289`; FINAL HOSTED ACCEPTANCE REMAINS
+SEPARATELY AUTHORIZED.
 The first hosted corrective amendment is implemented locally at code head
 `8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
 `30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
 proved the Windows product job and the Ubuntu/Windows SIEM jobs green, then
 exposed the three independent runner-specific findings in Slices 14-16 below.
-The owner approved all three corrective slices on 2026-07-23. A further push
-and final hosted acceptance remain separately authorized.
+The owner approved all three corrective slices on 2026-07-23. The
+one-finding commits are `c287e24`, `5a0ddd4`, and `cf94796`. Final hosted
+acceptance remains separately authorized.
 Local dependency implementation and acceptance are complete at code head
 `d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`. Owner GO received 2026-07-22 for
 the first exact-SHA push. GitHub Actions run `29967333249` at documentation
@@ -482,7 +485,7 @@ handshakes to pass at one exact SHA; record the run ID and SHA.
   green six-job GitHub Actions run, including all three product handshakes,
   remain separately authorized acceptance work; no hosted-green claim is made.
 
-## Approved second hosted corrective amendment — implementation in progress
+## Approved second hosted corrective amendment — implemented locally
 
 Owner GO received 2026-07-23 for the three findings exposed by GitHub Actions
 run `30004132833` at exact SHA
@@ -542,6 +545,39 @@ macOS and x64 Linux, plus workflow syntax and structural checks. A separate
 push authorization is required before triggering a new exact-SHA hosted run.
 Final acceptance still requires all six jobs and all three product handshakes
 green at one exact SHA.
+
+## Second hosted corrective local acceptance
+
+- Slice 14 is committed as `c287e24`. On x64 Linux `magneto`, three
+  PATH-visible `cc` applications reproduced the pre-fix combined-command
+  failure. The corrected lookup selected and executed exactly one compiler.
+  The canonical-layout packaging identity passed, an isolated unrelated
+  Guardian state-observation failure passed on rerun, and a fresh complete
+  Guardian run passed 442/442.
+- Slice 15 is committed as `5a0ddd4`. On macOS, a deliberately
+  symlink-traversing temporary root reproduced the protected-path rejection
+  with five of six conformance identities passing. A physical `/private/tmp`
+  root passed 6/6, and a deliberate child exit 23 preserved that exit while
+  removing the exact root. Workflow YAML parsing and structural checks passed:
+  one PowerShell conformance step, a macOS-only physical root, scoped
+  `TMPDIR`, literal `finally` cleanup, preserved child status, and unchanged
+  in-process mode.
+- Slice 16 is committed as `cf94796`. The two hosted-failing identities remain
+  the red evidence. The complete 17-test containment and Unix-broker group
+  passed three consecutive focused runs after collection isolation. Two
+  ordinary VSTest full runs exposed different unrelated state/timing failures;
+  every failed identity passed in isolation. The workflow's authoritative
+  sequential xUnit v3 assembly command then passed all 1,917 server identities.
+- Final exact-head macOS and x64 Linux acceptance passed Pester 141 with two
+  expected skips, architecture 73/73, Guardian 442/442, server 1,917/1,917,
+  the stdio handshake, SIEM 247/247, and producer conformance 6/6 on each
+  platform. Linux used a 1,780,415-byte exact `git archive` with SHA-256
+  `317ca6c238ab3e21163f46ea5e011abc08fbe085318a6b1d82b0a67cfeec4e23`.
+  All exact validation roots, archives, results, and scoped processes were
+  removed.
+- No green hosted claim is made. Final acceptance still requires one
+  separately authorized exact-SHA GitHub Actions run with all six jobs and all
+  three product handshakes green.
 
 ## Completion and failure handling
 

@@ -75,6 +75,15 @@ static bool read_full(int descriptor, void *buffer, size_t length)
     return true;
 }
 
+static void consume_liveness_event(int descriptor)
+{
+    uint8_t unexpected = 0;
+    ssize_t received;
+    do {
+        received = read(descriptor, &unexpected, sizeof(unexpected));
+    } while (received < 0 && errno == EINTR);
+}
+
 static void encode_u32(uint8_t *destination, uint32_t value)
 {
     destination[0] = (uint8_t)(value >> 24);
@@ -301,8 +310,7 @@ static bool wait_for_child_gate(int ready_read, int liveness_read)
             return false;
         }
         if ((descriptors[1].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
-            uint8_t unexpected = 0;
-            (void)read(liveness_read, &unexpected, sizeof(unexpected));
+            consume_liveness_event(liveness_read);
             return false;
         }
         if ((descriptors[0].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
@@ -328,8 +336,7 @@ static bool wait_for_start_command(int command_read, int liveness_read)
             return false;
         }
         if ((descriptors[1].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
-            uint8_t unexpected = 0;
-            (void)read(liveness_read, &unexpected, sizeof(unexpected));
+            consume_liveness_event(liveness_read);
             return false;
         }
         if ((descriptors[0].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
@@ -512,8 +519,7 @@ static int broker_main(
             return contain_host(host_pid, broker_event_write, host_reaped, host_exit_reported);
         }
         if ((descriptors[0].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {
-            uint8_t unexpected = 0;
-            (void)read(liveness_read, &unexpected, sizeof(unexpected));
+            consume_liveness_event(liveness_read);
             return contain_host(host_pid, broker_event_write, host_reaped, host_exit_reported);
         }
         if ((descriptors[1].revents & (POLLIN | POLLHUP | POLLERR)) != 0) {

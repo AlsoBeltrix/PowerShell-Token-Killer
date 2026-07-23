@@ -176,7 +176,7 @@ public sealed class AuditSpoolSegmentIdentityTests
 
     public static TheoryData<string?> NonCanonicalNames => new()
     {
-        null,
+        null!,
         string.Empty,
         "ptk-audit-1234567812344abc8def0123456789ab-01234567.jsonl ",
         " ptk-audit-1234567812344abc8def0123456789ab-01234567.jsonl",

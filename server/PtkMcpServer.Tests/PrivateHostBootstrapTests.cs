@@ -127,7 +127,7 @@ public sealed class PrivateHostBootstrapTests
 
     public static TheoryData<string?> InvalidHandleValues => new()
     {
-        null,
+        null!,
         string.Empty,
         "0",
         "00",

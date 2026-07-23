@@ -1489,7 +1489,11 @@ GitHub-hosted Ubuntu, Windows, and arm64 macOS._
   passed 10/10 focused runs. The complete seven-barrier theory then passed
   three consecutive runs. No production or test source changed during this
   diagnosis.
-- Proposed Slice 18 in `.agents/plans/dependency-hardening.md` separates a
-  30-second .NET transcript-observation budget from the unchanged native
-  10-second containment proof. It remains owner-gated; no hosted-green claim
-  is made.
+- Slice 18 at code head `3e3d7b4` separates a 30-second .NET
+  transcript-observation budget from the unchanged native 10-second
+  containment proof. The exact failing theory passed 10/10 after rebuild, and
+  the complete seven-barrier theory passed three consecutive runs.
+- The workflow-equivalent macOS sequence then passed architecture 73/73,
+  Guardian 442/442, server 1,917/1,917, and the complete stdio handshake. The
+  physical validation root was removed with zero scoped processes. No
+  hosted-green claim is made until a new six-job run passes.

@@ -1,9 +1,8 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** THIRD HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
+**Status:** FOURTH HOSTED CORRECTIVE AMENDMENT IMPLEMENTED AND LOCALLY ACCEPTED
 2026-07-23 AT CODE HEAD
-`9630ff7c8d4c2e399bfd00581c0c1a536a46cbf3`; FOURTH HOSTED CORRECTIVE
-AMENDMENT OWNER-APPROVED 2026-07-23 AND IMPLEMENTATION ACTIVE.
+`3e3d7b4099fc7d50517f71214355212ed106ce64`; FINAL HOSTED ACCEPTANCE ACTIVE.
 The first hosted corrective amendment is implemented locally at code head
 `8b5a66d781f3fff09df241d264b4a9ebb4dec2f2`. GitHub Actions run
 `30004132833` at exact SHA `30c2e701c0e3ad6642085c856510091b94253c80`
@@ -675,8 +674,30 @@ to receive a valid proof.
 
 After approval, commit this one test-harness finding separately. Re-run the
 exact `before_armed_ack` theory repeatedly, the complete seven-barrier theory
-repeatedly, the full macOS product sequence, and the handshake. A new
-exact-SHA push and final six-job hosted run require separate authorization.
+repeatedly, the full macOS product sequence, and the handshake. The owner's
+blanket completion authority covers the exact-SHA push and final six-job
+hosted run.
+
+## Fourth hosted corrective local acceptance
+
+- Slice 18 is committed as `3e3d7b4`. Only the two transcript reads use the
+  new 30-second outer observation budget. The 15-second compilation, readiness,
+  direct-exit, process-disappearance, and diagnostic checkpoints are unchanged.
+  The native source and its exact 2-second escalation, 10-second containment
+  deadline, signaling, registry, and transcript fields are byte-unchanged.
+- After rebuilding, the exact hosted-failing `before_armed_ack` theory passed
+  10/10 focused runs. The complete seven-barrier theory passed three
+  consecutive runs.
+- The workflow-equivalent macOS product sequence built once and passed
+  architecture 73/73, Guardian 442/442, and server 1,917/1,917. Every existing
+  transcript assertion remained active, including
+  `completedAtMs <= deadlineMs == 10000`, zero survivors and zombies, both
+  groups gone, and direct-child-only reaping. The complete stdio handshake
+  passed.
+- The physical `/private/tmp` validation root was removed by `finally`; final
+  path and scoped-process probes were zero.
+- Final hosted acceptance is now authorized and active. It still requires all
+  six jobs and all three product handshakes green at one exact SHA.
 
 ## Completion and failure handling
 

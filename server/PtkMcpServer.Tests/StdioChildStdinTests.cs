@@ -3,6 +3,9 @@ using System.Text.Json;
 
 namespace PtkMcpServer.Tests;
 
+// ProcessEnvironment collection: the UTF-8 child resolves pwsh through PATH,
+// which process-environment fixtures deliberately replace.
+[Collection("ProcessEnvironment")]
 public sealed class StdioChildStdinTests
 {
     // Spawns the built server exactly as a real harness does - stdio pipes,

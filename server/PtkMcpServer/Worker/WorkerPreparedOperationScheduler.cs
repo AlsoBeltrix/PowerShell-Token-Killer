@@ -322,6 +322,52 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
 
 internal static class WorkerPreparedOperationProtocol
 {
+    internal static WorkerPreparedPlanDescriptor ParsePreparedResponse(
+        WorkerEnvelope envelope,
+        Guid expectedWorkerBootId,
+        long expectedRequestId,
+        long expectedGeneration)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        if (envelope.WorkerBootId != expectedWorkerBootId ||
+            envelope.Kind != WorkerMessageKind.Response ||
+            envelope.RequestId != expectedRequestId)
+        {
+            throw InvalidPreparedResponse();
+        }
+
+        if (envelope.Payload.ValueKind != JsonValueKind.Object)
+            throw InvalidPreparedResponse();
+        var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var property in envelope.Payload.EnumerateObject())
+        {
+            if (property.Name is not ("generation" or "status" or "descriptor") ||
+                !fields.TryAdd(property.Name, property.Value))
+            {
+                throw InvalidPreparedResponse();
+            }
+        }
+        if (fields.Count != 3 ||
+            fields["generation"].ValueKind != JsonValueKind.Number ||
+            !fields["generation"].TryGetInt64(out var generation) ||
+            generation != expectedGeneration ||
+            fields["status"].ValueKind != JsonValueKind.String ||
+            fields["status"].GetString() != "prepared" ||
+            fields["descriptor"].ValueKind != JsonValueKind.Object)
+        {
+            throw InvalidPreparedResponse();
+        }
+
+        var descriptor = WorkerPreparedOperationCodec.ParsePreparedDescriptor(
+            fields["descriptor"]);
+        if (descriptor.WorkerBootId != expectedWorkerBootId ||
+            descriptor.Generation != expectedGeneration)
+        {
+            throw InvalidPreparedResponse();
+        }
+        return descriptor;
+    }
+
     internal static WorkerEnvelope CreatePreparedResponse(
         Guid workerBootId,
         long requestId,
@@ -487,4 +533,9 @@ internal static class WorkerPreparedOperationProtocol
         new(
             "invalid_prepared_terminal",
             "Prepared-operation terminal response is invalid.");
+
+    private static WorkerProtocolException InvalidPreparedResponse() =>
+        new(
+            "invalid_prepared_response",
+            "Prepared-operation response is invalid.");
 }

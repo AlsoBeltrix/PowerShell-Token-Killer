@@ -61,6 +61,45 @@ internal static class WorkerOperationProtocol
 {
     internal const int MaximumCodeLength = 64;
 
+    internal static WorkerEnvelope CreateRequestEnvelope(
+        Guid workerBootId,
+        long requestId,
+        long generation,
+        DateTimeOffset deadlineUtc,
+        string operation,
+        JsonElement arguments)
+    {
+        var envelope = new WorkerEnvelope(
+            WorkerProtocol.Version,
+            WorkerMessageKind.Request,
+            workerBootId,
+            requestId,
+            JsonSerializer.SerializeToElement(new
+            {
+                generation,
+                deadlineUnixTimeMilliseconds = deadlineUtc.ToUnixTimeMilliseconds(),
+                operation,
+                arguments,
+            }));
+        _ = ParseRequest(envelope, workerBootId, generation);
+        return envelope;
+    }
+
+    internal static WorkerEnvelope CreateCancelEnvelope(
+        Guid workerBootId,
+        long requestId,
+        long generation)
+    {
+        var envelope = new WorkerEnvelope(
+            WorkerProtocol.Version,
+            WorkerMessageKind.Cancel,
+            workerBootId,
+            requestId,
+            JsonSerializer.SerializeToElement(new { generation }));
+        _ = ParseCancel(envelope, workerBootId, generation);
+        return envelope;
+    }
+
     internal static WorkerOperationRequest ParseRequest(
         WorkerEnvelope envelope,
         Guid expectedBootId,

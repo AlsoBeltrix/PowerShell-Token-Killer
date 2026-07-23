@@ -1392,3 +1392,28 @@ and native containment-fixture isolation `cf94796`._
   processes were removed. No installed payload or pre-existing checkout was
   changed. Final hosted acceptance remains separately authorized and requires
   all six jobs plus all three product handshakes green at one exact SHA.
+
+## Dependency third hosted run and stdio scheduling diagnosis (2026-07-23)
+
+_GitHub Actions run `30008032861` at exact SHA
+`85dc709d2fc0940b65b9a83da088217186d95f60`; conclusion `failure`._
+
+- Ubuntu and Windows product jobs passed their complete Pester, product, and
+  stdio-handshake steps. All three SIEM jobs passed receiver and producer
+  conformance, including the corrected macOS physical-temp-root step.
+- macOS product passed Pester, architecture 73/73, and Guardian 442/442. Its
+  server assembly ran all 1,917 identities and failed only
+  `StdioChildStdinTests.Native_utf8_output_roundtrips_without_mojibake`,
+  producing `The term 'pwsh' is not recognized` instead of `em—dash`.
+  The macOS handshake was skipped after the server step failed.
+- `StdioChildStdinTests` depends on inherited process-wide `PATH` but was not
+  in the implicit `ProcessEnvironment` collection. `JobManagerTests` is in
+  that collection and deliberately replaces `PATH` with a temporary shim-only
+  directory. A local direct xUnit v3 selection of the UTF-8 identity and
+  `JobManagerTests.Job_uses_the_startup_pinned_pwsh_while_inheriting_live_environment`
+  reproduced the hosted failure on its first normally parallel run. The same
+  two identities passed 2/2 in three consecutive runs with collection
+  parallelism disabled.
+- Proposed Slice 17 assigns the complete stdio child fixture to the existing
+  `ProcessEnvironment` collection. It changes only test scheduling and awaits
+  owner approval; no production or test code was changed during diagnosis.

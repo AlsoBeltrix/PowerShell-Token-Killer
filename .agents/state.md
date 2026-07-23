@@ -19,8 +19,9 @@ short and update it when important repo facts change.
   The first three hosted-CI corrective patches are locally complete at code
   head `8b5a66d`. Hosted run `30004132833` narrowed the remaining runner faults
   to the approved second corrective amendment, now locally complete at code
-  head `cf94796`; its exact scope and evidence are canonical in
-  `.agents/plans/dependency-hardening.md`.
+  head `cf94796`. Run `30008032861` passed five of six jobs and exposed one
+  further macOS test-scheduling finding; its proposed correction and exact
+  evidence are canonical in `.agents/plans/dependency-hardening.md`.
 - **Dependency hardening and its first hosted corrective amendment are locally
   complete at code head `8b5a66d` on `feature/mcp-resilience-r1`; the approved
   second amendment is locally complete at code head `cf94796`, and final
@@ -88,8 +89,17 @@ short and update it when important repo facts change.
   focused runs. Exact workflow commands at final code head passed Pester 141
   with two expected skips, architecture 73, Guardian 442, server 1,917, SIEM
   247, conformance 6, and the handshake on both macOS and x64 Linux. All scoped
-  validation residue and processes were removed. Final hosted acceptance at
-  one exact SHA remains separately authorized.
+  validation residue and processes were removed. GitHub Actions run
+  `30008032861` at exact SHA `85dc709` passed all three SIEM jobs and the Ubuntu
+  and Windows product jobs with their handshakes. macOS product passed Pester,
+  architecture 73, and Guardian 442, then failed only
+  `StdioChildStdinTests.Native_utf8_output_roundtrips_without_mojibake` at
+  1,916/1,917 because a parallel `JobManagerTests` identity temporarily
+  replaced process-wide `PATH`. The two selected identities reproduced 1/2
+  under normal collection parallelism and passed 2/2 three consecutive times
+  when serialized. Assigning the stdio fixture to the existing
+  `ProcessEnvironment` collection is proposed as Slice 17 and awaits owner
+  approval.
 - **Owner handoff contract (2026-07-22): Git workspace mechanics are entirely
   agent-owned.** An agent must inspect and resume the exact active workspace
   without asking the owner to fetch, switch, push, select, or recover it. The
@@ -437,9 +447,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Obtain separate authorization for final dependency-hardening hosted
-   acceptance, then require all six GitHub Actions jobs and all three product
-   handshakes green at one exact SHA before making a hosted-green claim.
+1. Obtain owner approval or rejection for proposed dependency-hardening Slice
+   17: assign `StdioChildStdinTests` to the existing `ProcessEnvironment`
+   collection, verify the focused race and full macOS product command, then
+   separately authorize final exact-SHA hosted acceptance.
 2. After dependency acceptance, continue directly into the
    already-authorized R6 and R7 sequence. Do not fold the separate ARM64
    MSBuild-only `protoc` investigation into resilience work.

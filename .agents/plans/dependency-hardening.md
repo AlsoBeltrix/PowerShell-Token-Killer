@@ -1,15 +1,15 @@
 # Plan: dependency currency and advisory remediation
 
-**Status:** HOSTED CORRECTIVE AMENDMENT PROPOSED; OWNER APPROVAL REQUIRED.
+**Status:** HOSTED CORRECTIVE AMENDMENT APPROVED; IMPLEMENTATION IN PROGRESS.
 Local dependency implementation and acceptance are complete at code head
 `d1d24e8738fe145d473d0ed3c1de98c2acf96cf3`. Owner GO received 2026-07-22 for
 the first exact-SHA push. GitHub Actions run `29967333249` at documentation
 descendant `68c5b3495c688704e47a4b60cc2ebcd8f9339b4e` proved
 `actions/setup-dotnet@v6` loads in all six jobs, but three product jobs exposed
-the independent CI portability findings specified in the proposed amendment
-below. Do not change code or the workflow for that amendment until the owner
-approves it. Dependency inventory cutoff `2026-07-22T17:09:14Z` was frozen at
-baseline `637be3c`.
+the independent CI portability findings specified in the approved amendment
+below. After reconciliation with `origin/master`, the owner approved all three
+corrective slices on 2026-07-22. Dependency inventory cutoff
+`2026-07-22T17:09:14Z` was frozen at baseline `637be3c`.
 The owner approved updating through current stable major versions, including
 the xUnit v2-to-v3, Coverlet 6-to-10, and SQLitePCLRaw 2-to-3 migrations. The
 owner rejected any policy that makes vulnerability advisories build- or
@@ -367,12 +367,13 @@ identity. All validation roots, archives, tasks, scoped processes, test
 residue, and validation-created certificate residue were removed. The only
 remaining acceptance item was the separately authorized six-job hosted run for
 `actions/setup-dotnet@v6`; run `29967333249` proved the action runtime but did
-not satisfy the green product-job requirement, so the proposed corrective
+not satisfy the green product-job requirement, so the approved corrective
 amendment below now gates final acceptance.
 
-## Proposed hosted corrective amendment
+## Approved hosted corrective amendment
 
-This amendment is not approved. Hosted run `29967333249` at exact SHA
+Owner GO received 2026-07-22 after reconciliation confirmed all three findings
+remain present. Hosted run `29967333249` at exact SHA
 `68c5b3495c688704e47a4b60cc2ebcd8f9339b4e` completed all six
 `actions/setup-dotnet@v6` setup steps, all three Pester steps, and all three
 SIEM jobs. Each product job then failed only in `Server tests`; each handshake
@@ -428,8 +429,9 @@ normal intra-project xUnit behavior, visible console results, Pester, the
 stdio handshake, and the separate SIEM job. Do not filter or skip tests.
 
 Validate the exact workflow command locally on macOS, x64 Linux `magneto`, and
-Windows `NETWATCH-01`. Require architecture 73, Guardian 436, and server 1,868
-identities on each platform, using the already-established Windows
+Windows `NETWATCH-01`. Require the reconciled baselines of architecture 73,
+Guardian 442, and server 1,917 identities on each platform, using the
+already-established Windows
 ordinary-account/SYSTEM split only where credential-bound PKCS#12 coverage
 requires it. Re-run workflow syntax and structural checks. After a separate
 push authorization, require all six GitHub Actions jobs and all three

@@ -270,11 +270,17 @@ short and update it when important repo facts change.
   that authorization, and run the production guardian control pump only after
   the ordered event callback returns. Exact plan audit is durable before the
   authorization can cross the pipe; an audit failure cancels without
-  authorization and releases only the exact retained control event. R6 remains
-  in progress: guardian-reserved background start and asynchronous job
-  lifecycle, validator-event forwarding, per-alias host cutover, authoritative
-  multi-alias guardian state, automatic recovery wiring, and the remaining
-  Windows/cutover acceptance matrix.
+  authorization and releases only the exact retained control event. The worker
+  prepared protocol now has separate exact foreground/background shapes,
+  consumes the guardian-reserved background job ID without a worker-local
+  allocation or outer capability, holds cold planning/start behind the same
+  plan/dispatch authorizer, writes the start result before one bounded
+  asynchronous `job_terminal`, emits no terminal for a refusal, and orders
+  shutdown as reservation drain, runtime job containment, terminal-event
+  drain, then `stopped`. R6 remains in progress: host/guardian forwarding of
+  worker job, validator, and output events; per-alias host cutover;
+  authoritative multi-alias guardian state; automatic recovery wiring; and the
+  remaining Windows/cutover acceptance matrix.
 - **The owner-approved two-layer MCP resilience sequence is implemented and
   directly validated through R5 on `feature/mcp-resilience-r1`; the current
   code head is `225b5fc`, with exact platform evidence at Windows `195e7e6`,

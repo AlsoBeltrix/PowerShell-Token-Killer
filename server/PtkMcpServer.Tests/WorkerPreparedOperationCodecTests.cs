@@ -23,6 +23,12 @@ public sealed class WorkerPreparedOperationCodecTests
         "{\"planId\":\"12345678-1234-4234-9234-123456789abc\"," +
         "\"scriptDigest\":\"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881\"," +
         "\"generation\":7,\"deadlineUnixTimeMilliseconds\":1900000000123}";
+    private const string ValidBackgroundPrepareJson =
+        "{\"planId\":\"12345678-1234-4234-9234-123456789abc\"," +
+        "\"generation\":7,\"deadlineUnixTimeMilliseconds\":1900000000123," +
+        "\"scriptDigest\":\"2d711642b726b04401627ca9fbac32f5c8530fb1903cc4db02258717921a4881\"," +
+        "\"operation\":\"invoke_background\",\"arguments\":{\"script\":\"x\",\"raw\":false,\"route\":\"auto\"}," +
+        "\"publicJobId\":41}";
 
     private static readonly Guid PlanId = Guid.ParseExact(PlanIdText, "D");
     private static readonly Guid OtherPlanId = Guid.ParseExact(OtherPlanIdText, "D");
@@ -67,6 +73,43 @@ public sealed class WorkerPreparedOperationCodecTests
         Assert.Equal(abort, WorkerPreparedOperationCodec.ParseAbort(encodedAbort));
 
         Assert.NotEqual(typeof(WorkerCommitPayload), typeof(WorkerAbortPayload));
+    }
+
+    [Fact]
+    public void Background_prepare_round_trips_the_guardian_reserved_public_job_id()
+    {
+        var background = ValidPrepare() with
+        {
+            Kind = WorkerPreparedInvokeKind.Background,
+            PublicJobId = 41,
+        };
+
+        var encoded = WorkerPreparedOperationCodec.CreatePrepare(background);
+
+        Assert.Equal(ValidBackgroundPrepareJson, encoded.GetRawText());
+        Assert.Equal(background, WorkerPreparedOperationCodec.ParsePrepare(encoded));
+        AssertDetail(
+            "invalid_prepared_field",
+            () => WorkerPreparedOperationCodec.CreatePrepare(
+                background with { PublicJobId = null }));
+        AssertDetail(
+            "invalid_prepared_field",
+            () => WorkerPreparedOperationCodec.CreatePrepare(
+                ValidPrepare() with { PublicJobId = 41 }));
+        AssertDetail(
+            "missing_prepared_field",
+            () => WorkerPreparedOperationCodec.ParsePrepare(Json(
+                ValidBackgroundPrepareJson.Replace(
+                    ",\"publicJobId\":41",
+                    string.Empty,
+                    StringComparison.Ordinal))));
+        AssertDetail(
+            "invalid_prepared_field",
+            () => WorkerPreparedOperationCodec.ParsePrepare(Json(
+                ValidBackgroundPrepareJson.Replace(
+                    "\"publicJobId\":41",
+                    "\"publicJobId\":0",
+                    StringComparison.Ordinal))));
     }
 
     [Fact]
@@ -124,6 +167,8 @@ public sealed class WorkerPreparedOperationCodecTests
                 "unsupported_prepared_operation"),
             (ValidPrepareJson.Replace("\"operation\":\"invoke\"", "\"operation\":\"Invoke\"", StringComparison.Ordinal),
                 "unsupported_prepared_operation"),
+            (ValidPrepareJson.Insert(ValidPrepareJson.Length - 1, ",\"publicJobId\":41"),
+                "invalid_prepared_field"),
             (ValidPrepareJson.Replace(
                 "{\"script\":\"x\",\"raw\":false,\"route\":\"auto\"}",
                 "[]",

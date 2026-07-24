@@ -44,6 +44,38 @@ public sealed class WorkerPreparedInvokeControllerTests
     }
 
     [Fact]
+    public async Task Background_prepare_binds_reserved_id_and_terminal_task()
+    {
+        var jobTerminal = new TaskCompletionSource<JobSnapshot>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var runtime = new RecordingBackgroundPreparedRuntime(
+            Plan(resolutionContext: ResolutionContext.Cold),
+            publicJobId: 41,
+            jobTerminal.Task);
+        var controller = Controller(runtime);
+        var prepare = Prepare() with
+        {
+            Kind = WorkerPreparedInvokeKind.Background,
+            PublicJobId = 41,
+        };
+
+        _ = await controller.PrepareAsync(
+            prepare,
+            TestContext.Current.CancellationToken);
+        var terminal = await controller.Commit(Commit())
+            .WaitAsync(TestContext.Current.CancellationToken);
+
+        Assert.Equal(WorkerPreparedInvokeTerminalKind.Completed, terminal.Kind);
+        var background = Assert.IsType<WorkerPreparedBackgroundResult>(
+            terminal.Background);
+        Assert.Equal(41, background.PublicJobId);
+        Assert.True(background.Started);
+        Assert.Same(jobTerminal.Task, background.Terminal);
+        controller.Release(PlanId);
+        await controller.CancelAndDrainAsync();
+    }
+
+    [Fact]
     public async Task Abort_releases_the_reservation_without_starting_user_execution()
     {
         var runtime = new RecordingPreparedRuntime(Plan());
@@ -214,18 +246,56 @@ public sealed class WorkerPreparedInvokeControllerTests
         7,
         Deadline);
 
-    private static ExecutionPlan Plan() => new(
+    private static ExecutionPlan Plan(
+        ResolutionContext resolutionContext = ResolutionContext.Warm) => new(
         Script,
         Script,
         ExecutionDomain.PowerShell,
         ExecutionPath.PowerShellDirect,
         PreExecutionValidation.None,
-        ResolutionContext.Warm,
+        resolutionContext,
         RequestedExecutionRoute.Auto,
-        OutputProvenance.PowerShellObjects,
+        resolutionContext == ResolutionContext.Cold
+            ? OutputProvenance.DirectText
+            : OutputProvenance.PowerShellObjects,
         ImmutableArray<ExecutionPath>.Empty,
         fallbackReason: null,
         rtkExecutableIdentity: null);
+
+    private sealed class RecordingBackgroundPreparedRuntime(
+        ExecutionPlan preparedPlan,
+        long publicJobId,
+        Task<JobSnapshot> terminal) : IWorkerPreparedInvokeRuntime
+    {
+        public async Task<WorkerPreparedRuntimeResult> InvokeAsync(
+            WorkerInvokePreparePayload prepare,
+            IInvocationAuthorizer authorizer,
+            CancellationToken cancellationToken)
+        {
+            if (!await authorizer.AuthorizePlanAsync(
+                    preparedPlan,
+                    cancellationToken) ||
+                !await authorizer.AuthorizeDispatchAsync(
+                    ExecutionDispatch.FromPlan(preparedPlan),
+                    cancellationToken))
+            {
+                return new WorkerPreparedRuntimeResult(
+                    "not started",
+                    UserExecutionStarted: false,
+                    new WorkerPreparedBackgroundResult(
+                        publicJobId,
+                        Started: false,
+                        Terminal: null));
+            }
+            return new WorkerPreparedRuntimeResult(
+                "started",
+                UserExecutionStarted: true,
+                new WorkerPreparedBackgroundResult(
+                    publicJobId,
+                    Started: true,
+                    terminal));
+        }
+    }
 
     private sealed class RecordingPreparedRuntime(
         ExecutionPlan preparedPlan,

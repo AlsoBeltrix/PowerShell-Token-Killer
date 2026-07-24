@@ -7,12 +7,20 @@ using System.Text.Json;
 
 namespace PtkMcpServer.Worker;
 
+internal enum WorkerPreparedInvokeKind
+{
+    Foreground,
+    Background,
+}
+
 internal sealed record WorkerInvokePreparePayload(
     Guid PlanId,
     long Generation,
     DateTimeOffset DeadlineUtc,
     string ScriptDigest,
-    WorkerInvokeArguments Arguments);
+    WorkerInvokeArguments Arguments,
+    WorkerPreparedInvokeKind Kind = WorkerPreparedInvokeKind.Foreground,
+    long? PublicJobId = null);
 
 internal sealed record WorkerPreparedCorrelation(
     Guid PlanId,
@@ -63,6 +71,8 @@ internal enum WorkerPreparedCorrelationMatch
 /// </summary>
 internal static class WorkerPreparedOperationCodec
 {
+    internal const string BackgroundInvokeOperation = "invoke_background";
+
     private const int Sha256HexLength = 64;
 
     private static readonly UTF8Encoding StrictUtf8 = new(
@@ -78,19 +88,24 @@ internal static class WorkerPreparedOperationCodec
             "deadlineUnixTimeMilliseconds",
             "scriptDigest",
             "operation",
-            "arguments");
+            "arguments",
+            "publicJobId");
         var planId = PlanId(Required(fields, "planId"));
         var generation = PositiveInt64(Required(fields, "generation"));
         var deadlineUtc = Deadline(Required(fields, "deadlineUnixTimeMilliseconds"));
         var scriptDigest = ScriptDigest(Required(fields, "scriptDigest"));
         var operation = StringField(Required(fields, "operation"));
-        if (!string.Equals(
-                operation,
-                WorkerSessionOperationCodec.InvokeOperation,
-                StringComparison.Ordinal))
+        var (kind, publicJobId) = operation switch
         {
-            throw UnsupportedOperation();
-        }
+            WorkerSessionOperationCodec.InvokeOperation
+                when !fields.ContainsKey("publicJobId") =>
+                (WorkerPreparedInvokeKind.Foreground, (long?)null),
+            BackgroundInvokeOperation =>
+                (WorkerPreparedInvokeKind.Background,
+                    PositiveInt64(Required(fields, "publicJobId"))),
+            WorkerSessionOperationCodec.InvokeOperation => throw InvalidField(),
+            _ => throw UnsupportedOperation(),
+        };
 
         var invokeArguments = ParseInvokeArguments(Required(fields, "arguments"));
 
@@ -100,7 +115,9 @@ internal static class WorkerPreparedOperationCodec
             generation,
             deadlineUtc,
             scriptDigest,
-            invokeArguments);
+            invokeArguments,
+            kind,
+            publicJobId);
     }
 
     internal static JsonElement CreatePrepare(WorkerInvokePreparePayload payload)
@@ -111,16 +128,32 @@ internal static class WorkerPreparedOperationCodec
         var deadline = DeadlineMilliseconds(payload.DeadlineUtc);
         var scriptDigest = ScriptDigest(payload.ScriptDigest);
         var arguments = PrepareArguments(payload.Arguments, scriptDigest);
-
-        return JsonSerializer.SerializeToElement(new
+        return payload.Kind switch
         {
-            planId,
-            generation,
-            deadlineUnixTimeMilliseconds = deadline,
-            scriptDigest,
-            operation = WorkerSessionOperationCodec.InvokeOperation,
-            arguments,
-        });
+            WorkerPreparedInvokeKind.Foreground when payload.PublicJobId is null =>
+                JsonSerializer.SerializeToElement(new
+                {
+                    planId,
+                    generation,
+                    deadlineUnixTimeMilliseconds = deadline,
+                    scriptDigest,
+                    operation = WorkerSessionOperationCodec.InvokeOperation,
+                    arguments,
+                }),
+            WorkerPreparedInvokeKind.Background =>
+                JsonSerializer.SerializeToElement(new
+                {
+                    planId,
+                    generation,
+                    deadlineUnixTimeMilliseconds = deadline,
+                    scriptDigest,
+                    operation = BackgroundInvokeOperation,
+                    arguments,
+                    publicJobId = PositiveInt64(
+                        payload.PublicJobId ?? throw InvalidField()),
+                }),
+            _ => throw InvalidField(),
+        };
     }
 
     internal static WorkerPreparedCorrelation ParsePreparedCorrelation(JsonElement payload)
@@ -700,6 +733,13 @@ internal static class WorkerPreparedOperationCodec
             _ = DeadlineMilliseconds(payload.DeadlineUtc);
             var scriptDigest = ScriptDigest(payload.ScriptDigest);
             _ = PrepareArguments(payload.Arguments, scriptDigest);
+            _ = payload.Kind switch
+            {
+                WorkerPreparedInvokeKind.Foreground when payload.PublicJobId is null => 0,
+                WorkerPreparedInvokeKind.Background => PositiveInt64(
+                    payload.PublicJobId ?? throw InvalidField()),
+                _ => throw InvalidField(),
+            };
             return true;
         }
         catch (WorkerProtocolException)

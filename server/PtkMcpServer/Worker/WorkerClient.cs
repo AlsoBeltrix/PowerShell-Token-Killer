@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PtkSharedContracts;
 
 namespace PtkMcpServer.Worker;
 
@@ -133,10 +134,9 @@ internal sealed class WorkerClient : IAsyncDisposable
         CancellationToken cancellationToken = default,
         Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
-        if (string.Equals(
-                operation,
-                WorkerSessionOperationCodec.InvokeOperation,
-                StringComparison.Ordinal))
+        if (operation is
+            WorkerSessionOperationCodec.InvokeOperation or
+            WorkerPreparedOperationCodec.BackgroundInvokeOperation)
         {
             throw new WorkerProtocolException(
                 "ordinary_invoke_forbidden",
@@ -657,6 +657,19 @@ internal sealed class WorkerClient : IAsyncDisposable
                 "exitCode",
                 "rootTerminationConfirmed",
             ],
+            "job_terminal" =>
+            [
+                "event",
+                "generation",
+                "planId",
+                "descriptorDigest",
+                "publicJobId",
+                "state",
+                "exitCode",
+                "outputState",
+                "outputBytes",
+                "outputDigest",
+            ],
             _ => throw new WorkerProtocolException(
                 "unknown_worker_event",
                 "Worker emitted an unknown operational event."),
@@ -665,7 +678,11 @@ internal sealed class WorkerClient : IAsyncDisposable
             fields.Keys.Any(name => !allowed.Contains(name, StringComparer.Ordinal)) ||
             RequiredPositiveInt64(fields, "generation") != Generation ||
             !IsCanonicalUuidV4(RequiredString(fields, "planId")) ||
-            !IsLowerSha256(RequiredString(fields, "descriptorDigest")) ||
+            !IsLowerSha256(RequiredString(fields, "descriptorDigest")))
+        {
+            throw InvalidWorkerEvent();
+        }
+        if (eventName is "validator_started" or "validator_completed" &&
             RequiredString(fields, "executionPath") != "bash_via_rtk")
         {
             throw InvalidWorkerEvent();
@@ -681,6 +698,30 @@ internal sealed class WorkerClient : IAsyncDisposable
                     !fields["exitCode"].TryGetInt32(out _) ||
                 fields["rootTerminationConfirmed"].ValueKind is not
                     (JsonValueKind.Null or JsonValueKind.True or JsonValueKind.False))
+            {
+                throw InvalidWorkerEvent();
+            }
+        }
+        if (eventName == "job_terminal")
+        {
+            var state = RequiredString(fields, "state");
+            var outputState = RequiredString(fields, "outputState");
+            if (RequiredPositiveInt64(fields, "publicJobId") <= 0 ||
+                state is not ("completed" or "failed" or "canceled" or
+                    "lost" or "outcome_unknown") ||
+                fields["exitCode"].ValueKind is not
+                    (JsonValueKind.Null or JsonValueKind.Number) ||
+                fields["exitCode"].ValueKind == JsonValueKind.Number &&
+                    !fields["exitCode"].TryGetInt32(out _) ||
+                outputState is not
+                    ("sealed" or "sealed_incomplete" or "unavailable") ||
+                fields["outputBytes"].ValueKind != JsonValueKind.Number ||
+                !fields["outputBytes"].TryGetInt32(out var outputBytes) ||
+                outputBytes is < 0 or > ContractLimits.MaximumOutputBytes ||
+                fields["outputDigest"].ValueKind is not
+                    (JsonValueKind.Null or JsonValueKind.String) ||
+                fields["outputDigest"].ValueKind == JsonValueKind.String &&
+                    !IsLowerSha256(fields["outputDigest"].GetString()!))
             {
                 throw InvalidWorkerEvent();
             }

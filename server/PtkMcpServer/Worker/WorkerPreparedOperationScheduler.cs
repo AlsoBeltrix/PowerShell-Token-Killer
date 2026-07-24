@@ -1,4 +1,5 @@
 using System.Text.Json;
+using PtkSharedContracts;
 
 namespace PtkMcpServer.Worker;
 
@@ -16,11 +17,14 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
     private readonly WorkerPreparedInvokeController _controller;
     private readonly Func<WorkerEnvelope, CancellationToken, Task> _write;
     private readonly Dictionary<long, Guid> _requestPlans = [];
+    private readonly Dictionary<Guid, WorkerPreparedPlanDescriptor> _preparedDescriptors = [];
     private readonly HashSet<Task> _active = [];
+    private readonly HashSet<Task> _jobEvents = [];
     private readonly TaskCompletionSource _fatal = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _stopped;
     private Task? _drainTask;
+    private Task? _jobEventDrainTask;
 
     internal WorkerPreparedOperationScheduler(
         Guid workerBootId,
@@ -97,6 +101,19 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
             _stopped = true;
             _drainTask = DrainAsync();
             return _drainTask;
+        }
+    }
+
+    internal Task DrainJobEventsAsync()
+    {
+        lock (_gate)
+        {
+            if (!_stopped)
+            {
+                throw new InvalidOperationException(
+                    "Prepared-operation scheduling must stop before job events drain.");
+            }
+            return _jobEventDrainTask ??= DrainJobEventsCoreAsync();
         }
     }
 
@@ -205,6 +222,7 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
             var descriptor = await _controller.PrepareAsync(
                 prepare,
                 CancellationToken.None).ConfigureAwait(false);
+            lock (_gate) _preparedDescriptors[prepare.PlanId] = descriptor;
             await _write(
                 WorkerPreparedOperationProtocol.CreatePreparedResponse(
                     _workerBootId,
@@ -262,6 +280,20 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
                 _generation,
                 terminal),
             CancellationToken.None).ConfigureAwait(false);
+        if (terminal.Background is { Started: true, Terminal: not null } background)
+        {
+            WorkerPreparedPlanDescriptor descriptor;
+            lock (_gate)
+            {
+                if (!_preparedDescriptors.TryGetValue(planId, out descriptor!))
+                {
+                    throw new WorkerProtocolException(
+                        "prepared_descriptor_missing",
+                        "A started background operation has no prepared descriptor.");
+                }
+            }
+            StartJobEvent(descriptor, background);
+        }
         RemovePlan(planId);
         _controller.Release(planId);
     }
@@ -270,6 +302,7 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
     {
         lock (_gate)
         {
+            _preparedDescriptors.Remove(planId);
             foreach (var requestId in _requestPlans
                 .Where(value => value.Value == planId)
                 .Select(value => value.Key)
@@ -310,15 +343,80 @@ internal sealed class WorkerPreparedOperationScheduler : IWorkerPreparedInvokeOb
             {
                 tasks = _active.ToArray();
             }
-            if (tasks.Length == 0) return;
+            if (tasks.Length == 0)
+            {
+                await ThrowIfFatalAsync().ConfigureAwait(false);
+                return;
+            }
             await Task.WhenAll(tasks).ConfigureAwait(false);
         }
+    }
+
+    private void StartJobEvent(
+        WorkerPreparedPlanDescriptor descriptor,
+        WorkerPreparedBackgroundResult background)
+    {
+        var release = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? task = null;
+        task = Task.Run(async () =>
+        {
+            await release.Task.ConfigureAwait(false);
+            try
+            {
+                var snapshot = await background.Terminal!.ConfigureAwait(false);
+                await _write(
+                    WorkerPreparedOperationProtocol.CreateJobTerminalEvent(
+                        _workerBootId,
+                        _generation,
+                        descriptor,
+                        background.PublicJobId,
+                        snapshot),
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                LatchFatal(exception);
+            }
+            finally
+            {
+                lock (_gate) _jobEvents.Remove(task!);
+            }
+        });
+        lock (_gate) _jobEvents.Add(task);
+        release.TrySetResult();
+    }
+
+    private async Task DrainJobEventsCoreAsync()
+    {
+        while (true)
+        {
+            Task[] tasks;
+            lock (_gate) tasks = _jobEvents.ToArray();
+            if (tasks.Length == 0)
+            {
+                await ThrowIfFatalAsync().ConfigureAwait(false);
+                return;
+            }
+            await Task.WhenAll(tasks).ConfigureAwait(false);
+        }
+    }
+
+    private async Task ThrowIfFatalAsync()
+    {
+        if (_fatal.Task.IsCompleted)
+            await _fatal.Task.ConfigureAwait(false);
     }
 
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or
             AccessViolationException or AppDomainUnloadedException;
 }
+
+internal sealed record WorkerBackgroundStartResponse(
+    string Text,
+    long PublicJobId,
+    bool Started);
 
 internal static class WorkerPreparedOperationProtocol
 {
@@ -407,10 +505,7 @@ internal static class WorkerPreparedOperationProtocol
                 WorkerOperationResponse.Completed(
                     requestId,
                     generation,
-                    WorkerSessionOperationCodec.CreateResult(
-                        WorkerSessionOperationCodec.InvokeOperation,
-                        new WorkerInvokeResult(terminal.Text ??
-                            throw InvalidTerminal()))),
+                    CreateCompletedResult(terminal)),
             WorkerPreparedInvokeTerminalKind.Expired =>
                 WorkerOperationResponse.TimedOut(
                     requestId,
@@ -431,6 +526,53 @@ internal static class WorkerPreparedOperationProtocol
             _ => throw InvalidTerminal(),
         };
         return WorkerOperationProtocol.CreateResponseEnvelope(workerBootId, response);
+    }
+
+    internal static WorkerBackgroundStartResponse ParseBackgroundStartResult(
+        WorkerOperationResponse response,
+        long expectedGeneration,
+        long expectedPublicJobId)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        if (response.Generation != expectedGeneration ||
+            response.Status != WorkerOperationStatus.Completed ||
+            response.DetailCode is not null ||
+            response.Result is not { ValueKind: JsonValueKind.Object } result)
+        {
+            throw InvalidTerminal();
+        }
+        var fields = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        foreach (var property in result.EnumerateObject())
+        {
+            if (property.Name is not ("text" or "publicJobId" or "started") ||
+                !fields.TryAdd(property.Name, property.Value))
+            {
+                throw InvalidTerminal();
+            }
+        }
+        if (fields.Count != 3 ||
+            !fields.Keys.ToHashSet(StringComparer.Ordinal)
+                .SetEquals(["text", "publicJobId", "started"]) ||
+            fields["text"].ValueKind != JsonValueKind.String ||
+            fields["publicJobId"].ValueKind != JsonValueKind.Number ||
+            !fields["publicJobId"].TryGetInt64(out var publicJobId) ||
+            publicJobId != expectedPublicJobId ||
+            fields["started"].ValueKind is not
+                (JsonValueKind.True or JsonValueKind.False))
+        {
+            throw InvalidTerminal();
+        }
+        var text = AssertInvokeText(
+            WorkerSessionOperationCodec.ParseResult(
+            WorkerSessionOperationCodec.InvokeOperation,
+            JsonSerializer.SerializeToElement(new
+            {
+                text = fields["text"].GetString(),
+            })));
+        return new WorkerBackgroundStartResponse(
+            text,
+            publicJobId,
+            fields["started"].GetBoolean());
     }
 
     internal static WorkerEnvelope CreateFailureResponse(
@@ -502,6 +644,97 @@ internal static class WorkerPreparedOperationProtocol
                 rootTerminationConfirmed = result.RootTerminationConfirmed,
             }));
     }
+
+    internal static WorkerEnvelope CreateJobTerminalEvent(
+        Guid workerBootId,
+        long generation,
+        WorkerPreparedPlanDescriptor descriptor,
+        long publicJobId,
+        JobSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentNullException.ThrowIfNull(snapshot);
+        if (descriptor.WorkerBootId != workerBootId ||
+            descriptor.Generation != generation ||
+            publicJobId <= 0 ||
+            snapshot.Id != publicJobId ||
+            snapshot.Running)
+        {
+            throw new WorkerProtocolException(
+                "invalid_job_terminal_event",
+                "Background job terminal identity or state is invalid.");
+        }
+
+        var recovery = snapshot.OutputRecovery;
+        var outputState = recovery?.State switch
+        {
+            OutputArtifactState.Available => "sealed",
+            OutputArtifactState.Incomplete => "sealed_incomplete",
+            _ => "unavailable",
+        };
+        var outputBytes = checked((int)(recovery?.Bytes ?? 0));
+        if (outputBytes is < 0 or > ContractLimits.MaximumOutputBytes)
+        {
+            throw new WorkerProtocolException(
+                "invalid_job_terminal_event",
+                "Background job terminal output size is invalid.");
+        }
+        var state = !snapshot.RootTerminationConfirmed
+            ? "lost"
+            : snapshot.StartOutcomeUnknown || snapshot.ExecutionOutcomeUnknown
+                ? "outcome_unknown"
+                : snapshot.KillRequested
+                    ? "canceled"
+                    : snapshot.ExitCode == 0
+                        ? "completed"
+                        : "failed";
+
+        return Envelope(
+            workerBootId,
+            WorkerMessageKind.Event,
+            requestId: null,
+            JsonSerializer.SerializeToElement(new
+            {
+                @event = "job_terminal",
+                generation,
+                planId = descriptor.PlanId.ToString("D"),
+                descriptorDigest =
+                    WorkerPreparedOperationCodec.ComputePreparedDescriptorDigest(descriptor),
+                publicJobId,
+                state,
+                exitCode = snapshot.ExitCode,
+                outputState,
+                outputBytes,
+                outputDigest = (string?)null,
+            }));
+    }
+
+    private static JsonElement CreateCompletedResult(
+        WorkerPreparedInvokeTerminal terminal)
+    {
+        var text = terminal.Text ?? throw InvalidTerminal();
+        var encodedText = WorkerSessionOperationCodec.CreateResult(
+            WorkerSessionOperationCodec.InvokeOperation,
+            new WorkerInvokeResult(text));
+        if (terminal.Background is not { } background)
+            return encodedText;
+        if (background.PublicJobId <= 0 ||
+            background.Started != (background.Terminal is not null))
+        {
+            throw InvalidTerminal();
+        }
+        return JsonSerializer.SerializeToElement(new
+        {
+            text = encodedText.GetProperty("text").GetString(),
+            publicJobId = background.PublicJobId,
+            started = background.Started,
+        });
+    }
+
+    private static string AssertInvokeText(WorkerSessionOperationResult result) =>
+        result is WorkerInvokeResult invoke
+            ? invoke.Text
+            : throw InvalidTerminal();
 
     private static void ValidateValidator(
         Guid workerBootId,

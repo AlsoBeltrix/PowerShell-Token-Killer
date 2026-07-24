@@ -2,9 +2,15 @@ using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Worker;
 
+internal sealed record WorkerPreparedBackgroundResult(
+    long PublicJobId,
+    bool Started,
+    Task<JobSnapshot>? Terminal);
+
 internal sealed record WorkerPreparedRuntimeResult(
     string Text,
-    bool UserExecutionStarted);
+    bool UserExecutionStarted,
+    WorkerPreparedBackgroundResult? Background = null);
 
 internal interface IWorkerPreparedInvokeRuntime
 {
@@ -48,7 +54,8 @@ internal enum WorkerPreparedInvokeTerminalKind
 internal sealed record WorkerPreparedInvokeTerminal(
     WorkerPreparedInvokeTerminalKind Kind,
     string? Text,
-    string? DetailCode);
+    string? DetailCode,
+    WorkerPreparedBackgroundResult? Background = null);
 
 /// <summary>
 /// Owns prepared foreground-invoke reservations for one worker generation.
@@ -284,7 +291,8 @@ internal sealed class WorkerPreparedInvokeController
         Task.FromResult(new WorkerPreparedInvokeTerminal(
             WorkerPreparedInvokeTerminalKind.ReplanRequired,
             Text: null,
-            DetailCode: "replan_required"));
+            DetailCode: "replan_required",
+            Background: null));
 
     private void ReplanAllBeforeCommit()
     {
@@ -690,12 +698,39 @@ internal sealed class WorkerPreparedInvokeController
                 kind = WorkerPreparedInvokeTerminalKind.Failed;
                 detailCode = "prepared_authorization_invariant_failed";
             }
+            if (kind == WorkerPreparedInvokeTerminalKind.Completed &&
+                !ValidOperationResult(result))
+            {
+                kind = WorkerPreparedInvokeTerminalKind.Failed;
+                detailCode = "prepared_runtime_result_invalid";
+            }
             return new WorkerPreparedInvokeTerminal(
                 kind,
                 kind == WorkerPreparedInvokeTerminalKind.Completed
                     ? result?.Text
                     : null,
-                detailCode);
+                detailCode,
+                kind == WorkerPreparedInvokeTerminalKind.Completed
+                    ? result?.Background
+                    : null);
+        }
+
+        private bool ValidOperationResult(WorkerPreparedRuntimeResult? result)
+        {
+            if (result is null) return false;
+            if (_prepare.Kind == WorkerPreparedInvokeKind.Foreground)
+                return _prepare.PublicJobId is null && result.Background is null;
+            if (_prepare.Kind != WorkerPreparedInvokeKind.Background ||
+                _prepare.PublicJobId is not { } expectedJobId ||
+                result.Background is not { } background ||
+                background.PublicJobId != expectedJobId ||
+                background.Started != result.UserExecutionStarted)
+            {
+                return false;
+            }
+            return background.Started
+                ? background.Terminal is not null
+                : background.Terminal is null;
         }
 
         private void EndBeforeCommitUnderLock(

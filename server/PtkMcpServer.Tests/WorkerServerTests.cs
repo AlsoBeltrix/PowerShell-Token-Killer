@@ -275,8 +275,11 @@ public sealed class WorkerServerTests
         Assert.Equal(1, runtime.DisposeCount);
     }
 
-    [Fact]
-    public async Task Ordinary_invoke_is_protocol_fatal_before_runtime_execution()
+    [Theory]
+    [InlineData(WorkerSessionOperationCodec.InvokeOperation)]
+    [InlineData(WorkerPreparedOperationCodec.BackgroundInvokeOperation)]
+    public async Task Ordinary_script_bearing_invoke_is_protocol_fatal_before_runtime_execution(
+        string operation)
     {
         using var input = new FeedableReadStream();
         using var output = new CapturingWriteStream();
@@ -293,7 +296,7 @@ public sealed class WorkerServerTests
         input.Enqueue(Frame(OperationRequest(
             requestId: 2,
             generation: 4,
-            operation: WorkerSessionOperationCodec.InvokeOperation,
+            operation,
             WorkerSessionOperationCodec.CreateArguments(
                 WorkerSessionOperationCodec.InvokeOperation,
                 new WorkerInvokeArguments("Get-Process", Raw: false, WorkerInvokeRoute.Auto)))));
@@ -426,6 +429,187 @@ public sealed class WorkerServerTests
         Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
         Assert.Equal(1, runtime.ShutdownCount);
         Assert.Equal(1, runtime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Prepared_background_writes_start_response_before_one_async_job_terminal()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime();
+        const long publicJobId = 73;
+        var prepare = PreparedInvoke(
+            generation: 13,
+            script: "Write-Output background",
+            WorkerPreparedInvokeKind.Background,
+            publicJobId);
+        input.Enqueue(Frame(Initialize(1, 13, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Commit,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateCommit(new WorkerCommitPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await output.WaitForWritesAsync(1);
+
+        var beforeTerminal = await output.FramesAsync();
+        var response = WorkerOperationProtocol.ParseResponse(
+            beforeTerminal[3],
+            BootId,
+            expectedGeneration: 13);
+        Assert.True(
+            response.Status == WorkerOperationStatus.Completed,
+            beforeTerminal[3].Payload.GetRawText());
+        var started = WorkerPreparedOperationProtocol.ParseBackgroundStartResult(
+            response,
+            expectedGeneration: 13,
+            expectedPublicJobId: publicJobId);
+        Assert.True(started.Started);
+        Assert.DoesNotContain(
+            beforeTerminal,
+            frame => frame.Kind == WorkerMessageKind.Event &&
+                frame.Payload.TryGetProperty("event", out var eventName) &&
+                eventName.GetString() == "job_terminal");
+
+        runtime.CompleteBackground(publicJobId, exitCode: 0);
+        await output.WaitForWritesAsync(1);
+        var frames = await output.FramesAsync();
+        var jobTerminal = frames[4];
+        Assert.Equal(WorkerMessageKind.Event, jobTerminal.Kind);
+        Assert.Null(jobTerminal.RequestId);
+        Assert.Equal("job_terminal", jobTerminal.Payload.GetProperty("event").GetString());
+        Assert.Equal(publicJobId, jobTerminal.Payload.GetProperty("publicJobId").GetInt64());
+        Assert.Equal("completed", jobTerminal.Payload.GetProperty("state").GetString());
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.Equal(
+            ["hello", "ready", "prepared", "completed", "job_terminal", "stopped"],
+            (await output.FramesAsync()).Select(frame =>
+                frame.Kind == WorkerMessageKind.Event
+                    ? frame.Payload.GetProperty("event").GetString()
+                    : frame.Payload.GetProperty("status").GetString()));
+    }
+
+    [Fact]
+    public async Task Prepared_background_shutdown_drains_runtime_before_terminal_event_and_stopped()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime();
+        const long publicJobId = 74;
+        var prepare = PreparedInvoke(
+            generation: 14,
+            script: "Write-Output until-shutdown",
+            WorkerPreparedInvokeKind.Background,
+            publicJobId);
+        input.Enqueue(Frame(Initialize(1, 14, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Commit,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateCommit(new WorkerCommitPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await output.WaitForWritesAsync(1);
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        var frames = await output.FramesAsync();
+        Assert.Equal(
+            ["hello", "ready", "prepared", "completed", "job_terminal", "stopped"],
+            frames.Select(frame =>
+                frame.Kind == WorkerMessageKind.Event
+                    ? frame.Payload.GetProperty("event").GetString()
+                    : frame.Payload.GetProperty("status").GetString()));
+        Assert.Equal(
+            "canceled",
+            frames[4].Payload.GetProperty("state").GetString());
+        Assert.Equal(1, runtime.ShutdownCount);
+    }
+
+    [Fact]
+    public async Task Prepared_background_refusal_emits_no_async_job_terminal()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var runtime = new PreparedWorkerRuntime(startBackground: false);
+        const long publicJobId = 75;
+        var prepare = PreparedInvoke(
+            generation: 15,
+            script: "Write-Output refused",
+            WorkerPreparedInvokeKind.Background,
+            publicJobId);
+        input.Enqueue(Frame(Initialize(1, 15, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<ISessionLifetime>(runtime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(2);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Prepare,
+            requestId: 2,
+            WorkerPreparedOperationCodec.CreatePrepare(prepare))));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Commit,
+            requestId: 3,
+            WorkerPreparedOperationCodec.CreateCommit(new WorkerCommitPayload(
+                prepare.PlanId,
+                prepare.ScriptDigest,
+                prepare.Generation,
+                prepare.DeadlineUtc)))));
+        await output.WaitForWritesAsync(1);
+
+        var response = WorkerOperationProtocol.ParseResponse(
+            (await output.FramesAsync())[3],
+            BootId,
+            expectedGeneration: 15);
+        var start = WorkerPreparedOperationProtocol.ParseBackgroundStartResult(
+            response,
+            expectedGeneration: 15,
+            expectedPublicJobId: publicJobId);
+        Assert.False(start.Started);
+
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 4, EmptyPayload())));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.DoesNotContain(
+            await output.FramesAsync(),
+            frame => frame.Kind == WorkerMessageKind.Event &&
+                frame.Payload.TryGetProperty("event", out var eventName) &&
+                eventName.GetString() == "job_terminal");
+        Assert.Equal(0, runtime.ExecutionCount);
     }
 
     [Fact]
@@ -1649,7 +1833,9 @@ public sealed class WorkerServerTests
 
     private static WorkerInvokePreparePayload PreparedInvoke(
         long generation,
-        string script)
+        string script,
+        WorkerPreparedInvokeKind kind = WorkerPreparedInvokeKind.Foreground,
+        long? publicJobId = null)
     {
         var scriptDigest = Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(script)));
@@ -1658,7 +1844,9 @@ public sealed class WorkerServerTests
             generation,
             Now.AddMinutes(1),
             scriptDigest,
-            new WorkerInvokeArguments(script, Raw: false, WorkerInvokeRoute.Auto));
+            new WorkerInvokeArguments(script, Raw: false, WorkerInvokeRoute.Auto),
+            kind,
+            publicJobId);
     }
 
     private static JsonElement InitializePayload(long generation, DateTimeOffset deadline) =>
@@ -1813,7 +2001,9 @@ public sealed class WorkerServerTests
         public void Dispose() => DisposeCount++;
     }
 
-    private sealed class PreparedWorkerRuntime(bool blockExecution = false)
+    private sealed class PreparedWorkerRuntime(
+        bool blockExecution = false,
+        bool startBackground = true)
         : IWorkerSessionRuntime
     {
         private int _executionCount;
@@ -1822,6 +2012,9 @@ public sealed class WorkerServerTests
         internal int ShutdownCount { get; private set; }
         internal int DisposeCount { get; private set; }
         internal TaskCompletionSource ExecutionStarted { get; } = NewSignal();
+        private TaskCompletionSource<JobSnapshot> BackgroundTerminal { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        private long _backgroundJobId;
 
         public Task<JsonElement> ExecuteAsync(
             WorkerOperationRequest request,
@@ -1839,9 +2032,13 @@ public sealed class WorkerServerTests
                 ExecutionDomain.PowerShell,
                 ExecutionPath.PowerShellDirect,
                 PreExecutionValidation.None,
-                ResolutionContext.Warm,
+                prepare.Kind == WorkerPreparedInvokeKind.Background
+                    ? ResolutionContext.Cold
+                    : ResolutionContext.Warm,
                 RequestedExecutionRoute.Auto,
-                OutputProvenance.PowerShellObjects,
+                prepare.Kind == WorkerPreparedInvokeKind.Background
+                    ? OutputProvenance.DirectText
+                    : OutputProvenance.PowerShellObjects,
                 ImmutableArray<ExecutionPath>.Empty,
                 fallbackReason: null,
                 rtkExecutableIdentity: null);
@@ -1855,18 +2052,66 @@ public sealed class WorkerServerTests
                     UserExecutionStarted: false);
             }
 
+            if (prepare.Kind == WorkerPreparedInvokeKind.Background)
+            {
+                if (!startBackground)
+                {
+                    return new WorkerPreparedRuntimeResult(
+                        "background-refused",
+                        UserExecutionStarted: false,
+                        new WorkerPreparedBackgroundResult(
+                            prepare.PublicJobId!.Value,
+                            Started: false,
+                            Terminal: null));
+                }
+                _backgroundJobId = prepare.PublicJobId!.Value;
+            }
+
             Interlocked.Increment(ref _executionCount);
             ExecutionStarted.TrySetResult();
             if (blockExecution)
                 await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+            if (prepare.Kind == WorkerPreparedInvokeKind.Background)
+            {
+                return new WorkerPreparedRuntimeResult(
+                    "background-started",
+                    UserExecutionStarted: true,
+                    new WorkerPreparedBackgroundResult(
+                        prepare.PublicJobId!.Value,
+                        Started: true,
+                        BackgroundTerminal.Task));
+            }
             return new WorkerPreparedRuntimeResult(
                 "prepared-result",
                 UserExecutionStarted: true);
         }
 
+        internal void CompleteBackground(
+            long publicJobId,
+            int exitCode,
+            JobTerminationReason terminationReason = JobTerminationReason.None)
+        {
+            BackgroundTerminal.TrySetResult(new JobSnapshot(
+                publicJobId,
+                Pid: 123,
+                Running: false,
+                ExitCode: exitCode,
+                StartedUtc: Now,
+                Script: "redacted-by-protocol",
+                OutputPath: "redacted-by-protocol",
+                TerminationReason: terminationReason));
+        }
+
         public Task ShutdownAsync()
         {
             ShutdownCount++;
+            if (_backgroundJobId > 0 && !BackgroundTerminal.Task.IsCompleted)
+            {
+                CompleteBackground(
+                    _backgroundJobId,
+                    exitCode: -1,
+                    JobTerminationReason.Shutdown);
+            }
             return Task.CompletedTask;
         }
 

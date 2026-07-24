@@ -152,6 +152,37 @@ public sealed class JobManagerTests : IDisposable
     }
 
     [Fact]
+    public void Worker_retains_guardian_reserved_job_id_without_outer_capability_or_local_allocation()
+    {
+        var allocator = new RejectingPublicJobIdAllocator();
+        var root = Path.Combine(_dir, "worker-reserved");
+        using var jobs = new JobManager(
+            allocator,
+            new JobPwshExecutable(AbsolutePath: null),
+            root);
+        var cwd = Path.GetFullPath(_fixtureDir);
+        Directory.CreateDirectory(cwd);
+        var dispatch = CreateRtkDispatch(
+            cwd,
+            DirectCommand("echo worker-reserved"),
+            originalScript: "worker-reserved intent");
+
+        var plan = jobs.PrepareStartWithReservedId(
+            new PublicJobId(42),
+            dispatch,
+            cwd);
+
+        Assert.Equal(42, plan.Id);
+        Assert.Null(plan.JobCapability);
+        Assert.Same(dispatch, plan.Dispatch);
+        Assert.True(plan.DispatchBound);
+        Assert.Equal(0, allocator.AllocationAttempts);
+        Assert.Empty(jobs.List());
+        Assert.False(Directory.Exists(root));
+        Assert.False(File.Exists(plan.OutputPath));
+    }
+
+    [Fact]
     public async Task Private_status_requires_the_exact_bound_job_capability()
     {
         var publicJobId = new PublicJobId(41);

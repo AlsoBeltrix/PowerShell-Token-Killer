@@ -3,6 +3,7 @@ using System.IO.Pipelines;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 using PtkMcpServer.Worker;
@@ -200,14 +201,23 @@ public sealed class WorkerClientTests
             Deadline,
             TestContext.Current.CancellationToken);
 
-        var exception = await Assert.ThrowsAsync<WorkerProtocolException>(() =>
-            harness.Client.ExecuteAsync(
-                WorkerSessionOperationCodec.InvokeOperation,
-                new WorkerInvokeArguments("Get-Process", false, WorkerInvokeRoute.Auto),
-                Deadline,
-                TestContext.Current.CancellationToken));
-
-        Assert.Equal("ordinary_invoke_forbidden", exception.DetailCode);
+        foreach (var operation in new[]
+        {
+            WorkerSessionOperationCodec.InvokeOperation,
+            WorkerPreparedOperationCodec.BackgroundInvokeOperation,
+        })
+        {
+            var exception = await Assert.ThrowsAsync<WorkerProtocolException>(() =>
+                harness.Client.ExecuteAsync(
+                    operation,
+                    new WorkerInvokeArguments(
+                        "Get-Process",
+                        false,
+                        WorkerInvokeRoute.Auto),
+                    Deadline,
+                    TestContext.Current.CancellationToken));
+            Assert.Equal("ordinary_invoke_forbidden", exception.DetailCode);
+        }
         Assert.Equal(0, runtime.OrdinaryExecutionCount);
         await harness.Client.ShutdownAsync(TestContext.Current.CancellationToken);
         _ = await harness.ServerRun.WaitAsync(TestContext.Current.CancellationToken);
@@ -238,6 +248,106 @@ public sealed class WorkerClientTests
             await worker.Client.Fatal.WaitAsync(
                 TestContext.Current.CancellationToken));
         Assert.Equal("Worker event processing failed.", exception.Message);
+    }
+
+    [Fact]
+    public async Task Client_accepts_only_the_exact_bounded_job_terminal_event()
+    {
+        var observed = new TaskCompletionSource<WorkerEnvelope>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var worker = new ScriptedWorker(
+            expectedBootId: BootId,
+            onEvent: (envelope, _) =>
+            {
+                observed.TrySetResult(envelope);
+                return ValueTask.CompletedTask;
+            });
+        await worker.InitializeAsync(
+            generation: 20,
+            TestContext.Current.CancellationToken);
+        var prepare = Prepare(generation: 20, script: "Get-Date");
+        var descriptor = new WorkerPreparedPlanDescriptor(
+            prepare.PlanId,
+            BootId,
+            prepare.ScriptDigest,
+            prepare.Generation,
+            prepare.DeadlineUtc,
+            ExecutionDomain.PowerShell,
+            RequestedExecutionRoute.Auto,
+            ExecutionPath.PowerShellDirect,
+            PreExecutionValidation.None,
+            ResolutionContext.Cold,
+            OutputProvenance.DirectText,
+            ImmutableArray<ExecutionPath>.Empty,
+            FallbackReason: null,
+            WorkingDirectoryDigest: null,
+            RtkBinaryDigest: null,
+            BashBinaryDigest: null,
+            OutputShapingRtkBinaryDigest: null);
+        var terminal = WorkerPreparedOperationProtocol.CreateJobTerminalEvent(
+            BootId,
+            generation: 20,
+            descriptor,
+            publicJobId: 77,
+            new JobSnapshot(
+                Id: 77,
+                Pid: 123,
+                Running: false,
+                ExitCode: 0,
+                StartedUtc: DateTimeOffset.UtcNow,
+                Script: "must-not-cross-wire",
+                OutputPath: "must-not-cross-wire"));
+
+        await worker.Events.WriteAsync(
+            terminal,
+            TestContext.Current.CancellationToken);
+
+        var received = await observed.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.Equal("job_terminal", received.Payload.GetProperty("event").GetString());
+        Assert.DoesNotContain(
+            "must-not-cross-wire",
+            received.Payload.GetRawText(),
+            StringComparison.Ordinal);
+        Assert.False(worker.Client.Fatal.IsCompleted);
+    }
+
+    [Fact]
+    public async Task Client_fails_generation_on_malformed_job_terminal_event()
+    {
+        await using var worker = new ScriptedWorker();
+        await worker.InitializeAsync(
+            generation: 22,
+            TestContext.Current.CancellationToken);
+        var payload = JsonNode.Parse(
+            JsonSerializer.Serialize(new
+            {
+                @event = "job_terminal",
+                generation = 22,
+                planId = PlanId.ToString("D"),
+                descriptorDigest = new string('0', 64),
+                publicJobId = 77,
+                state = "completed",
+                exitCode = 0,
+                outputState = "unavailable",
+                outputBytes = 0,
+                outputDigest = (string?)null,
+            }))!.AsObject();
+        payload["script"] = "must-not-cross-wire";
+
+        await worker.Events.WriteAsync(
+            new WorkerEnvelope(
+                WorkerProtocol.Version,
+                WorkerMessageKind.Event,
+                BootId,
+                RequestId: null,
+                JsonSerializer.SerializeToElement(payload)),
+            TestContext.Current.CancellationToken);
+
+        var failure = await Assert.ThrowsAsync<IOException>(async () =>
+            await worker.Client.Fatal.WaitAsync(
+                TestContext.Current.CancellationToken));
+        Assert.Equal("Worker event processing failed.", failure.Message);
     }
 
     [Fact]
@@ -399,7 +509,9 @@ public sealed class WorkerClientTests
         {
         }
 
-        internal ScriptedWorker(Guid? expectedBootId)
+        internal ScriptedWorker(
+            Guid? expectedBootId,
+            Func<WorkerEnvelope, CancellationToken, ValueTask>? onEvent = null)
         {
             _clientRequests = _requests.Writer.AsStream(leaveOpen: true);
             _workerRequests = _requests.Reader.AsStream(leaveOpen: true);
@@ -408,7 +520,8 @@ public sealed class WorkerClientTests
             Client = new WorkerClient(
                 _clientRequests,
                 _clientEvents,
-                expectedBootId);
+                expectedBootId,
+                onEvent);
             Requests = new WorkerProtocolReader(_workerRequests);
             Events = new WorkerProtocolWriter(_workerEvents);
         }

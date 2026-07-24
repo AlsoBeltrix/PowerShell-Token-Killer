@@ -156,6 +156,53 @@ public sealed class SessionRuntime :
                 $"ptk: raw=true call #{_rawUsage.Increment()} this session");
         }
 
+        if (prepare.Kind == WorkerPreparedInvokeKind.Background)
+        {
+            var publicJobId = new PublicJobId(
+                prepare.PublicJobId ?? throw new WorkerProtocolException(
+                    "invalid_prepared_field",
+                    "Prepared background invocation has no public job ID."));
+            var terminal = new TaskCompletionSource<JobSnapshot>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            JobSnapshot? startedSnapshot = null;
+            var text = await InvokeCoreAsync(
+                arguments.Script,
+                cancellationToken,
+                raw: false,
+                route: WorkerRoute(arguments.Route),
+                background: true,
+                timeoutSeconds: 0,
+                audit: null,
+                operationAuthority: null,
+                onJobTerminal: snapshot =>
+                {
+                    terminal.TrySetResult(snapshot);
+                    return Task.CompletedTask;
+                },
+                outputCaptureOwner: null,
+                workerReservedJobId: publicJobId,
+                workerAuthorizer: authorizer,
+                onJobStarted: snapshot => startedSnapshot = snapshot)
+                .ConfigureAwait(false);
+            var started = startedSnapshot is not null;
+            if (startedSnapshot is { Running: false } completed)
+                terminal.TrySetResult(completed);
+            return new WorkerPreparedRuntimeResult(
+                text,
+                UserExecutionStarted: started,
+                new WorkerPreparedBackgroundResult(
+                    publicJobId.Value,
+                    started,
+                    started ? terminal.Task : null));
+        }
+        if (prepare.Kind != WorkerPreparedInvokeKind.Foreground ||
+            prepare.PublicJobId is not null)
+        {
+            throw new WorkerProtocolException(
+                "invalid_prepared_field",
+                "Prepared invocation kind and public job ID are inconsistent.");
+        }
+
         var result = await _host.InvokeAsync(
             arguments.Script,
             authorizer,
@@ -172,10 +219,9 @@ public sealed class SessionRuntime :
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (string.Equals(
-                request.Operation,
-                WorkerSessionOperationCodec.InvokeOperation,
-                StringComparison.Ordinal))
+        if (request.Operation is
+            WorkerSessionOperationCodec.InvokeOperation or
+            WorkerPreparedOperationCodec.BackgroundInvokeOperation)
         {
             throw new WorkerProtocolException(
                 "ordinary_invoke_forbidden",
@@ -341,8 +387,20 @@ public sealed class SessionRuntime :
         AuditCallContext? audit,
         SessionOperationAuthority? operationAuthority,
         Func<JobSnapshot, Task>? onJobTerminal,
-        IExecutionOutputCaptureOwner? outputCaptureOwner)
+        PublicJobId? workerReservedJobId = null,
+        IInvocationAuthorizer? workerAuthorizer = null,
+        Action<JobSnapshot>? onJobStarted = null,
+        IExecutionOutputCaptureOwner? outputCaptureOwner = null)
     {
+        if (workerReservedJobId is not null && !background ||
+            workerAuthorizer is not null && !background ||
+            (workerReservedJobId is null) != (workerAuthorizer is null) ||
+            workerAuthorizer is not null &&
+                (audit is not null || operationAuthority is not null))
+        {
+            throw new InvalidOperationException(
+                "Worker background authority is inconsistent with the invocation.");
+        }
         using var outputCapture = outputCaptureOwner;
         var host = _host;
         var jobs = _jobs;
@@ -390,6 +448,8 @@ public sealed class SessionRuntime :
                         backgroundJob.PublicJobId,
                         backgroundJob.JobCapability,
                         script)
+                    : workerReservedJobId is { } workerJobId
+                        ? jobs.PrepareStartWithReservedId(workerJobId, script)
                     : jobs.PrepareStart(script);
                 if (audit is not null && !audit.RecordJobStartRequest(activePlan.Id))
                     return AuditCallContext.NotStartedMessage;
@@ -537,6 +597,36 @@ public sealed class SessionRuntime :
                     if (terminalLease is null)
                         return AuditCallContext.NotStartedMessage;
                 }
+                else if (workerAuthorizer is not null)
+                {
+                    if (!await workerAuthorizer.AuthorizePlanAsync(
+                            executionPlan,
+                            CancellationToken.None).ConfigureAwait(false))
+                    {
+                        return RecordJobNotStarted(
+                            audit: null,
+                            "dispatch_not_authorized",
+                            "[job not started] The prepared background plan was not committed.");
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (DateTimeOffset.UtcNow >= deadline)
+                    {
+                        return RecordJobNotStarted(
+                            audit: null,
+                            "prestart_deadline_expired",
+                            "[job not started] The wall-clock budget expired after plan authorization. " +
+                            "Nothing was executed. Retry, or raise timeoutSeconds.");
+                    }
+                    if (!await workerAuthorizer.AuthorizeDispatchAsync(
+                            initialDispatch,
+                            CancellationToken.None).ConfigureAwait(false))
+                    {
+                        return RecordJobNotStarted(
+                            audit: null,
+                            "dispatch_not_authorized",
+                            "[job not started] The prepared background dispatch was not authorized.");
+                    }
+                }
                 startAuthorized = true;
 
                 // Audit append/flush is deliberately noncancelable. Recheck
@@ -594,6 +684,16 @@ public sealed class SessionRuntime :
                     {
                         return AuditCallContext.NotStartedMessage;
                     }
+                    if (workerAuthorizer is not null &&
+                        !await workerAuthorizer.AuthorizeDispatchAsync(
+                            fallbackDispatch,
+                            CancellationToken.None).ConfigureAwait(false))
+                    {
+                        return RecordJobNotStarted(
+                            audit: null,
+                            "dispatch_not_authorized",
+                            "[job not started] The prepared background fallback was not authorized.");
+                    }
 
                     cancellationToken.ThrowIfCancellationRequested();
                     if (DateTimeOffset.UtcNow >= deadline)
@@ -613,6 +713,7 @@ public sealed class SessionRuntime :
                         outputCapture);
                 }
                 terminalCallbackOwnedByJob = true;
+                onJobStarted?.Invoke(job);
 
                 var started = $"[job {job.Id} started] pid {job.Pid}, cold process (no warm session state)\n" +
                     (job.Execution.FallbackReason is { } actualFallback
@@ -634,6 +735,8 @@ public sealed class SessionRuntime :
             {
                 var jobId = activePlan!.Id;
                 terminalCallbackOwnedByJob = true;
+                if (jobs.Snapshot(jobId) is { } retained)
+                    onJobStarted?.Invoke(retained);
                 var unknown =
                     $"[job {jobId} started; outcome unknown] The host confirmed that the " +
                     "background process started but its startup path then failed. PTK retained " +
@@ -649,6 +752,8 @@ public sealed class SessionRuntime :
             catch (JobStartException exception) when (exception.ProcessStarted is null)
             {
                 var jobId = activePlan!.Id;
+                if (jobs.Snapshot(jobId) is { } retained)
+                    onJobStarted?.Invoke(retained);
                 var unknown =
                     $"[job {jobId} start outcome unknown] The host could not confirm whether " +
                     "the background process started. PTK retained the job record but had no " +

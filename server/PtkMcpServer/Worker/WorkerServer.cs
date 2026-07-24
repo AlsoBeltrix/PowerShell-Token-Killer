@@ -377,7 +377,9 @@ internal sealed class WorkerServer
                         _workerBootId,
                         initialize.Generation);
                     AdvanceRequestId(ref requestIdHighWater, request.RequestId);
-                    if (request.Operation == WorkerSessionOperationCodec.InvokeOperation)
+                    if (request.Operation is
+                        WorkerSessionOperationCodec.InvokeOperation or
+                        WorkerPreparedOperationCodec.BackgroundInvokeOperation)
                     {
                         throw new WorkerProtocolException(
                             "ordinary_invoke_forbidden",
@@ -939,8 +941,27 @@ internal sealed class WorkerServer
 
             var session = Session;
             Session = null;
+            var sessionCleanupFailed = false;
             if (session is not null)
-                failed |= await TryDrainSessionAsync(session).ConfigureAwait(false);
+            {
+                sessionCleanupFailed =
+                    await TryDrainSessionAsync(session).ConfigureAwait(false);
+                failed |= sessionCleanupFailed;
+            }
+            if (preparedScheduler is not null &&
+                session is not null &&
+                !sessionCleanupFailed)
+            {
+                try
+                {
+                    await preparedScheduler.DrainJobEventsAsync()
+                        .ConfigureAwait(false);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    failed = true;
+                }
+            }
             return failed;
         }
 

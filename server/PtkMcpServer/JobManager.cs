@@ -585,6 +585,24 @@ public sealed class JobManager : IDisposable
     }
 
     /// <summary>
+    /// Retains a guardian-reserved public job ID inside the worker. The private
+    /// host owns the external return capability, so no capability crosses the
+    /// worker boundary or enters its ID-only internal job controls.
+    /// </summary>
+    internal JobStartPlan PrepareStartWithReservedId(
+        PublicJobId publicJobId,
+        string script)
+    {
+        ArgumentNullException.ThrowIfNull(publicJobId);
+        ArgumentNullException.ThrowIfNull(script);
+        return PrepareStartCore(
+            CreateCompatibilityDispatch(script),
+            workingDirectory: null,
+            publicJobId,
+            reservedJobCapability: null);
+    }
+
+    /// <summary>
     /// Binds a guardian-reserved public job ID to one typed cold dispatch.
     /// The private host must never allocate or substitute a public ID.
     /// </summary>
@@ -600,6 +618,19 @@ public sealed class JobManager : IDisposable
         var reservation = PrepareStartWithReservedId(
             publicJobId,
             jobCapability,
+            dispatch.Plan.OriginalScript);
+        return BindDispatch(reservation, dispatch, workingDirectory);
+    }
+
+    internal JobStartPlan PrepareStartWithReservedId(
+        PublicJobId publicJobId,
+        ExecutionDispatch dispatch,
+        string workingDirectory)
+    {
+        ArgumentNullException.ThrowIfNull(publicJobId);
+        ArgumentNullException.ThrowIfNull(dispatch);
+        var reservation = PrepareStartWithReservedId(
+            publicJobId,
             dispatch.Plan.OriginalScript);
         return BindDispatch(reservation, dispatch, workingDirectory);
     }
@@ -684,10 +715,10 @@ public sealed class JobManager : IDisposable
         PublicJobId? reservedPublicJobId,
         CapabilityToken? reservedJobCapability)
     {
-        if ((reservedPublicJobId is null) != (reservedJobCapability is null))
+        if (reservedPublicJobId is null && reservedJobCapability is not null)
         {
             throw new InvalidOperationException(
-                "A guardian-reserved job ID and host-created return capability must be bound together.");
+                "A job capability cannot be retained without its guardian-reserved public ID.");
         }
 
         long generation;

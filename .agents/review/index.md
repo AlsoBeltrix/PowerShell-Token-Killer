@@ -2779,3 +2779,25 @@ delta redispatch to claude-opus-4-8 (inline, session-only; escalated: T5)
 VERDICT ACCEPTED, guard_confirmed=true, zero comments. The slice and repair
 are verified and await owner-gated integration; nothing is merged by this
 loop.
+
+---
+
+Loop run 2026-07-24 — reviewer: claude (Claude Code 2.1.219), scope:
+openreview of the sub-slice 5 design surface, range
+`6b4e3051b53927bead2f89bbad492e914ea39401..87eb957` on
+`feature/mcp-resilience-r1`. `Reviewer: claude / claude-opus-5 / max /
+frontier (competitive)` — dispatched unprimed with the neutral question.
+Verdict: findings (5), all ADMITTED at coder triage after independent
+verification against the cited code.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| or5-1 | HIGH     | Failed lifecycle op on one alias faults the whole host runtime | `[ ]`  |        |
+| or5-2 | HIGH     | Closed/failed-open alias name burned for guardian lifetime     | `[ ]`  |        |
+| or5-3 | MEDIUM   | Closed session silently resurrected by host recovery           | `[ ]`  |        |
+| or5-4 | MEDIUM   | Background job capabilities never released (64-job wedge)      | `[ ]`  |        |
+| or5-5 | MEDIUM   | Machine integration order: thinnest live loss path first       | `[ ]`  |        |
+
+Fix order (owner-approved batching rules apply per finding, one per
+commit): or5-1, or5-3, or5-2, or5-4, then sub-slice 5 per or5-5's
+direction.

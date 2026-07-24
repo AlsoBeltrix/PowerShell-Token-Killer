@@ -40,44 +40,20 @@ short and update it when important repo facts change.
   green both times); its test name was not captured. Sub-slice 5 (wire
   `SessionRecoveryStateMachine` per alias) has not started; it exists
   per-alias and unwired in `server/PtkMcpServer/GuardianHost/SessionRecoveryStateMachine.cs`.
-- **`ptk_session open` implementation design (mapped 2026-07-24, not yet
-  coded).** Contract: `SessionOpenOperation(callId, dispatchCapability,
-  template?, allowColdBackground)` carries no binding/digest; the request may
-  carry `Worker=null` (open is the one operation allowed a null worker).
-  `SessionOpenResult` is an ordinary session-operation result.
-  1. Move the canonical binding-digest algorithm from
-     `FrozenDefaultSessionState.ComputeBindingDigest` into
-     `PtkSharedContracts` so host and guardian compute identical digests;
-     default-alias bytes must stay byte-identical
-     (`ptk.session-binding/1\0{alias}\0{kind}\0{enabled}\0{desired}\0{transition}`).
-  2. `FrozenDefaultSessionState.DeclareDynamicAlias(alias, allowColdBackground)`:
-     declare kind=Dynamic, transition 1, desired Ready, dispatch identity
-     (fresh boot, generation 1) with watermark 1 so the first grant allocates
-     2; public projection is Cold with **null** worker identity (Cold requires
-     the null pair) until the first grant/lifecycle. `GuardianHostJobListTarget`
-     requires non-null worker + generation-matched audit session, so dispatch
-     keeps the declared (boot,1) identity exactly like the default alias's
-     declared fiction; public Cold projection decouples from it.
-  3. Supervisor: admit `"open"` in `DispatchSessionLifecycleAsync` and
-     `GuardianAuditCall.AcceptedGenerationOperationKind`-adjacent open facts
-     (alias, template, allowColdBackground, deadline — open is NOT a
-     generation operation: no expectedGeneration/force); template != null
-     refuses until the template-bootstrap slice. Dispatch through the
-     existing `DispatchHostOperationAsync` (**Host gate — no ReadyForEffects
-     requirement**, correct for open-on-cold) with `SessionOpen` added to its
-     kind allowlist. In `DispatchSessionOperationCoreAsync` the only
-     special case is request construction: `Worker = null` for
-     `SessionOpenOperation`. Result/audit authorization flows like
-     close/restart; the host emits the ready lifecycle before the response,
-     so `ObserveSessionLifecycle` binds the real (gen 2) worker before
-     `ObserveSessionOperationResult` validates it.
-  4. Host: `WorkerPrivateHostRuntime` SessionOpen case — alias must be
-     declared-and-slotless; rebuild the binding (Dynamic, allowColdBackground
-     from the op, Ready, transition from the request) and compute the digest
-     via the shared helper (the capability grant validates it guardian-side,
-     catching any divergence); create the slot, emit the ready lifecycle with
-     reason `RequestedOpen`, return `SessionOpenResult`. Audit capture for
-     `ptk_session open` already exists (`AuditCallMetadataCapture.SessionOpenFields`).
+- **Owner decision (2026-07-24): lazy load at point of need; no tool-side
+  module replay.** Template bootstrap is removed from R6 scope: a recovered
+  alias returns as a sound, empty runspace and the model loads modules
+  explicitly on demand. Owner rationale: eager replay pays reconnection
+  cost even when the next task never needs the module; lazy pays only on
+  use and the warm runspace then holds it; and a module that caused the
+  crash would be reloaded into every replacement — an automatic crash loop.
+  `ptk_session open` stays dynamic-only (template args keep refusing);
+  "ready" means a sound usable runspace; the wire contract's template
+  fields stay inert. The amendment is recorded in
+  `.agents/plans/mcp-resilience.md` under R6 (decisions.md remains under
+  hold). Remaining sub-slice 4 work: guardian-owned single-use create-token
+  tracking and `TryGetJobListTargetInvalidation`; then sub-slice 5 recovery
+  wiring, simplified (no bootstrap execution).
 - **R6's production private-host cutover to contained workers is complete and
   committed on `feature/mcp-resilience-r1` at `1e19b46`.** The slice replaces
   production selection of the in-process runtime with
@@ -644,13 +620,15 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue sub-slice 4's remainders from head `6bbf86e`: frozen template
-   bootstrap (template open is refused today), guardian-owned single-use
-   create-token tracking, and `TryGetJobListTargetInvalidation`. Then
+1. Complete the r6c-2 review loop (repair `2ba5aa9` landed; redispatch
+   routing awaits the owner's A/B/C ruling from 2026-07-24), then sub-slice
+   4's remainders from head `2ba5aa9`: guardian-owned single-use
+   create-token tracking and `TryGetJobListTargetInvalidation` (template
+   bootstrap is removed; see the owner decision under `## Now`). Then
    sub-slice 5: wire one `SessionRecoveryStateMachine` per alias to real
-   launch/containment/bootstrap resources (unexpected exit, protocol loss,
+   launch/containment resources (unexpected exit, protocol loss,
    broker loss, execution-timeout containment → one loss lease; confirmed
-   death → next generation + exact frozen baseline; ambiguity →
+   death → next generation + fresh empty runspace; ambiguity →
    `recovery_unknown`; per-alias backoff). The production-cutover slice itself is
    complete and verified on macOS; the Windows-only real composition tests
    still need their direct `NETWATCH-01`/CI evidence on this exact head before

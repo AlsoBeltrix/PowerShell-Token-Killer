@@ -743,9 +743,9 @@ Eligible automatic recovery requires all of:
 - the binding still matches the guardian's frozen catalog/profile digest; and
 - containment of the old generation is confirmed.
 
-For a template-backed alias, recovery reruns the exact frozen bootstrap bytes
-once in the new generation before ready. For an acknowledged dynamic alias,
-recovery creates a fresh empty session with its frozen binding/options. A cold,
+A recovered alias never receives replayed setup: it returns as a sound,
+empty runspace at its frozen binding/options, and any module or connection
+is loaded explicitly at the point of need (see the R6 amendment). A cold,
 closed, never-opened, explicitly faulted, or `recovery_unknown` alias is not
 speculatively opened.
 
@@ -1014,6 +1014,21 @@ rewriting, or public release publication.
 
 ### R6 — automatic worker recovery after live worker routing
 
+**Amendment (owner, 2026-07-24): lazy load at point of need; no tool-side
+module replay.** Recovery never replays modules or setup into a fresh
+runspace. A recovered alias returns as a sound, empty runspace; the model
+loads modules and re-establishes state explicitly, on demand. Rationale:
+eager replay pays reconnection cost at recovery time even when the next
+task never needs the module; lazy loading pays only on use and the warm
+runspace then holds it until session end or the next death; and if the
+module itself caused the crash, eager replay reloads the poison into every
+replacement — an automatic crash loop. Consequences: `ptk_session open`
+stays dynamic-only (template arguments refuse by design); template
+bootstrap is removed from R6 scope (no catalog replay, no bootstrap
+execution); "ready" means a sound usable runspace, not a silently rebuilt
+environment; the wire contract's template fields stay inert — nothing
+emits them.
+
 - Complete the separately approved audited-harness worker dispatch/cutover
   prerequisites; do not smuggle them into resilience work.
 - Replace unexpected-worker-loss/manual-restart behavior with scoped automatic
@@ -1051,8 +1066,9 @@ second live execution path after the final sub-slice.
    capabilities, completes both Unix containment acknowledgements before
    release, routes operations through the exact current worker, and owns
    lifecycle gates. Move reset/restart/close to whole-worker replacement;
-   add dynamic aliases and frozen template bootstrap without reintroducing an
-   in-process fallback. The private host protocol server must accept only the
+   add dynamic aliases without reintroducing an in-process fallback
+   (frozen template bootstrap is removed by the R6 amendment above). The
+   private host protocol server must accept only the
    four historical worker-control acknowledgements plus the v2
    `prepared_dispatch_authorize` control in addition to
    operation/cancel/shutdown, and correlate every control to exactly one

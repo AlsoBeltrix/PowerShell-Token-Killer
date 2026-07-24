@@ -449,4 +449,10 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
         invalidation = null;
         return false;
     }
+
+    public RecoveryBinding DeclareDynamicAlias(
+        CanonicalAlias alias,
+        bool allowColdBackground) =>
+        throw new NotSupportedException(
+            "The R3 fake session source does not declare dynamic aliases.");
 }

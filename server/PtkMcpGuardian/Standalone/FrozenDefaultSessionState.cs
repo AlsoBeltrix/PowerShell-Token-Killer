@@ -1,6 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
-using System.Text;
 using PtkMcpGuardian.Lifecycle;
 using PtkMcpGuardian.Ownership;
 using PtkMcpServer.Audit;
@@ -30,13 +29,15 @@ internal sealed class FrozenDefaultSessionState :
     private readonly Dictionary<CanonicalAlias, AliasState> _aliases = [];
     private readonly IWorkerGenerationAllocator _workerGenerations;
     private readonly Func<CapabilityToken> _createCapabilityToken;
+    private readonly Func<WorkerBootId> _workerBootIdSource;
 
     internal FrozenDefaultSessionState(
         GuardianBootId guardianBootId,
         WorkerBootId workerBootId,
         FrozenSessionCatalog catalog,
         bool allowColdBackground,
-        Func<CapabilityToken>? createCapabilityToken = null)
+        Func<CapabilityToken>? createCapabilityToken = null,
+        Func<WorkerBootId>? workerBootIdSource = null)
     {
         _guardianBootId = guardianBootId ??
             throw new ArgumentNullException(nameof(guardianBootId));
@@ -56,7 +57,7 @@ internal sealed class FrozenDefaultSessionState :
             allowColdBackground,
             DesiredSessionState.Ready,
             transition,
-            ComputeBindingDigest(
+            RecoveryBinding.ComputeBindingDigest(
                 alias,
                 RecoveryBindingKind.Default,
                 allowColdBackground,
@@ -71,6 +72,8 @@ internal sealed class FrozenDefaultSessionState :
             new WorkerGenerationHighWatermark(workerGeneration.Value));
         _workerGenerations = new PerAliasWorkerGenerationAllocator([highWatermark]);
         _createCapabilityToken = createCapabilityToken ?? NewCapabilityToken;
+        _workerBootIdSource = workerBootIdSource ??
+            (static () => new WorkerBootId(Guid.NewGuid()));
         _aliases.Add(
             alias,
             new AliasState(
@@ -170,8 +173,12 @@ internal sealed class FrozenDefaultSessionState :
                     state.Binding.Alias,
                     state.Binding.DesiredState,
                     state.State,
-                    state.WorkerIdentity.BootId,
-                    state.WorkerIdentity.Generation,
+                    state.State == PublicSessionState.Cold
+                        ? null
+                        : state.WorkerIdentity.BootId,
+                    state.State == PublicSessionState.Cold
+                        ? null
+                        : state.WorkerIdentity.Generation,
                     state.Binding.TransitionVersion,
                     recoveryPhase: null,
                     recoveryAttempt: 0,
@@ -182,6 +189,73 @@ internal sealed class FrozenDefaultSessionState :
                     bootstrapState: state.BootstrapState))
                 .ToArray();
         }
+    }
+
+    /// <summary>
+    /// Declares one dynamic alias at open-dispatch time. The declared dispatch
+    /// identity consumes generation 1 exactly like the default alias's, so the
+    /// first capability grant allocates generation 2. The public projection is
+    /// cold with no worker until the first grant and ready lifecycle land.
+    /// </summary>
+    public RecoveryBinding DeclareDynamicAlias(
+        CanonicalAlias alias,
+        bool allowColdBackground)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        if (alias.Value == "default")
+            throw new ArgumentException(
+                "The default alias cannot be redeclared.", nameof(alias));
+
+        var transition = new SessionTransitionVersion(1);
+        var workerGeneration = new WorkerGeneration(1);
+        var binding = new RecoveryBinding(
+            alias,
+            RecoveryBindingKind.Dynamic,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground,
+            DesiredSessionState.Ready,
+            transition,
+            RecoveryBinding.ComputeBindingDigest(
+                alias,
+                RecoveryBindingKind.Dynamic,
+                allowColdBackground,
+                DesiredSessionState.Ready,
+                transition));
+        var bootId = _workerBootIdSource() ??
+            throw new InvalidOperationException(
+                "The worker boot ID source returned null.");
+        var highWatermark = new WorkerGenerationHighWatermarkEntry(
+            alias,
+            new WorkerGenerationHighWatermark(workerGeneration.Value));
+        lock (_sync)
+        {
+            if (_aliases.Count >= ContractLimits.MaximumAliases ||
+                !_aliases.TryAdd(
+                    alias,
+                    new AliasState(
+                        binding,
+                        new GuardianHostWorkerIdentity(bootId, workerGeneration),
+                        new GuardianAuditSession(binding, workerGeneration),
+                        highWatermark)
+                    {
+                        State = PublicSessionState.Cold,
+                        ReadyForEffects = false,
+                        WarmStateLost = true,
+                        BootstrapState = BootstrapState.Unknown,
+                    }))
+            {
+                throw new InvalidOperationException(
+                    "The dynamic session alias is already declared or exhausted.");
+            }
+            if (_workerGenerations.Allocate(alias) != workerGeneration)
+            {
+                throw new InvalidOperationException(
+                    "The declared dynamic alias lost its generation watermark.");
+            }
+        }
+        return binding;
     }
 
     public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
@@ -332,32 +406,6 @@ internal sealed class FrozenDefaultSessionState :
         ArgumentNullException.ThrowIfNull(target);
         invalidation = null;
         return false;
-    }
-
-    private static Sha256Digest ComputeBindingDigest(
-        CanonicalAlias alias,
-        RecoveryBindingKind kind,
-        bool allowColdBackground,
-        DesiredSessionState desiredState,
-        SessionTransitionVersion transition)
-    {
-        var kindText = kind switch
-        {
-            RecoveryBindingKind.Default => "default",
-            RecoveryBindingKind.Dynamic => "dynamic",
-            RecoveryBindingKind.Template => "template",
-            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
-        };
-        var desiredText = desiredState switch
-        {
-            DesiredSessionState.Ready => "ready",
-            DesiredSessionState.Cold => "cold",
-            _ => throw new ArgumentOutOfRangeException(nameof(desiredState)),
-        };
-        var enabled = allowColdBackground ? "true" : "false";
-        var canonical = Encoding.UTF8.GetBytes(
-            $"ptk.session-binding/1\0{alias.Value}\0{kindText}\0{enabled}\0{desiredText}\0{transition.Value}");
-        return Sha256Digest.Compute(canonical);
     }
 
     private static Sha256Digest ComputeConfigurationDigest(

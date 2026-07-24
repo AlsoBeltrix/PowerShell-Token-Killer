@@ -365,6 +365,105 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.Single(rig.Launch.Processes);
     }
 
+    [Fact]
+    public async Task Open_creates_a_new_alias_worker_and_returns_its_identity()
+    {
+        var rig = new RuntimeRig(generations: [9, 10]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var alias = new CanonicalAlias("scratch");
+        var open = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(20),
+            Deadline,
+            alias,
+            new SessionTransitionVersion(1),
+            workerIdentity: null,
+            null,
+            new SessionOpenOperation(
+                Call(20),
+                Dispatch(20),
+                template: null,
+                allowColdBackground: true));
+
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            open,
+            TestContext.Current.CancellationToken);
+
+        var result = Assert.IsType<SessionOpenResult>(outcome.Result);
+        Assert.Equal(alias, result.Alias);
+        Assert.Equal(PublicSessionState.Ready, result.State);
+        Assert.Equal(10, result.WorkerIdentity?.Generation.Value);
+        Assert.True(result.ReadyForEffects);
+        Assert.False(result.WarmStateLost);
+        Assert.Equal(BootstrapState.Restored, result.BootstrapState);
+        Assert.Equal(2, rig.Launch.Processes.Count);
+        Assert.Equal(
+            ["launch:9", "launch:10"],
+            rig.Launch.Order);
+        var lifecycle = Assert.IsType<SessionLifecycleEvent>(
+            rig.Events.Events.Last());
+        Assert.Equal(
+            GuardianHostSessionLifecycleReason.RequestedOpen,
+            lifecycle.Reason);
+        Assert.Equal(new PrivateRequestId(20), lifecycle.RequestId);
+        Assert.Equal(alias, lifecycle.SessionAlias);
+        Assert.Equal(10, lifecycle.WorkerIdentity?.Generation.Value);
+
+        var invoke = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(21),
+            Deadline,
+            alias,
+            new SessionTransitionVersion(1),
+            result.WorkerIdentity,
+            null,
+            new JobListOperation(Call(21), Dispatch(21)));
+        var invokeOutcome = await rig.Runtime.ExecuteOperationAsync(
+            invoke,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(invokeOutcome.Result);
+        Assert.Equal(
+            WorkerSessionOperationCodec.JobListOperation,
+            Assert.Single(rig.Launch.Processes[1].OrdinaryOperations));
+
+        var reopen = await rig.Runtime.ExecuteOperationAsync(
+            open,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.SessionBusy,
+            reopen.Error?.DetailCode);
+        Assert.Equal(2, rig.Launch.Processes.Count);
+
+        var templated = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(22),
+            Deadline,
+            new CanonicalAlias("templated"),
+            new SessionTransitionVersion(1),
+            workerIdentity: null,
+            null,
+            new SessionOpenOperation(
+                Call(22),
+                Dispatch(22),
+                new CanonicalAlias("template-one"),
+                allowColdBackground: true));
+        var templatedOutcome = await rig.Runtime.ExecuteOperationAsync(
+            templated,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.UnsupportedOperation,
+            templatedOutcome.Error?.DetailCode);
+        Assert.Equal(2, rig.Launch.Processes.Count);
+    }
+
     [Theory]
     [InlineData("template")]
     [InlineData("dynamic_ready")]

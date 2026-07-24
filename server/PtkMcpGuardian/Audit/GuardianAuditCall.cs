@@ -204,6 +204,39 @@ internal sealed record GuardianAuditGenerationOperationFacts
 }
 
 /// <summary>
+/// Exact normalized session-open facts captured at public admission and
+/// repeated before the guardian's first private write. The absolute deadline
+/// is the admitted effective deadline, not a second computation from the raw
+/// timeout argument.
+/// </summary>
+internal sealed record GuardianAuditSessionOpenFacts
+{
+    internal GuardianAuditSessionOpenFacts(
+        CanonicalAlias alias,
+        CanonicalAlias? template,
+        bool allowColdBackground,
+        long deadlineUnixTimeMilliseconds)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        if (deadlineUnixTimeMilliseconds < 1)
+            throw new ArgumentOutOfRangeException(nameof(deadlineUnixTimeMilliseconds));
+
+        Alias = alias;
+        Template = template;
+        AllowColdBackground = allowColdBackground;
+        DeadlineUnixTimeMilliseconds = deadlineUnixTimeMilliseconds;
+    }
+
+    internal CanonicalAlias Alias { get; }
+
+    internal CanonicalAlias? Template { get; }
+
+    internal bool AllowColdBackground { get; }
+
+    internal long DeadlineUnixTimeMilliseconds { get; }
+}
+
+/// <summary>
 /// Exact immutable facts consumed by the guardian-to-host pre-write audit
 /// barrier. A public job ID is mandatory exactly when the private operation
 /// addresses or creates guardian-owned job state.
@@ -460,6 +493,30 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
                 _ => throw new InvalidOperationException(
                     "The admitted guardian call is not a generation-control operation."),
             };
+        }
+    }
+
+    internal GuardianAuditSessionOpenFacts AcceptedSessionOpenFacts
+    {
+        get
+        {
+            EnsureActive();
+            if (!StringComparer.Ordinal.Equals(_request!.Tool, "ptk_session") ||
+                !StringComparer.Ordinal.Equals(_request.Action, "open") ||
+                _request.SessionRequested is null ||
+                _request.DeadlineUtc is null)
+            {
+                throw new InvalidOperationException(
+                    "The admitted guardian call has no complete session-open facts.");
+            }
+
+            return new GuardianAuditSessionOpenFacts(
+                new CanonicalAlias(_request.SessionRequested),
+                _request.Template is null
+                    ? null
+                    : new CanonicalAlias(_request.Template),
+                _request.AllowColdBackground ?? false,
+                _request.DeadlineUtc.Value.ToUnixTimeMilliseconds());
         }
     }
 

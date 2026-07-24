@@ -237,6 +237,220 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
+    public async Task Composition_opens_a_dynamic_session_on_the_real_private_host()
+    {
+        var auditRoot = TemporaryRoot("real-open-audit");
+        var outputRoot = TemporaryRoot("real-open-output");
+        string? nativeRoot = null;
+        IPrivateHostProcessLauncher launcher;
+        MatchedPackageFacts package;
+        if (OperatingSystem.IsWindows())
+        {
+            launcher = new WindowsPrivateHostProcessLauncher();
+            package = Package(FindServerAppHost());
+        }
+        else
+        {
+            nativeRoot = TemporaryRoot("native-broker");
+            Directory.CreateDirectory(nativeRoot);
+            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+            await CompileGuardianBrokerAsync(broker);
+            launcher = new UnixPrivateHostProcessLauncher(broker);
+            package = Package(FindServerAppHost(), broker);
+        }
+        var composition = ProductionGuardianComposition.Create(
+            package,
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(TestTimeout);
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            var initialized = await RequestAsync(
+                writer,
+                reader,
+                requestId: 1,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "production-guardian-open-test",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            Assert.True(initialized.TryGetProperty("result", out _), initialized.GetRawText());
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                    @params = new { },
+                },
+                timeout.Token);
+
+            var open = await RequestAsync(
+                writer,
+                reader,
+                requestId: 2,
+                "tools/call",
+                new
+                {
+                    name = "ptk_session",
+                    arguments = new
+                    {
+                        action = "open",
+                        name = "scratch",
+                        allowColdBackground = true,
+                    },
+                },
+                timeout.Token);
+            var openText = ToolText(open, expectedError: false);
+            Assert.Contains("session=scratch", openText, StringComparison.Ordinal);
+            Assert.Contains("state=ready", openText, StringComparison.Ordinal);
+
+            var stateResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 3,
+                "tools/call",
+                new
+                {
+                    name = "ptk_state",
+                    arguments = new { },
+                },
+                timeout.Token);
+            var state = PublicStateCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
+            Assert.Equal(2, state.Sessions.Count);
+            var scratch = state.Sessions[1];
+            Assert.Equal("scratch", scratch.Alias.Value);
+            Assert.Equal(PublicSessionState.Ready, scratch.State);
+            Assert.Equal(2, scratch.Generation?.Value);
+            Assert.True(scratch.ReadyForEffects);
+
+            var invocation = await RequestAsync(
+                writer,
+                reader,
+                requestId: 4,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "Write-Output 'scratch-worker'",
+                        raw = true,
+                        route = "pwsh",
+                        background = false,
+                        timeoutSeconds = 10,
+                        session = "scratch",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "scratch-worker",
+                ToolText(invocation, expectedError: false),
+                StringComparison.Ordinal);
+
+            var close = await RequestAsync(
+                writer,
+                reader,
+                requestId: 5,
+                "tools/call",
+                new
+                {
+                    name = "ptk_session",
+                    arguments = new
+                    {
+                        action = "close",
+                        name = "scratch",
+                    },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "state=cold",
+                ToolText(close, expectedError: false),
+                StringComparison.Ordinal);
+
+            var closedStateResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 6,
+                "tools/call",
+                new
+                {
+                    name = "ptk_state",
+                    arguments = new { },
+                },
+                timeout.Token);
+            var closedState = PublicStateCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(closedStateResponse, expectedError: false)));
+            Assert.Equal(2, closedState.Sessions.Count);
+            var closedScratch = closedState.Sessions[1];
+            Assert.Equal("scratch", closedScratch.Alias.Value);
+            Assert.Equal(PublicSessionState.Cold, closedScratch.State);
+            Assert.Null(closedScratch.WorkerBootId);
+            Assert.False(closedScratch.ReadyForEffects);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+            Assert.Equal(0, composition.Supervisor.OwnedClientCount);
+            Assert.Equal(0, composition.Supervisor.OwnedAttemptWatcherSetCount);
+        }
+        finally
+        {
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            DeleteRoot(auditRoot);
+            if (nativeRoot is not null) DeleteRoot(nativeRoot);
+        }
+
+        Assert.False(Directory.Exists(outputRoot));
+    }
+
+    [Fact]
     public async Task Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection()
     {
         if (OperatingSystem.IsWindows()) return;

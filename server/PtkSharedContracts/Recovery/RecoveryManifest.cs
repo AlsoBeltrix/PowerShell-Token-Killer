@@ -77,6 +77,39 @@ public sealed record RecoveryTemplate
 
 public sealed record RecoveryBinding
 {
+    /// <summary>
+    /// Canonical binding digest shared by the guardian's declared state and
+    /// the private host's capability requests. Both sides must compute
+    /// byte-identical digests for the same binding fields.
+    /// </summary>
+    public static Sha256Digest ComputeBindingDigest(
+        CanonicalAlias alias,
+        RecoveryBindingKind bindingKind,
+        bool allowColdBackground,
+        DesiredSessionState desiredState,
+        SessionTransitionVersion transitionVersion)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        ArgumentNullException.ThrowIfNull(transitionVersion);
+        var kindText = bindingKind switch
+        {
+            RecoveryBindingKind.Default => "default",
+            RecoveryBindingKind.Dynamic => "dynamic",
+            RecoveryBindingKind.Template => "template",
+            _ => throw new ArgumentOutOfRangeException(nameof(bindingKind)),
+        };
+        var desiredText = desiredState switch
+        {
+            DesiredSessionState.Ready => "ready",
+            DesiredSessionState.Cold => "cold",
+            _ => throw new ArgumentOutOfRangeException(nameof(desiredState)),
+        };
+        var enabled = allowColdBackground ? "true" : "false";
+        var canonical = Encoding.UTF8.GetBytes(
+            $"ptk.session-binding/1\0{alias.Value}\0{kindText}\0{enabled}\0{desiredText}\0{transitionVersion.Value}");
+        return Sha256Digest.Compute(canonical);
+    }
+
     public RecoveryBinding(
         CanonicalAlias alias,
         RecoveryBindingKind bindingKind,

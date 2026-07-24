@@ -223,6 +223,16 @@ internal interface IGuardianHostSupervisorSessionSource
         [NotNullWhen(true)] out GuardianHostJobListTarget? target);
 
     /// <summary>
+    /// Declares one dynamic alias at open-dispatch time so the next host
+    /// manifest carries its binding and the capability authority can grant
+    /// its first worker. The alias projects cold with no worker until the
+    /// first grant and ready lifecycle land.
+    /// </summary>
+    RecoveryBinding DeclareDynamicAlias(
+        CanonicalAlias alias,
+        bool allowColdBackground);
+
+    /// <summary>
     /// Returns evidence only when it was atomically captured while the exact
     /// target was invalidated. Implementations must return false instead of
     /// synthesizing recovery metadata from a later target.

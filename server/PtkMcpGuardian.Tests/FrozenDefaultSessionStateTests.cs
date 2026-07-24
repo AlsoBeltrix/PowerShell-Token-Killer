@@ -336,6 +336,122 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Declared_dynamic_alias_projects_cold_until_its_first_grant_binds_a_worker()
+    {
+        var state = new FrozenDefaultSessionState(
+            Guardian,
+            Worker,
+            new FrozenSessionCatalog([]),
+            allowColdBackground: true,
+            workerBootIdSource: static () => new WorkerBootId(
+                Guid.Parse("55555555-5555-4555-8555-555555555555")));
+        var alias = new CanonicalAlias("scratch");
+
+        var binding = state.DeclareDynamicAlias(alias, allowColdBackground: true);
+
+        Assert.Equal(RecoveryBindingKind.Dynamic, binding.BindingKind);
+        Assert.Equal(DesiredSessionState.Ready, binding.DesiredState);
+        Assert.Equal(1, binding.TransitionVersion.Value);
+        Assert.Equal(
+            RecoveryBinding.ComputeBindingDigest(
+                alias,
+                RecoveryBindingKind.Dynamic,
+                allowColdBackground: true,
+                DesiredSessionState.Ready,
+                binding.TransitionVersion),
+            binding.BindingDigest);
+
+        var snapshots = state.SnapshotSessions();
+        Assert.Equal(2, snapshots.Count);
+        Assert.Equal("default", snapshots[0].Alias.Value);
+        var declared = snapshots[1];
+        Assert.Equal("scratch", declared.Alias.Value);
+        Assert.Equal(PublicSessionState.Cold, declared.State);
+        Assert.Equal(DesiredSessionState.Ready, declared.DesiredState);
+        Assert.Null(declared.WorkerBootId);
+        Assert.Null(declared.Generation);
+        Assert.False(declared.ReadyForEffects);
+        Assert.True(declared.WarmStateLost);
+        Assert.Equal(BootstrapState.Unknown, declared.BootstrapState);
+
+        var manifest = state.Create(Identity(2));
+        Assert.Equal(
+            ["default", "scratch"],
+            manifest.Bindings.Select(value => value.Alias.Value));
+        Assert.Equal(
+            ["default", "scratch"],
+            manifest.WorkerGenerationHighWatermarks.Select(value => value.Alias.Value));
+        Assert.All(
+            manifest.WorkerGenerationHighWatermarks,
+            entry => Assert.Equal(1, entry.Generation.Value));
+
+        Assert.True(state.TryGetJobListTarget(alias, out var target));
+        Assert.Equal(1, target.WorkerIdentity.Generation.Value);
+        Assert.False(target.ReadyForEffects);
+
+        var granted = state.GrantWorkerCreateCapability(
+            new WorkerCreateCapabilityRequestedEvent(
+                Guardian,
+                Identity(2).HostBootId,
+                new HostGeneration(2),
+                new HostEventSequence(1),
+                alias,
+                binding.TransitionVersion,
+                binding.BindingDigest,
+                500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(2, granted.WorkerGeneration.Value);
+        var starting = state.SnapshotSessions()[1];
+        Assert.Equal(PublicSessionState.Starting, starting.State);
+        Assert.Equal(BootstrapState.Pending, starting.BootstrapState);
+
+        var realWorker = new GuardianHostWorkerIdentity(
+            new WorkerBootId(Guid.Parse("66666666-6666-4666-8666-666666666666")),
+            granted.WorkerGeneration);
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(2),
+            requestId: null,
+            alias,
+            binding.TransitionVersion,
+            realWorker,
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.RequestedOpen,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored));
+
+        var ready = state.SnapshotSessions()[1];
+        Assert.Equal(PublicSessionState.Ready, ready.State);
+        Assert.Equal(realWorker.BootId, ready.WorkerBootId);
+        Assert.Equal(2, ready.Generation?.Value);
+        Assert.True(ready.ReadyForEffects);
+        Assert.True(state.TryGetJobListTarget(alias, out var readyTarget));
+        Assert.True(readyTarget.ReadyForEffects);
+        Assert.Equal(realWorker.BootId, readyTarget.WorkerIdentity.BootId);
+        Assert.Equal(2, readyTarget.WorkerIdentity.Generation.Value);
+    }
+
+    [Fact]
+    public void Dynamic_alias_redeclaration_and_default_redeclaration_are_refused()
+    {
+        var state = State();
+        var alias = new CanonicalAlias("scratch");
+        _ = state.DeclareDynamicAlias(alias, allowColdBackground: true);
+
+        Assert.Throws<InvalidOperationException>(() =>
+            state.DeclareDynamicAlias(alias, allowColdBackground: true));
+        Assert.Throws<ArgumentException>(() =>
+            state.DeclareDynamicAlias(
+                new CanonicalAlias("default"),
+                allowColdBackground: true));
+    }
+
+    [Fact]
     public void Dispatch_target_is_exact_and_foreign_guardian_manifest_is_rejected()
     {
         var state = State();

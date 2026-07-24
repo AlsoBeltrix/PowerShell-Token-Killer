@@ -1446,6 +1446,89 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Public_session_open_declares_and_dispatches_a_dynamic_alias_with_a_null_worker()
+    {
+        await using var rig = new TestRig(
+            new CanonicalAlias("default"),
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+        var deadline = rig.Clock.GetUtcNow().AddSeconds(19);
+
+        var result = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(result.IsError);
+        Assert.Contains("session=scratch ", result.Text, StringComparison.Ordinal);
+        Assert.Contains("state=ready", result.Text, StringComparison.Ordinal);
+        var open = Assert.Single(rig.Factory.Resources[0].SessionOpens);
+        Assert.Equal("scratch", open.SessionAlias.Value);
+        Assert.Equal(1, open.TransitionVersion.Value);
+        Assert.False(open.HasWorkerIdentity);
+        Assert.True(open.AllowColdBackground);
+        Assert.Equal(
+            deadline.ToUnixTimeMilliseconds(),
+            open.DeadlineUnixTimeMilliseconds);
+        Assert.Equal(
+            deadline.ToUnixTimeMilliseconds(),
+            open.DispatchCapability.ExpiresUnixTimeMilliseconds);
+        Assert.Equal(
+            [
+                "call.accepted",
+                GuardianAuditCall.DispatchAuthorizedEvent,
+                GuardianAuditCall.DispatchCompletedEvent,
+                "call.completed",
+            ],
+            rig.AuditEventTypes());
+
+        var sessions = rig.Supervisor.SnapshotState().Sessions;
+        Assert.Equal(2, sessions.Count);
+        var declared = sessions[1];
+        Assert.Equal("scratch", declared.Alias.Value);
+        Assert.Equal(PublicSessionState.Ready, declared.State);
+        Assert.True(declared.ReadyForEffects);
+        Assert.Equal(2, declared.Generation?.Value);
+
+        var reopen = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.True(reopen.IsError);
+        Assert.Single(rig.Factory.Resources[0].SessionOpens);
+    }
+
+    [Fact]
+    public async Task Public_session_open_with_a_template_is_refused_before_any_declaration()
+    {
+        await using var rig = new TestRig(
+            new CanonicalAlias("default"),
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+
+        var result = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: "template-one",
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.True(result.IsError);
+        Assert.Contains(
+            "template is not available",
+            result.Text,
+            StringComparison.Ordinal);
+        Assert.Empty(rig.Factory.Resources[0].SessionOpens);
+        Assert.Single(rig.Supervisor.SnapshotState().Sessions);
+    }
+
+    [Fact]
     public async Task Public_output_reads_searches_and_reports_guardian_local_artifacts()
     {
         await using var rig = new TestRig(
@@ -3354,6 +3437,42 @@ public sealed class GuardianHostSupervisorTests
                     CancellationToken.None));
         }
 
+        internal Task<GuardianToolResult> DispatchPublicSessionOpenAsync(
+            string session,
+            string? template,
+            bool allowColdBackground,
+            int timeoutSeconds)
+        {
+            var arguments = new Dictionary<string, JsonElement>
+            {
+                ["action"] = JsonSerializer.SerializeToElement("open"),
+                ["name"] = JsonSerializer.SerializeToElement(session),
+                ["allowColdBackground"] =
+                    JsonSerializer.SerializeToElement(allowColdBackground),
+                ["timeoutSeconds"] = JsonSerializer.SerializeToElement(timeoutSeconds),
+            };
+            if (template is not null)
+                arguments["template"] = JsonSerializer.SerializeToElement(template);
+            var timeout = TimeSpan.FromSeconds(timeoutSeconds);
+            return DispatchAuditedAsync(
+                Metadata(
+                    "ptk_session",
+                    "open",
+                    maximumCallRecordSlots: 4,
+                    session: session,
+                    timeoutMilliseconds: checked((long)timeout.TotalMilliseconds),
+                    deadlineUtc: Clock.GetUtcNow().Add(timeout),
+                    providedFields: arguments.Keys.Order(StringComparer.Ordinal).ToArray(),
+                    template: template,
+                    allowColdBackground: allowColdBackground),
+                exactSubmittedScript: null,
+                auditCall => Supervisor.DispatchAsync(
+                    "ptk_session",
+                    arguments,
+                    auditCall,
+                    CancellationToken.None));
+        }
+
         internal Task<GuardianToolResult> DispatchSessionOperationAsync(
             GuardianHostOperation operation,
             GuardianHostOperationIdentity? operationIdentity)
@@ -3549,7 +3668,9 @@ public sealed class GuardianHostSupervisorTests
             DateTimeOffset? deadlineUtc = null,
             IReadOnlyList<string>? providedFields = null,
             long? expectedGeneration = null,
-            bool? force = null) => new(
+            bool? force = null,
+            string? template = null,
+            bool? allowColdBackground = null) => new(
                 new AuditActor
                 {
                     Transport = "mcp_stdio",
@@ -3570,6 +3691,8 @@ public sealed class GuardianHostSupervisorTests
                     DeadlineUtc = deadlineUtc,
                     ExpectedGeneration = expectedGeneration,
                     Force = force,
+                    Template = template,
+                    AllowColdBackground = allowColdBackground,
                 },
                 new AuditOperationProfile(
                     maximumCallRecordSlots,
@@ -3759,8 +3882,19 @@ public sealed class GuardianHostSupervisorTests
 
         private sealed class StaticSessionSource : ITestSessionControl
         {
+            private sealed class DynamicState(RecoveryBinding binding)
+            {
+                internal RecoveryBinding Binding { get; } = binding;
+                internal PublicSessionState State = PublicSessionState.Cold;
+                internal bool ReadyForEffects;
+                internal bool WarmStateLost = true;
+                internal BootstrapState BootstrapState = BootstrapState.Unknown;
+                internal long WorkerGeneration = 1;
+            }
+
             private readonly object _sync = new();
             private readonly CanonicalAlias _alias;
+            private readonly Dictionary<CanonicalAlias, DynamicState> _declaredDynamic = [];
             private long _workerGeneration = 1;
             private long _transitionVersion = 1;
             private long _recoveryAttempt;
@@ -3773,6 +3907,39 @@ public sealed class GuardianHostSupervisorTests
             internal StaticSessionSource(CanonicalAlias alias)
             {
                 _alias = alias ?? throw new ArgumentNullException(nameof(alias));
+            }
+
+            public RecoveryBinding DeclareDynamicAlias(
+                CanonicalAlias alias,
+                bool allowColdBackground)
+            {
+                ArgumentNullException.ThrowIfNull(alias);
+                var transition = new SessionTransitionVersion(1);
+                var binding = new RecoveryBinding(
+                    alias,
+                    RecoveryBindingKind.Dynamic,
+                    templateName: null,
+                    templateDigest: null,
+                    bootstrapDigest: null,
+                    allowColdBackground,
+                    DesiredSessionState.Ready,
+                    transition,
+                    RecoveryBinding.ComputeBindingDigest(
+                        alias,
+                        RecoveryBindingKind.Dynamic,
+                        allowColdBackground,
+                        DesiredSessionState.Ready,
+                        transition));
+                lock (_sync)
+                {
+                    if (alias == _alias ||
+                        !_declaredDynamic.TryAdd(alias, new DynamicState(binding)))
+                    {
+                        throw new InvalidOperationException(
+                            "The dynamic session alias is already declared or exhausted.");
+                    }
+                }
+                return binding;
             }
 
             public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
@@ -3795,6 +3962,26 @@ public sealed class GuardianHostSupervisorTests
                             lastFailureCode: null,
                             warmStateLost: _warmStateLost,
                             _bootstrapState),
+                        .. _declaredDynamic.Values
+                            .OrderBy(value => value.Binding.Alias.Value, StringComparer.Ordinal)
+                            .Select(value => new PublicSessionStateSnapshot(
+                                value.Binding.Alias,
+                                DesiredSessionState.Ready,
+                                value.State,
+                                value.State == PublicSessionState.Cold
+                                    ? null
+                                    : Worker.BootId,
+                                value.State == PublicSessionState.Cold
+                                    ? null
+                                    : new WorkerGeneration(value.WorkerGeneration),
+                                value.Binding.TransitionVersion,
+                                recoveryPhase: null,
+                                recoveryAttempt: 0,
+                                retryAfterMilliseconds: null,
+                                readyForEffects: value.ReadyForEffects,
+                                lastFailureCode: null,
+                                warmStateLost: value.WarmStateLost,
+                                value.BootstrapState)),
                     ];
                 }
             }
@@ -3802,41 +3989,59 @@ public sealed class GuardianHostSupervisorTests
             public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
             {
                 ArgumentNullException.ThrowIfNull(alias);
-                if (alias != _alias)
-                {
-                    throw new InvalidOperationException(
-                        "The ambiguous lifecycle result belongs to another test session.");
-                }
-
                 lock (_sync)
                 {
-                    _state = PublicSessionState.RecoveryUnknown;
-                    _readyForEffects = false;
-                    _warmStateLost = true;
-                    _bootstrapState = BootstrapState.Unknown;
+                    if (alias == _alias)
+                    {
+                        _state = PublicSessionState.RecoveryUnknown;
+                        _readyForEffects = false;
+                        _warmStateLost = true;
+                        _bootstrapState = BootstrapState.Unknown;
+                        return;
+                    }
+                    if (_declaredDynamic.TryGetValue(alias, out var dynamic))
+                    {
+                        dynamic.State = PublicSessionState.RecoveryUnknown;
+                        dynamic.ReadyForEffects = false;
+                        dynamic.WarmStateLost = true;
+                        dynamic.BootstrapState = BootstrapState.Unknown;
+                        return;
+                    }
                 }
+                throw new InvalidOperationException(
+                    "The ambiguous lifecycle result belongs to another test session.");
             }
 
             public void ObserveSessionOperationResult(
                 GuardianHostSessionOperationResult result)
             {
                 ArgumentNullException.ThrowIfNull(result);
-                if (result.Alias != _alias)
-                {
-                    throw new InvalidOperationException(
-                        "The session lifecycle result belongs to another test session.");
-                }
-
                 lock (_sync)
                 {
-                    _state = result.State;
-                    _readyForEffects = result.ReadyForEffects;
-                    _warmStateLost |= result.WarmStateLost;
-                    _bootstrapState = result.BootstrapState;
-                    if (result.WorkerIdentity is { } worker)
-                        _workerGeneration = worker.Generation.Value;
-                    _transitionVersion = result.TransitionVersion.Value;
+                    if (result.Alias == _alias)
+                    {
+                        _state = result.State;
+                        _readyForEffects = result.ReadyForEffects;
+                        _warmStateLost |= result.WarmStateLost;
+                        _bootstrapState = result.BootstrapState;
+                        if (result.WorkerIdentity is { } worker)
+                            _workerGeneration = worker.Generation.Value;
+                        _transitionVersion = result.TransitionVersion.Value;
+                        return;
+                    }
+                    if (_declaredDynamic.TryGetValue(result.Alias, out var dynamic))
+                    {
+                        dynamic.State = result.State;
+                        dynamic.ReadyForEffects = result.ReadyForEffects;
+                        dynamic.WarmStateLost |= result.WarmStateLost;
+                        dynamic.BootstrapState = result.BootstrapState;
+                        if (result.WorkerIdentity is { } dynamicWorker)
+                            dynamic.WorkerGeneration = dynamicWorker.Generation.Value;
+                        return;
+                    }
                 }
+                throw new InvalidOperationException(
+                    "The session lifecycle result belongs to another test session.");
             }
 
             public void ObserveHostReady(GuardianHostIdentity identity, bool recovered)
@@ -3861,7 +4066,29 @@ public sealed class GuardianHostSupervisorTests
             {
                 ArgumentNullException.ThrowIfNull(alias);
                 lock (_sync)
-                    target = _alias == alias ? CreateTargetLocked() : null;
+                {
+                    if (_alias == alias)
+                    {
+                        target = CreateTargetLocked();
+                    }
+                    else if (_declaredDynamic.TryGetValue(alias, out var dynamic))
+                    {
+                        target = new GuardianHostJobListTarget(
+                            dynamic.Binding.Alias,
+                            dynamic.Binding.TransitionVersion,
+                            new GuardianHostWorkerIdentity(
+                                Worker.BootId,
+                                new WorkerGeneration(dynamic.WorkerGeneration)),
+                            new GuardianAuditSession(
+                                dynamic.Binding,
+                                new WorkerGeneration(dynamic.WorkerGeneration)),
+                            dynamic.ReadyForEffects);
+                    }
+                    else
+                    {
+                        target = null;
+                    }
+                }
                 return target is not null;
             }
 
@@ -4487,6 +4714,14 @@ public sealed class GuardianHostSupervisorTests
         long DeadlineUnixTimeMilliseconds,
         DispatchCapability DispatchCapability);
 
+    private sealed record ObservedSessionOpen(
+        CanonicalAlias SessionAlias,
+        SessionTransitionVersion TransitionVersion,
+        bool HasWorkerIdentity,
+        bool AllowColdBackground,
+        long DeadlineUnixTimeMilliseconds,
+        DispatchCapability DispatchCapability);
+
     private sealed record ObservedContainmentRegistration(
         GuardianHostEventType EventType,
         GuardianHostContainmentIdentity Identity);
@@ -4590,6 +4825,8 @@ public sealed class GuardianHostSupervisorTests
         internal IReadOnlyList<ObservedReset> Resets => _peer.Resets;
         internal IReadOnlyList<ObservedSessionLifecycle> SessionLifecycles =>
             _peer.SessionLifecycles;
+        internal IReadOnlyList<ObservedSessionOpen> SessionOpens =>
+            _peer.SessionOpens;
         internal IReadOnlyList<ObservedContainmentRegistration>
             ContainmentRegistrations
         {
@@ -4770,6 +5007,7 @@ public sealed class GuardianHostSupervisorTests
         private readonly List<ObservedInvoke> _invokes = [];
         private readonly List<ObservedReset> _resets = [];
         private readonly List<ObservedSessionLifecycle> _sessionLifecycles = [];
+        private readonly List<ObservedSessionOpen> _sessionOpens = [];
         private readonly List<WorkerContainmentAckRequest>
             _containmentAcknowledgements = [];
         private readonly List<WorkerCreateCapabilityGrantRequest>
@@ -4819,6 +5057,10 @@ public sealed class GuardianHostSupervisorTests
         internal IReadOnlyList<ObservedSessionLifecycle> SessionLifecycles
         {
             get { lock (_sync) return _sessionLifecycles.ToArray(); }
+        }
+        internal IReadOnlyList<ObservedSessionOpen> SessionOpens
+        {
+            get { lock (_sync) return _sessionOpens.ToArray(); }
         }
         internal IReadOnlyList<WorkerContainmentAckRequest>
             ContainmentAcknowledgements
@@ -5166,6 +5408,22 @@ public sealed class GuardianHostSupervisorTests
                                 operation.RequestId,
                                 new OperationCompleted(result)));
                             continue;
+                        case SessionOpenOperation open
+                            when behavior == HostBehavior.SessionLifecycle:
+                            RecordSessionOpen(operation, open);
+                            await _writer.WriteAsync(Success(
+                                operation.RequestId,
+                                new OperationCompleted(new SessionOpenResult(
+                                    operation.SessionAlias!,
+                                    PublicSessionState.Ready,
+                                    new GuardianHostWorkerIdentity(
+                                        TestRig.Worker.BootId,
+                                        new WorkerGeneration(2)),
+                                    operation.SessionTransitionVersion!,
+                                    readyForEffects: true,
+                                    warmStateLost: false,
+                                    BootstrapState.Restored))));
+                            continue;
                     }
 
                     switch (behavior)
@@ -5476,6 +5734,22 @@ public sealed class GuardianHostSupervisorTests
                     request.WorkerIdentity!,
                     operation.ExpectedGeneration,
                     operation.Force,
+                    request.DeadlineUnixTimeMilliseconds!.Value,
+                    operation.DispatchCapability));
+            }
+        }
+
+        private void RecordSessionOpen(
+            OperationRequest request,
+            SessionOpenOperation operation)
+        {
+            lock (_sync)
+            {
+                _sessionOpens.Add(new ObservedSessionOpen(
+                    request.SessionAlias!,
+                    request.SessionTransitionVersion!,
+                    request.WorkerIdentity is not null,
+                    operation.AllowColdBackground,
                     request.DeadlineUnixTimeMilliseconds!.Value,
                     operation.DispatchCapability));
             }

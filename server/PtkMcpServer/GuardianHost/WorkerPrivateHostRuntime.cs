@@ -173,6 +173,12 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        if (request.Operation is SessionOpenOperation openOperation)
+            return await OpenWorkerAsync(
+                request,
+                openOperation,
+                cancellationToken).ConfigureAwait(false);
+
         var validation = ValidateAndBind(request, cancellationToken);
         if (validation.Error is { } error)
             return await RefuseAsync(request, error, cancellationToken)
@@ -520,6 +526,118 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             if (!writeStarted)
                 await TryWriteNotDispatchedAsync(request, slot.Identity)
                     .ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async ValueTask<PrivateHostOperationOutcome> OpenWorkerAsync(
+        OperationRequest request,
+        SessionOpenOperation operation,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var now = _unixTimeMilliseconds();
+        if (operation.DispatchCapability.ExpiresUnixTimeMilliseconds <= now)
+        {
+            return PrivateHostOperationOutcome.Failed(
+                GuardianHostPrivateDetailCode.CapabilityInvalid);
+        }
+        if (operation.OutputCapability is { } output &&
+            output.ExpiresUnixTimeMilliseconds <= now)
+        {
+            return PrivateHostOperationOutcome.Failed(
+                GuardianHostPrivateDetailCode.OutputCapabilityInvalid);
+        }
+        if (operation.Template is not null)
+        {
+            return await RefuseAsync(
+                    request,
+                    GuardianHostPrivateDetailCode.UnsupportedOperation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        lock (_gate)
+        {
+            if (_state != WorkerPrivateHostRuntimeState.Ready)
+            {
+                return PrivateHostOperationOutcome.Failed(
+                    GuardianHostPrivateDetailCode.SessionFaulted);
+            }
+            if (_aliases.ContainsKey(request.SessionAlias))
+            {
+                return PrivateHostOperationOutcome.Failed(
+                    GuardianHostPrivateDetailCode.SessionBusy);
+            }
+        }
+
+        var binding = new RecoveryBinding(
+            request.SessionAlias,
+            RecoveryBindingKind.Dynamic,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            operation.AllowColdBackground,
+            DesiredSessionState.Ready,
+            request.SessionTransitionVersion!,
+            RecoveryBinding.ComputeBindingDigest(
+                request.SessionAlias,
+                RecoveryBindingKind.Dynamic,
+                operation.AllowColdBackground,
+                DesiredSessionState.Ready,
+                request.SessionTransitionVersion!));
+        var alias = new AliasRuntime(
+            binding,
+            new WorkerGenerationHighWatermark(1));
+        PrivateHostWorkerSlot? slot = null;
+        try
+        {
+            slot = await _slots.CreateAsync(
+                    binding,
+                    alias.GenerationHighWatermark,
+                    _workerEvents.HandleAsync,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await WriteReadyLifecycleAsync(
+                    request.RequestId,
+                    binding,
+                    slot.Identity,
+                    GuardianHostSessionLifecycleReason.RequestedOpen,
+                    warmStateLost: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            GuardianHostWorkerIdentity active;
+            lock (_gate)
+            {
+                if (_state != WorkerPrivateHostRuntimeState.Ready ||
+                    !_aliases.TryAdd(request.SessionAlias, alias))
+                {
+                    throw new InvalidOperationException(
+                        "Worker open lost new-alias ownership.");
+                }
+                alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
+                    slot.Identity.Generation.Value);
+                alias.Slot = slot;
+                active = slot.Identity;
+                slot = null;
+            }
+            return PrivateHostOperationOutcome.Completed(
+                new SessionOpenResult(
+                    binding.Alias,
+                    PublicSessionState.Ready,
+                    active,
+                    binding.TransitionVersion,
+                    readyForEffects: true,
+                    warmStateLost: false,
+                    BootstrapState.Restored));
+        }
+        catch
+        {
+            if (slot is not null)
+            {
+                _workerEvents.RetireWorker(slot.Identity);
+                await slot.DisposeAsync().ConfigureAwait(false);
+            }
             throw;
         }
     }

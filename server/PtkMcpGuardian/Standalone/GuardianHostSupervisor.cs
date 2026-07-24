@@ -584,8 +584,20 @@ internal sealed class GuardianHostSupervisor :
         CancellationToken cancellationToken)
     {
         if (!arguments.TryGetValue("action", out var actionElement) ||
-            actionElement.ValueKind != JsonValueKind.String ||
-            actionElement.GetString() is not ("close" or "restart"))
+            actionElement.ValueKind != JsonValueKind.String)
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+        if (actionElement.GetString() == "open")
+        {
+            return DispatchSessionOpenAsync(
+                arguments,
+                auditCall,
+                cancellationToken);
+        }
+        if (actionElement.GetString() is not ("close" or "restart"))
         {
             return ValueTask.FromResult(new GuardianToolResult(
                 UnsupportedToolText,
@@ -643,6 +655,112 @@ internal sealed class GuardianHostSupervisor :
             operation,
             auditCall,
             cancellationToken);
+    }
+
+    private ValueTask<GuardianToolResult> DispatchSessionOpenAsync(
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        GuardianAuditCall auditCall,
+        CancellationToken cancellationToken)
+    {
+        var admitted = auditCall.AcceptedSessionOpenFacts;
+        if (!TryReadSessionOpenArguments(arguments, admitted))
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                UnsupportedToolText,
+                isError: true));
+        }
+        if (admitted.Template is not null)
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                "ptk_session open with a template is not available in this build.",
+                isError: true));
+        }
+        if (_sessionSource.TryGetJobListTarget(admitted.Alias, out _))
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                $"session={admitted.Alias.Value} already exists.",
+                isError: true));
+        }
+
+        _sessionSource.DeclareDynamicAlias(
+            admitted.Alias,
+            admitted.AllowColdBackground);
+        var callId = auditCall.PublicCallId;
+        return DispatchHostOperationAsync(
+            new SessionOpenOperation(
+                callId,
+                new DispatchCapability(
+                    NewCapabilityToken(),
+                    callId,
+                    admitted.DeadlineUnixTimeMilliseconds),
+                admitted.Template,
+                admitted.AllowColdBackground),
+            auditCall,
+            cancellationToken);
+    }
+
+    private static bool TryReadSessionOpenArguments(
+        IReadOnlyDictionary<string, JsonElement> arguments,
+        GuardianAuditSessionOpenFacts admitted)
+    {
+        if (arguments.Keys.Any(static key => key is not (
+                "action" or "name" or "template" or "allowColdBackground" or
+                "timeoutSeconds")) ||
+            !arguments.TryGetValue("action", out var actionElement) ||
+            actionElement.ValueKind != JsonValueKind.String ||
+            actionElement.GetString() != "open" ||
+            !arguments.TryGetValue("name", out var nameElement) ||
+            nameElement.ValueKind != JsonValueKind.String)
+        {
+            return false;
+        }
+
+        CanonicalAlias alias;
+        try
+        {
+            alias = new CanonicalAlias(nameElement.GetString()!);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        if (alias != admitted.Alias)
+            return false;
+
+        CanonicalAlias? template = null;
+        if (arguments.TryGetValue("template", out var templateElement))
+        {
+            if (templateElement.ValueKind != JsonValueKind.String)
+                return false;
+            try
+            {
+                template = new CanonicalAlias(templateElement.GetString()!);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+        }
+        if (template != admitted.Template)
+            return false;
+
+        var allowColdBackground = false;
+        if (arguments.TryGetValue("allowColdBackground", out var coldElement))
+        {
+            if (coldElement.ValueKind is not (
+                    JsonValueKind.True or JsonValueKind.False))
+            {
+                return false;
+            }
+            allowColdBackground = coldElement.GetBoolean();
+        }
+        if (allowColdBackground != admitted.AllowColdBackground)
+            return false;
+
+        return !arguments.TryGetValue("timeoutSeconds", out var timeoutElement) ||
+            timeoutElement.ValueKind == JsonValueKind.Number &&
+            timeoutElement.TryGetInt32(out var timeoutSeconds) &&
+            timeoutSeconds >= 0;
     }
 
     private static bool TryReadSessionLifecycleArguments(
@@ -1250,6 +1368,7 @@ internal sealed class GuardianHostSupervisor :
         ArgumentNullException.ThrowIfNull(auditCall);
         if (operation.Kind is not (
                 GuardianHostOperationKind.Reset or
+                GuardianHostOperationKind.SessionOpen or
                 GuardianHostOperationKind.SessionClose or
                 GuardianHostOperationKind.SessionRestart))
         {
@@ -1546,7 +1665,9 @@ internal sealed class GuardianHostSupervisor :
                                         .ExpiresUnixTimeMilliseconds,
                                     target.Alias,
                                     target.TransitionVersion,
-                                    target.WorkerIdentity,
+                                    dispatchedOperation is SessionOpenOperation
+                                        ? null
+                                        : target.WorkerIdentity,
                                     operationIdentity,
                                     dispatchedOperation);
                                 if (dispatchedOperation.OutputCapability is not null &&

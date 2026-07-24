@@ -464,11 +464,8 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.Equal(2, rig.Launch.Processes.Count);
     }
 
-    [Theory]
-    [InlineData("template")]
-    [InlineData("dynamic_ready")]
-    public async Task Initialization_rejects_binding_shapes_the_runtime_does_not_accept(
-        string shape)
+    [Fact]
+    public async Task Initialization_rejects_template_bindings_until_the_template_slice()
     {
         var bootstrapBytes = new byte[] { 0x01 };
         var bootstrapDigest = Sha256Digest.Compute(bootstrapBytes);
@@ -482,65 +479,40 @@ public sealed class WorkerPrivateHostRuntimeTests
             DesiredSessionState.Ready,
             Transition,
             Digest('a'));
-        var extra = shape switch
-        {
-            "template" => new RecoveryBinding(
-                new CanonicalAlias("scratch"),
-                RecoveryBindingKind.Template,
-                new CanonicalAlias("template-one"),
-                Digest('e'),
-                bootstrapDigest,
-                allowColdBackground: true,
-                DesiredSessionState.Cold,
-                new SessionTransitionVersion(1),
-                Digest('d')),
-            "dynamic_ready" => new RecoveryBinding(
-                new CanonicalAlias("scratch"),
-                RecoveryBindingKind.Dynamic,
-                templateName: null,
-                templateDigest: null,
-                bootstrapDigest: null,
-                allowColdBackground: true,
-                DesiredSessionState.Ready,
-                new SessionTransitionVersion(1),
-                Digest('d')),
-            _ => new RecoveryBinding(
-                new CanonicalAlias("scratch"),
-                RecoveryBindingKind.Default,
-                templateName: null,
-                templateDigest: null,
-                bootstrapDigest: null,
-                allowColdBackground: true,
-                DesiredSessionState.Ready,
-                new SessionTransitionVersion(1),
-                Digest('d')),
-        };
+        var templateBinding = new RecoveryBinding(
+            new CanonicalAlias("scratch"),
+            RecoveryBindingKind.Template,
+            new CanonicalAlias("template-one"),
+            Digest('e'),
+            bootstrapDigest,
+            allowColdBackground: true,
+            DesiredSessionState.Cold,
+            new SessionTransitionVersion(1),
+            Digest('d'));
         var manifest = new RecoveryManifest(
             Guardian,
             HostGeneration,
             Digest('b'),
             Digest('c'),
-            shape == "template"
-                ? [
-                    new RecoveryTemplate(
-                        new CanonicalAlias("template-one"),
-                        "description",
-                        30,
-                        "target",
-                        "identity",
-                        allowColdBackground: true,
-                        Digest('e'),
-                        bootstrapDigest,
-                        bootstrapBytes),
-                ]
-                : [],
-            [defaultBinding, extra],
+            [
+                new RecoveryTemplate(
+                    new CanonicalAlias("template-one"),
+                    "description",
+                    30,
+                    "target",
+                    "identity",
+                    allowColdBackground: true,
+                    Digest('e'),
+                    bootstrapDigest,
+                    bootstrapBytes),
+            ],
+            [defaultBinding, templateBinding],
             [
                 new WorkerGenerationHighWatermarkEntry(
                     Alias,
                     new WorkerGenerationHighWatermark(8)),
                 new WorkerGenerationHighWatermarkEntry(
-                    extra.Alias,
+                    templateBinding.Alias,
                     new WorkerGenerationHighWatermark(1)),
             ],
             HostGeneration);
@@ -558,6 +530,95 @@ public sealed class WorkerPrivateHostRuntimeTests
                 TestContext.Current.CancellationToken).AsTask());
         Assert.Equal(WorkerPrivateHostRuntimeState.Faulted, rig.Runtime.State);
         Assert.Empty(rig.Launch.Processes);
+    }
+
+    [Fact]
+    public async Task Initialization_restores_a_ready_dynamic_binding_and_serves_both_aliases()
+    {
+        var defaultBinding = new RecoveryBinding(
+            Alias,
+            RecoveryBindingKind.Default,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground: true,
+            DesiredSessionState.Ready,
+            Transition,
+            Digest('a'));
+        var dynamicAlias = new CanonicalAlias("scratch");
+        var dynamicBinding = new RecoveryBinding(
+            dynamicAlias,
+            RecoveryBindingKind.Dynamic,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground: true,
+            DesiredSessionState.Ready,
+            new SessionTransitionVersion(1),
+            Digest('d'));
+        var manifest = new RecoveryManifest(
+            Guardian,
+            HostGeneration,
+            Digest('b'),
+            Digest('c'),
+            [],
+            [defaultBinding, dynamicBinding],
+            [
+                new WorkerGenerationHighWatermarkEntry(
+                    Alias,
+                    new WorkerGenerationHighWatermark(8)),
+                new WorkerGenerationHighWatermarkEntry(
+                    dynamicAlias,
+                    new WorkerGenerationHighWatermark(1)),
+            ],
+            HostGeneration);
+        var initialization = new PrivateHostInitialization(
+            manifest,
+            new PrivateRequestId(1),
+            new ManifestId(
+                Guid.Parse("11111111-1111-4111-8111-111111111111")),
+            Sha256Digest.Compute(RecoveryManifestCodec.Encode(manifest)));
+        var rig = new RuntimeRig(generations: [9, 10]);
+
+        await rig.Runtime.InitializeAsync(
+            initialization,
+            TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, rig.Launch.Processes.Count);
+        Assert.Equal(
+            ["launch:9", "launch:10"],
+            rig.Launch.Order);
+        var lifecycles = rig.Events.Events.OfType<SessionLifecycleEvent>().ToArray();
+        Assert.Equal(2, lifecycles.Length);
+        Assert.Equal(Alias, lifecycles[0].SessionAlias);
+        Assert.Equal(dynamicAlias, lifecycles[1].SessionAlias);
+        Assert.All(
+            lifecycles,
+            lifecycle => Assert.Equal(
+                GuardianHostSessionLifecycleReason.AutomaticRecovery,
+                lifecycle.Reason));
+
+        var dynamicWorker = new GuardianHostWorkerIdentity(
+            new WorkerBootId(rig.Launch.Processes[1].WorkerBootId),
+            new WorkerGeneration(rig.Launch.Processes[1].Generation));
+        var invoke = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(20),
+            Deadline,
+            dynamicAlias,
+            new SessionTransitionVersion(1),
+            dynamicWorker,
+            null,
+            new JobListOperation(Call(20), Dispatch(20)));
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            invoke,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+        Assert.Equal(
+            WorkerSessionOperationCodec.JobListOperation,
+            Assert.Single(rig.Launch.Processes[1].OrdinaryOperations));
     }
 
     private static PrivateHostInitialization Initialization(

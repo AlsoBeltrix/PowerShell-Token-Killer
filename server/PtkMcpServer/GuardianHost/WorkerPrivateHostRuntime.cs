@@ -1147,16 +1147,16 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                         CreateSlot: true));
                     break;
                 case RecoveryBindingKind.Dynamic:
-                    if (binding.Alias.Value == "default" ||
-                        binding.DesiredState != DesiredSessionState.Cold)
+                    if (binding.Alias.Value == "default")
                     {
                         throw new InvalidDataException(
-                            "A dynamic worker runtime binding must be cold and non-default.");
+                            "A dynamic worker runtime binding cannot use the default alias.");
                     }
                     declarations.Add(new AliasDeclaration(
                         binding,
                         watermark.Generation,
-                        CreateSlot: false));
+                        CreateSlot: binding.DesiredState ==
+                            DesiredSessionState.Ready));
                     break;
                 default:
                     throw new InvalidDataException(

@@ -17,10 +17,11 @@ internal enum WorkerPrivateHostRuntimeState
 }
 
 /// <summary>
-/// Production private-host runtime for one declared default alias. Every live
-/// operation is routed to one contained worker slot; script-bearing work uses
-/// the prepared dispatcher and ordinary job work uses the worker request
-/// protocol. Reset and restart replace the whole worker generation.
+/// Production private-host runtime for the declared session bindings. Every
+/// live operation is routed to the exact alias's contained worker slot;
+/// script-bearing work uses the prepared dispatcher and ordinary job work uses
+/// the worker request protocol. Reset and restart replace the whole worker
+/// generation for that alias without touching any other alias's slot.
 /// </summary>
 internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 {
@@ -35,11 +36,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     private readonly IPrivateHostOutputTransfer _output;
     private readonly Func<CapabilityToken> _createJobCapability;
     private readonly Func<long> _unixTimeMilliseconds;
-    private readonly Dictionary<long, CapabilityToken> _jobCapabilities = [];
+    private readonly Dictionary<CanonicalAlias, AliasRuntime> _aliases = [];
 
-    private RecoveryBinding? _binding;
-    private WorkerGenerationHighWatermark? _generationHighWatermark;
-    private PrivateHostWorkerSlot? _slot;
     private WorkerPrivateHostRuntimeState _state;
 
     internal WorkerPrivateHostRuntime(
@@ -76,7 +74,12 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     {
         get
         {
-            lock (_gate) return _slot?.Identity;
+            lock (_gate)
+            {
+                return _aliases.TryGetValue(new CanonicalAlias("default"), out var state)
+                    ? state.Slot?.Identity
+                    : null;
+            }
         }
     }
 
@@ -95,25 +98,52 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             _state = WorkerPrivateHostRuntimeState.Initializing;
         }
 
-        PrivateHostWorkerSlot? created = null;
+        var created = new List<PrivateHostWorkerSlot>();
         try
         {
-            var (binding, highWatermark) =
-                ValidateInitialization(initialization);
-            created = await _slots.CreateAsync(
-                    binding,
-                    highWatermark,
-                    _workerEvents.HandleAsync,
-                    cancellationToken)
-                .ConfigureAwait(false);
-            await WriteReadyLifecycleAsync(
-                    requestId: null,
-                    binding,
-                    created.Identity,
-                    GuardianHostSessionLifecycleReason.AutomaticRecovery,
-                    warmStateLost: false,
-                    cancellationToken)
-                .ConfigureAwait(false);
+            var declarations = ValidateInitialization(initialization);
+            lock (_gate)
+            {
+                foreach (var declaration in declarations)
+                {
+                    _aliases.Add(
+                        declaration.Binding.Alias,
+                        new AliasRuntime(
+                            declaration.Binding,
+                            declaration.HighWatermark));
+                }
+            }
+            foreach (var declaration in declarations)
+            {
+                if (!declaration.CreateSlot) continue;
+                var slot = await _slots.CreateAsync(
+                        declaration.Binding,
+                        declaration.HighWatermark,
+                        _workerEvents.HandleAsync,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                created.Add(slot);
+                await WriteReadyLifecycleAsync(
+                        requestId: null,
+                        declaration.Binding,
+                        slot.Identity,
+                        GuardianHostSessionLifecycleReason.AutomaticRecovery,
+                        warmStateLost: false,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                lock (_gate)
+                {
+                    if (_state != WorkerPrivateHostRuntimeState.Initializing)
+                    {
+                        throw new InvalidOperationException(
+                            "Worker private-host initialization state changed unexpectedly.");
+                    }
+                    var alias = _aliases[declaration.Binding.Alias];
+                    alias.Slot = slot;
+                    alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
+                        slot.Identity.Generation.Value);
+                }
+            }
 
             lock (_gate)
             {
@@ -122,20 +152,16 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     throw new InvalidOperationException(
                         "Worker private-host initialization state changed unexpectedly.");
                 }
-                _binding = binding;
-                _generationHighWatermark = new WorkerGenerationHighWatermark(
-                    created.Identity.Generation.Value);
-                _slot = created;
-                created = null;
+                created.Clear();
                 _state = WorkerPrivateHostRuntimeState.Ready;
             }
         }
         catch
         {
-            if (created is not null)
+            foreach (var slot in created)
             {
-                _workerEvents.RetireWorker(created.Identity);
-                await created.DisposeAsync().ConfigureAwait(false);
+                _workerEvents.RetireWorker(slot.Identity);
+                await slot.DisposeAsync().ConfigureAwait(false);
             }
             lock (_gate) _state = WorkerPrivateHostRuntimeState.Faulted;
             throw;
@@ -152,7 +178,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             return await RefuseAsync(request, error, cancellationToken)
                 .ConfigureAwait(false);
 
-        var slot = validation.Slot!;
+        var alias = validation.Alias!;
+        var slot = alias.Slot!;
         return request.Operation switch
         {
             InvokeForegroundOperation =>
@@ -163,6 +190,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             InvokeBackgroundOperation =>
                 await ExecuteBackgroundAsync(
                     request,
+                    alias,
                     slot,
                     cancellationToken).ConfigureAwait(false),
             JobListOperation =>
@@ -177,6 +205,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             JobStatusOperation operation =>
                 await ExecuteJobOperationAsync(
                     request,
+                    alias,
                     slot,
                     operation,
                     WorkerSessionOperationCodec.JobStatusOperation,
@@ -187,6 +216,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             JobOutputOperation operation =>
                 await ExecuteJobOperationAsync(
                     request,
+                    alias,
                     slot,
                     operation,
                     WorkerSessionOperationCodec.JobOutputOperation,
@@ -199,6 +229,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             JobKillOperation operation =>
                 await ExecuteJobOperationAsync(
                     request,
+                    alias,
                     slot,
                     operation,
                     WorkerSessionOperationCodec.JobKillOperation,
@@ -209,18 +240,21 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             ResetOperation =>
                 await ReplaceWorkerAsync(
                     request,
+                    alias,
                     slot,
                     GuardianHostSessionLifecycleReason.RequestedReset,
                     cancellationToken).ConfigureAwait(false),
             SessionRestartOperation =>
                 await ReplaceWorkerAsync(
                     request,
+                    alias,
                     slot,
                     GuardianHostSessionLifecycleReason.RequestedRestart,
                     cancellationToken).ConfigureAwait(false),
             SessionCloseOperation =>
                 await CloseWorkerAsync(
                     request,
+                    alias,
                     slot,
                     cancellationToken).ConfigureAwait(false),
             _ => await RefuseAsync(
@@ -236,7 +270,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(shutdown);
-        PrivateHostWorkerSlot? slot;
+        PrivateHostWorkerSlot[] slots;
         lock (_gate)
         {
             if (_state == WorkerPrivateHostRuntimeState.Stopped)
@@ -249,13 +283,21 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     "The worker private-host runtime is not ready to stop.");
             }
             _state = WorkerPrivateHostRuntimeState.Stopping;
-            slot = _slot;
-            _slot = null;
+            slots = _aliases.Values
+                .OrderBy(alias => alias.Binding.Alias.Value, StringComparer.Ordinal)
+                .Select(alias => alias.Slot)
+                .Where(slot => slot is not null)
+                .Cast<PrivateHostWorkerSlot>()
+                .ToArray();
+            foreach (var alias in _aliases.Values)
+            {
+                alias.Slot = null;
+            }
         }
 
         try
         {
-            if (slot is not null)
+            foreach (var slot in slots)
             {
                 await slot.Process.ShutdownAsync(cancellationToken)
                     .ConfigureAwait(false);
@@ -264,14 +306,18 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             }
             lock (_gate)
             {
-                _jobCapabilities.Clear();
+                foreach (var alias in _aliases.Values)
+                {
+                    alias.JobCapabilities.Clear();
+                }
                 _state = WorkerPrivateHostRuntimeState.Stopped;
             }
         }
         catch
         {
-            if (slot is not null)
+            foreach (var slot in slots)
             {
+                if (slot is null) continue;
                 _workerEvents.RetireWorker(slot.Identity);
                 await slot.DisposeAsync().ConfigureAwait(false);
             }
@@ -310,6 +356,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     private async ValueTask<PrivateHostOperationOutcome>
         ExecuteBackgroundAsync(
             OperationRequest request,
+            AliasRuntime alias,
             PrivateHostWorkerSlot slot,
             CancellationToken cancellationToken)
     {
@@ -317,7 +364,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         CapabilityToken capability;
         lock (_gate)
         {
-            if (_jobCapabilities.Count >=
+            if (_aliases.Values.Sum(value => value.JobCapabilities.Count) >=
                 ContractLimits.MaximumOutstandingPrivateRequests)
             {
                 return PrivateHostOperationOutcome.Failed(
@@ -341,7 +388,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
         lock (_gate)
         {
-            if (!_jobCapabilities.TryAdd(
+            if (!alias.JobCapabilities.TryAdd(
                     operation.PublicJobId.Value,
                     capability))
             {
@@ -356,6 +403,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     private async ValueTask<PrivateHostOperationOutcome>
         ExecuteJobOperationAsync(
             OperationRequest request,
+            AliasRuntime alias,
             PrivateHostWorkerSlot slot,
             GuardianHostJobIdentityOperation operation,
             string workerOperation,
@@ -367,7 +415,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         var capabilityValid = false;
         lock (_gate)
         {
-            capabilityValid = _jobCapabilities.TryGetValue(
+            capabilityValid = alias.JobCapabilities.TryGetValue(
                     operation.PublicJobId.Value,
                     out var capability) &&
                 capability == operation.JobCapability;
@@ -417,7 +465,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     request,
                     parsed.Text!,
                     cancellationToken)
-                .ConfigureAwait(false);
+            .ConfigureAwait(false);
         }
         return CompleteText(parsed.Text!, createResult);
     }
@@ -478,6 +526,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
     private async ValueTask<PrivateHostOperationOutcome> ReplaceWorkerAsync(
         OperationRequest request,
+        AliasRuntime alias,
         PrivateHostWorkerSlot current,
         GuardianHostSessionLifecycleReason reason,
         CancellationToken cancellationToken)
@@ -493,7 +542,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
         }
 
-        var (binding, highWatermark) = BeginReplacement(current);
+        var (binding, highWatermark) = BeginReplacement(alias, current);
         long? workerRequestId = null;
         PrivateHostWorkerSlot? replacement = null;
         try
@@ -514,7 +563,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             _workerEvents.RetireWorker(current.Identity);
             await current.DisposeAsync().ConfigureAwait(false);
-            lock (_gate) _jobCapabilities.Clear();
+            lock (_gate) alias.JobCapabilities.Clear();
 
             replacement = await _slots.CreateAsync(
                     binding,
@@ -543,18 +592,17 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     cancellationToken)
                 .ConfigureAwait(false);
 
+            GuardianHostWorkerIdentity active;
             lock (_gate)
             {
-                _slot = replacement;
-                _generationHighWatermark =
+                alias.Slot = replacement;
+                alias.GenerationHighWatermark =
                     new WorkerGenerationHighWatermark(
                         replacement.Identity.Generation.Value);
+                alias.Replacing = false;
+                active = replacement.Identity;
                 replacement = null;
-                _state = WorkerPrivateHostRuntimeState.Ready;
             }
-            var active = WorkerIdentity ??
-                throw new InvalidOperationException(
-                    "Worker replacement did not become active.");
             return PrivateHostOperationOutcome.Completed(
                 request.Operation is ResetOperation
                     ? new ResetResult(
@@ -583,7 +631,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             }
             lock (_gate)
             {
-                _slot = null;
+                alias.Slot = null;
                 _state = WorkerPrivateHostRuntimeState.Faulted;
             }
             throw;
@@ -592,6 +640,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
     private async ValueTask<PrivateHostOperationOutcome> CloseWorkerAsync(
         OperationRequest request,
+        AliasRuntime alias,
         PrivateHostWorkerSlot current,
         CancellationToken cancellationToken)
     {
@@ -606,7 +655,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
         }
 
-        var (binding, _) = BeginReplacement(current);
+        var (binding, _) = BeginReplacement(alias, current);
         long? workerRequestId = null;
         try
         {
@@ -626,7 +675,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             _workerEvents.RetireWorker(current.Identity);
             await current.DisposeAsync().ConfigureAwait(false);
-            lock (_gate) _jobCapabilities.Clear();
+            lock (_gate) alias.JobCapabilities.Clear();
             await _events.WriteEventAsync(
                     sequence => new SessionLifecycleEvent(
                         _identity.GuardianBootId,
@@ -659,8 +708,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             lock (_gate)
             {
-                _slot = null;
-                _state = WorkerPrivateHostRuntimeState.Ready;
+                alias.Slot = null;
+                alias.Replacing = false;
             }
             return PrivateHostOperationOutcome.Completed(
                 new SessionCloseResult(
@@ -676,7 +725,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         {
             lock (_gate)
             {
-                _slot = null;
+                alias.Slot = null;
                 _state = WorkerPrivateHostRuntimeState.Faulted;
             }
             throw;
@@ -684,21 +733,20 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     }
 
     private (RecoveryBinding Binding, WorkerGenerationHighWatermark HighWatermark)
-        BeginReplacement(PrivateHostWorkerSlot current)
+        BeginReplacement(AliasRuntime alias, PrivateHostWorkerSlot current)
     {
         lock (_gate)
         {
             if (_state != WorkerPrivateHostRuntimeState.Ready ||
-                !ReferenceEquals(_slot, current) ||
-                _binding is null ||
-                _generationHighWatermark is null)
+                alias.Replacing ||
+                !ReferenceEquals(alias.Slot, current))
             {
                 throw new InvalidOperationException(
                     "Worker replacement lost current slot ownership.");
             }
-            _state = WorkerPrivateHostRuntimeState.Replacing;
-            _slot = null;
-            return (_binding, _generationHighWatermark);
+            alias.Replacing = true;
+            alias.Slot = null;
+            return (alias.Binding, alias.GenerationHighWatermark);
         }
     }
 
@@ -722,23 +770,27 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
         lock (_gate)
         {
-            if (_state != WorkerPrivateHostRuntimeState.Ready ||
-                _binding is null)
+            if (_state != WorkerPrivateHostRuntimeState.Ready)
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.SessionFaulted);
             }
-            if (request.SessionAlias != _binding.Alias)
+            if (!_aliases.TryGetValue(request.SessionAlias, out var alias))
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.SessionNotFound);
             }
-            if (request.SessionTransitionVersion != _binding.TransitionVersion)
+            if (request.SessionTransitionVersion != alias.Binding.TransitionVersion)
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.ExpectedGenerationMismatch);
             }
-            if (_slot is null)
+            if (alias.Replacing)
+            {
+                return RuntimeValidation.Failed(
+                    GuardianHostPrivateDetailCode.SessionFaulted);
+            }
+            if (alias.Slot is null)
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.WorkerLost);
@@ -748,12 +800,12 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.WorkerLost);
             }
-            if (request.Worker.Generation != _slot.Identity.Generation)
+            if (request.Worker.Generation != alias.Slot.Identity.Generation)
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.WorkerGenerationMismatch);
             }
-            if (request.Worker.BootId != _slot.Identity.BootId)
+            if (request.Worker.BootId != alias.Slot.Identity.BootId)
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.WorkerBootMismatch);
@@ -761,12 +813,12 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             if (request.Operation is GuardianHostGenerationOperation generation &&
                 generation.ExpectedGeneration != 0 &&
                 generation.ExpectedGeneration !=
-                    _slot.Identity.Generation.Value)
+                    alias.Slot.Identity.Generation.Value)
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.ExpectedGenerationMismatch);
             }
-            return RuntimeValidation.Succeeded(_slot);
+            return RuntimeValidation.Succeeded(alias);
         }
     }
 
@@ -943,31 +995,62 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         }
     }
 
-    private static (
-        RecoveryBinding Binding,
-        WorkerGenerationHighWatermark HighWatermark)
-        ValidateInitialization(PrivateHostInitialization initialization)
+    private static AliasDeclaration[] ValidateInitialization(
+        PrivateHostInitialization initialization)
     {
         var manifest = initialization.Manifest;
-        if (manifest.Bindings.Count != 1 ||
-            manifest.WorkerGenerationHighWatermarks.Count != 1)
+        var watermarks = manifest.WorkerGenerationHighWatermarks
+            .ToDictionary(entry => entry.Alias.Value, StringComparer.Ordinal);
+        var declarations = new List<AliasDeclaration>(manifest.Bindings.Count);
+        var defaultSeen = false;
+        foreach (var binding in manifest.Bindings)
+        {
+            if (!watermarks.TryGetValue(binding.Alias.Value, out var watermark) ||
+                watermark.Generation.Value <= 0 ||
+                binding.TransitionVersion.Value <= 0)
+            {
+                throw new InvalidDataException(
+                    "The worker runtime binding is not generation-bound.");
+            }
+            switch (binding.BindingKind)
+            {
+                case RecoveryBindingKind.Default:
+                    if (defaultSeen ||
+                        binding.Alias.Value != "default" ||
+                        binding.DesiredState != DesiredSessionState.Ready)
+                    {
+                        throw new InvalidDataException(
+                            "The worker runtime requires one ready default binding.");
+                    }
+                    defaultSeen = true;
+                    declarations.Add(new AliasDeclaration(
+                        binding,
+                        watermark.Generation,
+                        CreateSlot: true));
+                    break;
+                case RecoveryBindingKind.Dynamic:
+                    if (binding.Alias.Value == "default" ||
+                        binding.DesiredState != DesiredSessionState.Cold)
+                    {
+                        throw new InvalidDataException(
+                            "A dynamic worker runtime binding must be cold and non-default.");
+                    }
+                    declarations.Add(new AliasDeclaration(
+                        binding,
+                        watermark.Generation,
+                        CreateSlot: false));
+                    break;
+                default:
+                    throw new InvalidDataException(
+                        "The worker runtime does not yet accept template bindings.");
+            }
+        }
+        if (!defaultSeen)
         {
             throw new InvalidDataException(
-                "The worker runtime currently requires one default binding.");
+                "The worker runtime requires one ready default binding.");
         }
-        var binding = manifest.Bindings[0];
-        var watermark = manifest.WorkerGenerationHighWatermarks[0];
-        if (binding.Alias.Value != "default" ||
-            binding.BindingKind != RecoveryBindingKind.Default ||
-            binding.DesiredState != DesiredSessionState.Ready ||
-            binding.TransitionVersion.Value <= 0 ||
-            watermark.Alias != binding.Alias ||
-            watermark.Generation.Value <= 0)
-        {
-            throw new InvalidDataException(
-                "The worker runtime default binding is not ready and generation-bound.");
-        }
-        return (binding, watermark.Generation);
+        return declarations.ToArray();
     }
 
     private static CapabilityToken CreateCapabilityToken()
@@ -995,14 +1078,31 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         string? Text,
         GuardianHostPrivateDetailCode? Error);
 
+    private sealed record AliasDeclaration(
+        RecoveryBinding Binding,
+        WorkerGenerationHighWatermark HighWatermark,
+        bool CreateSlot);
+
+    private sealed class AliasRuntime(
+        RecoveryBinding binding,
+        WorkerGenerationHighWatermark generationHighWatermark)
+    {
+        internal RecoveryBinding Binding { get; } = binding;
+        internal WorkerGenerationHighWatermark GenerationHighWatermark { get; set; } =
+            generationHighWatermark;
+        internal PrivateHostWorkerSlot? Slot { get; set; }
+        internal bool Replacing { get; set; }
+        internal Dictionary<long, CapabilityToken> JobCapabilities { get; } = [];
+    }
+
     private sealed record RuntimeValidation(
-        PrivateHostWorkerSlot? Slot,
+        AliasRuntime? Alias,
         GuardianHostPrivateDetailCode? Error)
     {
         internal static RuntimeValidation Succeeded(
-            PrivateHostWorkerSlot slot) => new(slot, Error: null);
+            AliasRuntime alias) => new(alias, Error: null);
 
         internal static RuntimeValidation Failed(
-            GuardianHostPrivateDetailCode error) => new(Slot: null, error);
+            GuardianHostPrivateDetailCode error) => new(Alias: null, error);
     }
 }

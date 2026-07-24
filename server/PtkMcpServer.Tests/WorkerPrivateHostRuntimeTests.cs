@@ -279,6 +279,188 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.Equal(WorkerPrivateHostRuntimeState.Stopped, rig.Runtime.State);
     }
 
+    [Fact]
+    public async Task Declared_cold_dynamic_alias_holds_no_slot_until_opened()
+    {
+        var defaultBinding = new RecoveryBinding(
+            Alias,
+            RecoveryBindingKind.Default,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground: true,
+            DesiredSessionState.Ready,
+            Transition,
+            Digest('a'));
+        var dynamicAlias = new CanonicalAlias("scratch");
+        var dynamicBinding = new RecoveryBinding(
+            dynamicAlias,
+            RecoveryBindingKind.Dynamic,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground: true,
+            DesiredSessionState.Cold,
+            new SessionTransitionVersion(1),
+            Digest('d'));
+        var manifest = new RecoveryManifest(
+            Guardian,
+            HostGeneration,
+            Digest('b'),
+            Digest('c'),
+            [],
+            [defaultBinding, dynamicBinding],
+            [
+                new WorkerGenerationHighWatermarkEntry(
+                    Alias,
+                    new WorkerGenerationHighWatermark(8)),
+                new WorkerGenerationHighWatermarkEntry(
+                    dynamicAlias,
+                    new WorkerGenerationHighWatermark(1)),
+            ],
+            HostGeneration);
+        var initialization = new PrivateHostInitialization(
+            manifest,
+            new PrivateRequestId(1),
+            new ManifestId(
+                Guid.Parse("11111111-1111-4111-8111-111111111111")),
+            Sha256Digest.Compute(RecoveryManifestCodec.Encode(manifest)));
+        var rig = new RuntimeRig(generations: [9]);
+
+        await rig.Runtime.InitializeAsync(
+            initialization,
+            TestContext.Current.CancellationToken);
+
+        var process = Assert.Single(rig.Launch.Processes);
+        Assert.Equal(9, process.Generation);
+        var defaultWorker = rig.Runtime.WorkerIdentity!;
+        var invoke = Request(
+            20,
+            defaultWorker,
+            new JobListOperation(Call(20), Dispatch(20)));
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            invoke,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+
+        var cold = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(21),
+            Deadline,
+            dynamicAlias,
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(
+                defaultWorker.BootId,
+                new WorkerGeneration(1)),
+            null,
+            new JobListOperation(Call(21), Dispatch(21)));
+        var coldOutcome = await rig.Runtime.ExecuteOperationAsync(
+            cold,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.WorkerLost,
+            coldOutcome.Error?.DetailCode);
+        Assert.Single(rig.Launch.Processes);
+    }
+
+    [Theory]
+    [InlineData("template")]
+    [InlineData("dynamic_ready")]
+    public async Task Initialization_rejects_binding_shapes_the_runtime_does_not_accept(
+        string shape)
+    {
+        var bootstrapBytes = new byte[] { 0x01 };
+        var bootstrapDigest = Sha256Digest.Compute(bootstrapBytes);
+        var defaultBinding = new RecoveryBinding(
+            Alias,
+            RecoveryBindingKind.Default,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground: true,
+            DesiredSessionState.Ready,
+            Transition,
+            Digest('a'));
+        var extra = shape switch
+        {
+            "template" => new RecoveryBinding(
+                new CanonicalAlias("scratch"),
+                RecoveryBindingKind.Template,
+                new CanonicalAlias("template-one"),
+                Digest('e'),
+                bootstrapDigest,
+                allowColdBackground: true,
+                DesiredSessionState.Cold,
+                new SessionTransitionVersion(1),
+                Digest('d')),
+            "dynamic_ready" => new RecoveryBinding(
+                new CanonicalAlias("scratch"),
+                RecoveryBindingKind.Dynamic,
+                templateName: null,
+                templateDigest: null,
+                bootstrapDigest: null,
+                allowColdBackground: true,
+                DesiredSessionState.Ready,
+                new SessionTransitionVersion(1),
+                Digest('d')),
+            _ => new RecoveryBinding(
+                new CanonicalAlias("scratch"),
+                RecoveryBindingKind.Default,
+                templateName: null,
+                templateDigest: null,
+                bootstrapDigest: null,
+                allowColdBackground: true,
+                DesiredSessionState.Ready,
+                new SessionTransitionVersion(1),
+                Digest('d')),
+        };
+        var manifest = new RecoveryManifest(
+            Guardian,
+            HostGeneration,
+            Digest('b'),
+            Digest('c'),
+            shape == "template"
+                ? [
+                    new RecoveryTemplate(
+                        new CanonicalAlias("template-one"),
+                        "description",
+                        30,
+                        "target",
+                        "identity",
+                        allowColdBackground: true,
+                        Digest('e'),
+                        bootstrapDigest,
+                        bootstrapBytes),
+                ]
+                : [],
+            [defaultBinding, extra],
+            [
+                new WorkerGenerationHighWatermarkEntry(
+                    Alias,
+                    new WorkerGenerationHighWatermark(8)),
+                new WorkerGenerationHighWatermarkEntry(
+                    extra.Alias,
+                    new WorkerGenerationHighWatermark(1)),
+            ],
+            HostGeneration);
+        var initialization = new PrivateHostInitialization(
+            manifest,
+            new PrivateRequestId(1),
+            new ManifestId(
+                Guid.Parse("11111111-1111-4111-8111-111111111111")),
+            Sha256Digest.Compute(RecoveryManifestCodec.Encode(manifest)));
+        var rig = new RuntimeRig(generations: [9]);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() =>
+            rig.Runtime.InitializeAsync(
+                initialization,
+                TestContext.Current.CancellationToken).AsTask());
+        Assert.Equal(WorkerPrivateHostRuntimeState.Faulted, rig.Runtime.State);
+        Assert.Empty(rig.Launch.Processes);
+    }
+
     private static PrivateHostInitialization Initialization(
         long highWatermark)
     {

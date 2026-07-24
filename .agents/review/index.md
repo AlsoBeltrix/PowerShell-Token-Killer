@@ -2801,3 +2801,15 @@ verification against the cited code.
 Fix order (owner-approved batching rules apply per finding, one per
 commit): or5-1, or5-3, or5-2, or5-4, then sub-slice 5 per or5-5's
 direction.
+
+---
+
+Loop run 2026-07-24 — reviewer: claude (Claude Code 2.1.219), scope:
+openreview of the or5 remediation plan `.agents/plans/or5-remediation.md`,
+range `ae41fb4..e414fa7` on `feature/mcp-resilience-r1`. `Reviewer: claude /
+claude-opus-5 / max / frontier (competitive)` — unprimed neutral question.
+Verdict: findings (6), all ADMITTED at coder triage and absorbed into the
+plan at `e414fa7`'s successor commit (no undeclare-on-failure; reopen
+reuses the declared binding verbatim; mismatched allowColdBackground
+refused in-band; job slots reserved before commit; job capabilities
+cleared on fault; alias state marked before any lifecycle write).

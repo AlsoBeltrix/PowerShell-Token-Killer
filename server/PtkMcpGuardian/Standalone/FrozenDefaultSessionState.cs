@@ -112,7 +112,19 @@ internal sealed class FrozenDefaultSessionState :
                 CatalogDigest,
                 ConfigurationDigest,
                 _catalog.Snapshot(),
-                ordered.Select(state => state.Binding).ToArray(),
+                ordered.Select(state => state.DesiredState ==
+                        state.Binding.DesiredState
+                    ? state.Binding
+                    : new RecoveryBinding(
+                        state.Binding.Alias,
+                        state.Binding.BindingKind,
+                        state.Binding.TemplateName,
+                        state.Binding.TemplateDigest,
+                        state.Binding.BootstrapDigest,
+                        state.Binding.AllowColdBackground,
+                        state.DesiredState,
+                        state.Binding.TransitionVersion,
+                        state.Binding.BindingDigest)).ToArray(),
                 ordered.Select(state => state.HighWatermark).ToArray(),
                 identity.HostGeneration);
         }
@@ -171,7 +183,7 @@ internal sealed class FrozenDefaultSessionState :
                 .OrderBy(state => state.Binding.Alias.Value, StringComparer.Ordinal)
                 .Select(state => new PublicSessionStateSnapshot(
                     state.Binding.Alias,
-                    state.Binding.DesiredState,
+                    state.DesiredState,
                     state.State,
                     state.State == PublicSessionState.Cold
                         ? null
@@ -392,6 +404,9 @@ internal sealed class FrozenDefaultSessionState :
             }
 
             state.State = result.State;
+            state.DesiredState = result.State == PublicSessionState.Cold
+                ? DesiredSessionState.Cold
+                : DesiredSessionState.Ready;
             state.ReadyForEffects = result.ReadyForEffects;
             state.WarmStateLost |= result.WarmStateLost;
             state.BootstrapState = result.BootstrapState;
@@ -460,6 +475,8 @@ internal sealed class FrozenDefaultSessionState :
         internal WorkerGenerationHighWatermarkEntry HighWatermark { get; set; } = highWatermark;
         internal WorkerGeneration? PendingWorkerGeneration { get; set; }
         internal PublicSessionState State { get; set; }
+        internal DesiredSessionState DesiredState { get; set; } =
+            DesiredSessionState.Ready;
         internal bool ReadyForEffects { get; set; }
         internal bool WarmStateLost { get; set; }
         internal BootstrapState BootstrapState { get; set; }

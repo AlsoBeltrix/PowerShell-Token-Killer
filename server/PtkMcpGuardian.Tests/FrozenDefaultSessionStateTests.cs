@@ -452,6 +452,105 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Closed_dynamic_alias_is_declared_cold_in_the_next_manifest_and_reopen_flips_it_back()
+    {
+        var state = new FrozenDefaultSessionState(
+            Guardian,
+            Worker,
+            new FrozenSessionCatalog([]),
+            allowColdBackground: true,
+            workerBootIdSource: static () => new WorkerBootId(
+                Guid.Parse("55555555-5555-4555-8555-555555555555")));
+        var alias = new CanonicalAlias("scratch");
+        var binding = state.DeclareDynamicAlias(alias, allowColdBackground: true);
+        var worker2 = new GuardianHostWorkerIdentity(
+            new WorkerBootId(Guid.Parse("66666666-6666-4666-8666-666666666666")),
+            new WorkerGeneration(2));
+        SessionLifecycleEvent ReadyLifecycle(
+            GuardianHostWorkerIdentity worker,
+            long sequence) => new(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(sequence),
+            requestId: null,
+            alias,
+            binding.TransitionVersion,
+            worker,
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.RequestedOpen,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored);
+        WorkerCreateCapabilityRequestedEvent CreateRequest() => new(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(1),
+            alias,
+            binding.TransitionVersion,
+            binding.BindingDigest,
+            500);
+
+        var granted = state.GrantWorkerCreateCapability(
+            CreateRequest(),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        state.ObserveSessionLifecycle(ReadyLifecycle(worker2, 2));
+        state.ObserveSessionOperationResult(new SessionOpenResult(
+            alias,
+            PublicSessionState.Ready,
+            worker2,
+            binding.TransitionVersion,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored));
+        Assert.Equal(2, granted.WorkerGeneration.Value);
+
+        var opened = state.Create(Identity(2));
+        Assert.Equal(DesiredSessionState.Ready, opened.Bindings[1].DesiredState);
+        Assert.Equal(binding.BindingDigest, opened.Bindings[1].BindingDigest);
+
+        state.ObserveSessionOperationResult(new SessionCloseResult(
+            alias,
+            PublicSessionState.Cold,
+            workerIdentity: null,
+            binding.TransitionVersion,
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.NotApplicable));
+        var closed = state.Create(Identity(2));
+        Assert.Equal(DesiredSessionState.Cold, closed.Bindings[1].DesiredState);
+        Assert.Equal(binding.BindingDigest, closed.Bindings[1].BindingDigest);
+        Assert.Equal(DesiredSessionState.Ready, closed.Bindings[0].DesiredState);
+        Assert.Equal(
+            DesiredSessionState.Cold,
+            state.SnapshotSessions()[1].DesiredState);
+
+        var grantedReopen = state.GrantWorkerCreateCapability(
+            CreateRequest(),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(3, grantedReopen.WorkerGeneration.Value);
+        var worker3 = new GuardianHostWorkerIdentity(
+            worker2.BootId,
+            new WorkerGeneration(3));
+        state.ObserveSessionLifecycle(ReadyLifecycle(worker3, 3));
+        state.ObserveSessionOperationResult(new SessionOpenResult(
+            alias,
+            PublicSessionState.Ready,
+            worker3,
+            binding.TransitionVersion,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored));
+        var reopened = state.Create(Identity(2));
+        Assert.Equal(DesiredSessionState.Ready, reopened.Bindings[1].DesiredState);
+        Assert.Equal(binding.BindingDigest, reopened.Bindings[1].BindingDigest);
+    }
+
+    [Fact]
     public void A_pending_grant_is_superseded_by_the_next_grant_across_host_loss()
     {
         var state = State();

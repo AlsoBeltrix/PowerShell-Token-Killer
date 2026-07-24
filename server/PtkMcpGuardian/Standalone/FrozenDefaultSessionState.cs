@@ -11,7 +11,10 @@ namespace PtkMcpGuardian.Standalone;
 /// <summary>
 /// Guardian-lifetime declared state for R4's single existing default session.
 /// It is the sole source for both private-host recovery manifests and
-/// guardian-local public session projections.
+/// guardian-local public session projections. State is held per alias behind
+/// one lock so later dynamic/template bindings cannot reopen single-alias
+/// assumptions; every current observer still rejects any alias it does not
+/// declare.
 /// </summary>
 internal sealed class FrozenDefaultSessionState :
     IGuardianHostRecoveryManifestSource,
@@ -24,16 +27,9 @@ internal sealed class FrozenDefaultSessionState :
     private readonly GuardianBootId _guardianBootId;
     private readonly FrozenSessionCatalog _catalog;
     private readonly object _sync = new();
-    private GuardianHostWorkerIdentity _workerIdentity;
-    private GuardianAuditSession _auditSession;
+    private readonly Dictionary<CanonicalAlias, AliasState> _aliases = [];
     private readonly IWorkerGenerationAllocator _workerGenerations;
     private readonly Func<CapabilityToken> _createCapabilityToken;
-    private WorkerGenerationHighWatermarkEntry _workerHighWatermark;
-    private WorkerGeneration? _pendingWorkerGeneration;
-    private PublicSessionState _state = PublicSessionState.Ready;
-    private bool _readyForEffects = true;
-    private bool _warmStateLost;
-    private BootstrapState _bootstrapState = BootstrapState.Restored;
 
     internal FrozenDefaultSessionState(
         GuardianBootId guardianBootId,
@@ -51,10 +47,7 @@ internal sealed class FrozenDefaultSessionState :
         var alias = new CanonicalAlias("default");
         var transition = new SessionTransitionVersion(1);
         var workerGeneration = new WorkerGeneration(1);
-        _workerIdentity = new GuardianHostWorkerIdentity(
-            workerBootId,
-            workerGeneration);
-        Binding = new RecoveryBinding(
+        var binding = new RecoveryBinding(
             alias,
             RecoveryBindingKind.Default,
             templateName: null,
@@ -63,18 +56,34 @@ internal sealed class FrozenDefaultSessionState :
             allowColdBackground,
             DesiredSessionState.Ready,
             transition,
-            ComputeBindingDigest(allowColdBackground, transition));
+            ComputeBindingDigest(
+                alias,
+                RecoveryBindingKind.Default,
+                allowColdBackground,
+                DesiredSessionState.Ready,
+                transition));
         CatalogDigest = _catalog.CatalogDigest;
         ConfigurationDigest = ComputeConfigurationDigest(
             CatalogDigest,
-            Binding.BindingDigest);
-        _workerHighWatermark = new WorkerGenerationHighWatermarkEntry(
+            binding.BindingDigest);
+        var highWatermark = new WorkerGenerationHighWatermarkEntry(
             alias,
             new WorkerGenerationHighWatermark(workerGeneration.Value));
-        _workerGenerations = new PerAliasWorkerGenerationAllocator(
-            [_workerHighWatermark]);
+        _workerGenerations = new PerAliasWorkerGenerationAllocator([highWatermark]);
         _createCapabilityToken = createCapabilityToken ?? NewCapabilityToken;
-        _auditSession = new GuardianAuditSession(Binding, workerGeneration);
+        _aliases.Add(
+            alias,
+            new AliasState(
+                binding,
+                new GuardianHostWorkerIdentity(workerBootId, workerGeneration),
+                new GuardianAuditSession(binding, workerGeneration),
+                highWatermark)
+            {
+                State = PublicSessionState.Ready,
+                ReadyForEffects = true,
+                BootstrapState = BootstrapState.Restored,
+            });
+        Binding = binding;
     }
 
     internal RecoveryBinding Binding { get; }
@@ -91,14 +100,17 @@ internal sealed class FrozenDefaultSessionState :
 
         lock (_sync)
         {
+            var ordered = _aliases.Values
+                .OrderBy(state => state.Binding.Alias.Value, StringComparer.Ordinal)
+                .ToArray();
             return new RecoveryManifest(
                 _guardianBootId,
                 identity.HostGeneration,
                 CatalogDigest,
                 ConfigurationDigest,
                 _catalog.Snapshot(),
-                [Binding],
-                [_workerHighWatermark],
+                ordered.Select(state => state.Binding).ToArray(),
+                ordered.Select(state => state.HighWatermark).ToArray(),
                 identity.HostGeneration);
         }
     }
@@ -114,31 +126,36 @@ internal sealed class FrozenDefaultSessionState :
             throw new ArgumentOutOfRangeException(
                 nameof(maximumDeadlineUnixTimeMilliseconds));
         }
-        if (request.GuardianBootId != _guardianBootId ||
-            request.SessionAlias != Binding.Alias ||
-            request.SessionTransitionVersion != Binding.TransitionVersion ||
-            request.BindingDigest != Binding.BindingDigest ||
-            request.StartupDeadlineUnixTimeMilliseconds <= nowUnixTimeMilliseconds ||
-            request.StartupDeadlineUnixTimeMilliseconds >
-                maximumDeadlineUnixTimeMilliseconds)
+        if (request.GuardianBootId != _guardianBootId)
         {
             throw new InvalidOperationException(
                 "The worker create request does not match the frozen session binding.");
         }
 
-        var token = _createCapabilityToken() ??
-            throw new InvalidOperationException(
-                "The worker create capability token source returned null.");
         lock (_sync)
         {
-            var generation = _workerGenerations.Allocate(Binding.Alias);
-            _workerHighWatermark = new WorkerGenerationHighWatermarkEntry(
-                Binding.Alias,
+            if (!_aliases.TryGetValue(request.SessionAlias, out var state) ||
+                request.SessionTransitionVersion != state.Binding.TransitionVersion ||
+                request.BindingDigest != state.Binding.BindingDigest ||
+                request.StartupDeadlineUnixTimeMilliseconds <= nowUnixTimeMilliseconds ||
+                request.StartupDeadlineUnixTimeMilliseconds >
+                    maximumDeadlineUnixTimeMilliseconds)
+            {
+                throw new InvalidOperationException(
+                    "The worker create request does not match the frozen session binding.");
+            }
+
+            var token = _createCapabilityToken() ??
+                throw new InvalidOperationException(
+                    "The worker create capability token source returned null.");
+            var generation = _workerGenerations.Allocate(request.SessionAlias);
+            state.HighWatermark = new WorkerGenerationHighWatermarkEntry(
+                request.SessionAlias,
                 new WorkerGenerationHighWatermark(generation.Value));
-            _pendingWorkerGeneration = generation;
-            _state = PublicSessionState.Starting;
-            _readyForEffects = false;
-            _bootstrapState = BootstrapState.Pending;
+            state.PendingWorkerGeneration = generation;
+            state.State = PublicSessionState.Starting;
+            state.ReadyForEffects = false;
+            state.BootstrapState = BootstrapState.Pending;
             return new GuardianWorkerCreateCapability(generation, token);
         }
     }
@@ -147,23 +164,23 @@ internal sealed class FrozenDefaultSessionState :
     {
         lock (_sync)
         {
-            return
-            [
-                new PublicSessionStateSnapshot(
-                    Binding.Alias,
-                    Binding.DesiredState,
-                    _state,
-                    _workerIdentity.BootId,
-                    _workerIdentity.Generation,
-                    Binding.TransitionVersion,
+            return _aliases.Values
+                .OrderBy(state => state.Binding.Alias.Value, StringComparer.Ordinal)
+                .Select(state => new PublicSessionStateSnapshot(
+                    state.Binding.Alias,
+                    state.Binding.DesiredState,
+                    state.State,
+                    state.WorkerIdentity.BootId,
+                    state.WorkerIdentity.Generation,
+                    state.Binding.TransitionVersion,
                     recoveryPhase: null,
                     recoveryAttempt: 0,
                     retryAfterMilliseconds: null,
-                    readyForEffects: _readyForEffects,
+                    readyForEffects: state.ReadyForEffects,
                     lastFailureCode: null,
-                    warmStateLost: _warmStateLost,
-                    bootstrapState: _bootstrapState),
-            ];
+                    warmStateLost: state.WarmStateLost,
+                    bootstrapState: state.BootstrapState))
+                .ToArray();
         }
     }
 
@@ -174,7 +191,13 @@ internal sealed class FrozenDefaultSessionState :
             throw new InvalidOperationException("The ready host belongs to another guardian boot.");
         if (recovered)
         {
-            lock (_sync) _warmStateLost = true;
+            lock (_sync)
+            {
+                foreach (var state in _aliases.Values)
+                {
+                    state.WarmStateLost = true;
+                }
+            }
         }
     }
 
@@ -182,10 +205,7 @@ internal sealed class FrozenDefaultSessionState :
         SessionLifecycleEvent lifecycleEvent)
     {
         ArgumentNullException.ThrowIfNull(lifecycleEvent);
-        if (lifecycleEvent.GuardianBootId != _guardianBootId ||
-            lifecycleEvent.SessionAlias != Binding.Alias ||
-            lifecycleEvent.SessionTransitionVersion !=
-                Binding.TransitionVersion)
+        if (lifecycleEvent.GuardianBootId != _guardianBootId)
         {
             throw new InvalidOperationException(
                 "The session lifecycle event does not match the frozen binding.");
@@ -193,24 +213,32 @@ internal sealed class FrozenDefaultSessionState :
 
         lock (_sync)
         {
+            if (!_aliases.TryGetValue(lifecycleEvent.SessionAlias, out var state) ||
+                lifecycleEvent.SessionTransitionVersion !=
+                    state.Binding.TransitionVersion)
+            {
+                throw new InvalidOperationException(
+                    "The session lifecycle event does not match the frozen binding.");
+            }
+
             if (lifecycleEvent.State == PublicSessionState.Ready)
             {
                 var worker = lifecycleEvent.WorkerIdentity ??
                     throw new InvalidOperationException(
                         "A ready session lifecycle event requires a worker.");
-                if (_pendingWorkerGeneration is null ||
-                    worker.Generation != _pendingWorkerGeneration ||
+                if (state.PendingWorkerGeneration is null ||
+                    worker.Generation != state.PendingWorkerGeneration ||
                     !lifecycleEvent.ReadyForEffects ||
                     lifecycleEvent.BootstrapState != BootstrapState.Restored)
                 {
                     throw new InvalidOperationException(
                         "The ready lifecycle event does not match the pending worker grant.");
                 }
-                _workerIdentity = worker;
-                _auditSession = new GuardianAuditSession(
-                    Binding,
+                state.WorkerIdentity = worker;
+                state.AuditSession = new GuardianAuditSession(
+                    state.Binding,
                     worker.Generation);
-                _pendingWorkerGeneration = null;
+                state.PendingWorkerGeneration = null;
             }
             else if (lifecycleEvent.State == PublicSessionState.Cold)
             {
@@ -222,7 +250,7 @@ internal sealed class FrozenDefaultSessionState :
                     throw new InvalidOperationException(
                         "The cold lifecycle event carries live worker state.");
                 }
-                _pendingWorkerGeneration = null;
+                state.PendingWorkerGeneration = null;
             }
             else
             {
@@ -230,28 +258,28 @@ internal sealed class FrozenDefaultSessionState :
                     "The frozen session received a nonterminal lifecycle event.");
             }
 
-            _state = lifecycleEvent.State;
-            _readyForEffects = lifecycleEvent.ReadyForEffects;
-            _warmStateLost |= lifecycleEvent.WarmStateLost;
-            _bootstrapState = lifecycleEvent.BootstrapState;
+            state.State = lifecycleEvent.State;
+            state.ReadyForEffects = lifecycleEvent.ReadyForEffects;
+            state.WarmStateLost |= lifecycleEvent.WarmStateLost;
+            state.BootstrapState = lifecycleEvent.BootstrapState;
         }
     }
 
     public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
     {
         ArgumentNullException.ThrowIfNull(alias);
-        if (alias != Binding.Alias)
-        {
-            throw new InvalidOperationException(
-                "The ambiguous lifecycle result belongs to another session.");
-        }
-
         lock (_sync)
         {
-            _state = PublicSessionState.RecoveryUnknown;
-            _readyForEffects = false;
-            _warmStateLost = true;
-            _bootstrapState = BootstrapState.Unknown;
+            if (!_aliases.TryGetValue(alias, out var state))
+            {
+                throw new InvalidOperationException(
+                    "The ambiguous lifecycle result belongs to another session.");
+            }
+
+            state.State = PublicSessionState.RecoveryUnknown;
+            state.ReadyForEffects = false;
+            state.WarmStateLost = true;
+            state.BootstrapState = BootstrapState.Unknown;
         }
     }
 
@@ -259,22 +287,22 @@ internal sealed class FrozenDefaultSessionState :
         GuardianHostSessionOperationResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
-        if (result.Alias != Binding.Alias ||
-            result.TransitionVersion != Binding.TransitionVersion ||
-            result.WorkerIdentity is { } worker &&
-                (worker.BootId != _workerIdentity.BootId ||
-                 worker.Generation != _workerIdentity.Generation))
-        {
-            throw new InvalidOperationException(
-                "The session lifecycle result does not match the frozen default binding.");
-        }
-
         lock (_sync)
         {
-            _state = result.State;
-            _readyForEffects = result.ReadyForEffects;
-            _warmStateLost |= result.WarmStateLost;
-            _bootstrapState = result.BootstrapState;
+            if (!_aliases.TryGetValue(result.Alias, out var state) ||
+                result.TransitionVersion != state.Binding.TransitionVersion ||
+                result.WorkerIdentity is { } worker &&
+                (worker.BootId != state.WorkerIdentity.BootId ||
+                 worker.Generation != state.WorkerIdentity.Generation))
+            {
+                throw new InvalidOperationException(
+                    "The session lifecycle result does not match the frozen default binding.");
+            }
+
+            state.State = result.State;
+            state.ReadyForEffects = result.ReadyForEffects;
+            state.WarmStateLost |= result.WarmStateLost;
+            state.BootstrapState = result.BootstrapState;
         }
     }
 
@@ -285,13 +313,13 @@ internal sealed class FrozenDefaultSessionState :
         ArgumentNullException.ThrowIfNull(alias);
         lock (_sync)
         {
-            target = alias == Binding.Alias
+            target = _aliases.TryGetValue(alias, out var state)
                 ? new GuardianHostJobListTarget(
-                    Binding.Alias,
-                    Binding.TransitionVersion,
-                    _workerIdentity,
-                    _auditSession,
-                    _readyForEffects)
+                    state.Binding.Alias,
+                    state.Binding.TransitionVersion,
+                    state.WorkerIdentity,
+                    state.AuditSession,
+                    state.ReadyForEffects)
                 : null;
         }
         return target is not null;
@@ -307,12 +335,28 @@ internal sealed class FrozenDefaultSessionState :
     }
 
     private static Sha256Digest ComputeBindingDigest(
+        CanonicalAlias alias,
+        RecoveryBindingKind kind,
         bool allowColdBackground,
+        DesiredSessionState desiredState,
         SessionTransitionVersion transition)
     {
+        var kindText = kind switch
+        {
+            RecoveryBindingKind.Default => "default",
+            RecoveryBindingKind.Dynamic => "dynamic",
+            RecoveryBindingKind.Template => "template",
+            _ => throw new ArgumentOutOfRangeException(nameof(kind)),
+        };
+        var desiredText = desiredState switch
+        {
+            DesiredSessionState.Ready => "ready",
+            DesiredSessionState.Cold => "cold",
+            _ => throw new ArgumentOutOfRangeException(nameof(desiredState)),
+        };
         var enabled = allowColdBackground ? "true" : "false";
         var canonical = Encoding.UTF8.GetBytes(
-            $"ptk.session-binding/1\0default\0default\0{enabled}\0ready\0{transition.Value}");
+            $"ptk.session-binding/1\0{alias.Value}\0{kindText}\0{enabled}\0{desiredText}\0{transition.Value}");
         return Sha256Digest.Compute(canonical);
     }
 
@@ -336,5 +380,22 @@ internal sealed class FrozenDefaultSessionState :
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_'));
+    }
+
+    private sealed class AliasState(
+        RecoveryBinding binding,
+        GuardianHostWorkerIdentity workerIdentity,
+        GuardianAuditSession auditSession,
+        WorkerGenerationHighWatermarkEntry highWatermark)
+    {
+        internal RecoveryBinding Binding { get; } = binding;
+        internal GuardianHostWorkerIdentity WorkerIdentity { get; set; } = workerIdentity;
+        internal GuardianAuditSession AuditSession { get; set; } = auditSession;
+        internal WorkerGenerationHighWatermarkEntry HighWatermark { get; set; } = highWatermark;
+        internal WorkerGeneration? PendingWorkerGeneration { get; set; }
+        internal PublicSessionState State { get; set; }
+        internal bool ReadyForEffects { get; set; }
+        internal bool WarmStateLost { get; set; }
+        internal BootstrapState BootstrapState { get; set; }
     }
 }

@@ -1120,12 +1120,7 @@
         },
         {
           "properties": {
-            "phase": { "const": "completed" },
-            "exit_code": {
-              "type": "integer",
-              "minimum": -2147483648,
-              "maximum": 2147483647
-            }
+            "phase": { "const": "completed" }
           }
         }
       ]

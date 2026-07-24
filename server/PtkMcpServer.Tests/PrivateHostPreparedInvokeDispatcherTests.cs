@@ -176,15 +176,97 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
         Assert.Equal(new PrivateRequestId(71), delivery.WorkerRequestId);
     }
 
+    [Fact]
+    public async Task Background_dispatch_retains_exact_public_job_until_terminal()
+    {
+        var order = new List<string>();
+        var process = new RecordingProcessClient(order, background: true);
+        await using var slot = Slot(process);
+        var events = new RecordingEventSink(order);
+        var workerEvents = new PrivateHostWorkerEventBridge(Identity, events);
+        var dispatcher = Dispatcher(
+            events,
+            new RecordingControlSink(order),
+            workerEvents);
+
+        var result = await dispatcher.ExecuteBackgroundAsync(
+            BackgroundRequest(),
+            slot,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Started);
+        Assert.Equal(9001, result.PublicJobId);
+        Assert.Equal("Job 9001 started.", result.Text);
+        Assert.Equal(1, workerEvents.RegistrationCount);
+        Assert.Equal(
+        [
+            "prepare_write",
+            "commit_reserved",
+            "authorize_event",
+            "authorize_response",
+            "delivery_write_started",
+            "commit_write",
+            "delivery_terminal_decoded",
+        ], order);
+        workerEvents.RetireWorker(Worker);
+        Assert.Equal(0, workerEvents.RegistrationCount);
+    }
+
+    [Fact]
+    public async Task Background_terminal_is_correlated_during_commit_before_start_response()
+    {
+        var order = new List<string>();
+        var events = new RecordingEventSink(
+            order,
+            acceptJobTerminal: true);
+        var workerEvents = new PrivateHostWorkerEventBridge(Identity, events);
+        var process = new RecordingProcessClient(
+            order,
+            background: true,
+            afterCommitWrite: () => workerEvents.HandleAsync(
+                    JobTerminal(Descriptor(background: true)),
+                    TestContext.Current.CancellationToken)
+                .AsTask());
+        await using var slot = Slot(process);
+        var dispatcher = Dispatcher(
+            events,
+            new RecordingControlSink(order),
+            workerEvents);
+
+        var result = await dispatcher.ExecuteBackgroundAsync(
+            BackgroundRequest(),
+            slot,
+            TestContext.Current.CancellationToken);
+
+        Assert.True(result.Started);
+        Assert.Equal(0, workerEvents.RegistrationCount);
+        var terminal = Assert.IsType<JobLifecycleEvent>(
+            Assert.Single(events.WorkerEvents));
+        Assert.Equal(new PublicJobId(9001), terminal.PublicJobId);
+        Assert.Equal(
+        [
+            "prepare_write",
+            "commit_reserved",
+            "authorize_event",
+            "authorize_response",
+            "delivery_write_started",
+            "commit_write",
+            "job_terminal_event",
+            "delivery_terminal_decoded",
+        ], order);
+    }
+
     private static PrivateHostPreparedInvokeDispatcher Dispatcher(
         IPrivateHostEventSink events,
-        IPrivateHostControlEventSink control) => new(
+        IPrivateHostControlEventSink control,
+        PrivateHostWorkerEventBridge? workerEvents = null) => new(
         Identity,
         events,
         new PrivateHostPreparedDispatchAuthorizer(
             Identity,
             control,
-            unixTimeMilliseconds: () => Deadline - 1));
+            unixTimeMilliseconds: () => Deadline - 1),
+        workerEvents ?? new PrivateHostWorkerEventBridge(Identity, events));
 
     private static PrivateHostWorkerSlot Slot(
         IWorkerProcessClient process) => new(
@@ -225,7 +307,31 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
             raw: false,
             GuardianHostInvokeRoute.Auto));
 
-    private static WorkerPreparedPlanDescriptor Descriptor() => new(
+    private static OperationRequest BackgroundRequest() => new(
+        Guardian,
+        Host,
+        HostGeneration,
+        new PrivateRequestId(8),
+        Deadline,
+        Alias,
+        Transition,
+        Worker,
+        Operation,
+        new InvokeBackgroundOperation(
+            new CallId(Guid.Parse("11111111-1111-7111-8111-111111111111")),
+            new DispatchCapability(
+                Token(0x22),
+                new CallId(Guid.Parse(
+                    "11111111-1111-7111-8111-111111111111")),
+                Deadline),
+            new OutputCapability(Token(0x33), 1024, Deadline),
+            "Get-Date",
+            raw: false,
+            GuardianHostInvokeRoute.Auto,
+            new PublicJobId(9001)));
+
+    private static WorkerPreparedPlanDescriptor Descriptor(
+        bool background = false) => new(
         Operation.PlanId.Value,
         Worker.BootId.Value,
         ScriptDigest().Value,
@@ -235,7 +341,7 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
         RequestedExecutionRoute.Auto,
         ExecutionPath.PowerShellDirect,
         PreExecutionValidation.None,
-        ResolutionContext.Warm,
+        background ? ResolutionContext.Cold : ResolutionContext.Warm,
         OutputProvenance.PowerShellObjects,
         ImmutableArray<ExecutionPath>.Empty,
         FallbackReason: null,
@@ -243,6 +349,28 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
         RtkBinaryDigest: null,
         BashBinaryDigest: null,
         OutputShapingRtkBinaryDigest: null);
+
+    private static WorkerEnvelope JobTerminal(
+        WorkerPreparedPlanDescriptor descriptor) => new(
+        WorkerProtocol.Version,
+        WorkerMessageKind.Event,
+        Worker.BootId.Value,
+        RequestId: null,
+        JsonSerializer.SerializeToElement(new
+        {
+            @event = "job_terminal",
+            generation = Worker.Generation.Value,
+            planId = Operation.PlanId.Value.ToString("D"),
+            descriptorDigest =
+                WorkerPreparedOperationCodec.ComputePreparedDescriptorDigest(
+                    descriptor),
+            publicJobId = 9001,
+            state = "completed",
+            exitCode = 0,
+            outputState = "unavailable",
+            outputBytes = 0,
+            outputDigest = (string?)null,
+        }));
 
     private static Sha256Digest Digest(char value) =>
         new(new string(value, 64));
@@ -265,7 +393,9 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
 
     private sealed class RecordingProcessClient(
         List<string> order,
-        bool failAfterCommitWrite = false) : IWorkerProcessClient
+        bool failAfterCommitWrite = false,
+        bool background = false,
+        Func<Task>? afterCommitWrite = null) : IWorkerProcessClient
     {
         private int _abortCount;
 
@@ -298,7 +428,13 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
             Assert.Equal(
                 ScriptDigest().Value,
                 prepare.ScriptDigest);
-            return Task.FromResult(Descriptor());
+            Assert.Equal(
+                background
+                    ? WorkerPreparedInvokeKind.Background
+                    : WorkerPreparedInvokeKind.Foreground,
+                prepare.Kind);
+            Assert.Equal(background ? 9001 : null, prepare.PublicJobId);
+            return Task.FromResult(Descriptor(background));
         }
 
         public async Task<WorkerOperationResponse> CommitAsync(
@@ -311,8 +447,22 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
             Assert.NotNull(beforeWrite);
             await beforeWrite(71, cancellationToken);
             order.Add("commit_write");
+            if (afterCommitWrite is not null)
+                await afterCommitWrite();
             if (failAfterCommitWrite)
                 throw new IOException("ambiguous commit write");
+            if (background)
+            {
+                return WorkerOperationResponse.Completed(
+                    requestId: 71,
+                    Worker.Generation.Value,
+                    JsonSerializer.SerializeToElement(new
+                    {
+                        text = "Job 9001 started.",
+                        publicJobId = 9001,
+                        started = true,
+                    }));
+            }
             return WorkerOperationResponse.Completed(
                 requestId: 71,
                 Worker.Generation.Value,
@@ -376,19 +526,27 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
 
     private sealed class RecordingEventSink(
         List<string> order,
-        bool failWriteStarted = false) : IPrivateHostEventSink
+        bool failWriteStarted = false,
+        bool acceptJobTerminal = false) : IPrivateHostEventSink
     {
         private long _sequence;
 
         internal List<OperationDeliveryEvent> Events { get; } = [];
+        internal List<GuardianHostEvent> WorkerEvents { get; } = [];
 
         public ValueTask WriteEventAsync(
             Func<HostEventSequence, GuardianHostEvent> createEvent,
             CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var delivery = Assert.IsType<OperationDeliveryEvent>(
-                createEvent(new HostEventSequence(++_sequence)));
+            var created = createEvent(new HostEventSequence(++_sequence));
+            if (acceptJobTerminal && created is JobLifecycleEvent)
+            {
+                order.Add("job_terminal_event");
+                WorkerEvents.Add(created);
+                return ValueTask.CompletedTask;
+            }
+            var delivery = Assert.IsType<OperationDeliveryEvent>(created);
             order.Add($"delivery_{MachineCode(delivery.DeliveryState)}");
             if (failWriteStarted &&
                 delivery.DeliveryState ==

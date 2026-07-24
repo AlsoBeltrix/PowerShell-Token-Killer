@@ -277,8 +277,18 @@ short and update it when important repo facts change.
   plan/dispatch authorizer, writes the start result before one bounded
   asynchronous `job_terminal`, emits no terminal for a refusal, and orders
   shutdown as reservation drain, runtime job containment, terminal-event
-  drain, then `stopped`. R6 remains in progress: host/guardian forwarding of
-  worker job, validator, and output events; per-alias host cutover;
+  drain, then `stopped`. The host prepared dispatcher now registers each exact
+  descriptor before commit, opens worker-event forwarding only after guardian
+  authorization and delivery admission, enforces warm foreground versus cold
+  background context, preserves Bash validator start/completion ordering, and
+  retains one guardian-reserved background ID through its asynchronous
+  terminal. Validator completions that prove no validator process started
+  preserve their null exit fact in the corrected v2 schema. Descriptor,
+  generation, worker, plan, and job mismatches fail closed without mutating
+  guardian state. The warning-free build, Guardian 459/459, and server
+  2,011/2,011 pass with independent commit-activation, descriptor-digest, and
+  resolution-context mutation guards. R6 remains in progress: worker output
+  transfer; per-alias host cutover;
   authoritative multi-alias guardian state; automatic recovery wiring; and the
   remaining Windows/cutover acceptance matrix.
 - **The owner-approved two-layer MCP resilience sequence is implemented and

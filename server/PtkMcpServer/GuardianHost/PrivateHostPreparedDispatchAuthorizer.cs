@@ -183,11 +183,15 @@ internal sealed class PrivateHostPreparedDispatchAuthorizer
 
         var descriptor =
             PrivateHostPreparedPlanProjection.Project(workerDescriptor);
+        var expectedContext = request.Operation is InvokeForegroundOperation
+            ? GuardianHostResolutionContext.Warm
+            : GuardianHostResolutionContext.Cold;
         if (descriptor.PlanId != operation.PlanId ||
             descriptor.WorkerIdentity.BootId != slot.Identity.BootId ||
             descriptor.WorkerIdentity.Generation != slot.Identity.Generation ||
             descriptor.DeadlineUnixTimeMilliseconds !=
                 request.DeadlineUnixTimeMilliseconds ||
+            descriptor.ResolutionContext != expectedContext ||
             descriptor.DeadlineUnixTimeMilliseconds <= _unixTimeMilliseconds())
         {
             throw InvalidCorrelation(

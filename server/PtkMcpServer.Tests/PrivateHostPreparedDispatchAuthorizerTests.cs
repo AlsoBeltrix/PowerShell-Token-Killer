@@ -67,7 +67,7 @@ public sealed class PrivateHostPreparedDispatchAuthorizerTests
         Assert.Equal(
             GuardianHostPreExecutionValidation.BashSyntax,
             projected.PreExecutionValidation);
-        Assert.Equal(GuardianHostResolutionContext.Cold, projected.ResolutionContext);
+        Assert.Equal(GuardianHostResolutionContext.Warm, projected.ResolutionContext);
         Assert.Equal(
             GuardianHostOutputProvenance.RtkFiltered,
             projected.OutputProvenance);
@@ -115,6 +115,29 @@ public sealed class PrivateHostPreparedDispatchAuthorizerTests
                 slot,
                 Descriptor() with { WorkerBootId = Guid.NewGuid() },
                 TestContext.Current.CancellationToken));
+        Assert.Equal(0, control.ExchangeCount);
+    }
+
+    [Fact]
+    public async Task Foreground_cannot_authorize_a_cold_preparation()
+    {
+        var control = new RecordingControlSink();
+        var authorizer = new PrivateHostPreparedDispatchAuthorizer(
+            Identity,
+            control,
+            unixTimeMilliseconds: () => Deadline - 1);
+        await using var slot = Slot();
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await authorizer.AuthorizeAsync(
+                Request(),
+                slot,
+                Descriptor() with
+                {
+                    ResolutionContext = ResolutionContext.Cold,
+                },
+                TestContext.Current.CancellationToken));
+
         Assert.Equal(0, control.ExchangeCount);
     }
 
@@ -270,7 +293,7 @@ public sealed class PrivateHostPreparedDispatchAuthorizerTests
         RequestedExecutionRoute.Rtk,
         ExecutionPath.BashViaRtk,
         PreExecutionValidation.BashSyntax,
-        ResolutionContext.Cold,
+        ResolutionContext.Warm,
         OutputProvenance.RtkFiltered,
         [
             ExecutionPath.PowerShellDirect,

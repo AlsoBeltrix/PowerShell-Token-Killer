@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 
 public sealed class McpResilienceR0ContractTests
 {
-    private const string ContractSha256 = "1101bfd546e1462632c5823c6a93e886d55ac0d317980c7338feb2fc8fc1986e";
+    private const string ContractSha256 = "7234f06142ede1db744b5cccff0808016862e03a60831735e1e741509c978895";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly Regex LowerSha256 = new("^[0-9a-f]{64}$", RegexOptions.CultureInvariant);
 

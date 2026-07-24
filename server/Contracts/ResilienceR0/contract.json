@@ -300,7 +300,7 @@
     "public-recovery.schema.json": "cf218e4a1617b79a0370ee0a62f000f565572d50b2709db4374e5724b41e7925",
     "public-state.schema.json": "2fc6c1fcea8a807f3e0c395bad011f05c4e34fac1e437854ebf7d5856aeea864",
     "guardian-host-protocol.json": "91cd250dc4a6d44cfa143129225155894f9f0d18738a95b73b0c5c203ed82e2c",
-    "guardian-host-protocol.schema.json": "bbebffceef50215f2114bc0688940c848627c38194dd2fcdf9ef435696db22b9",
+    "guardian-host-protocol.schema.json": "fe456813d2f717225f7a710de25703a485f6a35533b195fdba8ea893af4b3509",
     "recovery-manifest.schema.json": "3bed14f63f5a3e30c6555dabee575c6fce497521efa1244cbc3d74c46ee06872",
     "recovery-manifest.example.json": "b5e589198bac9d35138a1dc7c2839ebb5b52ae7e66b208eafa4a451d789e4f1e",
     "audit-v3-null.jsonl": "515008d265bdf60594a091e734221b2555b53d5b0dda377eed7f7de76297f39b",

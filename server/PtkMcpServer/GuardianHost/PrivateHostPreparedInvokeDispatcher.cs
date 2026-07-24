@@ -19,16 +19,20 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
     private readonly PrivateHostServerIdentity _identity;
     private readonly IPrivateHostEventSink _events;
     private readonly PrivateHostPreparedDispatchAuthorizer _authorizer;
+    private readonly PrivateHostWorkerEventBridge _workerEvents;
 
     internal PrivateHostPreparedInvokeDispatcher(
         PrivateHostServerIdentity identity,
         IPrivateHostEventSink events,
-        PrivateHostPreparedDispatchAuthorizer authorizer)
+        PrivateHostPreparedDispatchAuthorizer authorizer,
+        PrivateHostWorkerEventBridge workerEvents)
     {
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _events = events ?? throw new ArgumentNullException(nameof(events));
         _authorizer = authorizer ??
             throw new ArgumentNullException(nameof(authorizer));
+        _workerEvents = workerEvents ??
+            throw new ArgumentNullException(nameof(workerEvents));
     }
 
     internal async ValueTask<WorkerOperationResponse> ExecuteForegroundAsync(
@@ -57,19 +61,74 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
             new WorkerInvokeArguments(
                 operation.Script,
                 operation.Raw,
-                operation.Route switch
-                {
-                    GuardianHostInvokeRoute.Auto => WorkerInvokeRoute.Auto,
-                    GuardianHostInvokeRoute.Pwsh => WorkerInvokeRoute.Pwsh,
-                    GuardianHostInvokeRoute.Rtk => WorkerInvokeRoute.Rtk,
-                    _ => throw new ArgumentException(
-                        "Foreground invocation route is unsupported.",
-                        nameof(request)),
-                }));
+                MapRoute(operation.Route)));
+        return await ExecutePreparedAsync(
+                request,
+                slot,
+                prepare,
+                static response => response,
+                static (registration, _) => registration.CompleteForeground(),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 
+    internal async ValueTask<WorkerBackgroundStartResponse>
+        ExecuteBackgroundAsync(
+            OperationRequest request,
+            PrivateHostWorkerSlot slot,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(slot);
+        var operation = request.Operation as InvokeBackgroundOperation ??
+            throw new ArgumentException(
+                "Prepared background dispatch requires a background invocation.",
+                nameof(request));
+        var operationIdentity = request.OperationIdentity ??
+            throw new ArgumentException(
+                "Prepared background dispatch requires an operation identity.",
+                nameof(request));
+        var deadline = DateTimeOffset.FromUnixTimeMilliseconds(
+            request.DeadlineUnixTimeMilliseconds!.Value);
+        var prepare = new WorkerInvokePreparePayload(
+            operationIdentity.PlanId.Value,
+            slot.Identity.Generation.Value,
+            deadline,
+            Sha256Digest.Compute(
+                StrictUtf8.GetBytes(operation.Script)).Value,
+            new WorkerInvokeArguments(
+                operation.Script,
+                operation.Raw,
+                MapRoute(operation.Route)),
+            WorkerPreparedInvokeKind.Background,
+            operation.PublicJobId.Value);
+        return await ExecutePreparedAsync(
+                request,
+                slot,
+                prepare,
+                response =>
+                    WorkerPreparedOperationProtocol.ParseBackgroundStartResult(
+                        response,
+                        slot.Identity.Generation.Value,
+                        operation.PublicJobId.Value),
+                static (registration, result) =>
+                    registration.CompleteBackgroundStart(result.Started),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private async ValueTask<T> ExecutePreparedAsync<T>(
+        OperationRequest request,
+        PrivateHostWorkerSlot slot,
+        WorkerInvokePreparePayload prepare,
+        Func<WorkerOperationResponse, T> decode,
+        Action<PrivateHostWorkerEventRegistration, T> completeRegistration,
+        CancellationToken cancellationToken)
+    {
         var prepareAttempted = false;
         var commitWriteStarted = false;
         long? commitRequestId = null;
+        PrivateHostWorkerEventRegistration? eventRegistration = null;
         try
         {
             prepareAttempted = true;
@@ -82,6 +141,10 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                 descriptor.ScriptDigest,
                 descriptor.Generation,
                 descriptor.DeadlineUtc);
+            eventRegistration = _workerEvents.Register(
+                request,
+                slot,
+                descriptor);
 
             var response = await slot.Process.CommitAsync(
                     commit,
@@ -103,6 +166,7 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                             .ConfigureAwait(false);
                         commitRequestId = workerRequestId;
                         commitWriteStarted = true;
+                        eventRegistration.MarkCommitAuthorized();
                     })
                 .ConfigureAwait(false);
 
@@ -113,6 +177,7 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                     "Worker commit terminal does not match its reserved request.");
             }
 
+            var decoded = decode(response);
             await WriteDeliveryAsync(
                     request,
                     slot.Identity,
@@ -120,7 +185,8 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                     new PrivateRequestId(commitRequestId.Value),
                     cancellationToken)
                 .ConfigureAwait(false);
-            return response;
+            completeRegistration(eventRegistration, decoded);
+            return decoded;
         }
         catch
         {
@@ -133,10 +199,22 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                 }
                 await TryWriteNotDispatchedAsync(request, slot.Identity)
                     .ConfigureAwait(false);
+                eventRegistration?.Abandon();
             }
             throw;
         }
     }
+
+    private static WorkerInvokeRoute MapRoute(
+        GuardianHostInvokeRoute route) => route switch
+    {
+        GuardianHostInvokeRoute.Auto => WorkerInvokeRoute.Auto,
+        GuardianHostInvokeRoute.Pwsh => WorkerInvokeRoute.Pwsh,
+        GuardianHostInvokeRoute.Rtk => WorkerInvokeRoute.Rtk,
+        _ => throw new ArgumentException(
+            "Prepared invocation route is unsupported.",
+            nameof(route)),
+    };
 
     private async ValueTask WriteDeliveryAsync(
         OperationRequest request,

@@ -1407,11 +1407,10 @@ public sealed class PreparedValidatorLifecycleEvent : GuardianHostEvent
     {
         GuardianHostDtoValidation.RequireDefined(phase, nameof(phase));
         GuardianHostDtoValidation.Require(validatorBinaryDigest);
-        if (phase == GuardianHostValidatorPhase.Started && exitCode is not null ||
-            phase == GuardianHostValidatorPhase.Completed && exitCode is null)
+        if (phase == GuardianHostValidatorPhase.Started && exitCode is not null)
         {
             throw new ArgumentException(
-                "Validator start has no exit code and completion requires one.",
+                "Validator start has no exit code.",
                 nameof(exitCode));
         }
         Phase = phase;

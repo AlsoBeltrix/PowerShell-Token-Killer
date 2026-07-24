@@ -2759,3 +2759,23 @@ head `d71664f`, base `5ad5a9f`). Reviewer independently re-performed both
 mandated guard mutations red-to-green and the full battery (2,561 passed,
 0 failed). The reviewed range is verified and awaits owner-gated
 integration; it is not merged by this loop.
+
+---
+
+Loop run 2026-07-24 — reviewer: codex (codex-cli 0.145.0) then claude
+(2.1.219, repair-delta), scope: `ptk_session open` through contained
+workers, range `735d22f..6bbf86e` on `feature/mcp-resilience-r1` (slice
+`6bbf86e`, repair `2ba5aa9`). Finding record:
+`.agents/review/findings/r6c-2.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| r6c-2 | MEDIUM   | Ready dynamic binding crashed host recovery init               | `[x]`  | feature/mcp-resilience-r1 (`2ba5aa9`) |
+
+**Loop CLOSED 2026-07-24T19:14Z:** turn 1 codex REOPENED with one material
+finding (recovery manifest rejection), guard_confirmed=true; repair
+`2ba5aa9` landed with its regression guard and full battery green; repair-
+delta redispatch to claude-opus-4-8 (inline, session-only; escalated: T5)
+VERDICT ACCEPTED, guard_confirmed=true, zero comments. The slice and repair
+are verified and await owner-gated integration; nothing is merged by this
+loop.

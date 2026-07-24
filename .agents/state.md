@@ -703,13 +703,18 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Wire sub-slice 5 from head `d977f2d`: connect one
-   `SessionRecoveryStateMachine` per alias to real launch/containment
-   resources (unexpected exit, protocol loss, broker loss, execution-timeout
-   containment → one loss lease; confirmed death → next generation + fresh
-   empty runspace; ambiguity → `recovery_unknown`; per-alias backoff), and
-   implement `TryGetJobListTargetInvalidation` from the recovery metadata
-   the wiring produces. The production-cutover slice itself is
+1. Work the five admitted openreview findings (`.agents/review/findings/or5-*.md`,
+   one per commit, each with guard proof and per-finding review): or5-1
+   (per-alias fault scoping), or5-3 (desired state follows explicit
+   lifecycle intent), or5-2 (reopen/undeclare for dynamic aliases), or5-4
+   (release job capabilities on terminal), then sub-slice 5 per or5-5:
+   the thinnest end-to-end loss → confirm-death → next-generation →
+   relaunch path per alias wired to real slot/containment resources, with
+   the recovery machine's transition epoch kept as its private host-local
+   bookkeeping (never on the wire; the guardian keeps today's identifiers)
+   and all manual/automatic lifecycle transitions on one alias
+   single-flight arbitrated in one place. The 87eb957 lockstep-epoch
+   sketch is superseded. The production-cutover slice itself is
    complete and verified on macOS; the Windows-only real composition tests
    still need their direct `NETWATCH-01`/CI evidence on this exact head before
    any cross-platform claim.

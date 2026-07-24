@@ -2813,3 +2813,20 @@ plan at `e414fa7`'s successor commit (no undeclare-on-failure; reopen
 reuses the declared binding verbatim; mismatched allowColdBackground
 refused in-band; job slots reserved before commit; job capabilities
 cleared on fault; alias state marked before any lifecycle write).
+
+---
+
+Loop run 2026-07-24 — reviewer: claude (Claude Code 2.1.219,
+claude-opus-5 @ max, frontier/competitive), scope: or5-1 per-alias fault
+scoping, range `ee58ed9..74897a4` + repair `94cea23` on
+`feature/mcp-resilience-r1`. Finding record:
+`.agents/review/findings/or5-1.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| or5-1 | HIGH     | Failed lifecycle op on one alias faulted the whole runtime     | `[x]`  | feature/mcp-resilience-r1 (`94cea23`) |
+
+**Loop CLOSED 2026-07-24T21:35Z:** turn 1 REOPENED (post-announcement
+identity/state defects C1/C2 + plan divergence C3), repair `94cea23`
+landed with three new mutation-proven guards and full battery green,
+repair-delta VERDICT ACCEPTED, `guard_confirmed=true`, zero comments.

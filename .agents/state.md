@@ -6,8 +6,9 @@ short and update it when important repo facts change.
 ## Now
 
 - **R6 sub-slice 4 is in flight on `feature/mcp-resilience-r1`; structural
-  halves are committed at `b18fc09` and `d71664f`, and the `ptk_session open`
-  end-to-end design is fully mapped below.** `b18fc09` holds
+  halves are committed at `b18fc09` and `d71664f`, `ptk_session open` is
+  complete at `6bbf86e`, and the cutover trio passed codex review
+  (`r6c-1`, accepted 2026-07-24).** `b18fc09` holds
   guardian declared session state per alias inside
   `FrozenDefaultSessionState` with byte-identical default-alias behavior
   (manifest/binding digests, grant/refusal token economics, observer
@@ -16,7 +17,27 @@ short and update it when important repo facts change.
   `WorkerPrivateHostRuntime`: per-alias slot/replacing/job-capability maps,
   multi-binding initialization that accepts the ready default plus cold
   dynamic bindings (template bindings still refused), and per-alias
-  reset/restart/close with a frozen launch/shutdown order. Sub-slice 5 (wire
+  reset/restart/close with a frozen launch/shutdown order. `6bbf86e` lands
+  `ptk_session open` end-to-end: the canonical binding digest moved into
+  `PtkSharedContracts.RecoveryBinding.ComputeBindingDigest` (default bytes
+  pinned by the existing digest test); the guardian declares each dynamic
+  alias (kind Dynamic, transition 1, desired Ready, declared dispatch
+  identity consuming generation 1, Cold/null-worker public projection);
+  the supervisor dispatches open through the Host gate with a null-worker
+  request; the host rebuilds the binding from operation+request fields and
+  computes the same digest (grant validation catches divergence), creates
+  the slot, and emits the `RequestedOpen` ready lifecycle. Layered guards:
+  declaration/projection tests in `FrozenDefaultSessionStateTests`, the
+  host open/busy/template-refusal tests in
+  `WorkerPrivateHostRuntimeTests`, the supervisor open tests in
+  `GuardianHostSupervisorTests`, and
+  `ProductionGuardianCompositionTests.Composition_opens_a_dynamic_session_on_the_real_private_host`
+  (real apphost: open, state, invoke, close, cold projection). Three
+  mutations proved the load-bearing seams red (skip-declare, null-worker
+  removal, reopen-allowed) before restore. Template open refuses cleanly
+  until the template-bootstrap slice. One flaky battery failure appeared
+  once and did not reproduce in two immediate full reruns (2,567/2,567
+  green both times); its test name was not captured. Sub-slice 5 (wire
   `SessionRecoveryStateMachine` per alias) has not started; it exists
   per-alias and unwired in `server/PtkMcpServer/GuardianHost/SessionRecoveryStateMachine.cs`.
 - **`ptk_session open` implementation design (mapped 2026-07-24, not yet
@@ -623,14 +644,14 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Implement `ptk_session open` end-to-end exactly as mapped in the design
-   bullet under `## Now` (shared binding-digest helper,
-   `DeclareDynamicAlias`, supervisor open dispatch through the Host gate with
-   a null-worker request, host `SessionOpenOperation` case), each layer with
-   focused tests and mutation proofs, then the full battery. Then continue
-   sub-slice 4's remainders: frozen template bootstrap, guardian-owned
-   single-use create-token tracking, and `TryGetJobListTargetInvalidation`.
-   The production-cutover slice itself is
+1. Continue sub-slice 4's remainders from head `6bbf86e`: frozen template
+   bootstrap (template open is refused today), guardian-owned single-use
+   create-token tracking, and `TryGetJobListTargetInvalidation`. Then
+   sub-slice 5: wire one `SessionRecoveryStateMachine` per alias to real
+   launch/containment/bootstrap resources (unexpected exit, protocol loss,
+   broker loss, execution-timeout containment → one loss lease; confirmed
+   death → next generation + exact frozen baseline; ambiguity →
+   `recovery_unknown`; per-alias backoff). The production-cutover slice itself is
    complete and verified on macOS; the Windows-only real composition tests
    still need their direct `NETWATCH-01`/CI evidence on this exact head before
    any cross-platform claim.

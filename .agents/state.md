@@ -58,12 +58,60 @@ short and update it when important repo facts change.
   (supersede-across-loss, double-bind rejection); a first pass that added a
   pending-race refusal and loss-time pending clearing was reverted as
   contract-violating and racy respectively. `TryGetJobListTargetInvalidation`
-  stays an honest always-false stub by contract — real invalidation evidence
-  requires recovery metadata (phase/attempt/retry) that only sub-slice 5's
-  wiring produces, so it folds into sub-slice 5. Then sub-slice 5 recovery
-  wiring, simplified (no bootstrap execution). A second non-reproducing
-  single-test battery flake occurred on 2026-07-24 (name again not captured;
-  two immediate full reruns green, 2,569/2,569).
+  folds into sub-slice 5 (its evidence requires recovery metadata by
+  contract). A second non-reproducing single-test battery flake occurred on
+  2026-07-24 (name again not captured; two immediate full reruns green,
+  2,569/2,569).
+- **Sub-slice 5 wiring design (mapped 2026-07-24, not yet coded).** Goal:
+  unexpected worker death on one alias recovers automatically to the next
+  generation with a fresh empty runspace; other aliases and the host are
+  unaffected; ambiguous losses become `recovery_unknown` with no replay.
+  1. Host-side detection in `WorkerPrivateHostRuntime`: per alias, watch
+     `slot.Process.Fatal` and worker EOF/exit; map to the slot's
+     `GuardianHostWorkerIdentity` and feed
+     `SessionRecoveryStateMachine.BeginUnexpectedLoss(identity, bindingProof)`.
+     The runtime owns one state machine per alias (constructed at
+     initialization/open from the alias's frozen binding + high watermark;
+     `frozenTemplate: null` always after the lazy-load amendment).
+  2. Generation reconciliation: the machine allocates the next generation
+     locally (watermark + 1) while the guardian grants generations
+     authoritatively. These coincide because both sides track the same
+     high-water mark; the attempt factory passes the machine's watermark to
+     the existing capability source, and the granted generation is validated
+     against it (mismatch = attempt failure, never silent acceptance).
+  3. Attempt factory (runtime-implemented
+     `ISessionRecoveryAttemptFactory`/`ISessionRecoveryPreparedAttempt`):
+     `Prepare` = capability request + contained launch through the existing
+     slot path; `RestoreBaseline(exactBootstrapBytes)` = no-op success for
+     empty bytes (lazy-load amendment) and a hard fault for any nonempty
+     bytes; commit emits the ready lifecycle
+     (`AutomaticRecovery`, `warmStateLost: true`) through the runtime's
+     existing event sink; `ContainAndConfirmDeathAsync` = the slot's
+     shutdown/containment confirmation; `Dispose` = slot disposal.
+  4. Scheduling: one runtime-level loop (not per alias) calls
+     `TryStartDueAttempt` on each alias's machine when its backoff elapses
+     (from `RecoveryCircuitMachine` on the same `TimeProvider`), then
+     `ExecuteBaseline`; success feeds `TryCompleteReadyStability`; failure
+     feeds the machine's failure path. Per-alias backoff/half-open state
+     stays inside each machine.
+  5. Loss convergence: unexpected exit/Fatal, protocol loss, broker loss,
+     and execution-timeout containment all funnel into the same
+     `BeginUnexpectedLoss` call; the machine's dispositions
+     (`EligibleForRecovery`/`RecoveryUnknown`/`StaleWorker`/`NotEligible`)
+     drive what the runtime reports for that alias (recovery in flight,
+     `recovery_unknown`, or faulted-only-that-alias).
+  6. Guardian-side projection (same slice): recovery lifecycles let
+     `FrozenDefaultSessionState` project `recoveryPhase`/`recoveryAttempt`/
+     `retryAfter` per alias instead of nulls, and
+     `TryGetJobListTargetInvalidation` gains real evidence captured
+     atomically when a ready target is invalidated (the interface contract
+     requires exact recovery metadata — never synthesized).
+  7. Host loss stays on the existing outer path (`GuardianHostSupervisor`
+     attempt lifecycle); sub-slice 5 changes nothing there.
+  Open questions to settle at implementation time: where execution-timeout
+  containment currently fires (find it before writing the watcher); whether
+  `WorkerLostEvent` (protocol type, currently unemitted) is the right
+  guardian-facing loss signal or whether lifecycle events suffice.
 - **R6's production private-host cutover to contained workers is complete and
   committed on `feature/mcp-resilience-r1` at `1e19b46`.** The slice replaces
   production selection of the in-process runtime with

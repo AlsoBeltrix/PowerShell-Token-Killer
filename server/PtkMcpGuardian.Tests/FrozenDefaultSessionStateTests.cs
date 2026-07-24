@@ -499,9 +499,65 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
-    public void Second_ready_lifecycle_for_one_grant_is_rejected()
+    public void Faulted_lifecycle_clears_the_pending_grant_and_projects_the_fault()
     {
         var state = State();
+        var granted = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(2, granted.WorkerGeneration.Value);
+
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(2),
+            requestId: null,
+            new CanonicalAlias("default"),
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            PublicSessionState.Resetting,
+            PublicSessionState.Faulted,
+            GuardianHostSessionLifecycleReason.ContainmentUnconfirmed,
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.Failed));
+
+        var snapshot = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Faulted, snapshot.State);
+        Assert.False(snapshot.ReadyForEffects);
+        Assert.True(snapshot.WarmStateLost);
+        Assert.Equal(BootstrapState.Failed, snapshot.BootstrapState);
+
+        var second = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(3, second.WorkerGeneration.Value);
+
+        var wrongReason = new SessionLifecycleEvent(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(3),
+            requestId: null,
+            new CanonicalAlias("default"),
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            PublicSessionState.Resetting,
+            PublicSessionState.Faulted,
+            GuardianHostSessionLifecycleReason.RequestedReset,
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.Failed);
+        Assert.Throws<InvalidOperationException>(() =>
+            state.ObserveSessionLifecycle(wrongReason));
+    }
+
+    [Fact]
+    public void Second_ready_lifecycle_for_one_grant_is_rejected()
+    {        var state = State();
         var granted = state.GrantWorkerCreateCapability(
             CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
             nowUnixTimeMilliseconds: 100,

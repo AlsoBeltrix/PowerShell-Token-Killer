@@ -326,6 +326,24 @@ internal sealed class FrozenDefaultSessionState :
                 }
                 state.PendingWorkerGeneration = null;
             }
+            else if (lifecycleEvent.State == PublicSessionState.Faulted)
+            {
+                var faultWorker = lifecycleEvent.WorkerIdentity ??
+                    throw new InvalidOperationException(
+                        "A faulted session lifecycle event requires a worker.");
+                if (faultWorker.BootId != state.WorkerIdentity.BootId ||
+                    faultWorker.Generation != state.WorkerIdentity.Generation ||
+                    lifecycleEvent.ReadyForEffects ||
+                    lifecycleEvent.BootstrapState != BootstrapState.Failed ||
+                    lifecycleEvent.Reason is not (
+                        GuardianHostSessionLifecycleReason.ContainmentUnconfirmed or
+                        GuardianHostSessionLifecycleReason.BootstrapFailed))
+                {
+                    throw new InvalidOperationException(
+                        "The faulted lifecycle event does not match the current worker or reason.");
+                }
+                state.PendingWorkerGeneration = null;
+            }
             else
             {
                 throw new InvalidOperationException(

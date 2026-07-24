@@ -2740,3 +2740,22 @@ Contested items (rbc-8, rbc-13) went to codex MCP under the 3-turn cap;
 consensus AGREE on both at turn 1 (thread
 `019f7cb9-c587-79c1-994b-a28e8d7b1ba1`). Fix order: rbc-14 first (own
 branch + external fixed-SHA review), then rbc-9, rbc-10, rbc-12.
+
+---
+
+Loop run 2026-07-24 — reviewer: codex (codex-cli 0.145.0), scope: R6
+production cutover and per-alias foundations, range `5ad5a9f..d71664f` on
+`feature/mcp-resilience-r1` (slices `1e19b46`, `b18fc09`, `d71664f`).
+Finding record: `.agents/review/findings/r6c-1.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| r6c-1 | MEDIUM   | Worker routing/identity defects guarded by mutation proofs     | `[x]`  | feature/mcp-resilience-r1 (`d71664f`) |
+
+**Loop CLOSED 2026-07-24T16:29Z:** VERDICT ACCEPTED, `guard_confirmed=true`,
+zero comments — `Reviewer: codex / gpt-5.6-sol / high / standard`
+(codex-cli 0.145.0, dispatched headless in a disposable worktree at pinned
+head `d71664f`, base `5ad5a9f`). Reviewer independently re-performed both
+mandated guard mutations red-to-green and the full battery (2,561 passed,
+0 failed). The reviewed range is verified and awaits owner-gated
+integration; it is not merged by this loop.

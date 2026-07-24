@@ -33,12 +33,21 @@ Change:
   swallowing non-fatal write failures the way `TryWriteNotDispatchedAsync`
   does — never with the (possibly cancelled) operation token, and never
   before the alias state is marked. Emit
-  `SessionLifecycleEvent` `Ready -> Faulted` with the current worker,
-  `readyForEffects: false`, `warmStateLost: true`,
-  `BootstrapState.Failed`, with the exact reason for the path
-  (reset/restart failure → the transition's own reason; close failure →
-  `RequestedClose` — the reason enum is
+  `SessionLifecycleEvent` `Resetting/Closing -> Faulted` with the current
+  worker, `readyForEffects: false`, `warmStateLost: true`,
+  `BootstrapState.Failed`, with the exact fault reason
+  (`ContainmentUnconfirmed` for a failed shutdown, `BootstrapFailed` for a
+  failed relaunch — the reason enum is
   `GuardianHostSessionLifecycleReason`; no new wire values are added).
+- Post-announcement rule: once the ready lifecycle (replacement) or the
+  cold lifecycle (close) has been written, a later failure in the same
+  operation (for example a cancelled TerminalDecoded delivery write) does
+  NOT fault the alias. A replacement whose ready lifecycle was announced
+  is committed (the operation is lost; the session is healthy at the new
+  generation); a close whose cold lifecycle was announced leaves the alias
+  honestly cold (the operation's terminal is lost; the session is closed).
+  Faulting is reserved for the pre-announcement window where containment
+  or relaunch genuinely failed.
 - `FrozenDefaultSessionState.ObserveSessionLifecycle` gains a `Faulted`
   branch: state Faulted, readyForEffects false, bootstrap Failed, and it
   CLEARS `PendingWorkerGeneration` exactly like the Cold branch — a failed

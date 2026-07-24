@@ -678,6 +678,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         long? workerRequestId = null;
         PrivateHostWorkerSlot? replacement = null;
         var relaunchStarted = false;
+        var readyAnnounced = false;
         try
         {
             await current.Process.ShutdownAsync(
@@ -713,6 +714,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     warmStateLost: true,
                     cancellationToken)
                 .ConfigureAwait(false);
+            readyAnnounced = true;
             if (workerRequestId is null)
             {
                 throw new InvalidDataException(
@@ -758,6 +760,24 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         }
         catch
         {
+            if (readyAnnounced)
+            {
+                // The guardian already bound the announced replacement:
+                // commit it. The operation is lost; the session is not.
+                lock (_gate)
+                {
+                    if (replacement is not null)
+                    {
+                        alias.Slot = replacement;
+                        alias.GenerationHighWatermark =
+                            new WorkerGenerationHighWatermark(
+                                replacement.Identity.Generation.Value);
+                        replacement = null;
+                    }
+                    alias.Replacing = false;
+                }
+                throw;
+            }
             if (replacement is not null)
             {
                 _workerEvents.RetireWorker(replacement.Identity);
@@ -796,6 +816,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
         var (binding, _) = BeginReplacement(alias, current);
         long? workerRequestId = null;
+        var coldAnnounced = false;
         try
         {
             await current.Process.ShutdownAsync(
@@ -833,6 +854,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                         BootstrapState.NotApplicable),
                     cancellationToken)
                 .ConfigureAwait(false);
+            coldAnnounced = true;
             if (workerRequestId is null)
             {
                 throw new InvalidDataException(
@@ -862,6 +884,18 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         }
         catch
         {
+            if (coldAnnounced)
+            {
+                // The guardian already recorded the close: the operation's
+                // terminal is lost, but the session is honestly cold, not
+                // faulted.
+                lock (_gate)
+                {
+                    alias.Slot = null;
+                    alias.Replacing = false;
+                }
+                throw;
+            }
             MarkAliasFaulted(alias);
             await TryWriteFaultLifecycleAsync(
                     request,

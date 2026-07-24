@@ -452,6 +452,85 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void A_pending_grant_is_superseded_by_the_next_grant_across_host_loss()
+    {
+        var state = State();
+        var request = CreateRequest(state, deadlineUnixTimeMilliseconds: 500);
+
+        var first = state.GrantWorkerCreateCapability(
+            request,
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(2, first.WorkerGeneration.Value);
+
+        state.ObserveHostReady(Identity(2), recovered: true);
+
+        var second = state.GrantWorkerCreateCapability(
+            request,
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        Assert.Equal(3, second.WorkerGeneration.Value);
+        var snapshot = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Starting, snapshot.State);
+        Assert.True(snapshot.WarmStateLost);
+
+        // Only the latest pending grant can bind; the superseded one is dead.
+        SessionLifecycleEvent Lifecycle(long sequence, long generation) => new(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(sequence),
+            requestId: null,
+            new CanonicalAlias("default"),
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(generation)),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored);
+        Assert.Throws<InvalidOperationException>(() =>
+            state.ObserveSessionLifecycle(Lifecycle(2, first.WorkerGeneration.Value)));
+        state.ObserveSessionLifecycle(Lifecycle(3, second.WorkerGeneration.Value));
+        Assert.Equal(
+            PublicSessionState.Ready,
+            Assert.Single(state.SnapshotSessions()).State);
+    }
+
+    [Fact]
+    public void Second_ready_lifecycle_for_one_grant_is_rejected()
+    {
+        var state = State();
+        var granted = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        SessionLifecycleEvent Lifecycle(long sequence) => new(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(sequence),
+            requestId: null,
+            new CanonicalAlias("default"),
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(Worker, granted.WorkerGeneration),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored);
+
+        state.ObserveSessionLifecycle(Lifecycle(2));
+        Assert.Equal(
+            PublicSessionState.Ready,
+            Assert.Single(state.SnapshotSessions()).State);
+        Assert.Throws<InvalidOperationException>(() =>
+            state.ObserveSessionLifecycle(Lifecycle(3)));
+    }
+
+    [Fact]
     public void Dispatch_target_is_exact_and_foreign_guardian_manifest_is_rejected()
     {
         var state = State();

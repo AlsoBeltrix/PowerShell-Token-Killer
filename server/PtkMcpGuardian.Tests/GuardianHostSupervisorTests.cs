@@ -1529,6 +1529,32 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Public_session_close_of_default_is_refused_before_any_dispatch()
+    {
+        await using var rig = new TestRig(
+            new CanonicalAlias("default"),
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+
+        var result = await rig.DispatchPublicSessionLifecycleAsync(
+                "close",
+                "default",
+                expectedGeneration: 1,
+                force: false,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.True(result.IsError);
+        Assert.Contains(
+            "cannot be closed",
+            result.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
+        Assert.Single(rig.Supervisor.SnapshotState().Sessions);
+    }
+
+    [Fact]
     public async Task Public_output_reads_searches_and_reports_guardian_local_artifacts()
     {
         await using var rig = new TestRig(

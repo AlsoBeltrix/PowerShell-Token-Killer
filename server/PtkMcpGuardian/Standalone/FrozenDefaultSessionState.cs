@@ -404,9 +404,12 @@ internal sealed class FrozenDefaultSessionState :
             }
 
             state.State = result.State;
-            state.DesiredState = result.State == PublicSessionState.Cold
-                ? DesiredSessionState.Cold
-                : DesiredSessionState.Ready;
+            if (state.Binding.BindingKind != RecoveryBindingKind.Default)
+            {
+                state.DesiredState = result.State == PublicSessionState.Cold
+                    ? DesiredSessionState.Cold
+                    : DesiredSessionState.Ready;
+            }
             state.ReadyForEffects = result.ReadyForEffects;
             state.WarmStateLost |= result.WarmStateLost;
             state.BootstrapState = result.BootstrapState;

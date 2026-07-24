@@ -804,6 +804,14 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         CancellationToken cancellationToken)
     {
         var operation = (SessionCloseOperation)request.Operation;
+        if (alias.Binding.BindingKind == RecoveryBindingKind.Default)
+        {
+            return await RefuseAsync(
+                    request,
+                    GuardianHostPrivateDetailCode.UnsupportedOperation,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
         if (operation.ExpectedGeneration != 0 &&
             operation.ExpectedGeneration != current.Identity.Generation.Value)
         {

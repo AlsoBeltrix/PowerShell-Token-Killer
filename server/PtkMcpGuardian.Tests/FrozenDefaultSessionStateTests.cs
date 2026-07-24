@@ -437,6 +437,27 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void A_default_close_result_never_flips_the_default_desired_state()
+    {
+        var state = State();
+        var alias = new CanonicalAlias("default");
+
+        state.ObserveSessionOperationResult(new SessionCloseResult(
+            alias,
+            PublicSessionState.Cold,
+            workerIdentity: null,
+            new SessionTransitionVersion(1),
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.NotApplicable));
+
+        var manifest = state.Create(Identity(2));
+        Assert.Equal(
+            DesiredSessionState.Ready,
+            Assert.Single(manifest.Bindings).DesiredState);
+    }
+
+    [Fact]
     public void Dynamic_alias_redeclaration_and_default_redeclaration_are_refused()
     {
         var state = State();

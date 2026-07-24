@@ -630,6 +630,13 @@ internal sealed class GuardianHostSupervisor :
                 UnsupportedToolText,
                 isError: true));
         }
+        if (admittedKind == GuardianHostOperationKind.SessionClose &&
+            auditCall.RequestedSessionAlias.Value == "default")
+        {
+            return ValueTask.FromResult(new GuardianToolResult(
+                "The default session cannot be closed; reset or restart it instead.",
+                isError: true));
+        }
 
         var callId = auditCall.PublicCallId;
         var dispatch = new DispatchCapability(

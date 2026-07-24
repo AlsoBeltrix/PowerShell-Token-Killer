@@ -850,6 +850,48 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
+    public async Task Close_on_the_default_alias_is_refused()
+    {
+        var rig = new RuntimeRig(generations: [9]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var worker = rig.Runtime.WorkerIdentity!;
+
+        var close = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(31),
+            Deadline,
+            new CanonicalAlias("default"),
+            Transition,
+            worker,
+            null,
+            new SessionCloseOperation(
+                Call(31),
+                Dispatch(31),
+                expectedGeneration: 9,
+                force: false));
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            close,
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.UnsupportedOperation,
+            outcome.Error?.DetailCode);
+
+        var jobList = await rig.Runtime.ExecuteOperationAsync(
+            Request(32, worker, new JobListOperation(Call(32), Dispatch(32))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(jobList.Result);
+        Assert.False(rig.Launch.Processes[0].Shutdown);
+        Assert.DoesNotContain(
+            rig.Events.Events.OfType<SessionLifecycleEvent>(),
+            lifecycle => lifecycle.State is PublicSessionState.Cold or
+                PublicSessionState.Faulted);
+    }
+
+    [Fact]
     public async Task Initialization_rejects_template_bindings_until_the_template_slice()
     {
         var bootstrapBytes = new byte[] { 0x01 };

@@ -9,7 +9,7 @@ namespace PtkMcpServer.Tests;
 public sealed class Slice7fStagingBoundaryTests
 {
     [Fact]
-    public void Session_runtime_is_the_only_live_worker_operation_adapter()
+    public void Only_designated_worker_operation_adapters_are_live()
     {
         var root = FindRepositoryRoot();
         var productionRoot = Path.Combine(root, "server", "PtkMcpServer");
@@ -58,6 +58,10 @@ public sealed class Slice7fStagingBoundaryTests
                 productionRoot,
                 "Sessions",
                 "SessionRuntime.cs")),
+            Path.GetFullPath(Path.Combine(
+                productionRoot,
+                "GuardianHost",
+                "PrivateHostPreparedInvokeDispatcher.cs")),
         };
         foreach (var path in Directory.EnumerateFiles(
             productionRoot,

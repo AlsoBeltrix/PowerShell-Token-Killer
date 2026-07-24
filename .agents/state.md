@@ -399,6 +399,22 @@ short and update it when important repo facts change.
 - GitHub issue #3 remains open (verified 2026-07-11): item 1 landed; items
   2-4 are an unplanned follow-up candidate, while its permission-bypass
   concern belongs to the open security track.
+- GitHub #8, #9, and #10 are new owner field reports from 2026-07-23,
+  unplanned and recorded here for durable tracking. #8: the object shaper
+  emits `[active member not evaluated]` for script/lazy/COM members, making
+  shaping unusable for EXO cmdlets and Outlook COM (Windows Server 2022);
+  presentation-layer only. #9: calls hung 120 s on a dead MCP transport
+  instead of failing fast, then the installed payload wedged on
+  "audit persistence unavailable" across a full session restart. #10: the
+  same wedge from a cold boot — `failure_class=journal.startup` every start
+  on this machine, with fail-closed `ptk_reset` leaving no in-band recovery.
+  #9/#10's root cause is undiagnosed; the owner queued its diagnosis behind
+  the resilience continuation (order: record, R6 continuation, then
+  diagnosis). The affected payload is the legacy installed server, not the
+  guardian layout.
+- GitHub #11 (Codex keeps a stale ptk transport after the direct-server
+  cutover) is open; its explicit product/client boundary is already carried
+  into the resilience R7 real-Codex cutover validation.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

@@ -5,6 +5,23 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **R6 sub-slice 4 is in flight on `feature/mcp-resilience-r1`; structural
+  halves are committed at `b18fc09` and `d71664f`.** `b18fc09` holds
+  guardian declared session state per alias inside
+  `FrozenDefaultSessionState` with byte-identical default-alias behavior
+  (manifest/binding digests, grant/refusal token economics, observer
+  rejection); the refusal guard caught a token-minting reorder during
+  development. `d71664f` holds one worker slot per declared alias inside
+  `WorkerPrivateHostRuntime`: per-alias slot/replacing/job-capability maps,
+  multi-binding initialization that accepts the ready default plus cold
+  dynamic bindings (template bindings still refused), and per-alias
+  reset/restart/close with a frozen launch/shutdown order. Remaining for
+  sub-slice 4: `ptk_session open` end-to-end (audit admission, supervisor
+  dispatch, declared-state growth, host `SessionOpenOperation`), frozen
+  template bootstrap, guardian-owned single-use create-token tracking, and
+  `TryGetJobListTargetInvalidation`. Sub-slice 5 (wire
+  `SessionRecoveryStateMachine` per alias) has not started; it exists
+  per-alias and unwired in `server/PtkMcpServer/GuardianHost/SessionRecoveryStateMachine.cs`.
 - **R6's production private-host cutover to contained workers is complete and
   committed on `feature/mcp-resilience-r1` at `1e19b46`.** The slice replaces
   production selection of the in-process runtime with

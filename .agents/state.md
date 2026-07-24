@@ -408,10 +408,9 @@ short and update it when important repo facts change.
   "audit persistence unavailable" across a full session restart. #10: the
   same wedge from a cold boot — `failure_class=journal.startup` every start
   on this machine, with fail-closed `ptk_reset` leaving no in-band recovery.
-  #9/#10's root cause is undiagnosed; the owner queued its diagnosis behind
-  the resilience continuation (order: record, R6 continuation, then
-  diagnosis). The affected payload is the legacy installed server, not the
-  guardian layout.
+  #9/#10's root cause is undiagnosed and will not be diagnosed: the owner
+  disabled the affected installed server and expects the post-R7 guardian
+  reinstall to supersede it (owner, 2026-07-24).
 - GitHub #11 (Codex keeps a stale ptk transport after the direct-server
   cutover) is open; its explicit product/client boundary is already carried
   into the resilience R7 real-Codex cutover validation.

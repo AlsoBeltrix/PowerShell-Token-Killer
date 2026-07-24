@@ -243,6 +243,11 @@ public sealed class GuardianAuditCallTests
                 publicJobId,
                 new GuardianAuditInvokeDispatch(identity, call.AcceptedInvokeFacts))));
         call.MarkPrivateWriteStarting();
+        Assert.True(call.TryAuthorizePreparedDispatch(
+            new GuardianAuditPreparedDispatchAuthorization(
+                TemplateSession(),
+                identity,
+                PreparedDescriptor(identity.PlanId, call.AcceptedInvokeFacts))));
 
         var terminalLease = Assert.IsType<GuardianAuditJobTerminalLease>(
             call.TryCreateJobTerminalLease(publicJobId));
@@ -271,13 +276,15 @@ public sealed class GuardianAuditCallTests
             [
                 "call.accepted",
                 GuardianAuditCall.DispatchAuthorizedEvent,
+                "execution.planned",
+                "execution.dispatched",
                 "job.started",
                 GuardianAuditCall.DispatchCompletedEvent,
                 "call.completed",
                 "job.completed",
             ],
             events.Select(EventType));
-        var started = events[2];
+        var started = events[4];
         var terminal = events[^1];
         Assert.Equal(publicJobId.Value,
             terminal.GetProperty("correlation").GetProperty("job_id").GetInt64());
@@ -291,6 +298,89 @@ public sealed class GuardianAuditCallTests
             "complete",
             terminal.GetProperty("coverage").GetProperty("root_process_observed").GetString());
         Assert.Equal(0, fixture.Journal.ReservedBytes);
+    }
+
+    [Fact]
+    public void Invocation_effect_requires_exact_durable_worker_plan()
+    {
+        using var fixture = new Fixture();
+        var call = fixture.CreateCall();
+        Assert.True(
+            call.TryBegin(InvokeMetadata(), InvokeScript, out var failure),
+            failure);
+        var identity = new GuardianHostOperationIdentity(
+            new PlanId(Guid.Parse("65345678-1234-4abc-8def-0123456789ab")),
+            new OperationId(Guid.Parse("75345678-1234-4abc-8def-0123456789ab")));
+        Assert.True(call.TryAuthorizeDispatch(
+            new GuardianAuditDispatchAuthorization(
+                GuardianHostOperationKind.InvokeForeground,
+                TemplateSession(),
+                invokeDispatch: new GuardianAuditInvokeDispatch(
+                    identity,
+                    call.AcceptedInvokeFacts))));
+        Assert.False(call.EffectAuthorized);
+        call.MarkPrivateWriteStarting();
+        Assert.False(call.UserExecutionStarted);
+
+        var descriptor = PreparedDescriptor(
+            identity.PlanId,
+            call.AcceptedInvokeFacts);
+        Assert.Throws<InvalidOperationException>(() =>
+            call.TryAuthorizePreparedDispatch(
+                new GuardianAuditPreparedDispatchAuthorization(
+                    TemplateSession(),
+                    identity,
+                    PreparedDescriptor(
+                        identity.PlanId,
+                        call.AcceptedInvokeFacts,
+                        new Sha256Digest(new string('f', 64))))));
+
+        Assert.True(call.TryAuthorizePreparedDispatch(
+            new GuardianAuditPreparedDispatchAuthorization(
+                TemplateSession(),
+                identity,
+                descriptor)));
+        Assert.True(call.EffectAuthorized);
+        Assert.False(call.UserExecutionStarted);
+        call.MarkPreparedDispatchWriteStarting();
+        Assert.True(call.UserExecutionStarted);
+        call.RecordDecodedTerminal(isError: false, "ok");
+
+        var events = fixture.Sink.Lines.Select(Parse).ToArray();
+        Assert.Equal(
+            [
+                "call.accepted",
+                GuardianAuditCall.DispatchAuthorizedEvent,
+                "execution.planned",
+                "execution.dispatched",
+                GuardianAuditCall.DispatchCompletedEvent,
+                "call.completed",
+            ],
+            events.Select(EventType));
+        var dispatched = events[3];
+        var routing = dispatched.GetProperty("routing");
+        Assert.Equal(
+            "mixed_dataflow",
+            routing.GetProperty("domain").GetString());
+        Assert.Equal("rtk", routing.GetProperty("requested_route").GetString());
+        Assert.Equal(
+            "bash_via_rtk",
+            routing.GetProperty("effective_route").GetString());
+        Assert.Equal(
+            "bash_syntax",
+            routing.GetProperty("pre_execution_validation").GetString());
+        Assert.Equal(
+            "cold",
+            routing.GetProperty("resolution_context").GetString());
+        Assert.Equal(
+            descriptor.DescriptorDigest.Value,
+            routing.GetProperty("prepared_descriptor_digest").GetString());
+        Assert.Equal(
+            descriptor.WorkingDirectoryDigest!.Value,
+            routing.GetProperty("working_directory_digest").GetString());
+        Assert.Equal(
+            descriptor.BashBinaryDigest!.Value,
+            routing.GetProperty("bash_binary_digest").GetString());
     }
 
     [Fact]
@@ -598,6 +688,39 @@ public sealed class GuardianAuditCallTests
             PersistentJobTerminalSlots: 0,
             RequiresScriptEvidence: false,
             MayHaveSideEffects: true));
+
+    private static GuardianHostPreparedPlanDescriptor PreparedDescriptor(
+        PlanId planId,
+        GuardianAuditInvokeFacts facts,
+        Sha256Digest? scriptDigest = null) => new(
+        planId,
+        new GuardianHostWorkerIdentity(
+            new WorkerBootId(
+                Guid.Parse("94345678-1234-4abc-8def-0123456789ab")),
+            new WorkerGeneration(17)),
+        facts.DeadlineUnixTimeMilliseconds,
+        scriptDigest ?? facts.ScriptDigest,
+        GuardianHostExecutionDomain.MixedDataflow,
+        facts.Route switch
+        {
+            GuardianHostInvokeRoute.Auto =>
+                GuardianHostRequestedExecutionRoute.Auto,
+            GuardianHostInvokeRoute.Pwsh =>
+                GuardianHostRequestedExecutionRoute.Pwsh,
+            GuardianHostInvokeRoute.Rtk =>
+                GuardianHostRequestedExecutionRoute.Rtk,
+            _ => throw new ArgumentOutOfRangeException(),
+        },
+        GuardianHostEffectiveExecutionRoute.BashViaRtk,
+        GuardianHostPreExecutionValidation.BashSyntax,
+        GuardianHostResolutionContext.Cold,
+        GuardianHostOutputProvenance.RtkFiltered,
+        [GuardianHostEffectiveExecutionRoute.PowerShellDirect],
+        GuardianHostExecutionFallbackReason.RtkTargetResolutionChanged,
+        new Sha256Digest(new string('a', 64)),
+        new Sha256Digest(new string('b', 64)),
+        new Sha256Digest(new string('c', 64)),
+        new Sha256Digest(new string('d', 64)));
 
     private static JsonElement Parse(byte[] line)
     {

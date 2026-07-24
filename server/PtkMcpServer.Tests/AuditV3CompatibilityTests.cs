@@ -141,6 +141,91 @@ public sealed class AuditV3CompatibilityTests
     }
 
     [Fact]
+    public void V3_prepared_plan_routing_is_exact_and_readable_end_to_end()
+    {
+        var input = LiveHostInput() with
+        {
+            EventType = "execution.dispatched",
+            Correlation = new AuditCorrelation
+            {
+                CallId = Guid.Parse("019bd2f0-1001-7000-8000-000000000003"),
+                PlanId = LiveHostBootId,
+            },
+            Request = new AuditRequest
+            {
+                Tool = "ptk_invoke",
+                Action = "invoke",
+                SessionRequested = "default",
+                Route = "pwsh",
+                Background = false,
+                Raw = false,
+            },
+            Routing = new AuditRouting
+            {
+                Domain = "powershell",
+                RequestedRoute = "pwsh",
+                EffectiveRoute = "powershell_direct",
+                PreExecutionValidation = "none",
+                ResolutionContext = "warm",
+                PermittedFallbacks = ["native_direct"],
+                RtkBinaryDigest = new string('d', 64),
+                BashBinaryDigest = new string('e', 64),
+                OutputShapingRtkBinaryDigest = new string('f', 64),
+                WorkingDirectoryDigest = new string('1', 64),
+                PreparedDescriptorDigest = new string('2', 64),
+                Provenance = "powershell_objects",
+            },
+        };
+        var serialized = AuditEventSerializer.SerializeVersion3(
+            1,
+            previousEventHash: null,
+            Producer,
+            new AuditHostSnapshot(LiveHostBootId, 1, "ready", 0),
+            input,
+            Guid.Parse("019bd2f0-1001-7000-8000-000000000004"),
+            Timestamp(58, 1_234_567),
+            Timestamp(58, 1_234_567));
+
+        AuditEvidenceSpoolScanner.ValidateExactEnvelopeShapeForTests(
+            serialized.Utf8Line[..^1]);
+        using var document = JsonDocument.Parse(serialized.Utf8Line[..^1]);
+        Assert.Equal(
+            [
+                "domain",
+                "requested_route",
+                "effective_route",
+                "pre_execution_validation",
+                "resolution_context",
+                "permitted_fallbacks",
+                "rtk_version",
+                "rtk_binary_digest",
+                "bash_binary_digest",
+                "output_shaping_rtk_binary_digest",
+                "working_directory_digest",
+                "prepared_descriptor_digest",
+                "provenance",
+                "fallback_reason",
+            ],
+            document.RootElement
+                .GetProperty("routing")
+                .EnumerateObject()
+                .Select(static property => property.Name));
+        var mapped = AuditOtlpRecordMapper.Map(serialized.Utf8Line);
+        Assert.Equal(
+            serialized.Utf8Line.Span[..^1],
+            mapped.ExactJsonBody.Span);
+
+        var missingRequiredField = Encoding.UTF8.GetBytes(
+            Encoding.UTF8.GetString(serialized.Utf8Line.Span[..^1]).Replace(
+                ",\"resolution_context\":\"warm\"",
+                string.Empty,
+                StringComparison.Ordinal));
+        Assert.Throws<IOException>(() =>
+            AuditEvidenceSpoolScanner.ValidateExactEnvelopeShapeForTests(
+                missingRequiredField));
+    }
+
+    [Fact]
     public void V3_readers_reject_missing_extra_or_semantically_invalid_host_snapshots()
     {
         var live = Encoding.UTF8.GetString(ReadVector("audit-v3-host.jsonl"));

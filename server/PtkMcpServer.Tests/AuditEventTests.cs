@@ -239,6 +239,24 @@ public sealed class AuditEventTests
     }
 
     [Fact]
+    public void V2_serializer_rejects_prepared_plan_routing_instead_of_dropping_it()
+    {
+        Assert.Throws<AuditEventValidationException>(() => Serialize(
+            1,
+            null,
+            CompleteInput() with
+            {
+                Routing = CompleteInput().Routing with
+                {
+                    PreExecutionValidation = "none",
+                    ResolutionContext = "warm",
+                    WorkingDirectoryDigest = HashA,
+                    PreparedDescriptorDigest = HashB,
+                },
+            }));
+    }
+
+    [Fact]
     public void Serialize_enforces_exact_operator_disposition_shapes_and_event_coupling()
     {
         var requestFacts = new AuditOperatorDispositionFacts

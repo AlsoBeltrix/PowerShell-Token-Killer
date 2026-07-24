@@ -120,9 +120,15 @@ internal sealed record AuditRouting
     public string? Domain { get; init; }
     public string? RequestedRoute { get; init; }
     public string? EffectiveRoute { get; init; }
+    public string? PreExecutionValidation { get; init; }
+    public string? ResolutionContext { get; init; }
     public IReadOnlyList<string> PermittedFallbacks { get; init; } = Array.Empty<string>();
     public string? RtkVersion { get; init; }
     public string? RtkBinaryDigest { get; init; }
+    public string? BashBinaryDigest { get; init; }
+    public string? OutputShapingRtkBinaryDigest { get; init; }
+    public string? WorkingDirectoryDigest { get; init; }
+    public string? PreparedDescriptorDigest { get; init; }
     public string? Provenance { get; init; }
     public string? FallbackReason { get; init; }
 }
@@ -308,6 +314,15 @@ internal static class AuditEventSerializer
         ArgumentNullException.ThrowIfNull(producer);
         ArgumentNullException.ThrowIfNull(input);
         if (host is not null) AuditHostSnapshotCodec.ValidateForSerialization(host);
+        if (!StringComparer.Ordinal.Equals(
+                schemaVersion,
+                ResilientSchemaVersion) &&
+            input.Routing?.PreparedDescriptorDigest is not null)
+        {
+            throw Invalid(
+                "routing.prepared_descriptor_digest",
+                "prepared-plan routing requires the resilient audit schema");
+        }
 
         var normalized = Validate(
             sequence,
@@ -598,10 +613,48 @@ internal static class AuditEventSerializer
         RequireEnum(value.Domain, Domains, "routing.domain", nullable: true);
         RequireEnum(value.RequestedRoute, Routes, "routing.requested_route", nullable: true);
         RequireEnum(value.EffectiveRoute, EffectiveRoutes, "routing.effective_route", nullable: true);
+        RequireMachineCode(
+            value.PreExecutionValidation,
+            "routing.pre_execution_validation",
+            nullable: true);
+        RequireMachineCode(
+            value.ResolutionContext,
+            "routing.resolution_context",
+            nullable: true);
         RequireText(value.RtkVersion, 128, "routing.rtk_version", nullable: true);
         RequireLowerHex(value.RtkBinaryDigest, 64, "routing.rtk_binary_digest", nullable: true);
+        RequireLowerHex(value.BashBinaryDigest, 64, "routing.bash_binary_digest", nullable: true);
+        RequireLowerHex(
+            value.OutputShapingRtkBinaryDigest,
+            64,
+            "routing.output_shaping_rtk_binary_digest",
+            nullable: true);
+        RequireLowerHex(
+            value.WorkingDirectoryDigest,
+            64,
+            "routing.working_directory_digest",
+            nullable: true);
+        RequireLowerHex(
+            value.PreparedDescriptorDigest,
+            64,
+            "routing.prepared_descriptor_digest",
+            nullable: true);
         RequireEnum(value.Provenance, ProvenanceValues, "routing.provenance", nullable: true);
         RequireMachineCode(value.FallbackReason, "routing.fallback_reason", nullable: true);
+
+        var carriesPreparedPlan = value.PreparedDescriptorDigest is not null;
+        if (carriesPreparedPlan !=
+                (value.PreExecutionValidation is not null &&
+                 value.ResolutionContext is not null) ||
+            !carriesPreparedPlan &&
+                (value.BashBinaryDigest is not null ||
+                 value.OutputShapingRtkBinaryDigest is not null ||
+                 value.WorkingDirectoryDigest is not null))
+        {
+            throw Invalid(
+                "routing.prepared_descriptor_digest",
+                "prepared-plan routing fields must form one complete extended projection");
+        }
     }
 
     private static void ValidateOperatorDisposition(AuditOperatorDispositionFacts? value)
@@ -1004,12 +1057,45 @@ internal static class AuditEventSerializer
         WriteString(writer, "domain", input.Routing.Domain);
         WriteString(writer, "requested_route", input.Routing.RequestedRoute);
         WriteString(writer, "effective_route", input.Routing.EffectiveRoute);
+        var carriesPreparedPlan =
+            schemaVersion == ResilientSchemaVersion &&
+            input.Routing.PreparedDescriptorDigest is not null;
+        if (carriesPreparedPlan)
+        {
+            WriteString(
+                writer,
+                "pre_execution_validation",
+                input.Routing.PreExecutionValidation);
+            WriteString(
+                writer,
+                "resolution_context",
+                input.Routing.ResolutionContext);
+        }
         writer.WriteStartArray("permitted_fallbacks");
         foreach (var fallback in permittedFallbacks)
             writer.WriteStringValue(fallback);
         writer.WriteEndArray();
         WriteString(writer, "rtk_version", input.Routing.RtkVersion);
         WriteString(writer, "rtk_binary_digest", input.Routing.RtkBinaryDigest);
+        if (carriesPreparedPlan)
+        {
+            WriteString(
+                writer,
+                "bash_binary_digest",
+                input.Routing.BashBinaryDigest);
+            WriteString(
+                writer,
+                "output_shaping_rtk_binary_digest",
+                input.Routing.OutputShapingRtkBinaryDigest);
+            WriteString(
+                writer,
+                "working_directory_digest",
+                input.Routing.WorkingDirectoryDigest);
+            WriteString(
+                writer,
+                "prepared_descriptor_digest",
+                input.Routing.PreparedDescriptorDigest);
+        }
         WriteString(writer, "provenance", input.Routing.Provenance);
         WriteString(writer, "fallback_reason", input.Routing.FallbackReason);
         writer.WriteEndObject();

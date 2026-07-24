@@ -629,6 +629,83 @@ public sealed class GuardianHostClientTests
     }
 
     [Fact]
+    public async Task Prepared_dispatch_control_can_abandon_only_the_exact_retained_event()
+    {
+        PreparedDispatchAuthorizationRequestedEvent? source = null;
+        var handled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = new HostHarness((hostEvent, _) =>
+        {
+            source = Assert.IsType<PreparedDispatchAuthorizationRequestedEvent>(
+                hostEvent);
+            handled.TrySetResult();
+            return ValueTask.CompletedTask;
+        });
+        await harness.InitializeAsync();
+        var operationCompletion = harness.Client.SendRequestAsync(
+            CreateForegroundRequest);
+        var operationRequest = Assert.IsType<OperationRequest>(
+            await harness.GuardianReader.ReadAsync().AsTask().WaitAsync(TestTimeout));
+        var descriptor = CreatePreparedDescriptor();
+        await harness.HostWriter.WriteAsync(
+            new PreparedDispatchAuthorizationRequestedEvent(
+                Guardian,
+                Host,
+                Generation,
+                new HostEventSequence(1),
+                operationRequest.RequestId,
+                Alias,
+                Transition,
+                Worker,
+                OperationIdentity,
+                descriptor));
+        await handled.Task.WaitAsync(TestTimeout);
+
+        var forgedReference = new PreparedDispatchAuthorizationRequestedEvent(
+            Guardian,
+            Host,
+            Generation,
+            source!.EventSequence,
+            operationRequest.RequestId,
+            Alias,
+            Transition,
+            Worker,
+            OperationIdentity,
+            descriptor);
+        Assert.Throws<InvalidOperationException>(() =>
+            harness.Client.AbandonControlEvent(forgedReference));
+
+        harness.Client.AbandonControlEvent(source);
+        Assert.Throws<InvalidOperationException>(() =>
+            harness.Client.AbandonControlEvent(source));
+        await Assert.ThrowsAsync<ArgumentException>(() =>
+            harness.Client.SendRequestAsync(
+                (guardian, host, generation, requestId) =>
+                    new PreparedDispatchAuthorizeRequest(
+                        guardian,
+                        host,
+                        generation,
+                        requestId,
+                        descriptor.DeadlineUnixTimeMilliseconds,
+                        Alias,
+                        Transition,
+                        Worker,
+                        OperationIdentity,
+                        source.EventSequence,
+                        descriptor.DescriptorDigest)));
+
+        await harness.HostWriter.WriteAsync(new GuardianHostErrorResponse(
+            Guardian,
+            Host,
+            Generation,
+            operationRequest.RequestId,
+            new GuardianHostPrivateError(
+                GuardianHostPrivateDetailCode.RequestCanceled)));
+        await operationCompletion.WaitAsync(TestTimeout);
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+    }
+
+    [Fact]
     public async Task Eof_and_malformed_frames_are_bounded_generation_fatals()
     {
         await using (var eof = new HostHarness())

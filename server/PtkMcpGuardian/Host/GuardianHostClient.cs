@@ -666,6 +666,29 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Releases one retained control event after the guardian has canceled its
+    /// source operation instead of authorizing it. This is valid only before a
+    /// correlated control request has claimed the event.
+    /// </summary>
+    internal void AbandonControlEvent(GuardianHostEvent sourceEvent)
+    {
+        ArgumentNullException.ThrowIfNull(sourceEvent);
+        lock (_sync)
+        {
+            if (!_unacknowledgedControlEvents.TryGetValue(
+                    sourceEvent.EventSequence.Value,
+                    out var retained) ||
+                !ReferenceEquals(retained, sourceEvent) ||
+                !_unacknowledgedControlEvents.Remove(
+                    sourceEvent.EventSequence.Value))
+            {
+                throw new InvalidOperationException(
+                    "The private control event is not retained and unclaimed.");
+            }
+        }
+    }
+
     internal async Task ShutdownAsync(
         long deadlineUnixTimeMilliseconds,
         GuardianHostShutdownReason reason,

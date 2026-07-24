@@ -65,6 +65,10 @@ internal sealed class GuardianHostSupervisor :
         WorkerCreateCapabilityRequestedEvent,
         CancellationToken,
         ValueTask> _afterWorkerCreateEventQueued;
+    private readonly Func<
+        PreparedDispatchAuthorizationRequestedEvent,
+        CancellationToken,
+        ValueTask> _afterPreparedDispatchEventQueued;
     private readonly CancellationTokenSource _lifetime = new();
     private readonly Dictionary<long, ActiveCall> _calls = [];
     private readonly Dictionary<long, GuardianAuditJobTerminalLease> _jobTerminalLeases = [];
@@ -102,7 +106,11 @@ internal sealed class GuardianHostSupervisor :
         IGuardianWorkerCreateCapabilityAuthority?
             workerCreateCapabilityAuthority = null,
         Func<WorkerCreateCapabilityRequestedEvent, CancellationToken, ValueTask>?
-            afterWorkerCreateEventQueued = null)
+            afterWorkerCreateEventQueued = null,
+        Func<
+            PreparedDispatchAuthorizationRequestedEvent,
+            CancellationToken,
+            ValueTask>? afterPreparedDispatchEventQueued = null)
     {
         _guardianBootId = guardianBootId ??
             throw new ArgumentNullException(nameof(guardianBootId));
@@ -135,6 +143,12 @@ internal sealed class GuardianHostSupervisor :
                 return ValueTask.CompletedTask;
             });
         _afterWorkerCreateEventQueued = afterWorkerCreateEventQueued ??
+            (static (_, cancellationToken) =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ValueTask.CompletedTask;
+            });
+        _afterPreparedDispatchEventQueued = afterPreparedDispatchEventQueued ??
             (static (_, cancellationToken) =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -2040,6 +2054,7 @@ internal sealed class GuardianHostSupervisor :
         TrackBackground(RunContainmentControlPumpAsync(active));
         if (_workerCreateCapabilityAuthority is not null)
             TrackBackground(RunWorkerCreateControlPumpAsync(active));
+        TrackBackground(RunPreparedDispatchControlPumpAsync(active));
         return active;
     }
 
@@ -2578,6 +2593,28 @@ internal sealed class GuardianHostSupervisor :
                 .ConfigureAwait(false);
             return;
         }
+        if (hostEvent is
+            PreparedDispatchAuthorizationRequestedEvent preparedDispatch)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (preparedDispatch.RequestId is not { } requestId ||
+                !_calls.TryGetValue(requestId.Value, out var call) ||
+                !ReferenceEquals(call.Attempt, active) ||
+                call.OperationKind is not (
+                    GuardianHostOperationKind.InvokeForeground or
+                    GuardianHostOperationKind.InvokeBackground) ||
+                !active.PreparedDispatchControlEvents.Writer.TryWrite(
+                    preparedDispatch))
+            {
+                throw new GuardianHostClientException(
+                    GuardianHostClientFailureKind.EventCorrelationMismatch);
+            }
+            await _afterPreparedDispatchEventQueued(
+                    preparedDispatch,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            return;
+        }
         if (hostEvent is not (OutputChunkEvent or OutputSealEvent))
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -2657,6 +2694,129 @@ internal sealed class GuardianHostSupervisor :
         catch (GuardianHostClientException exception)
         {
             await ObserveLossAsync(active, LossReasonFor(exception)).ConfigureAwait(false);
+            throw;
+        }
+        catch (Exception exception) when (!IsFatalRuntimeException(exception))
+        {
+            await ObserveLossAsync(active, GuardianHostLossReason.ProtocolFatal)
+                .ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    private async Task RunPreparedDispatchControlPumpAsync(
+        ActiveAttempt active)
+    {
+        var cancellationToken = active.PreContainmentToken;
+        try
+        {
+            await foreach (var prepared in
+                active.PreparedDispatchControlEvents.Reader.ReadAllAsync(
+                    cancellationToken))
+            {
+                if (!await WaitForHostEventCallbackCompletionAsync(
+                        active,
+                        cancellationToken)
+                    .ConfigureAwait(false))
+                {
+                    return;
+                }
+
+                ActiveCall call;
+                var authorized = false;
+                await _authority.WaitAsync(cancellationToken)
+                    .ConfigureAwait(false);
+                try
+                {
+                    SynchronizeFaultedClientLossLocked(active);
+                    var now = _timeProvider.GetUtcNow()
+                        .ToUnixTimeMilliseconds();
+                    if (_stopping ||
+                        !ReferenceEquals(_active, active) ||
+                        active.Client?.State != GuardianHostClientState.Ready ||
+                        active.Lease.Stage != GuardianHostAttemptStage.Ready ||
+                        prepared.RequestId is not { } sourceRequestId ||
+                        !_calls.TryGetValue(
+                            sourceRequestId.Value,
+                            out call!) ||
+                        !ReferenceEquals(call.Attempt, active) ||
+                        prepared.OperationIdentity is not { } operationIdentity ||
+                        prepared.Descriptor.DeadlineUnixTimeMilliseconds <= now ||
+                        prepared.SessionAlias != call.Target.Alias ||
+                        prepared.SessionTransitionVersion !=
+                            call.Target.TransitionVersion ||
+                        prepared.WorkerIdentity?.BootId !=
+                            call.Target.WorkerIdentity.BootId ||
+                        prepared.WorkerIdentity?.Generation !=
+                            call.Target.WorkerIdentity.Generation)
+                    {
+                        throw new GuardianHostClientException(
+                            GuardianHostClientFailureKind.EventCorrelationMismatch);
+                    }
+
+                    authorized = call.AuditCall.TryAuthorizePreparedDispatch(
+                        new GuardianAuditPreparedDispatchAuthorization(
+                            call.Target.AuditSession,
+                            operationIdentity,
+                            prepared.Descriptor));
+                }
+                finally
+                {
+                    _authority.Release();
+                }
+
+                if (!authorized)
+                {
+                    if (!await active.Client!.TrySendCancelAsync(
+                            prepared.RequestId!,
+                            GuardianHostCancelReason.CallerCanceled,
+                            cancellationToken)
+                        .ConfigureAwait(false))
+                    {
+                        throw new GuardianHostClientException(
+                            GuardianHostClientFailureKind.EventCorrelationMismatch);
+                    }
+                    active.Client.AbandonControlEvent(prepared);
+                    continue;
+                }
+
+                var response = await active.Client!.SendRequestAsync(
+                        (guardian, host, generation, requestId) =>
+                            new PreparedDispatchAuthorizeRequest(
+                                guardian,
+                                host,
+                                generation,
+                                requestId,
+                                prepared.Descriptor
+                                    .DeadlineUnixTimeMilliseconds,
+                                prepared.SessionAlias,
+                                prepared.SessionTransitionVersion,
+                                prepared.WorkerIdentity!,
+                                prepared.OperationIdentity!,
+                                prepared.EventSequence,
+                                prepared.Descriptor.DescriptorDigest),
+                        onWriteStarting:
+                            call.AuditCall.MarkPreparedDispatchWriteStarting,
+                        cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (response is not GuardianHostSuccessResponse
+                    {
+                        Payload: ControlAcknowledged
+                    })
+                {
+                    throw new GuardianHostClientException(
+                        GuardianHostClientFailureKind.ProtocolViolation);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (GuardianHostClientException exception)
+        {
+            await ObserveLossAsync(active, LossReasonFor(exception))
+                .ConfigureAwait(false);
             throw;
         }
         catch (Exception exception) when (!IsFatalRuntimeException(exception))
@@ -2829,7 +2989,8 @@ internal sealed class GuardianHostSupervisor :
         GuardianHostResponse response)
     {
         if (request is WorkerContainmentAckRequest or
-            WorkerCreateCapabilityGrantRequest)
+            WorkerCreateCapabilityGrantRequest or
+            PreparedDispatchAuthorizeRequest)
         {
             if (!ReferenceEquals(_active, active))
             {
@@ -3722,6 +3883,17 @@ internal sealed class GuardianHostSupervisor :
                         SingleReader = true,
                         SingleWriter = true,
                     });
+            PreparedDispatchControlEvents =
+                Channel.CreateBounded<
+                    PreparedDispatchAuthorizationRequestedEvent>(
+                    new BoundedChannelOptions(
+                        GuardianHostClient.MaximumUnacknowledgedControlEvents)
+                    {
+                        AllowSynchronousContinuations = false,
+                        FullMode = BoundedChannelFullMode.Wait,
+                        SingleReader = true,
+                        SingleWriter = true,
+                    });
         }
 
         internal GuardianHostAttemptLease Lease { get; }
@@ -3730,6 +3902,8 @@ internal sealed class GuardianHostSupervisor :
         internal Channel<GuardianHostContainmentEvent> ContainmentControlEvents { get; }
         internal Channel<WorkerCreateCapabilityRequestedEvent>
             WorkerCreateControlEvents { get; }
+        internal Channel<PreparedDispatchAuthorizationRequestedEvent>
+            PreparedDispatchControlEvents { get; }
         internal PublicHostStateSnapshot? PrewriteLossHost { get; set; }
         internal CancellationToken PreContainmentToken => _preContainment.Token;
         internal CancellationToken StartupDeadlineToken => _startupDeadline.Token;

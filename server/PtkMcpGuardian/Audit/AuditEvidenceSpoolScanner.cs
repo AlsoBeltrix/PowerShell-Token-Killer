@@ -121,6 +121,17 @@ internal static class AuditEvidenceSpoolScanner
         ],
         StringComparer.Ordinal);
 
+    private static readonly HashSet<string> V3RoutingProperties = new(
+        [
+            "domain", "requested_route", "effective_route",
+            "pre_execution_validation", "resolution_context",
+            "permitted_fallbacks", "rtk_version", "rtk_binary_digest",
+            "bash_binary_digest", "output_shaping_rtk_binary_digest",
+            "working_directory_digest", "prepared_descriptor_digest",
+            "provenance", "fallback_reason",
+        ],
+        StringComparer.Ordinal);
+
     private static readonly HashSet<string> OperatorDispositionProperties = new(
         [
             "disposition_id", "target_supervisor_boot_id", "target_spool_file",
@@ -641,7 +652,14 @@ internal static class AuditEvidenceSpoolScanner
             if (disposition.ValueKind != JsonValueKind.Null)
                 _ = RequireExactObject(disposition, OperatorDispositionProperties);
         }
-        _ = RequireExactObject(root.GetProperty("routing"), RoutingProperties);
+        _ = RequireExactObject(
+            root.GetProperty("routing"),
+            version == AuditCoreSchemaVersion.V3 &&
+                root.GetProperty("routing").TryGetProperty(
+                    "prepared_descriptor_digest",
+                    out _)
+                ? V3RoutingProperties
+                : RoutingProperties);
         _ = RequireExactObject(root.GetProperty("outcome"), OutcomeProperties);
         _ = RequireExactObject(root.GetProperty("coverage"), CoverageProperties);
         _ = RequireExactObject(root.GetProperty("audit"), AuditProperties);

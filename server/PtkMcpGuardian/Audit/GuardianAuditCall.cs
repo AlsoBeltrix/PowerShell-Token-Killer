@@ -287,6 +287,44 @@ internal sealed record GuardianAuditDispatchAuthorization
 }
 
 /// <summary>
+/// Exact worker-prepared plan presented after the outer invocation request has
+/// reached the private host but before any worker commit may be written.
+/// </summary>
+internal sealed record GuardianAuditPreparedDispatchAuthorization
+{
+    internal GuardianAuditPreparedDispatchAuthorization(
+        GuardianAuditSession session,
+        GuardianHostOperationIdentity operationIdentity,
+        GuardianHostPreparedPlanDescriptor descriptor)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(operationIdentity);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        if (descriptor.PlanId != operationIdentity.PlanId)
+        {
+            throw new ArgumentException(
+                "The prepared descriptor does not match the operation plan.",
+                nameof(descriptor));
+        }
+        if (session.Session.Generation !=
+            descriptor.WorkerIdentity.Generation.Value)
+        {
+            throw new ArgumentException(
+                "The prepared descriptor does not match the audited worker generation.",
+                nameof(descriptor));
+        }
+
+        Session = session;
+        OperationIdentity = operationIdentity;
+        Descriptor = descriptor;
+    }
+
+    internal GuardianAuditSession Session { get; }
+    internal GuardianHostOperationIdentity OperationIdentity { get; }
+    internal GuardianHostPreparedPlanDescriptor Descriptor { get; }
+}
+
+/// <summary>
 /// Guardian-side audit capability for one admitted public MCP call. Its
 /// dispatch record is an outer transport authorization, not a substitute for
 /// a later plan-specific execution authorization inside the private protocol.
@@ -303,6 +341,7 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
     internal const string DispatchOutcomeUnknownEvent = "guardian.dispatch_outcome_unknown";
 
     private bool _privateWriteMayHaveStarted;
+    private bool _outerDispatchAuthorized;
     private bool _dispatchTerminalObserved;
     private bool _outputAccessObserved;
     private bool _jobTombstoneAccessObserved;
@@ -528,7 +567,7 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
     {
         ArgumentNullException.ThrowIfNull(authorization);
         EnsureActive();
-        if (_effectAuthorized)
+        if (_outerDispatchAuthorized)
         {
             throw new InvalidOperationException(
                 "The guardian dispatch was already authorized.");
@@ -588,7 +627,8 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
                 jobId: publicJobId,
                 terminationCertainty: "not_applicable",
                 rootCoverage: "none");
-            _effectAuthorized = true;
+            _outerDispatchAuthorized = true;
+            _effectAuthorized = authorization.InvokeDispatch is null;
             return true;
         }
         catch (AuditUnavailableException)
@@ -596,6 +636,102 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
             _request = previousRequest;
             _ = ProjectSession(previousSession);
             _planId = previousPlanId;
+            _authorizationPersistenceFailed = true;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Durably records the exact immutable worker plan and its pre-effect
+    /// dispatch authorization. The earlier guardian-to-host record authorizes
+    /// only delivery of a nonexecuting prepare request.
+    /// </summary>
+    internal bool TryAuthorizePreparedDispatch(
+        GuardianAuditPreparedDispatchAuthorization authorization)
+    {
+        ArgumentNullException.ThrowIfNull(authorization);
+        EnsureActive();
+        if (!_outerDispatchAuthorized ||
+            !_privateWriteMayHaveStarted ||
+            _effectAuthorized)
+        {
+            throw new InvalidOperationException(
+                "Prepared dispatch requires one unconsumed outer invocation authorization.");
+        }
+        if (_request!.Tool != "ptk_invoke" ||
+            _request.Action != "invoke" ||
+            _planId != authorization.OperationIdentity.PlanId.Value ||
+            !StringComparer.Ordinal.Equals(
+                _request.SessionRequested,
+                authorization.Session.Session.Name))
+        {
+            throw new InvalidOperationException(
+                "Prepared dispatch does not match the admitted invocation.");
+        }
+
+        var descriptor = authorization.Descriptor;
+        var accepted = AcceptedInvokeFacts;
+        if (descriptor.PlanId != authorization.OperationIdentity.PlanId ||
+            descriptor.ScriptDigest != accepted.ScriptDigest ||
+            descriptor.DeadlineUnixTimeMilliseconds !=
+                accepted.DeadlineUnixTimeMilliseconds ||
+            descriptor.RequestedRoute != RequestedRoute(accepted.Route) ||
+            authorization.Session.Session.Generation !=
+                descriptor.WorkerIdentity.Generation.Value)
+        {
+            throw new InvalidOperationException(
+                "Prepared worker plan does not match the accepted invocation facts.");
+        }
+
+        var previousSession = _session;
+        var previousRouting = _routing;
+        _ = ProjectSession(authorization.Session.Session);
+        _routing = new AuditRouting
+        {
+            Domain = descriptor.Domain is { } domain
+                ? MachineCode(domain)
+                : null,
+            RequestedRoute = MachineCode(descriptor.RequestedRoute),
+            EffectiveRoute = MachineCode(descriptor.EffectiveRoute),
+            PreExecutionValidation =
+                MachineCode(descriptor.PreExecutionValidation),
+            ResolutionContext = MachineCode(descriptor.ResolutionContext),
+            PermittedFallbacks = descriptor.PermittedFallbacks
+                .Select(MachineCode)
+                .ToArray(),
+            RtkVersion = null,
+            RtkBinaryDigest = descriptor.RtkBinaryDigest?.Value,
+            BashBinaryDigest = descriptor.BashBinaryDigest?.Value,
+            OutputShapingRtkBinaryDigest =
+                descriptor.OutputShapingRtkBinaryDigest?.Value,
+            WorkingDirectoryDigest =
+                descriptor.WorkingDirectoryDigest?.Value,
+            PreparedDescriptorDigest = descriptor.DescriptorDigest.Value,
+            Provenance = MachineCode(descriptor.OutputProvenance),
+            FallbackReason = descriptor.FallbackReason is { } fallbackReason
+                ? MachineCode(fallbackReason)
+                : null,
+        };
+
+        try
+        {
+            Append(
+                "execution.planned",
+                outcomeState: "planned",
+                terminationCertainty: "not_applicable",
+                rootCoverage: "none");
+            Append(
+                "execution.dispatched",
+                outcomeState: "authorized",
+                terminationCertainty: "not_applicable",
+                rootCoverage: "none");
+            _effectAuthorized = true;
+            return true;
+        }
+        catch (AuditUnavailableException)
+        {
+            _session = previousSession;
+            _routing = previousRouting;
             _authorizationPersistenceFailed = true;
             return false;
         }
@@ -695,7 +831,7 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
             throw new InvalidOperationException(
                 "A possibly written guardian dispatch cannot be recorded as not started.");
         }
-        if (_effectAuthorized)
+        if (_outerDispatchAuthorized)
         {
             if (_session != session.Session)
             {
@@ -727,7 +863,7 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
     internal void MarkPrivateWriteStarting()
     {
         EnsureActive();
-        if (!_effectAuthorized)
+        if (!_outerDispatchAuthorized)
         {
             throw new InvalidOperationException(
                 "A private write cannot start without durable guardian authorization.");
@@ -736,9 +872,27 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
             throw new InvalidOperationException("The guardian private write already started.");
 
         _privateWriteMayHaveStarted = true;
-        // At this boundary the private host may begin the requested work. The
-        // inherited flag is conservative: a later audit failure must never be
-        // rewritten as a pre-effect authorization refusal.
+        // An invocation's outer request may perform only nonexecuting prepare.
+        // Other operation kinds retain the conservative effect boundary here.
+        _userExecutionStarted = _effectAuthorized;
+    }
+
+    /// <summary>
+    /// Advances the conservative effect fence immediately before the
+    /// guardian's prepared-plan authorization can reach the private host.
+    /// </summary>
+    internal void MarkPreparedDispatchWriteStarting()
+    {
+        EnsureActive();
+        if (!_privateWriteMayHaveStarted ||
+            !_effectAuthorized ||
+            _request!.Tool != "ptk_invoke" ||
+            _userExecutionStarted)
+        {
+            throw new InvalidOperationException(
+                "A prepared dispatch write requires one authorized invocation.");
+        }
+
         _userExecutionStarted = true;
     }
 
@@ -817,6 +971,41 @@ internal sealed class GuardianAuditCall : AuditCallLifecycle
         _ => throw new InvalidOperationException(
             "The admitted guardian invocation has an unknown route."),
     };
+
+    private static GuardianHostRequestedExecutionRoute RequestedRoute(
+        GuardianHostInvokeRoute route) => route switch
+    {
+        GuardianHostInvokeRoute.Auto =>
+            GuardianHostRequestedExecutionRoute.Auto,
+        GuardianHostInvokeRoute.Pwsh =>
+            GuardianHostRequestedExecutionRoute.Pwsh,
+        GuardianHostInvokeRoute.Rtk =>
+            GuardianHostRequestedExecutionRoute.Rtk,
+        _ => throw new ArgumentOutOfRangeException(nameof(route)),
+    };
+
+    private static string MachineCode<T>(T value)
+        where T : struct, Enum
+    {
+        if (value is GuardianHostRequestedExecutionRoute.Pwsh)
+            return "pwsh";
+        if (value is GuardianHostExecutionDomain.PowerShell)
+            return "powershell";
+        if (value is GuardianHostEffectiveExecutionRoute.PowerShellDirect)
+            return "powershell_direct";
+        if (value is GuardianHostOutputProvenance.PowerShellObjects)
+            return "powershell_objects";
+
+        var text = value.ToString();
+        var result = new StringBuilder(text.Length + 4);
+        for (var index = 0; index < text.Length; index++)
+        {
+            if (char.IsUpper(text[index]) && index > 0)
+                result.Append('_');
+            result.Append(char.ToLowerInvariant(text[index]));
+        }
+        return result.ToString();
+    }
 }
 
 /// <summary>

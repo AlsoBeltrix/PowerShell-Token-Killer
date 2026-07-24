@@ -2322,6 +2322,105 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Prepared_dispatch_control_waits_for_callback_and_durable_plan_audit()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.PreparedForeground));
+        await rig.StartAsync();
+        var resource = Assert.Single(rig.Factory.Resources);
+        var callback = rig.PreparedDispatchObserver.BlockNextEvent();
+
+        var dispatch = rig.DispatchPublicInvokeAsync(
+            "Get-Date",
+            raw: false,
+            route: "pwsh",
+            background: false,
+            timeoutSeconds: 30,
+            session: "default");
+        await callback.WaitAsync(TestTimeout);
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500));
+            Assert.Empty(resource.PreparedDispatchAuthorizations);
+            Assert.DoesNotContain("execution.planned", rig.AuditEventTypes());
+            Assert.DoesNotContain("execution.dispatched", rig.AuditEventTypes());
+        }
+        finally
+        {
+            rig.PreparedDispatchObserver.ReleaseEvent();
+        }
+
+        await resource.PreparedControlReceived.WaitAsync(TestTimeout);
+        try
+        {
+            var eventTypesBeforeAcknowledgement = rig.AuditEventTypes();
+            Assert.Contains("execution.planned", eventTypesBeforeAcknowledgement);
+            Assert.Contains("execution.dispatched", eventTypesBeforeAcknowledgement);
+            var authorization = Assert.Single(
+                resource.PreparedDispatchAuthorizations);
+            Assert.Equal(
+                authorization.SourceEventSequence,
+                resource.PreparedDispatchEventSequence);
+            Assert.Equal(
+                authorization.DescriptorDigest,
+                resource.PreparedDescriptorDigest);
+        }
+        finally
+        {
+            resource.ReleasePreparedControl();
+        }
+        var result = await dispatch.WaitAsync(TestTimeout);
+        Assert.False(result.IsError, result.Text);
+        Assert.Contains(
+            "prepared foreground complete",
+            result.Text,
+            StringComparison.Ordinal);
+        Assert.Null(rig.Supervisor.BackgroundFailure);
+    }
+
+    [Fact]
+    public async Task Prepared_dispatch_audit_failure_cancels_without_authorization()
+    {
+        await using var rig = new TestRig(
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.PreparedForeground));
+        await rig.StartAsync();
+        var resource = Assert.Single(rig.Factory.Resources);
+        var callback = rig.PreparedDispatchObserver.BlockNextEvent();
+
+        var dispatch = rig.DispatchPublicInvokeAsync(
+            "Get-Date",
+            raw: false,
+            route: "pwsh",
+            background: false,
+            timeoutSeconds: 30,
+            session: "default");
+        await callback.WaitAsync(TestTimeout);
+        rig.AuditFaults.FailNextAppend();
+        rig.PreparedDispatchObserver.ReleaseEvent();
+
+        await resource.PreparedControlReceived.WaitAsync(TestTimeout);
+        try
+        {
+            Assert.Empty(resource.PreparedDispatchAuthorizations);
+            var cancellation = Assert.Single(resource.PreparedDispatchCancellations);
+            Assert.Equal(
+                GuardianHostCancelReason.CallerCanceled,
+                cancellation.Reason);
+            Assert.DoesNotContain("execution.planned", rig.AuditEventTypes());
+            Assert.DoesNotContain("execution.dispatched", rig.AuditEventTypes());
+        }
+        finally
+        {
+            resource.ReleasePreparedControl();
+        }
+        var result = await dispatch.WaitAsync(TestTimeout);
+        Assert.True(result.IsError);
+        Assert.Null(rig.Supervisor.BackgroundFailure);
+    }
+
+    [Fact]
     public async Task Ready_session_replacement_without_evidence_is_recovery_unknown()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
@@ -2553,12 +2652,13 @@ public sealed class GuardianHostSupervisorTests
             Assert.Equal(0, rig.Scheduler.PendingCount);
             await WaitUntilAsync(() =>
                 rig.Scheduler.EntryCount == 0 &&
-                rig.Supervisor.BackgroundTaskCount == 3 &&
+                rig.Supervisor.BackgroundTaskCount == 4 &&
                 rig.Supervisor.OwnedClientCount == 1);
             Assert.Equal(1, rig.Supervisor.OwnedAttemptWatcherSetCount);
             Assert.Null(rig.Supervisor.BackgroundFailure);
             Assert.Equal(
                 "RunContainmentControlPumpAsync(active)," +
+                "RunPreparedDispatchControlPumpAsync(active)," +
                 "WatchClientFatalAsync(active),WatchHostExitAsync(active)",
                 rig.Supervisor.BackgroundTaskNames);
 
@@ -2581,7 +2681,7 @@ public sealed class GuardianHostSupervisorTests
         Assert.All(resources, value => Assert.Equal(1, value.OperationCount));
         Assert.Equal(1, rig.Supervisor.OwnedClientCount);
         Assert.Equal(1, rig.Supervisor.OwnedAttemptWatcherSetCount);
-        Assert.Equal(3, rig.Supervisor.BackgroundTaskCount);
+        Assert.Equal(4, rig.Supervisor.BackgroundTaskCount);
         Assert.Equal(0, rig.Scheduler.PendingCount);
         Assert.Equal(0, rig.Scheduler.EntryCount);
 
@@ -2968,6 +3068,9 @@ public sealed class GuardianHostSupervisorTests
             Observer = new BlockingDispatchObserver();
             ContainmentObserver = new BlockingContainmentControlObserver();
             WorkerCreateObserver = new BlockingWorkerCreateControlObserver();
+            PreparedDispatchObserver =
+                new BlockingPreparedDispatchControlObserver();
+            AuditFaults = new AuditFaultController();
             Sessions = new StaticSessionSource(sessionAlias);
             Factory = new FakeAttemptFactory(plans, CreatePins(), Clock);
             if (enableOutput)
@@ -2993,7 +3096,10 @@ public sealed class GuardianHostSupervisorTests
                     maximumTrackedJobs);
             }
             var hostSnapshots = new GuardianAuditHostSnapshotSource();
-            _audit = R3FakeGuardianAuditRuntime.Create(Guardian, hostSnapshots);
+            _audit = R3FakeGuardianAuditRuntime.Create(
+                Guardian,
+                hostSnapshots,
+                AuditFaults.ShouldFault);
             LifecycleAudit = new BlockingLifecycleAudit(
                 new GuardianHostLifecycleAudit(_audit.Runtime));
             var lifecycle = new GuardianHostLifecycleController(
@@ -3021,7 +3127,8 @@ public sealed class GuardianHostSupervisorTests
                 LifecycleAudit,
                 ContainmentObserver.AfterEventQueuedAsync,
                 workerCreateCapabilityAuthority,
-                WorkerCreateObserver.AfterEventQueuedAsync);
+                WorkerCreateObserver.AfterEventQueuedAsync,
+                PreparedDispatchObserver.AfterEventQueuedAsync);
         }
 
         internal ManualTimeProvider Clock { get; }
@@ -3029,6 +3136,9 @@ public sealed class GuardianHostSupervisorTests
         internal BlockingDispatchObserver Observer { get; }
         internal BlockingContainmentControlObserver ContainmentObserver { get; }
         internal BlockingWorkerCreateControlObserver WorkerCreateObserver { get; }
+        internal BlockingPreparedDispatchControlObserver
+            PreparedDispatchObserver { get; }
+        internal AuditFaultController AuditFaults { get; }
         internal ITestSessionControl Sessions { get; }
         internal FakeAttemptFactory Factory { get; }
         internal GuardianHostSupervisor Supervisor { get; }
@@ -4092,6 +4202,68 @@ public sealed class GuardianHostSupervisorTests
         }
     }
 
+    private sealed class BlockingPreparedDispatchControlObserver
+    {
+        private readonly object _sync = new();
+        private TaskCompletionSource<bool>? _entered;
+        private TaskCompletionSource<bool>? _release;
+
+        internal Task BlockNextEvent()
+        {
+            lock (_sync)
+            {
+                _entered = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _release = new TaskCompletionSource<bool>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                return _entered.Task;
+            }
+        }
+
+        internal void ReleaseEvent()
+        {
+            lock (_sync)
+                _release?.TrySetResult(true);
+        }
+
+        internal async ValueTask AfterEventQueuedAsync(
+            PreparedDispatchAuthorizationRequestedEvent preparedEvent,
+            CancellationToken cancellationToken)
+        {
+            Task? release = null;
+            lock (_sync)
+            {
+                if (_entered is not null && _release is not null)
+                {
+                    _entered.TrySetResult(true);
+                    release = _release.Task;
+                    _entered = null;
+                }
+            }
+            if (release is not null)
+                await release.WaitAsync(cancellationToken);
+            _ = preparedEvent;
+        }
+    }
+
+    private sealed class AuditFaultController
+    {
+        private int _failNextAppend;
+
+        internal void FailNextAppend() =>
+            Interlocked.Exchange(ref _failNextAppend, 1);
+
+        internal bool ShouldFault(AuditSinkFaultPoint point, int call)
+        {
+            _ = call;
+            return point == AuditSinkFaultPoint.BeforeAppend &&
+                Interlocked.CompareExchange(
+                    ref _failNextAppend,
+                    value: 0,
+                    comparand: 1) == 1;
+        }
+    }
+
     private sealed class RecordingWorkerCreateCapabilityAuthority :
         IGuardianWorkerCreateCapabilityAuthority
     {
@@ -4261,6 +4433,7 @@ public sealed class GuardianHostSupervisorTests
         Hold,
         InitializingContainment,
         InitializingWorkerCreate,
+        PreparedForeground,
         ProvedNoChild,
         RejectOperation,
         Reset,
@@ -4424,6 +4597,17 @@ public sealed class GuardianHostSupervisorTests
             ContainmentAcknowledgements => _peer.ContainmentAcknowledgements;
         internal IReadOnlyList<WorkerCreateCapabilityGrantRequest>
             WorkerCreateGrants => _peer.WorkerCreateGrants;
+        internal IReadOnlyList<PreparedDispatchAuthorizeRequest>
+            PreparedDispatchAuthorizations =>
+                _peer.PreparedDispatchAuthorizations;
+        internal IReadOnlyList<GuardianHostCancel>
+            PreparedDispatchCancellations =>
+                _peer.PreparedDispatchCancellations;
+        internal Task PreparedControlReceived => _peer.PreparedControlReceived;
+        internal HostEventSequence PreparedDispatchEventSequence =>
+            _peer.PreparedDispatchEventSequence;
+        internal Sha256Digest PreparedDescriptorDigest =>
+            _peer.PreparedDescriptorDigest;
         internal long CurrentUnixTimeMilliseconds =>
             _clock.GetUtcNow().ToUnixTimeMilliseconds();
         internal GuardianHostContainmentIdentity ContainmentIdentity { get; } = new(
@@ -4453,6 +4637,9 @@ public sealed class GuardianHostSupervisorTests
 
         internal Task InjectContainmentControlsAsync() =>
             _peer.InjectContainmentControlsAsync(ContainmentIdentity);
+
+        internal void ReleasePreparedControl() =>
+            _peer.ReleasePreparedControl();
 
         internal void ReleaseOutput() => _outputRelease.TrySetResult(true);
 
@@ -4581,8 +4768,18 @@ public sealed class GuardianHostSupervisorTests
             _containmentAcknowledgements = [];
         private readonly List<WorkerCreateCapabilityGrantRequest>
             _workerCreateGrants = [];
+        private readonly List<PreparedDispatchAuthorizeRequest>
+            _preparedDispatchAuthorizations = [];
+        private readonly List<GuardianHostCancel>
+            _preparedDispatchCancellations = [];
+        private readonly TaskCompletionSource<bool> _preparedControlReceived =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _preparedControlRelease =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _operationCount;
         private long _eventSequence;
+        private HostEventSequence? _preparedDispatchEventSequence;
+        private Sha256Digest? _preparedDescriptorDigest;
 
         internal FakeHostPeer(
             FakeConnectedResources owner,
@@ -4631,7 +4828,45 @@ public sealed class GuardianHostSupervisorTests
             get
             {
                 lock (_sync)
-                    return _workerCreateGrants.ToArray();
+                return _workerCreateGrants.ToArray();
+            }
+        }
+        internal IReadOnlyList<PreparedDispatchAuthorizeRequest>
+            PreparedDispatchAuthorizations
+        {
+            get
+            {
+                lock (_sync)
+                    return _preparedDispatchAuthorizations.ToArray();
+            }
+        }
+        internal IReadOnlyList<GuardianHostCancel> PreparedDispatchCancellations
+        {
+            get
+            {
+                lock (_sync)
+                    return _preparedDispatchCancellations.ToArray();
+            }
+        }
+        internal Task PreparedControlReceived => _preparedControlReceived.Task;
+        internal HostEventSequence PreparedDispatchEventSequence
+        {
+            get
+            {
+                lock (_sync)
+                    return _preparedDispatchEventSequence ??
+                        throw new InvalidOperationException(
+                            "No prepared dispatch event was emitted.");
+            }
+        }
+        internal Sha256Digest PreparedDescriptorDigest
+        {
+            get
+            {
+                lock (_sync)
+                    return _preparedDescriptorDigest ??
+                        throw new InvalidOperationException(
+                            "No prepared descriptor was emitted.");
             }
         }
 
@@ -4696,6 +4931,9 @@ public sealed class GuardianHostSupervisorTests
                 TestRig.Worker,
                 containmentIdentity));
         }
+
+        internal void ReleasePreparedControl() =>
+            _preparedControlRelease.TrySetResult(true);
 
         private async Task RunAsync(HostBehavior behavior)
         {
@@ -4826,6 +5064,11 @@ public sealed class GuardianHostSupervisorTests
                             operation.RequestId,
                             new GuardianHostPrivateError(
                                 GuardianHostPrivateDetailCode.SessionBusy)));
+                        continue;
+                    }
+                    if (behavior == HostBehavior.PreparedForeground)
+                    {
+                        await HandlePreparedForegroundAsync(operation);
                         continue;
                     }
 
@@ -4978,6 +5221,107 @@ public sealed class GuardianHostSupervisorTests
 
         private async Task<GuardianHostMessage?> ReadAsync() =>
             await _reader.ReadAsync().ConfigureAwait(false);
+
+        private async Task HandlePreparedForegroundAsync(
+            OperationRequest operation)
+        {
+            var invoke = Assert.IsType<InvokeForegroundOperation>(
+                operation.Operation);
+            var operationIdentity = Assert.IsType<
+                GuardianHostOperationIdentity>(operation.OperationIdentity);
+            var workerIdentity = Assert.IsType<
+                GuardianHostWorkerIdentity>(operation.WorkerIdentity);
+            var descriptor = new GuardianHostPreparedPlanDescriptor(
+                operationIdentity.PlanId,
+                workerIdentity,
+                operation.DeadlineUnixTimeMilliseconds!.Value,
+                Sha256Digest.Compute(Encoding.UTF8.GetBytes(invoke.Script)),
+                GuardianHostExecutionDomain.PowerShell,
+                invoke.Route switch
+                {
+                    GuardianHostInvokeRoute.Auto =>
+                        GuardianHostRequestedExecutionRoute.Auto,
+                    GuardianHostInvokeRoute.Pwsh =>
+                        GuardianHostRequestedExecutionRoute.Pwsh,
+                    GuardianHostInvokeRoute.Rtk =>
+                        GuardianHostRequestedExecutionRoute.Rtk,
+                    _ => throw new ArgumentOutOfRangeException(),
+                },
+                GuardianHostEffectiveExecutionRoute.PowerShellDirect,
+                GuardianHostPreExecutionValidation.None,
+                GuardianHostResolutionContext.Warm,
+                GuardianHostOutputProvenance.PowerShellObjects,
+                Array.Empty<GuardianHostEffectiveExecutionRoute>(),
+                fallbackReason: null,
+                workingDirectoryDigest: TestRig.BindingDigest,
+                rtkBinaryDigest: null,
+                bashBinaryDigest: null,
+                outputShapingRtkBinaryDigest: null);
+            var eventSequence = new HostEventSequence(
+                Interlocked.Increment(ref _eventSequence));
+            lock (_sync)
+            {
+                _preparedDispatchEventSequence = eventSequence;
+                _preparedDescriptorDigest = descriptor.DescriptorDigest;
+            }
+            await _writer.WriteAsync(
+                new PreparedDispatchAuthorizationRequestedEvent(
+                    operation.GuardianBootId,
+                    operation.HostBootId,
+                    operation.HostGeneration,
+                    eventSequence,
+                    operation.RequestId,
+                    operation.SessionAlias!,
+                    operation.SessionTransitionVersion!,
+                    workerIdentity,
+                    operationIdentity,
+                    descriptor));
+
+            var control = await ReadAsync();
+            switch (control)
+            {
+                case PreparedDispatchAuthorizeRequest authorization:
+                    Assert.Equal(eventSequence, authorization.SourceEventSequence);
+                    Assert.Equal(
+                        descriptor.DescriptorDigest,
+                        authorization.DescriptorDigest);
+                    Assert.Equal(
+                        operation.RequestId.Value + 1,
+                        authorization.RequestId.Value);
+                    lock (_sync)
+                        _preparedDispatchAuthorizations.Add(authorization);
+                    _preparedControlReceived.TrySetResult(true);
+                    await _preparedControlRelease.Task;
+                    await _writer.WriteAsync(Success(
+                        authorization.RequestId,
+                        new ControlAcknowledged(eventSequence)));
+                    await WriteOutputSealAsync(operation, []);
+                    await _writer.WriteAsync(Success(
+                        operation.RequestId,
+                        new OperationCompleted(new InvokeForegroundResult(
+                            "prepared foreground complete"))));
+                    return;
+                case GuardianHostCancel cancellation:
+                    Assert.Equal(
+                        operation.RequestId,
+                        cancellation.TargetRequestId);
+                    lock (_sync)
+                        _preparedDispatchCancellations.Add(cancellation);
+                    _preparedControlReceived.TrySetResult(true);
+                    await _preparedControlRelease.Task;
+                    await _writer.WriteAsync(new GuardianHostErrorResponse(
+                        operation.GuardianBootId,
+                        operation.HostBootId,
+                        operation.HostGeneration,
+                        operation.RequestId,
+                        new GuardianHostPrivateError(
+                            GuardianHostPrivateDetailCode.RequestCanceled)));
+                    return;
+                default:
+                    throw new InvalidOperationException(
+                        "The prepared operation received an unexpected control message.");
+            }
+        }
 
         private GuardianHostSuccessResponse Success(
             PrivateRequestId requestId,

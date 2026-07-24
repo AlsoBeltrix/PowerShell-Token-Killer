@@ -242,7 +242,8 @@ short and update it when important repo facts change.
   was removed. Canonical evidence is in the audited-harness plan and
   `.agents/review/index.md`.
 - **R6 live worker execution and the host-side contained worker authority are
-  active at code head `901b475`.** `SessionRuntime` is the sole worker runtime adapter.
+  active; the first complete live-runtime boundary landed at code head
+  `901b475`.** `SessionRuntime` is the sole worker runtime adapter.
   The initialized worker server now owns live ordinary request/cancel
   scheduling and rejects script-bearing ordinary invoke before runtime
   dispatch. A separate asynchronous owner publishes the immutable hash-bound
@@ -263,9 +264,17 @@ short and update it when important repo facts change.
   `901b475`, macOS and x64 Linux clean builds report zero warnings/errors and
   their physical-temp Guardian/server suites pass 444/444 and 1,953/1,953;
   Linux ARM64 strictly compiles both native brokers and the registry fixture.
-  R6 remains in progress: guardian-reserved background start and worker
-  lifecycle events, per-alias host cutover, guardian v2 control, automatic
-  recovery wiring, and the remaining Windows/cutover acceptance matrix.
+  Subsequent committed slices bind host-issued create capabilities to exact
+  worker slots, freeze guardian-host protocol v2, project the complete immutable
+  worker plan into guardian authorization, gate the worker commit byte behind
+  that authorization, and run the production guardian control pump only after
+  the ordered event callback returns. Exact plan audit is durable before the
+  authorization can cross the pipe; an audit failure cancels without
+  authorization and releases only the exact retained control event. R6 remains
+  in progress: guardian-reserved background start and asynchronous job
+  lifecycle, validator-event forwarding, per-alias host cutover, authoritative
+  multi-alias guardian state, automatic recovery wiring, and the remaining
+  Windows/cutover acceptance matrix.
 - **The owner-approved two-layer MCP resilience sequence is implemented and
   directly validated through R5 on `feature/mcp-resilience-r1`; the current
   code head is `225b5fc`, with exact platform evidence at Windows `195e7e6`,

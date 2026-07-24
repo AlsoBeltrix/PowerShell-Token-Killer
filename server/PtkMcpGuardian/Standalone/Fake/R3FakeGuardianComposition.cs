@@ -193,7 +193,8 @@ internal sealed class R3FakeGuardianAuditRuntime : IDisposable
 
     internal static R3FakeGuardianAuditRuntime Create(
         GuardianBootId guardianBootId,
-        IAuditHostSnapshotSource hostSnapshots)
+        IAuditHostSnapshotSource hostSnapshots,
+        Func<AuditSinkFaultPoint, int, bool>? sinkFaultInjector = null)
     {
         ArgumentNullException.ThrowIfNull(guardianBootId);
         ArgumentNullException.ThrowIfNull(hostSnapshots);
@@ -209,7 +210,8 @@ internal sealed class R3FakeGuardianAuditRuntime : IDisposable
                 options.SegmentBytes,
                 options.AggregateBytes,
                 options.ProtectionMode,
-                options.RetentionAge);
+                options.RetentionAge,
+                sinkFaultInjector);
             journal = new AuditJournal(
                 options,
                 health,

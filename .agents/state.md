@@ -51,9 +51,19 @@ short and update it when important repo facts change.
   "ready" means a sound usable runspace; the wire contract's template
   fields stay inert. The amendment is recorded in
   `.agents/plans/mcp-resilience.md` under R6 (decisions.md remains under
-  hold). Remaining sub-slice 4 work: guardian-owned single-use create-token
-  tracking and `TryGetJobListTargetInvalidation`; then sub-slice 5 recovery
-  wiring, simplified (no bootstrap execution).
+  hold). Sub-slice 4 is otherwise complete: the single-use create-token
+  guarantees were already present (latest pending grant binds, superseded
+  grants are dead, once-only consumption, nonreusing generations, refusal
+  token economy) and are now pinned by dedicated tests at `d977f2d`
+  (supersede-across-loss, double-bind rejection); a first pass that added a
+  pending-race refusal and loss-time pending clearing was reverted as
+  contract-violating and racy respectively. `TryGetJobListTargetInvalidation`
+  stays an honest always-false stub by contract — real invalidation evidence
+  requires recovery metadata (phase/attempt/retry) that only sub-slice 5's
+  wiring produces, so it folds into sub-slice 5. Then sub-slice 5 recovery
+  wiring, simplified (no bootstrap execution). A second non-reproducing
+  single-test battery flake occurred on 2026-07-24 (name again not captured;
+  two immediate full reruns green, 2,569/2,569).
 - **R6's production private-host cutover to contained workers is complete and
   committed on `feature/mcp-resilience-r1` at `1e19b46`.** The slice replaces
   production selection of the in-process runtime with
@@ -620,16 +630,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Complete the r6c-2 review loop (repair `2ba5aa9` landed; redispatch
-   routing awaits the owner's A/B/C ruling from 2026-07-24), then sub-slice
-   4's remainders from head `2ba5aa9`: guardian-owned single-use
-   create-token tracking and `TryGetJobListTargetInvalidation` (template
-   bootstrap is removed; see the owner decision under `## Now`). Then
-   sub-slice 5: wire one `SessionRecoveryStateMachine` per alias to real
-   launch/containment resources (unexpected exit, protocol loss,
-   broker loss, execution-timeout containment → one loss lease; confirmed
-   death → next generation + fresh empty runspace; ambiguity →
-   `recovery_unknown`; per-alias backoff). The production-cutover slice itself is
+1. Wire sub-slice 5 from head `d977f2d`: connect one
+   `SessionRecoveryStateMachine` per alias to real launch/containment
+   resources (unexpected exit, protocol loss, broker loss, execution-timeout
+   containment → one loss lease; confirmed death → next generation + fresh
+   empty runspace; ambiguity → `recovery_unknown`; per-alias backoff), and
+   implement `TryGetJobListTargetInvalidation` from the recovery metadata
+   the wiring produces. The production-cutover slice itself is
    complete and verified on macOS; the Windows-only real composition tests
    still need their direct `NETWATCH-01`/CI evidence on this exact head before
    any cross-platform claim.

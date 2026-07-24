@@ -112,6 +112,31 @@ short and update it when important repo facts change.
   containment currently fires (find it before writing the watcher); whether
   `WorkerLostEvent` (protocol type, currently unemitted) is the right
   guardian-facing loss signal or whether lifecycle events suffice.
+- **Sub-slice 5 spine discovery (2026-07-24, changes the increment plan).**
+  `SessionRecoveryStateMachine`'s lifecycle transitions ADVANCE the alias's
+  transition version (`BeginLifecycleTransition` computes expected =
+  current + 1; `MarkLifecycleDispatched` commits it). Today both ends pin
+  transition version at 1: `FrozenDefaultSessionState` validates lifecycle
+  events and operation results against the binding's pinned version, and
+  `WorkerPrivateHostRuntime.ValidateAndBind` validates requests against the
+  same pin. Wiring the machine therefore means adopting a per-alias
+  lifecycle epoch on both sides in lockstep: the host machine and the
+  guardian declared state each track the current transition version per
+  alias, advance it on every lifecycle transition, validate incoming facts
+  against the current version (stale-transition facts rejected), and the
+  guardian's dispatch target carries the current version into requests.
+  The binding keeps transition 1 as its declaration; recovery manifests
+  carry the guardian's current version. Also learned:
+  `RecordAcknowledgedReady` is initial-ready-only (rejects once everReady);
+  reset/restart/close/open all route through the transition machinery, and
+  `RecordAcknowledgedCold` covers cold declarations. Increment plan:
+  5-1 (spine) drive init/open/reset/restart/close through per-alias
+  machines with lockstep transition epochs on both ends (host runtime,
+  `FrozenDefaultSessionState`, dispatch target), behavior-preserving on the
+  happy path; 5-2 death detection (Fatal/exit watchers) + loss convergence
+  + honest loss reporting; 5-3 attempt factory + scheduler + automatic
+  relaunch; 5-4 guardian recovery projection + invalidation evidence +
+  execution-timeout convergence.
 - **R6's production private-host cutover to contained workers is complete and
   committed on `feature/mcp-resilience-r1` at `1e19b46`.** The slice replaces
   production selection of the in-process runtime with

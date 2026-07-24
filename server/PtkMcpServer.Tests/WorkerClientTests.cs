@@ -125,6 +125,63 @@ public sealed class WorkerClientTests
     }
 
     [Fact]
+    public async Task Client_exposes_the_reserved_request_id_before_the_shutdown_byte()
+    {
+        await using var worker = new ScriptedWorker();
+        const long generation = 8;
+        await worker.InitializeAsync(
+            generation,
+            TestContext.Current.CancellationToken);
+        var callbackEntered = new TaskCompletionSource<long>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackRelease = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var shutdown = worker.Client.ShutdownAsync(
+            TestContext.Current.CancellationToken,
+            async (requestId, cancellationToken) =>
+            {
+                callbackEntered.TrySetResult(requestId);
+                await callbackRelease.Task.WaitAsync(cancellationToken);
+            });
+
+        Assert.Equal(
+            2,
+            await callbackEntered.Task.WaitAsync(
+                TimeSpan.FromSeconds(10),
+                TestContext.Current.CancellationToken));
+        var requestRead = worker.Requests.ReadAsync(
+            TestContext.Current.CancellationToken).AsTask();
+        try
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(250));
+            Assert.False(requestRead.IsCompleted);
+        }
+        finally
+        {
+            callbackRelease.TrySetResult();
+        }
+        var request = await requestRead.WaitAsync(
+            TestContext.Current.CancellationToken);
+        Assert.NotNull(request);
+        Assert.Equal(WorkerMessageKind.Shutdown, request.Kind);
+        Assert.Equal(2, request.RequestId);
+        await worker.Events.WriteAsync(
+            new WorkerEnvelope(
+                WorkerProtocol.Version,
+                WorkerMessageKind.Response,
+                BootId,
+                request.RequestId,
+                JsonSerializer.SerializeToElement(new
+                {
+                    status = "stopped",
+                    generation,
+                })),
+            TestContext.Current.CancellationToken);
+        await shutdown.WaitAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Client_prepares_hash_bound_plan_and_commits_exactly_once()
     {
         var runtime = new ClientRuntime();

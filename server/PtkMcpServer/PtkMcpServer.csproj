@@ -5,6 +5,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <PtkNativeCompiler Condition="'$(PtkNativeCompiler)' == ''">cc</PtkNativeCompiler>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,5 +25,15 @@
     <InternalsVisibleTo Include="PtkMcpServer.Tests" />
     <InternalsVisibleTo Include="PtkAuditAdmin" />
   </ItemGroup>
+
+  <Target
+    Name="BuildPtkContainmentBroker"
+    AfterTargets="Build"
+    Condition="'$(OS)' != 'Windows_NT'"
+    Inputs="$(MSBuildProjectDirectory)/../PtkMcpGuardian/Native/ptk_containment_broker.c"
+    Outputs="$(TargetDir)PtkContainmentBroker">
+    <Exec
+      Command="&quot;$(PtkNativeCompiler)&quot; -std=c17 -O2 -fno-common -fstack-protector-strong -Wall -Wextra -Werror -Wpedantic -Wshadow -Wstrict-prototypes -Wmissing-prototypes &quot;$(MSBuildProjectDirectory)/../PtkMcpGuardian/Native/ptk_containment_broker.c&quot; -o &quot;$(TargetDir)PtkContainmentBroker&quot;" />
+  </Target>
 
 </Project>

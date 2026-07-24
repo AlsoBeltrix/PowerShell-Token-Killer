@@ -378,6 +378,11 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
             Interlocked.Exchange(ref _warmStateLost, 1);
     }
 
+    public void ObserveSessionLifecycle(SessionLifecycleEvent lifecycleEvent)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycleEvent);
+    }
+
     public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
     {
         ArgumentNullException.ThrowIfNull(alias);

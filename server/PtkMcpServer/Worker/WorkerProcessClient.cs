@@ -46,7 +46,9 @@ internal interface IWorkerProcessClient : IAsyncDisposable
         WorkerAbortPayload abort,
         CancellationToken cancellationToken = default,
         Func<long, CancellationToken, ValueTask>? beforeWrite = null);
-    Task ShutdownAsync(CancellationToken cancellationToken = default);
+    Task ShutdownAsync(
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null);
 }
 
 internal interface IWorkerProcessClientFactory
@@ -272,14 +274,17 @@ internal sealed class WorkerProcessClient : IWorkerProcessClient
         }
     }
 
-    public async Task ShutdownAsync(CancellationToken cancellationToken = default)
+    public async Task ShutdownAsync(
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
         if (Interlocked.CompareExchange(ref _shutdownOrDispose, 1, 0) != 0)
             throw new InvalidOperationException("Worker process shutdown is one-shot.");
 
         try
         {
-            await Client.ShutdownAsync(cancellationToken).ConfigureAwait(false);
+            await Client.ShutdownAsync(cancellationToken, beforeWrite)
+                .ConfigureAwait(false);
             await _processExit.WaitAsync(cancellationToken).ConfigureAwait(false);
             await EnsureContainmentAsync().ConfigureAwait(false);
             await _monitor.ConfigureAwait(false);

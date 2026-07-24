@@ -24,11 +24,12 @@ internal sealed class FrozenDefaultSessionState :
     private readonly GuardianBootId _guardianBootId;
     private readonly FrozenSessionCatalog _catalog;
     private readonly object _sync = new();
-    private readonly GuardianHostWorkerIdentity _workerIdentity;
-    private readonly GuardianAuditSession _auditSession;
+    private GuardianHostWorkerIdentity _workerIdentity;
+    private GuardianAuditSession _auditSession;
     private readonly IWorkerGenerationAllocator _workerGenerations;
     private readonly Func<CapabilityToken> _createCapabilityToken;
     private WorkerGenerationHighWatermarkEntry _workerHighWatermark;
+    private WorkerGeneration? _pendingWorkerGeneration;
     private PublicSessionState _state = PublicSessionState.Ready;
     private bool _readyForEffects = true;
     private bool _warmStateLost;
@@ -134,6 +135,10 @@ internal sealed class FrozenDefaultSessionState :
             _workerHighWatermark = new WorkerGenerationHighWatermarkEntry(
                 Binding.Alias,
                 new WorkerGenerationHighWatermark(generation.Value));
+            _pendingWorkerGeneration = generation;
+            _state = PublicSessionState.Starting;
+            _readyForEffects = false;
+            _bootstrapState = BootstrapState.Pending;
             return new GuardianWorkerCreateCapability(generation, token);
         }
     }
@@ -170,6 +175,65 @@ internal sealed class FrozenDefaultSessionState :
         if (recovered)
         {
             lock (_sync) _warmStateLost = true;
+        }
+    }
+
+    public void ObserveSessionLifecycle(
+        SessionLifecycleEvent lifecycleEvent)
+    {
+        ArgumentNullException.ThrowIfNull(lifecycleEvent);
+        if (lifecycleEvent.GuardianBootId != _guardianBootId ||
+            lifecycleEvent.SessionAlias != Binding.Alias ||
+            lifecycleEvent.SessionTransitionVersion !=
+                Binding.TransitionVersion)
+        {
+            throw new InvalidOperationException(
+                "The session lifecycle event does not match the frozen binding.");
+        }
+
+        lock (_sync)
+        {
+            if (lifecycleEvent.State == PublicSessionState.Ready)
+            {
+                var worker = lifecycleEvent.WorkerIdentity ??
+                    throw new InvalidOperationException(
+                        "A ready session lifecycle event requires a worker.");
+                if (_pendingWorkerGeneration is null ||
+                    worker.Generation != _pendingWorkerGeneration ||
+                    !lifecycleEvent.ReadyForEffects ||
+                    lifecycleEvent.BootstrapState != BootstrapState.Restored)
+                {
+                    throw new InvalidOperationException(
+                        "The ready lifecycle event does not match the pending worker grant.");
+                }
+                _workerIdentity = worker;
+                _auditSession = new GuardianAuditSession(
+                    Binding,
+                    worker.Generation);
+                _pendingWorkerGeneration = null;
+            }
+            else if (lifecycleEvent.State == PublicSessionState.Cold)
+            {
+                if (lifecycleEvent.WorkerIdentity is not null ||
+                    lifecycleEvent.ReadyForEffects ||
+                    lifecycleEvent.BootstrapState !=
+                        BootstrapState.NotApplicable)
+                {
+                    throw new InvalidOperationException(
+                        "The cold lifecycle event carries live worker state.");
+                }
+                _pendingWorkerGeneration = null;
+            }
+            else
+            {
+                throw new InvalidOperationException(
+                    "The frozen session received a nonterminal lifecycle event.");
+            }
+
+            _state = lifecycleEvent.State;
+            _readyForEffects = lifecycleEvent.ReadyForEffects;
+            _warmStateLost |= lifecycleEvent.WarmStateLost;
+            _bootstrapState = lifecycleEvent.BootstrapState;
         }
     }
 

@@ -486,7 +486,8 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
         }
 
         public Task ShutdownAsync(
-            CancellationToken cancellationToken = default) =>
+            CancellationToken cancellationToken = default,
+            Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
             Task.CompletedTask;
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;

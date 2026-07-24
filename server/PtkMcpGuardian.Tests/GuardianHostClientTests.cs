@@ -120,6 +120,85 @@ public sealed class GuardianHostClientTests
     }
 
     [Fact]
+    public async Task Initialize_accepts_exact_ready_session_lifecycle_before_host_ready()
+    {
+        SessionLifecycleEvent? observed = null;
+        var handled = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var harness = new HostHarness(
+            (hostEvent, _) =>
+            {
+                observed = Assert.IsType<SessionLifecycleEvent>(hostEvent);
+                handled.TrySetResult();
+                return ValueTask.CompletedTask;
+            });
+
+        var initialize = harness.Client.InitializeAsync(harness.Manifest);
+        var transcript = await harness.CompleteHandshakeThroughSealAsync();
+        var lifecycle = new SessionLifecycleEvent(
+            Guardian,
+            Host,
+            Generation,
+            new HostEventSequence(1),
+            requestId: null,
+            Alias,
+            Transition,
+            ReplacementWorker,
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored);
+
+        await harness.HostWriter.WriteAsync(lifecycle);
+        await handled.Task.WaitAsync(TestTimeout);
+
+        var admitted = observed!;
+        Assert.Equal(lifecycle.EventSequence, admitted.EventSequence);
+        Assert.Null(admitted.RequestId);
+        Assert.Equal(lifecycle.SessionAlias, admitted.SessionAlias);
+        Assert.Equal(lifecycle.SessionTransitionVersion, admitted.SessionTransitionVersion);
+        Assert.Equal(ReplacementWorker.BootId, admitted.WorkerIdentity?.BootId);
+        Assert.Equal(ReplacementWorker.Generation, admitted.WorkerIdentity?.Generation);
+        Assert.Equal(PublicSessionState.Starting, admitted.PreviousState);
+        Assert.Equal(PublicSessionState.Ready, admitted.State);
+        Assert.Equal(GuardianHostSessionLifecycleReason.AutomaticRecovery, admitted.Reason);
+        Assert.True(admitted.ReadyForEffects);
+        Assert.False(admitted.WarmStateLost);
+        Assert.Equal(BootstrapState.Restored, admitted.BootstrapState);
+        Assert.Equal(GuardianHostClientState.Initializing, harness.Client.State);
+        Assert.False(initialize.IsCompleted);
+        await harness.WriteReadyAsync(transcript);
+        await initialize.WaitAsync(TestTimeout);
+        Assert.Equal(GuardianHostClientState.Ready, harness.Client.State);
+    }
+
+    [Theory]
+    [InlineData("request_id")]
+    [InlineData("worker_identity")]
+    [InlineData("previous_state")]
+    [InlineData("state")]
+    [InlineData("reason")]
+    [InlineData("ready_for_effects")]
+    [InlineData("bootstrap_state")]
+    public async Task Initialize_rejects_nonexact_ready_session_lifecycle_before_ready(string mutation)
+    {
+        await using var harness = new HostHarness();
+        var initialize = harness.Client.InitializeAsync(harness.Manifest);
+        _ = await harness.CompleteHandshakeThroughSealAsync();
+
+        await harness.HostWriter.WriteAsync(NonexactBootstrapLifecycle(mutation));
+
+        var failure = await Assert.ThrowsAsync<GuardianHostClientException>(() =>
+            initialize.WaitAsync(TestTimeout));
+        Assert.Equal(GuardianHostClientFailureKind.ProtocolViolation, failure.DetailKind);
+        Assert.Equal(GuardianHostClientState.Faulted, harness.Client.State);
+        Assert.Same(failure, await harness.Client.Fatal.WaitAsync(TestTimeout));
+        Assert.Equal(0, harness.Client.OutstandingRequestCount);
+    }
+
+    [Fact]
     public async Task Initialize_refuses_ordinary_requests_before_host_ready()
     {
         await using var harness = new HostHarness();
@@ -2488,6 +2567,24 @@ public sealed class GuardianHostClientTests
         false,
         false,
         BootstrapState.Pending);
+
+    private static SessionLifecycleEvent NonexactBootstrapLifecycle(string mutation) => new(
+        Guardian,
+        Host,
+        Generation,
+        new HostEventSequence(1),
+        mutation == "request_id" ? new PrivateRequestId(9) : null,
+        Alias,
+        Transition,
+        mutation == "worker_identity" ? null : ReplacementWorker,
+        mutation == "previous_state" ? PublicSessionState.Cold : PublicSessionState.Starting,
+        mutation == "state" ? PublicSessionState.Starting : PublicSessionState.Ready,
+        mutation == "reason"
+            ? GuardianHostSessionLifecycleReason.RequestedOpen
+            : GuardianHostSessionLifecycleReason.AutomaticRecovery,
+        mutation != "ready_for_effects",
+        false,
+        mutation == "bootstrap_state" ? BootstrapState.Pending : BootstrapState.Restored);
 
     private static GuardianHostSuccessResponse Success(
         PrivateRequestId requestId,

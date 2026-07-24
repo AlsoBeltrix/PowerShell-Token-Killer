@@ -251,7 +251,9 @@ internal sealed class WorkerClient : IAsyncDisposable
             cancellationToken).ConfigureAwait(false);
     }
 
-    internal async Task ShutdownAsync(CancellationToken cancellationToken = default)
+    internal async Task ShutdownAsync(
+        CancellationToken cancellationToken = default,
+        Func<long, CancellationToken, ValueTask>? beforeWrite = null)
     {
         var generation = RequireGeneration();
         var requestId = ReserveShutdownRequest();
@@ -264,7 +266,7 @@ internal sealed class WorkerClient : IAsyncDisposable
                     JsonSerializer.SerializeToElement(new { })),
                 requestId,
                 sendCancelOnCancellation: false,
-                beforeWrite: null,
+                beforeWrite,
                 cancellationToken,
                 allowStopping: true).ConfigureAwait(false);
             _ = ValidateResponse(() =>

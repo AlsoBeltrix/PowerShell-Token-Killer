@@ -3849,6 +3849,12 @@ public sealed class GuardianHostSupervisorTests
                 }
             }
 
+            public void ObserveSessionLifecycle(
+                SessionLifecycleEvent lifecycleEvent)
+            {
+                ArgumentNullException.ThrowIfNull(lifecycleEvent);
+            }
+
             public bool TryGetJobListTarget(
                 CanonicalAlias alias,
                 [NotNullWhen(true)] out GuardianHostJobListTarget? target)

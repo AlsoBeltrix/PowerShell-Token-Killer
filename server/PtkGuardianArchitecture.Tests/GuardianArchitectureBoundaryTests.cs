@@ -686,7 +686,7 @@ public sealed class GuardianArchitectureBoundaryTests
             .OfType<MethodDeclarationSyntax>()
             .Where(method => method.Identifier.ValueText == "PrepareStartWithReservedId")
             .ToArray();
-        Assert.Equal(2, reservedPrepares.Length);
+        Assert.Equal(4, reservedPrepares.Length);
         Assert.All(
             reservedPrepares,
             reservedPrepare =>
@@ -695,19 +695,31 @@ public sealed class GuardianArchitectureBoundaryTests
                     reservedPrepare.ParameterList.Parameters,
                     parameter => parameter.Type?.ToString() == "PublicJobId" &&
                         parameter.Identifier.ValueText == "publicJobId");
-                Assert.Contains(
-                    reservedPrepare.ParameterList.Parameters,
-                    parameter => parameter.Type?.ToString() == "CapabilityToken" &&
-                        parameter.Identifier.ValueText == "jobCapability");
                 Assert.DoesNotContain(
                     reservedPrepare.DescendantNodes().OfType<InvocationExpressionSyntax>(),
                     invocation => invocation.Expression.ToString().Contains(
                         "Allocate",
                         StringComparison.Ordinal));
             });
+        var capabilityPrepares = reservedPrepares
+            .Where(method => method.ParameterList.Parameters.Any(parameter =>
+                parameter.Type?.ToString() == "CapabilityToken" &&
+                parameter.Identifier.ValueText == "jobCapability"))
+            .ToArray();
+        Assert.Equal(2, capabilityPrepares.Length);
+        var workerPrepares = reservedPrepares
+            .Except(capabilityPrepares)
+            .ToArray();
+        Assert.Equal(2, workerPrepares.Length);
+        Assert.All(
+            workerPrepares,
+            workerPrepare => Assert.DoesNotContain(
+                workerPrepare.DescendantNodes().OfType<ArgumentSyntax>(),
+                argument => argument.Expression.ToString() == "jobCapability"));
         var reservedPrepare = Assert.Single(
-            reservedPrepares,
-            method => method.ParameterList.Parameters.Count == 3);
+            capabilityPrepares,
+            method => method.ParameterList.Parameters.Count == 3 &&
+                method.ParameterList.Parameters[^1].Type?.ToString() == "string");
         var reservedCoreCall = Assert.Single(
             reservedPrepare.DescendantNodes().OfType<InvocationExpressionSyntax>(),
             invocation => invocation.Expression.ToString() == "PrepareStartCore");
@@ -718,12 +730,45 @@ public sealed class GuardianArchitectureBoundaryTests
             reservedCoreCall.ArgumentList.Arguments,
             argument => argument.Expression.ToString() == "jobCapability");
         var boundReservedPrepare = Assert.Single(
-            reservedPrepares,
+            capabilityPrepares,
             method => method.ParameterList.Parameters.Count == 4);
-        Assert.Single(
+        var boundDelegation = Assert.Single(
             boundReservedPrepare.DescendantNodes().OfType<InvocationExpressionSyntax>(),
             invocation => invocation.Expression.ToString() ==
                 "PrepareStartWithReservedId");
+        Assert.Contains(
+            boundDelegation.ArgumentList.Arguments,
+            argument => argument.Expression.ToString() == "publicJobId");
+        Assert.Contains(
+            boundDelegation.ArgumentList.Arguments,
+            argument => argument.Expression.ToString() == "jobCapability");
+        var workerReservedPrepare = Assert.Single(
+            workerPrepares,
+            method => method.ParameterList.Parameters.Count == 2);
+        var workerCoreCall = Assert.Single(
+            workerReservedPrepare.DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString() == "PrepareStartCore");
+        Assert.Contains(
+            workerCoreCall.ArgumentList.Arguments,
+            argument => argument.Expression.ToString() == "publicJobId");
+        Assert.Contains(
+            workerCoreCall.ArgumentList.Arguments,
+            argument => argument.NameColon?.Name.Identifier.ValueText ==
+                "reservedJobCapability" &&
+                argument.Expression.ToString() == "null");
+        var workerBoundPrepare = Assert.Single(
+            workerPrepares,
+            method => method.ParameterList.Parameters.Count == 3);
+        var workerBoundDelegation = Assert.Single(
+            workerBoundPrepare.DescendantNodes().OfType<InvocationExpressionSyntax>(),
+            invocation => invocation.Expression.ToString() ==
+                "PrepareStartWithReservedId");
+        Assert.Contains(
+            workerBoundDelegation.ArgumentList.Arguments,
+            argument => argument.Expression.ToString() == "publicJobId");
+        Assert.DoesNotContain(
+            workerBoundDelegation.ArgumentList.Arguments,
+            argument => argument.Expression.ToString() == "jobCapability");
 
         var startPlan = Assert.Single(
             jobManagerRoot.DescendantNodes().OfType<RecordDeclarationSyntax>(),
@@ -983,17 +1028,32 @@ public sealed class GuardianArchitectureBoundaryTests
             commit => Assert.Equal(
                 "deadline",
                 commit.ArgumentList.Arguments[2].Expression.ToString()));
-        var reservedIntent = Assert.Single(
-            invokeCore.DescendantNodes().OfType<InvocationExpressionSyntax>(),
-            invocation => invocation.Expression.ToString() ==
-                "jobs.PrepareStartWithReservedId");
+        var reservedIntents = invokeCore.DescendantNodes()
+            .OfType<InvocationExpressionSyntax>()
+            .Where(invocation => invocation.Expression.ToString() ==
+                "jobs.PrepareStartWithReservedId")
+            .ToArray();
+        Assert.Equal(2, reservedIntents.Length);
+        var guardianReservedIntent = Assert.Single(
+            reservedIntents,
+            invocation => invocation.ArgumentList.Arguments.Count == 3);
         Assert.Equal(
             [
                 "backgroundJob.PublicJobId",
                 "backgroundJob.JobCapability",
                 "script",
             ],
-            reservedIntent.ArgumentList.Arguments
+            guardianReservedIntent.ArgumentList.Arguments
+                .Select(argument => argument.Expression.ToString()));
+        var workerReservedIntent = Assert.Single(
+            reservedIntents,
+            invocation => invocation.ArgumentList.Arguments.Count == 2);
+        Assert.Equal(
+            [
+                "workerJobId",
+                "script",
+            ],
+            workerReservedIntent.ArgumentList.Arguments
                 .Select(argument => argument.Expression.ToString()));
 
         foreach (var expression in new[]

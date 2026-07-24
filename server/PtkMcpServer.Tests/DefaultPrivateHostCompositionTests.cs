@@ -178,22 +178,18 @@ public sealed class DefaultPrivateHostCompositionTests
     {
         var events = new RecordingEventSink();
 
-        var runtime = Assert.IsType<DefaultPrivateHostRuntime>(
+        var runtime = Assert.IsType<WorkerPrivateHostRuntime>(
             DefaultPrivateHostRuntimeFactory.Create(Identity, Pins(), events));
-        var runtimeFields = typeof(DefaultPrivateHostRuntime).GetFields(
+        var runtimeFields = typeof(WorkerPrivateHostRuntime).GetFields(
             BindingFlags.Instance | BindingFlags.NonPublic);
         var runtimeEventSink = Assert.Single(
             runtimeFields,
-            field => field.Name == "_eventSink");
+            field => field.Name == "_events");
         var outputTransferField = Assert.Single(
             runtimeFields,
-            field => field.Name == "_outputTransfer");
-        var sessionFactoryField = Assert.Single(
-            runtimeFields,
-            field => field.Name == "_sessionFactory");
+            field => field.Name == "_output");
 
         Assert.Same(events, runtimeEventSink.GetValue(runtime));
-        Assert.IsType<DefaultPrivateHostSessionFactory>(sessionFactoryField.GetValue(runtime));
         var outputTransfer = Assert.IsType<EventPrivateHostOutputTransfer>(
             outputTransferField.GetValue(runtime));
         var transferEventSink = typeof(EventPrivateHostOutputTransfer).GetField(
@@ -203,6 +199,10 @@ public sealed class DefaultPrivateHostCompositionTests
         Assert.DoesNotContain(
             runtimeFields,
             field => field.FieldType == typeof(PrivateHostServerPins));
+        Assert.DoesNotContain(
+            runtimeFields,
+            field => typeof(IPrivateSessionOperations).IsAssignableFrom(
+                field.FieldType));
     }
 
     private static DefaultPrivateHostSessionFactory Factory(
@@ -264,12 +264,19 @@ public sealed class DefaultPrivateHostCompositionTests
         CancellationToken CancellationToken,
         bool AllowColdBackground);
 
-    private sealed class RecordingEventSink : IPrivateHostEventSink
+    private sealed class RecordingEventSink :
+        IPrivateHostEventSink,
+        IPrivateHostControlEventSink
     {
         public ValueTask WriteEventAsync(
             Func<HostEventSequence, GuardianHostEvent> createEvent,
             CancellationToken cancellationToken = default) =>
             ValueTask.CompletedTask;
+
+        public Task<GuardianHostRequest> ExchangeControlAsync(
+            Func<HostEventSequence, GuardianHostEvent> createEvent,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class RecordingPrivateSession : IPrivateSessionOperations

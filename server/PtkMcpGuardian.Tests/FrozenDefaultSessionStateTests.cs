@@ -161,6 +161,111 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Ready_lifecycle_binds_the_host_selected_boot_to_the_latest_grant()
+    {
+        var state = State();
+        var grant = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var boot = new WorkerBootId(
+            Guid.Parse("55555555-5555-4555-8555-555555555555"));
+        var lifecycle = new SessionLifecycleEvent(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(2),
+            requestId: null,
+            state.Binding.Alias,
+            state.Binding.TransitionVersion,
+            new GuardianHostWorkerIdentity(
+                boot,
+                grant.WorkerGeneration),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored);
+
+        state.ObserveSessionLifecycle(lifecycle);
+
+        var snapshot = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(boot, snapshot.WorkerBootId);
+        Assert.Equal(grant.WorkerGeneration, snapshot.Generation);
+        Assert.True(snapshot.ReadyForEffects);
+        Assert.True(state.TryGetJobListTarget(
+            state.Binding.Alias,
+            out var target));
+        Assert.Equal(boot, target.WorkerIdentity.BootId);
+        Assert.Equal(grant.WorkerGeneration, target.WorkerIdentity.Generation);
+        Assert.Equal(
+            grant.WorkerGeneration.Value,
+            target.AuditSession.Session.Generation);
+    }
+
+    [Fact]
+    public void Stale_ready_lifecycle_cannot_replace_the_latest_grant()
+    {
+        var state = State();
+        var first = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var second = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 550),
+            nowUnixTimeMilliseconds: 200,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var stale = new SessionLifecycleEvent(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(2),
+            requestId: null,
+            state.Binding.Alias,
+            state.Binding.TransitionVersion,
+            new GuardianHostWorkerIdentity(
+                new WorkerBootId(
+                    Guid.Parse("55555555-5555-4555-8555-555555555555")),
+                first.WorkerGeneration),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored);
+
+        Assert.Throws<InvalidOperationException>(
+            () => state.ObserveSessionLifecycle(stale));
+
+        var snapshot = Assert.Single(state.SnapshotSessions());
+        Assert.False(snapshot.ReadyForEffects);
+        Assert.Equal(PublicSessionState.Starting, snapshot.State);
+
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(1).HostBootId,
+            new HostGeneration(1),
+            new HostEventSequence(3),
+            requestId: null,
+            state.Binding.Alias,
+            state.Binding.TransitionVersion,
+            new GuardianHostWorkerIdentity(
+                new WorkerBootId(
+                    Guid.Parse("66666666-6666-4666-8666-666666666666")),
+                second.WorkerGeneration),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored));
+        snapshot = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(second.WorkerGeneration, snapshot.Generation);
+        Assert.True(snapshot.ReadyForEffects);
+    }
+
+    [Fact]
     public void Refused_worker_create_request_consumes_no_generation_or_token()
     {
         var tokenCalls = 0;

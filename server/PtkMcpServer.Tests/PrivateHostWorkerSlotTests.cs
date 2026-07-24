@@ -215,7 +215,9 @@ public sealed class PrivateHostWorkerSlotTests
             Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
             throw new NotSupportedException();
 
-        public Task ShutdownAsync(CancellationToken cancellationToken = default)
+        public Task ShutdownAsync(
+            CancellationToken cancellationToken = default,
+            Func<long, CancellationToken, ValueTask>? beforeWrite = null)
         {
             cancellationToken.ThrowIfCancellationRequested();
             return Task.CompletedTask;

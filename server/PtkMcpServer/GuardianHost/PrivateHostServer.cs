@@ -97,6 +97,7 @@ internal sealed class PrivateHostServer
     private long _lastRequestId;
     private int _started;
     private int _state;
+    private Task<GuardianHostMessage?>? _carriedRead;
 
     internal PrivateHostServer(
         Stream guardianRequestStream,
@@ -384,31 +385,45 @@ internal sealed class PrivateHostServer
             await CancelIgnoringFailureAsync(phaseCancellation).ConfigureAwait(false);
             if (pendingRead is not null)
             {
-                try
+                // A stream whose reads ignore cancellation (a Unix FIFO held
+                // through a synchronous FileStream) can leave the phase read
+                // live after the phase token is canceled. Never wait for it:
+                // observe a message that already raced in, and hand a
+                // still-live read to the operational loop, which owns the
+                // channel next. Awaiting it would stall readiness until the
+                // guardian happens to write or close the channel.
+                if (pendingRead.IsCompleted)
                 {
-                    var unread = await pendingRead.ConfigureAwait(false);
-                    if (unread is not null)
+                    try
                     {
-                        using (unread as IDisposable)
+                        var unread = await pendingRead.ConfigureAwait(false);
+                        if (unread is not null)
                         {
-                            if (runtimeCompletedSuccessfully)
+                            using (unread as IDisposable)
                             {
-                                throw Protocol(
-                                    "initialization_message_invalid",
-                                    "A private guardian message raced runtime readiness.");
+                                if (runtimeCompletedSuccessfully)
+                                {
+                                    throw Protocol(
+                                        "initialization_message_invalid",
+                                        "A private guardian message raced runtime readiness.");
+                                }
                             }
                         }
                     }
+                    catch (OperationCanceledException) when (
+                        phaseCancellation.IsCancellationRequested)
+                    {
+                    }
+                    catch (Exception exception) when (
+                        !runtimeCompletedSuccessfully &&
+                        !IsFatal(exception))
+                    {
+                        // Preserve the runtime/protocol failure already in flight.
+                    }
                 }
-                catch (OperationCanceledException) when (
-                    phaseCancellation.IsCancellationRequested)
+                else if (runtimeCompletedSuccessfully)
                 {
-                }
-                catch (Exception exception) when (
-                    !runtimeCompletedSuccessfully &&
-                    !IsFatal(exception))
-                {
-                    // Preserve the runtime/protocol failure already in flight.
+                    _carriedRead = pendingRead;
                 }
             }
 
@@ -425,6 +440,30 @@ internal sealed class PrivateHostServer
         }
     }
 
+    private Task<GuardianHostMessage?>? ConsumeCarriedRead(CancellationToken cancellationToken)
+    {
+        var carried = Interlocked.Exchange(ref _carriedRead, null);
+        if (carried is null) return null;
+        return BridgeCarriedReadAsync(carried, cancellationToken);
+    }
+
+    private async Task<GuardianHostMessage?> BridgeCarriedReadAsync(
+        Task<GuardianHostMessage?> carried,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await carried.ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A stream honoring read cancellation ended the carried read with
+            // the phase token; reissue on the operational token, exactly as a
+            // fresh loop iteration would.
+            return await _reader.ReadAsync(cancellationToken).ConfigureAwait(false);
+        }
+    }
+
     private void BeginSingleUse()
     {
         if (Interlocked.CompareExchange(ref _started, 1, 0) != 0)
@@ -436,7 +475,7 @@ internal sealed class PrivateHostServer
         var active = new Dictionary<long, ActiveOperation>();
         using var readCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
-        Task<GuardianHostMessage?>? pendingRead = null;
+        Task<GuardianHostMessage?>? pendingRead = ConsumeCarriedRead(readCancellation.Token);
 
         try
         {

@@ -169,7 +169,8 @@ public sealed class ProductionGuardianCompositionTests
             Assert.Equal(PublicHostState.Ready, state.Host.State);
             Assert.True(state.Host.ReadyForEffects);
             var session = Assert.Single(state.Sessions);
-            Assert.Equal(Worker, session.WorkerBootId);
+            Assert.NotNull(session.WorkerBootId);
+            Assert.Equal(2, session.Generation?.Value);
             Assert.True(session.ReadyForEffects);
 
             var jobs = await RequestAsync(
@@ -601,7 +602,8 @@ public sealed class ProductionGuardianCompositionTests
             Assert.Equal(PublicHostState.Ready, state.Host.State);
             Assert.Equal(1, state.Host.Generation?.Value);
             var session = Assert.Single(state.Sessions);
-            Assert.Equal(Worker, session.WorkerBootId);
+            Assert.NotNull(session.WorkerBootId);
+            Assert.Equal(2, session.Generation?.Value);
             Assert.False(session.WarmStateLost);
 
             var proof = await RequestAsync(

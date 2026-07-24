@@ -66,6 +66,10 @@ public sealed class Slice7fStagingBoundaryTests
                 productionRoot,
                 "GuardianHost",
                 "PrivateHostWorkerEventBridge.cs")),
+            Path.GetFullPath(Path.Combine(
+                productionRoot,
+                "GuardianHost",
+                "WorkerPrivateHostRuntime.cs")),
         };
         foreach (var path in Directory.EnumerateFiles(
             productionRoot,

@@ -45,6 +45,7 @@ internal sealed class EventPrivateHostOutputTransfer : IPrivateHostOutputTransfe
         ArgumentNullException.ThrowIfNull(text);
         var context = OutputEventContext.Create(
             request,
+            GuardianHostOperationKind.InvokeForeground,
             GuardianHostOperationKind.JobOutput);
         var deadline = Math.Min(
             context.RequestDeadlineUnixTimeMilliseconds,

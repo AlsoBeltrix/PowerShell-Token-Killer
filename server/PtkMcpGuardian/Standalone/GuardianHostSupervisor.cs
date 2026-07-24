@@ -2568,6 +2568,12 @@ internal sealed class GuardianHostSupervisor :
                 CompleteAvailableJobTerminal(jobLifecycle.PublicJobId);
             return;
         }
+        if (hostEvent is SessionLifecycleEvent sessionLifecycle)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _sessionSource.ObserveSessionLifecycle(sessionLifecycle);
+            return;
+        }
         if (hostEvent is GuardianHostContainmentEvent containmentEvent)
         {
             cancellationToken.ThrowIfCancellationRequested();

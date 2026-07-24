@@ -197,6 +197,13 @@ internal interface IGuardianHostSupervisorSessionSource
     void ObserveHostReady(GuardianHostIdentity identity, bool recovered);
 
     /// <summary>
+    /// Commits one exact worker/session lifecycle fact emitted by the current
+    /// private host. Initialization and replacement readiness establish the
+    /// host-selected worker boot ID only through this callback.
+    /// </summary>
+    void ObserveSessionLifecycle(SessionLifecycleEvent lifecycleEvent);
+
+    /// <summary>
     /// Commits that a session-changing request may have taken effect but no
     /// authoritative terminal was retained. The callback runs under
     /// supervisor authority and must leave ordinary session work blocked until

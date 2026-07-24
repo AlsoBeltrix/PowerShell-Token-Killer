@@ -1002,7 +1002,7 @@ internal sealed class GuardianHostClient : IAsyncDisposable
                         await CompleteResponseAsync(response).ConfigureAwait(false);
                         break;
                     case GuardianHostEvent hostEvent
-                        when IsBootstrapControlEvent(hostEvent.EventType):
+                        when IsBootstrapInboundEvent(hostEvent):
                         await CompleteEventAsync(hostEvent).ConfigureAwait(false);
                         break;
                     default:
@@ -1806,6 +1806,19 @@ internal sealed class GuardianHostClient : IAsyncDisposable
         GuardianHostEventType.WorkerContainmentPending or
         GuardianHostEventType.WorkerContainmentArmed or
         GuardianHostEventType.WorkerContainmentRemoveRequested;
+
+    private static bool IsBootstrapInboundEvent(GuardianHostEvent hostEvent) =>
+        IsBootstrapControlEvent(hostEvent.EventType) ||
+        hostEvent is SessionLifecycleEvent
+        {
+            RequestId: null,
+            WorkerIdentity: not null,
+            PreviousState: PublicSessionState.Starting,
+            State: PublicSessionState.Ready,
+            Reason: GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            ReadyForEffects: true,
+            BootstrapState: BootstrapState.Restored,
+        };
 
     private static bool ControlPairMatches(
         GuardianHostEventType eventType,

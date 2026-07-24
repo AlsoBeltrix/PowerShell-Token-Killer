@@ -271,6 +271,57 @@ only, before any dependency manifest edit._
   setup-dotnet required v5-to-v6 migration. These are point-in-time targets,
   not a permanent update or build-blocking policy.
 
+### MCP resilience R6 production-cutover completion validation (macOS, 2026-07-24)
+
+_Verified 2026-07-24 in worktree `.claude/worktrees/mcp-resilience-r1` on the
+uncommitted R6 production-cutover slice atop committed base `5ad5a9f`; the
+exact committed head is recorded in `.agents/state.md`._
+
+- The first real apphost run of the completed bootstrap-lifecycle admission
+  still timed out. Host-side tracing (temporary, removed before commit) showed
+  the host completed its entire bring-up in under a second and then stalled
+  ~29 s inside `PrivateHostServer.InitializeRuntimeAsync`: its success-path
+  drain awaited a pending request read that a synchronous `FileStream` over
+  the inherited Unix FIFO can never cancel. Opening that stream with
+  `isAsync: true` was also tried and abandoned because on this host the
+  `FileStream` constructor itself blocked indefinitely on the inherited pipe
+  descriptor (macOS, .NET SDK 10.0.10). The shipped fix carries a still-live
+  phase read into the operational loop instead of draining it, preserving the
+  raced-message guard when the read has already completed.
+- The same run exposed two stale transitional assertions in
+  `ProductionGuardianCompositionTests`: the plan freezes a random host-
+  selected worker boot ID, and the guardian's declared identity consumes
+  generation 1 so the first granted worker generation is 2 (matching
+  `FrozenDefaultSessionStateTests`). Both real composition tests
+  (`Composition_serves_the_real_private_host_before_public_initialize`,
+  `Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection`)
+  then passed in seconds with no startup stall.
+- The complete .NET battery passed 2,558/2,558 across the server, guardian,
+  architecture, and contracts projects using the physical
+  `/private/var/folders/...` TMPDIR (the `/var` symlink form is correctly
+  refused by the protected-storage guard, as recorded for R5). The PowerShell
+  module suite passed 141 tests with two platform skips; the complete stdio
+  handshake passed.
+- Three architecture boundary failures introduced by earlier committed
+  cutover commits (never run by the prior session) were reconciled to the new
+  design: the worker-runtime file joined the live-adapter allowlist, and the
+  reserved-job-ID and session-authority source scans now freeze the four
+  `PrepareStartWithReservedId` overloads and both call-site shapes.
+- The bootstrap-lifecycle admission was mutation-proven: the full guard revert
+  plus seven single-condition weakening mutations each turned the new positive
+  test or its seven-case near-miss theory red. The shutdown write boundary was
+  mutation-proven with three mutations: dropping the `ShutdownAsync`
+  `beforeWrite` passthrough (new permanent guard
+  `Client_exposes_the_reserved_request_id_before_the_shutdown_byte`), writing
+  before the callback, and launching the replacement worker before the old
+  generation's shutdown (new order log assertion in
+  `Reset_shuts_down_old_generation_before_new_slot_becomes_ready`). Every
+  mutation went red and every restore returned green.
+- Open observation: the worker-side bootstrap (`WorkerBootstrap.cs`) opens its
+  own inherited stream with the same synchronous `FileStream` shape; no
+  cancellation-dependent drain has been observed to hang there on this host,
+  but the pattern is the same as the one that stalled the host.
+
 ## `NETWATCH-01` — Michael's Windows machine
 
 _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._

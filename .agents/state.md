@@ -5,6 +5,48 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **R6's production private-host cutover to contained workers is complete and
+  committed on `feature/mcp-resilience-r1` at `1e19b46`.** The slice replaces
+  production selection of the in-process runtime with
+  `WorkerPrivateHostRuntime`, binds the guardian's declared default session to
+  the host-selected worker identity through an exact lifecycle event, routes
+  foreground/background/job/reset/restart/close operations through the worker
+  protocols, forwards foreground and job output, and makes worker reset/close
+  expose the exact shutdown write boundary. The server project compiles
+  `PtkContainmentBroker` with the installer's hardened flags on non-Windows
+  builds so the ordinary server output carries its Unix containment-helper
+  sibling. `GuardianHostClient` now admits only the exact initial
+  `Starting -> Ready`/automatic-recovery/restored session lifecycle before
+  `GuardianHostReady`; the admission is covered by a positive test and a
+  seven-case near-miss rejection theory, and was mutation-proven with the full
+  guard revert plus seven single-condition weakening mutations, each red before
+  restore. The completed real apphost path then exposed a host-side stall:
+  `PrivateHostServer.InitializeRuntimeAsync` drained a pending request read
+  that a synchronous `FileStream` over the inherited Unix FIFO can never
+  cancel, stalling readiness ~29 s until teardown. The shipped fix carries a
+  still-live phase read into the operational loop instead of draining it
+  (`isAsync: true` was tried first and abandoned because the `FileStream`
+  constructor itself blocked on the inherited pipe descriptor on macOS .NET
+  10.0.10). Two stale transitional composition assertions were updated to the
+  plan's contract: worker boot IDs are random host-selected values, and the
+  guardian's declared identity consumes generation 1 so the first granted
+  worker generation is 2. Three architecture boundary failures introduced by
+  earlier committed cutover commits were reconciled to the new design (live-
+  adapter allowlist, four `PrepareStartWithReservedId` overloads, both
+  reserved-ID call-site shapes). The shutdown write boundary was
+  mutation-proven with three mutations (dropped `beforeWrite` passthrough,
+  write-before-callback, replacement-before-old-shutdown), shipping two
+  permanent guards:
+  `WorkerClientTests.Client_exposes_the_reserved_request_id_before_the_shutdown_byte`
+  and an order-log assertion in
+  `WorkerPrivateHostRuntimeTests.Reset_shuts_down_old_generation_before_new_slot_becomes_ready`.
+  Both real production-composition apphost tests pass in seconds with no
+  startup stall. Full verification on this host: 2,558/2,558 .NET tests across
+  server/guardian/architecture/contracts, Pester 141 with two platform skips,
+  and the complete stdio handshake, using the physical
+  `/private/var/folders/...` TMPDIR. Exact diagnostic and validation evidence
+  is in `.agents/machines.md`. R6 continues with per-alias lifecycle and
+  automatic recovery per `.agents/plans/mcp-resilience.md`.
 - **Published `origin/master` is reconciled locally into
   `feature/mcp-resilience-r1` at ordinary merge commit `0b3b0de`.** Its parents
   are feature head `91ccf9d` and `origin/master` `e4d8d1e`; exact tree
@@ -529,9 +571,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Complete the already-authorized R6 live worker dispatch, platform
-   containment, per-alias lifecycle, and automatic-recovery sequence recorded
-   in `.agents/plans/mcp-resilience.md`.
+1. Continue the already-authorized R6 sequence at the cutover head `1e19b46`:
+   per-alias lifecycle and automatic recovery in
+   `.agents/plans/mcp-resilience.md`. The production-cutover slice itself is
+   complete and verified on macOS; the Windows-only real composition tests
+   still need their direct `NETWATCH-01`/CI evidence on this exact head before
+   any cross-platform claim.
 2. Continue directly into R7, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not
    fold the separate ARM64 MSBuild-only `protoc` investigation into resilience
@@ -587,6 +632,15 @@ short and update it when important repo facts change.
 - GitHub issue #3 remains open (verified 2026-07-11): item 1 landed; items
   2-4 are an unplanned follow-up candidate, while its permission-bypass
   concern belongs to the open security track.
+- The worker-side bootstrap (`server/PtkMcpServer/Worker/WorkerBootstrap.cs`)
+  opens its inherited stream with the same synchronous `FileStream` shape that
+  stalled the host's runtime-initialization drain on Unix (fixed in `1e19b46`
+  by carrying the live phase read into the operational loop). No
+  cancellation-dependent drain has been observed to hang on the worker side on
+  macOS, but the pattern is identical; if a worker-side stall ever surfaces,
+  apply the same carried-read shape rather than `isAsync: true` (the async
+  `FileStream` constructor blocked on the inherited pipe descriptor on macOS
+  .NET 10.0.10).
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

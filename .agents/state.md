@@ -722,7 +722,16 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue sub-slice 5 from head `49b9602`: guardian-side recovery
+1. **`r6x-1` is the gating item and needs an owner ruling before any code**
+   (`.agents/review/findings/r6x-1.md`). The direct Windows evidence for this
+   head is now collected and it is negative: `SecureAuditStorage`'s raw
+   `MoveFileEx` P/Invoke fails `ERROR_PATH_NOT_FOUND` on a 317-character
+   evidence-anchoring destination, degrading the private host to
+   `failure_class=evidence.storage`, which fails four `Windows_*`
+   real-composition tests and three `ScriptEvidenceStoreTests`. Linux ARM64
+   is clean at the same head. The remedy touches the S3H-hardened
+   protected-path boundary, so it is an owner gate, not autonomous R6 work.
+2. Continue sub-slice 5 from head `49b9602`: guardian-side recovery
    projection (recoveryPhase/attempt/retryAfter per alias from the
    recovery lifecycle facts), `TryGetJobListTargetInvalidation` from that
    metadata (the interface contract requires exact recovery metadata —
@@ -730,40 +739,46 @@ short and update it when important repo facts change.
    same loss path, then the R6 acceptance matrix per
    `.agents/plans/mcp-resilience.md` (one-alias crash/recovery while a
    second alias keeps its PID, generation, warm state, and successful
-   operation, on the real apphost). The production-cutover slice itself is
-   complete and verified on macOS; the Windows-only real composition tests
-   still need their direct `NETWATCH-01`/CI evidence on this exact head before
-   any cross-platform claim.
-2. Continue directly into R7, carrying issue #11's explicit
+   operation, on the real apphost). Scope discovery landed while collecting
+   the Windows evidence: `SessionLifecycleEvent`
+   (`server/PtkSharedContracts/GuardianHost/GuardianHostMessages.cs:1109`)
+   carries **no** recovery phase/attempt/retryAfter fields, and
+   `FrozenDefaultSessionState.ObserveSessionLifecycle` currently throws on
+   every nonterminal state ("the frozen session received a nonterminal
+   lifecycle event"), so the projection needs those facts put on the wire
+   and nonterminal automatic states admitted — settle that before coding.
+   The production-cutover slice is verified on macOS; the Windows composition
+   evidence is now collected and blocked behind `r6x-1`, not outstanding.
+3. Continue directly into R7, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not
    fold the separate ARM64 MSBuild-only `protoc` investigation into resilience
    work.
-3. After the current active work is complete, retain and merge each remaining
+4. After the current active work is complete, retain and merge each remaining
    work-carrying branch into `master` one at a time:
    `feature/mcp-resilience-r1`, `feat/closed-prefix-reader`,
    `feat/config-retry-capability`, and `fix/locked-prefix-reconcile`. Re-check
    content arrival and the relevant verification before deleting any retained
    branch.
-4. rbc-15 is closed and merged locally (`f0d17f6`); its residual
+5. rbc-15 is closed and merged locally (`f0d17f6`); its residual
    recycled-PID incarnation hardening is a tracked follow-up dev task (no
    further paid review rounds). Do not continue or commit the saved rbc-5
    post-start attach WIP.
-5. Close out the rbc batch remainders: rbc-8's targeted drain-replay guard
+6. Close out the rbc batch remainders: rbc-8's targeted drain-replay guard
    test lands in the worker-subsystem pass; rbc-11 stays gated on the owner's
    S3H land/park decision; rbc-5 closes via resilience R7. Reassess
    per-finding whether work is safeguard-sensitive and route out if so.
-6. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
+7. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
    When producer-owned v3 request bytes land, execute S4 from the complete
    producer corpus; do not substitute receiver-authored fixtures. Do not begin
    S4–S6 or modify PTK runtime for SIEM work.
-7. Release-distribution slice 3 is ordered after resilience R7 and consumes
+8. Release-distribution slice 3 is ordered after resilience R7 and consumes
    only its matched guardian layout; there is no legacy migration path. Do not
    execute it before R7 lands. Re-present the hook-default choice before release
    slice 4.
-8. When the owner releases the decisions hold, reconcile the rejected
+9. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
-9. On Microsoft's #7 verdict, execute the on-verdict steps in
+10. On Microsoft's #7 verdict, execute the on-verdict steps in
    `.agents/plans/defender-fp-submission.md`. Meanwhile the unblocked CI
    remainders are the Windows kill-path test diagnosis (2/1587 failures) and
    the pre-existing `tls_protection` SIEM conformance-host TLS-material
@@ -803,6 +818,11 @@ short and update it when important repo facts change.
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean
   complete rerun; repair the test synchronization in a separate scoped slice,
   not by weakening R0.
+- `ShellDialectWiringTests.Route_pwsh_bypasses_detection_as_consent` fails on
+  Windows at head `5e8b3be` (`Assert.Contains` against an empty collection,
+  `ShellDialectWiringTests.cs:441`) and is **undiagnosed**. It is deliberately
+  not attributed to `r6x-1` and is not part of the resilience sequence; it
+  needs its own scoped diagnosis on a Windows host.
 - Fable's accepted R0 review noted one non-blocking test-fixture hygiene risk:
   if the testhost dies before its `finally`, the Unix guardian broker fixture's
   TERM-immune paused process group can remain until its fixture guardian is
@@ -811,6 +831,18 @@ short and update it when important repo facts change.
   slice.
 ## Blockers
 
+- **R6's Windows acceptance is blocked on the `r6x-1` owner ruling.** Seven
+  Windows identities fail at head `5e8b3be` (four `Windows_*` real-composition
+  tests, three `ScriptEvidenceStoreTests`), all reducing to
+  `SecureAuditStorage.PublishAtomically`'s raw `MoveFileEx` P/Invoke failing
+  `ERROR_PATH_NOT_FOUND` on a 317-character evidence-anchoring path. Linux
+  ARM64 is clean at the same head. The remedy edits the S3H-hardened
+  protected-path security boundary — `\\?\` paths deliberately bypass the
+  Win32 normalization those refusals rely on — so it is a changed-risk owner
+  gate rather than autonomous R6 work. No fix is authored; sub-slice 5-4 can
+  proceed in parallel because it does not touch this path. Full evidence:
+  `.agents/review/findings/r6x-1.md`, `.agents/machines.md` ("R6
+  cross-platform validation").
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact
@@ -818,7 +850,13 @@ short and update it when important repo facts change.
   generating the identical intermediate files allowed every Linux behavior
   suite to pass. This does not invalidate that behavior evidence, but a clean
   ARM64 build must not be claimed until the launch failure is resolved or
-  independently disproved; see `.agents/machines.md`.
+  independently disproved; see `.agents/machines.md`. Re-reproduced unchanged
+  2026-07-25 at head `5e8b3be`; building over hand-generated intermediates
+  with `-p:Protobuf_ProtocFullPath=/bin/true` (command line only, no file
+  edited) is the working behavior-evidence route. Two Linux failures at that
+  head — `CanonicalLayoutPackageTests.Unix_layout_is_matched_and_the_packaged_guardian_accepts_public_eof`
+  and `server/test-handshake.ps1` — are this blocker resurfacing through
+  their own `dotnet publish`/`dotnet build`, not product defects.
 
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open

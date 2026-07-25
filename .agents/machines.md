@@ -1617,3 +1617,97 @@ _Verified at exact pushed code head
   blocker remains separate and was not reclassified as an R6 failure.
 - Both Linux disposable clones, validation roots, compiled helpers, and all
   scoped native processes were removed after validation.
+
+## R6 cross-platform validation (Windows and Linux ARM64, 2026-07-25)
+
+_Verified at exact head `5e8b3be` of `feature/mcp-resilience-r1` (code head
+`49b9602`; `3b99b6f`/`6c7c4b3`/`5e8b3be` are records only, so the tree is the
+sub-slice 5 loss-path code). Payload transferred as a 2,312,886-byte
+`git archive --format=zip HEAD` whose SHA-256 was
+`a1ae88922364dd11a11111757f944c4c4367b095a6058a1231b82c3bc6803c8b`; both
+hosts re-hashed the archive and matched before extraction. This closes the
+recorded "Windows-only real composition tests still need direct
+`NETWATCH-01`/CI evidence" gap — the answer is that they FAIL, see `r6x-1`._
+
+- On `NETWATCH-01` (Windows NT 10.0.26200.0 x64, pwsh 7.6.3, .NET SDK
+  10.0.302), under ordinary identity `NETWATCH-01\michael`, disposable root
+  `F:\v\5e8b3be`: the solution built with 0 errors (1,461 `xUnit1051`
+  warnings, the expected unsuppressed set). Architecture passed 73/73, Pester
+  passed 142 with one expected skip, and the complete stdio handshake passed
+  including its audit-outage and hard-kill legs.
+- **Guardian passed 480/484 with four failures, every one of them a
+  `ProductionGuardianCompositionTests.Windows_*` real-composition test**:
+  `Windows_composition_requires_explicit_repair_after_ambiguous_reset`
+  (expected `RecoveryUnknown`, observed `Ready`),
+  `Windows_composition_classifies_real_prewrite_loss`
+  (`JsonReaderException` decoding public state),
+  `Windows_composition_never_replays_a_real_effect_when_the_host_dies`
+  (`TaskCanceledException` after ~1 min), and
+  `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` ("the
+  background job did not publish a sealed terminal ... recovery=unavailable:
+  output capture unavailable"). An explicit
+  `FullyQualifiedName~ProductionGuardianCompositionTests` filter reproduced
+  exactly 9 passed / 4 failed / 13 total.
+- Server ran all 2,037 identities on Windows: 2,012 passed, 25 failed. Three
+  are `ScriptEvidenceStoreTests` (`Restart_promotes_only_checkpoint_proved_anchoring_state`,
+  `Young_checkpointed_anchor_is_quota_eligible_without_age_expiry`,
+  `Anchor_lease_blocks_gc_until_checkpoint_then_enables_age_and_quota_retention`)
+  and all three throw from the **same** site,
+  `ScriptEvidenceStore.MarkAnchored` — the `r6x-1` root cause. The
+  audit-export/client-certificate/mTLS failures match the recorded
+  ordinary-account DPAPI/PKCS#12 class that prior records show passing only
+  under a transient SYSTEM identity.
+  `AuditAnchoredRuntimeTests.Anchored_runtime_exports_only_after_start_and_restart_adopts_clean_stop`
+  matches the pre-existing anchoring-temporary race already parked in
+  `.agents/state.md`. `ShellDialectWiringTests.Route_pwsh_bypasses_detection_as_consent`
+  (`Assert.Contains` against an empty collection) is **not** classified and is
+  not attributed to `r6x-1`; it needs its own diagnosis.
+- Diagnosis method and its evidence boundary: the clean run above is the only
+  evidence-bearing run. Afterwards the disposable Windows tree was patched
+  with three throwaway diagnostic probes (surfacing the tool text at the
+  `PublicStateCodec.Decode` site, unwrapping the exception
+  `ScriptEvidenceStore.MarkAnchored` swallows, and printing the
+  `MoveFileEx` arguments). Numbers from any post-patch run are diagnostic
+  only, never acceptance evidence. The probes proved:
+  `ptk_state` returned the private host's degraded diagnostic text
+  `audit=unavailable / unrecorded=true / failure_class=evidence.storage /
+  protection_mode=local-only`, and the underlying cause was
+  `Win32Exception` err=3 (`ERROR_PATH_NOT_FOUND`) from
+  `SecureAuditStorage.PublishAtomically`'s raw `MoveFileEx` P/Invoke with
+  `srcLen=216` and `dstLen=317`. `LongPathsEnabled=1` is already set on this
+  host and does not help, because a raw Win32 P/Invoke receives none of the
+  BCL's `\\?\` normalization — the BCL created the 216-char source fine.
+- On the Ubuntu 26.04 ARM64 VM at `192.168.64.5`
+  (`michael-QEMU-Virtual-Machine`, kernel 7.0.0-28-generic aarch64, .NET SDK
+  10.0.110), disposable root `~/v/5e8b3be` with `TMPDIR=/tmp/ptk-tmp-5e8b3be`
+  (outside the clone, per the recorded rule): the MSBuild-launched
+  `Grpc.Tools` 2.82.0 `protoc` again exited 139 in `PtkMcpGuardian.csproj`,
+  reproducing the recorded blocker unchanged. The exact command MSBuild
+  generates succeeded when run directly, producing `AuditOtlp.cs` with
+  SHA-256 `003cfb5567f79d0f0e0e7df3d2eaa220ff654f6a4a4d862d3df3fac5eb1413a5`.
+- Building the solution over those hand-generated intermediates with
+  `-p:Protobuf_ProtocFullPath=/bin/true` (command line only; no repository
+  file was edited) then succeeded, and is **behavior evidence only — not a
+  clean-build claim**, exactly as the earlier ARM64 precedent recorded.
+  Architecture passed 73/73, Guardian 483/484, **server 2,037/2,037**, and
+  Pester 141 with two expected skips.
+- The two Linux failures are both the `protoc` blocker resurfacing, not
+  product defects: `CanonicalLayoutPackageTests.Unix_layout_is_matched_and_the_packaged_guardian_accepts_public_eof`
+  fails inside `scripts/dev-install.ps1`'s `dotnet publish`, and
+  `server/test-handshake.ps1` fails at its own build step (line 76), each with
+  the identical `protoc` exit 139. Linux ARM64 therefore shows **zero**
+  product-behavior failures at this head.
+- Cross-platform conclusion: the three `ScriptEvidenceStoreTests` identities
+  and the four `Windows_*` composition identities pass on Linux ARM64 and
+  fail on Windows, which localises `r6x-1` to Windows path handling rather
+  than to sub-slice 5 logic.
+- Both disposable trees (`F:\v\5e8b3be`, `~/v/5e8b3be`), the transferred
+  archives, the pre-generated protoc intermediates, and all scoped logs were
+  removed after validation; the diagnostic-patched Windows tree was destroyed
+  with them so it can never be mistaken for a checkout of this head. Build
+  servers were shut down on both hosts, and this run's Windows test root
+  `%USERPROFILE%\.ptk-anchored-runtime-tests-*` was removed. One **older**
+  leftover, `%USERPROFILE%\.ptk-file-audit-tests-341ab459a17042ecaa854131ca384803`
+  dated 2026-07-11, predates this run and was deliberately left in place
+  rather than deleted on this session's authority; `%USERPROFILE%\.ptk` is the
+  real user home and was never touched.

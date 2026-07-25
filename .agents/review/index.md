@@ -2898,3 +2898,29 @@ classification, counter pinning), turn 2 REOPENED (vacuous init guard,
 reopen/close counter clears), round-2 repair-delta VERDICT ACCEPTED,
 `guard_confirmed=true`, zero comments, plus reviewer-designed regression
 guard landed at `49b9602`.
+
+---
+
+Cross-platform validation 2026-07-25 — **no reviewer dispatched**, scope:
+head `5e8b3be` of `feature/mcp-resilience-r1` executed on `NETWATCH-01`
+(Windows) and the Ubuntu ARM64 VM at `192.168.64.5`. This is the direct
+Windows evidence `.agents/state.md` recorded as outstanding for the R6
+production cutover and sub-slice 5. Host evidence, exact counts, and the
+diagnostic boundary are in `.agents/machines.md` ("R6 cross-platform
+validation"). Finding record: `.agents/review/findings/r6x-1.md`.
+
+| ID     | Severity | Impact (one line)                                              | Status | Branch |
+|--------|----------|----------------------------------------------------------------|--------|--------|
+| r6x-1  | HIGH     | Windows evidence anchoring dies past MAX_PATH; audit fails closed | `[!]`  | (none — owner gate) |
+
+**Status 2026-07-25:** Windows Guardian 480/484 — the four failures are all
+`ProductionGuardianCompositionTests.Windows_*`; Windows server 2,012/2,037
+including three `ScriptEvidenceStoreTests` that throw from the same site.
+All seven reduce to `r6x-1`: `SecureAuditStorage.PublishAtomically`'s raw
+`MoveFileEx` P/Invoke fails `ERROR_PATH_NOT_FOUND` at a 317-character
+destination. Linux ARM64 at the same head shows zero product-behavior
+failures (server 2,037/2,037), localising the defect to Windows path
+handling. Contested `[!]` **by the coder, on authority not on merit** — the
+remedy edits the S3H-hardened protected-path security boundary, so it is
+routed to the owner rather than repaired autonomously. No fix is authored
+and no reviewer is dispatched until the owner rules.

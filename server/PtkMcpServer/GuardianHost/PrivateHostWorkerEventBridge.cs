@@ -33,6 +33,12 @@ internal sealed class PrivateHostWorkerEventBridge
         }
     }
 
+    /// <summary>
+    /// Set-once sink for validated job terminals: (alias, public job ID).
+    /// Invoked under the bridge gate only after exact correlation succeeds.
+    /// </summary>
+    internal Action<CanonicalAlias, long>? JobTerminalObserved { get; set; }
+
     internal PrivateHostWorkerEventRegistration Register(
         OperationRequest request,
         PrivateHostWorkerSlot slot,
@@ -391,6 +397,9 @@ internal sealed class PrivateHostWorkerEventBridge
             }
             _registrations.Remove(registration.Descriptor.PlanId);
         }
+        JobTerminalObserved?.Invoke(
+            registration.Request.SessionAlias!,
+            expectedJobId);
 
         return sequence => new JobLifecycleEvent(
             _identity.GuardianBootId,

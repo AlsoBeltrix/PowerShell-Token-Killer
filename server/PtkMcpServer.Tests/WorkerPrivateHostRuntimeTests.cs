@@ -935,6 +935,243 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
+    public async Task Terminal_releases_the_outstanding_slot_and_keeps_completed_output_authorized()
+    {
+        var rig = new RuntimeRig(generations: [9]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var worker = rig.Runtime.WorkerIdentity!;
+        var capabilities = new Dictionary<long, CapabilityToken>();
+        for (var index = 0; index < 64; index++)
+        {
+            var jobId = 71L + index;
+            capabilities[jobId] = (await StartBackgroundAsync(
+                    rig,
+                    worker,
+                    30 + index,
+                    jobId))
+                .JobCapability;
+        }
+        Assert.Equal(64, rig.Runtime.OutstandingJobCapabilityCount);
+
+        var busy = await rig.Runtime.ExecuteOperationAsync(
+            BackgroundRequest(94, 135, worker),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.SessionBusy,
+            busy.Error?.DetailCode);
+
+        await DeliverJobTerminalAsync(rig, worker, 30, 71);
+        Assert.Equal(63, rig.Runtime.OutstandingJobCapabilityCount);
+        capabilities[135] = (await StartBackgroundAsync(rig, worker, 94, 135))
+            .JobCapability;
+        Assert.Equal(64, rig.Runtime.OutstandingJobCapabilityCount);
+
+        var completedOutput = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(95),
+                Deadline,
+                new CanonicalAlias("default"),
+                Transition,
+                worker,
+                null,
+                new JobOutputOperation(
+                    Call(95),
+                    Dispatch(95),
+                    Output(95),
+                    new PublicJobId(71),
+                    capabilities[71],
+                    offset: 0)),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobOutputResult>(completedOutput.Result);
+
+        var outstandingOutput = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(96),
+                Deadline,
+                new CanonicalAlias("default"),
+                Transition,
+                worker,
+                null,
+                new JobOutputOperation(
+                    Call(96),
+                    Dispatch(96),
+                    Output(96),
+                    new PublicJobId(72),
+                    capabilities[72],
+                    offset: 0)),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobOutputResult>(outstandingOutput.Result);
+
+        var bogus = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(97),
+                Deadline,
+                new CanonicalAlias("default"),
+                Transition,
+                worker,
+                null,
+                new JobOutputOperation(
+                    Call(97),
+                    Dispatch(97),
+                    Output(97),
+                    new PublicJobId(999),
+                    capabilities[71],
+                    offset: 0)),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.JobCapabilityInvalid,
+            bogus.Error?.DetailCode);
+    }
+
+    [Fact]
+    public async Task The_oldest_completed_capability_is_evicted_past_the_bound()
+    {
+        var rig = new RuntimeRig(generations: [9]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var worker = rig.Runtime.WorkerIdentity!;
+        var capabilities = new Dictionary<long, CapabilityToken>();
+        for (var index = 0; index < 64; index++)
+        {
+            var jobId = 71L + index;
+            capabilities[jobId] = (await StartBackgroundAsync(
+                    rig,
+                    worker,
+                    30 + index,
+                    jobId))
+                .JobCapability;
+        }
+        for (var index = 0; index < 64; index++)
+        {
+            await DeliverJobTerminalAsync(rig, worker, 30 + index, 71L + index);
+        }
+        Assert.Equal(0, rig.Runtime.OutstandingJobCapabilityCount);
+
+        capabilities[135] = (await StartBackgroundAsync(rig, worker, 94, 135))
+            .JobCapability;
+        await DeliverJobTerminalAsync(rig, worker, 94, 135);
+
+        var evicted = await rig.Runtime.ExecuteOperationAsync(
+            JobOutputRequest(95, 71, capabilities[71], worker),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.JobCapabilityInvalid,
+            evicted.Error?.DetailCode);
+        var retained = await rig.Runtime.ExecuteOperationAsync(
+            JobOutputRequest(96, 134, capabilities[134], worker),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobOutputResult>(retained.Result);
+        var newest = await rig.Runtime.ExecuteOperationAsync(
+            JobOutputRequest(97, 135, capabilities[135], worker),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobOutputResult>(newest.Result);
+    }
+
+    private static OperationRequest BackgroundRequest(
+        long requestId,
+        long publicJobId,
+        GuardianHostWorkerIdentity worker) => new(
+        Guardian,
+        Host,
+        HostGeneration,
+        new PrivateRequestId(requestId),
+        Deadline,
+        new CanonicalAlias("default"),
+        Transition,
+        worker,
+        new GuardianHostOperationIdentity(
+            Plan(requestId),
+            new OperationId(GuidFrom(requestId, version: 4))),
+        new InvokeBackgroundOperation(
+            Call(requestId),
+            Dispatch(requestId),
+            Output(requestId),
+            "Get-Process",
+            raw: false,
+            GuardianHostInvokeRoute.Pwsh,
+            new PublicJobId(publicJobId)));
+
+    private static OperationRequest JobOutputRequest(
+        long requestId,
+        long publicJobId,
+        CapabilityToken jobCapability,
+        GuardianHostWorkerIdentity worker) => new(
+        Guardian,
+        Host,
+        HostGeneration,
+        new PrivateRequestId(requestId),
+        Deadline,
+        new CanonicalAlias("default"),
+        Transition,
+        worker,
+        null,
+        new JobOutputOperation(
+            Call(requestId),
+            Dispatch(requestId),
+            Output(requestId),
+            new PublicJobId(publicJobId),
+            jobCapability,
+            offset: 0));
+
+    private static async Task<InvokeBackgroundResult> StartBackgroundAsync(
+        RuntimeRig rig,
+        GuardianHostWorkerIdentity worker,
+        long requestId,
+        long publicJobId)
+    {
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            BackgroundRequest(requestId, publicJobId, worker),
+            TestContext.Current.CancellationToken);
+        return Assert.IsType<InvokeBackgroundResult>(outcome.Result);
+    }
+
+    private static async Task DeliverJobTerminalAsync(
+        RuntimeRig rig,
+        GuardianHostWorkerIdentity worker,
+        long requestId,
+        long publicJobId)
+    {
+        var descriptor = rig.Launch.Processes
+            .SelectMany(process => process.PreparedDescriptors)
+            .Single(value => value.PlanId == Plan(requestId).Value);
+        var envelope = new WorkerEnvelope(
+            WorkerProtocol.Version,
+            WorkerMessageKind.Event,
+            worker.BootId.Value,
+            RequestId: null,
+            JsonSerializer.SerializeToElement(new
+            {
+                @event = "job_terminal",
+                generation = worker.Generation.Value,
+                planId = descriptor.PlanId.ToString("D"),
+                descriptorDigest =
+                    WorkerPreparedOperationCodec.ComputePreparedDescriptorDigest(
+                        descriptor),
+                publicJobId,
+                state = "completed",
+                exitCode = (int?)0,
+                outputState = "sealed",
+                outputBytes = 1,
+                outputDigest = (string?)null,
+            }));
+        await rig.WorkerEvents.HandleAsync(
+            envelope,
+            TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
     public async Task Close_on_the_default_alias_is_refused()
     {        var rig = new RuntimeRig(generations: [9]);
         await rig.Runtime.InitializeAsync(
@@ -1253,6 +1490,7 @@ public sealed class WorkerPrivateHostRuntimeTests
             var workerEvents = new PrivateHostWorkerEventBridge(
                 Identity,
                 Events);
+            WorkerEvents = workerEvents;
             var authorizer = new PrivateHostPreparedDispatchAuthorizer(
                 Identity,
                 Events,
@@ -1277,6 +1515,7 @@ public sealed class WorkerPrivateHostRuntimeTests
         internal RecordingOutputTransfer Output { get; }
         internal RecordingLaunchAuthority Launch { get; }
         internal WorkerPrivateHostRuntime Runtime { get; }
+        internal PrivateHostWorkerEventBridge WorkerEvents { get; }
     }
 
     private sealed class SequencedCapabilitySource(
@@ -1347,7 +1586,9 @@ public sealed class WorkerPrivateHostRuntimeTests
                 new WorkerDiagnosticSummary(0, 0, false, Digest('0').Value),
                 new WorkerDiagnosticSummary(0, 0, false, Digest('0').Value)));
         internal List<WorkerPreparedInvokeKind> PreparedKinds { get; } = [];
+        internal List<WorkerPreparedPlanDescriptor> PreparedDescriptors { get; } = [];
         internal List<string> OrdinaryOperations { get; } = [];
+        private long? _preparedPublicJobId;
         internal bool Shutdown { get; private set; }
         internal bool Disposed { get; private set; }
         internal bool FailShutdown { get; set; }
@@ -1390,7 +1631,8 @@ public sealed class WorkerPrivateHostRuntimeTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             PreparedKinds.Add(prepare.Kind);
-            return Task.FromResult(new WorkerPreparedPlanDescriptor(
+            _preparedPublicJobId = prepare.PublicJobId;
+            var descriptor = new WorkerPreparedPlanDescriptor(
                 prepare.PlanId,
                 WorkerBootId,
                 prepare.ScriptDigest,
@@ -1416,7 +1658,9 @@ public sealed class WorkerPrivateHostRuntimeTests
                 WorkingDirectoryDigest: null,
                 RtkBinaryDigest: null,
                 BashBinaryDigest: null,
-                OutputShapingRtkBinaryDigest: null));
+                OutputShapingRtkBinaryDigest: null);
+            PreparedDescriptors.Add(descriptor);
+            return Task.FromResult(descriptor);
         }
 
         public async Task<WorkerOperationResponse> CommitAsync(
@@ -1436,8 +1680,8 @@ public sealed class WorkerPrivateHostRuntimeTests
                 background
                     ? JsonSerializer.SerializeToElement(new
                     {
-                        text = "Job 71 started.",
-                        publicJobId = 71,
+                        text = $"Job {_preparedPublicJobId ?? 71} started.",
+                        publicJobId = _preparedPublicJobId ?? 71,
                         started = true,
                     })
                     : WorkerSessionOperationCodec.CreateResult(

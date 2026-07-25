@@ -60,6 +60,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         _createJobCapability = createJobCapability ?? CreateCapabilityToken;
         _unixTimeMilliseconds = unixTimeMilliseconds ??
             (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        _workerEvents.JobTerminalObserved = ReleaseJobTerminal;
     }
 
     internal WorkerPrivateHostRuntimeState State
@@ -90,7 +91,25 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             lock (_gate)
             {
                 return _aliases.Values.Sum(
-                    alias => alias.JobCapabilities.Count);
+                    alias => alias.OutstandingJobs.Count);
+            }
+        }
+    }
+
+    private void ReleaseJobTerminal(CanonicalAlias alias, long publicJobId)
+    {
+        lock (_gate)
+        {
+            if (!_aliases.TryGetValue(alias, out var state) ||
+                !state.OutstandingJobs.Remove(publicJobId, out var capability))
+            {
+                return;
+            }
+            state.CompletedJobs[publicJobId] = capability;
+            if (state.CompletedJobs.Count >
+                ContractLimits.MaximumOutstandingPrivateRequests)
+            {
+                state.CompletedJobs.Remove(state.CompletedJobs.Keys.Min());
             }
         }
     }
@@ -326,7 +345,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             {
                 foreach (var alias in _aliases.Values)
                 {
-                    alias.JobCapabilities.Clear();
+                    alias.OutstandingJobs.Clear();
+            alias.CompletedJobs.Clear();
                 }
                 _state = WorkerPrivateHostRuntimeState.Stopped;
             }
@@ -382,7 +402,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         CapabilityToken capability;
         lock (_gate)
         {
-            if (_aliases.Values.Sum(value => value.JobCapabilities.Count) >=
+            if (_aliases.Values.Sum(value => value.OutstandingJobs.Count) >=
                 ContractLimits.MaximumOutstandingPrivateRequests)
             {
                 return PrivateHostOperationOutcome.Failed(
@@ -391,28 +411,41 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             capability = _createJobCapability() ??
                 throw new InvalidOperationException(
                     "Private host job capability source returned no capability.");
-        }
-
-        var start = await _prepared.ExecuteBackgroundAsync(
-                request,
-                slot,
-                cancellationToken)
-            .ConfigureAwait(false);
-        if (!start.Started)
-        {
-            return PrivateHostOperationOutcome.Failed(
-                GuardianHostPrivateDetailCode.OperationNotDispatched);
-        }
-
-        lock (_gate)
-        {
-            if (!alias.JobCapabilities.TryAdd(
+            // Reserve before the commit write so a fast job's terminal can
+            // never precede the capability's registration.
+            if (!alias.OutstandingJobs.TryAdd(
                     operation.PublicJobId.Value,
                     capability))
             {
                 throw new InvalidOperationException(
                     "Guardian-reserved background job ID was reused.");
             }
+        }
+
+        try
+        {
+            var start = await _prepared.ExecuteBackgroundAsync(
+                    request,
+                    slot,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!start.Started)
+            {
+                lock (_gate)
+                {
+                    alias.OutstandingJobs.Remove(operation.PublicJobId.Value);
+                }
+                return PrivateHostOperationOutcome.Failed(
+                    GuardianHostPrivateDetailCode.OperationNotDispatched);
+            }
+        }
+        catch
+        {
+            lock (_gate)
+            {
+                alias.OutstandingJobs.Remove(operation.PublicJobId.Value);
+            }
+            throw;
         }
         return PrivateHostOperationOutcome.Completed(
             new InvokeBackgroundResult(operation.PublicJobId, capability));
@@ -433,9 +466,13 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         var capabilityValid = false;
         lock (_gate)
         {
-            capabilityValid = alias.JobCapabilities.TryGetValue(
+            capabilityValid =
+                (alias.OutstandingJobs.TryGetValue(
                     operation.PublicJobId.Value,
-                    out var capability) &&
+                    out var capability) ||
+                 alias.CompletedJobs.TryGetValue(
+                    operation.PublicJobId.Value,
+                    out capability)) &&
                 capability == operation.JobCapability;
         }
         if (!capabilityValid)
@@ -773,7 +810,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             _workerEvents.RetireWorker(current.Identity);
             await current.DisposeAsync().ConfigureAwait(false);
-            lock (_gate) alias.JobCapabilities.Clear();
+            lock (_gate) { alias.OutstandingJobs.Clear(); alias.CompletedJobs.Clear(); }
 
             relaunchStarted = true;
             replacement = await _slots.CreateAsync(
@@ -919,7 +956,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             _workerEvents.RetireWorker(current.Identity);
             await current.DisposeAsync().ConfigureAwait(false);
-            lock (_gate) alias.JobCapabilities.Clear();
+            lock (_gate) { alias.OutstandingJobs.Clear(); alias.CompletedJobs.Clear(); }
             await _events.WriteEventAsync(
                     sequence => new SessionLifecycleEvent(
                         _identity.GuardianBootId,
@@ -999,7 +1036,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             alias.Slot = null;
             alias.Replacing = false;
             alias.Faulted = true;
-            alias.JobCapabilities.Clear();
+            alias.OutstandingJobs.Clear();
+            alias.CompletedJobs.Clear();
         }
     }
 
@@ -1402,7 +1440,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         internal PrivateHostWorkerSlot? Slot { get; set; }
         internal bool Replacing { get; set; }
         internal bool Faulted { get; set; }
-        internal Dictionary<long, CapabilityToken> JobCapabilities { get; } = [];
+        internal Dictionary<long, CapabilityToken> OutstandingJobs { get; } = [];
+        internal Dictionary<long, CapabilityToken> CompletedJobs { get; } = [];
     }
 
     private sealed record RuntimeValidation(

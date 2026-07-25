@@ -61,6 +61,46 @@ short and update it when important repo facts change.
   lifecycle transitions on one alias single-flight arbitrated in one
   place. The sub-slice 5 wiring design remains mapped in this file
   (2026-07-24 bullets) minus the superseded lockstep-epoch sketch.
+- **Guardian-side recovery projection and invalidation evidence are complete
+  on `feature/mcp-resilience-r1` at code head `9045b7b`.** Four committed
+  slices close two of sub-slice 5's four remainders. `ba99972`:
+  `SessionLifecycleEvent` carries `recoveryPhase`/`recoveryAttempt`/
+  `retryAfter` under one completeness rule (the five recovering states
+  require complete in-bounds metadata and are never ready for effects;
+  settled states carry none; Bootstrapping must name its worker). The
+  state/phase pairing is now single-sourced as
+  `PublicSessionStateSnapshot.ValidateRecoveryPhasePairing`, validated by
+  both the public snapshot and the wire event, so a fact the host can emit
+  is always a fact the guardian can project. The frozen guardian/host v2
+  schema carries the same rule as `if/then/else`; its artifact digest and
+  the R0 `contract.json` digest were updated deliberately for the contract
+  change. `b336c60`: `FrozenDefaultSessionState` admits the recovering
+  states and reports their facts verbatim instead of the previous
+  hardcoded `null/0/null`, reports the worker the host named while recovery
+  is in flight (the bound identity is the dead generation until a ready
+  grant rebinds), clears recovery facts on every state that cannot carry
+  them, and extends the r6x-2 ambiguity stickiness to recovering events —
+  otherwise an automatic recovery downgrades a nonretryable
+  `recovery_unknown` to a retryable `session_recovering` and invites replay
+  of work whose first outcome is unknown. `c374881`:
+  `TryGetJobListTargetInvalidation` no longer returns false
+  unconditionally; the transition that invalidates a ready target captures
+  that exact target plus its own recovery snapshot inside the lock, served
+  only for the identical dispatch identity, so a stale dispatch is refused
+  as retryable `backend_lost_before_dispatch` with real metadata instead of
+  a blanket `session_recovery_unknown`. An ambiguous alias still yields no
+  evidence by design. `9045b7b`: the production death watch announces
+  `Recovering`/`Containment` before disposing the dead slot, using the
+  alias's real consecutive-death count as the attempt ordinal, so the
+  guardian stops projecting the dead worker's `Ready` for the whole
+  death-to-relaunch window. `Bootstrapping` stays wire-only until sub-slice
+  5-1 drives this path with `SessionRecoveryStateMachine`: the
+  replacement's identity does not exist until the slot is created and the
+  public snapshot requires it, so there is no honest moment to emit it from
+  the current runtime. Every slice is mutation-proven (6, 5, 3, and 4
+  mutations respectively, each reddening only its own guard, all restored
+  green); macOS is green at each head — architecture 73/73, Guardian
+  491/491, server 2,041/2,041.
 - **Sub-slice 5's thinnest loss path is implemented and reviewed
   (`d9f9c2b` + repairs `0d6ffe1`, `0a84e45`, `49b9602`, acceptance record
   `3b99b6f`).** An unexpectedly dead worker is now detected per alias
@@ -75,13 +115,11 @@ short and update it when important repo facts change.
   Eleven rig tests pin the behavior; every fence and counter rule is
   mutation-proven red-to-green, including the reviewer's two rounds that
   caught a vacuous init guard and the reopen/close counter pins. Remaining
-  for sub-slice 5: guardian-side recovery projection
-  (recoveryPhase/attempt/retryAfter per alias),
-  `TryGetJobListTargetInvalidation` from that metadata, execution-timeout
-  containment convergence, and the R6 acceptance matrix (one-alias
-  crash/recovery while a second alias keeps its PID, generation, warm
-  state, and successful operation — the in-proc rig proves this shape
-  today; the real apphost proof is acceptance work). The load-flake now
+  for sub-slice 5: execution-timeout containment convergence and the R6
+  acceptance matrix (one-alias crash/recovery while a second alias keeps
+  its PID, generation, warm state, and successful operation — the in-proc
+  rig proves this shape today; the real apphost proof is acceptance work).
+  The load-flake now
   has a name:
   `Guardian_private_request_ids_remain_monotonic_across_host_generations`
   (non-reproducing, green on reruns; see the s5-1 finding record).
@@ -733,24 +771,32 @@ short and update it when important repo facts change.
    over-attribution. `r6x-3` (Windows nondeterminism, ~4/5 failing,
    `Assert.Equal` 1 vs 2) follows and is tractable directly rather than by
    repetition. `r6x-1` and `r6x-2` #1 are closed and need nothing further.
-2. Continue sub-slice 5 from head `49b9602`: guardian-side recovery
-   projection (recoveryPhase/attempt/retryAfter per alias from the
-   recovery lifecycle facts), `TryGetJobListTargetInvalidation` from that
-   metadata (the interface contract requires exact recovery metadata —
-   never synthesized), execution-timeout containment convergence into the
-   same loss path, then the R6 acceptance matrix per
-   `.agents/plans/mcp-resilience.md` (one-alias crash/recovery while a
-   second alias keeps its PID, generation, warm state, and successful
-   operation, on the real apphost). Scope discovery landed while collecting
-   the Windows evidence: `SessionLifecycleEvent`
-   (`server/PtkSharedContracts/GuardianHost/GuardianHostMessages.cs:1109`)
-   carries **no** recovery phase/attempt/retryAfter fields, and
-   `FrozenDefaultSessionState.ObserveSessionLifecycle` currently throws on
-   every nonterminal state ("the frozen session received a nonterminal
-   lifecycle event"), so the projection needs those facts put on the wire
-   and nonterminal automatic states admitted — settle that before coding.
-   The production-cutover slice is verified on macOS; the Windows composition
-   evidence is now collected and blocked behind `r6x-1`, not outstanding.
+2. Continue sub-slice 5 from head `9045b7b`. Recovery projection and
+   invalidation evidence are done (see `## Now`); two remainders are open.
+   **(a) Execution-timeout containment convergence.** Nothing in production
+   emits `GuardianHostSessionLifecycleReason.ExecutionTimeout` or
+   `GuardianHostWorkerLostReason.ExecutionTimeout` today — both enum members
+   are referenced only from `GuardianHostClientTests`. In
+   `WorkerPrivateHostRuntime` a timed-out worker operation maps to
+   `GuardianHostPrivateDetailCode.RequestDeadlineExpired`
+   (`ParseTextResponse`) and the worker is left running, so there is no
+   containment to converge — it must be built, not merely rewired. The
+   owner-approved contract is in `.agents/plans/mcp-resilience.md` (owner,
+   2026-07-15; see also the acceptance bullet near line 1180): the single
+   timeout terminal is delivered first, the old worker tree is then confirmed
+   dead, an otherwise eligible alias creates its next generation from the
+   fresh declared baseline, the timed-out call is never replayed, and no
+   replacement overlaps the old tree. Note this makes an execution timeout
+   destroy the alias's warm state — product-visible, so keep it its own
+   scoped slice. The cheapest honest shape on current machinery is to
+   contain the slot after the terminal is delivered and let the existing
+   `Fatal` death watch drive recovery, which now already announces
+   `Recovering`/`Containment`. **(b) The R6 acceptance matrix** per
+   `.agents/plans/mcp-resilience.md` (one-alias crash/recovery while a second
+   alias keeps its PID, generation, warm state, and successful operation, on
+   the real apphost). The production-cutover slice is verified on macOS; the
+   Windows composition evidence is collected and blocked behind `r6x-2`/
+   `r6x-3`, not outstanding.
 3. Continue directly into R7, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not
    fold the separate ARM64 MSBuild-only `protoc` investigation into resilience

@@ -22,6 +22,8 @@ short and update it when important repo facts change.
   that test builds; and four elimination cycles were spent before anyone did
   what the finding itself recommended, which was to make the swallowed
   exception visible. That took minutes.
+  Verified at `8dbe8e4` on Windows `NETWATCH-01`: **Guardian 494/495**, with
+  `r6x-2` #2 the only remaining failure on any platform.
 - **Background job output is sealed again under the production worker runtime
   (`r6x-2` #3, fixed 2026-07-25).** `WorkerPrivateHostRuntime` never created an
   execution output capture for `invoke_background`, so every background job

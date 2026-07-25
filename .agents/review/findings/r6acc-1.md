@@ -157,9 +157,19 @@ the test itself is the canonical copy.
 
 None.
 
+## Verification
+
+- macOS at `8dbe8e4`: the unit guard and
+  `Composition_isolates_one_alias_worker_crash_from_a_second_alias` both pass.
+  The rest of the macOS battery could not run — `pwsh` vanished from that
+  machine mid-session; see `.agents/state.md` Blockers.
+- **Windows at `8dbe8e4`** (`NETWATCH-01`, `F:\dev\ptk-r6x-diag`): Guardian
+  **494/495**. Both new identities pass, and the only remaining failure on any
+  platform is `r6x-2` #2.
+
 ## Known gaps
 
-- Fixed and verified on macOS only. Not yet run on Linux or Windows.
+- Not yet run on Linux.
 - The one-alias isolation assertions after recovery (default alias keeps its
   PID, generation, warm sentinel; scratch returns on a later generation with
   `warm_state_lost`) now execute and pass — they were unverified before this

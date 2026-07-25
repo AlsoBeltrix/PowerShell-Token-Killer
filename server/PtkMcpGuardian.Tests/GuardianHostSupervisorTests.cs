@@ -2249,12 +2249,41 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(1, rig.Factory.Resources[1].OperationCount);
     }
 
+    /// <summary>
+    /// Startup issues its own scheduler delays, and the last of them can land
+    /// after <c>StartAsync</c> returns. A baseline captured the instant start
+    /// completes therefore races startup instead of measuring what follows it.
+    /// Measured on Windows with a probe that performed no polling at all: the
+    /// count is already 2 on most runs and climbs 1 -> 2 within 25 ms on the
+    /// rest, then never moves again. Settling first keeps these guards pinning
+    /// what they claim - that guardian-local reads schedule nothing - instead
+    /// of accepting a larger number, which would discard the guard.
+    /// </summary>
+    private static async Task<int> SettledScheduleCountAsync(TestRig rig)
+    {
+        var last = rig.Scheduler.ScheduleCount;
+        var stable = 0;
+        while (stable < 5)
+        {
+            await Task.Delay(25);
+            var current = rig.Scheduler.ScheduleCount;
+            if (current == last)
+            {
+                stable++;
+                continue;
+            }
+            last = current;
+            stable = 0;
+        }
+        return last;
+    }
+
     [Fact]
     public async Task State_polling_is_guardian_local_and_scheduler_inert()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
         await rig.StartAsync();
-        var scheduleCount = rig.Scheduler.ScheduleCount;
+        var scheduleCount = await SettledScheduleCountAsync(rig);
         var attemptCount = rig.Factory.Resources.Count;
 
         for (var index = 0; index < 100; index++)
@@ -2274,7 +2303,10 @@ public sealed class GuardianHostSupervisorTests
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
         await rig.StartAsync();
-        var scheduleCount = rig.Scheduler.ScheduleCount;
+        // Same startup race as the sibling above; it has not been observed
+        // failing, but the baseline is captured identically, so it is luck
+        // rather than immunity.
+        var scheduleCount = await SettledScheduleCountAsync(rig);
         var attemptCount = rig.Factory.Resources.Count;
 
         var state = await rig.ReadSessionListAsync();

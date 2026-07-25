@@ -1807,6 +1807,35 @@ public sealed class WorkerPrivateHostRuntimeTests
             jobCapability,
             offset: 0));
 
+    /// <summary>
+    /// The guardian mints an output capability for every background invoke and
+    /// then waits for a seal that only the job's terminal can produce. This
+    /// pins the wiring end of that contract inside the runtime: the capture is
+    /// retained across the job's life and sealed with the worker's own job
+    /// output once the terminal arrives (r6x-2 #3).
+    /// </summary>
+    [Fact]
+    public async Task Job_terminal_seals_the_retained_background_output_capture()
+    {
+        var rig = new RuntimeRig(generations: [9]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var worker = rig.Runtime.WorkerIdentity!;
+
+        _ = await StartBackgroundAsync(rig, worker, 30, 71);
+        var capture = Assert.Single(rig.Output.Captures);
+        Assert.False(capture.Sealed.IsCompleted);
+
+        await DeliverJobTerminalAsync(rig, worker, 30, 71);
+
+        var content = await capture.Sealed.WaitAsync(
+            TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("output", content.StandardOutput);
+        Assert.True(content.Complete);
+    }
+
     private static async Task<InvokeBackgroundResult> StartBackgroundAsync(
         RuntimeRig rig,
         GuardianHostWorkerIdentity worker,
@@ -2503,10 +2532,21 @@ public sealed class WorkerPrivateHostRuntimeTests
         internal List<(OperationRequest Request, string Text)> Transfers { get; } =
             [];
 
+        internal List<RecordingCaptureOwner> Captures { get; } = [];
+
+        // The real transfer is event-based, not in-process: it emits the
+        // guardian's output chunk/seal events from the private host, and a
+        // background job's artifact is sealed through exactly this owner. The
+        // fake this replaced threw "Worker runtime cannot create an in-process
+        // capture owner", which codified the very gap that left every
+        // background job reporting recovery=unavailable (r6x-2 #3).
         public IExecutionOutputCaptureOwner CreateExecutionCapture(
-            OperationRequest request) =>
-            throw new InvalidOperationException(
-                "Worker runtime cannot create an in-process capture owner.");
+            OperationRequest request)
+        {
+            var owner = new RecordingCaptureOwner(request);
+            lock (Captures) Captures.Add(owner);
+            return owner;
+        }
 
         public ValueTask TransferTextAsync(
             OperationRequest request,
@@ -2517,5 +2557,54 @@ public sealed class WorkerPrivateHostRuntimeTests
             Transfers.Add((request, text));
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class RecordingCaptureOwner(OperationRequest request)
+        : IExecutionOutputCaptureOwner
+    {
+        private readonly TaskCompletionSource<OutputArtifactContent> _sealed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _disposed;
+
+        internal OperationRequest Request { get; } = request;
+        internal Task<OutputArtifactContent> Sealed => _sealed.Task;
+        internal bool Disposed => Volatile.Read(ref _disposed) != 0;
+
+        public long MaximumArtifactBytes => 1L << 20;
+
+        public Task<OutputCapturePreparation> PrepareAsync(
+            DateTimeOffset absoluteDeadlineUtc,
+            TimeSpan maximumWait,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(OutputCapturePreparation.Pending());
+        }
+
+        public Task<OutputRecoverySummary> SealAsync(
+            OutputArtifactContent content,
+            TimeSpan maximumWait)
+        {
+            _sealed.TrySetResult(content);
+            return Task.FromResult(new OutputRecoverySummary(
+                "ptko_" + new string('a', ContractLimits.CapabilityTokenCharacters),
+                OutputArtifactState.Available,
+                content.StandardOutput.Length,
+                DetailCode: null,
+                Advertise: true));
+        }
+
+        public Task<OutputRecoverySummary> SealIncompleteAsync(
+            OutputArtifactContent content,
+            string reason,
+            TimeSpan maximumWait) => SealAsync(content, maximumWait);
+
+        public bool TryTransferToBackground(out IExecutionOutputCapture? capture)
+        {
+            capture = this;
+            return true;
+        }
+
+        public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
     }
 }

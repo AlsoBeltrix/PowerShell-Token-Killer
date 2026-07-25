@@ -22,6 +22,209 @@ public sealed class ProductionGuardianCompositionTests
     private static readonly WorkerBootId Worker = new(
         Guid.Parse("22222222-2222-4222-8222-222222222222"));
 
+    /// <summary>
+    /// A real background job's output must reach the guardian's output store and
+    /// become readable by opaque handle. The worker holds the bytes and cannot
+    /// reach the guardian's output events, so the private host has to fetch and
+    /// seal them at the job terminal; when it does not, the guardian's capability
+    /// is registered and never written and every background job reports
+    /// <c>recovery=unavailable</c> forever (r6x-2 #3). This identity is
+    /// deliberately cross-platform: the same contract had only a Windows-gated
+    /// test, which is why a platform-neutral defect read as Windows-specific.
+    /// </summary>
+    [Fact]
+    public async Task Composition_seals_a_real_background_job_artifact_for_handle_recovery()
+    {
+        var auditRoot = TemporaryRoot("job-seal-audit");
+        var outputRoot = TemporaryRoot("job-seal-output");
+        string? nativeRoot = null;
+        IPrivateHostProcessLauncher launcher;
+        MatchedPackageFacts package;
+        if (OperatingSystem.IsWindows())
+        {
+            launcher = new WindowsPrivateHostProcessLauncher();
+            package = Package(FindServerAppHost());
+        }
+        else
+        {
+            nativeRoot = TemporaryRoot("job-seal-broker");
+            Directory.CreateDirectory(nativeRoot);
+            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+            await CompileGuardianBrokerAsync(broker);
+            launcher = new UnixPrivateHostProcessLauncher(broker);
+            package = Package(FindServerAppHost(), broker);
+        }
+
+        var composition = ProductionGuardianComposition.Create(
+            package,
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(TestTimeout);
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            _ = await RequestAsync(
+                writer,
+                reader,
+                requestId: 1,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "job-seal-composition",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                    @params = new { },
+                },
+                timeout.Token);
+
+            var startedResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId: 2,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script = "Write-Output 'PTK_SEALED_BACKGROUND_ARTIFACT'",
+                        raw = true,
+                        route = "pwsh",
+                        background = true,
+                        timeoutSeconds = 30,
+                        session = "default",
+                    },
+                },
+                timeout.Token);
+            var jobId = MarkerInteger(
+                ToolText(startedResponse, expectedError: false),
+                "[job ");
+
+            const string SealedMarker = "recovery=available: ptk_output handle=";
+            var requestId = 3;
+            string? sealedStatus = null;
+            string? lastStatus = null;
+            for (var attempt = 0; attempt < 200; attempt++)
+            {
+                var statusResponse = await RequestAsync(
+                    writer,
+                    reader,
+                    requestId++,
+                    "tools/call",
+                    new
+                    {
+                        name = "ptk_job",
+                        arguments = new
+                        {
+                            action = "status",
+                            id = jobId,
+                            session = "default",
+                        },
+                    },
+                    timeout.Token);
+                lastStatus = ToolText(statusResponse, expectedError: false);
+                if (lastStatus.Contains(SealedMarker, StringComparison.Ordinal))
+                {
+                    sealedStatus = lastStatus;
+                    break;
+                }
+                await Task.Delay(25, timeout.Token);
+            }
+            Assert.True(
+                sealedStatus is not null,
+                "The background job never published a sealed artifact. " +
+                $"Last status: {lastStatus}");
+
+            var handleStart = sealedStatus!.IndexOf(
+                SealedMarker,
+                StringComparison.Ordinal) + SealedMarker.Length;
+            var handleEnd = handleStart;
+            while (handleEnd < sealedStatus.Length &&
+                sealedStatus[handleEnd] is not (';' or '\r' or '\n' or ' '))
+            {
+                handleEnd++;
+            }
+            var handle = sealedStatus[handleStart..handleEnd];
+            Assert.StartsWith("ptko_", handle, StringComparison.Ordinal);
+
+            var artifactResponse = await RequestAsync(
+                writer,
+                reader,
+                requestId++,
+                "tools/call",
+                new
+                {
+                    name = "ptk_output",
+                    arguments = new { handle },
+                },
+                timeout.Token);
+            Assert.Contains(
+                "PTK_SEALED_BACKGROUND_ARTIFACT",
+                ToolText(artifactResponse, expectedError: false),
+                StringComparison.Ordinal);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+            Assert.Equal(0, composition.Supervisor.OwnedClientCount);
+        }
+        finally
+        {
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            DeleteRoot(auditRoot);
+            if (nativeRoot is not null) DeleteRoot(nativeRoot);
+        }
+    }
+
     [Fact]
     public async Task Composition_freezes_package_session_and_guardian_owned_state()
     {

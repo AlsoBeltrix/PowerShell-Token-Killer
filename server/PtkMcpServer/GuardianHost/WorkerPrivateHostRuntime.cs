@@ -28,6 +28,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private static readonly TimeSpan DefaultStabilityWindow =
         TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan JobOutputSealGrace =
+        TimeSpan.FromSeconds(5);
 
     private readonly object _gate = new();
     private readonly PrivateHostServerIdentity _identity;
@@ -104,6 +106,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
     private void ReleaseJobTerminal(CanonicalAlias alias, long publicJobId)
     {
+        BackgroundJobCapture? capture;
         lock (_gate)
         {
             if (!_aliases.TryGetValue(alias, out var state) ||
@@ -116,6 +119,104 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 ContractLimits.MaximumOutstandingPrivateRequests)
             {
                 state.CompletedJobs.Remove(state.CompletedJobs.Keys.Min());
+            }
+            state.JobCaptures.Remove(publicJobId, out capture);
+        }
+        if (capture is not null)
+            SealBackgroundJobOutput(publicJobId, capture);
+    }
+
+    /// <summary>
+    /// Drops every job record this alias holds and disposes any retained output
+    /// captures with them. A capture whose alias lost its worker can never be
+    /// sealed - the bytes died with the worker - so the guardian terminalizes
+    /// the capability as unavailable, which is the truthful outcome.
+    /// </summary>
+    private static void ClearAliasJobsLocked(AliasRuntime alias)
+    {
+        alias.OutstandingJobs.Clear();
+        alias.CompletedJobs.Clear();
+        foreach (var capture in alias.JobCaptures.Values)
+            capture.Dispose();
+        alias.JobCaptures.Clear();
+    }
+
+    /// <summary>
+    /// Undoes one background reservation whose job never started. A job that
+    /// did not start can never produce the terminal that seals its capture, so
+    /// the capture is disposed here instead of being left for a terminal that
+    /// is not coming.
+    /// </summary>
+    private void ReleaseUnstartedBackgroundJob(
+        AliasRuntime alias,
+        long publicJobId)
+    {
+        BackgroundJobCapture? capture;
+        lock (_gate)
+        {
+            alias.OutstandingJobs.Remove(publicJobId);
+            alias.JobCaptures.Remove(publicJobId, out capture);
+        }
+        capture?.Dispose();
+    }
+
+    /// <summary>
+    /// Seals the guardian's background output capability once the job's
+    /// terminal is observed. The worker holds the bytes and has no channel to
+    /// the guardian's output events, so this host fetches the job's output over
+    /// the worker request protocol and seals the capture it retained at start.
+    /// Without this the capability is registered and never written, the
+    /// guardian's <c>TryGetJobRecovery</c> stays empty, and every background job
+    /// reports <c>recovery=unavailable</c> for the rest of its life.
+    /// </summary>
+    private void SealBackgroundJobOutput(
+        long publicJobId,
+        BackgroundJobCapture capture)
+    {
+        // The terminal callback runs under the worker event bridge's lock and
+        // this runtime's, so the worker round-trip cannot happen inline. The
+        // guardian owns the capability's own expiry, so a seal that loses its
+        // race is terminalized there rather than needing a result here.
+        _ = SealCoreAsync();
+
+        async Task SealCoreAsync()
+        {
+            try
+            {
+                var response = await capture.Slot.Process.ExecuteAsync(
+                        WorkerSessionOperationCodec.JobOutputOperation,
+                        new WorkerJobOutputArguments(publicJobId, 0),
+                        DateTimeOffset.FromUnixTimeMilliseconds(
+                            capture.DeadlineUnixTimeMilliseconds),
+                        CancellationToken.None)
+                    .ConfigureAwait(false);
+                var parsed = ParseTextResponse(
+                    response,
+                    WorkerSessionOperationCodec.JobOutputOperation);
+                // A failed fetch leaves the capability unsealed on purpose. The
+                // guardian then reports the artifact unavailable, which is true;
+                // sealing an empty artifact would advertise a handle to content
+                // this host never read.
+                if (parsed.Text is not { } text) return;
+                _ = await capture.Capture.SealAsync(
+                        new OutputArtifactContent(
+                            text,
+                            [],
+                            [],
+                            [],
+                            ExitCode: null,
+                            OutputProvenance.DirectText),
+                        JobOutputSealGrace)
+                    .ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                // Same truthfulness rule as a failed fetch: an unsealed
+                // capability is honest, an invented artifact is not.
+            }
+            finally
+            {
+                capture.Dispose();
             }
         }
     }
@@ -161,8 +262,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             bool timedOut;
             lock (_gate)
             {
-                alias.OutstandingJobs.Clear();
-                alias.CompletedJobs.Clear();
+                ClearAliasJobsLocked(alias);
                 consecutive = ++alias.ConsecutiveDeaths;
                 timedOut = alias.ExecutionTimeoutContainment;
                 alias.ExecutionTimeoutContainment = false;
@@ -511,8 +611,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             {
                 foreach (var alias in _aliases.Values)
                 {
-                    alias.OutstandingJobs.Clear();
-            alias.CompletedJobs.Clear();
+                    ClearAliasJobsLocked(alias);
                 }
                 _state = WorkerPrivateHostRuntimeState.Stopped;
             }
@@ -565,27 +664,76 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             CancellationToken cancellationToken)
     {
         var operation = (InvokeBackgroundOperation)request.Operation;
-        CapabilityToken capability;
-        lock (_gate)
+        var deadline = request.DeadlineUnixTimeMilliseconds!.Value;
+        IExecutionOutputCaptureOwner? captureOwner;
+        try
         {
-            if (_aliases.Values.Sum(value => value.OutstandingJobs.Count) >=
-                ContractLimits.MaximumOutstandingPrivateRequests)
-            {
-                return PrivateHostOperationOutcome.Failed(
-                    GuardianHostPrivateDetailCode.SessionBusy);
-            }
-            capability = _createJobCapability() ??
+            captureOwner = _output.CreateExecutionCapture(request) ??
                 throw new InvalidOperationException(
-                    "Private host job capability source returned no capability.");
-            // Reserve before the commit write so a fast job's terminal can
-            // never precede the capability's registration.
-            if (!alias.OutstandingJobs.TryAdd(
-                    operation.PublicJobId.Value,
-                    capability))
+                    "Private host output transfer returned no capture owner.");
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return await RefuseAsync(
+                    request,
+                    GuardianHostPrivateDetailCode.OutputCapabilityInvalid,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        CapabilityToken capability;
+        try
+        {
+            // Preparing against the request deadline is preparing against the
+            // output capability's own expiry: the guardian mints both from the
+            // same admitted deadline. An unavailable preparation is not a
+            // dispatch failure - the job still runs and the guardian reports the
+            // artifact unavailable, exactly as it did before any capture existed.
+            var preparation = await captureOwner.PrepareAsync(
+                    DateTimeOffset.FromUnixTimeMilliseconds(deadline),
+                    JobOutputSealGrace,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (!preparation.Available)
             {
-                throw new InvalidOperationException(
-                    "Guardian-reserved background job ID was reused.");
+                captureOwner.Dispose();
+                captureOwner = null;
             }
+
+            lock (_gate)
+            {
+                if (_aliases.Values.Sum(value => value.OutstandingJobs.Count) >=
+                    ContractLimits.MaximumOutstandingPrivateRequests)
+                {
+                    return PrivateHostOperationOutcome.Failed(
+                        GuardianHostPrivateDetailCode.SessionBusy);
+                }
+                capability = _createJobCapability() ??
+                    throw new InvalidOperationException(
+                        "Private host job capability source returned no capability.");
+                // Reserve before the commit write so a fast job's terminal can
+                // never precede the capability's registration. The output
+                // capture is registered in the same breath and for the same
+                // reason: the terminal is what seals it, so it has to be
+                // findable before the job can produce one.
+                if (!alias.OutstandingJobs.TryAdd(
+                        operation.PublicJobId.Value,
+                        capability))
+                {
+                    throw new InvalidOperationException(
+                        "Guardian-reserved background job ID was reused.");
+                }
+                if (captureOwner is not null)
+                {
+                    alias.JobCaptures[operation.PublicJobId.Value] =
+                        new BackgroundJobCapture(captureOwner, slot, deadline);
+                    captureOwner = null;
+                }
+            }
+        }
+        finally
+        {
+            captureOwner?.Dispose();
         }
 
         try
@@ -597,20 +745,14 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             if (!start.Started)
             {
-                lock (_gate)
-                {
-                    alias.OutstandingJobs.Remove(operation.PublicJobId.Value);
-                }
+                ReleaseUnstartedBackgroundJob(alias, operation.PublicJobId.Value);
                 return PrivateHostOperationOutcome.Failed(
                     GuardianHostPrivateDetailCode.OperationNotDispatched);
             }
         }
         catch
         {
-            lock (_gate)
-            {
-                alias.OutstandingJobs.Remove(operation.PublicJobId.Value);
-            }
+            ReleaseUnstartedBackgroundJob(alias, operation.PublicJobId.Value);
             throw;
         }
         return PrivateHostOperationOutcome.Completed(
@@ -1038,7 +1180,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             _workerEvents.RetireWorker(current.Identity);
             await current.DisposeAsync().ConfigureAwait(false);
-            lock (_gate) { alias.OutstandingJobs.Clear(); alias.CompletedJobs.Clear(); }
+            lock (_gate) ClearAliasJobsLocked(alias);
 
             relaunchStarted = true;
             replacement = await _slots.CreateAsync(
@@ -1189,7 +1331,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
             _workerEvents.RetireWorker(current.Identity);
             await current.DisposeAsync().ConfigureAwait(false);
-            lock (_gate) { alias.OutstandingJobs.Clear(); alias.CompletedJobs.Clear(); }
+            lock (_gate) ClearAliasJobsLocked(alias);
             await _events.WriteEventAsync(
                     sequence => new SessionLifecycleEvent(
                         _identity.GuardianBootId,
@@ -1271,8 +1413,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             alias.Replacing = false;
             alias.ReplacingAutomatically = false;
             alias.Faulted = true;
-            alias.OutstandingJobs.Clear();
-            alias.CompletedJobs.Clear();
+            ClearAliasJobsLocked(alias);
         }
     }
 
@@ -1736,6 +1877,32 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         internal bool ExecutionTimeoutContainment { get; set; }
         internal Dictionary<long, CapabilityToken> OutstandingJobs { get; } = [];
         internal Dictionary<long, CapabilityToken> CompletedJobs { get; } = [];
+
+        /// <summary>
+        /// Guardian output captures retained for this alias's outstanding
+        /// background jobs, keyed by public job ID. Held from the reservation
+        /// until the job's terminal seals it, because the job's bytes live in
+        /// the worker and only the terminal says when they are final.
+        /// </summary>
+        internal Dictionary<long, BackgroundJobCapture> JobCaptures { get; } = [];
+    }
+
+    /// <summary>
+    /// One background job's retained guardian output capture, together with the
+    /// worker slot that can serve its output and the deadline the guardian
+    /// minted the capability against.
+    /// </summary>
+    private sealed class BackgroundJobCapture(
+        IExecutionOutputCapture capture,
+        PrivateHostWorkerSlot slot,
+        long deadlineUnixTimeMilliseconds) : IDisposable
+    {
+        internal IExecutionOutputCapture Capture { get; } = capture;
+        internal PrivateHostWorkerSlot Slot { get; } = slot;
+        internal long DeadlineUnixTimeMilliseconds { get; } =
+            deadlineUnixTimeMilliseconds;
+
+        public void Dispose() => Capture.Dispose();
     }
 
     private sealed record RuntimeValidation(

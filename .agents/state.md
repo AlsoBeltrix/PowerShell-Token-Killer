@@ -5,6 +5,29 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Background job output is sealed again under the production worker runtime
+  (`r6x-2` #3, fixed 2026-07-25).** `WorkerPrivateHostRuntime` never created an
+  execution output capture for `invoke_background`, so every background job
+  registered a guardian output capability that nothing ever wrote to: the
+  guardian retained it unsealed by design, `TryGetJobRecovery` stayed empty,
+  job status was never decorated, and the model saw
+  `recovery=unavailable: output capture unavailable` for the life of every
+  job. The regression came in with the R6 production cutover `1e19b46`, which
+  replaced `DefaultPrivateHostRuntime` (which does create the capture, for both
+  invoke kinds). The fix creates and prepares the capture at background start,
+  retains it per alias beside the job capability, and seals it from the
+  existing job-terminal hook by fetching the job's output over the worker
+  request protocol; captures are disposed on every path that drops an alias's
+  jobs, and a failed fetch deliberately leaves the capability unsealed rather
+  than advertising a handle to content the host never read. **Two lessons are
+  recorded in the finding because both cost cycles:** the defect presented only
+  on Windows purely because the only test covering it was Windows-gated — it
+  reproduces on macOS in seconds — and the rig fake that had to change was
+  throwing an assertion introduced by the same cutover commit that caused the
+  defect, so it recorded the bug's assumption rather than a product constraint.
+  Guards: a cross-platform composition identity (real apphost, seal → handle →
+  read back) and an in-proc rig identity, both mutation-proven. macOS:
+  architecture 73/73, Guardian 493/493.
 - **R6 sub-slice 4 is complete on `feature/mcp-resilience-r1`.** `b18fc09`
   holds guardian declared session state per alias inside
   `FrozenDefaultSessionState` with byte-identical default-alias behavior;
@@ -786,29 +809,25 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Diagnose `r6x-2`'s remaining two failures on `NETWATCH-01`**:
-   `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` ("output
-   capture unavailable" — points at the supervisor-owned output store) and
-   `Windows_composition_never_replays_a_real_effect_when_the_host_dies` (bare
-   60-second timeout). Both fail deterministically, so both are directly
-   reproducible. Do **not** assume they share a cause with each other or with
-   the fixed #1 — #1 turned out to be guardian declared-state ordering, and
-   assuming a shared cause is what produced the original `r6x-1`
-   over-attribution. `r6x-3` (Windows nondeterminism, ~4/5 failing,
-   `Assert.Equal` 1 vs 2) follows and is tractable directly rather than by
-   repetition. `r6x-1` and `r6x-2` #1 are closed and need nothing further.
-2. **Windows work is directly drivable from the Mac — see
+1. **`r6x-2` #3 is fixed on macOS and needs a Windows re-run.** Background job
+   output is sealed by `WorkerPrivateHostRuntime` at the job terminal and is
+   readable by opaque handle; two new guards (one cross-platform composition
+   identity, one in-proc rig identity) are mutation-proven. Confirm
+   `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` now
+   passes on `NETWATCH-01`, and that the new composition guard passes there
+   too. Windows work is directly drivable from the Mac — see
    `.agents/machines.md` ("Reaching it from the Mac"). A disposable checkout
-   already exists at `F:\dev\ptk-r6x-diag` on `NETWATCH-01`, detached at
-   `fc93227`, building clean, with the `r6x-3` fix applied.** The next Windows
-   item is `r6x-2` #3a: background job output forwarding delivers zero bytes on
-   Windows (worker → private host → guardian), so the capture is cancelled
-   `host_generation_lost` with `bytesReceived=0`. Localise the hop — the
-   reservation is already ruled out. #3b (the test polling
-   `recovery=available:` where job status emits `recovery=handle:`) is a known
-   one-line test fix but must not land alone; it would paper over #3a. #2
-   (`..._never_replays_a_real_effect_when_the_host_dies`, bare 60 s timeout) is
-   undiagnosed and must not be assumed to share a cause with #3.
+   stands at `F:\dev\ptk-r6x-diag`, detached at `fc93227` with the `r6x-3` fix
+   applied; it needs updating to the current head. **Do not modify the owner's
+   `F:\dev\PowerShell-Token-Killer` checkout.**
+2. **`r6x-2` #2 is the last failure in that finding**:
+   `Windows_composition_never_replays_a_real_effect_when_the_host_dies`, a bare
+   60-second timeout, undiagnosed. Deterministic (2 of 2 isolated runs), so it
+   is directly reproducible. Do **not** assume it shares a cause with #1 or #3.
+   **Check it on macOS before assuming it needs Windows**: #3 presented only on
+   Windows and proved platform-neutral, because only the *test* was
+   Windows-gated, not the defect. That assumption cost this finding a full
+   diagnostic cycle.
 3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
    suspected regression from this session's own work.** Writing the acceptance
    test for one-alias crash isolation on the real apphost found that

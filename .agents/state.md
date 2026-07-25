@@ -10,12 +10,13 @@ short and update it when important repo facts change.
   intermediate workspace. An agent starting from `master` must inspect the
   repository's refs/worktrees and resume the exact active work itself, without
   asking the owner to operate Git. For the active resilience sequence, resume
-  `feature/mcp-resilience-r1` at clean handoff tip `54848af` (verified code/test
-  head `195e7e6`); if it is not present locally, fetch it from `origin` and
-  create or select an internal worktree. R2-R7 are already owner-authorized and
-  should continue autonomously. Work is "delivered" only after its verified
-  content is integrated into `master` and published; until then report it only
-  as in progress.
+  `feature/mcp-resilience-r1` at handoff tip `6c7c4b3` in worktree
+  `.claude/worktrees/mcp-resilience-r1` (its `.agents/state.md` is the
+  authoritative current-state record); if the branch is not present locally,
+  fetch it from `origin` and create or select an internal worktree. R2-R7 are
+  already owner-authorized and should continue autonomously. Work is
+  "delivered" only after its verified content is integrated into `master`
+  and published; until then report it only as in progress.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

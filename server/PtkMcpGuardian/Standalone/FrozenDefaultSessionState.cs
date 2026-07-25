@@ -206,26 +206,35 @@ internal sealed class FrozenDefaultSessionState :
         {
             return _aliases.Values
                 .OrderBy(state => state.Binding.Alias.Value, StringComparer.Ordinal)
-                .Select(state => new PublicSessionStateSnapshot(
+                .Select(state => ProjectSession(state))
+                .ToArray();
+        }
+    }
+
+    private static PublicSessionStateSnapshot ProjectSession(AliasState state)
+    {
+        // While recovery is in flight the alias's bound identity is the dead
+        // generation, so report exactly the worker the host named for this
+        // recovery and nothing else. A cold alias has no worker at all.
+        var projectedWorker = state.State == PublicSessionState.Cold
+            ? null
+            : SessionLifecycleEvent.CarriesRecoveryMetadata(state.State)
+                ? state.RecoveringWorkerIdentity
+                : state.WorkerIdentity;
+        return new PublicSessionStateSnapshot(
                     state.Binding.Alias,
                     state.DesiredState,
                     state.State,
-                    state.State == PublicSessionState.Cold
-                        ? null
-                        : state.WorkerIdentity.BootId,
-                    state.State == PublicSessionState.Cold
-                        ? null
-                        : state.WorkerIdentity.Generation,
+                    projectedWorker?.BootId,
+                    projectedWorker?.Generation,
                     state.Binding.TransitionVersion,
-                    recoveryPhase: null,
-                    recoveryAttempt: 0,
-                    retryAfterMilliseconds: null,
+                    state.RecoveryPhase,
+                    state.RecoveryAttempt,
+                    state.RetryAfterMilliseconds,
                     readyForEffects: state.ReadyForEffects,
                     lastFailureCode: null,
                     warmStateLost: state.WarmStateLost,
-                    bootstrapState: state.BootstrapState))
-                .ToArray();
-        }
+                    bootstrapState: state.BootstrapState);
     }
 
     /// <summary>
@@ -382,6 +391,35 @@ internal sealed class FrozenDefaultSessionState :
                 }
                 state.PendingWorkerGeneration = null;
             }
+            else if (SessionLifecycleEvent.CarriesRecoveryMetadata(lifecycleEvent.State))
+            {
+                // Automatic recovery in flight for this alias. The event names a
+                // worker only where the wire contract requires one, so validate
+                // the identity when present rather than demanding it: it is
+                // either the worker whose loss started recovery, or the pending
+                // grant being bootstrapped. The identity is deliberately NOT
+                // absorbed here — recovery has produced no bound worker yet, and
+                // only the Ready branch's grant match may rebind the alias.
+                if (lifecycleEvent.WorkerIdentity is { } recoveringWorker)
+                {
+                    var namesCurrentWorker =
+                        recoveringWorker.BootId == state.WorkerIdentity.BootId &&
+                        recoveringWorker.Generation == state.WorkerIdentity.Generation;
+                    var namesPendingGrant =
+                        state.PendingWorkerGeneration is { } pendingGeneration &&
+                        recoveringWorker.Generation == pendingGeneration;
+                    if (!namesCurrentWorker && !namesPendingGrant)
+                    {
+                        throw new InvalidOperationException(
+                            "The recovering lifecycle event names an unknown worker.");
+                    }
+                }
+                if (lifecycleEvent.ReadyForEffects)
+                {
+                    throw new InvalidOperationException(
+                        "A recovering session cannot be ready for effects.");
+                }
+            }
             else
             {
                 throw new InvalidOperationException(
@@ -389,20 +427,27 @@ internal sealed class FrozenDefaultSessionState :
             }
 
             if (state.AmbiguousUntilRepaired &&
-                lifecycleEvent.State == PublicSessionState.Ready)
+                (lifecycleEvent.State == PublicSessionState.Ready ||
+                    SessionLifecycleEvent.CarriesRecoveryMetadata(lifecycleEvent.State)))
             {
-                // A host restoring its declared session is NOT the explicit
-                // repair this alias is waiting for. The worker identity above is
-                // absorbed deliberately, so a later authoritative repair targets
-                // the live worker; the projection stays unusable. Committing the
-                // Ready event here would silently erase the ambiguous outcome of
-                // the earlier session-changing request and let ordinary work be
-                // dispatched into a session whose outcome is unknown, which is
-                // exactly the no-replay boundary this state exists to hold.
+                // Neither a host restoring its declared session nor an automatic
+                // recovery is the explicit repair this alias is waiting for. The
+                // worker identity above is absorbed deliberately, so a later
+                // authoritative repair targets the live worker; the projection
+                // stays unusable. Committing the Ready event here would silently
+                // erase the ambiguous outcome of the earlier session-changing
+                // request and let ordinary work be dispatched into a session
+                // whose outcome is unknown, which is exactly the no-replay
+                // boundary this state exists to hold. A recovering event is
+                // refused for the same reason in the other direction: it would
+                // downgrade a nonretryable recovery_unknown to a retryable
+                // session_recovering and invite the model to resubmit work whose
+                // first outcome nobody knows.
                 state.State = PublicSessionState.RecoveryUnknown;
                 state.ReadyForEffects = false;
                 state.WarmStateLost = true;
                 state.BootstrapState = BootstrapState.Unknown;
+                ClearRecoveryMetadata(state);
                 return;
             }
 
@@ -410,7 +455,25 @@ internal sealed class FrozenDefaultSessionState :
             state.ReadyForEffects = lifecycleEvent.ReadyForEffects;
             state.WarmStateLost |= lifecycleEvent.WarmStateLost;
             state.BootstrapState = lifecycleEvent.BootstrapState;
+            // Recovery facts are carried verbatim, and every state that cannot
+            // hold them clears them: the wire contract already guarantees the
+            // event's metadata is null for exactly those states.
+            state.RecoveryPhase = lifecycleEvent.RecoveryPhase;
+            state.RecoveryAttempt = lifecycleEvent.RecoveryAttempt ?? 0;
+            state.RetryAfterMilliseconds = lifecycleEvent.RetryAfterMilliseconds;
+            state.RecoveringWorkerIdentity =
+                SessionLifecycleEvent.CarriesRecoveryMetadata(lifecycleEvent.State)
+                    ? lifecycleEvent.WorkerIdentity
+                    : null;
         }
+    }
+
+    private static void ClearRecoveryMetadata(AliasState state)
+    {
+        state.RecoveryPhase = null;
+        state.RecoveryAttempt = 0;
+        state.RetryAfterMilliseconds = null;
+        state.RecoveringWorkerIdentity = null;
     }
 
     public void ObserveSessionRecoveryUnknown(CanonicalAlias alias)
@@ -429,6 +492,7 @@ internal sealed class FrozenDefaultSessionState :
             state.WarmStateLost = true;
             state.BootstrapState = BootstrapState.Unknown;
             state.AmbiguousUntilRepaired = true;
+            ClearRecoveryMetadata(state);
         }
     }
 
@@ -458,6 +522,10 @@ internal sealed class FrozenDefaultSessionState :
             state.ReadyForEffects = result.ReadyForEffects;
             state.WarmStateLost |= result.WarmStateLost;
             state.BootstrapState = result.BootstrapState;
+            // An authoritative result names a settled state, which is never one
+            // that carries recovery metadata; keeping stale facts here would
+            // advertise a phase the public snapshot rejects.
+            ClearRecoveryMetadata(state);
             // This is the interface's authoritative session-changing result, and
             // therefore the only channel that repairs an ambiguous alias.
             state.AmbiguousUntilRepaired = false;
@@ -531,6 +599,26 @@ internal sealed class FrozenDefaultSessionState :
         internal bool ReadyForEffects { get; set; }
         internal bool WarmStateLost { get; set; }
         internal BootstrapState BootstrapState { get; set; }
+
+        /// <summary>
+        /// The alias's last automatic-recovery facts, exactly as its owning host
+        /// reported them. They are only ever set from a recovering lifecycle
+        /// event and are cleared by every state that cannot carry them, so the
+        /// projection never advertises a phase the public snapshot would reject
+        /// or an attempt reconstructed from a later transition.
+        /// </summary>
+        internal RecoveryPhase? RecoveryPhase { get; set; }
+        internal long RecoveryAttempt { get; set; }
+        internal int? RetryAfterMilliseconds { get; set; }
+
+        /// <summary>
+        /// The worker the owning host named in the current recovering lifecycle:
+        /// the worker being contained, or the replacement being bootstrapped.
+        /// The projection reports this instead of <see cref="WorkerIdentity"/>
+        /// while recovery is in flight, because the bound identity is the dead
+        /// generation until a ready grant rebinds the alias.
+        /// </summary>
+        internal GuardianHostWorkerIdentity? RecoveringWorkerIdentity { get; set; }
 
         /// <summary>
         /// True while a session-changing request's outcome is unknown and no

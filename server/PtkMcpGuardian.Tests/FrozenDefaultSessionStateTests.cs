@@ -166,6 +166,168 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Recovering_lifecycle_projects_the_hosts_exact_recovery_facts()
+    {
+        // Before this, the guardian hardcoded recoveryPhase/attempt/retryAfter to
+        // null/0/null, so an alias whose worker died under a healthy host still
+        // projected its last ready lifecycle. The facts now cross the wire and
+        // are reported verbatim — never reconstructed from a later transition.
+        var state = State();
+        var alias = state.Binding.Alias;
+        var dying = new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1));
+
+        state.ObserveSessionLifecycle(RecoveringLifecycle(
+            state, dying, PublicSessionState.Ready, PublicSessionState.Recovering,
+            GuardianHostSessionLifecycleReason.WorkerExit,
+            RecoveryPhase.Containment, attempt: 1, retryAfter: 250, sequence: 2));
+
+        var contained = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Recovering, contained.State);
+        Assert.False(contained.ReadyForEffects);
+        Assert.True(contained.WarmStateLost);
+        Assert.Equal(RecoveryPhase.Containment, contained.RecoveryPhase);
+        Assert.Equal(1, contained.RecoveryAttempt);
+        Assert.Equal(250, contained.RetryAfterMilliseconds);
+        Assert.Equal(BootstrapState.Pending, contained.BootstrapState);
+        // The alias reports the worker being contained, not a live one.
+        Assert.Equal(Worker, contained.WorkerBootId);
+        // Dispatch stays blocked for the whole recovery.
+        Assert.True(state.TryGetJobListTarget(alias, out var recoveringTarget));
+        Assert.False(recoveringTarget.ReadyForEffects);
+
+        var grant = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var replacement = new WorkerBootId(
+            Guid.Parse("77777777-7777-4777-8777-777777777777"));
+        var replacementIdentity = new GuardianHostWorkerIdentity(
+            replacement, grant.WorkerGeneration);
+
+        state.ObserveSessionLifecycle(RecoveringLifecycle(
+            state, replacementIdentity, PublicSessionState.Recovering,
+            PublicSessionState.Bootstrapping,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            RecoveryPhase.Bootstrap, attempt: 2, retryAfter: 1_000, sequence: 3));
+
+        var bootstrapping = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Bootstrapping, bootstrapping.State);
+        Assert.Equal(RecoveryPhase.Bootstrap, bootstrapping.RecoveryPhase);
+        Assert.Equal(2, bootstrapping.RecoveryAttempt);
+        Assert.Equal(1_000, bootstrapping.RetryAfterMilliseconds);
+        // Bootstrapping names the replacement being started, not the dead
+        // generation the alias is still bound to.
+        Assert.Equal(replacement, bootstrapping.WorkerBootId);
+        Assert.Equal(grant.WorkerGeneration, bootstrapping.Generation);
+
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(4),
+            requestId: null,
+            alias,
+            state.Binding.TransitionVersion,
+            replacementIdentity,
+            PublicSessionState.Bootstrapping,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: true,
+            BootstrapState.Restored));
+
+        // Reaching ready clears every recovery fact; a settled state that still
+        // advertised a phase is one the public snapshot would reject outright.
+        var recovered = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Ready, recovered.State);
+        Assert.True(recovered.ReadyForEffects);
+        Assert.Null(recovered.RecoveryPhase);
+        Assert.Equal(0, recovered.RecoveryAttempt);
+        Assert.Null(recovered.RetryAfterMilliseconds);
+        Assert.Equal(replacement, recovered.WorkerBootId);
+    }
+
+    [Fact]
+    public void Recovering_lifecycle_cannot_downgrade_an_ambiguous_alias()
+    {
+        // recovery_unknown is nonretryable and demands an explicit repair;
+        // session_recovering is retryable. Letting an automatic recovery
+        // overwrite the ambiguity would invite the model to resubmit work whose
+        // first outcome nobody knows — the same no-replay boundary the Ready
+        // interception holds (r6x-2 #1), reached from the other direction.
+        var state = State();
+        var alias = state.Binding.Alias;
+        state.ObserveSessionRecoveryUnknown(alias);
+
+        state.ObserveSessionLifecycle(RecoveringLifecycle(
+            state,
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            PublicSessionState.Ready,
+            PublicSessionState.Recovering,
+            GuardianHostSessionLifecycleReason.WorkerExit,
+            RecoveryPhase.Containment, attempt: 1, retryAfter: 250, sequence: 2));
+
+        var stillAmbiguous = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.RecoveryUnknown, stillAmbiguous.State);
+        Assert.False(stillAmbiguous.ReadyForEffects);
+        Assert.Equal(BootstrapState.Unknown, stillAmbiguous.BootstrapState);
+        // No recovery metadata leaks onto a state that cannot carry it.
+        Assert.Null(stillAmbiguous.RecoveryPhase);
+        Assert.Equal(0, stillAmbiguous.RecoveryAttempt);
+        Assert.Null(stillAmbiguous.RetryAfterMilliseconds);
+    }
+
+    [Fact]
+    public void Recovering_lifecycle_naming_an_unknown_worker_is_refused()
+    {
+        var state = State();
+        var stranger = new GuardianHostWorkerIdentity(
+            new WorkerBootId(Guid.Parse("88888888-8888-4888-8888-888888888888")),
+            new WorkerGeneration(9));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            state.ObserveSessionLifecycle(RecoveringLifecycle(
+                state, stranger, PublicSessionState.Ready,
+                PublicSessionState.Recovering,
+                GuardianHostSessionLifecycleReason.WorkerExit,
+                RecoveryPhase.Containment, attempt: 1, retryAfter: 250, sequence: 2)));
+
+        // The refusal leaves the alias exactly as it was.
+        var unchanged = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Ready, unchanged.State);
+        Assert.Null(unchanged.RecoveryPhase);
+    }
+
+    private SessionLifecycleEvent RecoveringLifecycle(
+        FrozenDefaultSessionState state,
+        GuardianHostWorkerIdentity worker,
+        PublicSessionState previousState,
+        PublicSessionState nextState,
+        GuardianHostSessionLifecycleReason reason,
+        RecoveryPhase phase,
+        long attempt,
+        int retryAfter,
+        long sequence) =>
+        new(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(sequence),
+            requestId: null,
+            state.Binding.Alias,
+            state.Binding.TransitionVersion,
+            worker,
+            previousState,
+            nextState,
+            reason,
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.Pending,
+            phase,
+            attempt,
+            retryAfter);
+
+    [Fact]
     public void Repaired_alias_accepts_an_ordinary_ready_lifecycle_again()
     {
         // Stickiness must end at the repair, not outlive it: once an

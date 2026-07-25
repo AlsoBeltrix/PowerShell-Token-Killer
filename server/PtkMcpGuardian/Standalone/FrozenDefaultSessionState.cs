@@ -374,7 +374,8 @@ internal sealed class FrozenDefaultSessionState :
                     lifecycleEvent.BootstrapState != BootstrapState.Failed ||
                     lifecycleEvent.Reason is not (
                         GuardianHostSessionLifecycleReason.ContainmentUnconfirmed or
-                        GuardianHostSessionLifecycleReason.BootstrapFailed))
+                        GuardianHostSessionLifecycleReason.BootstrapFailed or
+                        GuardianHostSessionLifecycleReason.CircuitTransition))
                 {
                     throw new InvalidOperationException(
                         "The faulted lifecycle event does not match the current worker or reason.");

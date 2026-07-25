@@ -198,7 +198,7 @@ public sealed class WorkerPrivateHostRuntimeTests
             ["launch:9", "shutdown:9", "launch:10"],
             rig.Launch.Order);
         Assert.Collection(
-            rig.Events.Events.OfType<SessionLifecycleEvent>(),
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
             initial => Assert.Equal(9, initial.WorkerIdentity?.Generation.Value),
             replacement =>
             {
@@ -251,7 +251,7 @@ public sealed class WorkerPrivateHostRuntimeTests
             outcome.Error?.DetailCode);
         Assert.Empty(process.OrdinaryOperations);
         var refusal = Assert.IsType<OperationDeliveryEvent>(
-            rig.Events.Events.Last());
+            rig.Events.SnapshotEvents().Last());
         Assert.Equal(
             GuardianHostDeliveryState.NotDispatched,
             refusal.DeliveryState);
@@ -405,7 +405,7 @@ public sealed class WorkerPrivateHostRuntimeTests
             ["launch:9", "launch:10"],
             rig.Launch.Order);
         var lifecycle = Assert.IsType<SessionLifecycleEvent>(
-            rig.Events.Events.Last());
+            rig.Events.SnapshotEvents().Last());
         Assert.Equal(
             GuardianHostSessionLifecycleReason.RequestedOpen,
             lifecycle.Reason);
@@ -548,7 +548,7 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.Equal(0, rig.Runtime.OutstandingJobCapabilityCount);
         Assert.Equal(2, rig.Launch.Processes.Count);
 
-        var fault = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        var fault = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Last();
         Assert.Equal(scratch, fault.SessionAlias);
         Assert.Equal(PublicSessionState.Resetting, fault.PreviousState);
         Assert.Equal(PublicSessionState.Faulted, fault.State);
@@ -616,7 +616,7 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.IsType<JobListResult>(defaultOutcome.Result);
         Assert.Equal(WorkerPrivateHostRuntimeState.Ready, rig.Runtime.State);
 
-        var fault = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        var fault = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Last();
         Assert.Equal(PublicSessionState.Closing, fault.PreviousState);
         Assert.Equal(PublicSessionState.Faulted, fault.State);
         Assert.Equal(
@@ -655,7 +655,7 @@ public sealed class WorkerPrivateHostRuntimeTests
                 reset,
                 TestContext.Current.CancellationToken).AsTask());
 
-        var fault = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        var fault = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Last();
         Assert.Equal(scratch, fault.SessionAlias);
         Assert.Equal(PublicSessionState.Resetting, fault.PreviousState);
         Assert.Equal(PublicSessionState.Faulted, fault.State);
@@ -722,9 +722,9 @@ public sealed class WorkerPrivateHostRuntimeTests
                 TestContext.Current.CancellationToken).AsTask());
 
         Assert.DoesNotContain(
-            rig.Events.Events.OfType<SessionLifecycleEvent>(),
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
             lifecycle => lifecycle.State == PublicSessionState.Faulted);
-        var ready = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        var ready = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Last();
         Assert.Equal(scratch, ready.SessionAlias);
         Assert.Equal(PublicSessionState.Ready, ready.State);
         Assert.Equal(11, ready.WorkerIdentity?.Generation.Value);
@@ -785,9 +785,9 @@ public sealed class WorkerPrivateHostRuntimeTests
                 TestContext.Current.CancellationToken).AsTask());
 
         Assert.DoesNotContain(
-            rig.Events.Events.OfType<SessionLifecycleEvent>(),
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
             lifecycle => lifecycle.State == PublicSessionState.Faulted);
-        var cold = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        var cold = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Last();
         Assert.Equal(scratch, cold.SessionAlias);
         Assert.Equal(PublicSessionState.Closing, cold.PreviousState);
         Assert.Equal(PublicSessionState.Cold, cold.State);
@@ -850,9 +850,204 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
-    public async Task Reopen_reuses_the_declared_binding_and_advances_the_generation()
+    public async Task Unexpected_worker_death_relaunches_the_alias_at_the_next_generation()
     {
         var rig = new RuntimeRig(generations: [9, 10, 11]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+
+        rig.Launch.Processes[1].Kill();
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(lifecycle =>
+                lifecycle.Reason ==
+                    GuardianHostSessionLifecycleReason.AutomaticRecovery &&
+                lifecycle.SessionAlias == scratch &&
+                lifecycle.WorkerIdentity?.Generation.Value == 11),
+            "automatic recovery of the dead worker");
+
+        var replacement = rig.Launch.Processes[2];
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(replacement.WorkerBootId),
+                    new WorkerGeneration(replacement.Generation)),
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+
+        var defaultOutcome = await rig.Runtime.ExecuteOperationAsync(
+            Request(
+                41,
+                rig.Runtime.WorkerIdentity!,
+                new JobListOperation(Call(41), Dispatch(41))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(defaultOutcome.Result);
+        Assert.Equal(9, rig.Launch.Processes[0].Generation);
+        Assert.False(rig.Launch.Processes[0].Shutdown);
+        Assert.Equal(WorkerPrivateHostRuntimeState.Ready, rig.Runtime.State);
+        Assert.Contains("launch:11", rig.Launch.Order);
+
+        var recovered = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>()
+            .Last(lifecycle => lifecycle.SessionAlias == scratch);
+        Assert.Null(recovered.RequestId);
+        Assert.True(recovered.WarmStateLost);
+        Assert.Equal(BootstrapState.Restored, recovered.BootstrapState);
+        Assert.True(recovered.ReadyForEffects);
+    }
+
+    [Fact]
+    public async Task A_crash_loop_faults_the_alias_instead_of_relaunching_forever()
+    {
+        var rig = new RuntimeRig(generations: [9, 10, 11, 12, 13]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        _ = await OpenAliasAsync(rig, scratch, 10);
+
+        rig.Launch.Processes[1].Kill();
+        await WaitUntilAsync(() =>
+            rig.Launch.Processes.Count >= 3,
+            "first automatic relaunch");
+        rig.Launch.Processes[2].Kill();
+        await WaitUntilAsync(() =>
+            rig.Launch.Processes.Count >= 4,
+            "second automatic relaunch");
+        rig.Launch.Processes[3].Kill();
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(lifecycle =>
+                lifecycle.State == PublicSessionState.Faulted &&
+                lifecycle.SessionAlias == scratch),
+            "the crash-loop fault");
+
+        Assert.Equal(4, rig.Launch.Processes.Count);
+        var fault = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>()
+            .Last(lifecycle => lifecycle.SessionAlias == scratch);
+        Assert.Equal(PublicSessionState.Ready, fault.PreviousState);
+        Assert.Equal(PublicSessionState.Faulted, fault.State);
+        Assert.Equal(
+            GuardianHostSessionLifecycleReason.CircuitTransition,
+            fault.Reason);
+        Assert.Null(fault.RequestId);
+        Assert.Equal(BootstrapState.Failed, fault.BootstrapState);
+
+        var scratchWorker = new GuardianHostWorkerIdentity(
+            new WorkerBootId(rig.Launch.Processes[3].WorkerBootId),
+            new WorkerGeneration(rig.Launch.Processes[3].Generation));
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                scratchWorker,
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.SessionFaulted,
+            outcome.Error?.DetailCode);
+        var defaultOutcome = await rig.Runtime.ExecuteOperationAsync(
+            Request(
+                41,
+                rig.Runtime.WorkerIdentity!,
+                new JobListOperation(Call(41), Dispatch(41))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(defaultOutcome.Result);
+    }
+
+    [Fact]
+    public async Task A_completed_manual_reset_disarms_the_dead_workers_watcher()
+    {
+        var rig = new RuntimeRig(generations: [9, 10, 11]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+
+        var reset = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(30),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            scratchWorker,
+            null,
+            new ResetOperation(
+                Call(30),
+                Dispatch(30),
+                expectedGeneration: 10,
+                force: false));
+        var resetOutcome = await rig.Runtime.ExecuteOperationAsync(
+            reset,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<ResetResult>(resetOutcome.Result);
+
+        rig.Launch.Processes[1].Kill();
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(300),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(3, rig.Launch.Processes.Count);
+        Assert.DoesNotContain(
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
+            lifecycle => lifecycle.SessionAlias == scratch &&
+                lifecycle.Reason ==
+                    GuardianHostSessionLifecycleReason.AutomaticRecovery);
+
+        var replacement = rig.Launch.Processes[2];
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(replacement.WorkerBootId),
+                    new WorkerGeneration(replacement.Generation)),
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+    }
+
+    private static async Task WaitUntilAsync(
+        Func<bool> condition,
+        string description)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        while (!condition())
+        {
+            if (timeout.IsCancellationRequested)
+                throw new TimeoutException($"Timed out waiting for {description}.");
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(25),
+                TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task Reopen_reuses_the_declared_binding_and_advances_the_generation()
+    {        var rig = new RuntimeRig(generations: [9, 10, 11]);
         await rig.Runtime.InitializeAsync(
             Initialization(highWatermark: 8),
             TestContext.Current.CancellationToken);
@@ -906,7 +1101,7 @@ public sealed class WorkerPrivateHostRuntimeTests
             ["launch:9", "launch:10", "shutdown:10", "launch:11"],
             rig.Launch.Order);
 
-        var lifecycle = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        var lifecycle = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Last();
         Assert.Equal(scratch, lifecycle.SessionAlias);
         Assert.Equal(PublicSessionState.Ready, lifecycle.State);
         Assert.Equal(
@@ -1207,7 +1402,7 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.IsType<JobListResult>(jobList.Result);
         Assert.False(rig.Launch.Processes[0].Shutdown);
         Assert.DoesNotContain(
-            rig.Events.Events.OfType<SessionLifecycleEvent>(),
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
             lifecycle => lifecycle.State is PublicSessionState.Cold or
                 PublicSessionState.Faulted);
     }
@@ -1336,7 +1531,7 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.Equal(
             ["launch:9", "launch:10"],
             rig.Launch.Order);
-        var lifecycles = rig.Events.Events.OfType<SessionLifecycleEvent>().ToArray();
+        var lifecycles = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().ToArray();
         Assert.Equal(2, lifecycles.Length);
         Assert.Equal(Alias, lifecycles[0].SessionAlias);
         Assert.Equal(dynamicAlias, lifecycles[1].SessionAlias);
@@ -1576,15 +1771,21 @@ public sealed class WorkerPrivateHostRuntimeTests
         List<string> order) : IWorkerProcessClient
     {
         private long _requestId = 40;
+        private readonly TaskCompletionSource _fatal = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int ProcessId => 42;
         public Guid WorkerBootId => worker.BootId.Value;
         public long Generation => worker.Generation.Value;
-        public Task Fatal => Task.Delay(Timeout.InfiniteTimeSpan);
+        public Task Fatal => _fatal.Task;
         public Task<WorkerDiagnosticReport> Diagnostics =>
             Task.FromResult(new WorkerDiagnosticReport(
                 new WorkerDiagnosticSummary(0, 0, false, Digest('0').Value),
                 new WorkerDiagnosticSummary(0, 0, false, Digest('0').Value)));
+
+        internal void Kill() =>
+            _fatal.TrySetException(new InvalidOperationException(
+                "Worker died as scripted."));
         internal List<WorkerPreparedInvokeKind> PreparedKinds { get; } = [];
         internal List<WorkerPreparedPlanDescriptor> PreparedDescriptors { get; } = [];
         internal List<string> OrdinaryOperations { get; } = [];
@@ -1729,6 +1930,11 @@ public sealed class WorkerPrivateHostRuntimeTests
         internal List<GuardianHostEvent> Events { get; } = [];
         internal bool FailNextTerminalDecodedDelivery { get; set; }
 
+        internal GuardianHostEvent[] SnapshotEvents()
+        {
+            lock (Events) return Events.ToArray();
+        }
+
         public ValueTask WriteEventAsync(
             Func<HostEventSequence, GuardianHostEvent> createEvent,
             CancellationToken cancellationToken = default)
@@ -1745,7 +1951,7 @@ public sealed class WorkerPrivateHostRuntimeTests
                 throw new InvalidOperationException(
                     "Outbound channel failed as scripted.");
             }
-            Events.Add(hostEvent);
+            lock (Events) Events.Add(hostEvent);
             return ValueTask.CompletedTask;
         }
 

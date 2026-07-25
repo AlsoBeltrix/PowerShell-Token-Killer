@@ -26,6 +26,8 @@ internal enum WorkerPrivateHostRuntimeState
 internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 {
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly TimeSpan DefaultStabilityWindow =
+        TimeSpan.FromSeconds(60);
 
     private readonly object _gate = new();
     private readonly PrivateHostServerIdentity _identity;
@@ -36,6 +38,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     private readonly IPrivateHostOutputTransfer _output;
     private readonly Func<CapabilityToken> _createJobCapability;
     private readonly Func<long> _unixTimeMilliseconds;
+    private readonly TimeSpan _stabilityWindow;
     private readonly Dictionary<CanonicalAlias, AliasRuntime> _aliases = [];
 
     private WorkerPrivateHostRuntimeState _state;
@@ -48,7 +51,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         PrivateHostWorkerEventBridge workerEvents,
         IPrivateHostOutputTransfer output,
         Func<CapabilityToken>? createJobCapability = null,
-        Func<long>? unixTimeMilliseconds = null)
+        Func<long>? unixTimeMilliseconds = null,
+        TimeSpan? stabilityWindow = null)
     {
         _identity = identity ?? throw new ArgumentNullException(nameof(identity));
         _events = events ?? throw new ArgumentNullException(nameof(events));
@@ -60,6 +64,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         _createJobCapability = createJobCapability ?? CreateCapabilityToken;
         _unixTimeMilliseconds = unixTimeMilliseconds ??
             (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        _stabilityWindow = stabilityWindow ??
+            DefaultStabilityWindow;
         _workerEvents.JobTerminalObserved = ReleaseJobTerminal;
     }
 
@@ -111,6 +117,128 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             {
                 state.CompletedJobs.Remove(state.CompletedJobs.Keys.Min());
             }
+        }
+    }
+
+    private void WatchWorkerDeath(AliasRuntime alias, PrivateHostWorkerSlot slot)
+    {
+        _ = WatchWorkerDeathAsync(alias, slot);
+    }
+
+    private async Task WatchWorkerDeathAsync(
+        AliasRuntime alias,
+        PrivateHostWorkerSlot slot)
+    {
+        try
+        {
+            await slot.Process.Fatal.ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+        }
+
+        (RecoveryBinding Binding, WorkerGenerationHighWatermark HighWatermark)?
+            lease = null;
+        lock (_gate)
+        {
+            if (_state == WorkerPrivateHostRuntimeState.Ready &&
+                !alias.Faulted &&
+                !alias.Replacing &&
+                ReferenceEquals(alias.Slot, slot))
+            {
+                lease = BeginReplacement(alias, slot);
+            }
+        }
+        if (lease is null) return;
+
+        var (binding, highWatermark) = lease.Value;
+        PrivateHostWorkerSlot? relaunch = null;
+        try
+        {
+            _workerEvents.RetireWorker(slot.Identity);
+            await slot.DisposeAsync().ConfigureAwait(false);
+            int consecutive;
+            lock (_gate)
+            {
+                alias.OutstandingJobs.Clear();
+                alias.CompletedJobs.Clear();
+                consecutive = ++alias.ConsecutiveDeaths;
+            }
+            if (consecutive >= 3)
+            {
+                MarkAliasFaulted(alias);
+                await TryWriteFaultLifecycleAsync(
+                        requestId: null,
+                        binding,
+                        slot.Identity,
+                        PublicSessionState.Ready,
+                        GuardianHostSessionLifecycleReason.CircuitTransition)
+                    .ConfigureAwait(false);
+                return;
+            }
+
+            relaunch = await _slots.CreateAsync(
+                    binding,
+                    highWatermark,
+                    _workerEvents.HandleAsync,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+            await WriteReadyLifecycleAsync(
+                    requestId: null,
+                    binding,
+                    relaunch.Identity,
+                    GuardianHostSessionLifecycleReason.AutomaticRecovery,
+                    warmStateLost: true,
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (_state != WorkerPrivateHostRuntimeState.Ready)
+                {
+                    throw new InvalidOperationException(
+                        "Worker recovery lost runtime readiness.");
+                }
+                alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
+                    relaunch.Identity.Generation.Value);
+                alias.Slot = relaunch;
+                alias.Replacing = false;
+            }
+            WatchWorkerDeath(alias, relaunch);
+            _ = ResetDeathCounterAfterStabilityAsync(alias, relaunch);
+        }
+        catch
+        {
+            if (relaunch is not null)
+            {
+                _workerEvents.RetireWorker(relaunch.Identity);
+                await relaunch.DisposeAsync().ConfigureAwait(false);
+            }
+            MarkAliasFaulted(alias);
+            await TryWriteFaultLifecycleAsync(
+                    requestId: null,
+                    binding,
+                    slot.Identity,
+                    PublicSessionState.Ready,
+                    GuardianHostSessionLifecycleReason.BootstrapFailed)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private async Task ResetDeathCounterAfterStabilityAsync(
+        AliasRuntime alias,
+        PrivateHostWorkerSlot relaunch)
+    {
+        try
+        {
+            await Task.Delay(_stabilityWindow).ConfigureAwait(false);
+            lock (_gate)
+            {
+                if (ReferenceEquals(alias.Slot, relaunch))
+                    alias.ConsecutiveDeaths = 0;
+            }
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
         }
     }
 
@@ -174,6 +302,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
                         slot.Identity.Generation.Value);
                 }
+                WatchWorkerDeath(_aliases[declaration.Binding.Alias], slot);
             }
 
             lock (_gate)
@@ -688,6 +817,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 active = slot.Identity;
                 slot = null;
             }
+            WatchWorkerDeath(alias, alias.Slot!);
             return PrivateHostOperationOutcome.Completed(
                 new SessionOpenResult(
                     binding.Alias,
@@ -748,6 +878,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 active = slot.Identity;
                 slot = null;
             }
+            WatchWorkerDeath(alias, alias.Slot!);
             return PrivateHostOperationOutcome.Completed(
                 new SessionOpenResult(
                     binding.Alias,
@@ -852,6 +983,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 active = replacement.Identity;
                 replacement = null;
             }
+            WatchWorkerDeath(alias, alias.Slot!);
             return PrivateHostOperationOutcome.Completed(
                 request.Operation is ResetOperation
                     ? new ResetResult(
@@ -889,6 +1021,8 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     }
                     alias.Replacing = false;
                 }
+                if (alias.Slot is not null)
+                    WatchWorkerDeath(alias, alias.Slot);
                 throw;
             }
             if (replacement is not null)
@@ -898,7 +1032,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             }
             MarkAliasFaulted(alias);
             await TryWriteFaultLifecycleAsync(
-                    request,
+                    request.RequestId,
                     binding,
                     current.Identity,
                     PublicSessionState.Resetting,
@@ -1019,7 +1153,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             }
             MarkAliasFaulted(alias);
             await TryWriteFaultLifecycleAsync(
-                    request,
+                    request.RequestId,
                     binding,
                     current.Identity,
                     PublicSessionState.Closing,
@@ -1042,7 +1176,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
     }
 
     private async ValueTask TryWriteFaultLifecycleAsync(
-        OperationRequest request,
+        PrivateRequestId? requestId,
         RecoveryBinding binding,
         GuardianHostWorkerIdentity worker,
         PublicSessionState previousState,
@@ -1056,7 +1190,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                         _identity.HostBootId,
                         _identity.HostGeneration,
                         sequence,
-                        request.RequestId,
+                        requestId,
                         binding.Alias,
                         binding.TransitionVersion,
                         worker,
@@ -1440,6 +1574,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         internal PrivateHostWorkerSlot? Slot { get; set; }
         internal bool Replacing { get; set; }
         internal bool Faulted { get; set; }
+        internal int ConsecutiveDeaths { get; set; }
         internal Dictionary<long, CapabilityToken> OutstandingJobs { get; } = [];
         internal Dictionary<long, CapabilityToken> CompletedJobs { get; } = [];
     }

@@ -26,8 +26,15 @@ short and update it when important repo facts change.
   throwing an assertion introduced by the same cutover commit that caused the
   defect, so it recorded the bug's assumption rather than a product constraint.
   Guards: a cross-platform composition identity (real apphost, seal → handle →
-  read back) and an in-proc rig identity, both mutation-proven. macOS:
-  architecture 73/73, Guardian 493/493.
+  read back) and an in-proc rig identity, both mutation-proven. Verified at
+  `4b0df6e` on macOS (architecture 73/73, Guardian 493/493, server 2,043/2,043,
+  Pester 141 with two expected skips, complete handshake) and on Windows
+  `NETWATCH-01`, where Guardian went 489/491 → **492/493** and the previously
+  failing `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output`
+  passes. The one remaining Windows failure is `r6x-2` #2.
+  **Unpushed commits reach `NETWATCH-01` by git bundle over SSH** — bundle the
+  range locally, `scp` it, then `git fetch <bundle> <branch>` in the disposable
+  checkout; its only remote is `origin`, which cannot see local work.
 - **R6 sub-slice 4 is complete on `feature/mcp-resilience-r1`.** `b18fc09`
   holds guardian declared session state per alias inside
   `FrozenDefaultSessionState` with byte-identical default-alias behavior;
@@ -809,18 +816,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **`r6x-2` #3 is fixed on macOS and needs a Windows re-run.** Background job
-   output is sealed by `WorkerPrivateHostRuntime` at the job terminal and is
-   readable by opaque handle; two new guards (one cross-platform composition
-   identity, one in-proc rig identity) are mutation-proven. Confirm
-   `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` now
-   passes on `NETWATCH-01`, and that the new composition guard passes there
-   too. Windows work is directly drivable from the Mac — see
-   `.agents/machines.md` ("Reaching it from the Mac"). A disposable checkout
-   stands at `F:\dev\ptk-r6x-diag`, detached at `fc93227` with the `r6x-3` fix
-   applied; it needs updating to the current head. **Do not modify the owner's
-   `F:\dev\PowerShell-Token-Killer` checkout.**
-2. **`r6x-2` #2 is the last failure in that finding**:
+1. **`r6x-2` #2 is the last failure in that finding**:
    `Windows_composition_never_replays_a_real_effect_when_the_host_dies`, a bare
    60-second timeout, undiagnosed. Deterministic (2 of 2 isolated runs), so it
    is directly reproducible. Do **not** assume it shares a cause with #1 or #3.

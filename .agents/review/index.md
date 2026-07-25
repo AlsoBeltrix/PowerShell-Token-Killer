@@ -2912,8 +2912,22 @@ validation"). Finding record: `.agents/review/findings/r6x-1.md`.
 | ID     | Severity | Impact (one line)                                              | Status | Branch | Reviewer |
 |--------|----------|----------------------------------------------------------------|--------|--------|----------|
 | r6x-1  | HIGH     | Windows evidence anchoring dies past MAX_PATH; audit fails closed | `[x]`  | feature/mcp-resilience-r1 (`09bc6a0`, `168905c`) | kimi/kimi-code-k3/default/standard |
-| r6x-2  | HIGH     | Three `Windows_*` real-composition tests fail for a non-audit reason | `[ ]`  |        |          |
+| r6x-2  | HIGH     | Three `Windows_*` real-composition tests fail for a non-audit reason | `[~]`  | feature/mcp-resilience-r1 (`0848e36`, #1 only) | kimi (pending) |
 | r6x-3  | MEDIUM   | `State_polling_..._scheduler_inert` fails ~4/5 on Windows        | `[ ]`  |        |          |
+
+**r6x-2 progress 2026-07-25:** #1 (ambiguous reset) root-caused and fixed at
+`0848e36`. An ambiguous session outcome was being silently and permanently
+erased by a host restoring its declared session — and because the snapshot type
+ties `readyForEffects` to `state == Ready`, the alias projected fully usable, so
+work could be dispatched into a session whose outcome was unknown. The
+ambiguity is now sticky until an authoritative repair. The real Windows
+composition test passes twice on `NETWATCH-01`; Windows Guardian 480/484 →
+484/486; macOS fully green at 486/486 and 2,039/2,039. Mutation-proven with
+three mutations, each reddening only its own guard. Notably the pre-existing
+`Ambiguous_lifecycle_stays_blocked_until_an_authoritative_repair` covered only
+`ObserveHostReady`, not the lifecycle channel that carries the restoration —
+which is how the defect shipped past a test named for it. #2 and #3 remain
+open and deterministic.
 
 **Raised 2026-07-25:** Windows Guardian 480/484 — the four failures are all
 `ProductionGuardianCompositionTests.Windows_*`; Windows server 2,012/2,037

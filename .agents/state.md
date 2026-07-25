@@ -722,13 +722,17 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Diagnose `r6x-2` on `NETWATCH-01`** — the three surviving `Windows_*`
-   real-composition failures, which R6's acceptance matrix must prove. Test the
-   "they share one cause" hypothesis rather than assuming it; assuming it is
-   what produced the `r6x-1` over-attribution. `r6x-3` (Windows
-   nondeterminism, ~4/5 failing, `Assert.Equal` 1 vs 2) follows and is
-   tractable directly rather than by repetition. Both need a Windows host.
-   `r6x-1` itself is closed and needs nothing further.
+1. **Diagnose `r6x-2`'s remaining two failures on `NETWATCH-01`**:
+   `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` ("output
+   capture unavailable" — points at the supervisor-owned output store) and
+   `Windows_composition_never_replays_a_real_effect_when_the_host_dies` (bare
+   60-second timeout). Both fail deterministically, so both are directly
+   reproducible. Do **not** assume they share a cause with each other or with
+   the fixed #1 — #1 turned out to be guardian declared-state ordering, and
+   assuming a shared cause is what produced the original `r6x-1`
+   over-attribution. `r6x-3` (Windows nondeterminism, ~4/5 failing,
+   `Assert.Equal` 1 vs 2) follows and is tractable directly rather than by
+   repetition. `r6x-1` and `r6x-2` #1 are closed and need nothing further.
 2. Continue sub-slice 5 from head `49b9602`: guardian-side recovery
    projection (recoveryPhase/attempt/retryAfter per alias from the
    recovery lifecycle facts), `TryGetJobListTargetInvalidation` from that
@@ -851,8 +855,23 @@ short and update it when important repo facts change.
   anchoring identities. Windows guard proof: all four conversions stripped →
   both guards red, restored → green, and each conversion stripped alone reddens
   only its own guard.
-- **R6's Windows acceptance is still blocked, now on `r6x-2` and `r6x-3`, not
-  on `r6x-1`.** Fixing `r6x-1` corrected an over-attribution made when it was
+- **`r6x-2`'s ambiguous-reset defect is fixed and verified at code head
+  `0848e36`** (owner authorised in-session 2026-07-25: "fix it"). An ambiguous
+  session-changing outcome was silently and permanently erased by a host
+  restoring its declared session, and because `PublicSessionStateSnapshot` ties
+  `readyForEffects` to `state == Ready`, the alias projected **fully usable** —
+  work could be dispatched into a session whose outcome nobody knew. The
+  ambiguity is now sticky (`AliasState.AmbiguousUntilRepaired`), armed by
+  `ObserveSessionRecoveryUnknown` and cleared only by the interface's
+  authoritative `ObserveSessionOperationResult`. The real Windows composition
+  test passes twice on `NETWATCH-01`; Windows Guardian 480/484 → 484/486; macOS
+  fully green (486/486, 2,039/2,039, Pester 141, handshake). Three mutations
+  each redden only their own guard. **This was not a Windows-specific defect:**
+  the guard was missing on every platform, so macOS was passing the composition
+  test by ordering luck, and the ambiguous-reset contract has no Unix
+  composition test at all — a scoped follow-up.
+- **R6's Windows acceptance is still blocked, now on `r6x-2`'s remaining two
+  failures and `r6x-3`.** Fixing `r6x-1` corrected an over-attribution made when it was
   raised: it owned seven server-side identities plus exactly ONE of the four
   `Windows_*` composition tests (`..._classifies_real_prewrite_loss`, the one
   that failed through `audit=unavailable`). The other three composition

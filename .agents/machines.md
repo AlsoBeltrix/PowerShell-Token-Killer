@@ -1775,3 +1775,38 @@ and matched on `NETWATCH-01`. Windows root `F:\v3\168905c`._
   rate. It merely got lucky during the single full-suite run at `5e8b3be`. It
   fails `Assert.Equal` expected 1, actual 2 at
   `GuardianHostSupervisorTests.cs:2267` and is filed as `r6x-3`.
+
+## r6x-2 #1 fix validation (macOS and Windows, 2026-07-25)
+
+_Verified at exact code head `0848e36`, archive SHA-256
+`ae00365bbb15a306f6bb575bde2dad6a280215bb80d5959bc6c73503341f57cf`. Windows
+root `F:\r3\0848e36`._
+
+- **Diagnosis probe (at `3ecc86f`, before the fix).** A throwaway patch kept
+  polling `ptk_state` past the point the composition test asserts. Across 61
+  samples spanning 6 seconds the session never left
+  `Ready / warmLost=True / boot=Restored`, which proved the ambiguous marking
+  was erased permanently rather than arriving late. `BootstrapState.Restored`
+  is written only by the Ready branch of `ObserveSessionLifecycle`, which
+  pinned the mechanism.
+- **Guard proof on macOS** (both guards are platform-neutral, unlike `r6x-1`'s):
+  baseline 3/3 green; dropping the interception and never arming the sticky flag
+  each redden only `Ready_lifecycle_cannot_repair_an_ambiguous_alias`; never
+  clearing the flag on repair reddens only
+  `Repaired_alias_accepts_an_ordinary_ready_lifecycle_again`; restored 3/3
+  green. The restore legs stamp `LastWriteTimeUtc` so MSBuild genuinely
+  rebuilds — the same trap that voided an earlier `r6x-1` proof attempt.
+- **Windows end-to-end.** The real
+  `Windows_composition_requires_explicit_repair_after_ambiguous_reset` passes
+  twice at `0848e36` on `NETWATCH-01` (`Failed: 0` both runs), and the two new
+  guards pass there too. Guardian went 480/484 → **484/486**; the only
+  remaining failures are `r6x-2`'s other two identities
+  (`..._keeps_a_real_job_tombstone_and_sealed_output`,
+  `..._never_replays_a_real_effect_when_the_host_dies`), untouched by design.
+- **macOS at `0848e36` is fully green**: architecture 73/73, Guardian 486/486,
+  server 2,039/2,039, Pester 141 with two expected skips, complete stdio
+  handshake.
+- `r6x-3` passed in that Windows Guardian run. That is its recorded ~1-in-5
+  pass, not a repair; it remains open and unrelated to this fix.
+- The Windows tree `F:\r3\0848e36` is retained for the still-open `r6x-2` #2/#3
+  diagnosis; `F:\r2\3ecc86f` was the diagnosis tree for #1.

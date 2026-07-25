@@ -2880,3 +2880,21 @@ Finding record: `.agents/review/findings/or5-4.md`.
 `guard_confirmed=true`, zero comments. This closes the or5 remediation
 batch (or5-1, or5-2, or5-3, or5-4 all Verified); or5-5's thinnest-path
 direction governs sub-slice 5 next.
+
+---
+
+Loop run 2026-07-25 — reviewer: claude (Claude Code 2.1.219,
+claude-opus-5 @ max, frontier/competitive), scope: sub-slice 5 thinnest
+loss path, range `6512be8..d9f9c2b` + repairs `0d6ffe1`, `0a84e45`,
+`49b9602` on `feature/mcp-resilience-r1`. Finding record:
+`.agents/review/findings/s5-1.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| s5-1  | HIGH     | No worker-death detection; dead workers served forever         | `[x]`  | feature/mcp-resilience-r1 (`49b9602`) |
+
+**Loop CLOSED 2026-07-25T05:31Z:** turn 1 REOPENED (init arming, gap
+classification, counter pinning), turn 2 REOPENED (vacuous init guard,
+reopen/close counter clears), round-2 repair-delta VERDICT ACCEPTED,
+`guard_confirmed=true`, zero comments, plus reviewer-designed regression
+guard landed at `49b9602`.

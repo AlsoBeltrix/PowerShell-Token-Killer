@@ -891,6 +891,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
                     slot.Identity.Generation.Value);
                 alias.Slot = slot;
+                alias.ConsecutiveDeaths = 0;
                 active = slot.Identity;
                 slot = null;
             }
@@ -1144,6 +1145,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             {
                 alias.Slot = null;
                 alias.Replacing = false;
+                alias.ConsecutiveDeaths = 0;
             }
             return PrivateHostOperationOutcome.Completed(
                 new SessionCloseResult(

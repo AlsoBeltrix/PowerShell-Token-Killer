@@ -913,6 +913,13 @@ public sealed class WorkerPrivateHostRuntimeTests
             rig.Launch.Processes.Count == 1,
             "the first slot launching while the second is gated");
         rig.Launch.Processes[0].Kill();
+        // The dead worker's watcher continuation must run (and be refused by
+        // the pre-Ready lease gate) before initialization is allowed to reach
+        // Ready — otherwise the old in-loop arming recovers anyway and this
+        // test cannot prove the post-Ready arming is what saves the alias.
+        await Task.Delay(
+            TimeSpan.FromMilliseconds(100),
+            TestContext.Current.CancellationToken);
         gate.TrySetResult();
         await initialize.WaitAsync(TestContext.Current.CancellationToken);
 

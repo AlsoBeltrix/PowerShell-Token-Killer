@@ -1,0 +1,181 @@
+diff --git a/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs b/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
+index 8f7e734..9544b32 100644
+--- a/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
++++ b/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
+@@ -22,6 +22,176 @@ public sealed class ProductionGuardianCompositionTests
+     private static readonly WorkerBootId Worker = new(
+         Guid.Parse("22222222-2222-4222-8222-222222222222"));
+ 
++    private static void ProbeLog(string line) =>
++        File.AppendAllText(
++            Environment.GetEnvironmentVariable("PTK_PROBE_LOG") ??
++                Path.Combine(Path.GetTempPath(), "ptk-probe.log"),
++            line + Environment.NewLine);
++
++    [Fact]
++    public async Task Probe_background_job_seals_output_on_this_platform()
++    {
++        var auditRoot = TemporaryRoot("probe-job-audit");
++        var outputRoot = TemporaryRoot("probe-job-output");
++        string? nativeRoot = null;
++        IPrivateHostProcessLauncher launcher;
++        MatchedPackageFacts package;
++        if (OperatingSystem.IsWindows())
++        {
++            launcher = new WindowsPrivateHostProcessLauncher();
++            package = Package(FindServerAppHost());
++        }
++        else
++        {
++            nativeRoot = TemporaryRoot("probe-native-broker");
++            Directory.CreateDirectory(nativeRoot);
++            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
++            await CompileGuardianBrokerAsync(broker);
++            launcher = new UnixPrivateHostProcessLauncher(broker);
++            package = Package(FindServerAppHost(), broker);
++        }
++        var composition = ProductionGuardianComposition.Create(
++            package,
++            LocalAudit(auditRoot),
++            launcher,
++            OutputOptions(outputRoot),
++            guardianBootId: Guardian,
++            defaultWorkerBootId: Worker);
++        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
++        using var input = new R3BoundedOneWayStream();
++        using var output = new R3BoundedOneWayStream();
++        using var writer = new StreamWriter(
++            input,
++            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
++            bufferSize: 1024,
++            leaveOpen: true)
++        {
++            AutoFlush = true,
++            NewLine = "\n",
++        };
++        using var reader = new StreamReader(
++            output,
++            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
++            detectEncodingFromByteOrderMarks: false,
++            bufferSize: 1024,
++            leaveOpen: true);
++        using var standardError = new StringWriter();
++        var run = Program.RunAsync(
++            [],
++            input,
++            output,
++            standardError,
++            productionComposition: composition,
++            cancellationToken: timeout.Token);
++        try
++        {
++            _ = await RequestAsync(
++                writer,
++                reader,
++                requestId: 1,
++                "initialize",
++                new
++                {
++                    protocolVersion = "2025-06-18",
++                    capabilities = new { },
++                    clientInfo = new
++                    {
++                        name = "probe-job-seal",
++                        version = "1.0.0",
++                    },
++                },
++                timeout.Token);
++            await WriteAsync(
++                writer,
++                new
++                {
++                    jsonrpc = "2.0",
++                    method = "notifications/initialized",
++                    @params = new { },
++                },
++                timeout.Token);
++
++            var startedResponse = await RequestAsync(
++                writer,
++                reader,
++                requestId: 2,
++                "tools/call",
++                new
++                {
++                    name = "ptk_invoke",
++                    arguments = new
++                    {
++                        script = "Write-Output 'PTK_R5_SEALED_JOB_OUTPUT'",
++                        raw = true,
++                        route = "pwsh",
++                        background = true,
++                        timeoutSeconds = 10,
++                        session = "default",
++                    },
++                },
++                timeout.Token);
++            var startedText = ToolText(startedResponse, expectedError: false);
++            ProbeLog("PROBE_START>>>" + startedText.Replace("\n", "|"));
++            var jobId = MarkerInteger(startedText, "[job ");
++
++            string? lastStatus = null;
++            var requestId = 3;
++            var sealedAt = -1;
++            for (var attempt = 0; attempt < 80; attempt++)
++            {
++                var statusResponse = await RequestAsync(
++                    writer,
++                    reader,
++                    requestId++,
++                    "tools/call",
++                    new
++                    {
++                        name = "ptk_job",
++                        arguments = new
++                        {
++                            action = "status",
++                            id = jobId,
++                            session = "default",
++                        },
++                    },
++                    timeout.Token);
++                var candidate = ToolText(statusResponse, expectedError: false);
++                if (candidate != lastStatus)
++                {
++                    ProbeLog(
++                        $"PROBE_STATUS[{attempt}]>>>" +
++                        candidate.Replace("\n", "|"));
++                }
++                lastStatus = candidate;
++                if (candidate.Contains("exited 0", StringComparison.Ordinal) &&
++                    candidate.Contains("ptk_output handle=", StringComparison.Ordinal))
++                {
++                    sealedAt = attempt;
++                    break;
++                }
++                await Task.Delay(25, timeout.Token);
++            }
++            ProbeLog($"PROBE_SEALED_AT>>>{sealedAt}");
++            ProbeLog("PROBE_LAST>>>" + (lastStatus ?? "<none>").Replace("\n", "|"));
++        }
++        finally
++        {
++            input.CompleteWriting();
++            try
++            {
++                await run.WaitAsync(TimeSpan.FromSeconds(20), timeout.Token);
++            }
++            catch (Exception exception)
++            {
++                ProbeLog("PROBE_SHUTDOWN>>>" + exception.GetType().Name);
++            }
++            ProbeLog("PROBE_STDERR>>>" + standardError.ToString().Replace("\n", "|"));
++            await composition.DisposeAsync();
++            DeleteRoot(auditRoot);
++            if (nativeRoot is not null) DeleteRoot(nativeRoot);
++        }
++    }
++
+     [Fact]
+     public async Task Composition_freezes_package_session_and_guardian_owned_state()
+     {

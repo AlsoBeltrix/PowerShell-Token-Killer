@@ -886,6 +886,26 @@ short and update it when important repo facts change.
   apply the same carried-read shape rather than `isAsync: true` (the async
   `FileStream` constructor blocked on the inherited pipe descriptor on macOS
   .NET 10.0.10).
+- **`UnixPrivateHostProcessLauncherTests.Native_broker_owns_creation_time_group_and_confirms_de...`
+  is intermittent at a high rate under full-suite parallelism: it failed 2 of 4
+  full-solution runs at head `2dc57ea` and passed 3 of 3 when its class runs
+  alone.** The full battery does pass cleanly at that head — architecture
+  73/73, Guardian 492/492, server 2,042/2,042 on the fourth run — but at a
+  ~50% per-run failure rate that green is partly luck, so treat any single
+  green full run at this head as weak evidence and re-run before relying on it.
+  It is a real-process test with timing assertions, and Guardian ran green in
+  full-solution runs through `02b924c`; the only Guardian-side change in
+  `2dc57ea` is one added pure unit test, which points at the scheduling shift
+  adding a test causes rather than at that test's logic. This repo has the
+  exact precedent recorded above (`StdioChildStdinTests`/`JobManagerTests`
+  racing on process-wide `PATH`, fixed by shared-collection assignment); the
+  proportionate fix is likely the same, but confirm before assuming.
+  Two classification errors were made and corrected while establishing this:
+  it was called a flake on one sample, then called deterministic on two, before
+  four runs showed it is intermittent. One sample is not a classification.
+  Separately, `PtkMcpServer.Tests.FileAuditJournalSinkTests.Concurrent_factories_converge_on_one...`
+  failed once, passed 3/3 isolated, and did not recur across three further full
+  runs; that one is consistent with the load flakes already named above.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

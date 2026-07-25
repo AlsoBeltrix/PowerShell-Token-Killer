@@ -147,6 +147,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 ReferenceEquals(alias.Slot, slot))
             {
                 lease = BeginReplacement(alias, slot);
+                alias.ReplacingAutomatically = true;
             }
         }
         if (lease is null) return;
@@ -202,6 +203,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     relaunch.Identity.Generation.Value);
                 alias.Slot = relaunch;
                 alias.Replacing = false;
+                alias.ReplacingAutomatically = false;
             }
             WatchWorkerDeath(alias, relaunch);
             _ = ResetDeathCounterAfterStabilityAsync(alias, relaunch);
@@ -302,9 +304,9 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
                         slot.Identity.Generation.Value);
                 }
-                WatchWorkerDeath(_aliases[declaration.Binding.Alias], slot);
             }
 
+            PrivateHostWorkerSlot[] live;
             lock (_gate)
             {
                 if (_state != WorkerPrivateHostRuntimeState.Initializing)
@@ -314,6 +316,20 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 }
                 created.Clear();
                 _state = WorkerPrivateHostRuntimeState.Ready;
+                live = _aliases.Values
+                    .Where(alias => alias.Slot is not null)
+                    .Select(alias => alias.Slot!)
+                    .ToArray();
+            }
+            // Arm watches only once the runtime is Ready: a worker that died
+            // during the launch sequence has its Fatal already completed, so
+            // the fresh watch fires immediately and starts recovery instead
+            // of leaving a dead slot watched by nobody.
+            foreach (var slot in live)
+            {
+                var alias = _aliases[slot.Binding.Alias];
+                if (ReferenceEquals(alias.Slot, slot))
+                    WatchWorkerDeath(alias, slot);
             }
         }
         catch
@@ -980,6 +996,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     new WorkerGenerationHighWatermark(
                         replacement.Identity.Generation.Value);
                 alias.Replacing = false;
+                alias.ConsecutiveDeaths = 0;
                 active = replacement.Identity;
                 replacement = null;
             }
@@ -1017,6 +1034,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                         alias.GenerationHighWatermark =
                             new WorkerGenerationHighWatermark(
                                 replacement.Identity.Generation.Value);
+                        alias.ConsecutiveDeaths = 0;
                         replacement = null;
                     }
                     alias.Replacing = false;
@@ -1169,6 +1187,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         {
             alias.Slot = null;
             alias.Replacing = false;
+            alias.ReplacingAutomatically = false;
             alias.Faulted = true;
             alias.OutstandingJobs.Clear();
             alias.CompletedJobs.Clear();
@@ -1260,6 +1279,11 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             {
                 return RuntimeValidation.Failed(
                     GuardianHostPrivateDetailCode.ExpectedGenerationMismatch);
+            }
+            if (alias.ReplacingAutomatically)
+            {
+                return RuntimeValidation.Failed(
+                    GuardianHostPrivateDetailCode.WorkerLost);
             }
             if (alias.Replacing)
             {
@@ -1573,6 +1597,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             generationHighWatermark;
         internal PrivateHostWorkerSlot? Slot { get; set; }
         internal bool Replacing { get; set; }
+        internal bool ReplacingAutomatically { get; set; }
         internal bool Faulted { get; set; }
         internal int ConsecutiveDeaths { get; set; }
         internal Dictionary<long, CapabilityToken> OutstandingJobs { get; } = [];

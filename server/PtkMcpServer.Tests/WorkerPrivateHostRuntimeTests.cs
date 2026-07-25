@@ -850,6 +850,280 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
+    public async Task A_worker_dying_during_initialization_recovers_once_ready()
+    {
+        var defaultBinding = new RecoveryBinding(
+            Alias,
+            RecoveryBindingKind.Default,
+            templateName: null,
+            templateDigest: null,
+            bootstrapDigest: null,
+            allowColdBackground: true,
+            DesiredSessionState.Ready,
+            Transition,
+            Digest('a'));
+        var dynamicAlias = new CanonicalAlias("scratch");
+        var manifest = new RecoveryManifest(
+            Guardian,
+            HostGeneration,
+            Digest('b'),
+            Digest('c'),
+            [],
+            [
+                defaultBinding,
+                new RecoveryBinding(
+                    dynamicAlias,
+                    RecoveryBindingKind.Dynamic,
+                    templateName: null,
+                    templateDigest: null,
+                    bootstrapDigest: null,
+                    allowColdBackground: true,
+                    DesiredSessionState.Ready,
+                    new SessionTransitionVersion(1),
+                    Digest('d')),
+            ],
+            [
+                new WorkerGenerationHighWatermarkEntry(
+                    Alias,
+                    new WorkerGenerationHighWatermark(8)),
+                new WorkerGenerationHighWatermarkEntry(
+                    dynamicAlias,
+                    new WorkerGenerationHighWatermark(1)),
+            ],
+            HostGeneration);
+        var initialization = new PrivateHostInitialization(
+            manifest,
+            new PrivateRequestId(1),
+            new ManifestId(
+                Guid.Parse("11111111-1111-4111-8111-111111111111")),
+            Sha256Digest.Compute(RecoveryManifestCodec.Encode(manifest)));
+        var rig = new RuntimeRig(generations: [9, 10, 11]);
+        var gate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Launch.OnLaunchCall = index =>
+        {
+            if (index == 1) rig.Launch.BlockNextLaunch = gate;
+        };
+
+        var initialize = rig.Runtime.InitializeAsync(
+                initialization,
+                TestContext.Current.CancellationToken)
+            .AsTask();
+        await WaitUntilAsync(() =>
+            rig.Launch.Processes.Count == 1,
+            "the first slot launching while the second is gated");
+        rig.Launch.Processes[0].Kill();
+        gate.TrySetResult();
+        await initialize.WaitAsync(TestContext.Current.CancellationToken);
+
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(
+                lifecycle => lifecycle.Reason ==
+                    GuardianHostSessionLifecycleReason.AutomaticRecovery &&
+                lifecycle.SessionAlias == Alias &&
+                lifecycle.WorkerIdentity?.Generation.Value == 11),
+            "the init-time death's recovery after ready");
+
+        var replacement = rig.Launch.Processes[2];
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            Request(
+                40,
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(replacement.WorkerBootId),
+                    new WorkerGeneration(replacement.Generation)),
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+        var scratchOutcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(41),
+                Deadline,
+                dynamicAlias,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(rig.Launch.Processes[1].WorkerBootId),
+                    new WorkerGeneration(rig.Launch.Processes[1].Generation)),
+                null,
+                new JobListOperation(Call(41), Dispatch(41))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(scratchOutcome.Result);
+    }
+
+    [Fact]
+    public async Task Operations_during_the_recovery_gap_report_worker_lost()
+    {
+        var rig = new RuntimeRig(generations: [9, 10, 11]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+        var gate = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        rig.Launch.BlockNextLaunch = gate;
+
+        rig.Launch.Processes[1].Kill();
+        await WaitUntilAsync(() => rig.Launch.LaunchCalls >= 3,
+            "the recovery reaching the gated launch");
+
+        var gap = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                scratchWorker,
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.WorkerLost,
+            gap.Error?.DetailCode);
+
+        gate.TrySetResult();
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(
+                lifecycle => lifecycle.Reason ==
+                    GuardianHostSessionLifecycleReason.AutomaticRecovery &&
+                lifecycle.SessionAlias == scratch &&
+                lifecycle.WorkerIdentity?.Generation.Value == 11),
+            "the recovery completing");
+        var replacement = rig.Launch.Processes[2];
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(41),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(replacement.WorkerBootId),
+                    new WorkerGeneration(replacement.Generation)),
+                null,
+                new JobListOperation(Call(41), Dispatch(41))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+    }
+
+    [Fact]
+    public async Task A_manual_reset_clears_the_consecutive_death_counter()
+    {
+        var rig = new RuntimeRig(generations: [9, 10, 11, 12, 13, 14]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+
+        rig.Launch.Processes[1].Kill();
+        await WaitUntilAsync(() => rig.Launch.Processes.Count >= 3,
+            "first relaunch");
+        rig.Launch.Processes[2].Kill();
+        await WaitUntilAsync(() => rig.Launch.Processes.Count >= 4,
+            "second relaunch");
+
+        var resetWorker = new GuardianHostWorkerIdentity(
+            new WorkerBootId(rig.Launch.Processes[3].WorkerBootId),
+            new WorkerGeneration(rig.Launch.Processes[3].Generation));
+        var reset = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(30),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            resetWorker,
+            null,
+            new ResetOperation(
+                Call(30),
+                Dispatch(30),
+                expectedGeneration: 12,
+                force: false));
+        var resetOutcome = await rig.Runtime.ExecuteOperationAsync(
+            reset,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<ResetResult>(resetOutcome.Result);
+
+        rig.Launch.Processes[4].Kill();
+        await WaitUntilAsync(() => rig.Launch.Processes.Count >= 6,
+            "the post-reset relaunch");
+        Assert.Equal(6, rig.Launch.Processes.Count);
+        Assert.DoesNotContain(
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
+            lifecycle => lifecycle.State == PublicSessionState.Faulted);
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(rig.Launch.Processes[5].WorkerBootId),
+                    new WorkerGeneration(rig.Launch.Processes[5].Generation)),
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+    }
+
+    [Fact]
+    public async Task Spaced_deaths_reset_the_counter_after_the_stability_window()
+    {
+        var rig = new RuntimeRig(
+            generations: [9, 10, 11, 12, 13],
+            stabilityWindow: TimeSpan.FromMilliseconds(200));
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        _ = await OpenAliasAsync(rig, scratch, 10);
+
+        for (var index = 1; index <= 3; index++)
+        {
+            rig.Launch.Processes[index].Kill();
+            await WaitUntilAsync(() =>
+                rig.Launch.Processes.Count >= index + 2,
+                $"relaunch {index}");
+            await Task.Delay(
+                TimeSpan.FromMilliseconds(400),
+                TestContext.Current.CancellationToken);
+        }
+
+        Assert.Equal(5, rig.Launch.Processes.Count);
+        Assert.DoesNotContain(
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
+            lifecycle => lifecycle.State == PublicSessionState.Faulted);
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(rig.Launch.Processes[4].WorkerBootId),
+                    new WorkerGeneration(rig.Launch.Processes[4].Generation)),
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+    }
+
+    [Fact]
     public async Task Unexpected_worker_death_relaunches_the_alias_at_the_next_generation()
     {
         var rig = new RuntimeRig(generations: [9, 10, 11]);
@@ -1668,7 +1942,7 @@ public sealed class WorkerPrivateHostRuntimeTests
 
     private sealed class RuntimeRig
     {
-        internal RuntimeRig(IReadOnlyList<long> generations)
+        internal RuntimeRig(IReadOnlyList<long> generations, TimeSpan? stabilityWindow = null)
         {
             Events = new RecordingHostChannel();
             Output = new RecordingOutputTransfer();
@@ -1703,7 +1977,8 @@ public sealed class WorkerPrivateHostRuntimeTests
                 workerEvents,
                 Output,
                 createJobCapability: () => Token(0x55),
-                unixTimeMilliseconds: () => 1);
+                unixTimeMilliseconds: () => 1,
+                stabilityWindow: stabilityWindow);
         }
 
         internal RecordingHostChannel Events { get; }
@@ -1743,8 +2018,11 @@ public sealed class WorkerPrivateHostRuntimeTests
         internal List<RecordingProcessClient> Processes { get; } = [];
         internal List<string> Order { get; } = [];
         internal bool FailNextLaunch { get; set; }
+        internal TaskCompletionSource? BlockNextLaunch { get; set; }
+        internal Action<int>? OnLaunchCall { get; set; }
+        internal int LaunchCalls { get; private set; }
 
-        public Task<IWorkerProcessClient> LaunchAsync(
+        public async Task<IWorkerProcessClient> LaunchAsync(
             RecoveryBinding binding,
             GuardianHostWorkerIdentity workerIdentity,
             DateTimeOffset deadlineUtc,
@@ -1759,10 +2037,17 @@ public sealed class WorkerPrivateHostRuntimeTests
                 throw new InvalidOperationException(
                     "Worker launch failed as scripted.");
             }
+            LaunchCalls++;
+            if (BlockNextLaunch is { } gate)
+            {
+                BlockNextLaunch = null;
+                await gate.Task.WaitAsync(cancellationToken);
+            }
+            OnLaunchCall?.Invoke(LaunchCalls);
             Order.Add($"launch:{workerIdentity.Generation.Value}");
             var process = new RecordingProcessClient(workerIdentity, Order);
             Processes.Add(process);
-            return Task.FromResult<IWorkerProcessClient>(process);
+            return process;
         }
     }
 

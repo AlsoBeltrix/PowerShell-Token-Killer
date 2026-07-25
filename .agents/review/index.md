@@ -2830,3 +2830,20 @@ scoping, range `ee58ed9..74897a4` + repair `94cea23` on
 identity/state defects C1/C2 + plan divergence C3), repair `94cea23`
 landed with three new mutation-proven guards and full battery green,
 repair-delta VERDICT ACCEPTED, `guard_confirmed=true`, zero comments.
+
+---
+
+Loop run 2026-07-24 — reviewer: claude (Claude Code 2.1.219,
+claude-opus-5 @ max, frontier/competitive), scope: or5-3 desired-state
+intent, range `4ea641a..47d9800` + repair `c4c1253` on
+`feature/mcp-resilience-r1`. Finding record:
+`.agents/review/findings/or5-3.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| or5-3 | MEDIUM   | Closed session resurrected; close of default crashed recovery  | `[x]`  | feature/mcp-resilience-r1 (`c4c1253`) |
+
+**Loop CLOSED 2026-07-24T22:47Z:** turn 1 REOPENED (default-close
+crash loop), repair `c4c1253` refuses closing default at both boundaries
+with mutation-proven guards and full battery green, repair-delta VERDICT
+ACCEPTED, `guard_confirmed=true`, zero comments.

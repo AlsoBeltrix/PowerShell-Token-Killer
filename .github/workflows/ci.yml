@@ -84,6 +84,34 @@ jobs:
         shell: pwsh
         run: ./server/test-handshake.ps1
 
+  # Isolated regression signal for r6x-1 (raw Win32 path arguments vs the legacy
+  # MAX_PATH ceiling). Both guards are Windows-gated and no-op everywhere else,
+  # so no macOS or Linux reviewer can reproduce their red-to-green proof. The
+  # `test` job above already executes them inside the full windows-latest server
+  # run; this job exists so a regression surfaces under its own name instead of
+  # being buried in that suite's output, and so it stays visible if the broad
+  # Windows run ever goes noisy for an unrelated reason.
+  windows-longpath-guards:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Protected-storage long-path guards
+        shell: pwsh
+        run: |
+          dotnet build server/PtkMcpServer.Tests/PtkMcpServer.Tests.csproj
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Direct assembly execution with xUnit v3 -method filters, matching the
+          # `test` job's runner choice rather than reintroducing VSTest.
+          dotnet server/PtkMcpServer.Tests/bin/Debug/net10.0/PtkMcpServer.Tests.dll `
+            -method 'PtkMcpServer.Tests.SecureAuditStorageTests.Windows_publishes_a_protected_file_past_the_legacy_max_path_limit' `
+            -method 'PtkMcpServer.Tests.SecureAuditStorageTests.Windows_replaces_a_protected_file_past_the_legacy_max_path_limit'
+          exit $LASTEXITCODE
+
   siem:
     strategy:
       fail-fast: false

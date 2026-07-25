@@ -62,10 +62,22 @@ short and update it when important repo facts change.
   contract). A second non-reproducing single-test battery flake occurred on
   2026-07-24 (name again not captured; two immediate full reruns green,
   2,569/2,569).
-- **Sub-slice 5 wiring design (mapped 2026-07-24, not yet coded).** Goal:
-  unexpected worker death on one alias recovers automatically to the next
-  generation with a fresh empty runspace; other aliases and the host are
-  unaffected; ambiguous losses become `recovery_unknown` with no replay.
+- **The or5 remediation batch is complete and fully reviewed on
+  `feature/mcp-resilience-r1`.** All four admitted openreview findings are
+  Verified: or5-1 per-alias fault scoping (`94cea23`), or5-3 desired-state
+  follows explicit intent plus the default-close refusal (`c4c1253`),
+  or5-2 dynamic-alias reopen with ambiguous-repair gating (`08d28d5`),
+  or5-4 job-capability release on terminal (`a0a034f`). Each went through
+  the codereview loop with claude-opus-5 (turn-1 accepted or
+  reopen→repair→accepted), every repair mutation-proven red-to-green, and
+  the full battery is green at 2,586 tests. or5-5's direction governs
+  sub-slice 5: the thinnest end-to-end loss → confirm-death →
+  next-generation → relaunch path per alias wired to real slot/containment
+  resources, the recovery machine's transition epoch kept as private
+  host-local bookkeeping (never on the wire), and all manual/automatic
+  lifecycle transitions on one alias single-flight arbitrated in one
+  place. The sub-slice 5 wiring design remains mapped in this file
+  (2026-07-24 bullets) minus the superseded lockstep-epoch sketch.
   1. Host-side detection in `WorkerPrivateHostRuntime`: per alias, watch
      `slot.Process.Fatal` and worker EOF/exit; map to the slot's
      `GuardianHostWorkerIdentity` and feed

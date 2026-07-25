@@ -1,98 +1,69 @@
 # Repo-Specific Guidance
 <!-- Extends AGENTS.md; never overrides it. Rules and pointers only — state
-     lives in .agents/state.md. -->
+     lives in .agents/state.md, decisions in .agents/decisions.md. -->
 
-## Mission Detail
+## Mission
 
-PowerShell Token Killer (invoked as `ptk`; the module on disk is named
-`PwshTokenCompressor`, and the name credits rtk, the Rust Token Killer) is a
-PowerShell-first token-compression tool for agent workflows: it captures PowerShell objects before they are
-formatted to text, summarizes them by type and selected properties, and
-renders compact output for LLM tool use. It is a structured-output compressor,
-not a Unix-command wrapper (see `README.md`).
+PowerShell Token Killer (`ptk`; module on disk `PwshTokenCompressor`, named
+after rtk) captures PowerShell objects before they are formatted to text and
+renders compact typed summaries for LLM tool use. It is a structured-output
+compressor, not a Unix-command wrapper (`README.md`).
 
-The owner treats this as a personal/team tool, not an org-wide product. (An
-earlier framing said it complements the owner's `headroom` PoC; headroom was
-stopped in 2026 as net negative — see the corrections in `.agents/decisions.md`.)
-The build trigger for larger architectural changes is measured benefit on real
-daily usage, not anticipated need — and specifically *experienced* benefit, not
-a tool's self-reported savings metric. The product go/no-go gate was decided
-**GO 2026-07-08** (unqualified; archived in `docs/history/decisions-archive.md`)
-— ptk continues as an active product; individual larger features still sit
-behind their own criteria in the Open Decisions of `.agents/decisions.md`
-rather than any blanket gate.
+A personal/team tool, not an org-wide product. Larger architectural changes are
+triggered by *experienced* benefit on real daily usage — never anticipated need,
+and never a tool's self-reported savings metric. Feature-level gates live in the
+Open Decisions of `.agents/decisions.md`.
 
 ## Reading Order
 
-1. `AGENTS.md`
-2. `.agents/repo-guidance.md` (this file)
-3. `.agents/state.md`
-4. `.agents/decisions.md`
-5. `README.md`
-6. `src/PwshTokenCompressor.psm1` and `tests/PwshTokenCompressor.Tests.ps1`
-7. `server/README.md` and `server/PtkMcpServer/Program.cs` (warm-runspace MCP
-   server; see `.agents/plans/warm-runspace-mcp-server.md`)
+`AGENTS.md` → this file → `.agents/state.md` → `.agents/decisions.md` →
+`README.md` → `src/PwshTokenCompressor.psm1` + `tests/PwshTokenCompressor.Tests.ps1`
+→ `server/README.md` + `server/PtkMcpServer/Program.cs`.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-07-03, all passing):
-
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
-```
-— 43/43 passed (PowerShell module suite; requires the Pester module, 5.8.0
-confirmed present in this environment).
-
-```
 dotnet test server/PtkMcpServer.slnx
-```
-— 29/29 passed (C# warm-runspace MCP server suite).
-
-```
 pwsh -NoProfile -File server/test-handshake.ps1
 ```
-— stdio handshake check for the MCP server; run manually when server-facing
-code changes (not re-run by this governance refresh).
 
-CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
-runs the same battery (Pester, dotnet test, handshake) on an
-ubuntu/windows/macos matrix for pushes to `master`/`ci/**` and PRs to
-`master`. Local verification before claiming completion still applies. See
-`.agents/repo-map.json` for the machine-readable record.
+The handshake is a manual stdio check; run it when server-facing code changes.
+Pass counts are not recorded here — read them from the run. `.github/workflows/ci.yml`
+runs the same battery on an ubuntu/windows/macos matrix; local verification
+before claiming completion still applies.
 
-## Remotes & Sync
+Host-specific requirements (physical `TMPDIR` on macOS, reaching the Windows
+box) live in `.agents/machines.md`.
 
-Known remote endpoints follow. The configured set and reachability are
-clone-local facts: confirm them live with `git remote -v` and use
-`.agents/machines.md` for host-specific exceptions.
+## Remotes
+
+`master` tracks `origin/master`. The configured set is clone-local — confirm
+with `git remote -v` rather than trusting this list.
 
 - `origin` — `https://github.com/AlsoBeltrix/PowerShell-Token-Killer.git`
-  (GitHub renamed the repo to capital-W `PowerShell-Token-Killer`; the URL
-  was updated to match on the owner's go, 2026-07-10)
-
-- `gitea` — `http://q:3000/michael/Powershell-Token-Killer.git` (owner's
-  local Gitea mirror; observed in the owner's push flow 2026-07-09)
-- `github` — `https://github.com/roethlar/Powershell-Token-Killer`
-  (observed in config 2026-07-10; purpose unconfirmed, presumed the owner's
+- `gitea` — `http://q:3000/michael/Powershell-Token-Killer.git` (local mirror)
+- `github` — `https://github.com/roethlar/Powershell-Token-Killer` (presumed
   personal mirror)
 
-`master` tracks `origin/master`. A `personal` remote
-(`https://github.com/roethlar/-PowerShell-Token-Killer.git`) was recorded
-here previously but no longer exists in this repo's git config as of
-2026-07-03 — flagged in this refresh's approval summary rather than silently
-dropped. Push policy stays in `.agents/push-policy.md`, not here.
+Push policy: `.agents/push-policy.md`.
 
 ## Earned Practices
 
-- **Agent experience leads on model-facing guidance text (owner,
-  2026-07-10, sd3-1 adjudication).** ptk's model-visible wording — tool
-  descriptions, in-band markers, nudge text, refusal guidance — is
-  guidance by an agent for an agent. When an approved plan's letter runs
-  contrary to what the implementing agent and the reviewer judge works
-  best for model interaction, lean toward that judgment and surface the
-  final question to the owner rather than implementing wording the agents
-  believe misleads. Incident: sd3-1 (`.agents/review/findings/sd3-1.md`)
-  — the plan's per-surface pairing requirement would have put a useless
-  recovery suggestion inside every elision marker; the owner delegated
-  the call and the marker stayed lean, with the D2 amendment recorded in
-  `.agents/decisions.md`.
+- **Agent experience leads on model-facing guidance text** (owner, 2026-07-10,
+  sd3-1). ptk's model-visible wording — tool descriptions, in-band markers,
+  nudge text, refusal guidance — is guidance by an agent for an agent. Where an
+  approved plan's letter runs contrary to what the implementing agent and
+  reviewer judge works best for model interaction, lean toward that judgment and
+  surface the question rather than shipping wording the agents believe misleads.
+
+- **A Windows-gated test failure is not evidence of a Windows-specific defect**
+  (2026-07-25, `r6x-2`). All three defects in that finding presented as
+  Windows-only and none were; the gate was a fact about coverage. Reproduce the
+  scenario on another platform before assuming the Windows host is required —
+  each check took minutes against days of assuming otherwise.
+
+- **A green suite is not a correct fix** (2026-07-25, `r6x-2` #3). A fix that
+  passed on both platforms was reopened in review for sealing truncated output
+  as complete and for never sealing at all past the 5-minute call deadline.
+  Prefer a second party running the guard proof over one's own confidence.

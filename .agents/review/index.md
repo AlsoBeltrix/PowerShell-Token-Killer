@@ -2847,3 +2847,20 @@ intent, range `4ea641a..47d9800` + repair `c4c1253` on
 crash loop), repair `c4c1253` refuses closing default at both boundaries
 with mutation-proven guards and full battery green, repair-delta VERDICT
 ACCEPTED, `guard_confirmed=true`, zero comments.
+
+---
+
+Loop run 2026-07-24 — reviewer: claude (Claude Code 2.1.219,
+claude-opus-5 @ max, frontier/competitive), scope: or5-2 dynamic-alias
+reopen, range `9bf51ff..9283ac9` + repair `08d28d5` on
+`feature/mcp-resilience-r1`. Finding record:
+`.agents/review/findings/or5-2.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| or5-2 | HIGH     | Closed/failed-open alias burned; ambiguous open unrepairable   | `[x]`  | feature/mcp-resilience-r1 (`08d28d5`) |
+
+**Loop CLOSED 2026-07-25T00:04Z:** turn 1 REOPENED (RecoveryUnknown
+blocked the explicit repair), repair `08d28d5` widened the gate with a
+mutation-proven ambiguous-open guard and full battery green, repair-delta
+VERDICT ACCEPTED, `guard_confirmed=true`, zero comments.

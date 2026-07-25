@@ -134,7 +134,10 @@ public sealed class GuardianHostUnionContractTests
                     ("reason_code", "requested_open"),
                     ("ready_for_effects", false),
                     ("warm_state_lost", false),
-                    ("bootstrap_state", "pending"))),
+                    ("bootstrap_state", "pending"),
+                    ("recovery_phase", null),
+                    ("recovery_attempt", null),
+                    ("retry_after_ms", null))),
             Event("worker_lost", null, "default", 1, WorkerId, 2, null, null,
                 Object(
                     ("reason_code", "process_exit"),

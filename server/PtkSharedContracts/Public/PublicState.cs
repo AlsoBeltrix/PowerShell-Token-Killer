@@ -96,6 +96,39 @@ public sealed record PublicHostStateSnapshot
 
 public sealed record PublicSessionStateSnapshot
 {
+    /// <summary>
+    /// The one canonical session state/recovery-phase pairing. Every producer of
+    /// a session recovery fact — the public snapshot and the guardian/host
+    /// lifecycle event that carries the fact across the private pipe — validates
+    /// against this rule, so a wire fact the host can emit is always a fact the
+    /// guardian can project.
+    /// </summary>
+    public static void ValidateRecoveryPhasePairing(
+        PublicSessionState state,
+        RecoveryPhase? recoveryPhase)
+    {
+        var expectedPhase = state switch
+        {
+            PublicSessionState.Backoff => global::PtkSharedContracts.RecoveryPhase.Backoff,
+            PublicSessionState.Bootstrapping => global::PtkSharedContracts.RecoveryPhase.Bootstrap,
+            PublicSessionState.CircuitOpen => global::PtkSharedContracts.RecoveryPhase.CircuitOpen,
+            PublicSessionState.HalfOpen => global::PtkSharedContracts.RecoveryPhase.HalfOpen,
+            _ => (RecoveryPhase?)null,
+        };
+        if (expectedPhase is not null && recoveryPhase != expectedPhase)
+            throw new ArgumentException("Session recovery phase does not match its state.");
+        if (state == PublicSessionState.Recovering && recoveryPhase is not (
+                global::PtkSharedContracts.RecoveryPhase.Containment or
+                global::PtkSharedContracts.RecoveryPhase.Attempting))
+            throw new ArgumentException("Recovering session has an invalid phase.");
+        var manual = state is PublicSessionState.Cold or PublicSessionState.Starting or
+            PublicSessionState.Ready or PublicSessionState.Resetting or PublicSessionState.Closing or
+            PublicSessionState.Faulted or PublicSessionState.Lost or PublicSessionState.Quarantined or
+            PublicSessionState.RecoveryUnknown;
+        if (manual && recoveryPhase is not null)
+            throw new ArgumentException("Nonautomatic session state cannot carry a recovery phase.");
+    }
+
     public PublicSessionStateSnapshot(
         CanonicalAlias alias,
         DesiredSessionState desiredState,
@@ -129,26 +162,7 @@ public sealed record PublicSessionStateSnapshot
         if (state == PublicSessionState.Cold && workerBootId is not null ||
             identityRequired && workerBootId is null)
             throw new ArgumentException("Worker identity does not match its state.");
-        var expectedPhase = state switch
-        {
-            PublicSessionState.Backoff => global::PtkSharedContracts.RecoveryPhase.Backoff,
-            PublicSessionState.Bootstrapping => global::PtkSharedContracts.RecoveryPhase.Bootstrap,
-            PublicSessionState.CircuitOpen => global::PtkSharedContracts.RecoveryPhase.CircuitOpen,
-            PublicSessionState.HalfOpen => global::PtkSharedContracts.RecoveryPhase.HalfOpen,
-            _ => (RecoveryPhase?)null,
-        };
-        if (expectedPhase is not null && recoveryPhase != expectedPhase)
-            throw new ArgumentException("Session recovery phase does not match its state.");
-        if (state == PublicSessionState.Recovering && recoveryPhase is not (
-                global::PtkSharedContracts.RecoveryPhase.Containment or
-                global::PtkSharedContracts.RecoveryPhase.Attempting))
-            throw new ArgumentException("Recovering session has an invalid phase.");
-        var manual = state is PublicSessionState.Cold or PublicSessionState.Starting or
-            PublicSessionState.Ready or PublicSessionState.Resetting or PublicSessionState.Closing or
-            PublicSessionState.Faulted or PublicSessionState.Lost or PublicSessionState.Quarantined or
-            PublicSessionState.RecoveryUnknown;
-        if (manual && recoveryPhase is not null)
-            throw new ArgumentException("Nonautomatic session state cannot carry a recovery phase.");
+        ValidateRecoveryPhasePairing(state, recoveryPhase);
         if (readyForEffects != (state == PublicSessionState.Ready))
             throw new ArgumentException("Session readiness does not match its state.");
 

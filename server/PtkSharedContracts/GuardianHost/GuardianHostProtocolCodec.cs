@@ -235,7 +235,10 @@ public static class GuardianHostProtocolCodec
             ("reason_code", Wire(item.Reason)),
             ("ready_for_effects", item.ReadyForEffects),
             ("warm_state_lost", item.WarmStateLost),
-            ("bootstrap_state", Wire(item.BootstrapState))),
+            ("bootstrap_state", Wire(item.BootstrapState)),
+            ("recovery_phase", item.RecoveryPhase is { } phase ? Wire(phase) : null),
+            ("recovery_attempt", item.RecoveryAttempt),
+            ("retry_after_ms", item.RetryAfterMilliseconds)),
         WorkerLostEvent item => Object(
             ("reason_code", Wire(item.Reason)),
             ("exit_code", item.ExitCode),
@@ -656,7 +659,10 @@ public static class GuardianHostProtocolCodec
                 Parse<GuardianHostSessionLifecycleReason>(payload.GetProperty("reason_code"), "reason_code"),
                 Boolean(payload.GetProperty("ready_for_effects")),
                 Boolean(payload.GetProperty("warm_state_lost")),
-                Parse<BootstrapState>(payload.GetProperty("bootstrap_state"), "bootstrap_state")),
+                Parse<BootstrapState>(payload.GetProperty("bootstrap_state"), "bootstrap_state"),
+                NullableEnum<RecoveryPhase>(payload.GetProperty("recovery_phase"), "recovery_phase"),
+                NullableInt64(payload.GetProperty("recovery_attempt")),
+                NullableInt32(payload.GetProperty("retry_after_ms"))),
             GuardianHostEventType.WorkerLost => new WorkerLostEvent(
                 guardian, host, hostGeneration, sequence, requestId, alias, transition,
                 Required(worker, "worker_boot_id"), operation,
@@ -1068,6 +1074,9 @@ public static class GuardianHostProtocolCodec
         Integral(value) is var parsed && parsed >= long.MinValue && parsed <= long.MaxValue
             ? decimal.ToInt64(parsed)
             : throw InvalidField("int64");
+
+    private static long? NullableInt64(JsonElement value) =>
+        value.ValueKind == JsonValueKind.Null ? null : Int64(value);
 
     private static uint UInt32(JsonElement value) =>
         Integral(value) is var parsed && parsed >= uint.MinValue && parsed <= uint.MaxValue

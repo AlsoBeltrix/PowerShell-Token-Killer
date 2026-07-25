@@ -1158,10 +1158,14 @@
         "recovering", "backoff", "bootstrapping", "circuit_open", "half_open", "recovery_unknown"
       ]
     },
+    "recovery_phase": {
+      "enum": ["attempting", "backoff", "bootstrap", "circuit_open", "containment", "half_open"]
+    },
     "session_lifecycle": {
       "type": "object",
       "x-ptk-property-order": [
-        "previous_state", "state", "reason_code", "ready_for_effects", "warm_state_lost", "bootstrap_state"
+        "previous_state", "state", "reason_code", "ready_for_effects", "warm_state_lost",
+        "bootstrap_state", "recovery_phase", "recovery_attempt", "retry_after_ms"
       ],
       "properties": {
         "previous_state": {
@@ -1177,12 +1181,49 @@
         },
         "ready_for_effects": { "type": "boolean" },
         "warm_state_lost": { "type": "boolean" },
-        "bootstrap_state": { "enum": ["not_applicable", "pending", "restored", "failed", "unknown"] }
+        "bootstrap_state": { "enum": ["not_applicable", "pending", "restored", "failed", "unknown"] },
+        "recovery_phase": {
+          "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/recovery_phase" }]
+        },
+        "recovery_attempt": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1, "maximum": 9223372036854775807 }
+          ]
+        },
+        "retry_after_ms": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 250, "maximum": 60000 }
+          ]
+        }
       },
       "required": [
-        "previous_state", "state", "reason_code", "ready_for_effects", "warm_state_lost", "bootstrap_state"
+        "previous_state", "state", "reason_code", "ready_for_effects", "warm_state_lost",
+        "bootstrap_state", "recovery_phase", "recovery_attempt", "retry_after_ms"
       ],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "state": { "enum": ["recovering", "backoff", "bootstrapping", "circuit_open", "half_open"] }
+        },
+        "required": ["state"]
+      },
+      "then": {
+        "properties": {
+          "ready_for_effects": { "const": false },
+          "recovery_phase": { "$ref": "#/$defs/recovery_phase" },
+          "recovery_attempt": { "type": "integer", "minimum": 1 },
+          "retry_after_ms": { "type": "integer", "minimum": 250, "maximum": 60000 }
+        }
+      },
+      "else": {
+        "properties": {
+          "recovery_phase": { "type": "null" },
+          "recovery_attempt": { "type": "null" },
+          "retry_after_ms": { "type": "null" }
+        }
+      }
     },
     "worker_lost": {
       "type": "object",

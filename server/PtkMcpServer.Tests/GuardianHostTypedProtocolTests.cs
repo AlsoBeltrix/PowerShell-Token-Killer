@@ -383,6 +383,24 @@ public sealed class GuardianHostTypedProtocolTests
                 Transition, Worker, null, PublicSessionState.Ready,
                 GuardianHostSessionLifecycleReason.AutomaticRecovery,
                 true, true, BootstrapState.Restored),
+            new SessionLifecycleEvent(
+                Guardian, Host, HostGeneration, EventSequence(84), null, Alias,
+                Transition, Worker, PublicSessionState.Ready, PublicSessionState.Recovering,
+                GuardianHostSessionLifecycleReason.WorkerExit,
+                false, true, BootstrapState.Pending,
+                RecoveryPhase.Containment, 1, 250),
+            new SessionLifecycleEvent(
+                Guardian, Host, HostGeneration, EventSequence(85), null, Alias,
+                Transition, Worker, PublicSessionState.Recovering, PublicSessionState.Bootstrapping,
+                GuardianHostSessionLifecycleReason.AutomaticRecovery,
+                false, true, BootstrapState.Pending,
+                RecoveryPhase.Bootstrap, 2, 60_000),
+            new SessionLifecycleEvent(
+                Guardian, Host, HostGeneration, EventSequence(86), null, Alias,
+                Transition, Worker, PublicSessionState.Recovering, PublicSessionState.CircuitOpen,
+                GuardianHostSessionLifecycleReason.CircuitTransition,
+                false, true, BootstrapState.Pending,
+                RecoveryPhase.CircuitOpen, 3, 1_000),
             new PreparedValidatorLifecycleEvent(
                 Guardian, Host, HostGeneration, EventSequence(83), RequestId(80), Alias,
                 Transition, Worker, OperationIdentity, GuardianHostValidatorPhase.Started,
@@ -397,6 +415,102 @@ public sealed class GuardianHostTypedProtocolTests
             var encoded = GuardianHostProtocolCodec.Encode(message);
             var decoded = GuardianHostProtocolCodec.Decode(encoded, message.Sender);
             Assert.Equal(message.GetType(), decoded.GetType());
+            Assert.Equal(encoded, GuardianHostProtocolCodec.Encode(decoded));
+        }
+    }
+
+    [Fact]
+    public void Session_lifecycle_recovery_metadata_is_complete_paired_and_terminal_free()
+    {
+        SessionLifecycleEvent Lifecycle(
+            PublicSessionState state,
+            bool readyForEffects,
+            BootstrapState bootstrapState,
+            RecoveryPhase? phase,
+            long? attempt,
+            int? retryAfter,
+            GuardianHostWorkerIdentity? worker = null) =>
+            new(Guardian, Host, HostGeneration, EventSequence(90), null, Alias, Transition,
+                worker ?? Worker, null, state,
+                GuardianHostSessionLifecycleReason.AutomaticRecovery,
+                readyForEffects, true, bootstrapState, phase, attempt, retryAfter);
+
+        var invalid = new Action[]
+        {
+            // Incomplete recovery metadata on a recovering state.
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Containment, 1, null),
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Containment, null, 250),
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                null, 1, 250),
+            // Attempt and retry-after bounds.
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Containment, 0, 250),
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Containment, 1, 249),
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Containment, 1, 60_001),
+            // A recovering session can never be ready for effects.
+            () => _ = Lifecycle(PublicSessionState.Recovering, true, BootstrapState.Pending,
+                RecoveryPhase.Containment, 1, 250),
+            // Phase must match the state, exactly as the public snapshot requires.
+            () => _ = Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Bootstrap, 1, 250),
+            () => _ = Lifecycle(PublicSessionState.Backoff, false, BootstrapState.Pending,
+                RecoveryPhase.Attempting, 1, 250),
+            () => _ = Lifecycle(PublicSessionState.Bootstrapping, false, BootstrapState.Pending,
+                RecoveryPhase.Attempting, 1, 250),
+            () => _ = Lifecycle(PublicSessionState.CircuitOpen, false, BootstrapState.Pending,
+                RecoveryPhase.HalfOpen, 1, 250),
+            () => _ = Lifecycle(PublicSessionState.HalfOpen, false, BootstrapState.Pending,
+                RecoveryPhase.CircuitOpen, 1, 250),
+            // Bootstrapping names the worker the public snapshot requires.
+            () => _ = new SessionLifecycleEvent(
+                Guardian, Host, HostGeneration, EventSequence(90), null, Alias, Transition,
+                null, null, PublicSessionState.Bootstrapping,
+                GuardianHostSessionLifecycleReason.AutomaticRecovery,
+                false, true, BootstrapState.Pending, RecoveryPhase.Bootstrap, 1, 250),
+            // Terminal states carry no recovery metadata at all.
+            () => _ = Lifecycle(PublicSessionState.Ready, true, BootstrapState.Restored,
+                RecoveryPhase.Attempting, null, null),
+            () => _ = Lifecycle(PublicSessionState.Ready, true, BootstrapState.Restored,
+                null, 1, null),
+            () => _ = Lifecycle(PublicSessionState.Ready, true, BootstrapState.Restored,
+                null, null, 250),
+            () => _ = Lifecycle(PublicSessionState.RecoveryUnknown, false, BootstrapState.Unknown,
+                RecoveryPhase.Containment, 1, 250),
+        };
+
+        foreach (var action in invalid) Assert.ThrowsAny<ArgumentException>(action);
+
+        // Every recovering state the contract admits round-trips through the
+        // frozen schema with its paired phase.
+        var valid = new[]
+        {
+            Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Containment, 1, 250),
+            Lifecycle(PublicSessionState.Recovering, false, BootstrapState.Pending,
+                RecoveryPhase.Attempting, 2, 500),
+            Lifecycle(PublicSessionState.Backoff, false, BootstrapState.Pending,
+                RecoveryPhase.Backoff, 3, 1_000),
+            Lifecycle(PublicSessionState.Bootstrapping, false, BootstrapState.Pending,
+                RecoveryPhase.Bootstrap, 4, 2_000),
+            Lifecycle(PublicSessionState.CircuitOpen, false, BootstrapState.Pending,
+                RecoveryPhase.CircuitOpen, 5, 30_000),
+            Lifecycle(PublicSessionState.HalfOpen, false, BootstrapState.Pending,
+                RecoveryPhase.HalfOpen, 6, 60_000),
+        };
+
+        foreach (var message in valid)
+        {
+            var encoded = GuardianHostProtocolCodec.Encode(message);
+            var decoded = Assert.IsType<SessionLifecycleEvent>(
+                GuardianHostProtocolCodec.Decode(encoded, message.Sender));
+            Assert.Equal(message.State, decoded.State);
+            Assert.Equal(message.RecoveryPhase, decoded.RecoveryPhase);
+            Assert.Equal(message.RecoveryAttempt, decoded.RecoveryAttempt);
+            Assert.Equal(message.RetryAfterMilliseconds, decoded.RetryAfterMilliseconds);
             Assert.Equal(encoded, GuardianHostProtocolCodec.Encode(decoded));
         }
     }

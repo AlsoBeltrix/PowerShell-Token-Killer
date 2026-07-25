@@ -1108,13 +1108,26 @@ public sealed class OperationDeliveryEvent : GuardianHostEvent
 
 public sealed class SessionLifecycleEvent : GuardianHostEvent
 {
+    /// <summary>
+    /// The nonterminal session states that carry automatic-recovery metadata.
+    /// An alias in one of these is being recovered by its owning host, so the
+    /// guardian can project honest recovery progress instead of a stale ready
+    /// claim, and can capture exact invalidation evidence for a dispatch target
+    /// in the same transition that invalidated it.
+    /// </summary>
+    public static bool CarriesRecoveryMetadata(PublicSessionState state) =>
+        state is PublicSessionState.Recovering or PublicSessionState.Backoff or
+            PublicSessionState.Bootstrapping or PublicSessionState.CircuitOpen or
+            PublicSessionState.HalfOpen;
+
     public SessionLifecycleEvent(
         GuardianBootId guardianBootId, HostBootId hostBootId, HostGeneration hostGeneration,
         HostEventSequence eventSequence, PrivateRequestId? requestId, CanonicalAlias sessionAlias,
         SessionTransitionVersion sessionTransitionVersion, GuardianHostWorkerIdentity? workerIdentity,
         PublicSessionState? previousState, PublicSessionState state,
         GuardianHostSessionLifecycleReason reason, bool readyForEffects, bool warmStateLost,
-        BootstrapState bootstrapState)
+        BootstrapState bootstrapState, RecoveryPhase? recoveryPhase = null,
+        long? recoveryAttempt = null, int? retryAfterMilliseconds = null)
         : base(guardianBootId, hostBootId, hostGeneration, eventSequence, sessionAlias,
             sessionTransitionVersion, requestId, workerIdentity, null)
     {
@@ -1122,8 +1135,50 @@ public sealed class SessionLifecycleEvent : GuardianHostEvent
         GuardianHostDtoValidation.RequireDefined(state, nameof(state));
         GuardianHostDtoValidation.RequireDefined(reason, nameof(reason));
         GuardianHostDtoValidation.RequireDefined(bootstrapState, nameof(bootstrapState));
+        if (recoveryPhase is { } phase) GuardianHostDtoValidation.RequireDefined(phase, nameof(recoveryPhase));
+        // One canonical pairing, shared with the public snapshot: a fact the host
+        // can put on the wire is always a fact the guardian can project.
+        PublicSessionStateSnapshot.ValidateRecoveryPhasePairing(state, recoveryPhase);
+        if (CarriesRecoveryMetadata(state))
+        {
+            // Completeness mirrors PublicRecoveryError: a recovering alias that
+            // cannot say which phase, which attempt, and how long to wait is not
+            // usable evidence, and the invalidation contract forbids
+            // reconstructing those facts from any later snapshot.
+            if (recoveryPhase is null || recoveryAttempt is null or <= 0 ||
+                retryAfterMilliseconds is null or < ContractLimits.MinimumRetryAfterMilliseconds or
+                    > ContractLimits.MaximumRetryAfterMilliseconds)
+            {
+                throw new ArgumentException(
+                    "A recovering session lifecycle event requires complete in-bounds recovery metadata.",
+                    nameof(recoveryPhase));
+            }
+            if (readyForEffects)
+            {
+                throw new ArgumentException(
+                    "A recovering session cannot be ready for effects.",
+                    nameof(readyForEffects));
+            }
+            // Bootstrapping names the worker being restored, and the public
+            // snapshot requires that identity; refuse the event the guardian
+            // could not project rather than dropping the identity later.
+            if (state == PublicSessionState.Bootstrapping && workerIdentity is null)
+            {
+                throw new ArgumentException(
+                    "A bootstrapping session lifecycle event requires a worker.",
+                    nameof(workerIdentity));
+            }
+        }
+        else if (recoveryAttempt is not null || retryAfterMilliseconds is not null)
+        {
+            throw new ArgumentException(
+                "Only a recovering session lifecycle event can carry recovery metadata.",
+                nameof(recoveryAttempt));
+        }
         PreviousState = previousState; State = state; Reason = reason;
         ReadyForEffects = readyForEffects; WarmStateLost = warmStateLost; BootstrapState = bootstrapState;
+        RecoveryPhase = recoveryPhase; RecoveryAttempt = recoveryAttempt;
+        RetryAfterMilliseconds = retryAfterMilliseconds;
     }
     public override GuardianHostEventType EventType => GuardianHostEventType.SessionLifecycle;
     public PublicSessionState? PreviousState { get; }
@@ -1132,6 +1187,9 @@ public sealed class SessionLifecycleEvent : GuardianHostEvent
     public bool ReadyForEffects { get; }
     public bool WarmStateLost { get; }
     public BootstrapState BootstrapState { get; }
+    public RecoveryPhase? RecoveryPhase { get; }
+    public long? RecoveryAttempt { get; }
+    public int? RetryAfterMilliseconds { get; }
 }
 
 public sealed class WorkerLostEvent : GuardianHostEvent

@@ -722,15 +722,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **`r6x-1` is the gating item and needs an owner ruling before any code**
-   (`.agents/review/findings/r6x-1.md`). The direct Windows evidence for this
-   head is now collected and it is negative: `SecureAuditStorage`'s raw
-   `MoveFileEx` P/Invoke fails `ERROR_PATH_NOT_FOUND` on a 317-character
-   evidence-anchoring destination, degrading the private host to
-   `failure_class=evidence.storage`, which fails four `Windows_*`
-   real-composition tests and three `ScriptEvidenceStoreTests`. Linux ARM64
-   is clean at the same head. The remedy touches the S3H-hardened
-   protected-path boundary, so it is an owner gate, not autonomous R6 work.
+1. **Diagnose `r6x-2` on `NETWATCH-01`** — the three surviving `Windows_*`
+   real-composition failures, which R6's acceptance matrix must prove. Test the
+   "they share one cause" hypothesis rather than assuming it; assuming it is
+   what produced the `r6x-1` over-attribution. `r6x-3` (Windows
+   nondeterminism, ~4/5 failing, `Assert.Equal` 1 vs 2) follows and is
+   tractable directly rather than by repetition. Both need a Windows host.
+   `r6x-1` itself is closed and needs nothing further.
 2. Continue sub-slice 5 from head `49b9602`: guardian-side recovery
    projection (recoveryPhase/attempt/retryAfter per alias from the
    recovery lifecycle facts), `TryGetJobListTargetInvalidation` from that
@@ -823,6 +821,15 @@ short and update it when important repo facts change.
   `ShellDialectWiringTests.cs:441`) and is **undiagnosed**. It is deliberately
   not attributed to `r6x-1` and is not part of the resilience sequence; it
   needs its own scoped diagnosis on a Windows host.
+- **Worker-side raw Windows path arguments remain unnormalized** —
+  `WindowsWorkerNative.CreateFileW(string fileName, …)` and
+  `CreateProcessW(string applicationName, …)`. This is the same missing
+  extended-length normalization that `r6x-1` fixed in the audit/evidence
+  storage component, but in a different subsystem whose paths are the
+  install/package layout and pipe names rather than 209-character evidence
+  leaves. No failure is observed there and none is claimed; it was left out of
+  `r6x-1` deliberately rather than folded in. Worth a scoped pass if a deep
+  install root is ever supported.
 - Fable's accepted R0 review noted one non-blocking test-fixture hygiene risk:
   if the testhost dies before its `finally`, the Unix guardian broker fixture's
   TERM-immune paused process group can remain until its fixture guardian is
@@ -831,18 +838,32 @@ short and update it when important repo facts change.
   slice.
 ## Blockers
 
-- **R6's Windows acceptance is blocked on the `r6x-1` owner ruling.** Seven
-  Windows identities fail at head `5e8b3be` (four `Windows_*` real-composition
-  tests, three `ScriptEvidenceStoreTests`), all reducing to
-  `SecureAuditStorage.PublishAtomically`'s raw `MoveFileEx` P/Invoke failing
-  `ERROR_PATH_NOT_FOUND` on a 317-character evidence-anchoring path. Linux
-  ARM64 is clean at the same head. The remedy edits the S3H-hardened
-  protected-path security boundary — `\\?\` paths deliberately bypass the
-  Win32 normalization those refusals rely on — so it is a changed-risk owner
-  gate rather than autonomous R6 work. No fix is authored; sub-slice 5-4 can
-  proceed in parallel because it does not touch this path. Full evidence:
-  `.agents/review/findings/r6x-1.md`, `.agents/machines.md` ("R6
-  cross-platform validation").
+- **`r6x-1` is fixed, reviewed, and Verified at code head `168905c`** (fix
+  `09bc6a0`; `168905c` keeps the pinned native-import closure unchanged). The
+  owner authorised the fix in-session 2026-07-25 (option (a): normalise the
+  Win32 path arguments plus a deliberate long-path guard). Every raw Win32 path
+  argument in `SecureAuditStorage` now gets extended-length form at the
+  P/Invoke boundary only, never leaking into the managed comparisons that
+  `NormalizeFinalPath` governs. kimi accepted it single-round with
+  `guard_confirmed=true` and zero comments. macOS is fully green (architecture
+  73/73, Guardian 484/484, server 2,039/2,039, Pester 141+2 skips, handshake);
+  Windows server improved 2,012/2,037 → 2,021/2,039, closing exactly seven
+  anchoring identities. Windows guard proof: all four conversions stripped →
+  both guards red, restored → green, and each conversion stripped alone reddens
+  only its own guard.
+- **R6's Windows acceptance is still blocked, now on `r6x-2` and `r6x-3`, not
+  on `r6x-1`.** Fixing `r6x-1` corrected an over-attribution made when it was
+  raised: it owned seven server-side identities plus exactly ONE of the four
+  `Windows_*` composition tests (`..._classifies_real_prewrite_loss`, the one
+  that failed through `audit=unavailable`). The other three composition
+  failures survive with their original non-audit signatures (`r6x-2`, HIGH),
+  and `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
+  is pre-existing Windows nondeterminism (`r6x-3`, MEDIUM) — proved not a
+  regression by an equal 4-of-5 isolated failure rate at the pre-fix head
+  `31f550e`. Both need a Windows host to diagnose. Full evidence:
+  `.agents/review/findings/r6x-1.md`, `r6x-2.md`, `r6x-3.md`, and
+  `.agents/machines.md` ("R6 cross-platform validation", "r6x-1 fix
+  validation").
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

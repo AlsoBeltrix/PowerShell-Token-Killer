@@ -2909,18 +2909,49 @@ production cutover and sub-slice 5. Host evidence, exact counts, and the
 diagnostic boundary are in `.agents/machines.md` ("R6 cross-platform
 validation"). Finding record: `.agents/review/findings/r6x-1.md`.
 
-| ID     | Severity | Impact (one line)                                              | Status | Branch |
-|--------|----------|----------------------------------------------------------------|--------|--------|
-| r6x-1  | HIGH     | Windows evidence anchoring dies past MAX_PATH; audit fails closed | `[!]`  | (none — owner gate) |
+| ID     | Severity | Impact (one line)                                              | Status | Branch | Reviewer |
+|--------|----------|----------------------------------------------------------------|--------|--------|----------|
+| r6x-1  | HIGH     | Windows evidence anchoring dies past MAX_PATH; audit fails closed | `[x]`  | feature/mcp-resilience-r1 (`09bc6a0`, `168905c`) | kimi/kimi-code-k3/default/standard |
+| r6x-2  | HIGH     | Three `Windows_*` real-composition tests fail for a non-audit reason | `[ ]`  |        |          |
+| r6x-3  | MEDIUM   | `State_polling_..._scheduler_inert` fails ~4/5 on Windows        | `[ ]`  |        |          |
 
-**Status 2026-07-25:** Windows Guardian 480/484 — the four failures are all
+**Raised 2026-07-25:** Windows Guardian 480/484 — the four failures are all
 `ProductionGuardianCompositionTests.Windows_*`; Windows server 2,012/2,037
 including three `ScriptEvidenceStoreTests` that throw from the same site.
 All seven reduce to `r6x-1`: `SecureAuditStorage.PublishAtomically`'s raw
 `MoveFileEx` P/Invoke fails `ERROR_PATH_NOT_FOUND` at a 317-character
 destination. Linux ARM64 at the same head shows zero product-behavior
 failures (server 2,037/2,037), localising the defect to Windows path
-handling. Contested `[!]` **by the coder, on authority not on merit** — the
-remedy edits the S3H-hardened protected-path security boundary, so it is
-routed to the owner rather than repaired autonomously. No fix is authored
-and no reviewer is dispatched until the owner rules.
+handling. First filed contested `[!]` **by the coder, on authority not on
+merit** — the remedy edits the S3H-hardened protected-path boundary.
+
+**Owner ruling 2026-07-25 (in-session):** option (a) — authorise the fix,
+normalising the Win32 path arguments plus a deliberate long-path guard.
+Fixed at `09bc6a0`, with `168905c` keeping the pinned native-import closure
+in `PtkGuardianArchitecture.Tests` unchanged after that suite correctly
+rejected a first cut whose `EntryPoint = "MoveFileExW"` read as a new
+unapproved import. Windows guard proof at `168905c`: all four conversions
+stripped → both guards fail; restored → both pass; and each conversion
+stripped **alone** reddens only its own guard.
+
+**Loop CLOSED 2026-07-25T05:33Z:** reviewer kimi (kimi-code 0.29.1, default
+model `kimi-code/k3` per owner instruction, no `-m`), single round, **VERDICT
+ACCEPTED**, `guard_confirmed=true`, both SHAs matching, zero defects raised.
+The reviewer independently ran the recorded verification entry point at the head
+(architecture 73/73, Guardian 484/484, server 2,039/2,039, 0 failed) and
+independently confirmed no prefix leak into managed comparison logic, the
+load-bearing `GetFullPath`-before-prefix ordering, no missed raw Win32 path
+consumers, an untouched native-import closure, and non-vacuous guards.
+`guard_confirmed` covers only that battery: both guards are Windows-gated, so
+no macOS reviewer can reproduce the red-to-green proof, and the dispatch stated
+this so the flag could not silently imply otherwise. Non-blocking
+recommendation recorded, not acted on: add a Windows CI leg for these two
+guards as the standing regression signal.
+
+**Attribution correction from this loop.** Raising `r6x-1` claimed all seven
+Windows failures; the fix disproved that. `r6x-1` owned eight identities —
+seven server-side plus exactly one composition test
+(`..._classifies_real_prewrite_loss`). The remaining three composition failures
+are `r6x-2`, and `State_polling_is_guardian_local_and_scheduler_inert` is
+`r6x-3`, proved pre-existing by an equal 4-of-5 failure rate at the pre-fix
+head. Both are open and neither is closed by this fix.

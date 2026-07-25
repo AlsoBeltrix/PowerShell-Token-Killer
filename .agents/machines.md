@@ -1697,10 +1697,17 @@ recorded "Windows-only real composition tests still need direct
   `server/test-handshake.ps1` fails at its own build step (line 76), each with
   the identical `protoc` exit 139. Linux ARM64 therefore shows **zero**
   product-behavior failures at this head.
-- Cross-platform conclusion: the three `ScriptEvidenceStoreTests` identities
-  and the four `Windows_*` composition identities pass on Linux ARM64 and
-  fail on Windows, which localises `r6x-1` to Windows path handling rather
-  than to sub-slice 5 logic.
+- Cross-platform conclusion: every identity named above passes on Linux ARM64
+  and fails on Windows, which localises the defects to Windows-specific
+  behaviour rather than to sub-slice 5 logic.
+- **Attribution correction (post-fix, same day).** The first pass through this
+  section read the seven failures as one root cause. Fixing `r6x-1` and
+  re-running settled the actual split, and only the measured split should be
+  relied on — see "r6x-1 fix validation" below. Briefly: `r6x-1` owned the
+  server-side anchoring failures and exactly ONE of the four `Windows_*`
+  composition failures; the other three have a different, still-undiagnosed
+  cause, and `AuditAnchoredRuntimeTests` was `r6x-1` rather than the
+  pre-existing anchoring-temporary race this section first guessed.
 - Both disposable trees (`F:\v\5e8b3be`, `~/v/5e8b3be`), the transferred
   archives, the pre-generated protoc intermediates, and all scoped logs were
   removed after validation; the diagnostic-patched Windows tree was destroyed
@@ -1711,3 +1718,60 @@ recorded "Windows-only real composition tests still need direct
   dated 2026-07-11, predates this run and was deliberately left in place
   rather than deleted on this session's authority; `%USERPROFILE%\.ptk` is the
   real user home and was never touched.
+
+## r6x-1 fix validation (macOS and Windows, 2026-07-25)
+
+_Verified at exact head `168905c` (fix `09bc6a0` + import-closure correction
+`168905c`), archive SHA-256
+`c50865fc9bcd5a59911ab772ec89e3a81c4c8778d2783a34e1b1a754ca3ab507`, re-hashed
+and matched on `NETWATCH-01`. Windows root `F:\v3\168905c`._
+
+- **Design was measured before any product code was written.** A standalone
+  Windows probe put a file past `MAX_PATH` and compared plain against
+  extended-length paths for every raw consumer: `MoveFileEx` `err=3` → ok;
+  `CreateFileW` `err=3` → ok; `FILE_RENAME_INFO` destination `err=206` → ok;
+  advapi32 name-based `123` (`ERROR_INVALID_NAME`) → ok. All four were
+  live-broken, so all four are converted. `LongPathsEnabled=1` was already set
+  and does not help a raw P/Invoke.
+- **Guard proof on `NETWATCH-01` at `168905c`** (both guards are Windows-gated
+  and no-op elsewhere): with the fix 2/2 pass; all four conversions stripped
+  2/2 fail; restored 2/2 pass; the `MoveFileEx` conversion stripped **alone**
+  reddens only `Windows_publishes_...`; the `FILE_RENAME_INFO` conversion
+  stripped **alone** reddens only `Windows_replaces_...`. Each guard is tied to
+  its own conversion, so neither is vacuous.
+- **A first guard-proof attempt produced a false red and is void.** It restored
+  the pristine source with `Copy-Item`, which carries the older timestamp, so
+  MSBuild skipped the rebuild and every leg after the restore silently ran the
+  mutated binary. The corrected script stamps `LastWriteTimeUtc` after each
+  restore and rebuilds per leg. Any restore-leg number from that first attempt
+  is not evidence.
+- **macOS at `168905c` is fully green**: architecture 73/73, Guardian 484/484,
+  server 2,039/2,039, Pester 141 with two expected skips, complete stdio
+  handshake. No Unix-path regression from the change.
+- **Windows at `168905c`**: architecture 73/73, Pester 142 with one expected
+  skip, handshake passed. Server improved from 2,012/2,037 to **2,021/2,039**,
+  closing exactly seven identities, all anchoring-related: three
+  `ScriptEvidenceStoreTests`, three
+  `AuditExportAcknowledgmentObserverTests.Valid_v1_v2_and_v3_reference_...`
+  (schemaVersion 1/2/3), and
+  `AuditAnchoredRuntimeTests.Anchored_runtime_exports_only_after_start_and_restart_adopts_clean_stop`.
+  The 18 that remain are the recorded ordinary-account cert/DPAPI/mTLS class
+  (17) plus the separately parked `ShellDialectWiringTests.Route_pwsh_bypasses_detection_as_consent`.
+- **Windows Guardian stayed 480/484, but the failure SET changed** — this is
+  what corrected the attribution above.
+  `ProductionGuardianCompositionTests.Windows_composition_classifies_real_prewrite_loss`
+  now passes: it was the identity whose `ptk_state` returned
+  `audit=unavailable`, so it was genuinely `r6x-1`. The other three
+  (`..._requires_explicit_repair_after_ambiguous_reset`,
+  `..._never_replays_a_real_effect_when_the_host_dies`,
+  `..._keeps_a_real_job_tombstone_and_sealed_output`) still fail with their
+  original non-audit signatures and therefore have a different cause; they are
+  filed separately as `r6x-2`, not closed by this fix.
+- **`GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
+  is pre-existing Windows nondeterminism, NOT a regression from this fix.** It
+  appeared in the post-fix run and not the pre-fix full run, so it was checked
+  directly: at head `168905c` it fails 4 of 5 isolated runs, and at the
+  **pre-fix** head `31f550e` it fails 4 of 5 isolated runs as well — the same
+  rate. It merely got lucky during the single full-suite run at `5e8b3be`. It
+  fails `Assert.Equal` expected 1, actual 2 at
+  `GuardianHostSupervisorTests.cs:2267` and is filed as `r6x-3`.

@@ -2864,3 +2864,19 @@ reopen, range `9bf51ff..9283ac9` + repair `08d28d5` on
 blocked the explicit repair), repair `08d28d5` widened the gate with a
 mutation-proven ambiguous-open guard and full battery green, repair-delta
 VERDICT ACCEPTED, `guard_confirmed=true`, zero comments.
+
+---
+
+Loop run 2026-07-25 — reviewer: claude (Claude Code 2.1.219,
+claude-opus-5 @ max, frontier/competitive), scope: or5-4 job-capability
+release, range `8ecf4d1..a0a034f` on `feature/mcp-resilience-r1`.
+Finding record: `.agents/review/findings/or5-4.md`.
+
+| ID    | Severity | Impact (one line)                                              | Status | Branch |
+|-------|----------|----------------------------------------------------------------|--------|--------|
+| or5-4 | MEDIUM   | 64-job lifetime wedge from never-released capabilities         | `[x]`  | feature/mcp-resilience-r1 (`a0a034f`) |
+
+**Loop CLOSED 2026-07-25T01:52Z:** single-round VERDICT ACCEPTED,
+`guard_confirmed=true`, zero comments. This closes the or5 remediation
+batch (or5-1, or5-2, or5-3, or5-4 all Verified); or5-5's thinnest-path
+direction governs sub-slice 5 next.

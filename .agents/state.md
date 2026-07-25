@@ -797,7 +797,21 @@ short and update it when important repo facts change.
    over-attribution. `r6x-3` (Windows nondeterminism, ~4/5 failing,
    `Assert.Equal` 1 vs 2) follows and is tractable directly rather than by
    repetition. `r6x-1` and `r6x-2` #1 are closed and need nothing further.
-2. Continue sub-slice 5 from head `02b924c`. Recovery projection,
+2. **Diagnose `r6acc-1` first — it blocks the R6 acceptance matrix and is a
+   suspected regression from this session's own work.** Writing the acceptance
+   test for one-alias crash isolation on the real apphost found that
+   `ptk_state` returns `isError` on the first poll after a real worker is
+   killed, i.e. while the alias projects `Recovering`. Deterministic on macOS,
+   ~4 s to reproduce. The guardian projection and public codec are proven
+   innocent by a passing unit guard; the remaining surface is the supervisor
+   event pump and `GuardianHostClient` correlation for an unsolicited
+   nonterminal lifecycle. Full record, exclusions, and the reproducer patch:
+   `.agents/review/findings/r6acc-1.md` (+ `r6acc-1-repro.patch`). The
+   reproducer is deliberately not in the suite so the macOS battery stays
+   green. Make the swallowed exception visible before narrowing further —
+   four elimination cycles were inconclusive precisely because the MCP wrapper
+   hides it.
+3. Then finish sub-slice 5 from head `02b924c`. Recovery projection,
    invalidation evidence, and execution-timeout containment are done (see
    `## Now`); **the R6 acceptance matrix is the only remainder** — per
    `.agents/plans/mcp-resilience.md`, prove one-alias crash/recovery while a

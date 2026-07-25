@@ -358,6 +358,93 @@ public sealed class FrozenDefaultSessionStateTests
         Assert.False(state.TryGetJobListTargetInvalidation(readyTarget, out _));
     }
 
+    [Fact]
+    public void Recovering_dynamic_alias_projects_and_encodes_through_the_public_contract()
+    {
+        // The real apphost recovers a dynamic alias, not the default one, and
+        // the projection has to survive the public state codec - a snapshot the
+        // guardian can build but not encode would fail ptk_state outright.
+        var state = State();
+        var scratch = new CanonicalAlias("scratch");
+        var scratchBinding = state.DeclareDynamicAlias(scratch, allowColdBackground: true);
+        var grant = state.GrantWorkerCreateCapability(
+            new WorkerCreateCapabilityRequestedEvent(
+                Guardian,
+                Identity(1).HostBootId,
+                new HostGeneration(1),
+                new HostEventSequence(1),
+                scratch,
+                scratchBinding.TransitionVersion,
+                scratchBinding.BindingDigest,
+                500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var boot = new WorkerBootId(
+            Guid.Parse("99999999-9999-4999-8999-999999999999"));
+        var worker = new GuardianHostWorkerIdentity(boot, grant.WorkerGeneration);
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(2),
+            requestId: null,
+            scratch,
+            state.GetDeclaredBinding(scratch)!.TransitionVersion,
+            worker,
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored));
+
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(3),
+            requestId: null,
+            scratch,
+            state.GetDeclaredBinding(scratch)!.TransitionVersion,
+            worker,
+            PublicSessionState.Ready,
+            PublicSessionState.Recovering,
+            GuardianHostSessionLifecycleReason.ExecutionTimeout,
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.Pending,
+            RecoveryPhase.Containment,
+            1,
+            250));
+
+        var sessions = state.SnapshotSessions();
+        var recovering = sessions.Single(session => session.Alias == scratch);
+        Assert.Equal(PublicSessionState.Recovering, recovering.State);
+        Assert.Equal(RecoveryPhase.Containment, recovering.RecoveryPhase);
+
+        // The whole snapshot must survive the public codec, exactly as ptk_state
+        // encodes it.
+        var encoded = PublicStateCodec.Encode(new PublicStateSnapshot(
+            Guardian,
+            new PublicHostStateSnapshot(
+                new HostBootId(Identity(2).HostBootId.Value),
+                new HostGeneration(2),
+                PublicHostState.Ready,
+                recoveryPhase: null,
+                recoveryAttempt: 0,
+                retryAfterMilliseconds: null,
+                readyForEffects: true,
+                lastFailureCode: null),
+            sessions));
+        var decoded = PublicStateCodec.Decode(encoded);
+        var roundTripped = decoded.Sessions.Single(
+            session => session.Alias == scratch);
+        Assert.Equal(PublicSessionState.Recovering, roundTripped.State);
+        Assert.Equal(RecoveryPhase.Containment, roundTripped.RecoveryPhase);
+        Assert.Equal(1, roundTripped.RecoveryAttempt);
+        Assert.Equal(250, roundTripped.RetryAfterMilliseconds);
+    }
+
     private SessionLifecycleEvent RecoveringLifecycle(
         FrozenDefaultSessionState state,
         GuardianHostWorkerIdentity worker,

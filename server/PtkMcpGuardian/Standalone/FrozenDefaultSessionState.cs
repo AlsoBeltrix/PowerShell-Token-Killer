@@ -388,6 +388,24 @@ internal sealed class FrozenDefaultSessionState :
                     "The frozen session received a nonterminal lifecycle event.");
             }
 
+            if (state.AmbiguousUntilRepaired &&
+                lifecycleEvent.State == PublicSessionState.Ready)
+            {
+                // A host restoring its declared session is NOT the explicit
+                // repair this alias is waiting for. The worker identity above is
+                // absorbed deliberately, so a later authoritative repair targets
+                // the live worker; the projection stays unusable. Committing the
+                // Ready event here would silently erase the ambiguous outcome of
+                // the earlier session-changing request and let ordinary work be
+                // dispatched into a session whose outcome is unknown, which is
+                // exactly the no-replay boundary this state exists to hold.
+                state.State = PublicSessionState.RecoveryUnknown;
+                state.ReadyForEffects = false;
+                state.WarmStateLost = true;
+                state.BootstrapState = BootstrapState.Unknown;
+                return;
+            }
+
             state.State = lifecycleEvent.State;
             state.ReadyForEffects = lifecycleEvent.ReadyForEffects;
             state.WarmStateLost |= lifecycleEvent.WarmStateLost;
@@ -410,6 +428,7 @@ internal sealed class FrozenDefaultSessionState :
             state.ReadyForEffects = false;
             state.WarmStateLost = true;
             state.BootstrapState = BootstrapState.Unknown;
+            state.AmbiguousUntilRepaired = true;
         }
     }
 
@@ -439,6 +458,9 @@ internal sealed class FrozenDefaultSessionState :
             state.ReadyForEffects = result.ReadyForEffects;
             state.WarmStateLost |= result.WarmStateLost;
             state.BootstrapState = result.BootstrapState;
+            // This is the interface's authoritative session-changing result, and
+            // therefore the only channel that repairs an ambiguous alias.
+            state.AmbiguousUntilRepaired = false;
         }
     }
 
@@ -509,5 +531,15 @@ internal sealed class FrozenDefaultSessionState :
         internal bool ReadyForEffects { get; set; }
         internal bool WarmStateLost { get; set; }
         internal BootstrapState BootstrapState { get; set; }
+
+        /// <summary>
+        /// True while a session-changing request's outcome is unknown and no
+        /// authoritative result has repaired the alias. It is sticky on purpose:
+        /// a host restoring its declared session must not clear it, or the
+        /// ambiguity is erased and ordinary work can be dispatched into a
+        /// session whose outcome nobody knows. Only
+        /// <see cref="ObserveSessionOperationResult"/> clears it.
+        /// </summary>
+        internal bool AmbiguousUntilRepaired { get; set; }
     }
 }

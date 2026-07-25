@@ -104,6 +104,116 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Ready_lifecycle_cannot_repair_an_ambiguous_alias()
+    {
+        // The sibling test above covers ObserveHostReady. This covers the
+        // channel that actually carries a replacement host's restored session —
+        // a Ready SessionLifecycleEvent — which is how the ambiguous outcome was
+        // being erased in production (r6x-2). A host restoring its declared
+        // session is not an authoritative repair.
+        var state = State();
+        var alias = state.Binding.Alias;
+        state.ObserveSessionRecoveryUnknown(alias);
+
+        var grant = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var boot = new WorkerBootId(
+            Guid.Parse("66666666-6666-4666-8666-666666666666"));
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(2),
+            requestId: null,
+            alias,
+            state.Binding.TransitionVersion,
+            new GuardianHostWorkerIdentity(boot, grant.WorkerGeneration),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: true,
+            BootstrapState.Restored));
+
+        var stillAmbiguous = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.RecoveryUnknown, stillAmbiguous.State);
+        Assert.False(stillAmbiguous.ReadyForEffects);
+        Assert.True(stillAmbiguous.WarmStateLost);
+        Assert.Equal(BootstrapState.Unknown, stillAmbiguous.BootstrapState);
+        Assert.True(state.TryGetJobListTarget(alias, out var blockedTarget));
+        Assert.False(blockedTarget.ReadyForEffects);
+
+        // The new worker identity is still absorbed, so the authoritative repair
+        // that follows addresses the live worker rather than a dead generation.
+        Assert.Equal(boot, blockedTarget.WorkerIdentity.BootId);
+        Assert.Equal(grant.WorkerGeneration, blockedTarget.WorkerIdentity.Generation);
+
+        state.ObserveSessionOperationResult(new ResetResult(
+            alias,
+            PublicSessionState.Ready,
+            new GuardianHostWorkerIdentity(boot, grant.WorkerGeneration),
+            new SessionTransitionVersion(1),
+            readyForEffects: true,
+            warmStateLost: true,
+            BootstrapState.Restored));
+
+        var repaired = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Ready, repaired.State);
+        Assert.True(repaired.ReadyForEffects);
+        Assert.Equal(BootstrapState.Restored, repaired.BootstrapState);
+    }
+
+    [Fact]
+    public void Repaired_alias_accepts_an_ordinary_ready_lifecycle_again()
+    {
+        // Stickiness must end at the repair, not outlive it: once an
+        // authoritative result has repaired the alias, an ordinary Ready
+        // lifecycle has to commit normally or automatic recovery could never
+        // bring the alias back.
+        var state = State();
+        var alias = state.Binding.Alias;
+        state.ObserveSessionRecoveryUnknown(alias);
+        state.ObserveSessionOperationResult(new ResetResult(
+            alias,
+            PublicSessionState.Ready,
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            new SessionTransitionVersion(1),
+            readyForEffects: true,
+            warmStateLost: true,
+            BootstrapState.Restored));
+
+        var grant = state.GrantWorkerCreateCapability(
+            CreateRequest(state, deadlineUnixTimeMilliseconds: 500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var boot = new WorkerBootId(
+            Guid.Parse("77777777-7777-4777-8777-777777777777"));
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(3),
+            requestId: null,
+            alias,
+            state.Binding.TransitionVersion,
+            new GuardianHostWorkerIdentity(boot, grant.WorkerGeneration),
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: true,
+            BootstrapState.Restored));
+
+        var ready = Assert.Single(state.SnapshotSessions());
+        Assert.Equal(PublicSessionState.Ready, ready.State);
+        Assert.True(ready.ReadyForEffects);
+        Assert.Equal(BootstrapState.Restored, ready.BootstrapState);
+        Assert.Equal(boot, ready.WorkerBootId);
+    }
+
+    [Fact]
     public void Manifest_changes_only_generation_envelope_across_host_attempts()
     {
         var state = State();

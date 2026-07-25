@@ -1086,9 +1086,93 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
-    public async Task Spaced_deaths_reset_the_counter_after_the_stability_window()
+    public async Task A_failed_close_delivery_clears_the_counter_through_reopen()
     {
-        var rig = new RuntimeRig(
+        var rig = new RuntimeRig(generations: [9, 10, 11, 12, 13, 14]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+
+        rig.Launch.Processes[1].Kill();
+        await WaitUntilAsync(() => rig.Launch.Processes.Count >= 3,
+            "first relaunch");
+        rig.Launch.Processes[2].Kill();
+        await WaitUntilAsync(() => rig.Launch.Processes.Count >= 4,
+            "second relaunch");
+
+        rig.Events.FailNextTerminalDecodedDelivery = true;
+        var close = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(30),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(
+                new WorkerBootId(rig.Launch.Processes[3].WorkerBootId),
+                new WorkerGeneration(rig.Launch.Processes[3].Generation)),
+            null,
+            new SessionCloseOperation(
+                Call(30),
+                Dispatch(30),
+                expectedGeneration: 12,
+                force: false));
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            rig.Runtime.ExecuteOperationAsync(
+                close,
+                TestContext.Current.CancellationToken).AsTask());
+
+        var reopen = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(31),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            workerIdentity: null,
+            null,
+            new SessionOpenOperation(
+                Call(31),
+                Dispatch(31),
+                template: null,
+                allowColdBackground: true));
+        var reopenOutcome = await rig.Runtime.ExecuteOperationAsync(
+            reopen,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<SessionOpenResult>(reopenOutcome.Result);
+
+        rig.Launch.Processes[4].Kill();
+        await WaitUntilAsync(() => rig.Launch.Processes.Count >= 6,
+            "the post-reopen relaunch");
+        Assert.Equal(6, rig.Launch.Processes.Count);
+        Assert.DoesNotContain(
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>(),
+            lifecycle => lifecycle.State == PublicSessionState.Faulted);
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(40),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                new GuardianHostWorkerIdentity(
+                    new WorkerBootId(rig.Launch.Processes[5].WorkerBootId),
+                    new WorkerGeneration(rig.Launch.Processes[5].Generation)),
+                null,
+                new JobListOperation(Call(40), Dispatch(40))),
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(outcome.Result);
+    }
+
+    [Fact]
+    public async Task Spaced_deaths_reset_the_counter_after_the_stability_window()
+    {        var rig = new RuntimeRig(
             generations: [9, 10, 11, 12, 13],
             stabilityWindow: TimeSpan.FromMilliseconds(200));
         await rig.Runtime.InitializeAsync(

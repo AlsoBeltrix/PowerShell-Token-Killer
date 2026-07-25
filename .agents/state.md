@@ -101,6 +101,33 @@ short and update it when important repo facts change.
   mutations respectively, each reddening only its own guard, all restored
   green); macOS is green at each head — architecture 73/73, Guardian
   491/491, server 2,041/2,041.
+- **Execution-timeout containment is implemented at code head `02b924c`,
+  leaving the R6 acceptance matrix as sub-slice 5's only remainder.** The
+  approved contract (owner, 2026-07-15) had no implementation: a worker
+  operation that blew its deadline returned `RequestDeadlineExpired` and left
+  the runaway worker running, and neither `ExecutionTimeout` enum member was
+  emitted anywhere in production. The timeout terminal is still decoded and
+  delivered first; only then is the worker contained. Disposal is the
+  runtime's confirmed-death primitive (it contains the tree and awaits the
+  monitor that completes `Fatal`), so containment converges on the alias's
+  existing death watch, which owns death confirmation and the next
+  generation — the timed-out call is never replayed because that path only
+  launches a fresh declared baseline. Containment is deliberately not awaited
+  in the request path: the plan requires death confirmed before the next
+  generation, not before the terminal. The death watch reports
+  `ExecutionTimeout` instead of `WorkerExit` when containment was
+  deadline-driven. **Rig-fidelity fix:** the fake worker client did not
+  complete `Fatal` on disposal unlike the real client, which hid this
+  convergence entirely from the in-proc rig; it now models the real
+  behaviour, and the pre-existing rig tests stay green because replacement
+  paths null the slot before disposing. **Known limit, deliberately not
+  papered over:** the ownership check in `ContainAfterExecutionTimeout` is
+  not mutation-proven — removing it leaves the suite green, because no
+  current call path can deliver a timeout terminal for a slot that is no
+  longer the alias's current worker. Two further clauses were provably
+  redundant and were removed rather than kept as unprovable guards. Three
+  mutations do redden the slice's guard (containment suppressed, reason
+  reverted, terminal swallowed).
 - **Sub-slice 5's thinnest loss path is implemented and reviewed
   (`d9f9c2b` + repairs `0d6ffe1`, `0a84e45`, `49b9602`, acceptance record
   `3b99b6f`).** An unexpectedly dead worker is now detected per alias
@@ -115,11 +142,10 @@ short and update it when important repo facts change.
   Eleven rig tests pin the behavior; every fence and counter rule is
   mutation-proven red-to-green, including the reviewer's two rounds that
   caught a vacuous init guard and the reopen/close counter pins. Remaining
-  for sub-slice 5: execution-timeout containment convergence and the R6
-  acceptance matrix (one-alias crash/recovery while a second alias keeps
-  its PID, generation, warm state, and successful operation — the in-proc
-  rig proves this shape today; the real apphost proof is acceptance work).
-  The load-flake now
+  for sub-slice 5: only the R6 acceptance matrix (one-alias crash/recovery
+  while a second alias keeps its PID, generation, warm state, and successful
+  operation — the in-proc rig proves this shape today; the real apphost
+  proof is acceptance work). The load-flake now
   has a name:
   `Guardian_private_request_ids_remain_monotonic_across_host_generations`
   (non-reproducing, green on reruns; see the s5-1 finding record).
@@ -771,32 +797,17 @@ short and update it when important repo facts change.
    over-attribution. `r6x-3` (Windows nondeterminism, ~4/5 failing,
    `Assert.Equal` 1 vs 2) follows and is tractable directly rather than by
    repetition. `r6x-1` and `r6x-2` #1 are closed and need nothing further.
-2. Continue sub-slice 5 from head `9045b7b`. Recovery projection and
-   invalidation evidence are done (see `## Now`); two remainders are open.
-   **(a) Execution-timeout containment convergence.** Nothing in production
-   emits `GuardianHostSessionLifecycleReason.ExecutionTimeout` or
-   `GuardianHostWorkerLostReason.ExecutionTimeout` today — both enum members
-   are referenced only from `GuardianHostClientTests`. In
-   `WorkerPrivateHostRuntime` a timed-out worker operation maps to
-   `GuardianHostPrivateDetailCode.RequestDeadlineExpired`
-   (`ParseTextResponse`) and the worker is left running, so there is no
-   containment to converge — it must be built, not merely rewired. The
-   owner-approved contract is in `.agents/plans/mcp-resilience.md` (owner,
-   2026-07-15; see also the acceptance bullet near line 1180): the single
-   timeout terminal is delivered first, the old worker tree is then confirmed
-   dead, an otherwise eligible alias creates its next generation from the
-   fresh declared baseline, the timed-out call is never replayed, and no
-   replacement overlaps the old tree. Note this makes an execution timeout
-   destroy the alias's warm state — product-visible, so keep it its own
-   scoped slice. The cheapest honest shape on current machinery is to
-   contain the slot after the terminal is delivered and let the existing
-   `Fatal` death watch drive recovery, which now already announces
-   `Recovering`/`Containment`. **(b) The R6 acceptance matrix** per
-   `.agents/plans/mcp-resilience.md` (one-alias crash/recovery while a second
-   alias keeps its PID, generation, warm state, and successful operation, on
-   the real apphost). The production-cutover slice is verified on macOS; the
-   Windows composition evidence is collected and blocked behind `r6x-2`/
-   `r6x-3`, not outstanding.
+2. Continue sub-slice 5 from head `02b924c`. Recovery projection,
+   invalidation evidence, and execution-timeout containment are done (see
+   `## Now`); **the R6 acceptance matrix is the only remainder** — per
+   `.agents/plans/mcp-resilience.md`, prove one-alias crash/recovery while a
+   second alias keeps its PID, generation, warm state, and successful
+   operation, on the real apphost rather than the in-proc rig. The
+   production-cutover slice is verified on macOS; the Windows composition
+   evidence is collected and blocked behind `r6x-2`/`r6x-3`, not
+   outstanding. Note that execution timeout now destroys the alias's warm
+   state by design (owner-approved 2026-07-15) — it is product-visible
+   behaviour worth calling out in R7's cutover notes.
 3. Continue directly into R7, carrying issue #11's explicit
    product/client boundary through the real-Codex cutover validation. Do not
    fold the separate ARM64 MSBuild-only `protoc` investigation into resilience

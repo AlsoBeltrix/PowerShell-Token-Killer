@@ -209,7 +209,7 @@ internal static class SecureAuditStorage
 
         if (OperatingSystem.IsWindows())
         {
-            if (!WindowsNative.MoveFileEx(
+            if (!WindowsNative.MoveFileExtended(
                     temporaryPath,
                     publishedPath,
                     WindowsNative.MoveFileFlags.WriteThrough))
@@ -1598,29 +1598,33 @@ internal static class SecureAuditStorage
                 : @"\\?\" + full;
         }
 
-        internal static bool MoveFileEx(
+        /// <summary>
+        /// Moves a protected file with both paths in extended-length form. This
+        /// wrapper is the only caller of the import, so the boundary cannot be
+        /// forgotten at a call site.
+        /// </summary>
+        /// <remarks>
+        /// The import below deliberately keeps its original attribute shape and
+        /// member name so the compiled entry point stays <c>kernel32.dll!MoveFileEx</c>.
+        /// <c>PtkGuardianArchitecture.Tests</c> pins the guardian's native-import
+        /// closure exactly and is fail-closed by design, so naming this wrapper
+        /// apart from the import is what keeps that audited closure unchanged.
+        /// </remarks>
+        internal static bool MoveFileExtended(
             string existingFileName,
             string newFileName,
             MoveFileFlags flags)
         {
-            // Both arguments are converted before the call so the caller's
+            // Both paths convert BEFORE the call so the caller's
             // Marshal.GetLastPInvokeError() still observes this P/Invoke.
             var existing = ExtendedLengthPath(existingFileName);
             var replacement = ExtendedLengthPath(newFileName);
-            return MoveFileExW(existing, replacement, flags);
+            return MoveFileEx(existing, replacement, flags);
         }
 
-        [DllImport(
-            "kernel32.dll",
-            EntryPoint = "MoveFileExW",
-            CharSet = CharSet.Unicode,
-            ExactSpelling = true,
-            SetLastError = true)]
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool MoveFileExW(
-            string existingFileName,
-            string newFileName,
-            MoveFileFlags flags);
+        private static extern bool MoveFileEx(string existingFileName, string newFileName, MoveFileFlags flags);
 
         [DllImport(
             "kernel32.dll",

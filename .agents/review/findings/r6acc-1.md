@@ -153,6 +153,32 @@ committed suite test rather than a saved patch — it passes, so the reason it w
 held out no longer applies. `r6acc-1-repro.patch` was deleted with that landing;
 the test itself is the canonical copy.
 
+## Reviewer comments
+
+### 2026-07-25 — **ACCEPTED**
+
+`Reviewer: codex / codex-cli 0.145.0 default model / harness default effort / n/a`
+— tier machinery not used, per the owner's 2026-07-25 ruling.
+
+```json
+{"verdict":"accepted","guard_confirmed":true,
+ "reviewed_sha":"21d2b42","base_sha":"186d42d","comments":[]}
+```
+
+All orchestrator acceptance checks pass. The reviewer was asked four pointed
+questions — whether clearing the facts papers over a state-machine bug that
+should instead project `Bootstrapping`; whether any other transition into a
+manual state still leaves recovery facts attached; whether throwing from
+`ValidateRecoveryPhasePairing` is the right failure mode for a read the contract
+says must stay available during recovery; and whether the landed acceptance test
+asserts isolation rather than passing vacuously — and raised no defect on any of
+them.
+
+Transcript evidence: it built its own worktree under
+`/tmp/ptk-r6acc-review.44X34t/wt`, ran the battery with the required physical
+`TMPDIR`, and removed the worktree afterwards. This tree was clean at `7e42b87`
+before and after.
+
 ## Coder dispute
 
 None.

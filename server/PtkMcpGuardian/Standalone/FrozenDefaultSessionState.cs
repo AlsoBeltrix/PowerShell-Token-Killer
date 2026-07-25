@@ -451,6 +451,20 @@ internal sealed class FrozenDefaultSessionState :
                 return;
             }
 
+            // Capture the exact target this transition invalidates, atomically
+            // with the transition itself. The interface forbids rebuilding these
+            // facts from a later target, so it is captured here or never.
+            var invalidatedTarget =
+                state.ReadyForEffects &&
+                SessionLifecycleEvent.CarriesRecoveryMetadata(lifecycleEvent.State)
+                    ? new GuardianHostJobListTarget(
+                        state.Binding.Alias,
+                        state.Binding.TransitionVersion,
+                        state.WorkerIdentity,
+                        state.AuditSession,
+                        state.ReadyForEffects)
+                    : null;
+
             state.State = lifecycleEvent.State;
             state.ReadyForEffects = lifecycleEvent.ReadyForEffects;
             state.WarmStateLost |= lifecycleEvent.WarmStateLost;
@@ -465,6 +479,16 @@ internal sealed class FrozenDefaultSessionState :
                 SessionLifecycleEvent.CarriesRecoveryMetadata(lifecycleEvent.State)
                     ? lifecycleEvent.WorkerIdentity
                     : null;
+
+            if (invalidatedTarget is not null)
+            {
+                // The projection is taken after the commit, so the evidence is
+                // this transition's own recovery snapshot rather than anything
+                // observed later. Its constructor re-checks completeness.
+                state.Invalidation = new GuardianHostJobListTargetInvalidation(
+                    invalidatedTarget,
+                    ProjectSession(state));
+            }
         }
     }
 
@@ -556,8 +580,19 @@ internal sealed class FrozenDefaultSessionState :
         [NotNullWhen(true)] out GuardianHostJobListTargetInvalidation? invalidation)
     {
         ArgumentNullException.ThrowIfNull(target);
-        invalidation = null;
-        return false;
+        lock (_sync)
+        {
+            // Only the evidence captured for this exact dispatch identity is
+            // served. Anything else would be recovery metadata synthesized from
+            // a later target, which the interface prohibits outright.
+            invalidation =
+                _aliases.TryGetValue(target.Alias, out var state) &&
+                state.Invalidation is { } captured &&
+                captured.AppliesTo(target)
+                    ? captured
+                    : null;
+        }
+        return invalidation is not null;
     }
 
     private static Sha256Digest ComputeConfigurationDigest(
@@ -619,6 +654,15 @@ internal sealed class FrozenDefaultSessionState :
         /// generation until a ready grant rebinds the alias.
         /// </summary>
         internal GuardianHostWorkerIdentity? RecoveringWorkerIdentity { get; set; }
+
+        /// <summary>
+        /// Evidence captured in the exact transition that invalidated a ready
+        /// dispatch target, never reconstructed afterwards. It is what lets a
+        /// stale dispatch be refused as retryable backend_lost_before_dispatch
+        /// carrying real recovery metadata, instead of the blanket nonretryable
+        /// recovery_unknown the supervisor falls back to without it.
+        /// </summary>
+        internal GuardianHostJobListTargetInvalidation? Invalidation { get; set; }
 
         /// <summary>
         /// True while a session-changing request's outcome is unknown and no

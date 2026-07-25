@@ -298,6 +298,66 @@ public sealed class FrozenDefaultSessionStateTests
         Assert.Null(unchanged.RecoveryPhase);
     }
 
+    [Fact]
+    public void Invalidated_dispatch_target_carries_its_own_transitions_recovery_evidence()
+    {
+        // Without this the supervisor could only answer a stale dispatch with a
+        // blanket nonretryable session_recovery_unknown, because
+        // TryGetJobListTargetInvalidation returned false unconditionally. The
+        // honest answer for a worker that died before any write is a retryable
+        // backend_lost_before_dispatch carrying the live recovery metadata.
+        var state = State();
+        var alias = state.Binding.Alias;
+        Assert.True(state.TryGetJobListTarget(alias, out var readyTarget));
+        Assert.True(readyTarget.ReadyForEffects);
+        Assert.False(state.TryGetJobListTargetInvalidation(readyTarget, out _));
+
+        state.ObserveSessionLifecycle(RecoveringLifecycle(
+            state,
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            PublicSessionState.Ready,
+            PublicSessionState.Recovering,
+            GuardianHostSessionLifecycleReason.WorkerExit,
+            RecoveryPhase.Containment, attempt: 1, retryAfter: 250, sequence: 2));
+
+        Assert.True(state.TryGetJobListTargetInvalidation(readyTarget, out var invalidation));
+        Assert.True(invalidation.AppliesTo(readyTarget));
+        var evidence = invalidation.RecoverySnapshot;
+        Assert.Equal(alias, evidence.Alias);
+        Assert.False(evidence.ReadyForEffects);
+        Assert.Equal(RecoveryPhase.Containment, evidence.RecoveryPhase);
+        Assert.Equal(1, evidence.RecoveryAttempt);
+        Assert.Equal(250, evidence.RetryAfterMilliseconds);
+
+        // The now-current, non-ready target is a different dispatch identity and
+        // must not be served the invalidated target's evidence.
+        Assert.True(state.TryGetJobListTarget(alias, out var recoveringTarget));
+        Assert.False(state.TryGetJobListTargetInvalidation(recoveringTarget, out _));
+    }
+
+    [Fact]
+    public void Ambiguous_alias_yields_no_invalidation_evidence()
+    {
+        // An ambiguous outcome is not a clean pre-write loss: the request may
+        // already have taken effect. Serving retryable evidence here would tell
+        // the model to resubmit exactly the work the no-replay boundary
+        // protects, so the supervisor must fall through to recovery_unknown.
+        var state = State();
+        var alias = state.Binding.Alias;
+        Assert.True(state.TryGetJobListTarget(alias, out var readyTarget));
+        state.ObserveSessionRecoveryUnknown(alias);
+
+        state.ObserveSessionLifecycle(RecoveringLifecycle(
+            state,
+            new GuardianHostWorkerIdentity(Worker, new WorkerGeneration(1)),
+            PublicSessionState.Ready,
+            PublicSessionState.Recovering,
+            GuardianHostSessionLifecycleReason.WorkerExit,
+            RecoveryPhase.Containment, attempt: 1, retryAfter: 250, sequence: 2));
+
+        Assert.False(state.TryGetJobListTargetInvalidation(readyTarget, out _));
+    }
+
     private SessionLifecycleEvent RecoveringLifecycle(
         FrozenDefaultSessionState state,
         GuardianHostWorkerIdentity worker,

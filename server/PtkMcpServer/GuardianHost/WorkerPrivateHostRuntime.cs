@@ -157,7 +157,6 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         try
         {
             _workerEvents.RetireWorker(slot.Identity);
-            await slot.DisposeAsync().ConfigureAwait(false);
             int consecutive;
             lock (_gate)
             {
@@ -165,6 +164,23 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 alias.CompletedJobs.Clear();
                 consecutive = ++alias.ConsecutiveDeaths;
             }
+            if (consecutive < 3)
+            {
+                // Tell the guardian the alias has left Ready before containment
+                // begins. Until this event exists the guardian keeps projecting
+                // the dead worker's last ready lifecycle for the whole
+                // death-to-relaunch window, so a caller sees a usable session
+                // that cannot run anything, and an invalidated dispatch target
+                // has no recovery evidence to refuse with.
+                await TryWriteRecoveringLifecycleAsync(
+                        binding,
+                        slot.Identity,
+                        GuardianHostSessionLifecycleReason.WorkerExit,
+                        RecoveryPhase.Containment,
+                        consecutive)
+                    .ConfigureAwait(false);
+            }
+            await slot.DisposeAsync().ConfigureAwait(false);
             if (consecutive >= 3)
             {
                 MarkAliasFaulted(alias);
@@ -1193,6 +1209,49 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             alias.Faulted = true;
             alias.OutstandingJobs.Clear();
             alias.CompletedJobs.Clear();
+        }
+    }
+
+    /// <summary>
+    /// Announces that one alias is under automatic recovery. Best-effort for the
+    /// same reason the fault lifecycle is: a failed write must not abort the
+    /// recovery it is only describing. The attempt ordinal is the alias's own
+    /// consecutive-death count, which is this runtime's real recovery counter -
+    /// no value is invented to satisfy the contract's completeness rule.
+    /// </summary>
+    private async ValueTask TryWriteRecoveringLifecycleAsync(
+        RecoveryBinding binding,
+        GuardianHostWorkerIdentity worker,
+        GuardianHostSessionLifecycleReason reason,
+        RecoveryPhase phase,
+        long attempt)
+    {
+        try
+        {
+            await _events.WriteEventAsync(
+                    sequence => new SessionLifecycleEvent(
+                        _identity.GuardianBootId,
+                        _identity.HostBootId,
+                        _identity.HostGeneration,
+                        sequence,
+                        requestId: null,
+                        binding.Alias,
+                        binding.TransitionVersion,
+                        worker,
+                        PublicSessionState.Ready,
+                        PublicSessionState.Recovering,
+                        reason,
+                        readyForEffects: false,
+                        warmStateLost: true,
+                        BootstrapState.Pending,
+                        phase,
+                        attempt,
+                        ContractLimits.MinimumRetryAfterMilliseconds),
+                    CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
         }
     }
 

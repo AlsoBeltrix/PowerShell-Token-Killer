@@ -1272,6 +1272,60 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
+    public async Task Unexpected_worker_death_announces_recovery_before_the_alias_returns_ready()
+    {
+        // The guardian projects the alias's last lifecycle. Without a recovering
+        // event it keeps projecting the dead worker's Ready for the whole
+        // death-to-relaunch window: a caller sees a usable session that cannot
+        // run anything, and an invalidated dispatch target has no recovery
+        // evidence to be refused with.
+        var rig = new RuntimeRig(generations: [9, 10, 11]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        await OpenAliasAsync(rig, scratch, 10);
+
+        rig.Launch.Processes[1].Kill();
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(lifecycle =>
+                lifecycle.Reason ==
+                    GuardianHostSessionLifecycleReason.AutomaticRecovery &&
+                lifecycle.SessionAlias == scratch &&
+                lifecycle.WorkerIdentity?.Generation.Value == 11),
+            "automatic recovery of the dead worker");
+
+        var aliasLifecycles = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>()
+            .Where(lifecycle => lifecycle.SessionAlias == scratch)
+            .ToArray();
+        var recoveringIndex = Array.FindIndex(
+            aliasLifecycles,
+            lifecycle => lifecycle.State == PublicSessionState.Recovering);
+        var readyIndex = Array.FindLastIndex(
+            aliasLifecycles,
+            lifecycle => lifecycle.State == PublicSessionState.Ready);
+
+        Assert.True(recoveringIndex >= 0, "the alias announced it was recovering");
+        Assert.True(
+            recoveringIndex < readyIndex,
+            "recovery is announced before the alias returns ready");
+
+        var recovering = aliasLifecycles[recoveringIndex];
+        Assert.Equal(GuardianHostSessionLifecycleReason.WorkerExit, recovering.Reason);
+        Assert.False(recovering.ReadyForEffects);
+        Assert.True(recovering.WarmStateLost);
+        Assert.Equal(BootstrapState.Pending, recovering.BootstrapState);
+        Assert.Equal(RecoveryPhase.Containment, recovering.RecoveryPhase);
+        // The attempt ordinal is the alias's real consecutive-death count, and
+        // the event names the worker being contained, not its replacement.
+        Assert.Equal(1, recovering.RecoveryAttempt);
+        Assert.Equal(
+            ContractLimits.MinimumRetryAfterMilliseconds,
+            recovering.RetryAfterMilliseconds);
+        Assert.Equal(10, recovering.WorkerIdentity?.Generation.Value);
+    }
+
+    [Fact]
     public async Task A_crash_loop_faults_the_alias_instead_of_relaunching_forever()
     {
         var rig = new RuntimeRig(generations: [9, 10, 11, 12, 13]);

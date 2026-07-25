@@ -970,7 +970,12 @@ short and update it when important repo facts change.
   and `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
   is pre-existing Windows nondeterminism (`r6x-3`, MEDIUM) — proved not a
   regression by an equal 4-of-5 isolated failure rate at the pre-fix head
-  `31f550e`. Both need a Windows host to diagnose. Full evidence:
+  `31f550e`. Both need a Windows host to diagnose — **which is not a blocker
+  and never required the owner.** An agent on the Mac reaches `NETWATCH-01`
+  directly over key-based SSH; the exact recipe and its pitfalls are in
+  `.agents/machines.md` ("Reaching it from the Mac"). This was assumed
+  unreachable and reported as an owner-gated blocker across several sessions
+  without anyone testing it. Full evidence:
   `.agents/review/findings/r6x-1.md`, `r6x-2.md`, `r6x-3.md`, and
   `.agents/machines.md` ("R6 cross-platform validation", "r6x-1 fix
   validation").

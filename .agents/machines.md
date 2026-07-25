@@ -346,6 +346,31 @@ exact committed head is recorded in `.agents/state.md`._
 
 ## `NETWATCH-01` — Michael's Windows machine
 
+### Reaching it from the Mac (verified 2026-07-25)
+
+**An agent working on the Mac can drive this machine directly. Windows work is
+not owner-gated and does not require a session started on the box.** This is
+recorded because the opposite was assumed and repeatedly reported as a blocker
+without ever being tested; the assumption was false.
+
+- `netwatch-01` resolves to `10.1.10.173` and answers ICMP; TCP 22 is open and
+  TCP 5985 (WinRM) is not. Use SSH.
+- `ssh -o BatchMode=yes netwatch-01 <command>` authenticates by key with no
+  prompt and returns exit 0. The remote identity is `NETWATCH-01\michael`.
+- The remote default shell is Windows PowerShell 5.1 (`5.1.26100.8875`).
+  `dotnet` (`C:\Program Files\dotnet\dotnet.exe`) and `git`
+  (`C:\Program Files\Git\cmd\git.exe`) are both on PATH.
+- Pass any nontrivial remote script as
+  `powershell -NoProfile -EncodedCommand <base64 UTF-16LE>`. Passing it as a
+  quoted argument does not survive: the local PowerShell splits on `&` and
+  rewrites `$PSVersionTable`, and the remote sees mangled input. Use
+  `route=pwsh` on the local `ptk_invoke` as well, for the same reason.
+- The owner's working checkout is `F:\dev\PowerShell-Token-Killer` (on
+  `master`, clean, remotes `origin` + `gitea`). It does **not** track the
+  resilience feature branch. Per the established practice on this host, do not
+  fetch into or otherwise modify that checkout — use a disposable copy, as the
+  slice-1 validation below did.
+
 _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._
 
 - SSH ran as ordinary identity `NETWATCH-01\michael` on Windows NT

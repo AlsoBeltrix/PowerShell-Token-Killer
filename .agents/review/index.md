@@ -2912,7 +2912,7 @@ validation"). Finding record: `.agents/review/findings/r6x-1.md`.
 | ID     | Severity | Impact (one line)                                              | Status | Branch | Reviewer |
 |--------|----------|----------------------------------------------------------------|--------|--------|----------|
 | r6x-1  | HIGH     | Windows evidence anchoring dies past MAX_PATH; audit fails closed | `[x]`  | feature/mcp-resilience-r1 (`09bc6a0`, `168905c`) | kimi/kimi-code-k3/default/standard |
-| r6x-2  | HIGH     | Three `Windows_*` real-composition tests fail for a non-audit reason | `[~]`  | feature/mcp-resilience-r1 (`0848e36`, #1 only) | kimi (pending) |
+| r6x-2  | HIGH     | Three `Windows_*` real-composition tests fail for a non-audit reason | `[~]`  | feature/mcp-resilience-r1 (`0848e36`, #1 only) | kimi/kimi-code-k3/default/standard |
 | r6x-3  | MEDIUM   | `State_polling_..._scheduler_inert` fails ~4/5 on Windows        | `[ ]`  |        |          |
 
 **r6x-2 progress 2026-07-25:** #1 (ambiguous reset) root-caused and fixed at
@@ -2928,6 +2928,19 @@ three mutations, each reddening only its own guard. Notably the pre-existing
 `ObserveHostReady`, not the lifecycle channel that carries the restoration —
 which is how the defect shipped past a test named for it. #2 and #3 remain
 open and deterministic.
+
+**#1 review CLOSED 2026-07-25:** reviewer kimi (kimi-code 0.29.1, default
+model), single round, **VERDICT ACCEPTED**, `guard_confirmed=true`, both SHAs
+matching, zero defects. Strong-sense confirmation: the reviewer ran the mutation
+proof itself in its own detached worktree and independently reproduced all three
+results, then ran the full entry point green (73/73, 486/486, 2,039/2,039). It
+additionally proved two things the fix had only reasoned about — that
+`ObserveSessionOperationResult`'s only production caller is gated on explicit
+session-changing operations (so "authoritative result" really is "explicit
+repair"), and that the rejected alternative of ignoring the Ready event outright
+would have **wedged** the alias permanently, because the repair's binding check
+would then throw against a dead worker identity. `r6x-2` stays `[~]`: its #2 and
+#3 are untouched.
 
 **Raised 2026-07-25:** Windows Guardian 480/484 — the four failures are all
 `ProductionGuardianCompositionTests.Windows_*`; Windows server 2,012/2,037

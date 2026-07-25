@@ -78,6 +78,30 @@ short and update it when important repo facts change.
   lifecycle transitions on one alias single-flight arbitrated in one
   place. The sub-slice 5 wiring design remains mapped in this file
   (2026-07-24 bullets) minus the superseded lockstep-epoch sketch.
+- **Sub-slice 5's thinnest loss path is implemented and reviewed
+  (`d9f9c2b` + repairs `0d6ffe1`, `0a84e45`, `49b9602`, acceptance record
+  `3b99b6f`).** An unexpectedly dead worker is now detected per alias
+  (`Fatal` watch armed at Ready and at every slot assignment), confirmed
+  dead via containment disposal, and relaunched at the next generation
+  with an `AutomaticRecovery` lifecycle and `warm_state_lost=true` —
+  while a second alias keeps its PID, generation, and operations. Gap
+  operations get WorkerLost (`ReplacingAutomatically`), three consecutive
+  deaths fault only that alias (`CircuitTransition`, stability-window
+  reset), the death counter clears on manual replacement/reopen/close,
+  and a worker dying during initialization is recovered once Ready.
+  Eleven rig tests pin the behavior; every fence and counter rule is
+  mutation-proven red-to-green, including the reviewer's two rounds that
+  caught a vacuous init guard and the reopen/close counter pins. Remaining
+  for sub-slice 5: guardian-side recovery projection
+  (recoveryPhase/attempt/retryAfter per alias),
+  `TryGetJobListTargetInvalidation` from that metadata, execution-timeout
+  containment convergence, and the R6 acceptance matrix (one-alias
+  crash/recovery while a second alias keeps its PID, generation, warm
+  state, and successful operation — the in-proc rig proves this shape
+  today; the real apphost proof is acceptance work). The load-flake now
+  has a name:
+  `Guardian_private_request_ids_remain_monotonic_across_host_generations`
+  (non-reproducing, green on reruns; see the s5-1 finding record).
   1. Host-side detection in `WorkerPrivateHostRuntime`: per alias, watch
      `slot.Process.Fatal` and worker EOF/exit; map to the slot's
      `GuardianHostWorkerIdentity` and feed
@@ -715,18 +739,15 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Work the five admitted openreview findings (`.agents/review/findings/or5-*.md`,
-   one per commit, each with guard proof and per-finding review): or5-1
-   (per-alias fault scoping), or5-3 (desired state follows explicit
-   lifecycle intent), or5-2 (reopen/undeclare for dynamic aliases), or5-4
-   (release job capabilities on terminal), then sub-slice 5 per or5-5:
-   the thinnest end-to-end loss → confirm-death → next-generation →
-   relaunch path per alias wired to real slot/containment resources, with
-   the recovery machine's transition epoch kept as its private host-local
-   bookkeeping (never on the wire; the guardian keeps today's identifiers)
-   and all manual/automatic lifecycle transitions on one alias
-   single-flight arbitrated in one place. The 87eb957 lockstep-epoch
-   sketch is superseded. The production-cutover slice itself is
+1. Continue sub-slice 5 from head `49b9602`: guardian-side recovery
+   projection (recoveryPhase/attempt/retryAfter per alias from the
+   recovery lifecycle facts), `TryGetJobListTargetInvalidation` from that
+   metadata (the interface contract requires exact recovery metadata —
+   never synthesized), execution-timeout containment convergence into the
+   same loss path, then the R6 acceptance matrix per
+   `.agents/plans/mcp-resilience.md` (one-alias crash/recovery while a
+   second alias keeps its PID, generation, warm state, and successful
+   operation, on the real apphost). The production-cutover slice itself is
    complete and verified on macOS; the Windows-only real composition tests
    still need their direct `NETWATCH-01`/CI evidence on this exact head before
    any cross-platform claim.

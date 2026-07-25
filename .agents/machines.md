@@ -322,6 +322,28 @@ exact committed head is recorded in `.agents/state.md`._
   cancellation-dependent drain has been observed to hang there on this host,
   but the pattern is the same as the one that stalled the host.
 
+### Reviewer harness state (macOS, 2026-07-25)
+
+- Codex review credits are exhausted until Tuesday (owner, 2026-07-24);
+  reviews since then run on claude. `claude-opus-5` is the standing review
+  model per owner instruction (its predecessor `claude-opus-4-8` was
+  provider-retired after one inline use); the confirmed frontier pair and
+  openreview eligibility for Claude Code 2.1.219 are recorded in the
+  machine-local `.agents/review/harnesses.local.json` (grade noted as an
+  owner-correctable assumption).
+- Headless `claude` Bash is allowlist-gated on this machine
+  (`.claude/settings.local.json`: only `rtk read *`, `rtk git *`, and the
+  ptk MCP tools pass; raw Bash is denied even with
+  `--permission-mode bypassPermissions`). Review dispatches run their
+  commands through `mcp__ptk__ptk_invoke` — qualified by smoke probe and
+  cached in the same harness file.
+- The full-suite load-flake finally has a name:
+  `Guardian_private_request_ids_remain_monotonic_across_host_generations`
+  (and once `ResilienceFakeGuardianTests` process-start ENOENT) — both
+  non-reproducing, green in isolation and on immediate reruns at the same
+  SHAs. Batteries on this host must use the physical
+  `/private/var/folders/...` TMPDIR, as recorded above.
+
 ## `NETWATCH-01` — Michael's Windows machine
 
 _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._

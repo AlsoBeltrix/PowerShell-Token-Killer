@@ -5,41 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 sub-slice 4 is in flight on `feature/mcp-resilience-r1`; structural
-  halves are committed at `b18fc09` and `d71664f`, `ptk_session open` is
-  complete at `6bbf86e`, and the cutover trio passed codex review
-  (`r6c-1`, accepted 2026-07-24).** `b18fc09` holds
-  guardian declared session state per alias inside
-  `FrozenDefaultSessionState` with byte-identical default-alias behavior
-  (manifest/binding digests, grant/refusal token economics, observer
-  rejection); the refusal guard caught a token-minting reorder during
-  development. `d71664f` holds one worker slot per declared alias inside
-  `WorkerPrivateHostRuntime`: per-alias slot/replacing/job-capability maps,
-  multi-binding initialization that accepts the ready default plus cold
-  dynamic bindings (template bindings still refused), and per-alias
-  reset/restart/close with a frozen launch/shutdown order. `6bbf86e` lands
-  `ptk_session open` end-to-end: the canonical binding digest moved into
-  `PtkSharedContracts.RecoveryBinding.ComputeBindingDigest` (default bytes
-  pinned by the existing digest test); the guardian declares each dynamic
-  alias (kind Dynamic, transition 1, desired Ready, declared dispatch
-  identity consuming generation 1, Cold/null-worker public projection);
-  the supervisor dispatches open through the Host gate with a null-worker
-  request; the host rebuilds the binding from operation+request fields and
-  computes the same digest (grant validation catches divergence), creates
-  the slot, and emits the `RequestedOpen` ready lifecycle. Layered guards:
-  declaration/projection tests in `FrozenDefaultSessionStateTests`, the
-  host open/busy/template-refusal tests in
-  `WorkerPrivateHostRuntimeTests`, the supervisor open tests in
-  `GuardianHostSupervisorTests`, and
+- **R6 sub-slice 4 is complete on `feature/mcp-resilience-r1`.** `b18fc09`
+  holds guardian declared session state per alias inside
+  `FrozenDefaultSessionState` with byte-identical default-alias behavior;
+  `d71664f` holds one worker slot per declared alias inside
+  `WorkerPrivateHostRuntime` (per-alias slot/replacing/job-capability maps,
+  ready default plus cold dynamic initialization, per-alias
+  reset/restart/close); `6bbf86e` landed `ptk_session open` end-to-end
+  (shared binding digest in `PtkSharedContracts.RecoveryBinding`,
+  guardian declaration consuming generation 1, Host-gate dispatch with a
+  null-worker request, host-side binding rebuild with grant-validated
+  digest). Review loops: r6c-1 accepted the cutover trio (codex,
+  2026-07-24); r6c-2 reopened the open slice on the recovery-manifest
+  rejection (Ready dynamic binding crashed host init), repaired at
+  `2ba5aa9` and accepted on repair-delta (claude-opus-4-8 inline,
+  2026-07-24). The `6bbf86e` slice's layered guards include
   `ProductionGuardianCompositionTests.Composition_opens_a_dynamic_session_on_the_real_private_host`
-  (real apphost: open, state, invoke, close, cold projection). Three
-  mutations proved the load-bearing seams red (skip-declare, null-worker
-  removal, reopen-allowed) before restore. Template open refuses cleanly
-  until the template-bootstrap slice. One flaky battery failure appeared
-  once and did not reproduce in two immediate full reruns (2,567/2,567
-  green both times); its test name was not captured. Sub-slice 5 (wire
-  `SessionRecoveryStateMachine` per alias) has not started; it exists
-  per-alias and unwired in `server/PtkMcpServer/GuardianHost/SessionRecoveryStateMachine.cs`.
+  (real apphost: open, state, invoke, close, cold projection). Template
+  open refuses by design (lazy-load amendment below).
 - **Owner decision (2026-07-24): lazy load at point of need; no tool-side
   module replay.** Template bootstrap is removed from R6 scope: a recovered
   alias returns as a sound, empty runspace and the model loads modules

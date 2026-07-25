@@ -1313,7 +1313,7 @@ internal static class SecureAuditStorage
             Action? fileFlushedForTests)
         {
             using var source = CreateFile(
-                temporaryPath,
+                ExtendedLengthPath(temporaryPath),
                 DeleteAccess | SynchronizeAccess | FileReadAttributes | GenericWrite,
                 ShareReadWriteDelete,
                 securityAttributes: IntPtr.Zero,
@@ -1323,8 +1323,11 @@ internal static class SecureAuditStorage
             if (source.IsInvalid)
                 throw new Win32Exception(Marshal.GetLastPInvokeError());
 
+            // Deliberately the UNPREFIXED path: this compares against
+            // NormalizeFinalPath, which strips the extended-length prefix.
             _ = GetProtectedFileIdentity(temporaryPath, source);
-            var fileNameBytes = Encoding.Unicode.GetBytes(publishedPath);
+            var fileNameBytes = Encoding.Unicode.GetBytes(
+                ExtendedLengthPath(publishedPath));
             var rootDirectoryOffset = IntPtr.Size == sizeof(long) ? 8 : 4;
             var fileNameLengthOffset = rootDirectoryOffset + IntPtr.Size;
             var fileNameOffset = fileNameLengthOffset + sizeof(uint);
@@ -1492,7 +1495,7 @@ internal static class SecureAuditStorage
                 }
 
                 var securityResult = SetNamedSecurityInfo(
-                    path,
+                    ExtendedLengthPath(path),
                     SeFileObject,
                     OwnerSecurityInformation |
                     DaclSecurityInformation |
@@ -1553,9 +1556,71 @@ internal static class SecureAuditStorage
             IntPtr dacl,
             IntPtr sacl);
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        /// <summary>
+        /// Extended-length (<c>\\?\</c>) form of one path, for a raw Win32
+        /// argument only. Win32 imports receive none of the BCL's automatic
+        /// extended-length normalization, so a path the managed file APIs
+        /// handle happily still fails the legacy <c>MAX_PATH</c> limit once it
+        /// crosses 259 characters — measured on Windows as
+        /// <c>ERROR_PATH_NOT_FOUND</c> from <c>MoveFileEx</c> and
+        /// <c>CreateFileW</c>, <c>ERROR_FILENAME_EXCED_RANGE</c> from a
+        /// <c>FILE_RENAME_INFO</c> destination, and <c>ERROR_INVALID_NAME</c>
+        /// from the name-based security APIs. Evidence anchoring names are 209
+        /// characters by construction, so ordinary user-profile roots cross the
+        /// limit without anything being misconfigured.
+        /// </summary>
+        /// <remarks>
+        /// The prefix is applied at the P/Invoke boundary and NEVER escapes it.
+        /// Managed-side paths stay in their unprefixed form because that is the
+        /// form every check and comparison in this component speaks:
+        /// <see cref="GetProtectedFileIdentity"/> compares against
+        /// <see cref="NormalizeFinalPath"/>, which strips exactly this prefix
+        /// off <c>GetFinalPathNameByHandle</c> output. Passing a prefixed path
+        /// into managed logic would break that comparison.
+        ///
+        /// <see cref="Path.GetFullPath(string)"/> runs FIRST, deliberately:
+        /// <c>\\?\</c> disables kernel path normalization, so the path must
+        /// already be fully resolved before the prefix goes on. That ordering
+        /// keeps the component's link, reparse-point, and direct-child
+        /// refusals meaningful rather than handing the kernel something
+        /// unnormalized.
+        /// </remarks>
+        private static string ExtendedLengthPath(string path)
+        {
+            var full = Path.GetFullPath(path);
+            if (full.StartsWith(@"\\?\", StringComparison.Ordinal) ||
+                full.StartsWith(@"\\.\", StringComparison.Ordinal))
+            {
+                return full;
+            }
+            return full.StartsWith(@"\\", StringComparison.Ordinal)
+                ? @"\\?\UNC\" + full[2..]
+                : @"\\?\" + full;
+        }
+
+        internal static bool MoveFileEx(
+            string existingFileName,
+            string newFileName,
+            MoveFileFlags flags)
+        {
+            // Both arguments are converted before the call so the caller's
+            // Marshal.GetLastPInvokeError() still observes this P/Invoke.
+            var existing = ExtendedLengthPath(existingFileName);
+            var replacement = ExtendedLengthPath(newFileName);
+            return MoveFileExW(existing, replacement, flags);
+        }
+
+        [DllImport(
+            "kernel32.dll",
+            EntryPoint = "MoveFileExW",
+            CharSet = CharSet.Unicode,
+            ExactSpelling = true,
+            SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        internal static extern bool MoveFileEx(string existingFileName, string newFileName, MoveFileFlags flags);
+        private static extern bool MoveFileExW(
+            string existingFileName,
+            string newFileName,
+            MoveFileFlags flags);
 
         [DllImport(
             "kernel32.dll",

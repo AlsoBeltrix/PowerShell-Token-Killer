@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Security.AccessControl;
@@ -130,6 +131,49 @@ public sealed class SecureAuditStorageTests : IDisposable
         var root = SecureAuditStorage.PrepareRoot(NewRoot());
         var published = Path.Combine(root, "checkpoint.json");
         var temporary = Path.Combine(root, ".checkpoint.replace.tmp");
+        WriteProtected(published, "old-state");
+        WriteProtected(temporary, "new-state");
+
+        SecureAuditStorage.ReplaceAtomically(temporary, published, root);
+
+        Assert.Equal("new-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.False(File.Exists(temporary));
+        SecureAuditStorage.VerifyProtectedFile(published);
+    }
+
+    [Fact]
+    public void Windows_publishes_a_protected_file_past_the_legacy_max_path_limit()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, AnchoringShapedLeaf());
+        var temporary = Path.Combine(root, AnchoringShapedLeaf());
+        Assert.True(
+            published.Length > LegacyMaxPath,
+            $"This guard must cross the legacy MAX_PATH limit; published was {published.Length}.");
+        WriteProtected(temporary, "anchored-state");
+
+        SecureAuditStorage.PublishAtomically(temporary, published, root);
+
+        Assert.Equal("anchored-state", File.ReadAllText(published, Encoding.UTF8));
+        Assert.False(File.Exists(temporary));
+        SecureAuditStorage.VerifyProtectedFile(published);
+    }
+
+    [Fact]
+    public void Windows_replaces_a_protected_file_past_the_legacy_max_path_limit()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+
+        var root = SecureAuditStorage.PrepareRoot(NewRoot());
+        var published = Path.Combine(root, AnchoringShapedLeaf());
+        var temporary = Path.Combine(root, AnchoringShapedLeaf());
+        Assert.True(
+            published.Length > LegacyMaxPath,
+            $"This guard must cross the legacy MAX_PATH limit; published was {published.Length}.");
         WriteProtected(published, "old-state");
         WriteProtected(temporary, "new-state");
 
@@ -371,6 +415,39 @@ public sealed class SecureAuditStorageTests : IDisposable
         Assert.Equal(newState, File.ReadAllText(published, Encoding.UTF8));
         Assert.False(File.Exists(temporary));
         SecureAuditStorage.VerifyExternalProtectedFile(published);
+    }
+
+    /// <summary>
+    /// The legacy Win32 path ceiling. A raw Win32 P/Invoke receives none of the
+    /// BCL's automatic extended-length normalization, so paths longer than this
+    /// fail there even when the managed file APIs handle them (r6x-1).
+    /// </summary>
+    private const int LegacyMaxPath = 259;
+
+    /// <summary>
+    /// A leaf name with the exact shape and length (209 characters) that script
+    /// evidence anchoring produces: evidence GUID, script digest, the
+    /// <c>.anchoring.</c> marker, supervisor boot ID, a 20-digit sequence and an
+    /// event GUID. Under an ordinary user-profile root this alone crosses
+    /// <see cref="LegacyMaxPath"/>, which is why the defect needed no unusual
+    /// configuration to fire.
+    /// </summary>
+    private static string AnchoringShapedLeaf()
+    {
+        var leaf = string.Concat(
+            Guid.NewGuid().ToString(),
+            ".",
+            Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant(),
+            Convert.ToHexString(Guid.NewGuid().ToByteArray()).ToLowerInvariant(),
+            ".anchoring.",
+            Guid.NewGuid().ToString("N"),
+            ".",
+            1.ToString("D20", CultureInfo.InvariantCulture),
+            ".",
+            Guid.NewGuid().ToString(),
+            ".script");
+        Assert.Equal(209, leaf.Length);
+        return leaf;
     }
 
     private string NewRoot()

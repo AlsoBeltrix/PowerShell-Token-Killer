@@ -1603,9 +1603,55 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
-    public async Task A_failed_open_marks_the_alias_cold_and_it_recovers_on_the_next_attempt()
+    public async Task An_ambiguous_open_stays_reopenable_as_the_explicit_repair()
     {
         await using var rig = new TestRig(
+            new CanonicalAlias("default"),
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.CrashAfterRequest),
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+
+        var ambiguous = DecodeRecovery(
+            await rig.DispatchPublicSessionOpenAsync(
+                    "scratch",
+                    template: null,
+                    allowColdBackground: true,
+                    timeoutSeconds: 19)
+                .WaitAsync(TestTimeout));
+        Assert.Equal(PublicRecoveryDetailCode.OutcomeUnknown, ambiguous.DetailCode);
+        Assert.False(ambiguous.Retryable);
+
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Ready,
+                Generation.Value: 2,
+            });
+        var unknown = rig.Supervisor.SnapshotState().Sessions
+            .Single(session => session.Alias.Value == "scratch");
+        Assert.Equal(PublicSessionState.RecoveryUnknown, unknown.State);
+        Assert.Equal(DesiredSessionState.Cold, unknown.DesiredState);
+
+        var reopened = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(reopened.IsError);
+        Assert.Contains("state=ready", reopened.Text, StringComparison.Ordinal);
+        Assert.Single(rig.Factory.Resources[1].SessionOpens);
+        var repaired = rig.Supervisor.SnapshotState().Sessions
+            .Single(session => session.Alias.Value == "scratch");
+        Assert.Equal(PublicSessionState.Ready, repaired.State);
+        Assert.Equal(DesiredSessionState.Ready, repaired.DesiredState);
+    }
+
+    [Fact]
+    public async Task A_failed_open_marks_the_alias_cold_and_it_recovers_on_the_next_attempt()
+    {        await using var rig = new TestRig(
             new CanonicalAlias("default"),
             enableOutput: false,
             new AttemptPlan(HostBehavior.SessionLifecycle, AutoConfirmContainment: false),

@@ -697,7 +697,8 @@ internal sealed class GuardianHostSupervisor :
             }
             if (_sessionSource.SnapshotSessions().Any(session =>
                     session.Alias == admitted.Alias &&
-                    session.State != PublicSessionState.Cold))
+                    session.State is PublicSessionState.Ready or
+                        PublicSessionState.Starting))
             {
                 return new GuardianToolResult(
                     $"session={admitted.Alias.Value} already exists.",

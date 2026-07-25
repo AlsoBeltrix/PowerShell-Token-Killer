@@ -5,6 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **`r6x-2` is closed and Guardian is 495/495 on both macOS and Windows
+  (2026-07-25).** No failing identity remains on either platform. The last of
+  the three, #2, was a **stale test expectation from before the R6 worker
+  cutover**: it waited for a replacement *host* after an ambiguous worker death,
+  but per-alias recovery replaces the worker and leaves the host alone, so it
+  burned its whole 60-second budget. The product invariant it guards — an
+  ambiguous effect is never replayed — holds on both platforms. It was repaired
+  to assert per-alias worker recovery, to poll *session* readiness rather than
+  host readiness before dispatching the follow-up effect, and to run
+  cross-platform. **All three `r6x-2` defects presented as Windows-only and none
+  were**; in each case the Windows gate was a fact about coverage, not about the
+  defect. Treat a Windows-gated failure as evidence of nothing platform-specific
+  until the scenario has been run elsewhere — each check took minutes.
 - **`r6acc-1` is fixed, and with it the R6 acceptance matrix line "one worker
   crash affects only one alias" (2026-07-25).**
   `FrozenDefaultSessionState.GrantWorkerCreateCapability` moved an alias to
@@ -835,14 +848,14 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **`r6x-2` #2 is the last failure in that finding**:
-   `Windows_composition_never_replays_a_real_effect_when_the_host_dies`, a bare
-   60-second timeout, undiagnosed. Deterministic (2 of 2 isolated runs), so it
-   is directly reproducible. Do **not** assume it shares a cause with #1 or #3.
-   **Check it on macOS before assuming it needs Windows**: #3 presented only on
-   Windows and proved platform-neutral, because only the *test* was
-   Windows-gated, not the defect. That assumption cost this finding a full
-   diagnostic cycle.
+1. **Get `r6x-2` and `r6acc-1` reviewed.** Both are closed and green on macOS
+   and Windows but neither fix has been through `codereview`. Three fixes land
+   unreviewed: the background output capture (`4b0df6e`), the recovery-fact
+   clear (`8dbe8e4`), and the #2 test repair. The test repair deserves the most
+   scrutiny — it changes what an existing R5 acceptance identity asserts, from
+   host replacement to per-alias worker recovery, on the argument that the R6
+   cutover made the old expectation obsolete. If that argument is wrong, a real
+   regression is now pinned as correct behaviour.
 3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
    suspected regression from this session's own work.** Writing the acceptance
    test for one-alias crash isolation on the real apphost found that

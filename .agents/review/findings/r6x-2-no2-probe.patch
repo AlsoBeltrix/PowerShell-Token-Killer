@@ -1,0 +1,182 @@
+diff --git a/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs b/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
+index dbd6c17..74de55a 100644
+--- a/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
++++ b/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
+@@ -2547,6 +2547,177 @@ public sealed class ProductionGuardianCompositionTests
+         Assert.False(Directory.Exists(outputRoot));
+     }
+ 
++    [Fact]
++    public async Task Probe_r6x2_no2_what_actually_gets_replaced()
++    {
++        var auditRoot = TemporaryRoot("probe-r6x2-audit");
++        var outputRoot = TemporaryRoot("probe-r6x2-output");
++        string? nativeRoot = null;
++        IPrivateHostProcessLauncher launcher;
++        MatchedPackageFacts package;
++        GatedContainmentLauncher? gated = null;
++        if (OperatingSystem.IsWindows())
++        {
++            gated = new GatedContainmentLauncher();
++            gated.ReleaseFirstContainmentConfirmation();
++            launcher = gated;
++            package = Package(FindServerAppHost());
++        }
++        else
++        {
++            nativeRoot = TemporaryRoot("probe-r6x2-broker");
++            Directory.CreateDirectory(nativeRoot);
++            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
++            await CompileGuardianBrokerAsync(broker);
++            launcher = new UnixPrivateHostProcessLauncher(broker);
++            package = Package(FindServerAppHost(), broker);
++        }
++        var composition = ProductionGuardianComposition.Create(
++            package,
++            LocalAudit(auditRoot),
++            launcher,
++            OutputOptions(outputRoot),
++            guardianBootId: Guardian,
++            defaultWorkerBootId: Worker);
++        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
++        using var input = new R3BoundedOneWayStream();
++        using var output = new R3BoundedOneWayStream();
++        using var writer = new StreamWriter(
++            input,
++            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
++            bufferSize: 1024,
++            leaveOpen: true)
++        { AutoFlush = true, NewLine = "\n" };
++        using var reader = new StreamReader(
++            output,
++            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
++            detectEncodingFromByteOrderMarks: false,
++            bufferSize: 1024,
++            leaveOpen: true);
++        using var standardError = new StringWriter();
++        var run = Program.RunAsync(
++            [],
++            input,
++            output,
++            standardError,
++            productionComposition: composition,
++            cancellationToken: timeout.Token);
++        try
++        {
++            _ = await RequestAsync(
++                writer, reader, requestId: 1, "initialize",
++                new
++                {
++                    protocolVersion = "2025-06-18",
++                    capabilities = new { },
++                    clientInfo = new { name = "probe-r6x2", version = "1.0.0" },
++                },
++                timeout.Token);
++            await WriteAsync(
++                writer,
++                new { jsonrpc = "2.0", method = "notifications/initialized", @params = new { } },
++                timeout.Token);
++            ProbeLog($"R6X2_LAUNCH_AFTER_INIT>>>{gated?.LaunchCount}");
++
++            var ambiguousResponse = await RequestAsync(
++                writer, reader, requestId: 2, "tools/call",
++                new
++                {
++                    name = "ptk_invoke",
++                    arguments = new
++                    {
++                        script = "[System.Diagnostics.Process]::GetCurrentProcess().Kill()",
++                        raw = true,
++                        route = "pwsh",
++                        background = false,
++                        timeoutSeconds = 10,
++                        session = "default",
++                    },
++                },
++                timeout.Token);
++            var ambiguous = PublicRecoveryCodec.Decode(
++                Encoding.UTF8.GetBytes(ToolText(ambiguousResponse, expectedError: true)));
++            ProbeLog(
++                $"R6X2_AMBIGUOUS>>>{ambiguous.DetailCode} retryable={ambiguous.Retryable} " +
++                $"launchCount={gated?.LaunchCount}");
++
++            var requestId = 3;
++            for (var attempt = 0; attempt < 120; attempt++)
++            {
++                var stateResponse = await RequestAsync(
++                    writer, reader, requestId++, "tools/call",
++                    new { name = "ptk_state", arguments = new { } },
++                    timeout.Token);
++                var candidate = PublicStateCodec.Decode(
++                    Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
++                if (candidate.Host.ReadyForEffects &&
++                    candidate.Sessions.Single().ReadyForEffects)
++                {
++                    var session = candidate.Sessions.Single();
++                    ProbeLog(
++                        $"R6X2_RECOVERED>>>attempt={attempt} " +
++                        $"hostState={candidate.Host.State} " +
++                        $"hostGen={candidate.Host.Generation?.Value} " +
++                        $"warmLost={session.WarmStateLost} " +
++                        $"sessionState={session.State} " +
++                        $"workerGen={session.Generation?.Value} " +
++                        $"launchCount={gated?.LaunchCount}");
++                    break;
++                }
++                await Task.Delay(25, timeout.Token);
++            }
++
++            var invocation = await RequestAsync(
++                writer, reader, requestId, "tools/call",
++                new
++                {
++                    name = "ptk_invoke",
++                    arguments = new
++                    {
++                        script = "Write-Output 'effect-was-not-replayed'",
++                        raw = true,
++                        route = "pwsh",
++                        background = false,
++                        timeoutSeconds = 10,
++                        session = "default",
++                    },
++                },
++                timeout.Token);
++            ProbeLog(
++                "R6X2_REINVOKE>>>" +
++                ToolText(invocation, expectedError: false).Replace("\n", "|") +
++                $" launchCount={gated?.LaunchCount}");
++        }
++        catch (Exception exception)
++        {
++            ProbeLog($"R6X2_THREW>>>{exception.GetType().Name}: {exception.Message} " +
++                $"launchCount={gated?.LaunchCount}");
++        }
++        finally
++        {
++            gated?.ReleaseFirstContainmentConfirmation();
++            input.CompleteWriting();
++            try
++            {
++                await run.WaitAsync(TimeSpan.FromSeconds(20), CancellationToken.None);
++            }
++            catch (Exception exception)
++            {
++                ProbeLog("R6X2_SHUTDOWN>>>" + exception.GetType().Name);
++            }
++            ProbeLog("R6X2_STDERR>>>" + standardError.ToString().Replace("\n", "|"));
++            await composition.DisposeAsync();
++            DeleteRoot(auditRoot);
++            if (nativeRoot is not null) DeleteRoot(nativeRoot);
++        }
++    }
++
++    private static void ProbeLog(string line) =>
++        File.AppendAllText(
++            Environment.GetEnvironmentVariable("PTK_PROBE_LOG") ??
++                Path.Combine(Path.GetTempPath(), "ptk-probe.log"),
++            line + Environment.NewLine);
++
+     [Fact]
+     public async Task Windows_composition_never_replays_a_real_effect_when_the_host_dies()
+     {

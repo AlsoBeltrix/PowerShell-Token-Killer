@@ -2548,16 +2548,29 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
-    public async Task Windows_composition_never_replays_a_real_effect_when_the_host_dies()
+    public async Task Composition_never_replays_a_real_effect_when_the_worker_dies()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot("outcome-unknown-audit");
         var outputRoot = TemporaryRoot("outcome-unknown-output");
-        var launcher = new GatedContainmentLauncher();
-        launcher.ReleaseFirstContainmentConfirmation();
+        string? nativeRoot = null;
+        IPrivateHostProcessLauncher launcher;
+        MatchedPackageFacts package;
+        if (OperatingSystem.IsWindows())
+        {
+            launcher = new WindowsPrivateHostProcessLauncher();
+            package = Package(FindServerAppHost());
+        }
+        else
+        {
+            nativeRoot = TemporaryRoot("outcome-unknown-broker");
+            Directory.CreateDirectory(nativeRoot);
+            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+            await CompileGuardianBrokerAsync(broker);
+            launcher = new UnixPrivateHostProcessLauncher(broker);
+            package = Package(FindServerAppHost(), broker);
+        }
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            package,
             LocalAudit(auditRoot),
             launcher,
             OutputOptions(outputRoot),
@@ -2617,7 +2630,6 @@ public sealed class ProductionGuardianCompositionTests
                     @params = new { },
                 },
                 timeout.Token);
-            var firstHostProcessId = await launcher.FirstHostProcessId.WaitAsync(timeout.Token);
 
             var ambiguousResponse = await RequestAsync(
                 writer,
@@ -2647,10 +2659,13 @@ public sealed class ProductionGuardianCompositionTests
             Assert.Null(ambiguous.RecoveryAttempt);
             Assert.Null(ambiguous.RetryGate);
 
-            var replacementHostProcessId = await launcher.ReplacementHostProcessId
-                .WaitAsync(timeout.Token);
-            Assert.NotEqual(firstHostProcessId, replacementHostProcessId);
-
+            // The alias recovers by replacing its own worker; the private host
+            // is not relaunched. Waiting for a replacement host here is what
+            // this identity used to do, and it hung for the full timeout after
+            // the R6 worker cutover made per-alias worker recovery the design
+            // (r6x-2 #2). Readiness is polled on the *session*, because that is
+            // what decides whether an effect can be dispatched again - polling
+            // only the host lets the follow-up invoke race a Starting alias.
             PublicStateSnapshot? recovered = null;
             var requestId = 3;
             for (var attempt = 0; attempt < 200; attempt++)
@@ -2668,7 +2683,8 @@ public sealed class ProductionGuardianCompositionTests
                     timeout.Token);
                 var candidate = PublicStateCodec.Decode(
                     Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
-                if (candidate.Host.ReadyForEffects)
+                if (candidate.Host.ReadyForEffects &&
+                    candidate.Sessions.Single().ReadyForEffects)
                 {
                     recovered = candidate;
                     break;
@@ -2678,9 +2694,13 @@ public sealed class ProductionGuardianCompositionTests
 
             Assert.NotNull(recovered);
             Assert.Equal(PublicHostState.Ready, recovered.Host.State);
-            Assert.Equal(2, recovered.Host.Generation?.Value);
-            Assert.True(Assert.Single(recovered.Sessions).WarmStateLost);
-            Assert.Equal(2, launcher.LaunchCount);
+            Assert.Equal(1, recovered.Host.Generation?.Value);
+            var recoveredSession = Assert.Single(recovered.Sessions);
+            Assert.True(recoveredSession.WarmStateLost);
+            Assert.Equal(PublicSessionState.Ready, recoveredSession.State);
+            Assert.True(
+                recoveredSession.Generation?.Value > 1,
+                $"The worker generation did not advance: {recoveredSession.Generation?.Value}.");
 
             var invocation = await RequestAsync(
                 writer,
@@ -2705,7 +2725,17 @@ public sealed class ProductionGuardianCompositionTests
                 "effect-was-not-replayed",
                 ToolText(invocation, expectedError: false),
                 StringComparison.Ordinal);
-            Assert.Equal(2, launcher.LaunchCount);
+            Assert.Equal(
+                1,
+                PublicStateCodec.Decode(Encoding.UTF8.GetBytes(ToolText(
+                    await RequestAsync(
+                        writer,
+                        reader,
+                        requestId + 1,
+                        "tools/call",
+                        new { name = "ptk_state", arguments = new { } },
+                        timeout.Token),
+                    expectedError: false))).Host.Generation?.Value);
 
             input.CompleteWriting();
             Assert.Equal(0, await run.WaitAsync(timeout.Token));
@@ -2717,7 +2747,6 @@ public sealed class ProductionGuardianCompositionTests
         }
         finally
         {
-            launcher.ReleaseFirstContainmentConfirmation();
             input.CompleteWriting();
             try
             {
@@ -2728,6 +2757,7 @@ public sealed class ProductionGuardianCompositionTests
             }
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
+            if (nativeRoot is not null) DeleteRoot(nativeRoot);
         }
 
         Assert.False(Directory.Exists(outputRoot));

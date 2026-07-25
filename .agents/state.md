@@ -797,7 +797,19 @@ short and update it when important repo facts change.
    over-attribution. `r6x-3` (Windows nondeterminism, ~4/5 failing,
    `Assert.Equal` 1 vs 2) follows and is tractable directly rather than by
    repetition. `r6x-1` and `r6x-2` #1 are closed and need nothing further.
-2. **Diagnose `r6acc-1` first — it blocks the R6 acceptance matrix and is a
+2. **Windows work is directly drivable from the Mac — see
+   `.agents/machines.md` ("Reaching it from the Mac"). A disposable checkout
+   already exists at `F:\dev\ptk-r6x-diag` on `NETWATCH-01`, detached at
+   `fc93227`, building clean, with the `r6x-3` fix applied.** The next Windows
+   item is `r6x-2` #3a: background job output forwarding delivers zero bytes on
+   Windows (worker → private host → guardian), so the capture is cancelled
+   `host_generation_lost` with `bytesReceived=0`. Localise the hop — the
+   reservation is already ruled out. #3b (the test polling
+   `recovery=available:` where job status emits `recovery=handle:`) is a known
+   one-line test fix but must not land alone; it would paper over #3a. #2
+   (`..._never_replays_a_real_effect_when_the_host_dies`, bare 60 s timeout) is
+   undiagnosed and must not be assumed to share a cause with #3.
+3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
    suspected regression from this session's own work.** Writing the acceptance
    test for one-alias crash isolation on the real apphost found that
    `ptk_state` returns `isError` on the first poll after a real worker is
@@ -961,8 +973,21 @@ short and update it when important repo facts change.
   the guard was missing on every platform, so macOS was passing the composition
   test by ordering luck, and the ambiguous-reset contract has no Unix
   composition test at all — a scoped follow-up.
+- **`r6x-3` is fixed and verified on Windows (2026-07-25); Windows Guardian is
+  now 489/491, and the only remaining failures are `r6x-2` #2 and #3.** It was
+  a test-determinism defect exactly as filed, not a product defect: the test
+  captured `rig.Scheduler.ScheduleCount` immediately after `StartAsync`
+  returned, but the supervisor issues two startup scheduler delays and the
+  second can land after start completes. A probe doing no polling at all
+  sampled `2,2,2,...` twice and `1,2,2,...` once, exonerating polling outright.
+  `SettledScheduleCountAsync` settles the count before the baseline; the
+  assertion is untouched and still demands exact equality, so the guard is
+  preserved rather than loosened. Disposable Windows checkout at `fc93227`:
+  4/5 failing before, 10/10 passing after, and the guard proof returns it to
+  4/5 failing when only the settle is removed. Full record in
+  `.agents/review/findings/r6x-3.md`.
 - **R6's Windows acceptance is still blocked, now on `r6x-2`'s remaining two
-  failures and `r6x-3`.** Fixing `r6x-1` corrected an over-attribution made when it was
+  failures.** Fixing `r6x-1` corrected an over-attribution made when it was
   raised: it owned seven server-side identities plus exactly ONE of the four
   `Windows_*` composition tests (`..._classifies_real_prewrite_loss`, the one
   that failed through `audit=unavailable`). The other three composition

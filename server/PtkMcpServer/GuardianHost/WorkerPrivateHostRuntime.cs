@@ -158,11 +158,14 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         {
             _workerEvents.RetireWorker(slot.Identity);
             int consecutive;
+            bool timedOut;
             lock (_gate)
             {
                 alias.OutstandingJobs.Clear();
                 alias.CompletedJobs.Clear();
                 consecutive = ++alias.ConsecutiveDeaths;
+                timedOut = alias.ExecutionTimeoutContainment;
+                alias.ExecutionTimeoutContainment = false;
             }
             if (consecutive < 3)
             {
@@ -175,7 +178,9 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 await TryWriteRecoveringLifecycleAsync(
                         binding,
                         slot.Identity,
-                        GuardianHostSessionLifecycleReason.WorkerExit,
+                        timedOut
+                            ? GuardianHostSessionLifecycleReason.ExecutionTimeout
+                            : GuardianHostSessionLifecycleReason.WorkerExit,
                         RecoveryPhase.Containment,
                         consecutive)
                     .ConfigureAwait(false);
@@ -729,6 +734,18 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                     new PrivateRequestId(workerRequestId.Value),
                     cancellationToken)
                 .ConfigureAwait(false);
+            if (response.Status == WorkerOperationStatus.TimedOut)
+            {
+                // The single timeout terminal is already decoded and delivered
+                // above; only now is the runaway worker contained. A worker that
+                // blew its deadline is still running whatever overran, so its
+                // warm state cannot be trusted or reused - the alias recovers to
+                // its fresh declared baseline instead. The timed-out call is
+                // never replayed: containment converges on the same loss path as
+                // an unexpected death, which only ever launches a next
+                // generation and reruns nothing.
+                ContainAfterExecutionTimeout(request, slot);
+            }
             return response;
         }
         catch
@@ -737,6 +754,53 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 await TryWriteNotDispatchedAsync(request, slot.Identity)
                     .ConfigureAwait(false);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Contains the worker whose operation exceeded its execution deadline.
+    /// Disposal is this runtime's confirmed-death primitive: it contains the
+    /// tree and awaits the monitor that completes <c>Fatal</c>, so the alias's
+    /// existing death watch observes a confirmed death and owns allocating the
+    /// next generation. The caller's timeout terminal is deliberately not held
+    /// behind containment - the plan requires death confirmed before the next
+    /// generation, not before the terminal, and containment can take the full
+    /// grace period. Containment is skipped when the slot is no longer the
+    /// alias's current worker or the alias is already being replaced, so a
+    /// timeout racing an unrelated replacement never tears down a successor.
+    /// </summary>
+    private void ContainAfterExecutionTimeout(
+        OperationRequest request,
+        PrivateHostWorkerSlot slot)
+    {
+        lock (_gate)
+        {
+            // Ownership is the whole check: this slot must still be the alias's
+            // current worker. Replacement and fault both null the slot before
+            // anything else, so an alias already being replaced or faulted fails
+            // here without needing its own clause. Shutdown is excluded because
+            // that path owns disposal itself.
+            if (_state != WorkerPrivateHostRuntimeState.Ready ||
+                !_aliases.TryGetValue(request.SessionAlias!, out var alias) ||
+                !ReferenceEquals(alias.Slot, slot))
+            {
+                return;
+            }
+            alias.ExecutionTimeoutContainment = true;
+        }
+        _ = ContainCoreAsync();
+
+        async Task ContainCoreAsync()
+        {
+            try
+            {
+                await slot.DisposeAsync().ConfigureAwait(false);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                // The death watch still owns recovery; a containment failure is
+                // reported through the watch's own fault path, not here.
+            }
         }
     }
 
@@ -1661,6 +1725,15 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         internal bool ReplacingAutomatically { get; set; }
         internal bool Faulted { get; set; }
         internal int ConsecutiveDeaths { get; set; }
+
+        /// <summary>
+        /// Set when this alias's worker is being contained because one of its
+        /// operations exceeded its execution deadline, rather than because the
+        /// worker died on its own. The death watch consumes it to report the
+        /// honest lifecycle reason; both causes otherwise converge on exactly
+        /// the same loss path.
+        /// </summary>
+        internal bool ExecutionTimeoutContainment { get; set; }
         internal Dictionary<long, CapabilityToken> OutstandingJobs { get; } = [];
         internal Dictionary<long, CapabilityToken> CompletedJobs { get; } = [];
     }

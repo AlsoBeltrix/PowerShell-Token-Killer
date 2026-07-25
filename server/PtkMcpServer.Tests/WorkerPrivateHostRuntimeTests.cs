@@ -1326,6 +1326,74 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
+    public async Task Execution_timeout_contains_the_worker_and_recovers_a_fresh_baseline()
+    {
+        // A worker that blew its deadline is still running whatever overran, so
+        // its warm state cannot be trusted. The approved contract delivers the
+        // single timeout terminal, confirms the old tree dead, then brings the
+        // alias back on a fresh declared baseline - and never reruns the call.
+        var rig = new RuntimeRig(generations: [9, 10, 11]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+        var timingOut = rig.Launch.Processes[1];
+        timingOut.TimeOutNextOperation = true;
+
+        var outcome = await rig.Runtime.ExecuteOperationAsync(
+            new OperationRequest(
+                Guardian,
+                Host,
+                HostGeneration,
+                new PrivateRequestId(50),
+                Deadline,
+                scratch,
+                new SessionTransitionVersion(1),
+                scratchWorker,
+                null,
+                new JobListOperation(Call(50), Dispatch(50))),
+            TestContext.Current.CancellationToken);
+
+        // The single terminal comes back to the caller; it is not swallowed by
+        // the containment that follows it.
+        Assert.Equal(
+            GuardianHostPrivateDetailCode.RequestDeadlineExpired,
+            outcome.Error?.DetailCode);
+
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(lifecycle =>
+                lifecycle.SessionAlias == scratch &&
+                lifecycle.State == PublicSessionState.Recovering &&
+                lifecycle.Reason ==
+                    GuardianHostSessionLifecycleReason.ExecutionTimeout),
+            "the timed-out worker is announced as recovering");
+
+        await WaitUntilAsync(() =>
+            rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>().Any(lifecycle =>
+                lifecycle.SessionAlias == scratch &&
+                lifecycle.State == PublicSessionState.Ready &&
+                lifecycle.WorkerIdentity?.Generation.Value == 11),
+            "the alias returns on its next generation");
+
+        // Old tree confirmed dead, replacement launched, and the timed-out call
+        // is never rerun on it.
+        Assert.True(timingOut.Disposed);
+        Assert.Contains("launch:11", rig.Launch.Order);
+        var replacement = rig.Launch.Processes[2];
+        Assert.Equal(11, replacement.Generation);
+        Assert.Empty(replacement.OrdinaryOperations);
+
+        // The recovery is honest about losing warm state, and only this alias
+        // is affected - the default alias keeps its worker.
+        var recovered = rig.Events.SnapshotEvents().OfType<SessionLifecycleEvent>()
+            .Last(lifecycle => lifecycle.SessionAlias == scratch);
+        Assert.True(recovered.WarmStateLost);
+        Assert.Equal(9, rig.Launch.Processes[0].Generation);
+        Assert.False(rig.Launch.Processes[0].Disposed);
+    }
+
+    [Fact]
     public async Task A_crash_loop_faults_the_alias_instead_of_relaunching_forever()
     {
         var rig = new RuntimeRig(generations: [9, 10, 11, 12, 13]);
@@ -2224,6 +2292,12 @@ public sealed class WorkerPrivateHostRuntimeTests
         internal bool Disposed { get; private set; }
         internal bool FailShutdown { get; set; }
 
+        /// <summary>
+        /// Makes the next ordinary operation return its execution-timeout
+        /// terminal, exactly as a worker that blew its deadline would.
+        /// </summary>
+        internal bool TimeOutNextOperation { get; set; }
+
         public async Task<WorkerOperationResponse> ExecuteAsync(
             string operation,
             WorkerSessionOperationArguments arguments,
@@ -2236,6 +2310,14 @@ public sealed class WorkerPrivateHostRuntimeTests
             var requestId = ++_requestId;
             if (beforeWrite is not null)
                 await beforeWrite(requestId, cancellationToken);
+            if (TimeOutNextOperation)
+            {
+                TimeOutNextOperation = false;
+                return WorkerOperationResponse.TimedOut(
+                    requestId,
+                    Generation,
+                    "request_deadline_expired");
+            }
             WorkerSessionOperationResult result = operation switch
             {
                 WorkerSessionOperationCodec.JobListOperation =>
@@ -2347,6 +2429,12 @@ public sealed class WorkerPrivateHostRuntimeTests
         public ValueTask DisposeAsync()
         {
             Disposed = true;
+            // The real client's DisposeAsync contains the tree and awaits the
+            // monitor that completes Fatal, so disposal is observable as a
+            // confirmed death. Modelling that here is what lets containment
+            // converge on the same death watch the fake previously hid.
+            _fatal.TrySetException(new InvalidOperationException(
+                "Worker was contained."));
             return ValueTask.CompletedTask;
         }
     }

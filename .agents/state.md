@@ -975,17 +975,19 @@ short and update it when important repo facts change.
   slice.
 ## Blockers
 
-- **LIVE: `pwsh` is not installed on this Mac as of 2026-07-25 ~20:10, and it
-  was at ~19:15 in the same session.** No `pwsh` binary exists anywhere on
-  PATH; `/usr/local/microsoft/powershell/` is empty and there is no Homebrew
-  copy. Nothing in this repo removed it. It blocks the Pester suite, the stdio
-  handshake, roughly 25 `PtkMcpServer.Tests` identities, and three
-  `PtkMcpGuardian.Tests` identities — everything that spawns a background job
-  or an external PowerShell, which now fails at process start. The .NET suites
-  that do not shell out still run, so guardian-local and rig work is
-  unaffected. **Reinstall PowerShell 7 before treating any macOS battery result
-  as complete.** Anything verified between roughly 19:15 and 20:10 on
-  2026-07-25 was verified against a working install and stands.
+- **RESOLVED 2026-07-25: `pwsh` went missing from this Mac mid-session and the
+  cause was an unlinked Homebrew formula, not an uninstall.** Between ~19:15
+  and ~20:10 no `pwsh` resolved on PATH, and every identity that spawns a
+  background job or an external PowerShell failed at process start — roughly 25
+  `PtkMcpServer.Tests` and three `PtkMcpGuardian.Tests`, plus the Pester suite
+  and the stdio handshake. The Cellar copy was intact the whole time;
+  `brew link powershell` restored `/opt/homebrew/bin/pwsh` (7.6.4) and
+  everything resolved again. **Diagnostic note for next time: check
+  `brew list --versions powershell` and `brew link` before concluding
+  PowerShell was removed.** An empty `/usr/local/microsoft/powershell/` proves
+  nothing here — that is the pkg-installer location and this machine uses
+  Homebrew. The .NET suites that do not shell out kept running throughout, so
+  guardian-local and rig work was never blocked.
 - **`r6x-1` is fixed, reviewed, and Verified at code head `168905c`** (fix
   `09bc6a0`; `168905c` keeps the pinned native-import closure unchanged). The
   owner authorised the fix in-session 2026-07-25 (option (a): normalise the

@@ -175,6 +175,31 @@ internal sealed class FrozenDefaultSessionState :
         }
     }
 
+    public RecoveryBinding? GetDeclaredBinding(CanonicalAlias alias)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        lock (_sync)
+        {
+            return _aliases.TryGetValue(alias, out var state)
+                ? state.Binding
+                : null;
+        }
+    }
+
+    public void MarkDynamicAliasOpenFailed(CanonicalAlias alias)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        lock (_sync)
+        {
+            if (!_aliases.TryGetValue(alias, out var state) ||
+                state.Binding.BindingKind != RecoveryBindingKind.Dynamic)
+            {
+                return;
+            }
+            state.DesiredState = DesiredSessionState.Cold;
+        }
+    }
+
     public IReadOnlyList<PublicSessionStateSnapshot> SnapshotSessions()
     {
         lock (_sync)

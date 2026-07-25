@@ -455,4 +455,26 @@ internal sealed class R3FakeSessionSource : IGuardianHostSupervisorSessionSource
         bool allowColdBackground) =>
         throw new NotSupportedException(
             "The R3 fake session source does not declare dynamic aliases.");
+
+    public RecoveryBinding? GetDeclaredBinding(CanonicalAlias alias)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+        return alias == _profile.JobListTarget.Alias
+            ? new RecoveryBinding(
+                _profile.JobListTarget.Alias,
+                RecoveryBindingKind.Default,
+                templateName: null,
+                templateDigest: null,
+                bootstrapDigest: null,
+                _profile.AllowColdBackground,
+                _profile.DesiredState,
+                _profile.JobListTarget.TransitionVersion,
+                _profile.BindingDigest)
+            : null;
+    }
+
+    public void MarkDynamicAliasOpenFailed(CanonicalAlias alias)
+    {
+        ArgumentNullException.ThrowIfNull(alias);
+    }
 }

@@ -569,6 +569,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 .ConfigureAwait(false);
         }
 
+        AliasRuntime? existing = null;
         lock (_gate)
         {
             if (_state != WorkerPrivateHostRuntimeState.Ready)
@@ -576,13 +577,28 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 return PrivateHostOperationOutcome.Failed(
                     GuardianHostPrivateDetailCode.SessionFaulted);
             }
-            if (_aliases.TryGetValue(request.SessionAlias, out var existing))
+            if (_aliases.TryGetValue(request.SessionAlias, out existing))
             {
-                return PrivateHostOperationOutcome.Failed(
-                    existing.Faulted
-                        ? GuardianHostPrivateDetailCode.SessionFaulted
-                        : GuardianHostPrivateDetailCode.SessionBusy);
+                if (existing.Faulted)
+                {
+                    return PrivateHostOperationOutcome.Failed(
+                        GuardianHostPrivateDetailCode.SessionFaulted);
+                }
+                if (existing.Slot is not null)
+                {
+                    return PrivateHostOperationOutcome.Failed(
+                        GuardianHostPrivateDetailCode.SessionBusy);
+                }
             }
+        }
+
+        if (existing is not null)
+        {
+            return await ReopenWorkerAsync(
+                    request,
+                    existing,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var binding = new RecoveryBinding(
@@ -628,6 +644,66 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
                 {
                     throw new InvalidOperationException(
                         "Worker open lost new-alias ownership.");
+                }
+                alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
+                    slot.Identity.Generation.Value);
+                alias.Slot = slot;
+                active = slot.Identity;
+                slot = null;
+            }
+            return PrivateHostOperationOutcome.Completed(
+                new SessionOpenResult(
+                    binding.Alias,
+                    PublicSessionState.Ready,
+                    active,
+                    binding.TransitionVersion,
+                    readyForEffects: true,
+                    warmStateLost: false,
+                    BootstrapState.Restored));
+        }
+        catch
+        {
+            if (slot is not null)
+            {
+                _workerEvents.RetireWorker(slot.Identity);
+                await slot.DisposeAsync().ConfigureAwait(false);
+            }
+            throw;
+        }
+    }
+
+    private async ValueTask<PrivateHostOperationOutcome> ReopenWorkerAsync(
+        OperationRequest request,
+        AliasRuntime alias,
+        CancellationToken cancellationToken)
+    {
+        var binding = alias.Binding;
+        PrivateHostWorkerSlot? slot = null;
+        try
+        {
+            slot = await _slots.CreateAsync(
+                    binding,
+                    alias.GenerationHighWatermark,
+                    _workerEvents.HandleAsync,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await WriteReadyLifecycleAsync(
+                    request.RequestId,
+                    binding,
+                    slot.Identity,
+                    GuardianHostSessionLifecycleReason.RequestedOpen,
+                    warmStateLost: false,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            GuardianHostWorkerIdentity active;
+            lock (_gate)
+            {
+                if (_state != WorkerPrivateHostRuntimeState.Ready ||
+                    alias.Faulted ||
+                    alias.Slot is not null)
+                {
+                    throw new InvalidOperationException(
+                        "Worker reopen lost declared-alias ownership.");
                 }
                 alias.GenerationHighWatermark = new WorkerGenerationHighWatermark(
                     slot.Identity.Generation.Value);

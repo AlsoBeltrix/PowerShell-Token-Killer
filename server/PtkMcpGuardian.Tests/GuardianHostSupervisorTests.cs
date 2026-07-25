@@ -1529,9 +1529,129 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
-    public async Task Public_session_close_of_default_is_refused_before_any_dispatch()
+    public async Task Public_session_reopen_after_close_reuses_the_declared_binding()
     {
         await using var rig = new TestRig(
+            new CanonicalAlias("default"),
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+
+        var opened = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.False(opened.IsError);
+        var closed = await rig.DispatchPublicSessionLifecycleAsync(
+                "close",
+                "scratch",
+                expectedGeneration: 2,
+                force: false,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.False(closed.IsError);
+
+        var reopened = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(reopened.IsError);
+        Assert.Contains("state=ready", reopened.Text, StringComparison.Ordinal);
+        Assert.Equal(2, rig.Factory.Resources[0].SessionOpens.Count);
+        Assert.All(
+            rig.Factory.Resources[0].SessionOpens,
+            open =>
+            {
+                Assert.Equal("scratch", open.SessionAlias.Value);
+                Assert.Equal(1, open.TransitionVersion.Value);
+                Assert.False(open.HasWorkerIdentity);
+                Assert.True(open.AllowColdBackground);
+            });
+
+        var flipped = await rig.DispatchPublicSessionOpenAsync(
+                "other",
+                template: null,
+                allowColdBackground: false,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.False(flipped.IsError);
+        var flippedClose = await rig.DispatchPublicSessionLifecycleAsync(
+                "close",
+                "other",
+                expectedGeneration: 2,
+                force: false,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.False(flippedClose.IsError);
+        var mismatched = await rig.DispatchPublicSessionOpenAsync(
+                "other",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.True(mismatched.IsError);
+        Assert.Contains(
+            "declared with allowColdBackground=false",
+            mismatched.Text,
+            StringComparison.Ordinal);
+        Assert.Equal(3, rig.Factory.Resources[0].SessionOpens.Count);
+    }
+
+    [Fact]
+    public async Task A_failed_open_marks_the_alias_cold_and_it_recovers_on_the_next_attempt()
+    {
+        await using var rig = new TestRig(
+            new CanonicalAlias("default"),
+            enableOutput: false,
+            new AttemptPlan(HostBehavior.SessionLifecycle, AutoConfirmContainment: false),
+            new AttemptPlan(HostBehavior.SessionLifecycle));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+        old.Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Recovering,
+                RecoveryPhase: RecoveryPhase.Containment,
+            });
+
+        var refused = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+        Assert.True(refused.IsError);
+        Assert.Equal(0, old.OperationCount);
+
+        var declared = rig.Supervisor.SnapshotState().Sessions
+            .Single(session => session.Alias.Value == "scratch");
+        Assert.Equal(PublicSessionState.Cold, declared.State);
+        Assert.Equal(DesiredSessionState.Cold, declared.DesiredState);
+
+        old.ConfirmContainment();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host.State == PublicHostState.Ready);
+        var reopened = await rig.DispatchPublicSessionOpenAsync(
+                "scratch",
+                template: null,
+                allowColdBackground: true,
+                timeoutSeconds: 19)
+            .WaitAsync(TestTimeout);
+
+        Assert.False(reopened.IsError);
+        Assert.Contains("state=ready", reopened.Text, StringComparison.Ordinal);
+        Assert.Single(rig.Factory.Resources[1].SessionOpens);
+    }
+
+    [Fact]
+    public async Task Public_session_close_of_default_is_refused_before_any_dispatch()
+    {        await using var rig = new TestRig(
             new CanonicalAlias("default"),
             enableOutput: false,
             new AttemptPlan(HostBehavior.SessionLifecycle));
@@ -3916,6 +4036,7 @@ public sealed class GuardianHostSupervisorTests
                 internal bool WarmStateLost = true;
                 internal BootstrapState BootstrapState = BootstrapState.Unknown;
                 internal long WorkerGeneration = 1;
+                internal DesiredSessionState DesiredState = DesiredSessionState.Ready;
             }
 
             private readonly object _sync = new();
@@ -3992,7 +4113,7 @@ public sealed class GuardianHostSupervisorTests
                             .OrderBy(value => value.Binding.Alias.Value, StringComparer.Ordinal)
                             .Select(value => new PublicSessionStateSnapshot(
                                 value.Binding.Alias,
-                                DesiredSessionState.Ready,
+                                value.DesiredState,
                                 value.State,
                                 value.State == PublicSessionState.Cold
                                     ? null
@@ -4058,6 +4179,9 @@ public sealed class GuardianHostSupervisorTests
                     if (_declaredDynamic.TryGetValue(result.Alias, out var dynamic))
                     {
                         dynamic.State = result.State;
+                        dynamic.DesiredState = result.State == PublicSessionState.Cold
+                            ? DesiredSessionState.Cold
+                            : DesiredSessionState.Ready;
                         dynamic.ReadyForEffects = result.ReadyForEffects;
                         dynamic.WarmStateLost |= result.WarmStateLost;
                         dynamic.BootstrapState = result.BootstrapState;
@@ -4133,6 +4257,42 @@ public sealed class GuardianHostSupervisorTests
 
                     invalidation = null;
                     return false;
+                }
+            }
+
+            public RecoveryBinding? GetDeclaredBinding(CanonicalAlias alias)
+            {
+                ArgumentNullException.ThrowIfNull(alias);
+                lock (_sync)
+                {
+                    if (alias == _alias)
+                    {
+                        return new RecoveryBinding(
+                            _alias,
+                            _alias == new CanonicalAlias("default")
+                                ? RecoveryBindingKind.Default
+                                : RecoveryBindingKind.Dynamic,
+                            templateName: null,
+                            templateDigest: null,
+                            bootstrapDigest: null,
+                            allowColdBackground: false,
+                            DesiredSessionState.Ready,
+                            new SessionTransitionVersion(_transitionVersion),
+                            BindingDigest);
+                    }
+                    return _declaredDynamic.TryGetValue(alias, out var dynamic)
+                        ? dynamic.Binding
+                        : null;
+                }
+            }
+
+            public void MarkDynamicAliasOpenFailed(CanonicalAlias alias)
+            {
+                ArgumentNullException.ThrowIfNull(alias);
+                lock (_sync)
+                {
+                    if (_declaredDynamic.TryGetValue(alias, out var dynamic))
+                        dynamic.DesiredState = DesiredSessionState.Cold;
                 }
             }
 

@@ -850,9 +850,93 @@ public sealed class WorkerPrivateHostRuntimeTests
     }
 
     [Fact]
-    public async Task Close_on_the_default_alias_is_refused()
+    public async Task Reopen_reuses_the_declared_binding_and_advances_the_generation()
     {
-        var rig = new RuntimeRig(generations: [9]);
+        var rig = new RuntimeRig(generations: [9, 10, 11]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var scratch = new CanonicalAlias("scratch");
+        var scratchWorker = await OpenAliasAsync(rig, scratch, 10);
+
+        var close = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(30),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            scratchWorker,
+            null,
+            new SessionCloseOperation(
+                Call(30),
+                Dispatch(30),
+                expectedGeneration: 10,
+                force: false));
+        var closeOutcome = await rig.Runtime.ExecuteOperationAsync(
+            close,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<SessionCloseResult>(closeOutcome.Result);
+
+        var reopen = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(31),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            workerIdentity: null,
+            null,
+            new SessionOpenOperation(
+                Call(31),
+                Dispatch(31),
+                template: null,
+                allowColdBackground: true));
+        var reopenOutcome = await rig.Runtime.ExecuteOperationAsync(
+            reopen,
+            TestContext.Current.CancellationToken);
+        var result = Assert.IsType<SessionOpenResult>(reopenOutcome.Result);
+        Assert.Equal(scratch, result.Alias);
+        Assert.Equal(PublicSessionState.Ready, result.State);
+        Assert.Equal(11, result.WorkerIdentity?.Generation.Value);
+        Assert.True(result.WorkerIdentity?.Generation.Value > 10);
+        Assert.Equal(
+            ["launch:9", "launch:10", "shutdown:10", "launch:11"],
+            rig.Launch.Order);
+
+        var lifecycle = rig.Events.Events.OfType<SessionLifecycleEvent>().Last();
+        Assert.Equal(scratch, lifecycle.SessionAlias);
+        Assert.Equal(PublicSessionState.Ready, lifecycle.State);
+        Assert.Equal(
+            GuardianHostSessionLifecycleReason.RequestedOpen,
+            lifecycle.Reason);
+        Assert.Equal(11, lifecycle.WorkerIdentity?.Generation.Value);
+
+        var replacement = rig.Launch.Processes[2];
+        var invoke = new OperationRequest(
+            Guardian,
+            Host,
+            HostGeneration,
+            new PrivateRequestId(32),
+            Deadline,
+            scratch,
+            new SessionTransitionVersion(1),
+            new GuardianHostWorkerIdentity(
+                new WorkerBootId(replacement.WorkerBootId),
+                new WorkerGeneration(replacement.Generation)),
+            null,
+            new JobListOperation(Call(32), Dispatch(32)));
+        var invokeOutcome = await rig.Runtime.ExecuteOperationAsync(
+            invoke,
+            TestContext.Current.CancellationToken);
+        Assert.IsType<JobListResult>(invokeOutcome.Result);
+    }
+
+    [Fact]
+    public async Task Close_on_the_default_alias_is_refused()
+    {        var rig = new RuntimeRig(generations: [9]);
         await rig.Runtime.InitializeAsync(
             Initialization(highWatermark: 8),
             TestContext.Current.CancellationToken);

@@ -437,9 +437,38 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
-    public void A_default_close_result_never_flips_the_default_desired_state()
+    public void A_failed_open_marks_only_the_dynamic_desired_state_cold()
     {
-        var state = State();
+        var state = new FrozenDefaultSessionState(
+            Guardian,
+            Worker,
+            new FrozenSessionCatalog([]),
+            allowColdBackground: true,
+            workerBootIdSource: static () => new WorkerBootId(
+                Guid.Parse("55555555-5555-4555-8555-555555555555")));
+        var alias = new CanonicalAlias("scratch");
+        _ = state.DeclareDynamicAlias(alias, allowColdBackground: true);
+
+        state.MarkDynamicAliasOpenFailed(alias);
+        var manifest = state.Create(Identity(2));
+        Assert.Equal(2, manifest.Bindings.Count);
+        Assert.Equal(DesiredSessionState.Cold, manifest.Bindings[1].DesiredState);
+        Assert.Equal(DesiredSessionState.Ready, manifest.Bindings[0].DesiredState);
+        Assert.Equal(
+            manifest.Bindings[1].BindingDigest,
+            state.GetDeclaredBinding(alias)?.BindingDigest);
+
+        state.MarkDynamicAliasOpenFailed(new CanonicalAlias("missing"));
+        Assert.Equal(2, state.SnapshotSessions().Count);
+        state.MarkDynamicAliasOpenFailed(new CanonicalAlias("default"));
+        Assert.Equal(
+            DesiredSessionState.Ready,
+            state.Create(Identity(2)).Bindings[0].DesiredState);
+    }
+
+    [Fact]
+    public void A_default_close_result_never_flips_the_default_desired_state()
+    {        var state = State();
         var alias = new CanonicalAlias("default");
 
         state.ObserveSessionOperationResult(new SessionCloseResult(

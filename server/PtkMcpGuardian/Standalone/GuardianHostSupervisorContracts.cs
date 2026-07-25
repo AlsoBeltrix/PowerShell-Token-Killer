@@ -233,6 +233,20 @@ internal interface IGuardianHostSupervisorSessionSource
         bool allowColdBackground);
 
     /// <summary>
+    /// Returns the exact declared binding for one alias (default or
+    /// dynamic), or null when the alias is not declared. The binding is the
+    /// alias's stable identity; reopen reuses it verbatim.
+    /// </summary>
+    RecoveryBinding? GetDeclaredBinding(CanonicalAlias alias);
+
+    /// <summary>
+    /// Marks a dynamic alias's desired state Cold after a terminally failed
+    /// open so host recovery never resurrects a session that never opened.
+    /// The declaration itself is never removed.
+    /// </summary>
+    void MarkDynamicAliasOpenFailed(CanonicalAlias alias);
+
+    /// <summary>
     /// Returns evidence only when it was atomically captured while the exact
     /// target was invalidated. Implementations must return false instead of
     /// synthesizing recovery metadata from a later target.

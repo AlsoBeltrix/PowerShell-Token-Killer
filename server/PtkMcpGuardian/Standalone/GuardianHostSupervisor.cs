@@ -664,7 +664,7 @@ internal sealed class GuardianHostSupervisor :
             cancellationToken);
     }
 
-    private ValueTask<GuardianToolResult> DispatchSessionOpenAsync(
+    private async ValueTask<GuardianToolResult> DispatchSessionOpenAsync(
         IReadOnlyDictionary<string, JsonElement> arguments,
         GuardianAuditCall auditCall,
         CancellationToken cancellationToken)
@@ -672,28 +672,47 @@ internal sealed class GuardianHostSupervisor :
         var admitted = auditCall.AcceptedSessionOpenFacts;
         if (!TryReadSessionOpenArguments(arguments, admitted))
         {
-            return ValueTask.FromResult(new GuardianToolResult(
+            return new GuardianToolResult(
                 UnsupportedToolText,
-                isError: true));
+                isError: true);
         }
         if (admitted.Template is not null)
         {
-            return ValueTask.FromResult(new GuardianToolResult(
+            return new GuardianToolResult(
                 "ptk_session open with a template is not available in this build.",
-                isError: true));
-        }
-        if (_sessionSource.TryGetJobListTarget(admitted.Alias, out _))
-        {
-            return ValueTask.FromResult(new GuardianToolResult(
-                $"session={admitted.Alias.Value} already exists.",
-                isError: true));
+                isError: true);
         }
 
-        _sessionSource.DeclareDynamicAlias(
-            admitted.Alias,
-            admitted.AllowColdBackground);
+        var declared = _sessionSource.GetDeclaredBinding(admitted.Alias);
+        if (declared is not null)
+        {
+            if (declared.AllowColdBackground != admitted.AllowColdBackground)
+            {
+                return new GuardianToolResult(
+                    $"session={admitted.Alias.Value} was declared with " +
+                    $"allowColdBackground={declared.AllowColdBackground
+                        .ToString().ToLowerInvariant()}; " +
+                    "reopen with the declared value.",
+                    isError: true);
+            }
+            if (_sessionSource.SnapshotSessions().Any(session =>
+                    session.Alias == admitted.Alias &&
+                    session.State != PublicSessionState.Cold))
+            {
+                return new GuardianToolResult(
+                    $"session={admitted.Alias.Value} already exists.",
+                    isError: true);
+            }
+        }
+        else
+        {
+            _sessionSource.DeclareDynamicAlias(
+                admitted.Alias,
+                admitted.AllowColdBackground);
+        }
+
         var callId = auditCall.PublicCallId;
-        return DispatchHostOperationAsync(
+        var result = await DispatchHostOperationAsync(
             new SessionOpenOperation(
                 callId,
                 new DispatchCapability(
@@ -703,7 +722,12 @@ internal sealed class GuardianHostSupervisor :
                 admitted.Template,
                 admitted.AllowColdBackground),
             auditCall,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+        if (result.IsError)
+        {
+            _sessionSource.MarkDynamicAliasOpenFailed(admitted.Alias);
+        }
+        return result;
     }
 
     private static bool TryReadSessionOpenArguments(

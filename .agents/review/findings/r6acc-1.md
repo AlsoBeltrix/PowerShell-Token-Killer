@@ -4,11 +4,67 @@
 affects only one alias" (`.agents/plans/mcp-resilience.md`). If it is a product
 defect rather than a test defect, a model loses its only state probe for the
 whole recovery window, which is precisely when it needs it.
-**Status**: Open — reproduced deterministically on macOS, cause not yet
-identified
+**Status**: **Fixed 2026-07-25**, mutation-proven. The acceptance test it
+blocked now passes end to end, including the one-alias isolation assertions
+that had never executed.
 **Branch**: `feature/mcp-resilience-r1`
-**Commit**: none. The reproducer is the patch below; it is deliberately NOT in
-the suite, because it is red and would block the macOS battery.
+**Commit**: see the `ClearRecoveryMetadata` call added to
+`FrozenDefaultSessionState.GrantWorkerCreateCapability`.
+
+## Root cause (2026-07-25)
+
+**A worker create issued while automatic recovery is in flight left the
+previous recovering event's phase attached to an alias the same call had just
+moved to `Starting`.** `Starting` is a manual state, which the public contract
+forbids from carrying recovery facts, so the next snapshot threw:
+
+```
+System.ArgumentException: Nonautomatic session state cannot carry a recovery phase.
+   at PtkSharedContracts.PublicSessionStateSnapshot.ValidateRecoveryPhasePairing
+   at PtkSharedContracts.PublicSessionStateSnapshot..ctor
+   at PtkMcpGuardian.Standalone.FrozenDefaultSessionState.ProjectSession
+   at PtkMcpGuardian.Standalone.FrozenDefaultSessionState.SnapshotSessions
+   at PtkMcpGuardian.Standalone.GuardianHostSupervisor.SnapshotState
+   at PtkMcpGuardian.Standalone.GuardianHostSupervisor.EncodeStateSnapshot
+   at PtkMcpGuardian.Standalone.GuardianHostSupervisor.DispatchAsync
+```
+
+`ptk_state` and the guardian-local `ptk_session list` are pure snapshot reads
+(`GuardianHostSupervisor.DispatchAsync`, the `ptk_state` branch), so both failed
+outright for the whole recovery window — exactly when a model needs them.
+
+`GrantWorkerCreateCapability` set `State`, `ReadyForEffects` and
+`BootstrapState` but not the recovery facts, unlike
+`ObserveSessionRecoveryUnknown` and `ObserveSessionOperationResult`, which
+already cleared them. The fix adds the same `ClearRecoveryMetadata(state)` call.
+
+**The "what has been excluded" list below is wrong on its third bullet.** The
+guardian projection *was* the cause. The passing unit guard cited there covered
+a `Recovering` alias that had never had a worker create applied on top, so it
+could not see this. Treat "excluded by a passing test" as excluded only for the
+exact shape that test builds.
+
+**How it was found, after four inconclusive elimination cycles:** by taking this
+finding's own advice — make the exception visible rather than narrow further. A
+temporary `catch` around the `ptk_state` branch of `DispatchAsync`, logging to a
+file, produced the stack above on the first run. It cost minutes.
+
+## Guard proof
+
+`FrozenDefaultSessionStateTests.Worker_create_during_recovery_clears_the_recovery_facts_it_cannot_carry`
+— applies a recovering lifecycle, then grants a worker create, then snapshots.
+Reverting only the `ClearRecoveryMetadata` call reddens it with the exact
+production message above; restoring it returns green.
+
+## Second reproducer, simpler than the acceptance test
+
+`r6acc-1-selfkill-probe.patch` in this directory: a single default alias, one
+foreground `ptk_invoke` that kills its own worker
+(`[System.Diagnostics.Process]::GetCurrentProcess().Kill()`), then poll
+`ptk_state`. Fails on the first poll in ~3 s, with no second alias and no
+crash-isolation scaffolding. It was written while checking whether `r6x-2` #2
+was platform-neutral, and finding this instead is what closed the finding —
+worth keeping because it is far cheaper to run than the acceptance test.
 
 ## Evidence
 
@@ -92,16 +148,10 @@ the test asserts the right thing and the product is the likelier defect. Do not
 
 ## Reproducer
 
-Apply to `server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs`
-and run
-`Composition_isolates_one_alias_worker_crash_from_a_second_alias`. It is
-cross-platform (Windows launcher or compiled Unix broker) and fails on macOS in
-about 4 seconds. The saved patch is `r6acc-1-repro.patch` in this directory.
-
-## Guard proof
-
-Not applicable yet; the failing test is itself the reproducer, and it is not in
-the suite.
+`Composition_isolates_one_alias_worker_crash_from_a_second_alias` is now a
+committed suite test rather than a saved patch — it passes, so the reason it was
+held out no longer applies. `r6acc-1-repro.patch` was deleted with that landing;
+the test itself is the canonical copy.
 
 ## Coder dispute
 
@@ -109,9 +159,15 @@ None.
 
 ## Known gaps
 
-- Only reproduced on macOS. Not yet run on Linux, and Windows is already
-  blocked behind `r6x-2`/`r6x-3`.
+- Fixed and verified on macOS only. Not yet run on Linux or Windows.
 - The one-alias isolation assertions after recovery (default alias keeps its
   PID, generation, warm sentinel; scratch returns on a later generation with
-  `warm_state_lost`) have never executed, because the test dies at the first
-  poll. They are unverified, not passing.
+  `warm_state_lost`) now execute and pass — they were unverified before this
+  fix because the test died at the first poll.
+- The fix clears the recovery facts when an alias enters `Starting`. It does
+  **not** decide whether a worker create during automatic recovery *should*
+  instead project `Bootstrapping` and keep a `Bootstrap` phase. The contract
+  makes `Starting` incapable of carrying a phase, and the host re-announces
+  recovery on its own lifecycle events, so clearing is correct under the
+  contract as frozen; changing which state is projected would be a contract
+  question, not a bug fix, and is left open deliberately.

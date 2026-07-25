@@ -1,0 +1,160 @@
+diff --git a/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs b/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
+index 6b134c0..0685748 100644
+--- a/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
++++ b/server/PtkMcpGuardian.Tests/ProductionGuardianCompositionTests.cs
+@@ -225,6 +225,155 @@ public sealed class ProductionGuardianCompositionTests
+         }
+     }
+ 
++    private static void ProbeLog(string line) =>
++        File.AppendAllText(
++            Environment.GetEnvironmentVariable("PTK_PROBE_LOG") ??
++                Path.Combine(Path.GetTempPath(), "ptk-probe.log"),
++            line + Environment.NewLine);
++
++    [Fact]
++    public async Task Probe_ambiguous_self_kill_recovers_on_this_platform()
++    {
++        var auditRoot = TemporaryRoot("probe-ou-audit");
++        var outputRoot = TemporaryRoot("probe-ou-output");
++        var nativeRoot = TemporaryRoot("probe-ou-broker");
++        Directory.CreateDirectory(nativeRoot);
++        var brokerPath = Path.Combine(nativeRoot, "PtkGuardianBroker");
++        await CompileGuardianBrokerAsync(brokerPath);
++        var composition = ProductionGuardianComposition.Create(
++            Package(FindServerAppHost(), brokerPath),
++            LocalAudit(auditRoot),
++            new UnixPrivateHostProcessLauncher(brokerPath),
++            OutputOptions(outputRoot),
++            guardianBootId: Guardian,
++            defaultWorkerBootId: Worker);
++        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
++        using var input = new R3BoundedOneWayStream();
++        using var output = new R3BoundedOneWayStream();
++        using var writer = new StreamWriter(
++            input,
++            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
++            bufferSize: 1024,
++            leaveOpen: true)
++        {
++            AutoFlush = true,
++            NewLine = "\n",
++        };
++        using var reader = new StreamReader(
++            output,
++            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
++            detectEncodingFromByteOrderMarks: false,
++            bufferSize: 1024,
++            leaveOpen: true);
++        using var standardError = new StringWriter();
++        var run = Program.RunAsync(
++            [],
++            input,
++            output,
++            standardError,
++            productionComposition: composition,
++            cancellationToken: timeout.Token);
++        try
++        {
++            _ = await RequestAsync(
++                writer,
++                reader,
++                requestId: 1,
++                "initialize",
++                new
++                {
++                    protocolVersion = "2025-06-18",
++                    capabilities = new { },
++                    clientInfo = new { name = "probe-ou", version = "1.0.0" },
++                },
++                timeout.Token);
++            await WriteAsync(
++                writer,
++                new
++                {
++                    jsonrpc = "2.0",
++                    method = "notifications/initialized",
++                    @params = new { },
++                },
++                timeout.Token);
++            ProbeLog("PROBE_INIT>>>ok");
++
++            var ambiguousResponse = await RequestAsync(
++                writer,
++                reader,
++                requestId: 2,
++                "tools/call",
++                new
++                {
++                    name = "ptk_invoke",
++                    arguments = new
++                    {
++                        script = "[System.Diagnostics.Process]::GetCurrentProcess().Kill()",
++                        raw = true,
++                        route = "pwsh",
++                        background = false,
++                        timeoutSeconds = 10,
++                        session = "default",
++                    },
++                },
++                timeout.Token);
++            var ambiguousText = ToolText(ambiguousResponse, expectedError: true);
++            ProbeLog("PROBE_AMBIGUOUS>>>" + ambiguousText.Replace("\n", "|"));
++            var ambiguous = PublicRecoveryCodec.Decode(
++                Encoding.UTF8.GetBytes(ambiguousText));
++            ProbeLog(
++                $"PROBE_DETAIL>>>{ambiguous.DetailCode} retryable={ambiguous.Retryable} " +
++                $"phase={ambiguous.RecoveryPhase} attempt={ambiguous.RecoveryAttempt}");
++
++            var recoveredAt = -1;
++            var requestId = 3;
++            for (var attempt = 0; attempt < 200; attempt++)
++            {
++                var stateResponse = await RequestAsync(
++                    writer,
++                    reader,
++                    requestId++,
++                    "tools/call",
++                    new { name = "ptk_state", arguments = new { } },
++                    timeout.Token);
++                ProbeLog($"PROBE_STATE[{attempt}]>>>" +
++                    stateResponse.GetRawText().Replace("\n", "|"));
++                var candidate = PublicStateCodec.Decode(
++                    Encoding.UTF8.GetBytes(ToolText(stateResponse, expectedError: false)));
++                if (candidate.Host.ReadyForEffects)
++                {
++                    recoveredAt = attempt;
++                    ProbeLog(
++                        $"PROBE_RECOVERED>>>attempt={attempt} " +
++                        $"gen={candidate.Host.Generation?.Value}");
++                    break;
++                }
++                await Task.Delay(25, timeout.Token);
++            }
++            if (recoveredAt < 0) ProbeLog("PROBE_RECOVERED>>>never");
++        }
++        catch (Exception exception)
++        {
++            ProbeLog($"PROBE_THREW>>>{exception.GetType().Name}: {exception.Message}");
++        }
++        finally
++        {
++            input.CompleteWriting();
++            try
++            {
++                await run.WaitAsync(TimeSpan.FromSeconds(20), CancellationToken.None);
++            }
++            catch (Exception exception)
++            {
++                ProbeLog("PROBE_SHUTDOWN>>>" + exception.GetType().Name);
++            }
++            ProbeLog("PROBE_STDERR>>>" + standardError.ToString().Replace("\n", "|"));
++            await composition.DisposeAsync();
++            DeleteRoot(auditRoot);
++            DeleteRoot(nativeRoot);
++        }
++    }
++
+     [Fact]
+     public async Task Composition_freezes_package_session_and_guardian_owned_state()
+     {

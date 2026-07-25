@@ -359,6 +359,91 @@ public sealed class FrozenDefaultSessionStateTests
     }
 
     [Fact]
+    public void Worker_create_during_recovery_clears_the_recovery_facts_it_cannot_carry()
+    {
+        // A replacement worker is created while the alias is still projecting
+        // Recovering. That moves it to Starting, which the public contract
+        // forbids from carrying a recovery phase, so leaving the previous
+        // recovering event's facts attached made every later snapshot throw -
+        // and ptk_state/ptk_session list are pure snapshot reads, so they
+        // failed outright for the whole recovery window (r6acc-1).
+        var state = State();
+        var scratch = new CanonicalAlias("scratch");
+        var scratchBinding = state.DeclareDynamicAlias(
+            scratch,
+            allowColdBackground: true);
+        var grant = state.GrantWorkerCreateCapability(
+            new WorkerCreateCapabilityRequestedEvent(
+                Guardian,
+                Identity(1).HostBootId,
+                new HostGeneration(1),
+                new HostEventSequence(1),
+                scratch,
+                scratchBinding.TransitionVersion,
+                scratchBinding.BindingDigest,
+                500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+        var boot = new WorkerBootId(
+            Guid.Parse("99999999-9999-4999-8999-999999999999"));
+        var worker = new GuardianHostWorkerIdentity(boot, grant.WorkerGeneration);
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(2),
+            requestId: null,
+            scratch,
+            state.GetDeclaredBinding(scratch)!.TransitionVersion,
+            worker,
+            PublicSessionState.Starting,
+            PublicSessionState.Ready,
+            GuardianHostSessionLifecycleReason.AutomaticRecovery,
+            readyForEffects: true,
+            warmStateLost: false,
+            BootstrapState.Restored));
+        state.ObserveSessionLifecycle(new SessionLifecycleEvent(
+            Guardian,
+            Identity(2).HostBootId,
+            new HostGeneration(2),
+            new HostEventSequence(3),
+            requestId: null,
+            scratch,
+            state.GetDeclaredBinding(scratch)!.TransitionVersion,
+            worker,
+            PublicSessionState.Ready,
+            PublicSessionState.Recovering,
+            GuardianHostSessionLifecycleReason.ExecutionTimeout,
+            readyForEffects: false,
+            warmStateLost: true,
+            BootstrapState.Pending,
+            RecoveryPhase.Containment,
+            1,
+            250));
+
+        var binding = state.GetDeclaredBinding(scratch)!;
+        _ = state.GrantWorkerCreateCapability(
+            new WorkerCreateCapabilityRequestedEvent(
+                Guardian,
+                Identity(2).HostBootId,
+                new HostGeneration(2),
+                new HostEventSequence(4),
+                scratch,
+                binding.TransitionVersion,
+                binding.BindingDigest,
+                500),
+            nowUnixTimeMilliseconds: 100,
+            maximumDeadlineUnixTimeMilliseconds: 600);
+
+        var starting = Assert.Single(state.SnapshotSessions()
+            .Where(value => value.Alias.Value == "scratch"));
+        Assert.Equal(PublicSessionState.Starting, starting.State);
+        Assert.Null(starting.RecoveryPhase);
+        Assert.Equal(0, starting.RecoveryAttempt);
+        Assert.Null(starting.RetryAfterMilliseconds);
+    }
+
+    [Fact]
     public void Recovering_dynamic_alias_projects_and_encodes_through_the_public_contract()
     {
         // The real apphost recovers a dynamic alias, not the default one, and

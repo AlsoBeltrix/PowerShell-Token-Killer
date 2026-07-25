@@ -5,6 +5,23 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **`r6acc-1` is fixed, and with it the R6 acceptance matrix line "one worker
+  crash affects only one alias" (2026-07-25).**
+  `FrozenDefaultSessionState.GrantWorkerCreateCapability` moved an alias to
+  `Starting` without clearing its recovery facts, so a worker create issued
+  while automatic recovery was in flight left the previous recovering event's
+  phase attached to a manual state the contract forbids from carrying one.
+  Every later snapshot threw, and since `ptk_state` and the guardian-local
+  `ptk_session list` are pure snapshot reads, a model lost both for the entire
+  recovery window. `Composition_isolates_one_alias_worker_crash_from_a_second_alias`
+  is now a suite test rather than a held-out patch and passes end to end,
+  including the isolation assertions that had never executed.
+  **Two process lessons, both recorded in the finding:** the finding had
+  *excluded* the projection on the strength of a passing unit guard that built
+  a different shape — "excluded by a passing test" holds only for the shape
+  that test builds; and four elimination cycles were spent before anyone did
+  what the finding itself recommended, which was to make the swallowed
+  exception visible. That took minutes.
 - **Background job output is sealed again under the production worker runtime
   (`r6x-2` #3, fixed 2026-07-25).** `WorkerPrivateHostRuntime` never created an
   execution output capture for `invoke_background`, so every background job
@@ -827,26 +844,22 @@ short and update it when important repo facts change.
 3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
    suspected regression from this session's own work.** Writing the acceptance
    test for one-alias crash isolation on the real apphost found that
-   `ptk_state` returns `isError` on the first poll after a real worker is
-   killed, i.e. while the alias projects `Recovering`. Deterministic on macOS,
-   ~4 s to reproduce. The guardian projection and public codec are proven
-   innocent by a passing unit guard; the remaining surface is the supervisor
-   event pump and `GuardianHostClient` correlation for an unsolicited
-   nonterminal lifecycle. Full record, exclusions, and the reproducer patch:
-   `.agents/review/findings/r6acc-1.md` (+ `r6acc-1-repro.patch`). The
-   reproducer is deliberately not in the suite so the macOS battery stays
-   green. Make the swallowed exception visible before narrowing further —
-   four elimination cycles were inconclusive precisely because the MCP wrapper
-   hides it.
+   `ptk_state` returned `isError` while the alias projected `Recovering`.
+   **Fixed 2026-07-25** — see `## Now` and
+   `.agents/review/findings/r6acc-1.md`. Nothing outstanding except running it
+   on Linux and Windows.
 3. Then finish sub-slice 5 from head `02b924c`. Recovery projection,
    invalidation evidence, and execution-timeout containment are done (see
-   `## Now`); **the R6 acceptance matrix is the only remainder** — per
-   `.agents/plans/mcp-resilience.md`, prove one-alias crash/recovery while a
-   second alias keeps its PID, generation, warm state, and successful
-   operation, on the real apphost rather than the in-proc rig. The
+   `## Now`); **the R6 acceptance matrix's one-alias isolation line is now
+   proven on macOS** by the landed
+   `Composition_isolates_one_alias_worker_crash_from_a_second_alias` — one
+   alias crashes and recovers while the second keeps its PID, generation, warm
+   state, and successful operation, on the real apphost rather than the in-proc
+   rig. What remains is running that identity on Windows and Linux, and any
+   other acceptance lines the plan names. The
    production-cutover slice is verified on macOS; the Windows composition
-   evidence is collected and blocked behind `r6x-2`/`r6x-3`, not
-   outstanding. Note that execution timeout now destroys the alias's warm
+   evidence is collected and blocked behind `r6x-2` #2 alone. Note that
+   execution timeout now destroys the alias's warm
    state by design (owner-approved 2026-07-15) — it is product-visible
    behaviour worth calling out in R7's cutover notes.
 3. Continue directly into R7, carrying issue #11's explicit
@@ -960,6 +973,17 @@ short and update it when important repo facts change.
   slice.
 ## Blockers
 
+- **LIVE: `pwsh` is not installed on this Mac as of 2026-07-25 ~20:10, and it
+  was at ~19:15 in the same session.** No `pwsh` binary exists anywhere on
+  PATH; `/usr/local/microsoft/powershell/` is empty and there is no Homebrew
+  copy. Nothing in this repo removed it. It blocks the Pester suite, the stdio
+  handshake, roughly 25 `PtkMcpServer.Tests` identities, and three
+  `PtkMcpGuardian.Tests` identities — everything that spawns a background job
+  or an external PowerShell, which now fails at process start. The .NET suites
+  that do not shell out still run, so guardian-local and rig work is
+  unaffected. **Reinstall PowerShell 7 before treating any macOS battery result
+  as complete.** Anything verified between roughly 19:15 and 20:10 on
+  2026-07-25 was verified against a working install and stands.
 - **`r6x-1` is fixed, reviewed, and Verified at code head `168905c`** (fix
   `09bc6a0`; `168905c` keeps the pinned native-import closure unchanged). The
   owner authorised the fix in-session 2026-07-25 (option (a): normalise the

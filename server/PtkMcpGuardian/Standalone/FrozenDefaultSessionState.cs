@@ -171,6 +171,14 @@ internal sealed class FrozenDefaultSessionState :
             state.State = PublicSessionState.Starting;
             state.ReadyForEffects = false;
             state.BootstrapState = BootstrapState.Pending;
+            // Starting is a manual state, so the public contract forbids it
+            // carrying recovery facts. A worker create issued while automatic
+            // recovery is in flight would otherwise leave the previous
+            // recovering event's phase attached to a Starting alias, and every
+            // subsequent snapshot - so every ptk_state and ptk_session list -
+            // would throw instead of answering. The host re-announces recovery
+            // on its own lifecycle events when it wants those states projected.
+            ClearRecoveryMetadata(state);
             return new GuardianWorkerCreateCapability(generation, token);
         }
     }

@@ -126,6 +126,44 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             SealBackgroundJobOutput(publicJobId, capture);
     }
 
+    /// <summary>One `job_output` page from the worker, or null if the fetch
+    /// failed or the response could not be parsed.</summary>
+    private async Task<string?> FetchJobOutputPageAsync(
+        BackgroundJobCapture capture,
+        long publicJobId,
+        long offset)
+    {
+        var response = await capture.Slot.Process.ExecuteAsync(
+                WorkerSessionOperationCodec.JobOutputOperation,
+                new WorkerJobOutputArguments(publicJobId, offset),
+                DateTimeOffset.FromUnixTimeMilliseconds(
+                    capture.DeadlineUnixTimeMilliseconds),
+                CancellationToken.None)
+            .ConfigureAwait(false);
+        return ParseTextResponse(
+            response,
+            WorkerSessionOperationCodec.JobOutputOperation).Text;
+    }
+
+    /// <summary>
+    /// Reads the trailing `next offset: N` a job-output page always carries
+    /// (`SessionRuntime.JobCoreAsync`'s "output" case). A page without one is
+    /// treated as unknown rather than complete, so an unparseable page seals
+    /// incomplete instead of overclaiming.
+    /// </summary>
+    private static bool TryReadNextOffset(string page, out long nextOffset)
+    {
+        nextOffset = 0;
+        const string Marker = "next offset: ";
+        var start = page.LastIndexOf(Marker, StringComparison.Ordinal);
+        if (start < 0) return false;
+        var digits = page.AsSpan(start + Marker.Length);
+        var end = 0;
+        while (end < digits.Length && char.IsAsciiDigit(digits[end]))
+            end++;
+        return end > 0 && long.TryParse(digits[..end], out nextOffset);
+    }
+
     /// <summary>
     /// Drops every job record this alias holds and disposes any retained output
     /// captures with them. A capture whose alias lost its worker can never be
@@ -183,31 +221,54 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         {
             try
             {
-                var response = await capture.Slot.Process.ExecuteAsync(
-                        WorkerSessionOperationCodec.JobOutputOperation,
-                        new WorkerJobOutputArguments(publicJobId, 0),
-                        DateTimeOffset.FromUnixTimeMilliseconds(
-                            capture.DeadlineUnixTimeMilliseconds),
-                        CancellationToken.None)
-                    .ConfigureAwait(false);
-                var parsed = ParseTextResponse(
-                    response,
-                    WorkerSessionOperationCodec.JobOutputOperation);
                 // A failed fetch leaves the capability unsealed on purpose. The
                 // guardian then reports the artifact unavailable, which is true;
                 // sealing an empty artifact would advertise a handle to content
                 // this host never read.
-                if (parsed.Text is not { } text) return;
-                _ = await capture.Capture.SealAsync(
-                        new OutputArtifactContent(
-                            text,
-                            [],
-                            [],
-                            [],
-                            ExitCode: null,
-                            OutputProvenance.DirectText),
-                        JobOutputSealGrace)
-                    .ConfigureAwait(false);
+                if (await FetchJobOutputPageAsync(capture, publicJobId, 0)
+                        .ConfigureAwait(false) is not { } first)
+                {
+                    return;
+                }
+
+                // The worker bounds one read at 128 KiB, so a page is not
+                // necessarily the whole spool. Sealing a bounded page as
+                // Complete advertised a complete artifact that silently omitted
+                // later output (r6x-2 #3, raised in review). Pages cannot simply
+                // be concatenated - each is shaped and carries its own framing -
+                // so completeness is established instead by probing at the
+                // offset this page reports: if nothing follows, the page is the
+                // whole output.
+                var complete = false;
+                if (TryReadNextOffset(first, out var nextOffset))
+                {
+                    var probe = await FetchJobOutputPageAsync(
+                            capture,
+                            publicJobId,
+                            nextOffset)
+                        .ConfigureAwait(false);
+                    complete = probe is not null &&
+                        TryReadNextOffset(probe, out var probeNext) &&
+                        probeNext == nextOffset;
+                }
+
+                var content = new OutputArtifactContent(
+                    first,
+                    [],
+                    [],
+                    [],
+                    ExitCode: null,
+                    OutputProvenance.DirectText);
+                _ = complete
+                    ? await capture.Capture.SealAsync(
+                            content,
+                            JobOutputSealGrace)
+                        .ConfigureAwait(false)
+                    : await capture.Capture.SealIncompleteAsync(
+                            content,
+                            "job_output_truncated",
+                            JobOutputSealGrace)
+                        .ConfigureAwait(false);
             }
             catch (Exception exception) when (!IsFatal(exception))
             {
@@ -664,7 +725,11 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             CancellationToken cancellationToken)
     {
         var operation = (InvokeBackgroundOperation)request.Operation;
-        var deadline = request.DeadlineUnixTimeMilliseconds!.Value;
+        // The capability's own expiry, not the request deadline: the job
+        // outlives the call that started it, and the guardian scopes a
+        // background output capability to the artifact's retention for exactly
+        // that reason (r6x-2 #3).
+        var deadline = operation.OutputCapability!.ExpiresUnixTimeMilliseconds;
         IExecutionOutputCaptureOwner? captureOwner;
         try
         {

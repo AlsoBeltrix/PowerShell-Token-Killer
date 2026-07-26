@@ -1130,6 +1130,51 @@ public sealed class GuardianHostSupervisorTests
             deadline.ToUnixTimeMilliseconds());
     }
 
+    /// <summary>
+    /// A background job outlives the call that started it — `timeoutSeconds`
+    /// bounds only the job's start, and nothing kills a running background job
+    /// on a timer. Scoping its output capability to the call deadline meant any
+    /// job running past it (five minutes by default) could never be sealed and
+    /// reported `recovery=unavailable` forever (r6x-2 #3, raised in review).
+    /// The capability is scoped to the artifact's retention instead. Foreground
+    /// work keeps the call deadline, where the call really is the lifetime.
+    /// </summary>
+    [Fact]
+    public async Task Background_output_capability_outlives_the_call_that_started_the_job()
+    {
+        var session = new CanonicalAlias("build");
+        await using var rig = new TestRig(
+            session,
+            enableOutput: true,
+            new AttemptPlan(HostBehavior.BackgroundJobControls));
+        await rig.StartAsync();
+        var callDeadline = rig.Clock.GetUtcNow().AddSeconds(19);
+
+        var result = await rig.DispatchPublicInvokeAsync(
+                "Start-Sleep -Milliseconds 1; 'done'",
+                raw: false,
+                route: "pwsh",
+                background: true,
+                timeoutSeconds: 19,
+                session: session.Value)
+            .WaitAsync(TestTimeout);
+        Assert.False(result.IsError);
+
+        var observed = Assert.Single(rig.Factory.Resources[0].Invokes);
+        Assert.Equal(
+            callDeadline.ToUnixTimeMilliseconds(),
+            observed.DeadlineUnixTimeMilliseconds);
+        Assert.Equal(
+            rig.Clock.GetUtcNow().ToUnixTimeMilliseconds() +
+                (long)rig.OutputStore!.ArtifactTimeToLive.TotalMilliseconds,
+            observed.OutputCapability.ExpiresUnixTimeMilliseconds);
+        Assert.True(
+            observed.OutputCapability.ExpiresUnixTimeMilliseconds >
+                observed.DeadlineUnixTimeMilliseconds,
+            "A background output capability that dies with its call cannot seal " +
+            "a job that outlives the call.");
+    }
+
     [Fact]
     public async Task Public_reset_uses_the_host_gate_and_binds_exact_control_facts()
     {
@@ -3105,9 +3150,25 @@ public sealed class GuardianHostSupervisorTests
         Assert.Equal(
             deadlineUnixTimeMilliseconds,
             observed.DispatchCapability.ExpiresUnixTimeMilliseconds);
-        Assert.Equal(
-            deadlineUnixTimeMilliseconds,
-            observed.OutputCapability.ExpiresUnixTimeMilliseconds);
+        // Foreground output dies with its call; a background job outlives the
+        // call that started it, so its output capability is scoped to the
+        // artifact's retention instead (r6x-2 #3). The exact background expiry
+        // is pinned by
+        // Background_output_capability_outlives_the_call_that_started_the_job;
+        // here it is enough that it is not the call deadline.
+        if (operationKind == GuardianHostOperationKind.InvokeBackground)
+        {
+            Assert.True(
+                observed.OutputCapability.ExpiresUnixTimeMilliseconds >
+                    deadlineUnixTimeMilliseconds,
+                "A background output capability must outlive its call.");
+        }
+        else
+        {
+            Assert.Equal(
+                deadlineUnixTimeMilliseconds,
+                observed.OutputCapability.ExpiresUnixTimeMilliseconds);
+        }
         Assert.Equal(1024, observed.OutputCapability.MaximumBytes);
         Assert.Equal(4, observed.OperationIdentity.PlanId.Value.Version);
         Assert.Equal(4, observed.OperationIdentity.OperationId.Value.Version);

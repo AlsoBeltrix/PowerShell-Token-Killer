@@ -113,9 +113,13 @@ public sealed class WorkerPrivateHostRuntimeTests
         Assert.Equal(
             "status",
             Assert.IsType<JobStatusResult>(jobOutcomes[1].Result).Text);
-        Assert.Equal(
+        // The fake returns a realistic page with its `next offset:` framing;
+        // what this identity pins is that the worker's own text is what comes
+        // back, not the exact fixture string.
+        Assert.StartsWith(
             "output",
-            Assert.IsType<JobOutputResult>(jobOutcomes[2].Result).Text);
+            Assert.IsType<JobOutputResult>(jobOutcomes[2].Result).Text,
+            StringComparison.Ordinal);
         Assert.Equal(
             "kill",
             Assert.IsType<PtkSharedContracts.JobKillResult>(
@@ -149,7 +153,7 @@ public sealed class WorkerPrivateHostRuntimeTests
             transfer =>
             {
                 Assert.Same(jobRequests[2], transfer.Request);
-                Assert.Equal("output", transfer.Text);
+                Assert.StartsWith("output", transfer.Text, StringComparison.Ordinal);
             });
         Assert.All(
             rig.Events.Events.OfType<OperationDeliveryEvent>(),
@@ -1832,8 +1836,37 @@ public sealed class WorkerPrivateHostRuntimeTests
         var content = await capture.Sealed.WaitAsync(
             TimeSpan.FromSeconds(10),
             TestContext.Current.CancellationToken);
-        Assert.Equal("output", content.StandardOutput);
-        Assert.True(content.Complete);
+        Assert.StartsWith("output", content.StandardOutput, StringComparison.Ordinal);
+        Assert.Null(capture.IncompleteReason);
+    }
+
+    /// <summary>
+    /// The worker bounds one output read, so a page is not necessarily the
+    /// whole spool. Sealing a bounded page as complete advertised a complete
+    /// artifact that silently omitted the rest (r6x-2 #3, raised in review).
+    /// </summary>
+    [Fact]
+    public async Task Bounded_job_output_seals_incomplete_rather_than_claiming_the_whole_spool()
+    {
+        var rig = new RuntimeRig(generations: [9]);
+        await rig.Runtime.InitializeAsync(
+            Initialization(highWatermark: 8),
+            TestContext.Current.CancellationToken);
+        var worker = rig.Runtime.WorkerIdentity!;
+        // One page of 6 bytes against a 24-byte spool: the first read is a
+        // prefix and three quarters of the output is behind it.
+        var process = rig.Launch.Processes.Single();
+        process.JobOutputSpoolLength = 24;
+        process.JobOutputPageBytes = 6;
+
+        _ = await StartBackgroundAsync(rig, worker, 30, 71);
+        var capture = Assert.Single(rig.Output.Captures);
+        await DeliverJobTerminalAsync(rig, worker, 30, 71);
+
+        _ = await capture.Sealed.WaitAsync(
+            TimeSpan.FromSeconds(10),
+            TestContext.Current.CancellationToken);
+        Assert.Equal("job_output_truncated", capture.IncompleteReason);
     }
 
     private static async Task<InvokeBackgroundResult> StartBackgroundAsync(
@@ -2327,6 +2360,12 @@ public sealed class WorkerPrivateHostRuntimeTests
         /// </summary>
         internal bool TimeOutNextOperation { get; set; }
 
+        /// <summary>Total bytes the fake job's spool holds. Set it at or below
+        /// one page for a complete artifact, above it for a bounded one.</summary>
+        internal long JobOutputSpoolLength { get; set; } = 6;
+
+        internal long JobOutputPageBytes { get; set; } = 6;
+
         public async Task<WorkerOperationResponse> ExecuteAsync(
             string operation,
             WorkerSessionOperationArguments arguments,
@@ -2347,14 +2386,32 @@ public sealed class WorkerPrivateHostRuntimeTests
                     Generation,
                     "request_deadline_expired");
             }
+            string JobOutputPage(long offset)
+            {
+                var next = Math.Min(
+                    offset + JobOutputPageBytes,
+                    JobOutputSpoolLength);
+                return offset >= JobOutputSpoolLength
+                    ? $"(no new output)\n[job 71 exited 0] next offset: {next}"
+                    : $"output\n[job 71 exited 0] next offset: {next}";
+            }
+
             WorkerSessionOperationResult result = operation switch
             {
                 WorkerSessionOperationCodec.JobListOperation =>
                     new WorkerJobListResult("jobs"),
                 WorkerSessionOperationCodec.JobStatusOperation =>
                     new WorkerJobStatusResult("status"),
+                // A real job-output page always ends with `next offset: N`
+                // (SessionRuntime's "output" case). The runtime uses that to
+                // decide whether the page is the whole spool, so the fake has
+                // to carry it or the completeness logic cannot be tested.
+                // JobOutputSpoolLength controls the fixture: a page ending at
+                // the spool length is the whole output, and a shorter one is a
+                // bounded page with more behind it.
                 WorkerSessionOperationCodec.JobOutputOperation =>
-                    new WorkerJobOutputResult("output"),
+                    new WorkerJobOutputResult(JobOutputPage(
+                        ((WorkerJobOutputArguments)arguments).Offset)),
                 WorkerSessionOperationCodec.JobKillOperation =>
                     new WorkerJobKillResult("kill"),
                 _ => throw new InvalidOperationException(
@@ -2594,10 +2651,20 @@ public sealed class WorkerPrivateHostRuntimeTests
                 Advertise: true));
         }
 
+        /// <summary>Null when the artifact was sealed complete; otherwise the
+        /// reason it was sealed incomplete. This is the only way to tell the
+        /// two apart — `SealIncompleteAsync` does not mutate the content, so
+        /// asserting on `content.Complete` cannot distinguish them.</summary>
+        internal string? IncompleteReason { get; private set; }
+
         public Task<OutputRecoverySummary> SealIncompleteAsync(
             OutputArtifactContent content,
             string reason,
-            TimeSpan maximumWait) => SealAsync(content, maximumWait);
+            TimeSpan maximumWait)
+        {
+            IncompleteReason = reason;
+            return SealAsync(content, maximumWait);
+        }
 
         public bool TryTransferToBackground(out IExecutionOutputCapture? capture)
         {

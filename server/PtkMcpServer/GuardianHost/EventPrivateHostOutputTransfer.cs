@@ -356,9 +356,18 @@ internal sealed class EventPrivateHostOutputTransfer : IPrivateHostOutputTransfe
                         "capture_closed"));
                 }
 
-                var deadline = Math.Min(
-                    context.RequestDeadlineUnixTimeMilliseconds,
-                    context.OutputCapability.ExpiresUnixTimeMilliseconds);
+                // A background job outlives the request that started it, so the
+                // request deadline is not a bound on its capture; the guardian
+                // scopes a background output capability to the artifact's
+                // retention instead. Bounding by the request here is what left
+                // long-running jobs permanently unsealed (r6x-2 #3). Foreground
+                // work keeps both bounds, where the request really is the life.
+                var deadline = context.Request.Operation.Kind ==
+                        GuardianHostOperationKind.InvokeBackground
+                    ? context.OutputCapability.ExpiresUnixTimeMilliseconds
+                    : Math.Min(
+                        context.RequestDeadlineUnixTimeMilliseconds,
+                        context.OutputCapability.ExpiresUnixTimeMilliseconds);
                 deadline = Math.Min(
                     deadline,
                     absoluteDeadlineUtc.ToUnixTimeMilliseconds());

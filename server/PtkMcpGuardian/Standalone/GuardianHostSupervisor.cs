@@ -519,10 +519,24 @@ internal sealed class GuardianHostSupervisor :
             NewCapabilityToken(),
             callId,
             admitted.DeadlineUnixTimeMilliseconds);
+        // A background job outlives the call that started it: `timeoutSeconds`
+        // bounds only the job's START (JobManager's start budget), and nothing
+        // kills a running background job on a timer. Scoping its output
+        // capability to the call deadline therefore meant any job running past
+        // it - five minutes by default - could never be sealed and reported
+        // `recovery=unavailable` forever (r6x-2 #3, raised in review). The
+        // capability is instead scoped to the artifact's own retention: there
+        // is no reason to hold one longer than the artifact it would produce,
+        // and no reason to drop it sooner. Foreground work keeps the call
+        // deadline, where the call really is the lifetime.
+        var outputExpiry = admitted.Background
+            ? _timeProvider.GetUtcNow().ToUnixTimeMilliseconds() +
+                (long)_outputCoordinator.ArtifactTimeToLive.TotalMilliseconds
+            : admitted.DeadlineUnixTimeMilliseconds;
         var output = new OutputCapability(
             NewCapabilityToken(),
             _outputCoordinator.MaximumCaptureBytes,
-            admitted.DeadlineUnixTimeMilliseconds);
+            outputExpiry);
         var operationIdentity = NewOperationIdentity();
         return admitted.Background
             ? DispatchBackgroundInvokeAsync(

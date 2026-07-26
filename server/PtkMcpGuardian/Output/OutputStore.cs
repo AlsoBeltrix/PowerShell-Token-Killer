@@ -778,6 +778,10 @@ public sealed class OutputStore :
     internal string RootPathForTests => _root;
     internal long MaximumArtifactBytes => _options.MaximumArtifactBytes;
 
+    /// <summary>How long a sealed artifact is retained. A capability has no
+    /// reason to outlive the artifact it would produce.</summary>
+    internal TimeSpan ArtifactTimeToLive => _options.TimeToLive;
+
     OutputArtifactStatus IOutputArtifactReader.Status(string handle) =>
         Status(handle);
 

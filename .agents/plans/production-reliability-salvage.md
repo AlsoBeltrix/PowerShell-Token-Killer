@@ -12,7 +12,8 @@ preserving its actual product:
 
 - compact PowerShell and native-command output;
 - warm PowerShell state across calls;
-- isolated state for unrelated agents or logical sessions;
+- isolated state for unrelated agents through separate agent-owned MCP
+  connections;
 - truthful, bounded failure behavior;
 - recovery from a crashed or timed-out PowerShell worker without replaying an
   uncertain command.
@@ -23,10 +24,11 @@ connection can fail outside PTK's control. PTK's enforceable contract is:
 
 1. never report success without a complete result;
 2. never execute one public request more than once;
-3. never silently share warm state between distinct PTK sessions;
-4. never overlap an old worker tree with its replacement;
+3. never share warm state between supported agent-owned connections;
+4. never overlap a PTK-contained old worker with its replacement;
 5. return a precise no-start, outcome-unknown, or completed result;
-6. remain able to report supervisor and session health while a worker is lost;
+6. remain able to report supervisor and connection-worker health while a
+   worker is lost;
 7. keep optional operational features from disabling ordinary execution.
 
 ## Current repository facts
@@ -55,15 +57,13 @@ and tests. It is never merged, rebased, or used as the base of this effort.
 
 ## Proposed target topology
 
-One public PTK supervisor exists per MCP stdio connection. It launches one
-replaceable PowerShell worker process per logical PTK session:
+The first production topology requires one agent-owned MCP stdio connection.
+That connection owns one public PTK supervisor and one replaceable PowerShell
+worker:
 
 ```text
-MCP connection
-└── PtkMcpServer supervisor
-    ├── session "default" -> worker process -> one warm PowerShell runspace
-    ├── session "agent-a" -> worker process -> one warm PowerShell runspace
-    └── session "agent-b" -> worker process -> one warm PowerShell runspace
+agent A -> MCP connection A -> PTK supervisor A -> worker A -> warm runspace A
+agent B -> MCP connection B -> PTK supervisor B -> worker B -> warm runspace B
 ```
 
 There is no public guardian/private-host split and no shared machine daemon.
@@ -76,7 +76,7 @@ containment helper where required.
 The public supervisor owns only:
 
 - the original MCP stdin/stdout connection and frozen tool schemas;
-- one connection-local session registry;
+- one connection-owned worker slot;
 - public request correlation and one-response delivery;
 - worker process creation, monitoring, cancellation, and containment;
 - small connection-local job/output registries where those tools remain;
@@ -88,34 +88,34 @@ PowerShell, RTK, Bash, or native command.
 
 ### Worker ownership
 
-Each worker owns:
+The connection's worker owns:
 
 - exactly one warm `SessionRuntime` and PowerShell runspace;
-- the selected session's modules, variables, functions, directory,
+- the connection's modules, variables, functions, directory,
   environment drift, credentials/connections, and foreground serialization;
 - command planning and PowerShell/RTK/validated-Bash execution;
 - bounded output production;
-- child processes created for that session.
+- child processes created for that connection's work.
 
-Different workers may execute concurrently. Foreground calls within one worker
-remain serialized.
+Workers belonging to separate MCP connections may execute concurrently.
+Foreground calls within one worker remain serialized.
 
-### Session identity
+### Connection identity and support boundary
 
-- `default` is private to one MCP connection. Separate MCP server processes
-  never share it.
-- A harness that multiplexes several logical agents over one MCP connection
-  must supply a stable explicit `session` name for each agent. MCP does not
-  expose a trustworthy caller identity PTK can infer.
-- `ptk_session open|list|close|restart` manages explicit sessions.
-- Unknown or closed names fail; they never fall back to `default`.
-- Sharing happens only when callers intentionally use the same explicit
-  session name.
-- A configurable, bounded maximum session count prevents accidental process
-  exhaustion. Reaching the bound refuses a new session without changing any
-  existing session.
+- MCP does not expose a trustworthy agent identity that PTK can infer.
+- Therefore the first production cut does not add named sessions or
+  `ptk_session`, and it does not claim to isolate agents multiplexed over one
+  MCP connection.
+- A supported harness gives each unrelated agent its own MCP connection/server
+  process. If an integration shares one connection, all callers share that
+  connection's one warm runspace by definition and the integration is
+  unsupported for unrelated agents.
+- Slice 0 must prove the intended production harness actually supplies a
+  distinct PTK server PID and stdio connection per agent. If it does not, this
+  plan stops before runtime changes; a separately approved harness-identity
+  design is required.
 - No idle timer recycles a live connection's warm worker by default. Public
-  EOF or explicit close/reset/restart owns teardown.
+  EOF or explicit reset owns teardown.
 
 ## Minimal worker protocol
 
@@ -124,7 +124,7 @@ server project; no separate `PtkSharedContracts` project is required.
 
 Required message kinds:
 
-1. `initialize` / `ready`, binding protocol version, session name, worker
+1. `initialize` / `ready`, binding protocol version, connection worker
    incarnation, and immutable limits;
 2. `invoke`, carrying one bounded strict-UTF-8 script and route/background
    options;
@@ -155,17 +155,17 @@ public invoke.
 
 ### Unexpected worker loss
 
-1. Atomically mark only that session unavailable.
+1. Atomically mark the connection worker unavailable.
 2. Terminalize its active request using the delivery boundary above.
-3. Stop admitting new work for that session; other sessions remain usable.
+3. Stop admitting new work on that connection. Other agents' separate PTK
+   connections remain usable.
 4. Kill and confirm the complete old worker tree.
 5. Only after confirmed death, allocate the next connection-local incarnation
    and make one immediate replacement attempt.
 6. A successful replacement becomes `Ready` with
    `warm_state_lost=true` and an empty, sound runspace.
-7. A failed replacement marks the session `Faulted`. No automatic retry loop
-   runs. An explicit `ptk_reset` or `ptk_session restart` makes one new
-   replacement attempt.
+7. A failed replacement marks the connection worker `Faulted`. No automatic
+   retry loop runs. An explicit `ptk_reset` makes one new replacement attempt.
 
 No modules, variables, credentials, connections, profiles, or previous calls
 are replayed automatically.
@@ -188,7 +188,7 @@ boundary plainly.
 
 ### State projection
 
-`ptk_state` remains supervisor-local and reports, per session:
+`ptk_state` remains prompt and reports the connection worker's lifecycle:
 
 - `Cold`, `Starting`, `Ready`, `Recovering`, `Faulted`, or `Closed`;
 - worker PID and incarnation where one exists;
@@ -272,10 +272,7 @@ accepted.
   `server/PtkMcpGuardian/Native/ptk_containment_broker.c`, relocated under the
   server project with no guardian dependency;
 - only the worker-focused tests that prove framing, cancellation, timeout,
-  tree death, stale-incarnation rejection, and output transfer;
-- the public session shape only if the topology owner decision retains
-  multiplexing; it is rewritten in the server project rather than ported from
-  the frozen `PtkSharedContracts` contract.
+  tree death, stale-incarnation rejection, and output transfer.
 
 The first implementation slice that touches a candidate inspects that file's
 direct dependencies and either removes guardian/private-host dependencies or
@@ -294,9 +291,8 @@ Similar names are not evidence that a file can be transplanted.
 
 ### Rewrite narrowly
 
-- a connection-local `SessionRegistry`;
-- a `WorkerSupervisor` owning one worker slot per session;
-- direct public-tool adapters from MCP requests to the selected worker;
+- a `WorkerSupervisor` owning the connection's single worker slot;
+- direct public-tool adapters from MCP requests to that worker;
 - minimal state projection and one-attempt replacement;
 - development installer smoke/rollback around the single supervisor package.
 
@@ -311,6 +307,7 @@ Similar names are not evidence that a file can be transplanted.
   polling gates, frozen catalogs/manifests, template bootstrap, guardian-owned
   generation allocation, and host/session dual recovery;
 - prepared descriptor/commit/abort scheduling;
+- the branch's public session schema, `ptk_session`, and multi-session registry;
 - guardian-owned audit/output/job capability registries;
 - matched guardian/host package loaders and R7 guardian cutover;
 - resilience tests whose only purpose is a discarded layer.
@@ -326,11 +323,17 @@ red/green guard proof.
 1. Create a new implementation branch from current `origin/master`; never from
    the resilience branch.
 2. Run and record the complete existing verification battery.
-3. Record the exact base SHA and reject any candidate whose value cannot be
+3. Run a no-product-change production-harness probe and record whether two
+   unrelated agents receive distinct PTK server PIDs and stdio connections.
+   If they do not, stop: shared-connection multi-agent use is unsupported by
+   this plan.
+4. Record the exact base SHA and reject any candidate whose value cannot be
    separated from guardian/private-host policy more cheaply than a narrow
    rewrite.
 
-Exit: clean baseline and exact base SHA. No runtime behavior changes.
+Exit: clean baseline, exact base SHA, and evidence that the intended harness
+gives each unrelated agent an independent PTK connection. No runtime behavior
+changes.
 
 ### Slice 1 — retire the frozen R0 guardian contract
 
@@ -392,31 +395,32 @@ is unchanged.
 Exit: one disposable contained worker can be launched and killed on macOS,
 Linux, and Windows; public MCP behavior is unchanged.
 
-### Slice 5 — connection-local session registry
+### Slice 5 — connection-owned worker lifecycle
 
-1. Add bounded session names and a bounded maximum count.
-2. Add one worker slot, incarnation counter, lifecycle state, and operation
-   lock per session.
-3. Implement `ptk_session open|list|close|restart` and the optional `session`
-   argument without routing real invokes yet.
-4. Prove unknown/closed names never fall back to `default`, two sessions never
-   share state, and different sessions may progress concurrently.
+1. Add one worker slot, internal incarnation counter, lifecycle state, and
+   foreground operation lock to the public supervisor.
+2. Bind the slot to the lifetime of the MCP stdio connection.
+3. Prove a fixture connection owns exactly one runspace, a second supervisor
+   owns a different runspace, and reset/replacement cannot cross the process
+   boundary.
 
-Exit: lifecycle and isolation are proven with fixture workers; current default
-invoke path remains intact.
+Exit: connection ownership and cross-process isolation are proven with fixture
+workers; the current invoke path remains intact.
 
 ### Slice 6 — production cutover to workers
 
-1. Route default and named foreground invokes through their selected worker.
+1. Route foreground invokes through the connection's worker.
 2. Route state/reset and retained job/output operations through the smallest
    correct owning layer.
 3. Remove the in-process production runspace path in the same slice; no dual
    execution mode remains.
-4. Preserve exact public schemas except the already-planned session additions.
+4. Preserve the existing public schema; add no session argument or
+   `ptk_session` tool.
 5. Prove one submitted script executes once and its PowerShell objects reach
    the unchanged compressor.
 
-Exit: all production PowerShell work runs only in contained session workers;
+Exit: all production PowerShell work runs only in the connection's contained
+worker;
 full verification and handshake green.
 
 ### Slice 7 — truthful loss and one-attempt recovery
@@ -462,8 +466,8 @@ rollback fault matrix.
 Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 
 - complete Pester, .NET, and stdio handshake verification;
-- at least two simultaneous isolated sessions with distinct variables,
-  modules, working directories, and successful concurrent calls;
+- at least two simultaneous agent-owned PTK server processes with distinct
+  variables, modules, working directories, and successful concurrent calls;
 - worker hard-kill before write, during execution, after effect, during result,
   and after complete terminal decode;
 - timeout with a child and grandchild process;
@@ -474,7 +478,7 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 - supervisor hard-kill leaving no worker descendant;
 - installer activation and rollback faults;
 - a staged real workflow proving module/connection warmth across calls and no
-  cross-session state leakage.
+  state leakage between the two server processes.
 
 Hosted CI is supporting evidence, not a substitute for direct platform runs.
 Record exact commands, SHAs, test counts, identities, and residue cleanup in
@@ -533,19 +537,21 @@ gated.
 
 Present and settle these in chat one at a time before implementation:
 
-1. **Topology:** approve one public supervisor per MCP connection with one
-   worker per explicit PTK session, and no private host/guardian layer.
+1. **Topology:** approve one agent-owned MCP connection, one public supervisor,
+   and one worker/runspace, with unrelated-agent multiplexing on a shared
+   connection unsupported in the first production cut. Recommendation: yes,
+   because PTK receives no trustworthy caller identity and this makes
+   isolation an enforceable process boundary. If declined, stop this plan and
+   design a separately approved harness identity mechanism before coding.
 2. **R0 contract retirement:** approve retirement of the frozen guardian-era
    public-contract digest, package-role guards, schemas, and
    `PtkResilienceTestFixture` before introducing the replacement surface. If
    this is declined, public schema changes and implementation stop.
 3. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path; any future compliance audit is separate and explicit.
-4. **Sessions:** approve `default` as connection-private and explicit session
-   names as mandatory when one MCP connection multiplexes agents.
-5. **Optional tools:** confirm whether cold `ptk_job` and connection-local
+4. **Optional tools:** confirm whether cold `ptk_job` and connection-local
    `ptk_output` remain production features.
-6. **Rollout:** approve a canary installed-package validation before replacing
+5. **Rollout:** approve a canary installed-package validation before replacing
    the current development registration.
 
 Silence approves none of these. Until decision 1 is settled, implementation is

@@ -46,6 +46,7 @@ internal interface IWorkerProcessClient : IAsyncDisposable
         WorkerAbortPayload abort,
         CancellationToken cancellationToken = default,
         Func<long, CancellationToken, ValueTask>? beforeWrite = null);
+    Task ContainForRecoveryAsync();
     Task ShutdownAsync(
         CancellationToken cancellationToken = default,
         Func<long, CancellationToken, ValueTask>? beforeWrite = null);
@@ -210,6 +211,18 @@ internal sealed class WorkerProcessClient : IWorkerProcessClient
         CancellationToken cancellationToken = default,
         Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
         Client.AbortAsync(abort, cancellationToken, beforeWrite);
+
+    /// <summary>
+    /// Contains a worker as an unexpected loss. Unlike disposal or orderly
+    /// shutdown, this leaves the process monitor armed so confirmed process
+    /// death completes <see cref="Fatal"/> and the runtime's recovery watcher
+    /// can own the replacement.
+    /// </summary>
+    public async Task ContainForRecoveryAsync()
+    {
+        await EnsureContainmentAsync().ConfigureAwait(false);
+        await _monitor.ConfigureAwait(false);
+    }
 
     internal static async Task<WorkerProcessClient> LaunchAsync(
         IWorkerProcessLauncher launcher,

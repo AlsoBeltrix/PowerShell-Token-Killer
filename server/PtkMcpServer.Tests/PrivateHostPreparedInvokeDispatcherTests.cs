@@ -485,6 +485,8 @@ public sealed class PrivateHostPreparedInvokeDispatcherTests
                 "operation_aborted"));
         }
 
+        public Task ContainForRecoveryAsync() => Task.CompletedTask;
+
         public Task ShutdownAsync(
             CancellationToken cancellationToken = default,
             Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>

@@ -397,6 +397,8 @@ public sealed class PrivateHostPreparedDispatchAuthorizerTests
             Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
             throw new NotSupportedException();
 
+        public Task ContainForRecoveryAsync() => Task.CompletedTask;
+
         public Task ShutdownAsync(
             CancellationToken cancellationToken = default,
             Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>

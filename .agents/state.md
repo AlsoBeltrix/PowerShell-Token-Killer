@@ -5,22 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 acceptance gap G2 is closed (2026-07-26).**
-  `GuardianHostSupervisorTests.Retry_delay_expiry_without_a_ready_state_snapshot_never_authorizes_dispatch`
-  proves that expiring the advertised `retry_after_ms` without polling state
-  does not authorize a new dispatch: the call remains refused at the unchanged
-  session readiness gate and never reaches the old host. Treating elapsed fake
-  time as authorization reddened exactly the post-delay assertion; restoring
-  the unconditional ready-state gate returned it green. Full macOS verification
-  is recorded in `.agents/machines.md`. The canonical gap map is
-  `.agents/plans/r6-acceptance-audit.md`; G3 is next.
-- **HANDOFF 2026-07-26 at `27832f6` (pushed; branch and `origin` agree). Tree
-  clean, nothing in flight.** All work this session is committed and pushed —
-  the branch had been sitting 11 commits local because this session kept asking
-  before pushing; **`## Blockers` records the standing authority that already
-  covered it.** Two real field-impacting product bugs were found and fixed today
-  and neither is delivered yet, because delivery means merge to `master` plus a
-  reinstall.
+- **R6 acceptance gap G3 is closed (2026-07-26).**
+  `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay`
+  proves the timeout contract on the real apphost: one terminal and one script
+  start, confirmed old-process death before replacement readiness, a fresh
+  generation and declared baseline with `WarmStateLost`, no warm sentinel, and
+  no replay. It exposed and fixed a host/worker deadline race that could leave
+  the runaway worker live, plus intentional-disposal semantics that could leave
+  a dead generation projected `Ready`. Full macOS verification is recorded in
+  `.agents/machines.md`. The canonical gap map is
+  `.agents/plans/r6-acceptance-audit.md`; G4 is next.
 - **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
   session left open overnight came back dead with `API Error: 400 Tool reference
   'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the
@@ -341,33 +335,30 @@ short and update it when important repo facts change.
   mutations respectively, each reddening only its own guard, all restored
   green); macOS is green at each head — architecture 73/73, Guardian
   491/491, server 2,041/2,041.
-- **Execution-timeout containment is implemented at code head `02b924c`,
-  leaving the R6 acceptance matrix as sub-slice 5's only remainder.** The
+- **Execution-timeout containment was first implemented at `02b924c`; G3's
+  real-apphost guard closed the prepared-foreground race on 2026-07-26.** The
   approved contract (owner, 2026-07-15) had no implementation: a worker
   operation that blew its deadline returned `RequestDeadlineExpired` and left
   the runaway worker running, and neither `ExecutionTimeout` enum member was
-  emitted anywhere in production. The timeout terminal is still decoded and
-  delivered first; only then is the worker contained. Disposal is the
-  runtime's confirmed-death primitive (it contains the tree and awaits the
-  monitor that completes `Fatal`), so containment converges on the alias's
-  existing death watch, which owns death confirmation and the next
-  generation — the timed-out call is never replayed because that path only
-  launches a fresh declared baseline. Containment is deliberately not awaited
-  in the request path: the plan requires death confirmed before the next
-  generation, not before the terminal. The death watch reports
-  `ExecutionTimeout` instead of `WorkerExit` when containment was
-  deadline-driven. **Rig-fidelity fix:** the fake worker client did not
-  complete `Fatal` on disposal unlike the real client, which hid this
-  convergence entirely from the in-proc rig; it now models the real
-  behaviour, and the pre-existing rig tests stay green because replacement
-  paths null the slot before disposing. **Known limit, deliberately not
-  papered over:** the ownership check in `ContainAfterExecutionTimeout` is
-  not mutation-proven — removing it leaves the suite green, because no
-  current call path can deliver a timeout terminal for a slot that is no
-  longer the alias's current worker. Two further clauses were provably
-  redundant and were removed rather than kept as unprovable guards. Three
-  mutations do redden the slice's guard (containment suppressed, reason
-  reverted, terminal swallowed).
+  emitted anywhere in production. An explicit worker timeout terminal is still
+  decoded and delivered before containment. Prepared foreground invokes added
+  a second case: because host and worker share one absolute deadline, host
+  cancellation can win after the commit write boundary before the worker's
+  timeout terminal arrives. The dispatcher now reports that boundary, and the
+  runtime sends this host-deadline race through the same containment path.
+  Recovery containment deliberately leaves the process monitor armed while
+  killing the tree; confirmed death completes `Fatal`, so the existing alias
+  death watch owns the next generation. Ordinary disposal cannot serve this
+  path because it marks the exit intentional and suppresses `Fatal`. The
+  timed-out call is never replayed because recovery only launches a fresh
+  declared baseline. Containment remains asynchronous in the request path: the
+  plan requires death confirmed before the next generation, not before the
+  terminal, and containment can consume the full grace period. The death watch
+  reports `ExecutionTimeout` instead of `WorkerExit` when containment was
+  deadline-driven. **Known limit, deliberately not papered over:** the
+  ownership check in `ContainAfterExecutionTimeout` is not mutation-proven —
+  removing it leaves the suite green, because no current call path can deliver
+  a timeout terminal for a slot that is no longer the alias's current worker.
 - **Sub-slice 5's thinnest loss path is implemented and reviewed
   (`d9f9c2b` + repairs `0d6ffe1`, `0a84e45`, `49b9602`, acceptance record
   `3b99b6f`).** An unexpectedly dead worker is now detected per alias

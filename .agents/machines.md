@@ -2013,3 +2013,30 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
 - `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
   passed 141 tests with two expected platform skips. The stdio handshake was
   not run because G2 changes only a test and durable records.
+
+## R6 G3 real-apphost timeout verification (`nagatha.local`, 2026-07-26)
+
+- The new cross-platform
+  `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay`
+  first failed with the timed-out real worker still alive and projected
+  `Ready`. Response-status containment alone stayed red because the host and
+  worker deadline observers race. Tracking the prepared commit's write boundary
+  and containing when host cancellation won killed the old process, but using
+  ordinary disposal left the alias projected `Ready` on the dead generation
+  because intentional shutdown suppresses `Fatal`. Recovery-specific
+  containment left the process monitor armed; the final identity passed 1/1 in
+  6 s and proved one terminal, one script start, old-process death before
+  replacement readiness, a fresh PID/generation and declared baseline with
+  `WarmStateLost`, no surviving warm sentinel, and no replay.
+- The pre-existing in-proc guard
+  `WorkerPrivateHostRuntimeTests.Execution_timeout_contains_the_worker_and_recovers_a_fresh_baseline`
+  passed 1/1 after the real-client containment semantics were reflected in its
+  fake.
+- With the required physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore --verbosity minimal` passed
+  architecture 73/73, Guardian 498/498, and server 2,055/2,055.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The complete stdio
+  handshake passed, including cross-call state, output recovery, background
+  recovery, audit, fail-closed audit outage, and hard-kill cleanup.

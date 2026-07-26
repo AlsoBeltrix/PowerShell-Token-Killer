@@ -696,11 +696,37 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
             PrivateHostWorkerSlot slot,
             CancellationToken cancellationToken)
     {
-        var response = await _prepared.ExecuteForegroundAsync(
-                request,
-                slot,
-                cancellationToken)
-            .ConfigureAwait(false);
+        var commitWriteStarted = false;
+        WorkerOperationResponse response;
+        try
+        {
+            response = await _prepared.ExecuteForegroundAsync(
+                    request,
+                    slot,
+                    cancellationToken,
+                    () => commitWriteStarted = true)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (
+            commitWriteStarted &&
+            cancellationToken.IsCancellationRequested &&
+            request.DeadlineUnixTimeMilliseconds <= _unixTimeMilliseconds())
+        {
+            // The host and worker share one absolute deadline. If the host's
+            // observer wins their race after the prepared commit crossed its
+            // write boundary, the call is still an execution timeout with live
+            // or uncertain effects and must take the same containment path.
+            ContainAfterExecutionTimeout(request, slot);
+            throw;
+        }
+        if (response.Status == WorkerOperationStatus.TimedOut)
+        {
+            // Prepared foreground invokes are the public script path. They must
+            // converge on the same post-terminal containment transition as an
+            // ordinary worker operation; otherwise a timed-out script leaves
+            // its warm worker live and reusable.
+            ContainAfterExecutionTimeout(request, slot);
+        }
         var parsed = ParseTextResponse(
             response,
             WorkerSessionOperationCodec.InvokeOperation);
@@ -966,7 +992,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
 
     /// <summary>
     /// Contains the worker whose operation exceeded its execution deadline.
-    /// Disposal is this runtime's confirmed-death primitive: it contains the
+    /// Recovery containment leaves the process monitor armed while it kills the
     /// tree and awaits the monitor that completes <c>Fatal</c>, so the alias's
     /// existing death watch observes a confirmed death and owns allocating the
     /// next generation. The caller's timeout terminal is deliberately not held
@@ -1001,7 +1027,7 @@ internal sealed class WorkerPrivateHostRuntime : IPrivateHostRuntime
         {
             try
             {
-                await slot.DisposeAsync().ConfigureAwait(false);
+                await slot.Process.ContainForRecoveryAsync().ConfigureAwait(false);
             }
             catch (Exception exception) when (!IsFatal(exception))
             {

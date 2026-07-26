@@ -186,7 +186,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | B6.3 | Incomplete output and lost jobs are truthful tombstones | COVERED | `GuardianHostSupervisorTests.Replacement_job_list_merges_current_jobs_with_lost_tombstones`; `GuardianJobCapabilityRegistryTests.Lost_generation_becomes_a_session_scoped_containment_tombstone`; `OutputStoreTests.SealIncomplete_keeps_terminal_streams_labeled_and_forces_incomplete_state`, `Expiry_during_unlocked_read_reports_the_tombstone_state`; `GuardianOutputCapabilityRegistryTests.Host_loss_publishes_only_the_exact_nonempty_valid_prefix_as_incomplete` |
 | B7.1 | An execution timeout returns its single terminal and confirms old-tree death before allocating the next generation | COVERED | `WorkerPrivateHostRuntimeTests.Execution_timeout_contains_the_worker_and_recovers_a_fresh_baseline`; `SessionRecoveryStateMachineTests.Retryable_attempt_failure_cannot_advance_before_confirmed_tree_death` |
 | B7.2 | Recovery creates only the declared baseline and never reruns the timed-out operation | COVERED | Same test. Note the known non-mutation-provable ownership check recorded in `.agents/state.md` for head `02b924c` — removing it leaves the suite green because no call path can deliver a timeout terminal for a non-current slot |
-| B7.3 | The timeout path is proven on the real apphost, not only the in-proc rig | GAP | `Execution_timeout_contains_the_worker_and_recovers_a_fresh_baseline` is a `WorkerPrivateHostRuntime` rig test. No `ProductionGuardianCompositionTests` identity drives a real execution timeout. See G3 |
+| B7.3 | The timeout path is proven on the real apphost, not only the in-proc rig | COVERED | `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay` drives a real foreground script past its deadline and proves one timeout terminal, confirmed old-process death before replacement readiness, a fresh generation and declared baseline with `WarmStateLost`, no surviving warm sentinel, and no replay |
 
 ## Section C — Availability, loops, and isolation
 
@@ -269,13 +269,27 @@ reddened exactly the post-delay assertion (`host_recovering` became
 `backend_lost_before_dispatch`); restoring the unconditional ready-state check
 returned the guard green.
 
-**G3 — Execution timeout is proven only on the in-proc rig (B7.3).** Add a
-`ProductionGuardianCompositionTests` identity that drives a real execution
-timeout on the real apphost: single terminal delivered, old tree confirmed dead,
-next generation is a fresh declared baseline, timed-out operation never rerun.
-Note the product-visible consequence recorded in `.agents/state.md` — execution
-timeout destroys the alias's warm state by design (owner-approved 2026-07-15) —
-which R7's cutover notes must carry.
+**G3 — CLOSED 2026-07-26.** The cross-platform real-apphost identity
+`ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay`
+now proves the single timeout terminal, one execution, confirmed old-process
+death before replacement readiness, a fresh PID and generation with
+`WarmStateLost`, an absent warm-state sentinel, and no replay.
+
+The guard exposed a production defect hidden by the in-proc rig. Prepared
+foreground invokes share one absolute host/worker deadline, so the host's
+cancellation observer could win after the commit write boundary and bypass
+response-status-based containment, leaving the runaway worker alive and
+projected `Ready`. Tracking that boundary and containing on host-deadline
+cancellation killed the worker, but ordinary disposal marked the exit
+intentional and suppressed `Fatal`, leaving the dead generation projected
+`Ready`. Recovery-specific containment now leaves the process monitor armed;
+confirmed death completes `Fatal`, and the existing alias death watch owns
+replacement. The baseline failed first with the old process still alive, then
+with no fresh generation after ordinary disposal; the final identity passes.
+
+The product-visible consequence remains deliberate: execution timeout destroys
+the alias's warm state (owner-approved 2026-07-15), which R7's cutover notes must
+carry.
 
 **G4 — Guardian-local availability is not driven in every recovery phase
 (C1.2).** Extend the guardian-local read coverage to startup, an active backoff

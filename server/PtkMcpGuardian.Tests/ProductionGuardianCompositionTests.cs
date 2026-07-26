@@ -1027,6 +1027,247 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
+    public async Task Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay()
+    {
+        var auditRoot = TemporaryRoot("execution-timeout-audit");
+        var outputRoot = TemporaryRoot("execution-timeout-output");
+        var effectRoot = TemporaryRoot("execution-timeout-effect");
+        Directory.CreateDirectory(effectRoot);
+        var effectPath = Path.Combine(effectRoot, "operation-effects.txt");
+        var escapedEffectPath = effectPath.Replace(
+            "'",
+            "''",
+            StringComparison.Ordinal);
+        var real = await RealHostLaunchAsync("execution-timeout-broker");
+        var composition = ProductionGuardianComposition.Create(
+            real.Package,
+            LocalAudit(auditRoot),
+            real.Inner,
+            OutputOptions(outputRoot),
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var writer = new StreamWriter(
+            input,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            bufferSize: 1024,
+            leaveOpen: true)
+        {
+            AutoFlush = true,
+            NewLine = "\n",
+        };
+        using var reader = new StreamReader(
+            output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: false),
+            detectEncodingFromByteOrderMarks: false,
+            bufferSize: 1024,
+            leaveOpen: true);
+        using var standardError = new StringWriter();
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        Process? timedOutWorker = null;
+        var requestId = 0;
+
+        async Task<PublicStateSnapshot> StateAsync()
+        {
+            var response = await RequestAsync(
+                writer,
+                reader,
+                ++requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_state",
+                    arguments = new { },
+                },
+                timeout.Token);
+            return PublicStateCodec.Decode(
+                Encoding.UTF8.GetBytes(ToolText(response, expectedError: false)));
+        }
+
+        async Task<string> InvokeAsync(string script, int timeoutSeconds = 10)
+        {
+            var response = await RequestAsync(
+                writer,
+                reader,
+                ++requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script,
+                        raw = true,
+                        route = "pwsh",
+                        timeoutSeconds,
+                    },
+                },
+                timeout.Token);
+            return ToolText(response, expectedError: false);
+        }
+
+        static int WorkerProcessId(string text)
+        {
+            const string prefix = "PTK_WORKER_PID=";
+            var marker = text.IndexOf(prefix, StringComparison.Ordinal);
+            Assert.True(marker >= 0, $"worker PID was not reported: {text}");
+            var digits = new string(text[(marker + prefix.Length)..]
+                .TakeWhile(char.IsAsciiDigit)
+                .ToArray());
+            Assert.True(
+                int.TryParse(digits, out var processId) && processId > 0,
+                $"worker PID was invalid: {text}");
+            return processId;
+        }
+
+        try
+        {
+            var initialized = await RequestAsync(
+                writer,
+                reader,
+                ++requestId,
+                "initialize",
+                new
+                {
+                    protocolVersion = "2025-06-18",
+                    capabilities = new { },
+                    clientInfo = new
+                    {
+                        name = "production-guardian-execution-timeout-test",
+                        version = "1.0.0",
+                    },
+                },
+                timeout.Token);
+            Assert.True(initialized.TryGetProperty("result", out _), initialized.GetRawText());
+            await WriteAsync(
+                writer,
+                new
+                {
+                    jsonrpc = "2.0",
+                    method = "notifications/initialized",
+                },
+                timeout.Token);
+
+            var initial = await StateAsync();
+            var initialSession = Assert.Single(initial.Sessions);
+            Assert.Equal(PublicSessionState.Ready, initialSession.State);
+            Assert.True(initialSession.ReadyForEffects);
+            var initialGeneration = initialSession.Generation?.Value ??
+                throw new InvalidDataException("Initial worker generation was absent.");
+
+            var identity = await InvokeAsync(
+                "$global:PtkTimeoutSentinel = 'must-not-survive'; " +
+                "'PTK_WORKER_PID=' + $PID");
+            var workerPid = WorkerProcessId(identity);
+            timedOutWorker = Process.GetProcessById(workerPid);
+            Assert.False(timedOutWorker.HasExited);
+
+            var timeoutResponse = await RequestAsync(
+                writer,
+                reader,
+                ++requestId,
+                "tools/call",
+                new
+                {
+                    name = "ptk_invoke",
+                    arguments = new
+                    {
+                        script =
+                            $"[IO.File]::AppendAllText('{escapedEffectPath}', " +
+                            "'started' + [Environment]::NewLine); " +
+                            "Start-Sleep -Seconds 300; " +
+                            $"[IO.File]::AppendAllText('{escapedEffectPath}', " +
+                            "'finished' + [Environment]::NewLine)",
+                        raw = true,
+                        route = "pwsh",
+                        timeoutSeconds = 2,
+                    },
+                },
+                timeout.Token);
+            var timeoutText = ToolText(timeoutResponse, expectedError: true);
+            Assert.Contains(
+                "private_host_error:RequestDeadlineExpired",
+                timeoutText,
+                StringComparison.Ordinal);
+            Assert.True(File.Exists(effectPath));
+            Assert.Equal(["started"], File.ReadAllLines(effectPath));
+
+            PublicSessionStateSnapshot? recovered = null;
+            PublicSessionStateSnapshot? lastObserved = null;
+            var pollStarted = Stopwatch.GetTimestamp();
+            while (PollingWithinBudget(pollStarted))
+            {
+                var state = await StateAsync();
+                var candidate = Assert.Single(state.Sessions);
+                lastObserved = candidate;
+                if (candidate.State == PublicSessionState.Ready &&
+                    candidate.Generation?.Value > initialGeneration)
+                {
+                    Assert.True(
+                        timedOutWorker.HasExited,
+                        "The replacement generation became ready before the timed-out worker died.");
+                    recovered = candidate;
+                    break;
+                }
+                await Task.Delay(TimeSpan.FromMilliseconds(100), timeout.Token);
+            }
+
+            Assert.True(
+                recovered is not null,
+                "The timed-out session did not recover within the readiness budget. " +
+                $"last_state={lastObserved?.State}; " +
+                $"last_phase={lastObserved?.RecoveryPhase}; " +
+                $"last_generation={lastObserved?.Generation?.Value}; " +
+                $"last_failure={lastObserved?.LastFailureCode}; " +
+                $"old_worker_exited={timedOutWorker.HasExited}; " +
+                $"stderr={standardError}");
+            Assert.True(recovered.ReadyForEffects);
+            Assert.True(recovered.WarmStateLost);
+            Assert.Equal(BootstrapState.Restored, recovered.BootstrapState);
+            Assert.Equal(initialGeneration + 1, recovered.Generation?.Value);
+
+            var replacement = await InvokeAsync(
+                "if (Get-Variable -Name PtkTimeoutSentinel -Scope Global " +
+                "-ErrorAction SilentlyContinue) { 'sentinel-present' } " +
+                "else { 'sentinel-absent' }; 'PTK_WORKER_PID=' + $PID");
+            Assert.Contains("sentinel-absent", replacement, StringComparison.Ordinal);
+            Assert.DoesNotContain("sentinel-present", replacement, StringComparison.Ordinal);
+            Assert.NotEqual(workerPid, WorkerProcessId(replacement));
+            Assert.Equal(["started"], File.ReadAllLines(effectPath));
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+        }
+        finally
+        {
+            KillProcessIfAlive(timedOutWorker);
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            DeleteRoot(auditRoot);
+            DeleteRoot(effectRoot);
+            Assert.False(Directory.Exists(outputRoot), outputRoot);
+            if (real.NativeRoot is not null) DeleteRoot(real.NativeRoot);
+        }
+    }
+
+    [Fact]
     public async Task Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection()
     {
         if (OperatingSystem.IsWindows()) return;

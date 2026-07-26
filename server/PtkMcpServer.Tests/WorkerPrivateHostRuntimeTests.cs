@@ -2497,6 +2497,14 @@ public sealed class WorkerPrivateHostRuntimeTests
                 Generation,
                 "operation_aborted"));
 
+        public Task ContainForRecoveryAsync()
+        {
+            Disposed = true;
+            _fatal.TrySetException(new InvalidOperationException(
+                "Worker was contained."));
+            return Task.CompletedTask;
+        }
+
         public async Task ShutdownAsync(
             CancellationToken cancellationToken = default,
             Func<long, CancellationToken, ValueTask>? beforeWrite = null)
@@ -2515,12 +2523,6 @@ public sealed class WorkerPrivateHostRuntimeTests
         public ValueTask DisposeAsync()
         {
             Disposed = true;
-            // The real client's DisposeAsync contains the tree and awaits the
-            // monitor that completes Fatal, so disposal is observable as a
-            // confirmed death. Modelling that here is what lets containment
-            // converge on the same death watch the fake previously hid.
-            _fatal.TrySetException(new InvalidOperationException(
-                "Worker was contained."));
             return ValueTask.CompletedTask;
         }
     }

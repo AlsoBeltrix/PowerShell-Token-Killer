@@ -215,6 +215,12 @@ public sealed class PrivateHostWorkerSlotTests
             Func<long, CancellationToken, ValueTask>? beforeWrite = null) =>
             throw new NotSupportedException();
 
+        public Task ContainForRecoveryAsync()
+        {
+            Interlocked.Exchange(ref _disposed, 1);
+            return Task.CompletedTask;
+        }
+
         public Task ShutdownAsync(
             CancellationToken cancellationToken = default,
             Func<long, CancellationToken, ValueTask>? beforeWrite = null)

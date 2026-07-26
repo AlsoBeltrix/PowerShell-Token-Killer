@@ -38,7 +38,8 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
     internal async ValueTask<WorkerOperationResponse> ExecuteForegroundAsync(
         OperationRequest request,
         PrivateHostWorkerSlot slot,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onCommitWriteStarted = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(slot);
@@ -68,7 +69,8 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                 prepare,
                 static response => response,
                 static (registration, _) => registration.CompleteForeground(),
-                cancellationToken)
+                cancellationToken,
+                onCommitWriteStarted)
             .ConfigureAwait(false);
     }
 
@@ -113,7 +115,8 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                         operation.PublicJobId.Value),
                 static (registration, result) =>
                     registration.CompleteBackgroundStart(result.Started),
-                cancellationToken)
+                cancellationToken,
+                onCommitWriteStarted: null)
             .ConfigureAwait(false);
     }
 
@@ -123,7 +126,8 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
         WorkerInvokePreparePayload prepare,
         Func<WorkerOperationResponse, T> decode,
         Action<PrivateHostWorkerEventRegistration, T> completeRegistration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onCommitWriteStarted)
     {
         var prepareAttempted = false;
         var commitWriteStarted = false;
@@ -167,6 +171,7 @@ internal sealed class PrivateHostPreparedInvokeDispatcher
                         commitRequestId = workerRequestId;
                         commitWriteStarted = true;
                         eventRegistration.MarkCommitAuthorized();
+                        onCommitWriteStarted?.Invoke();
                     })
                 .ConfigureAwait(false);
 

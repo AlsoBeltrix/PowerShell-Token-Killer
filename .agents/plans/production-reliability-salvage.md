@@ -578,7 +578,8 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   at most four, private memory settles within the larger of 10% or 32 MiB over
   baseline, and no measured resource grows monotonically over the final 20
   cycles;
-- public connection held idle beyond every former watchdog interval;
+- an injected-clock lifecycle test proving idle alone does not recycle a live
+  connection worker; do not spend four wall-clock hours on an acceptance wait;
 - malformed and oversized worker frames;
 - stale output-root reclamation with a simultaneous live supervisor root;
 - prompt `ptk_state` during an active invoke, worker loss, startup, recovery,

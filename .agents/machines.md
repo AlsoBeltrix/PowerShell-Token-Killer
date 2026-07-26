@@ -1997,3 +1997,19 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
 - `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
   passed 141 tests with two expected platform skips. The stdio handshake was
   not run because G1 changes only a source-reading test and durable records.
+
+## R6 G2 guard verification (`nagatha.local`, 2026-07-26)
+
+- `GuardianHostSupervisorTests.Retry_delay_expiry_without_a_ready_state_snapshot_never_authorizes_dispatch`
+  passed against production behavior. A mutation that kept the initial
+  readiness refusal but treated elapsed fake time as dispatch permission
+  failed at the post-delay assertion: expected `host_recovering`, actual
+  `backend_lost_before_dispatch`. Restoring the unconditional ready-state check
+  returned the targeted identity green.
+- With the required physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore --verbosity minimal` passed
+  architecture 73/73, Guardian 497/497, and server 2,055/2,055.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The stdio handshake was
+  not run because G2 changes only a test and durable records.

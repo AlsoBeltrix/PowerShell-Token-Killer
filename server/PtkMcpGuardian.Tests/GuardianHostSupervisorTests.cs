@@ -557,6 +557,56 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
+    public async Task Retry_delay_expiry_without_a_ready_state_snapshot_never_authorizes_dispatch()
+    {
+        await using var rig = new TestRig(
+            new AttemptPlan(HostBehavior.Respond, AutoConfirmContainment: false),
+            new AttemptPlan(HostBehavior.Respond));
+        await rig.StartAsync();
+        var old = rig.Factory.Resources[0];
+
+        old.Crash();
+        await WaitUntilAsync(() =>
+            rig.Supervisor.SnapshotState().Host is
+            {
+                State: PublicHostState.Recovering,
+                RecoveryPhase: RecoveryPhase.Containment,
+            });
+
+        try
+        {
+            var first = DecodeRecovery(
+                await rig.DispatchJobListAsync().WaitAsync(TestTimeout));
+            Assert.Equal(PublicRecoveryDetailCode.HostRecovering, first.DetailCode);
+            Assert.True(first.Retryable);
+            Assert.NotNull(first.RetryAfterMilliseconds);
+            var firstGate = Assert.IsType<SessionReadyGate>(first.RetryGate);
+            Assert.Equal(TestRig.Alias, firstGate.Alias);
+            Assert.Equal(0, old.OperationCount);
+
+            // Expiring retry_after_ms permits only the next state poll. This
+            // fresh call deliberately skips that poll and must still stop at
+            // the current readiness gate without reaching the old host.
+            rig.Clock.Advance(
+                TimeSpan.FromMilliseconds(first.RetryAfterMilliseconds.Value));
+            var delayOnly = DecodeRecovery(
+                await rig.DispatchJobListAsync().WaitAsync(TestTimeout));
+
+            Assert.Equal(PublicRecoveryDetailCode.HostRecovering, delayOnly.DetailCode);
+            Assert.True(delayOnly.Retryable);
+            Assert.Equal(first.RecoveryPhase, delayOnly.RecoveryPhase);
+            Assert.Equal(first.RecoveryAttempt, delayOnly.RecoveryAttempt);
+            var delayOnlyGate = Assert.IsType<SessionReadyGate>(delayOnly.RetryGate);
+            Assert.Equal(TestRig.Alias, delayOnlyGate.Alias);
+            Assert.Equal(0, old.OperationCount);
+        }
+        finally
+        {
+            old.ConfirmContainment();
+        }
+    }
+
+    [Fact]
     public async Task Fresh_dispatch_synchronizes_faulted_client_before_refusal()
     {
         await using var rig = new TestRig(

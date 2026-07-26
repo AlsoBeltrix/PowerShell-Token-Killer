@@ -153,7 +153,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | A6.1 | Calls refused during recovery are never queued | COVERED | `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`; `Failed_generations_open_a_bounded_circuit_without_poll_driven_probes`; refusal legs of `ResilienceFakeGuardianTests.Loss_after_ready_snapshot_but_before_private_write_is_proved_not_started` return immediately rather than parking |
 | A6.2 | Exactly the four proved-no-start codes carry `retryable=true` | COVERED | `PublicRecoveryMatrixTests.Retryability_delay_and_attempt_bounds_are_exact`; `PublicRecoveryMatrixTests.Every_detail_phase_and_gate_combination_matches_the_frozen_closed_table` |
 | A6.3 | Each refusal exposes matching phase, attempt, poll delay, readiness gate | COVERED | `PublicRecoveryMatrixTests.Every_detail_phase_and_gate_combination_matches_the_frozen_closed_table`; `ResilienceFakeGuardianTests.AssertRetryableHostGate`; `FrozenDefaultSessionStateTests.Invalidated_dispatch_target_carries_its_own_transitions_recovery_evidence` |
-| A6.4 | Delay expiry permits only a state poll; a new request executes only after the poll reports the gate ready | PARTIAL | The contract shape is pinned (`PublicRecoveryMatrixTests.Retryability_delay_and_attempt_bounds_are_exact`, `McpResilienceR0ContractTests.Public_recovery_and_end_state_tool_contract_are_exact`) and the pre-write recheck is proven (A6.5). What is not asserted anywhere is the *sequencing rule itself* — that a client which dispatches on bare delay expiry without an intervening ready snapshot is refused. See G2 |
+| A6.4 | Delay expiry permits only a state poll; a new request executes only after the poll reports the gate ready | COVERED | `GuardianHostSupervisorTests.Retry_delay_expiry_without_a_ready_state_snapshot_never_authorizes_dispatch` advances the fake clock by exactly the advertised `retry_after_ms`, deliberately skips the required state poll, and proves a fresh dispatch remains refused at the same session readiness gate without reaching the old host — G2 closed |
 | A6.5 | Pre-write dispatch authorization rechecks readiness | COVERED | `ResilienceFakeGuardianTests.Loss_after_ready_snapshot_but_before_private_write_is_proved_not_started`; `SessionOperationAuthorityTests.Wire_deadline_is_rechecked_at_the_final_process_start_gate`; `FrozenDefaultSessionStateTests.Invalidated_dispatch_target_carries_its_own_transitions_recovery_evidence` |
 | A6.6 | Every ambiguous/permanent error is nonretryable and `outcome_unknown` never produces retry instructions | COVERED | `PtkSharedContractsTests.Nonretryable_public_recovery_union_round_trips_without_retry_metadata`; `R3GuardianAppHostIntegrationTests.Partial_private_response_is_one_nonretryable_outcome_unknown_terminal`; `ResilienceFakeGuardianTests.AssertNonRetryable` |
 | A7.1 | A fake client polls through multiple recovery phases without changing the scheduler, then submits exactly once after readiness | COVERED | `R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry`; `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert` |
@@ -259,11 +259,15 @@ freezes `PTK_TERM_TO_KILL_MILLISECONDS` at 2 000 ms,
 `PTK_POLL_MILLISECONDS` at 25 ms. Changing the containment deadline to 20 000 ms
 reddened exactly this guard; restoring 10 000 ms returned it green.
 
-**G2 — No guard for the retry-sequencing rule (A6.4).** Add a test proving that a
-client dispatching on bare `retry_after_ms` expiry, without an intervening state
-snapshot reporting the named readiness gate, is refused. The contract shape and
-the pre-write recheck are both already pinned; what is missing is the rule that
-joins them.
+**G2 — CLOSED 2026-07-26.** The retry-sequencing rule is now guarded by
+`GuardianHostSupervisorTests.Retry_delay_expiry_without_a_ready_state_snapshot_never_authorizes_dispatch`.
+The test advances the fake clock by exactly the advertised `retry_after_ms`,
+deliberately performs no intervening state poll, and proves a fresh dispatch is
+still refused at the unchanged session readiness gate without reaching the old
+host. A mutation that treated elapsed fake time as dispatch authorization
+reddened exactly the post-delay assertion (`host_recovering` became
+`backend_lost_before_dispatch`); restoring the unconditional ready-state check
+returned the guard green.
 
 **G3 — Execution timeout is proven only on the in-proc rig (B7.3).** Add a
 `ProductionGuardianCompositionTests` identity that drives a real execution

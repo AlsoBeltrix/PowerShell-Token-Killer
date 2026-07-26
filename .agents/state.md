@@ -5,15 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 acceptance gap G1 is closed (2026-07-26).** The production Unix worker
-  broker's 2 000 ms TERM grace, 10 000 ms containment deadline, and 25 ms poll
-  interval are now source-pinned by
-  `UnixWorkerProcessLauncherTests.Native_source_freezes_the_worker_broker_grace_constants`.
-  Mutating the deadline from 10 000 ms to 20 000 ms reddened exactly that guard;
-  restoring it returned the guard green. Full macOS .NET and Pester verification
-  passed; exact counts and the physical-TMPDIR invocation are in
-  `.agents/machines.md`. The canonical gap map is
-  `.agents/plans/r6-acceptance-audit.md`; G2 is next.
+- **R6 acceptance gap G2 is closed (2026-07-26).**
+  `GuardianHostSupervisorTests.Retry_delay_expiry_without_a_ready_state_snapshot_never_authorizes_dispatch`
+  proves that expiring the advertised `retry_after_ms` without polling state
+  does not authorize a new dispatch: the call remains refused at the unchanged
+  session readiness gate and never reaches the old host. Treating elapsed fake
+  time as authorization reddened exactly the post-delay assertion; restoring
+  the unconditional ready-state gate returned it green. Full macOS verification
+  is recorded in `.agents/machines.md`. The canonical gap map is
+  `.agents/plans/r6-acceptance-audit.md`; G3 is next.
 - **HANDOFF 2026-07-26 at `27832f6` (pushed; branch and `origin` agree). Tree
   clean, nothing in flight.** All work this session is committed and pushed —
   the branch had been sitting 11 commits local because this session kept asking

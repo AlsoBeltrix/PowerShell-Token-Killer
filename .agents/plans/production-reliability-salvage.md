@@ -39,7 +39,7 @@ connection can fail outside PTK's control. PTK's enforceable contract is:
   `feature/mcp-resilience-r1`, head
   `93e79922a77bd5aab8e2959c69958dd165ea5087`.
 - The resilience line is not merged into `master`. It changes 327 files with
-  107,482 insertions and 3,542 deletions while changing no file in
+  107,482 insertions and 3,558 deletions while changing no file in
   `src/PwshTokenCompressor.*` or its Pester suite.
 - The resilience line adds a public guardian, a private host, per-session
   workers, two private protocol layers, recovery circuits, generation

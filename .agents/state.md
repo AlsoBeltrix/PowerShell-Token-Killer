@@ -373,6 +373,18 @@ short and update it when important repo facts change.
   `Expired` terminal. This preserves the existing timeout-status containment
   path without matching human-facing output and without treating a
   non-destructive queue expiry as worker loss.
+  The next combined full run exposed the remaining liveness hole: after commit,
+  the controller's deadline observer did nothing and relied on the runtime to
+  return. Under full-suite load the real request therefore produced no terminal
+  and reached the 180-second test cancellation. The committed deadline is now
+  an independent terminal authority: it publishes the same
+  `prepared_execution_timed_out` `Expired` terminal exactly once and requests
+  runtime cancellation, so the guardian can contain a worker even when the
+  runtime never cooperates. A deterministic unresponsive-runtime guard failed
+  in one second before the fix and passes after it. The focused group is 13/13,
+  the real identity passed another 5/5, and the combined full macOS battery is
+  green at architecture 73/73, Guardian 504/504, server 2,057/2,057, Pester
+  141 passed with two expected skips, and handshake passed.
 - **Sub-slice 5's thinnest loss path is implemented and reviewed
   (`d9f9c2b` + repairs `0d6ffe1`, `0a84e45`, `49b9602`, acceptance record
   `3b99b6f`).** An unexpectedly dead worker is now detected per alias

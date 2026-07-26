@@ -606,6 +606,7 @@ internal sealed class WorkerPreparedInvokeController
                 await waitUntilDeadline(
                     _prepare.DeadlineUtc,
                     _deadlineCancellation.Token).ConfigureAwait(false);
+                var cancelExecution = false;
                 lock (_gate)
                 {
                     if (_state is ReservationState.Preparing or ReservationState.Prepared)
@@ -614,7 +615,24 @@ internal sealed class WorkerPreparedInvokeController
                             WorkerPreparedInvokeTerminalKind.Expired,
                             "prepared_operation_expired");
                     }
+                    else if (_state == ReservationState.Committed)
+                    {
+                        // Once effects are authorized, the absolute deadline
+                        // remains the independent liveness authority. Runtime
+                        // completion normally wins and carries its structured
+                        // timeout, but a wedged runtime must not suppress the
+                        // one terminal the guardian needs to contain us.
+                        _state = ReservationState.Expired;
+                        _terminalDetailCode = "prepared_execution_timed_out";
+                        _terminal.TrySetResult(new WorkerPreparedInvokeTerminal(
+                            WorkerPreparedInvokeTerminalKind.Expired,
+                            Text: null,
+                            _terminalDetailCode));
+                        cancelExecution = true;
+                    }
                 }
+                if (cancelExecution)
+                    await CancelExecutionAsync().ConfigureAwait(false);
             }
             catch (OperationCanceledException)
                 when (_deadlineCancellation.IsCancellationRequested)
@@ -656,6 +674,12 @@ internal sealed class WorkerPreparedInvokeController
             WorkerPreparedInvokeTerminal terminal;
             lock (_gate)
             {
+                if (_terminal.Task.IsCompleted)
+                {
+                    _state = ReservationState.Completed;
+                    _deadlineCancellation.Cancel();
+                    return;
+                }
                 if (!_prepared.Task.IsCompleted)
                 {
                     _prepared.TrySetException(failure ??

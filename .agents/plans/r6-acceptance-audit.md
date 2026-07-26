@@ -184,7 +184,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | B6.1 | Public job/output IDs never reuse | COVERED | `JobManagerTests.Shared_guardian_allocator_never_reuses_abandoned_or_failed_start_ids`; `Failed_start_does_not_reuse_its_public_job_id`; `PublicJobIdAllocatorTests.Concurrent_allocations_are_unique_and_gap_free` |
 | B6.2 | Sealed output remains readable after loss | COVERED | `ProductionGuardianCompositionTests.Composition_seals_a_real_background_job_artifact_for_handle_recovery` (cross-platform, landed under `r6x-2` #3); `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` (Windows only) |
 | B6.3 | Incomplete output and lost jobs are truthful tombstones | COVERED | `GuardianHostSupervisorTests.Replacement_job_list_merges_current_jobs_with_lost_tombstones`; `GuardianJobCapabilityRegistryTests.Lost_generation_becomes_a_session_scoped_containment_tombstone`; `OutputStoreTests.SealIncomplete_keeps_terminal_streams_labeled_and_forces_incomplete_state`, `Expiry_during_unlocked_read_reports_the_tombstone_state`; `GuardianOutputCapabilityRegistryTests.Host_loss_publishes_only_the_exact_nonempty_valid_prefix_as_incomplete` |
-| B7.1 | An execution timeout returns its single terminal and confirms old-tree death before allocating the next generation | COVERED | `WorkerSessionRuntimeAdapterTests.Prepared_adapter_preserves_a_structured_execution_timeout_terminal`; `WorkerPrivateHostRuntimeTests.Execution_timeout_contains_the_worker_and_recovers_a_fresh_baseline`; `SessionRecoveryStateMachineTests.Retryable_attempt_failure_cannot_advance_before_confirmed_tree_death` |
+| B7.1 | An execution timeout returns its single terminal and confirms old-tree death before allocating the next generation | COVERED | `WorkerPreparedInvokeControllerTests.Deadline_expiry_terminalizes_a_committed_operation_without_runtime_cooperation`; `WorkerSessionRuntimeAdapterTests.Prepared_adapter_preserves_a_structured_execution_timeout_terminal`; `WorkerPrivateHostRuntimeTests.Execution_timeout_contains_the_worker_and_recovers_a_fresh_baseline`; `SessionRecoveryStateMachineTests.Retryable_attempt_failure_cannot_advance_before_confirmed_tree_death` |
 | B7.2 | Recovery creates only the declared baseline and never reruns the timed-out operation | COVERED | Same test. Note the known non-mutation-provable ownership check recorded in `.agents/state.md` for head `02b924c` — removing it leaves the suite green because no call path can deliver a timeout terminal for a non-current slot |
 | B7.3 | The timeout path is proven on the real apphost, not only the in-proc rig | COVERED | `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay` drives a real foreground script past its deadline and proves one timeout terminal, confirmed old-process death before replacement readiness, a fresh generation and declared baseline with `WarmStateLost`, no surviving warm sentinel, and no replay |
 
@@ -298,6 +298,21 @@ the controller maps it to the `prepared_execution_timed_out` `Expired`
 terminal. Non-destructive queue expiry remains distinct. The deterministic
 adapter guard failed before the fix (`Expected: Expired; Actual: Completed`)
 and passed after restoration; the real-apphost identity then passed 5/5.
+
+The next combined full run exposed the last committed-deadline liveness hole.
+After commit, the controller deadline observer deliberately handled no state,
+so it could emit no terminal unless the runtime returned or the host observer
+canceled transport first. Under full-suite load neither won: the real timeout
+request waited for 180 seconds and the identity ended in test cancellation.
+`WorkerPreparedInvokeController` now treats the same absolute deadline as an
+independent committed terminal authority. It publishes the one
+`prepared_execution_timed_out` `Expired` terminal, then requests runtime
+cancellation; the guardian receives `TimedOut` and owns containment even if the
+runtime never cooperates. The deterministic
+`Deadline_expiry_terminalizes_a_committed_operation_without_runtime_cooperation`
+guard failed in one second before the fix and passed after it. The focused
+controller/runtime group passed 13/13, the real-apphost identity passed another
+5/5, and the combined full battery passed.
 
 The product-visible consequence remains deliberate: execution timeout destroys
 the alias's warm state (owner-approved 2026-07-15), which R7's cutover notes must

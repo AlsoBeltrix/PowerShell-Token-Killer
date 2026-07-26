@@ -2137,3 +2137,17 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
   passed 141 tests with two expected platform skips. The complete stdio
   handshake passed, including cross-call state, output recovery, background
   recovery, audit, fail-closed audit outage, and hard-kill cleanup.
+- A later combined full run exposed the remaining committed-deadline liveness
+  defect: the real-apphost timeout request produced no response and reached the
+  180-second `CompositionTestTimeout`. Guardian ended 503/504; architecture and
+  server were otherwise green. The deterministic
+  `WorkerPreparedInvokeControllerTests.Deadline_expiry_terminalizes_a_committed_operation_without_runtime_cooperation`
+  reproduced the cause with a runtime that ignores cancellation and failed in
+  one second before the fix.
+- After the worker deadline became an independent committed terminal authority,
+  the focused prepared-controller and runtime-adapter group passed 13/13 and
+  `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay`
+  passed another 5/5 consecutively.
+- The final combined physical-TMPDIR battery passed architecture 73/73,
+  Guardian **504/504**, server **2,057/2,057**, Pester 141 with two expected
+  skips, and the complete stdio handshake.

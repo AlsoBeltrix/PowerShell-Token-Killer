@@ -142,6 +142,44 @@ public sealed class WorkerPreparedInvokeControllerTests
     }
 
     [Fact]
+    public async Task Deadline_expiry_terminalizes_a_committed_operation_without_runtime_cooperation()
+    {
+        var deadlineReached = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var current = Now;
+        var runtime = new UnresponsivePreparedRuntime(Plan());
+        var controller = Controller(
+            runtime,
+            utcNow: () => current,
+            waitUntilDeadline: (_, cancellationToken) =>
+                deadlineReached.Task.WaitAsync(cancellationToken));
+        _ = await controller.PrepareAsync(
+            Prepare(),
+            TestContext.Current.CancellationToken);
+        var terminalTask = controller.Commit(Commit());
+        await runtime.ExecutionStarted.Task.WaitAsync(
+            TestContext.Current.CancellationToken);
+
+        current = Deadline;
+        deadlineReached.TrySetResult();
+        try
+        {
+            var terminal = await terminalTask.WaitAsync(
+                TimeSpan.FromSeconds(1),
+                TestContext.Current.CancellationToken);
+
+            Assert.Equal(WorkerPreparedInvokeTerminalKind.Expired, terminal.Kind);
+            Assert.Equal("prepared_execution_timed_out", terminal.DetailCode);
+            Assert.Null(terminal.Text);
+        }
+        finally
+        {
+            runtime.Complete();
+            await controller.CancelAndDrainAsync();
+        }
+    }
+
+    [Fact]
     public async Task Dispatch_that_does_not_belong_to_the_prepared_plan_never_executes()
     {
         var runtime = new RecordingPreparedRuntime(
@@ -334,6 +372,42 @@ public sealed class WorkerPreparedInvokeControllerTests
                 "complete",
                 UserExecutionStarted: true);
         }
+    }
+
+    private sealed class UnresponsivePreparedRuntime(ExecutionPlan preparedPlan)
+        : IWorkerPreparedInvokeRuntime
+    {
+        private readonly TaskCompletionSource<WorkerPreparedRuntimeResult>
+            _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        internal TaskCompletionSource ExecutionStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<WorkerPreparedRuntimeResult> InvokeAsync(
+            WorkerInvokePreparePayload prepare,
+            IInvocationAuthorizer authorizer,
+            CancellationToken cancellationToken)
+        {
+            if (!await authorizer.AuthorizePlanAsync(
+                    preparedPlan,
+                    cancellationToken) ||
+                !await authorizer.AuthorizeDispatchAsync(
+                    ExecutionDispatch.FromPlan(preparedPlan),
+                    cancellationToken))
+            {
+                return new WorkerPreparedRuntimeResult(
+                    "not started",
+                    UserExecutionStarted: false);
+            }
+
+            ExecutionStarted.TrySetResult();
+            return await _completion.Task;
+        }
+
+        internal void Complete() =>
+            _completion.TrySetResult(new WorkerPreparedRuntimeResult(
+                "late completion",
+                UserExecutionStarted: true));
     }
 
     private sealed class CancelablePreparedRuntime(ExecutionPlan preparedPlan)

@@ -306,14 +306,22 @@ exclusive live-owner marker. Startup reclaims only roots whose recorded owner
 is provably dead; it never scans or deletes another live supervisor's root.
 Normal connection teardown removes its own sealed and unsealed residue.
 
-Before an invoke, the supervisor reserves one connection-local artifact ID.
-The worker sends the exact recoverable output as monotonically ordered,
-individually bounded chunks, then a seal with the total length and digest.
-The supervisor rejects gaps, duplicates, wrong digests, and quota overflow,
-publishes an immutable public handle only after a valid seal, and marks a
-partially transferred artifact explicitly incomplete. The ordinary bounded
-result remains independent of artifact publication; a transfer failure never
-causes command resubmission.
+Before an invoke, the supervisor reserves one connection-local artifact ID and
+the complete per-invocation artifact quota. If reservation fails, the invoke
+frame disables artifact transfer and the command still returns its ordinary
+bounded result. When enabled, the frame carries the reserved artifact ID and
+maximum byte count; the worker sends the exact recoverable output as
+monotonically ordered, individually bounded chunks, then a seal with the total
+length and digest.
+
+The supervisor publishes an immutable public handle only after a valid seal.
+If local artifact writing fails after execution starts, it continues draining
+and discarding valid artifact frames so the worker can deliver the ordinary
+result, then reports `recovery=unavailable`. Gaps, duplicates, over-reservation
+bytes, unsolicited chunks, or a wrong seal are worker protocol violations and
+use the ordinary `outcome_unknown` worker-loss path; they never cause
+resubmission. A worker lost mid-transfer leaves an explicitly incomplete
+artifact.
 
 ### `ptk_job`
 
@@ -587,8 +595,9 @@ Exit: real apphost fault matrix green on every supported platform.
 
 1. Retain only output behavior that remains independent of mandatory audit and
    discarded guardian capabilities.
-2. Implement the reserved artifact ID, chunk, seal, and immutable-publication
-   path described above.
+2. Implement full-quota reservation before execution, artifact-disabled invoke,
+   reserved artifact ID, chunk, seal, drain-on-local-write-failure, and
+   immutable-publication paths described above.
 3. Prove wrong order, duplicate/gapped chunks, digest mismatch, quota overflow,
    worker loss mid-transfer, and capture failure never cause replay or a false
    complete handle.

@@ -71,6 +71,11 @@ The installed executable may use its existing internal `--worker` entry so the
 package remains one managed application plus a platform-specific Unix
 containment helper where required.
 
+On Unix the outer worker broker is the sole process-group owner. Commands
+executed inside that worker inherit its group; `ProcessTreeContainment` must not
+try to create a second exclusive group for each command. Windows continues to
+use the worker's creation-time Job Object as the owning containment domain.
+
 ### Supervisor ownership
 
 The public supervisor owns only:
@@ -454,13 +459,17 @@ is unchanged.
    `WorkerProcessEntry.RunAsync` to consume `UnixWorkerBootstrap`, validate
    inherited handles, remove bootstrap variables, and open the worker IPC
    channel.
-3. Bind liveness to the public supervisor so supervisor death or EOF kills the
+3. Add an internal, validated worker-containment mode that makes
+   `ProcessTreeContainment` reuse the broker-owned group. Prove it performs no
+   nested `setpgid`/`setsid` ownership attempt and every ordinary direct child
+   inherits the worker group.
+4. Bind liveness to the public supervisor so supervisor death or EOF kills the
    worker and its PTK-owned containment domain.
-4. Prove worker, direct child, and grandchild death on normal shutdown, reset,
+5. Prove worker, direct child, and grandchild death on normal shutdown, reset,
    timeout, and hard supervisor termination.
-5. Confirm no replacement starts until the old worker has exited and its
+6. Confirm no replacement starts until the old worker has exited and its
    Windows Job Object or Unix broker process group is empty.
-6. On Unix, deliberately escape the process group where the platform permits
+7. On Unix, deliberately escape the process group where the platform permits
    and prove PTK reports `descendants_unknown` rather than claiming complete
    descendant death.
 

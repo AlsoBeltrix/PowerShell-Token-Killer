@@ -463,15 +463,23 @@ guardian-era contract; they are not ordinary obsolete tests to delete around.
 2. Remove or re-freeze `McpResilienceR0ContractTests`, the embedded R0 public
    contract and digest, recovery schemas/examples, package-role assertions,
    and native/helper inventories so they describe only the approved topology.
-3. Remove `PtkResilienceTestFixture` from the solution and delete guardian-only
-   test and native-fixture dependencies that no retained runtime path uses.
-4. Add a guardian-free conformance guard for the still-live direct-server
+3. Remove the R0/guardian contract assertions and guardian-only fixtures from
+   `PtkResilienceTestFixture`, but retain its cross-platform worker
+   containment, bootstrap, native-binding, and parent-death coverage.
+4. Rename that retained project to a worker-containment fixture and remove
+   prepared/private-host linked sources as their production code disappears.
+   Remove the old project/solution identity only in the same commit that the
+   renamed fixture builds and runs every retained test on its applicable
+   platforms; never create a coverage gap.
+5. Add a guardian-free conformance guard for the still-live direct-server
    surface. The owner-approved four-tool first-cut guard replaces it only in
    the Slice 6 commit that removes the fifth tool and its runtime.
 
 Exit: no guardian-era contract or fixture claims to be the active production
-surface, and the replacement direct-server guard still matches live behavior.
-No runtime execution path or public tool list changes in this slice.
+surface, the renamed worker-containment fixture preserves every retained
+cross-platform guard, and the replacement direct-server guard still matches
+live behavior. No runtime execution path or public tool list changes in this
+slice.
 
 ### Slice 2 — remove audit from the execution gate
 
@@ -728,9 +736,11 @@ Present and settle these in chat one at a time before implementation:
    design a separately approved harness identity mechanism before coding.
 2. **R0 contract retirement:** approve retirement of the frozen guardian-era
    public-contract digest, package-role guards, schemas, and
-   `PtkResilienceTestFixture` before freezing the replacement contract.
-   Recommendation: yes, because those guards freeze the topology this plan
-   rejects. If declined, public schema changes and implementation stop.
+   `PtkResilienceTestFixture` identity before freezing the replacement
+   contract, while preserving its retained containment coverage in a renamed
+   fixture. Recommendation: yes, because the retired guards freeze the
+   topology this plan rejects and the retained tests protect code this plan
+   keeps. If declined, public schema changes and implementation stop.
 3. **Cold jobs:** remove `ptk_job` and `ptk_invoke(background=true)` from the
    first production surface while retaining foreground invoke/state/reset/
    output. Recommendation: yes, because cold jobs preserve no warm state and

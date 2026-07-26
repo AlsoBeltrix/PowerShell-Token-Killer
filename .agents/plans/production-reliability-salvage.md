@@ -385,6 +385,15 @@ Similar names are not evidence that a file can be transplanted.
 - minimal state projection and one-attempt replacement;
 - development installer smoke/rollback around the single supervisor package.
 
+### Remove from `master`
+
+- `WorkerPreparedOperationCodec.cs` and its prepared-operation tests;
+- prepare/prepared/commit/abort message kinds and parsing branches already
+  present in `WorkerProtocol` and `WorkerOperationProtocol`;
+- prepared-only branches in `WorkerOperationScheduler` and their tests, while
+  retaining only direct foreground serialization needed by the minimal
+  protocol.
+
 ### Do not port
 
 - all of `server/PtkMcpGuardian` except the worker-only native broker source,
@@ -470,12 +479,14 @@ created by default; full verification green.
 
 ### Slice 3 — minimal worker protocol
 
-1. Freeze the minimal message union and strict bounds in server-local tests.
-2. Reuse or rewrite the smallest existing worker codec that meets the frozen
+1. Delete the existing prepared codec, message kinds, and scheduler branches
+   listed above.
+2. Freeze the minimal message union and strict bounds in server-local tests.
+3. Reuse or rewrite the smallest existing worker codec that meets the frozen
    contract.
-3. Bind one `SessionRuntime` behind the worker server in an unwired test
+4. Bind one `SessionRuntime` behind the worker server in an unwired test
    fixture.
-4. Prove fragmented/coalesced input, malformed UTF-8/JSON, stale incarnation,
+5. Prove fragmented/coalesced input, malformed UTF-8/JSON, stale incarnation,
    duplicate request IDs, cancellation, bounded state snapshots, unavailable
    busy-state diagnostics, ordered artifact chunks, seal digest/length
    validation, and exactly one terminal.

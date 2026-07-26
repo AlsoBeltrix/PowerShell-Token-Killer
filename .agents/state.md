@@ -5,16 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 acceptance gap G5 is closed (2026-07-26).**
-  `R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry`
-  now holds containment unresolved and proves `ping` returns a result without an
-  error and `tools/list` returns the frozen contract on the same public MCP
-  connection. A following state read remains `Recovering`, and the crashed
-  private host's operation count is unchanged, so neither method waits for
-  recovery or crosses the private boundary. The healthy real-process ping guard
-  remains in `GuardianAppHostProcessSmokeTests`. Full macOS verification is
-  recorded in `.agents/machines.md`. The canonical gap map is
-  `.agents/plans/r6-acceptance-audit.md`; G6's resource-bounded soak is next.
+- **R6 acceptance gap G6 is closed (2026-07-26).**
+  `ProductionGuardianCompositionTests.Real_process_soak_bounds_os_and_guardian_resources_across_one_hundred_recoveries`
+  now runs 101 cross-platform real-apphost generations and bounds live child
+  processes, Windows handles or Unix FDs, guardian readers/timers,
+  buffers/registries, audit reservations, and post-GC managed ownership using
+  same-run ceilings rather than machine-sized constants. The original fake soak
+  is explicitly bookkeeping-only and retains the private request-ID proof.
+  Mutation retained old clients: the real soak failed at generation 2 and
+  passed all 101 after restoration. Full macOS verification is recorded in
+  `.agents/machines.md`. The canonical gap map is
+  `.agents/plans/r6-acceptance-audit.md`; G10's descriptor-bootstrap hard-kill
+  barrier is next.
 - **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
   session left open overnight came back dead with `API Error: 400 Tool reference
   'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the
@@ -49,7 +51,8 @@ short and update it when important repo facts change.
   removed**, so nothing is broken right now and a stale registration still
   works. Verifying the packaged guardian is what exposed `r7-1`. Note the
   guardian exposes **six** tools — it adds `ptk_session` to the installed five.
-- **Audit gaps closed today: G7, G10, G5; G8 was closed earlier.** G7 turned out
+- **Audit gaps closed today: G7, G5, and G6; G10 is narrowed; G8 was closed
+  earlier.** G7 turned out
   far bigger than one test: **seven identities were Windows-gated and returned
   vacuously off Windows**, and the cause was a test-harness defect, not platform
   behaviour — both test launchers hard-coded `WindowsPrivateHostProcessLauncher`
@@ -1019,8 +1022,8 @@ short and update it when important repo facts change.
 
 1. **Close the R6 acceptance matrix before doing more R7 work.** Continue the
    canonical gap map in `.agents/plans/r6-acceptance-audit.md`, one gap per
-   corrective commit with its required mutation proof. G1 is closed; G2 is
-   next.
+   corrective commit with its required mutation proof. G1–G9 are closed; G10's
+   descriptor-bootstrap hard-kill barrier is next.
 2. **Then decide `r7-1`'s runtime half and finish R7.** Preserve fatal handling
    for integrity failures, decide whether unknown evidence formats are
    quarantined, and add an actual-root `audit=available` preflight before any

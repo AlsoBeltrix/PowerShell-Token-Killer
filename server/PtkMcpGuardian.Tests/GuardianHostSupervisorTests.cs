@@ -3139,7 +3139,7 @@ public sealed class GuardianHostSupervisorTests
     }
 
     [Fact]
-    public async Task Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries()
+    public async Task Attempt_watcher_bookkeeping_is_bounded_across_one_hundred_fake_recoveries()
     {
         await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
         await rig.StartAsync();

@@ -2083,3 +2083,30 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
   passed 141 tests with two expected platform skips. The stdio handshake was
   not run because G5 changes only an existing Guardian integration test and
   durable records.
+
+## R6 G6 real-process resource-soak verification (`nagatha.local`, 2026-07-26)
+
+- `ProductionGuardianCompositionTests.Real_process_soak_bounds_os_and_guardian_resources_across_one_hundred_recoveries`
+  passed 1/1 in 4 m 33 s against 101 sequential real apphost generations. Every
+  settled generation had one live private host, five production background
+  readers/control pumps, one owned client and watcher set, no pending timer,
+  call, output, job, or public-stream buffer, no active audit call, and the same
+  fixed server-lifecycle audit reservation. Old process authorities were
+  collectable after forced GC; generations were exactly 1–101.
+- OS-resource ceilings are derived from the first ten settled generations of
+  the same process: Windows measures `Process.HandleCount`, Unix enumerates
+  `/proc/self/fd` or `/dev/fd`. The managed-memory guard uses twice that same-run
+  post-GC warmup maximum plus direct weak-reference reclamation. An initial 25%
+  margin rejected a healthy reclaimed run by 1.7%, so no machine-sized absolute
+  threshold was substituted.
+- Mutation proof removed the supervisor's old-client deregistration. The real
+  soak failed at generation 2 (`OwnedClients`: expected 1, actual 2) in 3 s;
+  restoring deregistration returned all 101 generations green.
+- With the physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore` passed architecture 73/73,
+  Guardian **503/503** in 6 m 34 s, and server 2,055/2,055.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The complete stdio
+  handshake passed, including cross-call state, output recovery, background
+  recovery, audit, fail-closed audit outage, and hard-kill cleanup.

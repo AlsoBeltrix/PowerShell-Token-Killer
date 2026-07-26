@@ -196,7 +196,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | C1.2 | …and during startup, every backoff delay, circuit-open, and half-open | COVERED | `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert` is a phase-parameterised theory that holds real supervisor states at Starting, Ready, an active Backoff, CircuitOpen, and HalfOpen; each row performs 100 public `ptk_state` reads without scheduling a delay, launching an attempt, or reaching a host operation. Backoff has one state/read path independent of delay duration; the circuit arrangement also drives the exact five-delay sequence |
 | C1.3 | MCP `ping` and `tools/list` remain prompt in every phase | COVERED | `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof` proves the real healthy apphost answers both methods. `R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry` holds containment unresolved on that same MCP connection and proves `ping` returns a result, `tools/list` returns the frozen contract, the host remains Recovering, and neither reaches the crashed private host |
 | C2 | Fake-clock proof of the exact delay sequence, six-failure circuit, 60 s cooldown, one half-open attempt, 60 s stability reset | COVERED | `RecoveryCircuitMachineTests.Failure_table_schedules_exact_attempts_then_opens_the_circuit`, `Half_open_failure_reopens_for_sixty_seconds_with_next_ordinal`, `Half_open_loss_at_stability_boundary_starts_a_fresh_cycle`, `Explicit_stability_reset_makes_later_loss_a_fresh_immediate_attempt_one`, `Retry_after_uses_monotonic_ceiling_and_contract_clamp`; `GuardianHostLifecycleControllerTests.Six_confirmed_failed_generations_open_one_circuit_and_one_half_open_probe`, `Pre_stability_half_open_loss_reopens_the_circuit_after_slow_containment`; `SessionRecoveryStateMachineTests.Retryable_failures_use_exact_backoffs_six_failure_circuit_and_one_half_open` |
-| C3 | A 100-cycle soak proves bounded processes, handles, FDs, readers, timers, buffers, audit reservations, and memory; identities remain monotonic | PARTIAL | `GuardianHostSupervisorTests.Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` runs 101 in-proc generations and asserts bounded background tasks, scheduler entries, owned clients, and watcher sets, with monotonic generations. It does **not** measure processes, OS handles, file descriptors, buffers, audit reservations, or memory, and it does not run against real host processes. See G6 |
+| C3 | A 100-cycle soak proves bounded processes, handles, FDs, readers, timers, buffers, audit reservations, and memory; identities remain monotonic | COVERED | `ProductionGuardianCompositionTests.Real_process_soak_bounds_os_and_guardian_resources_across_one_hundred_recoveries` runs 101 cross-platform real-apphost generations. At every settled generation it proves exactly one live private host; bounded same-process Windows handles or Unix FDs from a same-run warmup; fixed guardian clients, watcher sets, readers, scheduler entries, public buffers, call/output/job registries, active audit calls, and the one constant lifecycle audit reservation; retired real-process authorities are collectable after forced GC and post-GC heap stays under a same-run warmup ceiling. Host generations are exactly 1–101. `GuardianHostSupervisorTests.Attempt_watcher_bookkeeping_is_bounded_across_one_hundred_fake_recoveries` separately retains exact fake-resource disposal and monotonic private request-ID proof. See G6 |
 | C4.1 | One worker crash affects only one alias | COVERED | `ProductionGuardianCompositionTests.Composition_isolates_one_alias_worker_crash_from_a_second_alias` (real apphost, cross-platform — landed with `r6acc-1`); `SessionRecoveryStateMachineTests.One_alias_failure_does_not_change_another_alias_circuit_or_generation`; `WorkerPrivateHostRuntimeTests.Failed_close_faults_only_its_alias`, `Failed_reset_faults_only_its_alias_and_clears_its_job_budget` |
 | C4.2 | Host crash affects all live sessions but not the guardian connection | COVERED | `GuardianHostSupervisorTests.Host_loss_projects_last_known_ready_session_as_unavailable`; `GuardianHostSessionStateProjectionTests.Unavailable_host_removes_impossible_ready_session_claim`; `ResilienceFakeGuardianTests.Disposable_guardian_preserves_public_pipe_and_delivery_truth_across_host_loss` |
 | C4.3 | Guardian death is connection-fatal and leaves no descendant | COVERED | `UnixGuardianBrokerIntegrationTests.Guardian_death_contains_every_creation_barrier`, `Guardian_death_interrupts_a_stalled_creation_protocol`, `Creation_barrier_matrix_is_exact` (Unix); `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant` (Windows) |
@@ -321,12 +321,20 @@ for recovery or crossed the private boundary. The SDK/contract handlers contain
 no host-phase branch; G4 separately pins truthful local state reads in Starting,
 Backoff, CircuitOpen, and HalfOpen.
 
-**G6 — The soak proves bookkeeping, not resources (C3).** Either extend
-`Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` to assert
-bounded OS handles, file descriptors, child processes, and managed memory across
-its 101 generations, or add a real-process soak alongside it. State plainly in
-the test which resources it does and does not bound — the current name implies
-more than the body checks.
+**G6 — CLOSED 2026-07-26.** The original soak is now named
+`Attempt_watcher_bookkeeping_is_bounded_across_one_hundred_fake_recoveries`, so
+its in-proc scope is explicit. The companion
+`Real_process_soak_bounds_os_and_guardian_resources_across_one_hundred_recoveries`
+runs 101 real private-host generations on the platform launcher and directly
+bounds child processes, Windows handles or Unix FDs, guardian readers/timers,
+public and guardian-owned buffers/registries, active audit calls, the fixed
+server-lifecycle audit reservation, and managed per-generation ownership. Its
+handle/FD and post-GC heap ceilings come from the same run's first ten settled
+generations rather than fixed machine-sized values; every retired real-process
+authority must also be collectable. Exact generations 1–101 plus the fake
+soak's private request IDs preserve the identity proof. Mutation proof retained
+old clients in the supervisor: the real soak failed at generation 2 with two
+owned clients, then passed all 101 generations after restoration.
 
 **G7 — DONE 2026-07-26, and it took F1's whole class with it.** Seven identities
 returned vacuously off Windows; six now run everywhere

@@ -71,6 +71,7 @@ internal sealed class PrivateHostLaunchCommand
                 "Private host launch fields do not match the shared contract.");
         }
 
+        Identity = identity;
         ExecutablePath = package.HostAppHostPath;
         WorkingDirectory = workingDirectory;
         Arguments = Array.AsReadOnly(["--host"]);
@@ -78,6 +79,8 @@ internal sealed class PrivateHostLaunchCommand
         BootstrapEnvironment = new ReadOnlyDictionary<string, string>(environment);
         Environment = FreezeEnvironment(parentEnvironment, environment);
     }
+
+    internal GuardianHostIdentity Identity { get; }
 
     internal string ExecutablePath { get; }
 

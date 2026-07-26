@@ -58,6 +58,26 @@ internal sealed class ProductionGuardianComposition : IAsyncDisposable
 
     internal GuardianHostSupervisor Supervisor => _supervisor;
 
+    /// <summary>
+    /// Captures the mutable guardian-owned resource registries at one settled
+    /// observation point. The process launcher and scheduler own the matching
+    /// OS-process and timer observations.
+    /// </summary>
+    internal ProductionGuardianResourceSnapshot SnapshotResources() => new(
+        _supervisor.OutstandingCallCount,
+        _supervisor.BackgroundTaskCount,
+        _supervisor.OwnedClientCount,
+        _supervisor.OwnedAttemptWatcherSetCount,
+        _outputCoordinator.TrackedCount,
+        _outputCoordinator.ActiveCapabilityCount,
+        _outputCoordinator.JobRecoveryCount,
+        _jobCapabilities.TrackedCount,
+        _jobCapabilities.PendingCount,
+        _jobCapabilities.ActiveCount,
+        _jobCapabilities.TombstoneCount,
+        _audit.Runtime.ActiveCallCount,
+        _audit.Runtime.ReservedBytes);
+
     internal static ProductionGuardianComposition Create(MatchedPackageFacts package)
     {
         ArgumentNullException.ThrowIfNull(package);
@@ -305,6 +325,21 @@ internal sealed class ProductionGuardianComposition : IAsyncDisposable
         throw new PlatformNotSupportedException("The guardian platform is unsupported.");
     }
 }
+
+internal sealed record ProductionGuardianResourceSnapshot(
+    int OutstandingCalls,
+    int BackgroundTasks,
+    int OwnedClients,
+    int OwnedAttemptWatcherSets,
+    int TrackedOutputRequests,
+    int ActiveOutputCapabilities,
+    int OutputJobRecoveries,
+    int TrackedJobs,
+    int PendingJobs,
+    int ActiveJobs,
+    int JobTombstones,
+    int ActiveAuditCalls,
+    long ReservedAuditBytes);
 
 internal sealed class ProductionGuardianAuditRuntime : IDisposable
 {

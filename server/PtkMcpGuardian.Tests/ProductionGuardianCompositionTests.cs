@@ -1517,6 +1517,177 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     /// <summary>
+    /// Runs 101 real private-host generations and bounds every resource class
+    /// named by acceptance row C3 at a settled point after each generation.
+    /// </summary>
+    /// <remarks>
+    /// Processes and handles/file descriptors are OS measurements. Readers,
+    /// timers, buffers, job/output registries, and audit reservations are
+    /// guardian ownership counters. Managed memory is guarded both by weak
+    /// reclamation of every retired real-process authority and by a post-GC
+    /// heap ceiling derived from this run's first ten settled generations.
+    /// The same-run handle/FD ceiling is derived the same way, so neither guard
+    /// embeds a threshold sized against one development machine.
+    /// </remarks>
+    [Fact]
+    public async Task Real_process_soak_bounds_os_and_guardian_resources_across_one_hundred_recoveries()
+    {
+        const int generationCount = 101;
+        const int warmupGenerationCount = 10;
+        var auditRoot = TemporaryRoot("resource-soak-audit");
+        var outputRoot = TemporaryRoot("resource-soak-output");
+        var real = await RealHostLaunchAsync("resource-soak-broker");
+        var clock = new ResourceSoakTimeProvider();
+        var scheduler = new ResourceSoakScheduler(clock);
+        var launcher = new ResourceSoakPrivateHostLauncher(
+            real.Inner,
+            generationCount);
+        var composition = ProductionGuardianComposition.Create(
+            real.Package,
+            LocalAudit(auditRoot),
+            launcher,
+            OutputOptions(outputRoot),
+            timeProvider: clock,
+            scheduler: scheduler,
+            guardianBootId: Guardian,
+            defaultWorkerBootId: Worker);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(30));
+        using var input = new R3BoundedOneWayStream();
+        using var output = new R3BoundedOneWayStream();
+        using var standardError = new StringWriter();
+        var handleOrFdSamples = new int[generationCount];
+        var managedMemorySamples = new long[generationCount];
+        var handleOrFdCeiling = 0;
+        var managedMemoryCeiling = 0L;
+        long? reservedAuditBytes = null;
+        var run = Program.RunAsync(
+            [],
+            input,
+            output,
+            standardError,
+            productionComposition: composition,
+            cancellationToken: timeout.Token);
+        try
+        {
+            for (var generation = 1; generation <= generationCount; generation++)
+            {
+                await WaitForReadyGenerationAsync(
+                    composition.Supervisor,
+                    generation,
+                    timeout.Token);
+                await scheduler.AdvanceAndCompleteAsync(
+                    RecoveryCircuitMachine.ReadyStabilityWindow,
+                    timeout.Token);
+                await WaitForResourceSoakSettlementAsync(
+                    composition.Supervisor,
+                    scheduler,
+                    timeout.Token);
+
+                Assert.Equal(1, launcher.LiveProcessCount);
+                var resources = composition.SnapshotResources();
+                Assert.Equal(0, resources.OutstandingCalls);
+                Assert.Equal(5, resources.BackgroundTasks);
+                Assert.Equal(1, resources.OwnedClients);
+                Assert.Equal(1, resources.OwnedAttemptWatcherSets);
+                Assert.Equal(0, resources.TrackedOutputRequests);
+                Assert.Equal(0, resources.ActiveOutputCapabilities);
+                Assert.Equal(0, resources.OutputJobRecoveries);
+                Assert.Equal(0, resources.TrackedJobs);
+                Assert.Equal(0, resources.PendingJobs);
+                Assert.Equal(0, resources.ActiveJobs);
+                Assert.Equal(0, resources.JobTombstones);
+                Assert.Equal(0, resources.ActiveAuditCalls);
+                if (reservedAuditBytes is null)
+                {
+                    Assert.True(resources.ReservedAuditBytes > 0);
+                    reservedAuditBytes = resources.ReservedAuditBytes;
+                }
+                else
+                {
+                    Assert.Equal(
+                        reservedAuditBytes.Value,
+                        resources.ReservedAuditBytes);
+                }
+                Assert.Equal(0, scheduler.PendingCount);
+                Assert.Equal(0, scheduler.EntryCount);
+                Assert.Equal(0, input.BufferedChunkCount);
+                Assert.Equal(0, output.BufferedChunkCount);
+
+                var sampleIndex = generation - 1;
+                handleOrFdSamples[sampleIndex] =
+                    CurrentHandleOrFileDescriptorCount();
+                managedMemorySamples[sampleIndex] =
+                    GC.GetTotalMemory(forceFullCollection: true);
+                Assert.Equal(0, launcher.RetiredAuthorityCountStillAlive(generation));
+                Assert.True(launcher.CurrentAuthorityIsAlive(generation));
+
+                if (generation == warmupGenerationCount)
+                {
+                    handleOrFdCeiling = RelativeResourceCeiling(
+                        handleOrFdSamples.AsSpan(0, warmupGenerationCount));
+                    managedMemoryCeiling = RelativeResourceCeiling(
+                        managedMemorySamples.AsSpan(0, warmupGenerationCount));
+                }
+                else if (generation > warmupGenerationCount)
+                {
+                    Assert.InRange(
+                        handleOrFdSamples[sampleIndex],
+                        0,
+                        handleOrFdCeiling);
+                    Assert.InRange(
+                        managedMemorySamples[sampleIndex],
+                        0,
+                        managedMemoryCeiling);
+                }
+
+                if (generation < generationCount)
+                {
+                    await launcher.KillGenerationAsync(
+                        generation,
+                        timeout.Token);
+                }
+            }
+
+            Assert.Equal(
+                Enumerable.Range(1, generationCount).Select(value => (long)value),
+                launcher.Generations);
+            Assert.Equal(generationCount, launcher.LaunchCount);
+
+            input.CompleteWriting();
+            Assert.Equal(0, await run.WaitAsync(timeout.Token));
+            Assert.Equal(string.Empty, standardError.ToString());
+            _ = GC.GetTotalMemory(forceFullCollection: true);
+            Assert.Equal(0, launcher.LiveProcessCount);
+            Assert.Equal(0, launcher.AuthorityCountStillAlive);
+            Assert.Equal(0, composition.Supervisor.OutstandingCallCount);
+            Assert.Equal(0, composition.Supervisor.BackgroundTaskCount);
+            Assert.Equal(0, composition.Supervisor.OwnedClientCount);
+            Assert.Equal(0, composition.Supervisor.OwnedAttemptWatcherSetCount);
+            Assert.Equal(0, scheduler.PendingCount);
+            Assert.Equal(0, scheduler.EntryCount);
+            var shutdownResources = composition.SnapshotResources();
+            Assert.Equal(0, shutdownResources.ActiveAuditCalls);
+            Assert.Equal(0, shutdownResources.ReservedAuditBytes);
+        }
+        finally
+        {
+            input.CompleteWriting();
+            try
+            {
+                await run.WaitAsync(timeout.Token);
+            }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+            {
+            }
+            await composition.DisposeAsync();
+            launcher.KillAll();
+            DeleteRoot(auditRoot);
+            DeleteRoot(outputRoot);
+            if (real.NativeRoot is not null) DeleteRoot(real.NativeRoot);
+        }
+    }
+
+    /// <summary>
     /// The private host must ignore the transitional idle watchdog: with an
     /// aggressive <c>PTK_IDLE_EXIT_SECONDS</c> it still survives past that
     /// interval with its warm state intact, so idle policy can never create a
@@ -3347,6 +3518,83 @@ public sealed class ProductionGuardianCompositionTests
         }
     }
 
+    private static async Task WaitForReadyGenerationAsync(
+        GuardianHostSupervisor supervisor,
+        long expectedGeneration,
+        CancellationToken cancellationToken)
+    {
+        for (var started = Stopwatch.GetTimestamp(); PollingWithinBudget(started);)
+        {
+            var host = supervisor.SnapshotState().Host;
+            if (host is
+                {
+                    State: PublicHostState.Ready,
+                    ReadyForEffects: true,
+                    Generation.Value: var generation,
+                } && generation == expectedGeneration)
+            {
+                return;
+            }
+            await Task.Delay(10, cancellationToken);
+        }
+
+        var observed = supervisor.SnapshotState().Host;
+        Assert.Fail(
+            $"Generation {expectedGeneration} did not become ready; " +
+            $"state={observed.State}; generation={observed.Generation?.Value}; " +
+            $"phase={observed.RecoveryPhase}; failure={observed.LastFailureCode}; " +
+            $"background_failure={supervisor.BackgroundFailure}.");
+    }
+
+    private static async Task WaitForResourceSoakSettlementAsync(
+        GuardianHostSupervisor supervisor,
+        ResourceSoakScheduler scheduler,
+        CancellationToken cancellationToken)
+    {
+        for (var started = Stopwatch.GetTimestamp(); PollingWithinBudget(started);)
+        {
+            if (scheduler.EntryCount == 0 &&
+                supervisor.BackgroundTaskCount == 5 &&
+                !supervisor.BackgroundTaskNames.Contains(
+                    "WatchReadyStabilityAsync",
+                    StringComparison.Ordinal))
+            {
+                return;
+            }
+            await Task.Delay(10, cancellationToken);
+        }
+
+        Assert.Fail(
+            "The resource soak did not settle; " +
+            $"scheduler_entries={scheduler.EntryCount}; " +
+            $"background_tasks={supervisor.BackgroundTaskCount}; " +
+            $"background_names={supervisor.BackgroundTaskNames}.");
+    }
+
+    private static int CurrentHandleOrFileDescriptorCount()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            using var process = Process.GetCurrentProcess();
+            return process.HandleCount;
+        }
+
+        var descriptorRoot = OperatingSystem.IsLinux() ? "/proc/self/fd" : "/dev/fd";
+        return Directory.EnumerateFileSystemEntries(descriptorRoot).Count();
+    }
+
+    private static int RelativeResourceCeiling(ReadOnlySpan<int> samples)
+    {
+        var maximum = samples.ToArray().Max();
+        return checked(maximum + Math.Max(1, maximum / 4));
+    }
+
+    private static long RelativeResourceCeiling(ReadOnlySpan<long> samples)
+    {
+        var maximum = samples.ToArray().Max();
+        return checked(maximum + Math.Max(1, maximum));
+    }
+
     // Nullable because the platform-branching identities only create a native
     // broker root off Windows.
     private static void DeleteRoot(string? root)
@@ -3382,6 +3630,317 @@ public sealed class ProductionGuardianCompositionTests
                 _firstAuthority.TrySetResult(result.LaunchedHost);
             return result;
         }
+    }
+
+    private sealed class ResourceSoakTimeProvider : TimeProvider
+    {
+        private long _timestamp;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+
+        public override DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow;
+
+        internal void Advance(TimeSpan duration) =>
+            Interlocked.Add(ref _timestamp, duration.Ticks);
+    }
+
+    private sealed class ResourceSoakScheduler(ResourceSoakTimeProvider clock) :
+        IGuardianHostSupervisorScheduler
+    {
+        private readonly object _sync = new();
+        private readonly List<ScheduledDelay> _delays = [];
+
+        internal int PendingCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _delays.Count(value => !value.Task.IsCompleted);
+            }
+        }
+
+        internal int EntryCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _delays.Count;
+            }
+        }
+
+        public ValueTask DelayAsync(
+            TimeSpan delay,
+            CancellationToken cancellationToken)
+        {
+            var scheduled = new ScheduledDelay(delay, cancellationToken);
+            lock (_sync)
+                _delays.Add(scheduled);
+            _ = scheduled.Task.ContinueWith(
+                _ =>
+                {
+                    lock (_sync)
+                        _delays.Remove(scheduled);
+                    scheduled.DisposeRegistration();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.None,
+                TaskScheduler.Default);
+            return new ValueTask(scheduled.Task);
+        }
+
+        internal async Task AdvanceAndCompleteAsync(
+            TimeSpan delay,
+            CancellationToken cancellationToken)
+        {
+            for (var started = Stopwatch.GetTimestamp(); PollingWithinBudget(started);)
+            {
+                ScheduledDelay? selected;
+                lock (_sync)
+                {
+                    selected = _delays.FirstOrDefault(value =>
+                        value.Delay == delay && !value.Task.IsCompleted);
+                }
+                if (selected is not null)
+                {
+                    clock.Advance(delay);
+                    selected.Complete();
+                    return;
+                }
+                await Task.Delay(10, cancellationToken);
+            }
+
+            Assert.Fail($"No pending scheduler entry had delay {delay}.");
+        }
+
+        private sealed class ScheduledDelay : IDisposable
+        {
+            private readonly TaskCompletionSource _completion = new(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            private readonly CancellationTokenRegistration _registration;
+
+            internal ScheduledDelay(
+                TimeSpan delay,
+                CancellationToken cancellationToken)
+            {
+                Delay = delay;
+                _registration = cancellationToken.Register(() =>
+                    _completion.TrySetCanceled(cancellationToken));
+            }
+
+            internal TimeSpan Delay { get; }
+
+            internal Task Task => _completion.Task;
+
+            internal void Complete() => _completion.TrySetResult();
+
+            internal void DisposeRegistration() => _registration.Dispose();
+
+            public void Dispose() => DisposeRegistration();
+        }
+    }
+
+    private sealed class ResourceSoakPrivateHostLauncher :
+        IPrivateHostProcessLauncher
+    {
+        private readonly object _sync = new();
+        private readonly IPrivateHostProcessLauncher _inner;
+        private readonly ProcessIdentity[] _processes;
+        private readonly long[] _generations;
+        private readonly WeakReference<IPrivateHostLaunchedProcess>?[] _authorities;
+        private int _launchCount;
+
+        internal ResourceSoakPrivateHostLauncher(
+            IPrivateHostProcessLauncher inner,
+            int maximumLaunchCount)
+        {
+            _inner = inner;
+            _processes = new ProcessIdentity[maximumLaunchCount];
+            _generations = new long[maximumLaunchCount];
+            _authorities =
+                new WeakReference<IPrivateHostLaunchedProcess>?[maximumLaunchCount];
+        }
+
+        internal int LaunchCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _launchCount;
+            }
+        }
+
+        internal long[] Generations
+        {
+            get
+            {
+                lock (_sync)
+                    return _generations[.._launchCount];
+            }
+        }
+
+        internal int LiveProcessCount
+        {
+            get
+            {
+                ProcessIdentity[] observed;
+                lock (_sync)
+                    observed = _processes[.._launchCount];
+                return observed.Count(ProcessIsAlive);
+            }
+        }
+
+        internal int AuthorityCountStillAlive
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _authorities[.._launchCount].Count(value =>
+                        value is not null && value.TryGetTarget(out _));
+                }
+            }
+        }
+
+        public PrivateHostProcessLaunchResult Launch(
+            PrivateHostLaunchCommand command)
+        {
+            var result = _inner.Launch(command);
+            if (result.Outcome != GuardianHostLaunchOutcome.Started)
+                return result;
+
+            var authority = result.LaunchedHost!;
+            var generation = command.Identity.HostGeneration.Value;
+            ProcessIdentity identity;
+            using (var process = Process.GetProcessById(authority.ProcessId))
+            {
+                identity = new ProcessIdentity(
+                    process.Id,
+                    process.StartTime.ToUniversalTime());
+            }
+
+            lock (_sync)
+            {
+                if (_launchCount >= _processes.Length)
+                {
+                    throw new InvalidOperationException(
+                        "The resource soak launched more hosts than its fixed capacity.");
+                }
+                _processes[_launchCount] = identity;
+                _generations[_launchCount] = generation;
+                _authorities[_launchCount] =
+                    new WeakReference<IPrivateHostLaunchedProcess>(authority);
+                _launchCount++;
+            }
+            return result;
+        }
+
+        internal bool CurrentAuthorityIsAlive(long generation)
+        {
+            lock (_sync)
+            {
+                for (var index = 0; index < _launchCount; index++)
+                {
+                    if (_generations[index] == generation)
+                    {
+                        return _authorities[index]!.TryGetTarget(out _);
+                    }
+                }
+            }
+            return false;
+        }
+
+        internal int RetiredAuthorityCountStillAlive(long currentGeneration)
+        {
+            lock (_sync)
+            {
+                var count = 0;
+                for (var index = 0; index < _launchCount; index++)
+                {
+                    if (_generations[index] < currentGeneration &&
+                        _authorities[index]!.TryGetTarget(out _))
+                    {
+                        count++;
+                    }
+                }
+                return count;
+            }
+        }
+
+        internal async Task KillGenerationAsync(
+            long generation,
+            CancellationToken cancellationToken)
+        {
+            ProcessIdentity identity;
+            lock (_sync)
+            {
+                var index = Array.IndexOf(
+                    _generations,
+                    generation,
+                    0,
+                    _launchCount);
+                if (index < 0)
+                {
+                    throw new InvalidOperationException(
+                        $"Generation {generation} has no recorded process.");
+                }
+                identity = _processes[index];
+            }
+
+            using var process = Process.GetProcessById(identity.ProcessId);
+            if (process.StartTime.ToUniversalTime() != identity.StartedUtc)
+            {
+                throw new InvalidOperationException(
+                    $"Generation {generation}'s process ID was reused.");
+            }
+            process.Kill();
+            await process.WaitForExitAsync(cancellationToken);
+        }
+
+        internal void KillAll()
+        {
+            ProcessIdentity[] observed;
+            lock (_sync)
+                observed = _processes[.._launchCount];
+            foreach (var identity in observed)
+            {
+                try
+                {
+                    using var process = Process.GetProcessById(identity.ProcessId);
+                    if (!process.HasExited &&
+                        process.StartTime.ToUniversalTime() == identity.StartedUtc)
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                }
+                catch (Exception exception) when (exception is
+                    ArgumentException or InvalidOperationException or
+                    System.ComponentModel.Win32Exception)
+                {
+                }
+            }
+        }
+
+        private static bool ProcessIsAlive(ProcessIdentity identity)
+        {
+            try
+            {
+                using var process = Process.GetProcessById(identity.ProcessId);
+                return !process.HasExited &&
+                    process.StartTime.ToUniversalTime() == identity.StartedUtc;
+            }
+            catch (Exception exception) when (exception is
+                ArgumentException or InvalidOperationException or
+                System.ComponentModel.Win32Exception)
+            {
+                return false;
+            }
+        }
+
+        private readonly record struct ProcessIdentity(
+            int ProcessId,
+            DateTime StartedUtc);
     }
 
     /// <summary>

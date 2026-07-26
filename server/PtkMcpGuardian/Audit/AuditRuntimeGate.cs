@@ -110,6 +110,26 @@ internal sealed class AuditRuntimeGate : IHostedService, IAuditAdmissionOwner, I
 
     AuditHealth IAuditAdmissionOwner.Health => Health;
 
+    internal int ActiveCallCount
+    {
+        get
+        {
+            lock (_gate)
+                return _activeCalls;
+        }
+    }
+
+    internal long ReservedBytes
+    {
+        get
+        {
+            AuditJournal? journal;
+            lock (_gate)
+                journal = _journal;
+            return journal?.ReservedBytes ?? 0;
+        }
+    }
+
     internal DateTimeOffset LastActivityUtc
     {
         get

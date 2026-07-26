@@ -17,6 +17,16 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!--
+    Serializes this assembly (see xunit.runner.json). Its tests launch real
+    guardian, host and worker processes, so it saturates a low-core host on its
+    own and loses timing-sensitive tests there; measured evidence and the
+    rejected alternatives are in .agents/review/findings/r6x-5.md.
+  -->
+  <ItemGroup>
+    <Content Include="xunit.runner.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\PtkMcpGuardian\PtkMcpGuardian.csproj" />
     <ProjectReference Include="..\PtkMcpServer\PtkMcpServer.csproj"

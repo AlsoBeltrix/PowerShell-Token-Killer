@@ -1899,3 +1899,26 @@ _Same host and transfer route as the battery above; disposable checkout at
   MSBuild project at a time is not sufficient, because xUnit parallelizes within
   the assembly too. Closing the Linux leg needs a decision about scheduling this
   assembly on constrained hosts. Hosted `ubuntu-latest` has the same core count.
+
+### Linux leg CLOSED after serializing the guardian assembly (2026-07-26)
+
+_Verified at `43ae190` plus the `xunit.runner.json` cap, in a disposable
+checkout removed afterwards._
+
+- **Complete battery green on x64 Linux for the first time on this branch:**
+  build clean, architecture **73/73**, Guardian **496/496** (115.9 s), server
+  **2,044/2,044**, Pester **141 with 2 expected skips**, complete stdio
+  handshake. All six exit codes 0.
+- The cap value was measured on `magneto`, not guessed. Default parallelism lost
+  1-2 of 496 every run with a different identity each time; `-maxthreads 3` was
+  green 1 of 2; `-maxthreads 2` green 1 of 2 (and 0 of 2 in an earlier pair);
+  `-maxthreads 1` green 2/2; the committed config with no flag green **3/3**
+  (112.3 s, 112.9 s, 111.9 s) and green again in the full battery.
+- Cost is minor because the assembly is process-bound, not CPU-bound: on the
+  16-CPU Mac it moves from ~30 s to ~54 s, which is also the proof the config
+  takes effect — runtime changes with no flag passed, and the result stays
+  496/496.
+- **Record `/proc/loadavg` with every battery on this host.** It carries the
+  owner's own background work and rarely has four free CPUs; one comparison
+  during this work was briefly misread as a regression because it ran at load
+  13-17 against an earlier run at load 5-8.

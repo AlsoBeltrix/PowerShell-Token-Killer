@@ -543,12 +543,12 @@ full verification and handshake green.
    write call.
 2. Implement confirmed worker exit and owned-containment sweep before
    replacement.
-3. Make one automatic replacement attempt, then fault the session until
-   explicit restart/reset.
+3. Make one automatic replacement attempt, then fault the connection worker
+   until explicit reset.
 4. Prove no replay at every pre-write, partial-write, executing, terminal, and
    post-terminal death point.
-5. Prove one session's crash cannot change another session's PID,
-   incarnation, warm state, or successful operation.
+5. Prove one server process's worker crash cannot change another server
+   process's PID, warm state, or successful operation.
 
 Exit: real apphost fault matrix green on every supported platform.
 

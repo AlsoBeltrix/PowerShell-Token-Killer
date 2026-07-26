@@ -253,32 +253,44 @@ accepted.
 
 - `src/PwshTokenCompressor.psm1` and `.psd1`;
 - `RunspaceHost`, `SessionRuntime`, and command resolution/routing;
+- `WorkerProtocol.cs`, `WorkerOperationProtocol.cs`, `WorkerServer.cs`,
+  `WorkerProcessEntry.cs`, `WindowsWorkerBootstrap.cs`, and
+  `WindowsWorkerNative.cs`; these files already exist on `master` and are
+  modified in place rather than ported from the resilience branch;
 - the current public invoke/state/reset/job/output contracts unless a later
   owner decision removes an optional tool;
 - bounded output shaping and `OutputStore` behavior that does not depend on
   mandatory audit;
 - the existing one-process handshake as the initial compatibility baseline.
 
-### Candidate ports from `feature/mcp-resilience-r1`
+### Branch-only candidates from `feature/mcp-resilience-r1`
 
-- strict worker framing, correlation, and malformed-frame rejection from
-  `server/PtkMcpServer/Worker/WorkerProtocol.cs`,
-  `WorkerOperationProtocol.cs`, `WorkerClient.cs`, `WorkerProcessClient.cs`,
-  and `WorkerServer.cs`;
-- worker entry/bootstrap and environment-handle hygiene from
-  `WorkerProcessEntry.cs`, `UnixWorkerBootstrap.cs`,
-  `WindowsWorkerBootstrap.cs`, and `WindowsWorkerNative.cs`;
-- creation-time process-tree containment from
-  `UnixWorkerProcessLauncher.cs`, the worker-only
-  `ptk_containment_broker.c`, and the Windows Job Object launcher;
+- `UnixWorkerBootstrap.cs` and `UnixWorkerProcessLauncher.cs`, after their
+  private-host registry dependency is replaced with a supervisor-owned
+  interface;
+- the worker-only native broker currently located at
+  `server/PtkMcpGuardian/Native/ptk_containment_broker.c`, relocated under the
+  server project with no guardian dependency;
 - only the worker-focused tests that prove framing, cancellation, timeout,
   tree death, stale-incarnation rejection, and output transfer;
-- the public `session` argument and `ptk_session` schema, simplified into the
-  existing server project.
+- the public session shape only if the topology owner decision retains
+  multiplexing; it is rewritten in the server project rather than ported from
+  the frozen `PtkSharedContracts` contract.
 
-The first implementation slice that touches a candidate must record its direct
-dependencies and either remove guardian/private-host dependencies or reject the
-candidate. Similar names are not evidence that a file can be transplanted.
+The first implementation slice that touches a candidate inspects that file's
+direct dependencies and either removes guardian/private-host dependencies or
+rejects the candidate. It does not produce a separate mapping deliverable.
+Similar names are not evidence that a file can be transplanted.
+
+### Inspect branch deltas; do not port whole files
+
+- inspect the branch changes to the six worker files already on `master` hunk
+  by hunk and take only behavior required by this plan;
+- do not port `WorkerClient.cs` or `WorkerProcessClient.cs`: both are coupled
+  to `PtkSharedContracts` and prepare/commit/abort machinery. Write the smaller
+  supervisor-side client directly against the minimal worker protocol;
+- inspect Windows launcher deltas against the `master` implementation rather
+  than replacing the known baseline.
 
 ### Rewrite narrowly
 
@@ -290,7 +302,8 @@ candidate. Similar names are not evidence that a file can be transplanted.
 
 ### Do not port
 
-- all of `server/PtkMcpGuardian`;
+- all of `server/PtkMcpGuardian` except the worker-only native broker source,
+  which is relocated and loses the guardian project dependency;
 - all guardian-host and recovery-manifest code in `PtkSharedContracts`;
 - `server/PtkMcpServer/GuardianHost`;
 - the separate private-host mode and outer guardian broker;
@@ -308,18 +321,16 @@ Each slice is one coherent commit. A failed or incomplete slice is not merged
 into the implementation branch. New tests receive the repository-required
 red/green guard proof.
 
-### Slice 0 — baseline and extraction map
+### Slice 0 — baseline
 
 1. Create a new implementation branch from current `origin/master`; never from
    the resilience branch.
 2. Run and record the complete existing verification battery.
-3. Produce a file-level candidate dependency map for the worker protocol,
-   launchers, containment primitives, and focused tests.
-4. Reject any candidate whose value cannot be separated from guardian/private
-   host policy more cheaply than a narrow rewrite.
+3. Record the exact base SHA and reject any candidate whose value cannot be
+   separated from guardian/private-host policy more cheaply than a narrow
+   rewrite.
 
-Exit: clean baseline, exact base SHA, and an approved finite port list. No
-runtime behavior changes.
+Exit: clean baseline and exact base SHA. No runtime behavior changes.
 
 ### Slice 1 — remove audit from the execution gate
 

@@ -24,10 +24,16 @@ var builder = Host.CreateApplicationBuilder(args);
 builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
 var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
-var idleExit = TimeSpan.FromSeconds(
-    double.TryParse(Environment.GetEnvironmentVariable("PTK_IDLE_EXIT_SECONDS"), out var i) && i > 0
-        ? i
-        : 14400); // 4h backstop for orphaned servers; Claude Code normally kills the child itself.
+// Opt-in, and off by default. Idleness is not evidence of orphanhood: an agent
+// session can sit open and silent overnight with the client still very much
+// attached, and killing the server then makes the tool disappear from a live
+// session - every later reference to it fails the whole request rather than
+// degrading. That is strictly worse than the stray process this was guarding
+// against, and it is what a 4h default actually did in the field. The stdio
+// contract already ends the process when the client goes away (stdin EOF), so
+// set PTK_IDLE_EXIT_SECONDS explicitly if you want a timer as well.
+var idleExit = IdleWatchdog.ReadConfiguredTimeout(
+    Environment.GetEnvironmentVariable("PTK_IDLE_EXIT_SECONDS"));
 var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
 // Resolve once before serving. Warm-session scripts can mutate the process
 // PATH, but background jobs must keep using the executable selected at server
@@ -93,10 +99,13 @@ builder.Services.AddSingleton<ISessionOperations>(sp =>
             jobPwshExecutable,
             sp.GetRequiredService<IPublicJobIdAllocator>());
     }));
-builder.Services.AddHostedService(sp => new IdleWatchdog(
-    idleExit,
-    () => sp.GetRequiredService<AuditRuntimeGate>().LastActivityUtc,
-    () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()));
+if (idleExit is { } configuredIdleExit)
+{
+    builder.Services.AddHostedService(sp => new IdleWatchdog(
+        configuredIdleExit,
+        () => sp.GetRequiredService<AuditRuntimeGate>().LastActivityUtc,
+        () => sp.GetRequiredService<IHostApplicationLifetime>().StopApplication()));
+}
 // Capture the transport streams BEFORE detaching stdin: the streams wrap the
 // original handles, so the JSON-RPC channel keeps working while every child
 // process spawned from the warm runspace inherits NUL/EOF instead of the live

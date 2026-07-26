@@ -340,7 +340,7 @@ Set these in the MCP registration `env` block when defaults do not fit:
 | --- | --- | --- |
 | `PTK_CALL_TIMEOUT_SECONDS` | `300` | Default per-call limit: a total wall-clock budget covering queue wait plus execution. A call whose budget expires while still queued behind another call fails fast without executing (warm state intact); a call that overruns while executing fails with the runspace recycled. |
 | `PTK_MAX_CALL_TIMEOUT_SECONDS` | `3600` | Cap on the per-call `timeoutSeconds` override. |
-| `PTK_IDLE_EXIT_SECONDS` | `14400` | Idle self-exit backstop for orphaned servers, in seconds. |
+| `PTK_IDLE_EXIT_SECONDS` | unset (disabled) | Optional idle self-exit backstop, in seconds. Off by default: idleness does not distinguish an orphaned server from a session left open overnight, and exiting under a still-attached client removes the tool from that live session, after which every reference to it fails the request. Client disconnect (stdin EOF) already ends the process. |
 | `PTK_AUDIT_ROOT` | `~/.ptk/audit` | Absolute protected root for mandatory local audit JSONL and exact-script evidence. Local logging requires no SIEM configuration. |
 | `PTK_AUDIT_EXPORT_CONFIG` | unset | Absolute path to a protected `ptk.export-config/2` JSON file. Unset selects local-only mode; presence, including an empty value, requests strict anchored mode and makes incomplete or invalid configuration a startup failure. |
 | `PTK_MODULE_PATH` | auto-discovered `src/PwshTokenCompressor.psd1` | Explicit module manifest to import into the runspace. If set to a missing file, shaping is disabled. |

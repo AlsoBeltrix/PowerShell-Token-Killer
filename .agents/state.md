@@ -5,18 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Owner handoff contract (2026-07-22): Git workspace mechanics are entirely
-  agent-owned.** The owner will not fetch, switch, push, select, or recover an
-  intermediate workspace. An agent starting from `master` must inspect the
-  repository's refs/worktrees and resume the exact active work itself, without
-  asking the owner to operate Git. For the active resilience sequence, resume
-  `feature/mcp-resilience-r1` at handoff tip `6c7c4b3` in worktree
-  `.claude/worktrees/mcp-resilience-r1` (its `.agents/state.md` is the
-  authoritative current-state record); if the branch is not present locally,
-  fetch it from `origin` and create or select an internal worktree. R2-R7 are
-  already owner-authorized and should continue autonomously. Work is
-  "delivered" only after its verified content is integrated into `master`
-  and published; until then report it only as in progress.
+- **Owner direction changed on 2026-07-26: pause the three-process resilience
+  delivery line and plan a smaller production-reliability salvage.** PTK's
+  product is reliable token-compressed PowerShell execution with warm state and
+  isolated runspaces for unrelated agents/sessions. Do not implement, merge,
+  install, or cut over `feature/mcp-resilience-r1`; retain its pushed head
+  `93e7992` as evidence and a source of individually reviewed worker/
+  containment code. The draft replacement is
+  `.agents/plans/production-reliability-salvage.md` on
+  `plan/production-reliability-salvage`. It receives an exact-SHA
+  `claude-opus-5` plan review before the owner rules on its decisions. No
+  product implementation is authorized yet. Git workspace mechanics remain
+  agent-owned; never ask the owner to operate an intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -345,32 +345,24 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Resume the exact active resilience workspace identified under `## Now`
-   without asking the owner to perform or choose any Git operation. Implement
-   R5's approved native Unix outer broker and production launcher, including
-   creation-time group ownership, liveness teardown, direct-host reap,
-   descendant confirmation, and Linux/macOS package tests. This is local OS
-   process-containment work and requires no AD, Exchange, EXO, Graph, corporate
-   network, or enterprise credentials. Use a direct Linux/macOS native
-   toolchain; after exact cross-platform R5 evidence, continue directly into
-   the already-authorized R6 and R7 sequence. Ordinary reviews may use Opus or
-   Grok; held Fable reviews do not block implementation.
-2. rbc-15 is closed and merged locally (`f0d17f6`); its residual
-   recycled-PID incarnation hardening is a tracked follow-up dev task (no
-   further paid review rounds). Do not continue or commit the saved rbc-5
+1. Commit the draft production-reliability salvage plan, dispatch the requested
+   read-only `claude-opus-5` exact-SHA review, admit or decline its findings
+   against repo evidence, amend and re-review if needed, then present the first
+   owner decision in plain English. Make no product-code change first.
+2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
+   Do not merge, install, delete, or continue the guardian/private-host line
+   while the replacement topology is undecided.
+3. Keep the rbc remainders parked until the replacement plan decides which
+   runtime survives. rbc-15 remains closed; its residual recycled-PID
+   incarnation hardening stays a follow-up. Do not continue the saved rbc-5
    post-start attach WIP.
-3. Close out the rbc batch remainders: rbc-8's targeted drain-replay guard
-   test lands in the worker-subsystem pass; rbc-11 stays gated on the owner's
-   S3H land/park decision; rbc-5 closes via resilience R7. Reassess
-   per-finding whether work is safeguard-sensitive and route out if so.
 4. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
    When producer-owned v3 request bytes land, execute S4 from the complete
    producer corpus; do not substitute receiver-authored fixtures. Do not begin
    S4–S6 or modify PTK runtime for SIEM work.
-5. Release-distribution slice 3 is ordered after resilience R7 and consumes
-   only its matched guardian layout; there is no legacy migration path. Do not
-   execute it before R7 lands. Re-present the hook-default choice before release
-   slice 4.
+5. Release distribution is blocked until the replacement production topology
+   is approved, implemented, and directly validated. Do not build a guardian
+   layout or reuse the old R7 cutover assumptions.
 6. When the owner releases the decisions hold, reconcile the rejected
    security mechanism, retired durable/shared staging, and PTK→RTK routing
    direction in `.agents/decisions.md`.
@@ -481,6 +473,7 @@ short and update it when important repo facts change.
 - `.agents/plans/rtk-rewrite-routing.md`
 - `.agents/plans/audited-harness-sessions.md`
 - `.agents/plans/mcp-resilience.md`
+- `.agents/plans/production-reliability-salvage.md`
 - `.agents/plans/release-distribution.md`
 - `.agents/plans/warm-runspace-mcp-server.md`
 - `.agents/plans/shared-persistent-runspace.md`

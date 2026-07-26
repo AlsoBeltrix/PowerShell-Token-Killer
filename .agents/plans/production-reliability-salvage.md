@@ -80,7 +80,7 @@ The public supervisor owns only:
 - public request correlation and one-response delivery;
 - worker process creation, monitoring, cancellation, and containment;
 - active-call admission/drain and ordered connection shutdown;
-- small connection-local job/output registries where those tools remain;
+- a small connection-local output registry;
 - health projection for `ptk_state`;
 - monotonic, connection-local worker incarnation numbers.
 
@@ -134,8 +134,7 @@ Required message kinds:
 4. `cancel`, naming one active request;
 5. `result`, carrying exactly one completed, refused, cancelled, timed-out, or
    failed terminal;
-6. `job_terminal` only if cold jobs remain worker-originated;
-7. `shutdown` / `stopped`.
+6. `shutdown` / `stopped`.
 
 The frame reader rejects invalid UTF-8, duplicate or unknown fields, wrong
 versions, stale incarnations, oversized frames, and unsolicited terminals. A
@@ -206,7 +205,7 @@ boundary plainly.
 - `Cold`, `Starting`, `Ready`, `Recovering`, `Faulted`, or `Closed`;
 - worker PID and incarnation where one exists;
 - whether warm state was lost;
-- current active request/job counts;
+- whether a request is active;
 - the last bounded failure class;
 - whether explicit reset is required.
 
@@ -257,10 +256,16 @@ connection-local and expire by bounded memory/disk quota.
 
 ### `ptk_job`
 
-Keep cold background jobs only as stateless child processes. They do not borrow
-a warm session's state. Their process trees remain supervisor-owned and die on
-kill or MCP connection teardown. Warm asynchronous runspace jobs remain out of
-scope.
+Remove cold `ptk_job` from the first production surface. It does not preserve
+warm runspace state, and making the supervisor own submitted job execution
+violates the minimal ownership boundary. Do not port or recreate its
+guardian-era capability machinery.
+
+A later owner-approved job plan may add worker-owned cold jobs. That design must
+give every accepted job exactly one terminal, mark all jobs owned by a lost
+worker `lost`/`outcome_unknown`, never reuse an ID within the connection, and
+never restart a job automatically. Warm asynchronous runspace jobs remain out
+of scope.
 
 ### Routing and compression
 
@@ -282,8 +287,7 @@ accepted.
   `WorkerProcessEntry.cs`, `WindowsWorkerBootstrap.cs`, and
   `WindowsWorkerNative.cs`; these files already exist on `master` and are
   modified in place rather than ported from the resilience branch;
-- the current public invoke/state/reset/job/output contracts unless a later
-  owner decision removes an optional tool;
+- the current public invoke/state/reset/output contracts;
 - bounded output shaping and `OutputStore` behavior that does not depend on
   mandatory audit;
 - the existing one-process handshake as the initial compatibility baseline.
@@ -446,8 +450,7 @@ workers; the current invoke path remains intact.
 
 1. Route foreground invokes through the connection's worker.
 2. Keep supervisor state and reset local; obtain worker state only through the
-   bounded idle-worker query above. Route retained job/output operations
-   through the smallest correct owning layer.
+   bounded idle-worker query above. Keep output recovery in the supervisor.
 3. Remove the in-process production runspace path in the same slice; no dual
    execution mode remains.
 4. Preserve the existing public schema; add no session argument or
@@ -473,13 +476,12 @@ full verification and handshake green.
 
 Exit: real apphost fault matrix green on every supported platform.
 
-### Slice 8 — optional jobs and output continuity
+### Slice 8 — output continuity
 
-1. Retain only job/output behavior that remains independent of mandatory
-   audit and discarded guardian capabilities.
+1. Retain only output behavior that remains independent of mandatory audit and
+   discarded guardian capabilities.
 2. Prove capture failure never blocks invoke or causes replay.
-3. Prove connection teardown kills every cold job and removes unsealed
-   temporary output.
+3. Prove connection teardown removes unsealed temporary output.
 4. Remove unneeded capability/provenance machinery rather than recreating it.
 
 Exit: retained tools are bounded and cannot reduce core invoke availability.
@@ -587,13 +589,13 @@ Present and settle these in chat one at a time before implementation:
    design a separately approved harness identity mechanism before coding.
 2. **R0 contract retirement:** approve retirement of the frozen guardian-era
    public-contract digest, package-role guards, schemas, and
-   `PtkResilienceTestFixture` before introducing the replacement surface. If
+   `PtkResilienceTestFixture`, and approve the first-cut public surface as
+   invoke/state/reset/output with no `ptk_job`. Recommendation: yes, because
+   cold jobs preserve no warm state and otherwise blur worker ownership. If
    this is declined, public schema changes and implementation stop.
 3. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path; any future compliance audit is separate and explicit.
-4. **Optional tools:** confirm whether cold `ptk_job` and connection-local
-   `ptk_output` remain production features.
-5. **Rollout:** approve a canary installed-package validation before replacing
+4. **Rollout:** approve a canary installed-package validation before replacing
    the current development registration.
 
 Silence approves none of these. Until decision 1 is settled, implementation is

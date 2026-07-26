@@ -570,8 +570,11 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 - timeout with a child and grandchild process;
 - Unix process-group escape reported as `descendants_unknown`, without replay
   or a false complete-containment claim;
-- 100 sequential worker replacements with bounded process/handle/fd and memory
-  growth;
+- 100 sequential worker replacements after one warm-up cycle: live PTK process
+  count returns exactly to baseline, open handles/fds return to baseline plus
+  at most four, private memory settles within the larger of 10% or 32 MiB over
+  baseline, and no measured resource grows monotonically over the final 20
+  cycles;
 - public connection held idle beyond every former watchdog interval;
 - malformed and oversized worker frames;
 - stale output-root reclamation with a simultaneous live supervisor root;

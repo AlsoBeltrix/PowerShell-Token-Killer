@@ -5,7 +5,25 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **`r6x-2` is closed and Guardian is 495/495 on both macOS and Windows
+- **`r6x-2` and `r6acc-1` are both CLOSED, and every fix in them has been
+  through `codereview` (2026-07-26).** Reviewer: codex, dispatched at the
+  harness defaults per the owner's ruling that the playbook's tier/model/effort
+  machinery is outdated for this repo. Four accepted rounds, each with
+  `guard_confirmed: true` and matching SHA pins; `r6x-2` #3 was **reopened**
+  first, repaired at `1a5ffaf`, then accepted on a repair-delta round.
+  Guardian is **496/496 on macOS and Windows** at `d431a2c`; server
+  2,044/2,044; architecture 73/73.
+  **The reopen is the lesson worth keeping: #3 was green on both platforms and
+  still wrong** — it sealed truncated output as complete, and scoped a
+  background job's output capability to the call that started it, so any job
+  outliving the five-minute default call deadline could never seal at all. A
+  passing suite is evidence about the tests, not about the fix.
+  Two review-transport facts are recorded in
+  `.agents/review/harnesses.local.json`: codex needs `--ignore-user-config`
+  (a dead headroom proxy is pinned in `~/.codex/config.toml`), and the owner
+  granted it `danger-full-access` because no codex sandbox mode can run this
+  repo's real-apphost battery.
+- **`r6x-2` was closed and Guardian was 495/495 on both platforms
   (2026-07-25).** No failing identity remains on either platform. The last of
   the three, #2, was a **stale test expectation from before the R6 worker
   cutover**: it waited for a replacement *host* after an ambiguous worker death,
@@ -848,14 +866,17 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Get `r6x-2` and `r6acc-1` reviewed.** Both are closed and green on macOS
-   and Windows but neither fix has been through `codereview`. Three fixes land
-   unreviewed: the background output capture (`4b0df6e`), the recovery-fact
-   clear (`8dbe8e4`), and the #2 test repair. The test repair deserves the most
-   scrutiny — it changes what an existing R5 acceptance identity asserts, from
-   host replacement to per-alias worker recovery, on the argument that the R6
-   cutover made the old expectation obsolete. If that argument is wrong, a real
-   regression is now pinned as correct behaviour.
+1. **Finish R6.** `r6x-1`, `r6x-2`, `r6x-3` and `r6acc-1` are all closed and
+   reviewed, and the acceptance matrix's one-alias isolation line is proven on
+   both platforms. What remains of sub-slice 5 is any other acceptance line the
+   plan names — read `.agents/plans/mcp-resilience.md` rather than assuming this
+   list is complete.
+2. **`r6x-4` (LOW, open): a test-determinism flake.**
+   `Unix_out_of_range_second_descriptor_closes_first_owned_descriptor` asserts a
+   raw fd number is invalid after close, which races descriptor reuse under a
+   loaded parallel run. Diagnosed with the mechanism confirmed but **not
+   reproduced** — capture the failure message if it recurs, because if the
+   failing assertion is not line 598 the diagnosis is wrong.
 3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
    suspected regression from this session's own work.** Writing the acceptance
    test for one-alias crash isolation on the real apphost found that

@@ -595,7 +595,17 @@ public sealed class PrivateHostBootstrapTests
                 pointerSize: 8));
 
         Assert.Equal("handle_ownership_failed", exception.DetailCode);
-        Assert.Equal(-1, TestNativeMethods.GetDescriptorFlags(requestRead, TestFGetFd));
+        // Closure is observed through the peer end, not through the descriptor
+        // number. A freed number is the FIRST one the kernel hands back, tests
+        // run in parallel, and this suite opens descriptors heavily - so
+        // asserting `fcntl(requestRead)` is invalid raced descriptor reuse and
+        // reported a failure when the close had in fact happened (r6x-4). A
+        // pipe whose read end is closed fails EPIPE on write however the number
+        // was recycled.
+        Assert.Equal(
+            -1,
+            TestNativeMethods.WriteDescriptor(requestPipe[1], [0x01], 1));
+        Assert.Equal(EPipeErrno, Marshal.GetLastPInvokeError());
         AssertNormalized(exception);
     }
 
@@ -686,6 +696,11 @@ public sealed class PrivateHostBootstrapTests
         [.. ExpectedHostVariables.Select(variable => $"remove:{variable}")];
 
     private const int TestFGetFd = 1;
+
+    /// <summary>POSIX EPIPE, 32 on both Linux and macOS. The .NET runtime sets
+    /// SIGPIPE to SIG_IGN at startup, so a write to a broken pipe returns this
+    /// rather than killing the process.</summary>
+    private const int EPipeErrno = 32;
     private const int TestFdCloseOnExec = 1;
     private const uint TestHandleFlagInherit = 0x00000001;
 
@@ -839,6 +854,12 @@ public sealed class PrivateHostBootstrapTests
 
         [DllImport("libc", EntryPoint = "close", SetLastError = true)]
         internal static extern int CloseDescriptor(int descriptor);
+
+        [DllImport("libc", EntryPoint = "write", SetLastError = true)]
+        internal static extern nint WriteDescriptor(
+            int descriptor,
+            byte[] buffer,
+            nint count);
 
         [DllImport("kernel32.dll", EntryPoint = "CreatePipe", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

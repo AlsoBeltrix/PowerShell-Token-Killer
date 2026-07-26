@@ -458,9 +458,10 @@ path changes in this slice.
 
 1. Add a failing integration test proving a valid invoke succeeds when the
    audit root is absent or unwritable.
-2. Extract active-call admission/drain, ordered shutdown, and the connection
-   activity clock from `AuditRuntimeGate` into a small audit-independent
-   supervisor lifecycle service. Move runtime creation to `WorkerSupervisor`.
+2. Extract active-call admission/drain and ordered shutdown from
+   `AuditRuntimeGate` into a small audit-independent supervisor lifecycle
+   service. Move runtime creation to `WorkerSupervisor`; delete the idle
+   watchdog and its activity clock rather than recreating them.
 3. Prove shutdown stops new admission, cancels/drains the active request, and
    tears down the worker before the public process exits.
 4. Remove mandatory audit admission and exact-script evidence publication from
@@ -612,8 +613,8 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   at most four, private memory settles within the larger of 10% or 32 MiB over
   baseline, and no measured resource grows monotonically over the final 20
   cycles;
-- an injected-clock lifecycle test proving idle alone does not recycle a live
-  connection worker; do not spend four wall-clock hours on an acceptance wait;
+- a lifecycle guard proving no idle watchdog/timer is registered; do not build
+  a clock abstraction or spend four wall-clock hours on an acceptance wait;
 - malformed and oversized worker frames;
 - stale output-root reclamation with a simultaneous live supervisor root;
 - prompt `ptk_state` during an active invoke, worker loss, startup, recovery,

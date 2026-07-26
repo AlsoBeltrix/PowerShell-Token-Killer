@@ -79,6 +79,7 @@ The public supervisor owns only:
 - one connection-owned worker slot;
 - public request correlation and one-response delivery;
 - worker process creation, monitoring, cancellation, and containment;
+- active-call admission/drain and ordered connection shutdown;
 - small connection-local job/output registries where those tools remain;
 - health projection for `ptk_state`;
 - monotonic, connection-local worker incarnation numbers.
@@ -228,7 +229,8 @@ Mandatory audit is not part of the proposed production-critical path.
 `master` currently writes exact submitted scripts under
 `~/.ptk/audit/evidence` and can disable all effects when that storage is
 unavailable or contains an unknown artifact. That coupling directly conflicts
-with the availability goal.
+with the availability goal. `AuditRuntimeGate` also carries non-audit lifecycle
+duties; those duties are reassigned before the gate is removed.
 
 The proposed core:
 
@@ -236,6 +238,9 @@ The proposed core:
 - does not make audit, SIEM, export, or evidence retention a prerequisite for
   execution;
 - removes audit health from the ordinary invoke gate;
+- moves active-call admission/drain and ordered shutdown into a small
+  supervisor lifecycle service, while `WorkerSupervisor` owns worker creation
+  and reset;
 - retains no silent compatibility mode that can unexpectedly become
   fail-closed.
 
@@ -378,12 +383,17 @@ path changes in this slice.
 
 1. Add a failing integration test proving a valid invoke succeeds when the
    audit root is absent or unwritable.
-2. Remove mandatory audit admission and exact-script evidence publication from
+2. Extract active-call admission/drain, ordered shutdown, and the connection
+   activity clock from `AuditRuntimeGate` into a small audit-independent
+   supervisor lifecycle service. Move runtime creation to `WorkerSupervisor`.
+3. Prove shutdown stops new admission, cancels/drains the active request, and
+   tears down the worker before the public process exits.
+4. Remove mandatory audit admission and exact-script evidence publication from
    ordinary tool execution.
-3. Remove default startup construction of audit/SIEM/export resources.
-4. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
+5. Remove default startup construction of audit/SIEM/export resources.
+6. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
    rather than reporting a false protected boundary.
-5. Keep any retained audit administration executable out of the installed
+7. Keep any retained audit administration executable out of the installed
    runtime package pending a separate product decision.
 
 Exit: no ordinary invoke depends on `~/.ptk/audit`; no exact script file is

@@ -125,6 +125,17 @@ function Get-PtkServerBinaryName {
     if ($TargetRid -like 'win-*') { 'PtkMcpServer.exe' } else { 'PtkMcpServer' }
 }
 
+# What every harness registers and launches. The guardian owns the public MCP
+# connection and starts the private host itself; the host binary stays in the
+# payload but is never registered, never launched directly, and refuses to run
+# as a public server (R7 cutover). There is deliberately no side-by-side
+# registration and no migration shim - a stale registration pointing at the host
+# fails loudly rather than silently serving the old transitional mode.
+function Get-PtkGuardianBinaryName {
+    param([string]$TargetRid)
+    if ($TargetRid -like 'win-*') { 'PtkMcpGuardian.exe' } else { 'PtkMcpGuardian' }
+}
+
 function Get-PtkFileSha256 {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -601,7 +612,8 @@ switch ($mode) {
         finally {
             Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
         }
-        $binaryPath = Join-Path $ptkHome 'bin' (Get-PtkServerBinaryName -TargetRid $targetRid)
+        # Registration and every operator snippet point at the guardian only.
+        $binaryPath = Join-Path $ptkHome 'bin' (Get-PtkGuardianBinaryName -TargetRid $targetRid)
         Assert-PtkPayloadIntact -Root $ptkHome -TargetRid $targetRid
         $registered = Register-PtkServer -BinaryPath $binaryPath
         Write-PtkArpEntry -PayloadVersion $payloadVersion

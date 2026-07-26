@@ -1,8 +1,10 @@
 # Plan: production reliability salvage
 
-**Status:** DRAFT — owner requested the plan and an independent
-`claude-opus-5` review on 2026-07-26. No implementation is authorized by this
-document. The design choices under `Owner decisions` remain proposals until
+**Status:** REVIEW CANDIDATE — Claude Opus 5 round 1 returned `REVISE`; its
+admitted findings are incorporated through the committed correction series
+recorded under `.agents/review/production-reliability-salvage-opus5-r1.md`.
+The exact amended SHA still requires round-2 review. No implementation is
+authorized. The choices under `Owner decisions` remain proposals until
 approved in chat, one at a time.
 
 ## Goal

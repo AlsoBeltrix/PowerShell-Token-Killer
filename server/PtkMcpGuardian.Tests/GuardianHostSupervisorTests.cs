@@ -115,12 +115,17 @@ public sealed class GuardianHostSupervisorTests
         }
 
         rig.Factory.Resources[0].Crash();
+        // The durable append trails the published state by design - see
+        // Host_loss_begins_containment_before_its_durable_audit_append - so
+        // waiting only for the state and then asserting on the audit is a race
+        // this test lost repeatedly on a loaded four-CPU host.
         await WaitUntilAsync(() =>
             rig.Supervisor.SnapshotState().Host is
             {
                 State: PublicHostState.Ready,
                 Generation.Value: 2,
-            });
+            } &&
+            rig.HostAuditLines("host.recovered").Length == 1);
 
         var recoveredLine = Assert.Single(rig.HostAuditLines("host.recovered"));
         using var recoveredDocument = JsonDocument.Parse(recoveredLine);
@@ -152,12 +157,17 @@ public sealed class GuardianHostSupervisorTests
         await rig.StartAsync();
 
         rig.Factory.Resources[0].SignalHostExit();
+        // Same trailing-append race as
+        // Ready_and_recovered_hosts_are_durably_distinguished: wait for the
+        // audit this test reads, not only for the state.
         await WaitUntilAsync(() =>
             rig.Supervisor.SnapshotState().Host is
             {
                 State: PublicHostState.Ready,
                 Generation.Value: 2,
-            });
+            } &&
+            rig.HostAuditLines("host.starting").Length == 2 &&
+            rig.HostAuditLines("host.recovered").Length == 1);
 
         var startingLines = rig.HostAuditLines("host.starting");
         Assert.Equal(2, startingLines.Length);

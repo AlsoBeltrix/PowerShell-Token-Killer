@@ -272,6 +272,11 @@ Capture failure must degrade to ordinary bounded output plus
 `recovery=unavailable`; it must not refuse or rerun the command. Handles remain
 connection-local and expire by bounded memory/disk quota.
 
+Each supervisor uses a uniquely owned output root with a creation identity and
+exclusive live-owner marker. Startup reclaims only roots whose recorded owner
+is provably dead; it never scans or deletes another live supervisor's root.
+Normal connection teardown removes its own sealed and unsealed residue.
+
 Before an invoke, the supervisor reserves one connection-local artifact ID.
 The worker sends the exact recoverable output as monotonically ordered,
 individually bounded chunks, then a seal with the total length and digest.
@@ -530,7 +535,9 @@ Exit: real apphost fault matrix green on every supported platform.
 3. Prove wrong order, duplicate/gapped chunks, digest mismatch, quota overflow,
    worker loss mid-transfer, and capture failure never cause replay or a false
    complete handle.
-4. Prove connection teardown removes unsealed temporary output.
+4. Prove connection teardown removes its own output root, hard supervisor death
+   leaves bounded residue, and the next startup reclaims that stale root without
+   touching a simultaneously live supervisor's root.
 5. Remove unneeded capability/provenance machinery rather than recreating it.
 
 Exit: retained tools are bounded and cannot reduce core invoke availability.
@@ -567,6 +574,7 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   growth;
 - public connection held idle beyond every former watchdog interval;
 - malformed and oversized worker frames;
+- stale output-root reclamation with a simultaneous live supervisor root;
 - prompt `ptk_state` during an active invoke, worker loss, startup, recovery,
   and fault, with every worker-owned field either populated or explicitly
   unavailable;

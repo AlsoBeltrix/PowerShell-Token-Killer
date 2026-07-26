@@ -236,12 +236,19 @@ unavailable or contains an unknown artifact. That coupling directly conflicts
 with the availability goal. `AuditRuntimeGate` also carries non-audit lifecycle
 duties; those duties are reassigned before the gate is removed.
 
+Audit also remains a build-time dependency: `PtkMcpServer.csproj` compiles the
+OTLP protobuf through `Grpc.Tools`, and the current state records a clean ARM64
+Linux MSBuild/protoc crash on that path. Removing audit only at runtime would
+leave this production blocker intact.
+
 The proposed core:
 
 - does not persist exact submitted scripts by default;
 - does not make audit, SIEM, export, or evidence retention a prerequisite for
   execution;
 - removes audit health from the ordinary invoke gate;
+- removes the OTLP protobuf and `Grpc.Tools` build path from the runtime server
+  project; any retained exporter moves to a separately built optional product;
 - moves active-call admission/drain and ordered shutdown into a small
   supervisor lifecycle service, while `WorkerSupervisor` owns worker creation
   and reset;
@@ -412,10 +419,13 @@ path changes in this slice.
    tears down the worker before the public process exits.
 4. Remove mandatory audit admission and exact-script evidence publication from
    ordinary tool execution.
-5. Remove default startup construction of audit/SIEM/export resources.
-6. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
+5. Remove default startup construction of audit/SIEM/export resources and the
+   runtime project's OTLP protobuf/`Grpc.Tools` build dependency.
+6. Prove a clean ARM64 Linux restore/build no longer enters the removed protoc
+   path.
+7. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
    rather than reporting a false protected boundary.
-7. Keep any retained audit administration executable out of the installed
+8. Keep any retained audit administration executable out of the installed
    runtime package pending a separate product decision.
 
 Exit: no ordinary invoke depends on `~/.ptk/audit`; no exact script file is
@@ -532,6 +542,8 @@ rollback fault matrix.
 Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 
 - complete Pester, .NET, and stdio handshake verification;
+- clean ARM64 Linux server restore/build proving no audit protobuf toolchain is
+  required;
 - at least two simultaneous agent-owned PTK server processes with distinct
   variables, modules, working directories, and successful concurrent calls;
 - worker hard-kill before write, during execution, after effect, during result,
@@ -621,7 +633,9 @@ Present and settle these in chat one at a time before implementation:
    cold jobs preserve no warm state and otherwise blur worker ownership. If
    this is declined, public schema changes and implementation stop.
 3. **Audit:** approve removal of mandatory exact-script audit from the default
-   execution path; any future compliance audit is separate and explicit.
+   execution path and removal of its OTLP protobuf/`Grpc.Tools` build
+   dependency from the runtime server project; any future compliance audit is
+   separately built and explicitly approved.
 4. **Rollout:** approve a canary installed-package validation before replacing
    the current development registration.
 

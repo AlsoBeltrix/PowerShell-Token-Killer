@@ -5,6 +5,28 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **The x64 Linux acceptance leg is RUN (2026-07-26 at `3fdbbff`), closing the
+  largest part of audit gap G8.** Architecture 73/73, Guardian **495/496**,
+  server 2,044/2,044, Pester 141 with two expected skips, complete stdio
+  handshake. Evidence and the exact transfer/run recipe are in
+  `.agents/machines.md`. **`magneto` answers `ssh -o BatchMode=yes` by key — an
+  agent on the Mac drives Linux work directly, no owner-started session**, the
+  same correction already recorded for `NETWATCH-01`.
+  The single failure is **`r6x-5`** (`.agents/review/findings/r6x-5.md`):
+  `Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection`
+  budgets its post-kill readiness poll in **200 attempts rather than wall-clock
+  time**, and exhausted them under full-suite saturation on 4 CPUs. It passes
+  **3/3 in isolation** on the same host, so the Linux recovery path itself is
+  proven — real host killed, descendants and cold-background job reaped,
+  generation 2, warm state lost, real invoke served on the same connection.
+  **The defective shape sits at eleven poll sites across seven composition
+  identities**, one of which was already quietly widened to 400 — the cliff was
+  found once and moved rather than removed. `ubuntu-latest` runners have
+  `magneto`'s core count, not a dev Mac's, so this is a latent hosted-CI flake
+  in the acceptance suite. Fix is diagnosed but **not authorized**; use a
+  wall-clock budget in one shared helper, not a bigger attempt count.
+  Still open under G8: a **Windows re-run at the current head** (it sits at
+  `d431a2c`, one commit behind).
 - **The R6 acceptance-matrix audit is complete (2026-07-26):
   `.agents/plans/r6-acceptance-audit.md`.** Every matrix line in
   `.agents/plans/mcp-resilience.md` now has a status and named covering tests;

@@ -1835,3 +1835,40 @@ root `F:\r3\0848e36`._
   pass, not a repair; it remains open and unrelated to this fix.
 - The Windows tree `F:\r3\0848e36` is retained for the still-open `r6x-2` #2/#3
   diagnosis; `F:\r2\3ecc86f` was the diagnosis tree for #1.
+
+## R6 acceptance battery on x64 Linux `magneto` (2026-07-26)
+
+_Closes the R6 acceptance matrix's x64 Linux leg (audit gap G8). Verified
+against the exact content committed at `3fdbbff` in a disposable checkout; no
+installed payload or host profile was changed._
+
+- Host: Arch Linux x86_64, kernel 7.1.4-arch1-1, **4 CPUs**, .NET SDK 10.0.110
+  / runtime 10.0.10, PowerShell 7.6.3, GCC 16.1.1, git 2.55.0.
+- Transfer used the established bundle-over-SSH route: `git bundle create` for
+  `feature/mcp-resilience-r1`, `scp` to `/tmp/r6.bundle`, local and remote
+  SHA-256 both
+  `dcd7553423f108428f2518e50b31367de1f1e2aef69e10b4072caafa2edbb6e7`, then
+  `git clone --branch feature/mcp-resilience-r1` from the bundle. The clone
+  reported clean at `3fdbbff`. `magneto` answers `ssh -o BatchMode=yes` by key
+  with no prompt, so Linux work needs no owner-started session.
+- The run replicated CI's exact server-test shape rather than
+  `dotnet test`: one `dotnet build server/PtkMcpServer.slnx`, then the three
+  xUnit v3 assemblies invoked in-process and **sequentially**. That is both
+  CI-faithful and required here — the R5 Linux record on this same host shows a
+  parallel battery saturating four CPUs into timing failures.
+- Results: build clean; architecture **73/73**; Guardian **495/496**; server
+  **2,044/2,044**; Pester **141 passed with 2 expected skips** (6.0.1 staged
+  into the disposable tree via `Save-PSResource`, never installed to the host
+  profile); complete stdio handshake passed. Wall clock: guardian 162.9 s,
+  server 326.6 s.
+- The single failure is
+  `ProductionGuardianCompositionTests.Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection`
+  at `ProductionGuardianCompositionTests.cs:1158`, `Assert.NotNull(recovered)`
+  — the post-kill readiness poll exhausted its 200 attempts without the host
+  reporting `ReadyForEffects`. Host load average was 5.5-8.4 on 4 CPUs during
+  the guardian and server assemblies. **The same identity passes 3/3 in
+  isolation on the otherwise idle host** (15.6 s, 17.0 s, 16.8 s). Filed as
+  `r6x-5`; the product behaviour it covers is proven on Linux by those
+  isolated runs, and the defect is in the test's observation budget.
+- The disposable root `/tmp/ptk-r6-linux-y090hl11` and `/tmp/r6.bundle` were
+  removed after a scoped process check.

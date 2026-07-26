@@ -214,7 +214,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 
 | ID | Claim (abridged) | Status | Evidence |
 |----|------------------|--------|----------|
-| E1.1 | Common deterministic suites pass on Windows, Linux, and macOS | PARTIAL | macOS green at `15568a0`; Windows Guardian 496/496 at `d431a2c`; **Linux never run on this branch** — F4, G8 |
+| E1.1 | Common deterministic suites pass on Windows, Linux, and macOS | PARTIAL | macOS green at `15568a0`; Windows Guardian 496/496 at `d431a2c` (one commit behind); **Linux run 2026-07-26 at `3fdbbff` — 495/496, the one failure being the `r6x-5` test-budget defect, not a product defect**. Remaining: the `r6x-5` fix and a Windows re-run at the current head — G8 |
 | E1.2 | Native tests hard-kill guardian/host/worker at the creation, initialize, bootstrap, ready, foreground-busy, and job-running barriers | PARTIAL | Creation is exact and enumerated (`UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Guardian_death_contains_every_creation_barrier`, `Guardian_death_interrupts_a_stalled_creation_protocol`; `WindowsContainmentIntegrationTests.Suspended_worker_is_contained_before_entry_and_job_owner_kills_its_tree`, `Runnable_worker_enters_without_a_proof_resume`). Ready and job-running are covered by the composition identities. **No identity was found that hard-kills at the initialize, bootstrap, or foreground-busy barriers by name.** See G10 |
 | E2.1 | Windows proves creation-time outer containment, nested Job Objects, noninheritance, direct `NETWATCH-01` cleanup | COVERED | `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant`, `Disposable_probe_has_one_atomic_creator_and_no_job_handle_escape_path`; `WindowsProcessTreeSupervisorTests.Native_creation_flags_are_exact_and_suspension_is_proof_only`, `Native_production_has_one_atomic_create_and_no_fallback_or_sweep_escape_hatch`; `WindowsWorkerLifecycleIntegrationTests.Contained_worker_completes_lifecycle_with_silent_diagnostics`. Direct `NETWATCH-01` evidence is recorded in `.agents/machines.md` |
 | E2.2 | Linux/macOS prove broker liveness cleanup, host-group ownership, pending/armed registration, start-identity fencing, direct-host reap, descendant exit confirmation, nonchild reaping, no old/new group overlap | COVERED on macOS | `UnixGuardianBrokerIntegrationTests.*`; `UnixWorkerProcessLauncherTests.Production_broker_launches_real_worker_only_after_both_registry_acks`; `PrivateHostUnixWorkerContainmentRegistryTests`; `ProcessTreeContainmentTests.Terminal_release_sweeps_escaped_orphans`, `Instantly_daemonized_orphan_is_reaped_by_escalation`, `Tree_kill_defeats_a_sigterm_trap`, `Fallback_survivor_requires_matching_incarnation`. Linux execution is G8 |
@@ -285,11 +285,21 @@ more than the body checks.
 the same shape as the other `Composition_*` identities. This is the exact
 pattern that produced `r6x-2`.
 
-**G8 — x64 Linux has never run this branch (E1.1, E4.2, E2.2, F4).** Run the
-complete battery plus the stdio handshake on x64 Linux `magneto` at the current
-head and record the result in `.agents/machines.md`. Also re-run Windows at the
-current head to clear the one-commit lag. This is a run, not a code change, and
-it is the single largest unclosed matrix requirement.
+**G8 — Linux leg RUN 2026-07-26 at `3fdbbff`; one failure, now `r6x-5`.**
+Architecture 73/73, Guardian **495/496**, server 2,044/2,044, Pester 141 with 2
+expected skips, complete stdio handshake. Evidence in `.agents/machines.md`
+under "R6 acceptance battery on x64 Linux `magneto`".
+The single failure is
+`Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection`
+— the readiness poll is budgeted in **attempts** rather than wall-clock time and
+exhausted under full-suite saturation on 4 CPUs. It passes 3/3 in isolation on
+the same host, so the Linux recovery path itself is proven; the defect is in the
+test's observation budget, and the same shape sits at eleven sites across seven
+composition identities. See `.agents/review/findings/r6x-5.md`. **Hosted
+`ubuntu-latest` runners have the same core count as `magneto`, so this is a
+latent CI flake in the acceptance suite, not a `magneto` quirk.**
+Still open under G8: **Windows re-run at the current head** to clear the
+one-commit lag.
 
 **G9 — CLOSED 2026-07-26.** The matrix rows B3 and B4's first clause demanded
 template bootstrap the lazy-load amendment had already removed. Owner approved

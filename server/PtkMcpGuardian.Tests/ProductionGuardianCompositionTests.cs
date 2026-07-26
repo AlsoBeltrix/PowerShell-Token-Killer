@@ -16,7 +16,11 @@ namespace PtkMcpGuardian.Tests;
 
 public sealed class ProductionGuardianCompositionTests
 {
-    private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
+    /// <summary>
+    /// How long the native broker compiler may take. This is not a test
+    /// deadline - see <see cref="CompositionTestTimeout"/> for that.
+    /// </summary>
+    private static readonly TimeSpan BrokerCompileTimeout = TimeSpan.FromSeconds(30);
 
     /// <summary>
     /// How long a readiness poll may wait for a real host, worker, or job to
@@ -49,17 +53,32 @@ public sealed class ProductionGuardianCompositionTests
         Stopwatch.GetElapsedTime(pollStarted) < ReadinessPollBudget;
 
     /// <summary>
-    /// Enclosing deadline for every identity that runs a readiness poll. It has
-    /// to contain each of that identity's poll sites at a full
+    /// The single enclosing deadline for every identity in this class. All of
+    /// them launch real guardian, host, and worker processes, so all of them
+    /// are exposed to the same host-load effects.
+    /// </summary>
+    /// <remarks>
+    /// It has to contain each identity's poll sites at a full
     /// <see cref="ReadinessPollBudget"/> plus real process setup and teardown;
     /// otherwise a poll that never succeeds surfaces as an opaque
     /// <see cref="OperationCanceledException"/> instead of failing on its own
     /// assertion, which is the difference between "recovery never became ready"
     /// and "something in this test hung". Three identities poll twice, so this
-    /// is sized for two full budgets plus headroom. It bounds only pathological
-    /// hangs - a healthy run reaches each condition in well under a second.
-    /// </summary>
-    private static readonly TimeSpan PollingTestTimeout = TimeSpan.FromSeconds(180);
+    /// is sized for two full budgets plus headroom.
+    ///
+    /// The identities that poll nothing need it just as much:
+    /// `Composition_isolates_one_alias_worker_crash_from_a_second_alias` starts
+    /// two real workers, crashes one and observes recovery, and failed 3/3 on
+    /// x64 Linux against the old 30 s deadline while every other identity
+    /// passed - a deadline chosen against a fast development Mac, on a
+    /// four-CPU host that carries a steady background load. One deadline for
+    /// the whole class is the rule least likely to rot into per-test tuning
+    /// (r6x-5).
+    ///
+    /// It bounds only pathological hangs: a healthy run finishes each identity
+    /// in seconds, so raising it cannot change any passing outcome.
+    /// </remarks>
+    private static readonly TimeSpan CompositionTestTimeout = TimeSpan.FromSeconds(180);
     private static readonly GuardianBootId Guardian = new(
         Guid.Parse("11111111-1111-4111-8111-111111111111"));
     private static readonly WorkerBootId Worker = new(
@@ -106,7 +125,7 @@ public sealed class ProductionGuardianCompositionTests
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
         // Polls for the job seal below, so it needs the polling deadline.
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -346,7 +365,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -513,7 +532,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -731,7 +750,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1034,7 +1053,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1275,7 +1294,7 @@ public sealed class ProductionGuardianCompositionTests
             parentEnvironment: ParentEnvironmentWith(
                 "PTK_IDLE_EXIT_SECONDS",
                 "1"));
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1458,7 +1477,7 @@ public sealed class ProductionGuardianCompositionTests
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker,
             dispatchObserver: observer);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1673,7 +1692,7 @@ public sealed class ProductionGuardianCompositionTests
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker,
             dispatchObserver: observer);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1917,7 +1936,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -2221,7 +2240,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         var run = composition.RunAsync(input, output, timeout.Token);
@@ -2315,7 +2334,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -2630,7 +2649,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(PollingTestTimeout);
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -2976,7 +2995,7 @@ public sealed class ProductionGuardianCompositionTests
             throw new InvalidOperationException("The native broker compiler did not start.");
         var standardOutput = compiler.StandardOutput.ReadToEndAsync();
         var standardError = compiler.StandardError.ReadToEndAsync();
-        await compiler.WaitForExitAsync().WaitAsync(TestTimeout);
+        await compiler.WaitForExitAsync().WaitAsync(BrokerCompileTimeout);
         Assert.True(
             compiler.ExitCode == 0,
             $"Native broker compile failed: {await standardOutput}{await standardError}");

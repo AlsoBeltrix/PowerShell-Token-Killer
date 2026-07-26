@@ -86,8 +86,11 @@ The public supervisor owns only:
 - worker process creation, monitoring, cancellation, and containment;
 - active-call admission/drain and ordered connection shutdown;
 - a small connection-local output registry;
-- health projection for `ptk_state`;
-- monotonic, connection-local worker incarnation numbers.
+- health projection for `ptk_state`.
+
+The supervisor also keeps a monotonic connection-local worker incarnation as
+an internal stale-frame key. It is not part of the public state surface because
+no public operation can act on it.
 
 It loads no user script into an in-process runspace and executes no submitted
 PowerShell, RTK, Bash, or native command.
@@ -214,7 +217,7 @@ boundary plainly.
 `ptk_state` remains prompt and always returns a supervisor-owned section:
 
 - `Cold`, `Starting`, `Ready`, `Recovering`, `Faulted`, or `Closed`;
-- worker PID and incarnation where one exists;
+- worker PID where one exists;
 - whether warm state was lost;
 - whether a request is active;
 - the last bounded failure class;

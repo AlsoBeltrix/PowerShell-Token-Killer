@@ -47,10 +47,10 @@ connection can fail outside PTK's control. PTK's enforceable contract is:
 - `master` already contains non-core systems that predate the resilience line:
   mandatory exact-script audit evidence, audit export/SIEM support, cold
   background jobs, output handles, and partial worker-process scaffolding.
-- Current repository guidance and `README.md` describe the three-process
-  guardian topology as an approved target. That record conflicts with the
-  owner's current direction and must be corrected only after this replacement
-  plan is approved.
+- The root `README.md` still presents the three-process guardian topology as an
+  approved target. `server/README.md` instead describes the current direct
+  in-process server. The root README conflicts with the owner's current
+  direction and is corrected only after this replacement plan is approved.
 
 The resilience branch is evidence and a source of individually reusable code
 and tests. It is never merged, rebased, or used as the base of this effort.

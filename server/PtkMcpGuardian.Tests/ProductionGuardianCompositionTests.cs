@@ -1275,17 +1275,45 @@ public sealed class ProductionGuardianCompositionTests
         Assert.False(Directory.Exists(outputRoot));
     }
 
+    /// <summary>
+    /// The private host must ignore the transitional idle watchdog: with an
+    /// aggressive <c>PTK_IDLE_EXIT_SECONDS</c> it still survives past that
+    /// interval with its warm state intact, so idle policy can never create a
+    /// restart loop under a live public connection.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately cross-platform. This identity was Windows-gated and so
+    /// returned vacuously on macOS and Linux, reporting green without executing
+    /// (audit finding F1, gap G7) — the same class of blind spot that hid all
+    /// three `r6x-2` defects.
+    /// </remarks>
     [Fact]
-    public async Task Windows_private_host_ignores_the_transitional_idle_watchdog()
+    public async Task Private_host_ignores_the_transitional_idle_watchdog()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot("idle-audit");
         var outputRoot = TemporaryRoot("idle-output");
-        var launcher = new GatedContainmentLauncher();
+        string? nativeRoot = null;
+        IPrivateHostProcessLauncher inner;
+        MatchedPackageFacts package;
+        if (OperatingSystem.IsWindows())
+        {
+            inner = new WindowsPrivateHostProcessLauncher();
+            package = Package(FindServerAppHost());
+        }
+        else
+        {
+            nativeRoot = TemporaryRoot("idle-broker");
+            Directory.CreateDirectory(nativeRoot);
+            var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+            await CompileGuardianBrokerAsync(broker);
+            inner = new UnixPrivateHostProcessLauncher(broker);
+            package = Package(FindServerAppHost(), broker);
+        }
+
+        var launcher = new GatedContainmentLauncher(inner);
         launcher.ReleaseFirstContainmentConfirmation();
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            package,
             LocalAudit(auditRoot),
             launcher,
             OutputOptions(outputRoot),
@@ -1439,6 +1467,7 @@ public sealed class ProductionGuardianCompositionTests
             }
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
+            DeleteRoot(nativeRoot);
         }
 
         Assert.False(Directory.Exists(outputRoot));
@@ -1466,7 +1495,8 @@ public sealed class ProductionGuardianCompositionTests
         var effectRoot = TemporaryRoot($"barrier-{barrier}-effect");
         Directory.CreateDirectory(effectRoot);
         var effectPath = Path.Combine(effectRoot, "effect.txt");
-        var launcher = new GatedContainmentLauncher();
+        var launcher = new GatedContainmentLauncher(
+            new WindowsPrivateHostProcessLauncher());
         launcher.ReleaseFirstContainmentConfirmation();
         var observer = new RealHostKillingDispatchObserver(barrier, launcher);
         var composition = ProductionGuardianComposition.Create(
@@ -1679,7 +1709,8 @@ public sealed class ProductionGuardianCompositionTests
 
         var auditRoot = TemporaryRoot("ambiguous-reset-audit");
         var outputRoot = TemporaryRoot("ambiguous-reset-output");
-        var launcher = new GatedContainmentLauncher();
+        var launcher = new GatedContainmentLauncher(
+            new WindowsPrivateHostProcessLauncher());
         launcher.ReleaseFirstContainmentConfirmation();
         var observer = new RealHostKillingDispatchObserver(
             RealDispatchBarrier.WriteStarting,
@@ -1928,7 +1959,8 @@ public sealed class ProductionGuardianCompositionTests
 
         var auditRoot = TemporaryRoot("recovery-audit");
         var outputRoot = TemporaryRoot("recovery-output");
-        var launcher = new GatedContainmentLauncher();
+        var launcher = new GatedContainmentLauncher(
+            new WindowsPrivateHostProcessLauncher());
         var composition = ProductionGuardianComposition.Create(
             Package(FindServerAppHost()),
             LocalAudit(auditRoot),
@@ -2326,7 +2358,8 @@ public sealed class ProductionGuardianCompositionTests
 
         var auditRoot = TemporaryRoot("job-tombstone-audit");
         var outputRoot = TemporaryRoot("job-tombstone-output");
-        var launcher = new GatedContainmentLauncher();
+        var launcher = new GatedContainmentLauncher(
+            new WindowsPrivateHostProcessLauncher());
         var composition = ProductionGuardianComposition.Create(
             Package(FindServerAppHost()),
             LocalAudit(auditRoot),
@@ -3041,9 +3074,11 @@ public sealed class ProductionGuardianCompositionTests
         }
     }
 
-    private static void DeleteRoot(string root)
+    // Nullable because the platform-branching identities only create a native
+    // broker root off Windows.
+    private static void DeleteRoot(string? root)
     {
-        if (Directory.Exists(root))
+        if (root is not null && Directory.Exists(root))
             Directory.Delete(root, recursive: true);
     }
 
@@ -3076,9 +3111,16 @@ public sealed class ProductionGuardianCompositionTests
         }
     }
 
-    private sealed class GatedContainmentLauncher : IPrivateHostProcessLauncher
+    /// <summary>
+    /// Observes and gates a real launcher. The inner launcher is supplied by the
+    /// caller so this works on either platform — it used to hard-code the
+    /// Windows launcher, which is why every identity using it was Windows-only
+    /// and therefore vacuous on macOS and Linux.
+    /// </summary>
+    private sealed class GatedContainmentLauncher(IPrivateHostProcessLauncher inner)
+        : IPrivateHostProcessLauncher
     {
-        private readonly WindowsPrivateHostProcessLauncher _inner = new();
+        private readonly IPrivateHostProcessLauncher _inner = inner;
         private readonly TaskCompletionSource<int> _firstHostProcessId = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _firstContainmentConfirmed = new(
@@ -3124,7 +3166,22 @@ public sealed class ProductionGuardianCompositionTests
             return result;
         }
 
-        private sealed class GatedContainmentProcess : IPrivateHostLaunchedProcess
+        /// <summary>
+        /// Wraps a launched host to gate its containment confirmation.
+        /// </summary>
+        /// <remarks>
+        /// It must also forward <see cref="IUnixWorkerContainmentAuthority"/>:
+        /// `PrivateHostAttemptFactory` recovers that authority with
+        /// `_process as IUnixWorkerContainmentAuthority`, so a wrapper that
+        /// implements only <see cref="IPrivateHostLaunchedProcess"/> turns into
+        /// a `PlatformNotSupportedException` the moment a worker is contained on
+        /// Unix. That silent interface loss is why every identity using this
+        /// launcher was Windows-gated, and it fails as an unexplained startup
+        /// failure rather than anything naming the cause.
+        /// </remarks>
+        private sealed class GatedContainmentProcess :
+            IPrivateHostLaunchedProcess,
+            IUnixWorkerContainmentAuthority
         {
             private readonly IPrivateHostLaunchedProcess _inner;
             private readonly Task _containmentConfirmed;
@@ -3141,6 +3198,11 @@ public sealed class ProductionGuardianCompositionTests
                     containmentRelease);
             }
 
+            private IUnixWorkerContainmentAuthority UnixAuthority =>
+                _inner as IUnixWorkerContainmentAuthority ??
+                    throw new PlatformNotSupportedException(
+                        "The wrapped host has no Unix worker containment authority.");
+
             public int ProcessId => _inner.ProcessId;
 
             public Task Exited => _inner.Exited;
@@ -3149,6 +3211,21 @@ public sealed class ProductionGuardianCompositionTests
 
             public void BeginContainment(GuardianHostContainmentDeadline deadline) =>
                 _inner.BeginContainment(deadline);
+
+            public Task RegisterPendingAsync(
+                GuardianHostContainmentIdentity identity,
+                CancellationToken cancellationToken) =>
+                UnixAuthority.RegisterPendingAsync(identity, cancellationToken);
+
+            public Task RegisterArmedAsync(
+                GuardianHostContainmentIdentity identity,
+                CancellationToken cancellationToken) =>
+                UnixAuthority.RegisterArmedAsync(identity, cancellationToken);
+
+            public Task RemoveAsync(
+                GuardianHostContainmentIdentity identity,
+                CancellationToken cancellationToken) =>
+                UnixAuthority.RemoveAsync(identity, cancellationToken);
 
             public void Dispose() => _inner.Dispose();
 

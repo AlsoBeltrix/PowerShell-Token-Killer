@@ -696,14 +696,20 @@ Present and settle these in chat one at a time before implementation:
    design a separately approved harness identity mechanism before coding.
 2. **R0 contract retirement:** approve retirement of the frozen guardian-era
    public-contract digest, package-role guards, schemas, and
-   `PtkResilienceTestFixture`, and approve the first-cut public surface as
-   invoke/state/reset/output with no `ptk_job`. Recommendation: yes, because
-   cold jobs preserve no warm state and otherwise blur worker ownership. If
-   this is declined, public schema changes and implementation stop.
-3. **Audit:** approve removal of mandatory exact-script audit from the default
+   `PtkResilienceTestFixture` before freezing the replacement contract.
+   Recommendation: yes, because those guards freeze the topology this plan
+   rejects. If declined, public schema changes and implementation stop.
+3. **Cold jobs:** remove `ptk_job` from the first production surface while
+   retaining invoke/state/reset/output. Recommendation: yes, because cold jobs
+   preserve no warm state and otherwise blur worker ownership. If declined,
+   stop and add a separately reviewed worker-owned job design before coding.
+4. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path and removal of its OTLP protobuf/`Grpc.Tools` build
    dependency from the runtime server project; any future compliance audit is
-   separately built and explicitly approved.
+   separately built and explicitly approved. Recommendation: yes, because the
+   current gate has already disabled valid execution and the build dependency
+   blocks clean ARM64 Linux builds. If declined, those availability and build
+   failures remain accepted production blockers.
 
 Silence approves none of these. Until decision 1 is settled, implementation is
 blocked and only plan/review work may proceed.

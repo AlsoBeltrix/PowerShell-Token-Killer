@@ -23,7 +23,7 @@ the MCP client, credentials, remote services, storage, and the public stdio
 connection can fail outside PTK's control. PTK's enforceable contract is:
 
 1. never report success without a complete result;
-2. never execute one public request more than once;
+2. never send one accepted request to a worker more than once;
 3. never share warm state between supported agent-owned connections;
 4. never overlap a PTK-contained old worker with its replacement;
 5. return a precise no-start, outcome-unknown, or completed result;
@@ -153,7 +153,10 @@ The supervisor uses one conservative delivery boundary:
 
 This deliberately gives up some retryable classifications to remove a large
 state machine without weakening correctness. PTK never automatically resends a
-public invoke.
+public invoke. A caller that submits the script again creates a new request and
+may repeat external effects; PTK has no public idempotency key with which to
+recognize that resubmission. Every `outcome_unknown` response therefore says
+not to resubmit automatically.
 
 ## Failure and recovery contract
 

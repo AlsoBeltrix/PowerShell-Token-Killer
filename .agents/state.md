@@ -9,8 +9,15 @@ short and update it when important repo facts change.
   Linux for the first time on this branch, at `43ae190` plus the serialization
   cap: architecture 73/73, Guardian **496/496**, server 2,044/2,044, Pester 141
   with two expected skips, complete stdio handshake, all exit codes 0. Evidence
-  in `.agents/machines.md`. **G8's remaining half is the Windows re-run at the
-  current head** — it still sits at `d431a2c`.
+  in `.agents/machines.md`. **G8 IS FULLY CLOSED**: Windows also re-ran at
+  `e5f67a9` — architecture 73/73, Guardian 496/496, Pester 142 with one expected
+  skip, handshake passed, and server 2,044 carrying exactly the 18 pre-existing
+  failures already recorded for `168905c` (ordinary-account cert/DPAPI/mTLS,
+  plus the parked `Route_pwsh_bypasses_detection_as_consent`). Attribution was
+  checked rather than assumed: no server product code changed since the last
+  Windows baseline. That run is also the **first real exercise of the five
+  Windows-only composition identities under the new deadlines** — they return
+  vacuously on macOS and Linux (audit F1), and all pass.
   Closing it took three fixes, all under `r6x-5`, and the third was an owner
   decision: **the guardian assembly is now serialized**
   (`server/PtkMcpGuardian.Tests/xunit.runner.json`, `maxParallelThreads: 1`).

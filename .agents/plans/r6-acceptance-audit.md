@@ -214,7 +214,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 
 | ID | Claim (abridged) | Status | Evidence |
 |----|------------------|--------|----------|
-| E1.1 | Common deterministic suites pass on Windows, Linux, and macOS | PARTIAL | **macOS and x64 Linux both fully green at `c600325`**; Linux closed 2026-07-26 after `r6x-5`'s three fixes. Windows Guardian 496/496 but at `d431a2c`, one commit behind and without any `r6x-5` fix — that re-run is all that remains of G8 |
+| E1.1 | Common deterministic suites pass on Windows, Linux, and macOS | COVERED | All three platforms run at `e5f67a9`/`c600325`: macOS green, x64 Linux green, Windows green except its 18 pre-existing ordinary-account cert/DPAPI/mTLS and parked-dialect failures, which predate this branch and are unchanged. G8 closed — see `.agents/machines.md` |
 | E1.2 | Native tests hard-kill guardian/host/worker at the creation, initialize, bootstrap, ready, foreground-busy, and job-running barriers | PARTIAL | Creation is exact and enumerated (`UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Guardian_death_contains_every_creation_barrier`, `Guardian_death_interrupts_a_stalled_creation_protocol`; `WindowsContainmentIntegrationTests.Suspended_worker_is_contained_before_entry_and_job_owner_kills_its_tree`, `Runnable_worker_enters_without_a_proof_resume`). Ready and job-running are covered by the composition identities. **No identity was found that hard-kills at the initialize, bootstrap, or foreground-busy barriers by name.** See G10 |
 | E2.1 | Windows proves creation-time outer containment, nested Job Objects, noninheritance, direct `NETWATCH-01` cleanup | COVERED | `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant`, `Disposable_probe_has_one_atomic_creator_and_no_job_handle_escape_path`; `WindowsProcessTreeSupervisorTests.Native_creation_flags_are_exact_and_suspension_is_proof_only`, `Native_production_has_one_atomic_create_and_no_fallback_or_sweep_escape_hatch`; `WindowsWorkerLifecycleIntegrationTests.Contained_worker_completes_lifecycle_with_silent_diagnostics`. Direct `NETWATCH-01` evidence is recorded in `.agents/machines.md` |
 | E2.2 | Linux/macOS prove broker liveness cleanup, host-group ownership, pending/armed registration, start-identity fencing, direct-host reap, descendant exit confirmation, nonchild reaping, no old/new group overlap | COVERED on macOS | `UnixGuardianBrokerIntegrationTests.*`; `UnixWorkerProcessLauncherTests.Production_broker_launches_real_worker_only_after_both_registry_acks`; `PrivateHostUnixWorkerContainmentRegistryTests`; `ProcessTreeContainmentTests.Terminal_release_sweeps_escaped_orphans`, `Instantly_daemonized_orphan_is_reaped_by_escalation`, `Tree_kill_defeats_a_sigterm_trap`, `Fallback_survivor_requires_matching_incarnation`. Linux execution is G8 |
@@ -310,10 +310,17 @@ time on this branch: architecture 73/73, Guardian **496/496**, server
 2,044/2,044, Pester 141 with 2 expected skips, complete stdio handshake, all
 exit codes 0.
 
-Still open under G8: **the Windows re-run at the current head** (`d431a2c`, one
-commit behind). Note that Windows has not seen any of `r6x-5`'s three fixes, and
-five of the composition identities are Windows-only (F1) — so that run is the
-first real exercise of those five under the new deadlines.
+**G8 IS CLOSED (2026-07-26).** Windows re-ran at `e5f67a9`: architecture 73/73,
+**Guardian 496/496**, Pester 142 with one expected skip, complete stdio
+handshake, and server 2,044 with **exactly the 18 pre-existing failures already
+recorded** (the ordinary-account cert/DPAPI/mTLS class plus the parked
+`Route_pwsh_bypasses_detection_as_consent`) — same count, same identities, and
+no server product code changed since the last Windows baseline. That run is also
+the first real exercise of the five Windows-only composition identities under
+`r6x-5`'s new deadlines, since they return vacuously elsewhere (F1); all pass.
+
+All three platforms now stand where the matrix requires: macOS green, x64 Linux
+green, Windows at its recorded baseline.
 
 **G9 — CLOSED 2026-07-26.** The matrix rows B3 and B4's first clause demanded
 template bootstrap the lazy-load amendment had already removed. Owner approved

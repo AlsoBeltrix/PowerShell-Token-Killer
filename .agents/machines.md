@@ -1922,3 +1922,32 @@ checkout removed afterwards._
   owner's own background work and rarely has four free CPUs; one comparison
   during this work was briefly misread as a regression because it ran at load
   13-17 against an earlier run at load 5-8.
+
+### Windows re-run at the r6x-5 fixes — G8 closed (2026-07-26)
+
+_Verified at `e5f67a9` on `NETWATCH-01` in a disposable `F:\r6\e5f67a9`
+checkout, removed afterwards. The owner's `F:\dev` tree was not touched._
+
+- Bundle-over-SSH transfer, local and remote SHA-256 both
+  `87296029d51b17f019b02fdda77f1b47a1db7f20c4d590b2b766af6b37a0945a`; clone
+  clean at `e5f67a9`. Host reports 32 CPUs, .NET SDK 10.0.302.
+- **Architecture 73/73. Guardian 496/496. Pester 142 with one expected skip.
+  Complete stdio handshake passed.** Server 2,044 identities with **18 failures
+  — exactly the recorded pre-existing set**, unchanged: the ordinary-account
+  cert/DPAPI/mTLS class (17 `AuditOtlp*` / `AuditExportConfiguration*` /
+  `AuditClosedSpoolExportPump` real-HTTPS identities) plus the separately parked
+  `ShellDialectWiringTests.Route_pwsh_bypasses_detection_as_consent`. Same count
+  and same identities as recorded for `168905c`.
+- Attribution is not assumed: between the previous Windows baseline `d431a2c`
+  and `e5f67a9` the only changes under `server/` are
+  `ProductionGuardianCompositionTests.cs`, `PtkMcpGuardian.Tests.csproj`,
+  the new `xunit.runner.json`, and the Unix-only `PrivateHostBootstrapTests.cs`
+  (`r6x-4`). No product code, and nothing that can reach a TLS or DPAPI path.
+- **This is the first Windows exercise of the five Windows-only composition
+  identities under `r6x-5`'s new deadlines**, since those five return vacuously
+  on macOS and Linux. All pass.
+- Serialization cost on this 32-CPU host: the guardian assembly runs 45.3 s.
+- Detachment note: `Start-Process -WindowStyle Hidden` with redirect files
+  produced a process that exited immediately leaving both logs empty. Driving
+  the run through a held SSH session with `> log 2>&1` worked. Prefer the
+  latter.

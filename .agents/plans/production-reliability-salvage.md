@@ -73,7 +73,10 @@ integration production-ready. Production cutover remains blocked until:
   proof in this plan; and
 - installed-package and security-scanner behavior needed by the chosen
   production distribution is either green or explicitly outside PTK's support
-  promise.
+  promise; and
+- the toolkit-owned `AGENTS.md` PTK guidance, which currently teaches
+  `background=true` and `ptk_job`, is updated at its upstream governance source
+  and refreshed normally before the reduced public surface is activated.
 
 These are gates, not additional worker-salvage implementation slices. A
 separately scoped product fix still needs its own approved plan.
@@ -649,9 +652,12 @@ platform-specific behavior, and no known production blocker.
 2. Mark `.agents/plans/mcp-resilience.md` superseded by this plan without
    deleting its historical evidence.
 3. Do not update `.agents/decisions.md` while its owner hold remains.
-4. Reconcile current `origin/master`, rerun affected verification, integrate
+4. Do not edit the toolkit-owned `AGENTS.md` copy. Route removal of
+   `background=true`/`ptk_job` guidance to the governance toolkit owner, then
+   use the normal governance refresh after that upstream change is available.
+5. Reconcile current `origin/master`, rerun affected verification, integrate
    only the verified salvage branch, and prove content arrival.
-5. Preserve the old resilience branch until separate deletion approval.
+6. Preserve the old resilience branch until separate deletion approval.
 
 Exit: repository guidance can no longer direct an agent back to the discarded
 guardian/private-host architecture.
@@ -682,7 +688,9 @@ No production use or default registration until:
 5. rollback is fault-injected and byte-identical;
 6. a canary production workflow runs without unexplained failure or state
    leakage;
-7. all known failures are fixed or explicitly ruled outside PTK's control.
+7. toolkit-owned PTK guidance no longer tells agents to call the removed job
+   surface; and
+8. all known failures are fixed or explicitly ruled outside PTK's control.
 
 The production rollout starts with a reversible canary registration. Public
 release assets and deletion of the old resilience branch remain separately

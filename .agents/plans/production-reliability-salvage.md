@@ -132,9 +132,11 @@ Required message kinds:
 3. `state_query` / `state_snapshot`, carrying only bounded runspace diagnostics
    when the worker is idle;
 4. `cancel`, naming one active request;
-5. `result`, carrying exactly one completed, refused, cancelled, timed-out, or
+5. ordered bounded `artifact_chunk` frames plus one `artifact_seal` carrying
+   the final byte length and SHA-256 digest when output recovery is available;
+6. `result`, carrying exactly one completed, refused, cancelled, timed-out, or
    failed terminal;
-6. `shutdown` / `stopped`.
+7. `shutdown` / `stopped`.
 
 The frame reader rejects invalid UTF-8, duplicate or unknown fields, wrong
 versions, stale incarnations, oversized frames, and unsolicited terminals. A
@@ -253,6 +255,15 @@ Keep same-invocation bounded output capture if it remains independent of audit.
 Capture failure must degrade to ordinary bounded output plus
 `recovery=unavailable`; it must not refuse or rerun the command. Handles remain
 connection-local and expire by bounded memory/disk quota.
+
+Before an invoke, the supervisor reserves one connection-local artifact ID.
+The worker sends the exact recoverable output as monotonically ordered,
+individually bounded chunks, then a seal with the total length and digest.
+The supervisor rejects gaps, duplicates, wrong digests, and quota overflow,
+publishes an immutable public handle only after a valid seal, and marks a
+partially transferred artifact explicitly incomplete. The ordinary bounded
+result remains independent of artifact publication; a transfer failure never
+causes command resubmission.
 
 ### `ptk_job`
 
@@ -412,7 +423,8 @@ created by default; full verification green.
    fixture.
 4. Prove fragmented/coalesced input, malformed UTF-8/JSON, stale incarnation,
    duplicate request IDs, cancellation, bounded state snapshots, unavailable
-   busy-state diagnostics, and exactly one terminal.
+   busy-state diagnostics, ordered artifact chunks, seal digest/length
+   validation, and exactly one terminal.
 
 Exit: worker protocol is live only in a disposable fixture; public MCP behavior
 is unchanged.
@@ -480,9 +492,13 @@ Exit: real apphost fault matrix green on every supported platform.
 
 1. Retain only output behavior that remains independent of mandatory audit and
    discarded guardian capabilities.
-2. Prove capture failure never blocks invoke or causes replay.
-3. Prove connection teardown removes unsealed temporary output.
-4. Remove unneeded capability/provenance machinery rather than recreating it.
+2. Implement the reserved artifact ID, chunk, seal, and immutable-publication
+   path described above.
+3. Prove wrong order, duplicate/gapped chunks, digest mismatch, quota overflow,
+   worker loss mid-transfer, and capture failure never cause replay or a false
+   complete handle.
+4. Prove connection teardown removes unsealed temporary output.
+5. Remove unneeded capability/provenance machinery rather than recreating it.
 
 Exit: retained tools are bounded and cannot reduce core invoke availability.
 

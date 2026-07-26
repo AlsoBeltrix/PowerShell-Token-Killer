@@ -109,8 +109,8 @@ with no symbol either could read from the other. The clause is worth keeping in
 the plan precisely because both values are 10 000 ms — a borrow would be
 invisible to any test that only checked the number.
 
-One narrow asymmetry survives and is the real G1: the *host* broker's `#define`s
-are frozen by source regex, and the *worker* broker's are not.
+G1 closed the one narrow asymmetry: both brokers' independent constants are now
+frozen by source regex against their production translation units.
 
 **F4 — x64 Linux has never run this branch's battery.** The matrix requires the
 complete repository battery and stdio handshake on macOS, x64 Linux, and
@@ -142,7 +142,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | A2.1 | EOF, exit, reader and writer failures racing start exactly one recovery | COVERED | `GuardianHostLifecycleControllerTests.Racing_loss_sources_begin_one_containment_with_one_exact_deadline`; `Racing_contract_mismatch_and_exit_always_stop_one_containment` |
 | A2.2 | Public stdout remains open and valid throughout | COVERED | `ResilienceFakeGuardianTests.Disposable_guardian_preserves_public_pipe_and_delivery_truth_across_host_loss`; harness-wide `AssertPublicStdoutIsJsonRpcOnly`; `Already_closed_public_stdout_is_safe_during_harness_construction` |
 | A3.1 | `host_containment_unconfirmed` is returned at exactly `hostContainmentGrace` | COVERED | `GuardianHostLifecycleControllerTests.Containment_deadline_is_exact_and_late_confirmation_starts_one_replacement`; `GuardianHostSupervisorTests.Unconfirmed_containment_is_durably_audited_with_the_old_identity` (fake clock advanced by exactly `HostContainmentGrace`) |
-| A3.2 | The host grace never borrows `timeoutContainmentGrace` | COVERED (structural) | Two separate constants in two separate native translation units — F3. Values pinned independently by `McpResilienceR0ContractTests.Containment_native_and_adapter_pins_are_closed` (`host_containment_grace_ms` vs `timeout_containment_grace_ms`); host broker source frozen by `UnixPrivateHostProcessLauncherTests.Native_source_freezes_the_outer_broker_boundary`. Worker broker source pin missing — G1 |
+| A3.2 | The host grace never borrows `timeoutContainmentGrace` | COVERED (structural + source-pinned) | Two separate constants in two separate native translation units — F3. Values pinned independently by `McpResilienceR0ContractTests.Containment_native_and_adapter_pins_are_closed` (`host_containment_grace_ms` vs `timeout_containment_grace_ms`); host broker source frozen by `UnixGuardianBrokerIntegrationTests.Native_source_freezes_the_liveness_registry_and_reaping_boundary`; worker broker source frozen by `UnixWorkerProcessLauncherTests.Native_source_freezes_the_worker_broker_grace_constants` — G1 closed |
 | A3.3 | No replacement starts before later confirmed old-tree death | COVERED | `GuardianHostSupervisorTests.Unconfirmed_containment_blocks_every_replacement`; `GuardianHostLifecycleControllerTests.Containment_deadline_is_exact_and_late_confirmation_starts_one_replacement`; `Failed_recovery_backoff_begins_only_after_confirmed_death` |
 | A4.1 | Replacement contract/build mismatch is refused | COVERED | `GuardianHostSupervisorTests.Contract_mismatch_during_recovery_is_permanent` (nonretryable, no phase/attempt/gate metadata); `Contract_mismatch_during_prewrite_loss_beats_retry_guidance`; `GuardianHostLifecycleControllerTests.Contract_mismatch_and_identity_exhaustion_are_internal_permanent_terminals`; `GuardianHostClientTests.Initialize_rejects_manifest_pin_mismatch_before_read_or_write` |
 | A4.2 | The refusal never changes the live public tool catalog | COVERED (structural) | Catalog is guardian-owned and frozen — F6; `GuardianMcpApplicationTests.Real_stream_transport_uses_only_the_frozen_contract_and_dispatcher`; `ToolSchemaConformanceTests` |
@@ -237,7 +237,7 @@ not named in test identities, which is what defeated the first pass):
 | job-running | COVERED | `Composition_seals_a_real_background_job_artifact_for_handle_recovery` (cross-platform); `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` |
 | E2.1 | Windows proves creation-time outer containment, nested Job Objects, noninheritance, direct `NETWATCH-01` cleanup | COVERED | `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant`, `Disposable_probe_has_one_atomic_creator_and_no_job_handle_escape_path`; `WindowsProcessTreeSupervisorTests.Native_creation_flags_are_exact_and_suspension_is_proof_only`, `Native_production_has_one_atomic_create_and_no_fallback_or_sweep_escape_hatch`; `WindowsWorkerLifecycleIntegrationTests.Contained_worker_completes_lifecycle_with_silent_diagnostics`. Direct `NETWATCH-01` evidence is recorded in `.agents/machines.md` |
 | E2.2 | Linux/macOS prove broker liveness cleanup, host-group ownership, pending/armed registration, start-identity fencing, direct-host reap, descendant exit confirmation, nonchild reaping, no old/new group overlap | COVERED on macOS | `UnixGuardianBrokerIntegrationTests.*`; `UnixWorkerProcessLauncherTests.Production_broker_launches_real_worker_only_after_both_registry_acks`; `PrivateHostUnixWorkerContainmentRegistryTests`; `ProcessTreeContainmentTests.Terminal_release_sweeps_escaped_orphans`, `Instantly_daemonized_orphan_is_reaped_by_escalation`, `Tree_kill_defeats_a_sigterm_trap`, `Fallback_survivor_requires_matching_incarnation`. Linux execution is G8 |
-| E2.3 | Guards fail if an R5 child misses the host group, a worker leaves before pending acknowledgment, or release precedes armed acknowledgment | COVERED | `UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Corrupted_start_identity_cannot_signal_a_live_sentinel`, `Native_source_freezes_the_liveness_registry_and_reaping_boundary`; `UnixPrivateHostProcessLauncherTests.Native_source_freezes_the_outer_broker_boundary` |
+| E2.3 | Guards fail if an R5 child misses the host group, a worker leaves before pending acknowledgment, or release precedes armed acknowledgment | COVERED | `UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Corrupted_start_identity_cannot_signal_a_live_sentinel`, `Native_source_freezes_the_liveness_registry_and_reaping_boundary` |
 | E3 | Guardian stdout is exclusively valid MCP; all other output is bounded stderr/private diagnostics with no scripts, bootstrap, secrets, paths, raw environment, or exception text | COVERED | `ResilienceFakeGuardianTests.AssertPublicStdoutIsJsonRpcOnly` (applied at every barrier), `Structurally_invalid_public_json_is_recorded_and_the_next_response_is_drained`; `GuardianAppHostProcessSmokeTests.Apphost_rejects_relaxed_fake_host_flag_without_opening_stdout`; `GuardianMcpApplicationTests.Fake_host_startup_failure_is_stderr_only_and_never_opens_MCP`; `WorkerProcessExitTests.Unknown_server_detail_is_generic_and_cannot_inject_data`; `WorkerPreparedOperationCodecTests.Failures_retain_no_script_digest_identifier_or_inner_exception`; `AuditExportConfigurationTests.Sanitized_failures_never_echo_secret_values_paths_or_inner_exceptions`; `ScriptEvidenceStoreTests.Constructor_refuses_a_symlinked_evidence_root_without_disclosing_its_path` |
 | E4.1 | Existing tool names/schemas/default successful outputs remain compatible; only frozen recovery/state fields and failures change | COVERED | `ToolSchemaConformanceTests`; `McpResilienceR0ContractTests.Public_recovery_and_end_state_tool_contract_are_exact`, `Public_state_schema_closes_identity_state_combinations`, `Public_state_schema_closes_state_phase_and_readiness_combinations`; `RawUsageTests.*` |
 | E4.2 | Existing .NET, Pester, handshake, audit, output, release, and platform batteries remain green | PARTIAL | Same as E1.1 — Linux missing (G8); the handshake is a manual step per `.agents/repo-guidance.md` |
@@ -250,23 +250,14 @@ not named in test identities, which is what defeated the first pass):
 Ordered by what blocks R7 first. Every item is either a missing guard or a
 missing run; none requires new product behaviour except where stated.
 
-**G1 — The worker broker's grace constants are not source-pinned, unlike the
-host broker's (A3.2, mutation proof #38).** Test-only, small.
-`UnixPrivateHostProcessLauncherTests.Native_source_freezes_the_outer_broker_boundary`
-freezes `ptk_guardian_broker.c`'s `PTK_TERM_TO_KILL_MILLISECONDS 2000` /
-`PTK_CONTAINMENT_DEADLINE_MILLISECONDS 10000` / `PTK_IDENTITY_POLL_MILLISECONDS 25`
-by source regex. `ptk_containment_broker.c` has no equivalent pin — its
-behaviour is covered by real-process tests in `UnixWorkerProcessLauncherTests`
-(`Broker_shutdown_contains_worker_process_group_descendants`,
-`Outer_term_preserves_the_broker_but_not_its_worker`), which already compile the
-production source, but nothing asserts its constants. Editing that file to
-20 000 ms would leave `contract.json` claiming 10 000 ms with no test failing on
-the mismatch — which is exactly how one grace silently drifts from the other.
-Add the same regex pin to `UnixWorkerProcessLauncherTests`, which already
-resolves the production path via `BrokerSourcePath()`.
-
-Mutation proof #38 is satisfiable as written once this pin exists: change the
-worker `#define`, and the pin reddens.
+**G1 — CLOSED 2026-07-26.** The worker broker's grace constants are now
+source-pinned alongside the host broker's (A3.2, mutation proof #38).
+`UnixWorkerProcessLauncherTests.Native_source_freezes_the_worker_broker_grace_constants`
+reads the production `ptk_containment_broker.c` through `BrokerSourcePath()` and
+freezes `PTK_TERM_TO_KILL_MILLISECONDS` at 2 000 ms,
+`PTK_CONTAINMENT_DEADLINE_MILLISECONDS` at 10 000 ms, and
+`PTK_POLL_MILLISECONDS` at 25 ms. Changing the containment deadline to 20 000 ms
+reddened exactly this guard; restoring 10 000 ms returned it green.
 
 **G2 — No guard for the retry-sequencing rule (A6.4).** Add a test proving that a
 client dispatching on bare `retry_after_ms` expiry, without an intervening state

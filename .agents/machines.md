@@ -1982,3 +1982,18 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
 - **This is a trade-off, not a defect to patch quietly**: better real coverage
   against a flakier Linux assembly on a four-CPU host. It is recorded for an
   owner decision rather than resolved unilaterally.
+
+## R6 G1 guard verification (`nagatha.local`, 2026-07-26)
+
+- `UnixWorkerProcessLauncherTests.Native_source_freezes_the_worker_broker_grace_constants`
+  passed against the production Unix worker-broker source. Mutating only
+  `PTK_CONTAINMENT_DEADLINE_MILLISECONDS` from `UINT64_C(10000)` to
+  `UINT64_C(20000)` failed exactly that guard; restoring the production value
+  returned it green.
+- With the required physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore --verbosity minimal` passed
+  architecture 73/73, Guardian 496/496, and server 2,055/2,055.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The stdio handshake was
+  not run because G1 changes only a source-reading test and durable records.

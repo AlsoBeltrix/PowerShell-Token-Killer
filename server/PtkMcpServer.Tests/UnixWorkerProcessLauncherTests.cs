@@ -2,6 +2,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using PtkMcpServer.Worker;
 
 namespace PtkMcpServer.Tests;
@@ -13,6 +14,28 @@ public sealed class UnixWorkerProcessLauncherTests
     private static readonly Guid WorkerBootId = Guid.ParseExact(
         "0c8e03c5-b8e4-4f8b-9138-6517aca9a885",
         "D");
+
+    [Fact]
+    public void Native_source_freezes_the_worker_broker_grace_constants()
+    {
+        var source = File.ReadAllText(BrokerSourcePath());
+
+        Assert.Matches(
+            new Regex(
+                @"#define\s+PTK_TERM_TO_KILL_MILLISECONDS\s+UINT64_C\(2000\)",
+                RegexOptions.CultureInvariant),
+            source);
+        Assert.Matches(
+            new Regex(
+                @"#define\s+PTK_CONTAINMENT_DEADLINE_MILLISECONDS\s+UINT64_C\(10000\)",
+                RegexOptions.CultureInvariant),
+            source);
+        Assert.Matches(
+            new Regex(
+                @"#define\s+PTK_POLL_MILLISECONDS\s+25\b",
+                RegexOptions.CultureInvariant),
+            source);
+    }
 
     [Fact]
     public async Task Production_broker_launches_real_worker_only_after_both_registry_acks()

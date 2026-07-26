@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **R6 acceptance gap G1 is closed (2026-07-26).** The production Unix worker
+  broker's 2 000 ms TERM grace, 10 000 ms containment deadline, and 25 ms poll
+  interval are now source-pinned by
+  `UnixWorkerProcessLauncherTests.Native_source_freezes_the_worker_broker_grace_constants`.
+  Mutating the deadline from 10 000 ms to 20 000 ms reddened exactly that guard;
+  restoring it returned the guard green. Full macOS .NET and Pester verification
+  passed; exact counts and the physical-TMPDIR invocation are in
+  `.agents/machines.md`. The canonical gap map is
+  `.agents/plans/r6-acceptance-audit.md`; G2 is next.
 - **HANDOFF 2026-07-26 at `27832f6` (pushed; branch and `origin` agree). Tree
   clean, nothing in flight.** All work this session is committed and pushed —
   the branch had been sitting 11 commits local because this session kept asking
@@ -1017,102 +1026,27 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Decide `r7-1`'s runtime half, then finish R7.** The install path is fixed
-   but the runtime still treats "artifact in a format I do not recognise" and
-   "artifact that failed its integrity check" as equally fatal, so anyone
-   upgrading by any other route is still bricked. The product fix is to separate
-   them and quarantine the first — the store already has an `Unreferenced` state
-   and `.unreferenced.script` naming for exactly that set-aside. **It was left
-   undone on purpose**: it loosens a control-violation path in the audit
-   subsystem, and it must be argued against the orphan-reconciler and
-   evidence-retention tests that encode the current rule. Its regression guard
-   (stand up a root holding a bare-GUID artifact, assert `audit=available`)
-   belongs with that decision, since the decision determines whether the runtime
-   or the installer owns the outcome.
-   Then the rest of R7: remove the transitional no-argument public server mode
-   (`PrivateHostProcessEntry.Classify` returns `TransitionalDevelopment` for zero
-   arguments; `Program.cs` branches on it), repoint `server/test-handshake.ps1`
-   at the guardian, and **add a check that the server reaches `audit=available`
-   against the actual target root before registrations are mutated** — the
-   absence of that check is exactly what let a completely inert install look
-   like a success.
-2. **Deliver.** Nothing today reaches the owner until the branch merges to
-   `master` and a reinstall happens; the branch is ~330 commits ahead. Per the
-   handoff contract, report this work as in progress until then.
-3. **Work the remaining R6 gap list in
-   `.agents/plans/r6-acceptance-audit.md`.** The audit itself is DONE
-   (2026-07-26): every matrix line now has a status and named covering tests,
-   and the ten gaps are enumerated as G1-G10 in that file, ordered by what
-   blocks R7 first. Take them in order; the audit is the canonical map and
-   nothing here duplicates it.
-   Two of the ten are owner calls rather than work items — **G1** (the plan
-   requires proving host containment never borrows `timeoutContainmentGrace`,
-   a symbol that does not exist anywhere in the code) and **G9** (matrix rows
-   B3/B4 still demand frozen template bootstrap, which the 2026-07-24
-   lazy-load amendment removed from R6 scope). Ask those two before spending
-   cycles on them.
-   **G8 is the largest single unclosed requirement and is a run, not a code
-   change**: the complete battery plus stdio handshake on x64 Linux `magneto`,
-   which has never been run on this branch at any head, plus a Windows re-run
-   to clear the one-commit lag.
-2. **Then R7** (`.agents/plans/mcp-resilience.md`) — development registration,
-   package fixture, end-to-end cutover. Blocked on 1 by the plan's own gate:
-   "Close the R6 acceptance matrix before R7."
-3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
-   suspected regression from this session's own work.** Writing the acceptance
-   test for one-alias crash isolation on the real apphost found that
-   `ptk_state` returned `isError` while the alias projected `Recovering`.
-   **Fixed 2026-07-25** — see `## Now` and
-   `.agents/review/findings/r6acc-1.md`. Nothing outstanding except running it
-   on Linux and Windows.
-3. Then finish sub-slice 5 from head `02b924c`. Recovery projection,
-   invalidation evidence, and execution-timeout containment are done (see
-   `## Now`); **the R6 acceptance matrix's one-alias isolation line is now
-   proven on macOS** by the landed
-   `Composition_isolates_one_alias_worker_crash_from_a_second_alias` — one
-   alias crashes and recovers while the second keeps its PID, generation, warm
-   state, and successful operation, on the real apphost rather than the in-proc
-   rig. What remains is running that identity on Windows and Linux, and any
-   other acceptance lines the plan names. The
-   production-cutover slice is verified on macOS; the Windows composition
-   evidence is collected and blocked behind `r6x-2` #2 alone. Note that
-   execution timeout now destroys the alias's warm
-   state by design (owner-approved 2026-07-15) — it is product-visible
-   behaviour worth calling out in R7's cutover notes.
-3. Continue directly into R7, carrying issue #11's explicit
-   product/client boundary through the real-Codex cutover validation. Do not
-   fold the separate ARM64 MSBuild-only `protoc` investigation into resilience
-   work.
-4. After the current active work is complete, retain and merge each remaining
-   work-carrying branch into `master` one at a time:
-   `feature/mcp-resilience-r1`, `feat/closed-prefix-reader`,
-   `feat/config-retry-capability`, and `fix/locked-prefix-reconcile`. Re-check
-   content arrival and the relevant verification before deleting any retained
-   branch.
-5. rbc-15 is closed and merged locally (`f0d17f6`); its residual
-   recycled-PID incarnation hardening is a tracked follow-up dev task (no
-   further paid review rounds). Do not continue or commit the saved rbc-5
-   post-start attach WIP.
-6. Close out the rbc batch remainders: rbc-8's targeted drain-replay guard
-   test lands in the worker-subsystem pass; rbc-11 stays gated on the owner's
-   S3H land/park decision; rbc-5 closes via resilience R7. Reassess
-   per-finding whether work is safeguard-sensitive and route out if so.
-7. Hold mini-SIEM at the S4 fixture gate recorded under `## Open / Parked`.
-   When producer-owned v3 request bytes land, execute S4 from the complete
-   producer corpus; do not substitute receiver-authored fixtures. Do not begin
-   S4–S6 or modify PTK runtime for SIEM work.
-8. Release-distribution slice 3 is ordered after resilience R7 and consumes
-   only its matched guardian layout; there is no legacy migration path. Do not
-   execute it before R7 lands. Re-present the hook-default choice before release
-   slice 4.
-9. When the owner releases the decisions hold, reconcile the rejected
-   security mechanism, retired durable/shared staging, and PTK→RTK routing
-   direction in `.agents/decisions.md`.
-10. On Microsoft's #7 verdict, execute the on-verdict steps in
-   `.agents/plans/defender-fp-submission.md`. Meanwhile the unblocked CI
-   remainders are the Windows kill-path test diagnosis (2/1587 failures) and
-   the pre-existing `tls_protection` SIEM conformance-host TLS-material
-   hardening.
+1. **Close the R6 acceptance matrix before doing more R7 work.** Continue the
+   canonical gap map in `.agents/plans/r6-acceptance-audit.md`, one gap per
+   corrective commit with its required mutation proof. G1 is closed; G2 is
+   next.
+2. **Then decide `r7-1`'s runtime half and finish R7.** Preserve fatal handling
+   for integrity failures, decide whether unknown evidence formats are
+   quarantined, and add an actual-root `audit=available` preflight before any
+   registration mutation. Then remove the transitional public server entry,
+   repoint the handshake at the guardian, and complete the matched-package
+   cutover and real-client matrix.
+3. **Deliver only after verification.** Reconcile the feature branch with
+   current `origin/master`, run the required exact-head platform evidence,
+   integrate verified content into `master`, publish the verified refs, and
+   reinstall the matched payload. Until then, report resilience work as in
+   progress.
+4. After resilience delivery, retain and merge each other work-carrying branch
+   into `master` one at a time, proving content arrival and relevant verification
+   before deleting any branch.
+5. Keep mini-SIEM S4, release-distribution slice 3, the decision-log
+   reconciliation, and Microsoft #7 follow-up behind their recorded gates in
+   `## Open / Parked` and `## Blockers`.
 
 ## Open / Parked
 

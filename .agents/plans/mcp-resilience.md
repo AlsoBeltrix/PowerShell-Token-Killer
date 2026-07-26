@@ -1175,10 +1175,20 @@ and the code.
   leaves a visible generation gap; the next attempt uses a greater value.
 - No replacement begins before confirmed old-tree death. Unconfirmed death
   keeps state/output reads available but blocks effects and generation advance.
-- Exact frozen bootstrap bytes/digest are used once per recovered generation
-  even after the source file is edited, replaced, deleted, or symlinked.
-- Bootstrap baseline returns; arbitrary warm mutations, connections, and jobs
-  do not. Dynamic sessions return empty; closed/cold aliases remain closed/cold.
+- ~~Exact frozen bootstrap bytes/digest are used once per recovered generation
+  even after the source file is edited, replaced, deleted, or symlinked.~~
+  **Superseded by the R6 lazy-load amendment (owner, 2026-07-24; amended here
+  2026-07-26).** Frozen template bootstrap is out of R6 scope: production
+  always restores an empty baseline and never reads a bootstrap source file, so
+  there are no exact frozen bytes to replay per recovered generation. The
+  retained state-machine path stays guarded — see
+  `.agents/plans/r6-acceptance-audit.md` row B3 — but nothing in this line is an
+  R6 exit requirement.
+- A recovered alias returns as a sound, empty runspace: arbitrary warm
+  mutations, connections, and jobs do not come back. Dynamic sessions return
+  empty; closed/cold aliases remain closed/cold. (The original wording,
+  "bootstrap baseline returns", predates the lazy-load amendment above; under
+  that amendment the baseline *is* the empty runspace.)
 - Ambiguous lifecycle/bootstrap calls become `recovery_unknown` and are never
   replayed. Stale expected generation refuses before effects.
 - Public job/output IDs never reuse. Sealed output remains readable; incomplete

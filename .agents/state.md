@@ -14,12 +14,22 @@ short and update it when important repo facts change.
   real-apphost composition identities are gated `if (!IsWindows()) return;` and
   so pass *vacuously* on macOS and Linux — a green cross-platform run says
   nothing about them; this is the `r6x-2` lesson as a structural fact rather
-  than an incident. (2) The matrix predates the 2026-07-24 lazy-load amendment
-  and still demands frozen template bootstrap, so two rows are unclosable as
-  written and need an owner amendment rather than implementation. (3) The plan
-  requires proving host containment never borrows `timeoutContainmentGrace`,
-  but that symbol exists only in plan prose — the code has one grace constant,
-  `GuardianHostLifecycleController.HostContainmentGrace`.
+  than an incident. (2) The matrix predated the 2026-07-24 lazy-load amendment
+  and still demanded frozen template bootstrap; **the owner approved the plan
+  edit 2026-07-26 and it is applied — G9 is closed.** (3) Both containment
+  graces exist and the plan's "never borrows" clause holds by construction: the
+  worker grace is `PTK_CONTAINMENT_DEADLINE_MILLISECONDS` in
+  `PtkMcpGuardian/Native/ptk_containment_broker.c`, the host grace is the
+  separate identically-named `#define` in `ptk_guardian_broker.c` plus managed
+  `GuardianHostLifecycleController.HostContainmentGrace`, and both values are
+  pinned independently in `Contracts/ResilienceR0/contract.json`. **A first
+  revision of this audit wrongly recorded the worker grace as absent** — it was
+  searched for only as a C# camelCase identifier, and it lives in the native
+  sources and the frozen contract under snake_case names. Search a concept
+  across native and contract surfaces before calling it missing. The residual
+  G1 is narrow and test-only: the host broker's `#define`s are frozen by source
+  regex and the worker broker's are not, so the two 10 000 ms values could
+  drift apart undetected.
   The audit is static: it read tests, ran none, and does not claim any covering
   guard is non-vacuous.
 - **HANDOFF 2026-07-26 at `15568a0` (pushed).** No work in flight, tree clean,

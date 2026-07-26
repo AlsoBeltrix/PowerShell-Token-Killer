@@ -75,15 +75,35 @@ covered and not gaps. **The matrix text itself should be amended so a later
 agent does not try to close them** — that amendment is an owner call, listed in
 the gap list as G9.
 
-**F3 — `timeoutContainmentGrace` does not exist in the codebase.** Matrix row A3
-requires proving host containment "never borrows `timeoutContainmentGrace`", and
-required mutation proof #38 names the same symbol. The only containment grace
-constant in the source is
-`GuardianHostLifecycleController.HostContainmentGrace` (10 s). The worker-only
-`timeoutContainmentGrace` appears solely in
-`.agents/plans/audited-harness-sessions.md` and `.agents/plans/mcp-resilience.md`
-as plan prose. The distinctness clause is therefore unprovable as written; what
-*is* provable — the host grace is exact and load-bearing — is covered. See G1.
+**F3 — Both containment graces exist; the plan's `timeoutContainmentGrace` is
+plan vocabulary, not a code identifier.** (Corrected 2026-07-26 — an earlier
+revision of this audit wrongly recorded the worker grace as absent. It was
+searched for as a C# camelCase identifier only; it lives in the native sources
+and the frozen contract under snake_case names.)
+
+- **Worker grace** (`timeoutContainmentGrace`, post-launch startup failure and
+  post-start execution timeout): `PTK_CONTAINMENT_DEADLINE_MILLISECONDS 10000`
+  and `PTK_TERM_TO_KILL_MILLISECONDS 2000` in
+  `server/PtkMcpGuardian/Native/ptk_containment_broker.c`, compiled to
+  `PtkContainmentBroker` by `server/PtkMcpServer/PtkMcpServer.csproj`.
+- **Host grace** (`hostContainmentGrace`, outer host-generation teardown): the
+  *separate* pair of identically named `#define`s in
+  `server/PtkMcpGuardian/Native/ptk_guardian_broker.c`, plus the managed
+  guardian-side deadline `GuardianHostLifecycleController.HostContainmentGrace`
+  (10 s).
+- Both values are independently pinned in the frozen
+  `server/Contracts/ResilienceR0/contract.json` as `host_containment_grace_ms`
+  and `timeout_containment_grace_ms`, asserted by
+  `McpResilienceR0ContractTests.Containment_native_and_adapter_pins_are_closed`.
+
+The "never borrows" clause therefore **holds by construction**: two distinct
+constants in two distinct translation units producing two distinct binaries,
+with no symbol either could read from the other. The clause is worth keeping in
+the plan precisely because both values are 10 000 ms — a borrow would be
+invisible to any test that only checked the number.
+
+One narrow asymmetry survives and is the real G1: the *host* broker's `#define`s
+are frozen by source regex, and the *worker* broker's are not.
 
 **F4 — x64 Linux has never run this branch's battery.** The matrix requires the
 complete repository battery and stdio handshake on macOS, x64 Linux, and
@@ -115,7 +135,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | A2.1 | EOF, exit, reader and writer failures racing start exactly one recovery | COVERED | `GuardianHostLifecycleControllerTests.Racing_loss_sources_begin_one_containment_with_one_exact_deadline`; `Racing_contract_mismatch_and_exit_always_stop_one_containment` |
 | A2.2 | Public stdout remains open and valid throughout | COVERED | `ResilienceFakeGuardianTests.Disposable_guardian_preserves_public_pipe_and_delivery_truth_across_host_loss`; harness-wide `AssertPublicStdoutIsJsonRpcOnly`; `Already_closed_public_stdout_is_safe_during_harness_construction` |
 | A3.1 | `host_containment_unconfirmed` is returned at exactly `hostContainmentGrace` | COVERED | `GuardianHostLifecycleControllerTests.Containment_deadline_is_exact_and_late_confirmation_starts_one_replacement`; `GuardianHostSupervisorTests.Unconfirmed_containment_is_durably_audited_with_the_old_identity` (fake clock advanced by exactly `HostContainmentGrace`) |
-| A3.2 | The host grace never borrows `timeoutContainmentGrace` | GAP | Symbol absent from the codebase — see F3, G1 |
+| A3.2 | The host grace never borrows `timeoutContainmentGrace` | COVERED (structural) | Two separate constants in two separate native translation units — F3. Values pinned independently by `McpResilienceR0ContractTests.Containment_native_and_adapter_pins_are_closed` (`host_containment_grace_ms` vs `timeout_containment_grace_ms`); host broker source frozen by `UnixPrivateHostProcessLauncherTests.Native_source_freezes_the_outer_broker_boundary`. Worker broker source pin missing — G1 |
 | A3.3 | No replacement starts before later confirmed old-tree death | COVERED | `GuardianHostSupervisorTests.Unconfirmed_containment_blocks_every_replacement`; `GuardianHostLifecycleControllerTests.Containment_deadline_is_exact_and_late_confirmation_starts_one_replacement`; `Failed_recovery_backoff_begins_only_after_confirmed_death` |
 | A4.1 | Replacement contract/build mismatch is refused | COVERED | `GuardianHostSupervisorTests.Contract_mismatch_during_recovery_is_permanent` (nonretryable, no phase/attempt/gate metadata); `Contract_mismatch_during_prewrite_loss_beats_retry_guidance`; `GuardianHostLifecycleControllerTests.Contract_mismatch_and_identity_exhaustion_are_internal_permanent_terminals`; `GuardianHostClientTests.Initialize_rejects_manifest_pin_mismatch_before_read_or_write` |
 | A4.2 | The refusal never changes the live public tool catalog | COVERED (structural) | Catalog is guardian-owned and frozen — F6; `GuardianMcpApplicationTests.Real_stream_transport_uses_only_the_frozen_contract_and_dispatcher`; `ToolSchemaConformanceTests` |
@@ -211,13 +231,23 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 Ordered by what blocks R7 first. Every item is either a missing guard or a
 missing run; none requires new product behaviour except where stated.
 
-**G1 — `timeoutContainmentGrace` is named by the plan and absent from the code
-(A3.2, mutation proof #38).** Decide one of: (a) confirm the worker-side
-execution-timeout path has no separate grace constant and amend the matrix row
-and mutation #38 to drop the borrow clause; or (b) introduce the constant if the
-worker path is meant to have its own budget. This is a plan-versus-code conflict,
-so it is an owner question, not an implementation choice. Blocks A3 from being
-called closed either way.
+**G1 — The worker broker's grace constants are not source-pinned, unlike the
+host broker's (A3.2, mutation proof #38).** Test-only, small.
+`UnixPrivateHostProcessLauncherTests.Native_source_freezes_the_outer_broker_boundary`
+freezes `ptk_guardian_broker.c`'s `PTK_TERM_TO_KILL_MILLISECONDS 2000` /
+`PTK_CONTAINMENT_DEADLINE_MILLISECONDS 10000` / `PTK_IDENTITY_POLL_MILLISECONDS 25`
+by source regex. `ptk_containment_broker.c` has no equivalent pin — its
+behaviour is covered by real-process tests in `UnixWorkerProcessLauncherTests`
+(`Broker_shutdown_contains_worker_process_group_descendants`,
+`Outer_term_preserves_the_broker_but_not_its_worker`), which already compile the
+production source, but nothing asserts its constants. Editing that file to
+20 000 ms would leave `contract.json` claiming 10 000 ms with no test failing on
+the mismatch — which is exactly how one grace silently drifts from the other.
+Add the same regex pin to `UnixWorkerProcessLauncherTests`, which already
+resolves the production path via `BrokerSourcePath()`.
+
+Mutation proof #38 is satisfiable as written once this pin exists: change the
+worker `#define`, and the pin reddens.
 
 **G2 — No guard for the retry-sequencing rule (A6.4).** Add a test proving that a
 client dispatching on bare `retry_after_ms` expiry, without an intervening state
@@ -261,11 +291,11 @@ head and record the result in `.agents/machines.md`. Also re-run Windows at the
 current head to clear the one-commit lag. This is a run, not a code change, and
 it is the single largest unclosed matrix requirement.
 
-**G9 — The matrix text still demands template bootstrap (F2, B3, B4.2).** Amend
-`.agents/plans/mcp-resilience.md` `## Acceptance matrix` so rows B3 and B4's
-first clause reflect the lazy-load amendment, or a later agent will burn cycles
-trying to close a requirement the owner already removed. Owner call, because it
-edits an approved plan.
+**G9 — CLOSED 2026-07-26.** The matrix rows B3 and B4's first clause demanded
+template bootstrap the lazy-load amendment had already removed. Owner approved
+the plan edit on 2026-07-26; `.agents/plans/mcp-resilience.md`
+`## Acceptance matrix` now strikes the B3 line and restates B4 as the empty-
+runspace baseline. No implementation work remains.
 
 **G10 — Three named hard-kill barriers have no matching identity (E1.2).**
 Confirm whether the initialize, bootstrap, and foreground-busy barriers are

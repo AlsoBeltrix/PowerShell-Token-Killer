@@ -5,16 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 acceptance gap G3 is closed (2026-07-26).**
-  `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay`
-  proves the timeout contract on the real apphost: one terminal and one script
-  start, confirmed old-process death before replacement readiness, a fresh
-  generation and declared baseline with `WarmStateLost`, no warm sentinel, and
-  no replay. It exposed and fixed a host/worker deadline race that could leave
-  the runaway worker live, plus intentional-disposal semantics that could leave
-  a dead generation projected `Ready`. Full macOS verification is recorded in
+- **R6 acceptance gap G4 is closed (2026-07-26).**
+  `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
+  is now a five-row theory over Starting, Ready, an active Backoff, CircuitOpen,
+  and HalfOpen. Each row makes 100 public `ptk_state` reads and proves the
+  projected state/readiness, scheduler count, attempt count, and zero host
+  operations remain unchanged. Restricting the read to Ready reddened all four
+  non-ready rows while Ready stayed green; restoring unconditional local reads
+  returned 5/5 green. Full macOS verification is recorded in
   `.agents/machines.md`. The canonical gap map is
-  `.agents/plans/r6-acceptance-audit.md`; G4 is next.
+  `.agents/plans/r6-acceptance-audit.md`; G5's recovery-phase `ping`/`tools/list`
+  residual is next.
 - **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
   session left open overnight came back dead with `API Error: 400 Tool reference
   'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the

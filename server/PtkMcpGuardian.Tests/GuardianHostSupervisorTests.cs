@@ -2383,24 +2383,123 @@ public sealed class GuardianHostSupervisorTests
         return last;
     }
 
-    [Fact]
-    public async Task State_polling_is_guardian_local_and_scheduler_inert()
+    [Theory]
+    [InlineData(PublicHostState.Starting)]
+    [InlineData(PublicHostState.Ready)]
+    [InlineData(PublicHostState.Backoff)]
+    [InlineData(PublicHostState.CircuitOpen)]
+    [InlineData(PublicHostState.HalfOpen)]
+    public async Task State_polling_is_guardian_local_and_scheduler_inert(
+        PublicHostState expectedState)
     {
-        await using var rig = new TestRig(new AttemptPlan(HostBehavior.Respond));
-        await rig.StartAsync();
+        AttemptPlan[] plans = expectedState switch
+        {
+            PublicHostState.Starting =>
+                [new AttemptPlan(HostBehavior.HoldStartup)],
+            PublicHostState.Ready =>
+                [new AttemptPlan(HostBehavior.Respond)],
+            PublicHostState.Backoff =>
+            [
+                new AttemptPlan(HostBehavior.Respond),
+                new AttemptPlan(HostBehavior.ProvedNoChild),
+            ],
+            PublicHostState.CircuitOpen or PublicHostState.HalfOpen =>
+            [
+                new AttemptPlan(HostBehavior.Respond),
+                .. Enumerable.Repeat(
+                    new AttemptPlan(HostBehavior.ProvedNoChild),
+                    6),
+                .. (expectedState == PublicHostState.HalfOpen
+                    ? [new AttemptPlan(HostBehavior.HoldStartup)]
+                    : Array.Empty<AttemptPlan>()),
+            ],
+            _ => throw new ArgumentOutOfRangeException(nameof(expectedState)),
+        };
+        await using var rig = new TestRig(plans);
+        Task? initialStartup = null;
+        switch (expectedState)
+        {
+            case PublicHostState.Starting:
+                initialStartup = rig.StartAsync();
+                await WaitUntilAsync(() =>
+                    rig.Factory.Resources.Count == 1 &&
+                    rig.Supervisor.SnapshotState().Host.State ==
+                        PublicHostState.Starting);
+                break;
+            case PublicHostState.Ready:
+                await rig.StartAsync();
+                break;
+            case PublicHostState.Backoff:
+                await rig.StartAsync();
+                rig.Factory.Resources[0].Crash();
+                await WaitUntilAsync(() =>
+                    rig.Supervisor.SnapshotState().Host.State ==
+                        PublicHostState.Backoff &&
+                    rig.Scheduler.HasPending(TimeSpan.FromMilliseconds(250)));
+                break;
+            case PublicHostState.CircuitOpen:
+            case PublicHostState.HalfOpen:
+                await rig.StartAsync();
+                rig.Factory.Resources[0].Crash();
+                await WaitUntilAsync(() =>
+                    rig.Supervisor.SnapshotState().Host.State ==
+                        PublicHostState.Backoff);
+                foreach (var delay in new[]
+                {
+                    TimeSpan.FromMilliseconds(250),
+                    TimeSpan.FromSeconds(1),
+                    TimeSpan.FromSeconds(4),
+                    TimeSpan.FromSeconds(15),
+                    TimeSpan.FromSeconds(30),
+                })
+                {
+                    await rig.Scheduler.AdvanceAndCompleteAllAsync(delay);
+                }
+                await WaitUntilAsync(() =>
+                    rig.Supervisor.SnapshotState().Host.State ==
+                        PublicHostState.CircuitOpen);
+                if (expectedState == PublicHostState.HalfOpen)
+                {
+                    await rig.Scheduler.AdvanceAndCompleteAllAsync(
+                        RecoveryCircuitMachine.CircuitOpenWindow);
+                    await WaitUntilAsync(() =>
+                        rig.Factory.Resources.Count == 8 &&
+                        rig.Supervisor.SnapshotState().Host.State ==
+                            PublicHostState.HalfOpen);
+                }
+                break;
+        }
+
         var scheduleCount = await SettledScheduleCountAsync(rig);
         var attemptCount = rig.Factory.Resources.Count;
 
         for (var index = 0; index < 100; index++)
         {
             var snapshot = await rig.ReadStateAsync();
-            Assert.Equal(PublicHostState.Ready, snapshot.Host.State);
-            Assert.True(snapshot.Host.ReadyForEffects);
+            Assert.Equal(expectedState, snapshot.Host.State);
+            Assert.Equal(
+                expectedState == PublicHostState.Ready,
+                snapshot.Host.ReadyForEffects);
         }
 
         Assert.Equal(scheduleCount, rig.Scheduler.ScheduleCount);
         Assert.Equal(attemptCount, rig.Factory.Resources.Count);
-        Assert.Equal(0, rig.Factory.Resources[0].OperationCount);
+        Assert.All(
+            rig.Factory.Resources,
+            resource => Assert.Equal(0, resource.OperationCount));
+
+        if (expectedState == PublicHostState.Starting)
+        {
+            rig.Factory.Resources[0].ReleaseStartup();
+            await initialStartup!.WaitAsync(TestTimeout);
+        }
+        else if (expectedState == PublicHostState.HalfOpen)
+        {
+            rig.Factory.Resources[^1].ReleaseStartup();
+            await WaitUntilAsync(() =>
+                rig.Supervisor.SnapshotState().Host.State ==
+                    PublicHostState.Ready);
+        }
     }
 
     [Fact]
@@ -5049,6 +5148,7 @@ public sealed class GuardianHostSupervisorTests
         ContractMismatchHello,
         CrashAfterRequest,
         Hold,
+        HoldStartup,
         InitializingContainment,
         InitializingWorkerCreate,
         PreparedForeground,
@@ -5176,6 +5276,8 @@ public sealed class GuardianHostSupervisorTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> _outputFinished = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _startupRelease = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<bool> _containmentRegistryEntered = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly List<ObservedContainmentRegistration>
@@ -5275,6 +5377,10 @@ public sealed class GuardianHostSupervisorTests
 
         internal void SignalOutputFinished() => _outputFinished.TrySetResult(true);
 
+        internal void ReleaseStartup() => _startupRelease.TrySetResult(true);
+
+        internal Task WaitForStartupReleaseAsync() => _startupRelease.Task;
+
         public Stream RequestStream => _requests;
         public Stream EventStream => _events;
         public int HostProcessId { get; }
@@ -5319,6 +5425,7 @@ public sealed class GuardianHostSupervisorTests
         {
             if (Interlocked.Exchange(ref _closed, 1) != 0) return;
             _outputRelease.TrySetResult(true);
+            _startupRelease.TrySetResult(true);
             _requests.CompleteWriting();
             _events.CompleteWriting();
             _hostExited.TrySetResult(true);
@@ -5371,6 +5478,7 @@ public sealed class GuardianHostSupervisorTests
             if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
             _outputRelease.TrySetResult(true);
             _outputFinished.TrySetResult(true);
+            _startupRelease.TrySetResult(true);
             _disposeEntered.TrySetResult(true);
             _disposeRelease?.Wait();
             _requests.Dispose();
@@ -5573,6 +5681,8 @@ public sealed class GuardianHostSupervisorTests
             try
             {
                 var identity = _owner.Identity;
+                if (behavior == HostBehavior.HoldStartup)
+                    await _owner.WaitForStartupReleaseAsync();
                 await _writer.WriteAsync(new GuardianHostHello(
                     identity.GuardianBootId,
                     identity.HostBootId,

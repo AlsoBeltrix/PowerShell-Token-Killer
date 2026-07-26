@@ -193,8 +193,8 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | ID | Claim (abridged) | Status | Evidence |
 |----|------------------|--------|----------|
 | C1.1 | Guardian-local state/list/output stay prompt during containment | COVERED | `GuardianHostSupervisorTests.Lost_background_job_reads_stay_guardian_local_during_containment`; `Public_output_reads_searches_and_reports_guardian_local_artifacts`; `Public_session_list_is_guardian_local_and_uses_projected_state` |
-| C1.2 | …and during startup, every backoff delay, circuit-open, and half-open | PARTIAL | Circuit-open is covered (`Failed_generations_open_a_bounded_circuit_without_poll_driven_probes`, and `State_polling_is_guardian_local_and_scheduler_inert` proves the read never touches the scheduler, which is the mechanism). No test drives a guardian-local read in each of the startup, backoff-delay, and half-open phases specifically. See G4 |
-| C1.3 | MCP `ping` and `tools/list` remain prompt in every phase | GAP | No test issues `ping` at all; `tools/list` is exercised only on a healthy connection (`GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof`). See G5 |
+| C1.2 | …and during startup, every backoff delay, circuit-open, and half-open | COVERED | `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert` is a phase-parameterised theory that holds real supervisor states at Starting, Ready, an active Backoff, CircuitOpen, and HalfOpen; each row performs 100 public `ptk_state` reads without scheduling a delay, launching an attempt, or reaching a host operation. Backoff has one state/read path independent of delay duration; the circuit arrangement also drives the exact five-delay sequence |
+| C1.3 | MCP `ping` and `tools/list` remain prompt in every phase | PARTIAL | `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof` proves the real healthy apphost answers `ping` with a result and no error and serves `tools/list`. No identity issues either method during a recovery phase. See G5 |
 | C2 | Fake-clock proof of the exact delay sequence, six-failure circuit, 60 s cooldown, one half-open attempt, 60 s stability reset | COVERED | `RecoveryCircuitMachineTests.Failure_table_schedules_exact_attempts_then_opens_the_circuit`, `Half_open_failure_reopens_for_sixty_seconds_with_next_ordinal`, `Half_open_loss_at_stability_boundary_starts_a_fresh_cycle`, `Explicit_stability_reset_makes_later_loss_a_fresh_immediate_attempt_one`, `Retry_after_uses_monotonic_ceiling_and_contract_clamp`; `GuardianHostLifecycleControllerTests.Six_confirmed_failed_generations_open_one_circuit_and_one_half_open_probe`, `Pre_stability_half_open_loss_reopens_the_circuit_after_slow_containment`; `SessionRecoveryStateMachineTests.Retryable_failures_use_exact_backoffs_six_failure_circuit_and_one_half_open` |
 | C3 | A 100-cycle soak proves bounded processes, handles, FDs, readers, timers, buffers, audit reservations, and memory; identities remain monotonic | PARTIAL | `GuardianHostSupervisorTests.Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` runs 101 in-proc generations and asserts bounded background tasks, scheduler entries, owned clients, and watcher sets, with monotonic generations. It does **not** measure processes, OS handles, file descriptors, buffers, audit reservations, or memory, and it does not run against real host processes. See G6 |
 | C4.1 | One worker crash affects only one alias | COVERED | `ProductionGuardianCompositionTests.Composition_isolates_one_alias_worker_crash_from_a_second_alias` (real apphost, cross-platform — landed with `r6acc-1`); `SessionRecoveryStateMachineTests.One_alias_failure_does_not_change_another_alias_circuit_or_generation`; `WorkerPrivateHostRuntimeTests.Failed_close_faults_only_its_alias`, `Failed_reset_faults_only_its_alias_and_clears_its_job_budget` |
@@ -291,11 +291,18 @@ The product-visible consequence remains deliberate: execution timeout destroys
 the alias's warm state (owner-approved 2026-07-15), which R7's cutover notes must
 carry.
 
-**G4 — Guardian-local availability is not driven in every recovery phase
-(C1.2).** Extend the guardian-local read coverage to startup, an active backoff
-delay, and half-open. The mechanism test
-(`State_polling_is_guardian_local_and_scheduler_inert`) makes this cheap: it
-should be a phase-parameterised theory rather than four separate tests.
+**G4 — CLOSED 2026-07-26.** The existing
+`GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
+guard is now a phase-parameterised theory over Starting, Ready, an active
+Backoff, CircuitOpen, and HalfOpen. Test-only startup holds freeze the initial
+and half-open attempts before hello so the read is exercised in the intended
+state rather than racing through it. Every row performs 100 public `ptk_state`
+reads and proves the projected state/readiness, scheduler count, attempt count,
+and zero host operations remain unchanged.
+
+The mutation proof restricted `ptk_state` to a Ready host. Starting, Backoff,
+CircuitOpen, and HalfOpen reddened while Ready stayed green; restoring the
+unconditional guardian-local read returned all five rows green.
 
 **G5 — Mostly closed 2026-07-26.** `ping` was untested anywhere in the
 repository; `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof`
@@ -308,8 +315,10 @@ Residual: `ping` is not exercised *during* a recovery phase. The mechanism that
 would make it phase-independent is already guarded
 (`GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
 proves guardian-local reads never touch the scheduler), so this is a small
-completeness gap rather than an open risk — fold it into G4's phase-parameterised
-harness if that gets built.
+completeness gap rather than an open risk. G4's phase-parameterised harness now
+exists, but it sits below the MCP SDK branch that owns `ping` and `tools/list`;
+closing this residual therefore needs an apphost-level recovery-phase hold, not
+another supervisor row.
 
 **G6 — The soak proves bookkeeping, not resources (C3).** Either extend
 `Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` to assert

@@ -2040,3 +2040,24 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
   passed 141 tests with two expected platform skips. The complete stdio
   handshake passed, including cross-call state, output recovery, background
   recovery, audit, fail-closed audit outage, and hard-kill cleanup.
+
+## R6 G4 guardian-local recovery-phase verification (`nagatha.local`, 2026-07-26)
+
+- `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
+  now runs five rows: Starting, Ready, an active Backoff, CircuitOpen, and
+  HalfOpen. Test-only startup holds keep the initial and half-open attempts in
+  their projected states. Every row performs 100 public `ptk_state` reads and
+  proves state/readiness stays truthful without adding scheduler entries,
+  launching attempts, or reaching a private-host operation. The targeted theory
+  passed 5/5.
+- Mutation proof: temporarily restricting `ptk_state` to a Ready host failed
+  Starting, Backoff, CircuitOpen, and HalfOpen while Ready passed. Restoring the
+  unconditional guardian-local branch returned the theory to 5/5.
+- With the required physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore --verbosity minimal` passed
+  architecture 73/73, Guardian 502/502, and server 2,055/2,055.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The stdio handshake was
+  not run because G4 changes only the in-proc Guardian test harness and durable
+  records.

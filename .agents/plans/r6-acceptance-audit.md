@@ -37,8 +37,15 @@ properties. Section letters follow the matrix's own section order.
 
 ## Cross-cutting findings
 
-**F1 — Six real-apphost composition identities are Windows-only and pass
-vacuously elsewhere.** In `ProductionGuardianCompositionTests` the following
+**F1 — RESOLVED 2026-07-26 (G7): six of the seven now run everywhere.** The
+finding as originally written is kept below because its reasoning still governs
+how this suite is read — a platform-gated identity reports green without
+executing, so a cross-platform run proves nothing about it — and one identity
+remains deliberately gated. The cause turned out to be a test-harness interface
+loss, not platform behaviour; see G7.
+
+**F1 (as found) — Six real-apphost composition identities are Windows-only and
+pass vacuously elsewhere.** In `ProductionGuardianCompositionTests` the following
 open with `if (!OperatingSystem.IsWindows()) return;`, so on macOS and Linux
 they report green without executing anything:
 `Windows_composition_retains_real_decoded_terminal_on_loss` (and the two
@@ -292,10 +299,33 @@ its 101 generations, or add a real-process soak alongside it. State plainly in
 the test which resources it does and does not bound — the current name implies
 more than the body checks.
 
-**G7 — The idle-loop invariant is Windows-only (C5.2).** Make
-`Windows_private_host_ignores_the_transitional_idle_watchdog` cross-platform, in
-the same shape as the other `Composition_*` identities. This is the exact
-pattern that produced `r6x-2`.
+**G7 — DONE 2026-07-26, and it took F1's whole class with it.** Seven identities
+returned vacuously off Windows; six now run everywhere
+(`Composition_classifies_real_prewrite_loss`,
+`..._possibly_written_loss`, `Composition_retains_real_decoded_terminal_on_loss`,
+`Composition_requires_explicit_repair_after_ambiguous_reset`,
+`Composition_keeps_a_real_job_tombstone_and_sealed_output`,
+`Composition_recovers_after_replacement_dies_during_startup`, plus
+`Private_host_ignores_the_transitional_idle_watchdog`).
+
+**The gates were hiding a test defect, not platform behaviour.** Both test
+launchers hard-coded `WindowsPrivateHostProcessLauncher`, and
+`GatedContainmentLauncher`'s process wrapper implemented only
+`IPrivateHostLaunchedProcess` — so on Unix it erased
+`IUnixWorkerContainmentAuthority`, which `PrivateHostAttemptFactory` recovers by
+`as`-cast, and startup died with a bounded diagnostic naming nothing. All six
+pass on macOS and on Linux once that is fixed.
+
+`Windows_composition_recovers_a_real_host_on_the_same_public_connection` stays
+gated deliberately: the Unix twin already covers it and asserts more.
+
+**Cost this created, recorded for a decision — see `.agents/machines.md`.** The
+Linux assembly went ~112 s → ~195 s and
+`Composition_seals_a_real_background_job_artifact_for_handle_recovery` now fails
+~2 runs in 3 *inside the full assembly* while passing 3/3 alone and 15/15 in its
+own class. The six new identities are not the direct cause — they pass together
+— but they widened the r6x-5 residual window. Better coverage against a flakier
+4-CPU assembly is an owner trade-off, not something to patch away silently.
 
 **G8 — Linux leg RUN 2026-07-26 at `3fdbbff`; one failure, now `r6x-5`.**
 Architecture 73/73, Guardian **495/496**, server 2,044/2,044, Pester 141 with 2

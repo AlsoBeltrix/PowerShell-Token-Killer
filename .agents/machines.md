@@ -1951,3 +1951,34 @@ checkout, removed afterwards. The owner's `F:\dev` tree was not touched._
   produced a process that exited immediately leaving both logs empty. Driving
   the run through a held SSH session with `> log 2>&1` worked. Prefer the
   latter.
+
+### Un-gating the vacuous identities — Linux evidence (2026-07-26)
+
+_At `1889c8e` on `magneto`, disposable checkout removed afterwards._
+
+- **All six newly cross-platform identities pass on Linux.** The composition
+  class alone is **15/15** (143.7 s), and each newly enabled identity also
+  passes in isolation. Nothing in the un-gating exposed a product defect: the
+  Windows gates were hiding a test-harness interface loss, not platform
+  behaviour.
+- **The audit-append fix holds under deliberate starvation.**
+  `Ready_and_recovered_hosts_are_durably_distinguished` — the identity that lost
+  most often across this whole investigation — survived a run where four busy
+  loops held the CPU and the suite was starved to ~12% for 542 s. It has not
+  failed since the fix.
+- **Regression this change introduced, in signal rather than product.** The full
+  496-identity assembly went from ~112 s to ~195 s serialized, and
+  `Composition_seals_a_real_background_job_artifact_for_handle_recovery` now
+  fails about **2 runs in 3** inside the full assembly while passing **3/3
+  alone** (7-9 s) and **15/15 inside its own class**. Before the un-gating that
+  identity was green in every recorded Linux assembly run. The interference is
+  therefore assembly-level and comes from *other* classes — the heavy real-process
+  ones such as `CanonicalLayoutPackageTests`, which runs `dotnet publish` — not
+  from the six identities themselves, which pass together.
+- The mechanism is the r6x-5 residual with a wider window: even serialized, OS
+  process reaping and handle release are asynchronous, so each real-process
+  identity starts against a machine still cleaning up after the last one, and
+  the assembly now contains six more of them.
+- **This is a trade-off, not a defect to patch quietly**: better real coverage
+  against a flakier Linux assembly on a four-CPU host. It is recorded for an
+  owner decision rather than resolved unilaterally.

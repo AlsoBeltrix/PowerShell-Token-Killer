@@ -17,6 +17,49 @@ namespace PtkMcpGuardian.Tests;
 public sealed class ProductionGuardianCompositionTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// How long a readiness poll may wait for a real host, worker, or job to
+    /// reach the state it is waiting for.
+    /// </summary>
+    /// <remarks>
+    /// These polls used to be budgeted in attempts (<c>attempt &lt; 200</c>),
+    /// which is a unit that shrinks under exactly the conditions that make
+    /// recovery slow: each attempt is a full MCP round trip, so on a loaded
+    /// host the round trips stretch at the same moment the replacement apphost
+    /// takes longer to launch, and the count runs out before readiness arrives.
+    /// That produced a false red on `Unix_composition_recovers_real_host_...`
+    /// during the first full x64 Linux battery, on a four-CPU host at load 5-8,
+    /// while the same identity passed 3/3 in isolation (r6x-5). Wall clock does
+    /// not shrink under load, so the budget now means what it says.
+    ///
+    /// Raising the attempt count instead would only move the cliff - one site
+    /// had already been widened to 400 for the same reason. Any test using this
+    /// budget needs an enclosing deadline that can contain it plus setup and
+    /// teardown.
+    /// </remarks>
+    private static readonly TimeSpan ReadinessPollBudget = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// True while a readiness poll started at <paramref name="pollStarted"/> is
+    /// still inside <see cref="ReadinessPollBudget"/>. Callers keep their own
+    /// poll interval; this bounds only how long they may keep trying.
+    /// </summary>
+    private static bool PollingWithinBudget(long pollStarted) =>
+        Stopwatch.GetElapsedTime(pollStarted) < ReadinessPollBudget;
+
+    /// <summary>
+    /// Enclosing deadline for every identity that runs a readiness poll. It has
+    /// to contain each of that identity's poll sites at a full
+    /// <see cref="ReadinessPollBudget"/> plus real process setup and teardown;
+    /// otherwise a poll that never succeeds surfaces as an opaque
+    /// <see cref="OperationCanceledException"/> instead of failing on its own
+    /// assertion, which is the difference between "recovery never became ready"
+    /// and "something in this test hung". Three identities poll twice, so this
+    /// is sized for two full budgets plus headroom. It bounds only pathological
+    /// hangs - a healthy run reaches each condition in well under a second.
+    /// </summary>
+    private static readonly TimeSpan PollingTestTimeout = TimeSpan.FromSeconds(180);
     private static readonly GuardianBootId Guardian = new(
         Guid.Parse("11111111-1111-4111-8111-111111111111"));
     private static readonly WorkerBootId Worker = new(
@@ -62,7 +105,8 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TestTimeout);
+        // Polls for the job seal below, so it needs the polling deadline.
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -143,7 +187,8 @@ public sealed class ProductionGuardianCompositionTests
             var requestId = 3;
             string? sealedStatus = null;
             string? lastStatus = null;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var statusResponse = await RequestAsync(
                     writer,
@@ -989,7 +1034,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1102,7 +1147,8 @@ public sealed class ProductionGuardianCompositionTests
                 timeout.Token);
             _ = ToolText(backgroundResponse, expectedError: false);
             var backgroundProcessId = 0;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 if (File.Exists(backgroundMarker) &&
                     int.TryParse(
@@ -1137,7 +1183,8 @@ public sealed class ProductionGuardianCompositionTests
 
             PublicStateSnapshot? recovered = null;
             var requestId = 5;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var response = await RequestAsync(
                     writer,
@@ -1411,7 +1458,7 @@ public sealed class ProductionGuardianCompositionTests
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker,
             dispatchObserver: observer);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1520,7 +1567,8 @@ public sealed class ProductionGuardianCompositionTests
             _ = await launcher.ReplacementHostProcessId.WaitAsync(timeout.Token);
             PublicStateSnapshot? recovered = null;
             var requestId = 3;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var stateResponse = await RequestAsync(
                     writer,
@@ -1625,7 +1673,7 @@ public sealed class ProductionGuardianCompositionTests
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker,
             dispatchObserver: observer);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -1706,7 +1754,8 @@ public sealed class ProductionGuardianCompositionTests
             _ = await launcher.ReplacementHostProcessId.WaitAsync(timeout.Token);
             PublicStateSnapshot? recovered = null;
             var requestId = 3;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var stateResponse = await RequestAsync(
                     writer,
@@ -1868,7 +1917,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -2074,7 +2123,8 @@ public sealed class ProductionGuardianCompositionTests
 
             PublicStateSnapshot? recovered = null;
             var requestId = 8;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var stateResponse = await RequestAsync(
                     writer,
@@ -2171,7 +2221,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         var run = composition.RunAsync(input, output, timeout.Token);
@@ -2180,7 +2230,8 @@ public sealed class ProductionGuardianCompositionTests
             var firstHostProcessId = await launcher.FirstHostProcessId
                 .WaitAsync(timeout.Token);
             PublicStateSnapshot? initial = null;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var candidate = composition.Supervisor.SnapshotState();
                 if (candidate.Host.ReadyForEffects)
@@ -2208,7 +2259,8 @@ public sealed class ProductionGuardianCompositionTests
             Assert.NotEqual(failedReplacementProcessId, recoveredHostProcessId);
 
             PublicStateSnapshot? recovered = null;
-            for (var attempt = 0; attempt < 400; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var candidate = composition.Supervisor.SnapshotState();
                 if (candidate.Host.ReadyForEffects)
@@ -2263,7 +2315,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -2344,7 +2396,8 @@ public sealed class ProductionGuardianCompositionTests
             string? completedStatus = null;
             string? lastStatus = null;
             var requestId = 3;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var statusResponse = await RequestAsync(
                     writer,
@@ -2474,7 +2527,8 @@ public sealed class ProductionGuardianCompositionTests
             Assert.NotEqual(firstHostProcessId, replacementHostProcessId);
 
             PublicStateSnapshot? recovered = null;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var stateResponse = await RequestAsync(
                     writer,
@@ -2576,7 +2630,7 @@ public sealed class ProductionGuardianCompositionTests
             OutputOptions(outputRoot),
             guardianBootId: Guardian,
             defaultWorkerBootId: Worker);
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(PollingTestTimeout);
         using var input = new R3BoundedOneWayStream();
         using var output = new R3BoundedOneWayStream();
         using var writer = new StreamWriter(
@@ -2668,7 +2722,8 @@ public sealed class ProductionGuardianCompositionTests
             // only the host lets the follow-up invoke race a Starting alias.
             PublicStateSnapshot? recovered = null;
             var requestId = 3;
-            for (var attempt = 0; attempt < 200; attempt++)
+            for (var pollStarted = Stopwatch.GetTimestamp();
+                PollingWithinBudget(pollStarted);)
             {
                 var stateResponse = await RequestAsync(
                     writer,

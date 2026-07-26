@@ -54,10 +54,26 @@ public sealed class GuardianAppHostProcessSmokeTests
             sentMethods,
             timeout.Token);
 
-        var listed = await SendRequestAsync(
+        // A client that gets no answer to ping concludes the server is gone and
+        // drops the connection, after which every tool reference in that session
+        // fails outright. It is a required MCP method and the cheapest liveness
+        // signal a client has, so the real apphost must answer it - nothing
+        // asserted that before (audit gap G5).
+        var pinged = await SendRequestAsync(
             host,
             publicLines,
             requestId: 2,
+            method: "ping",
+            parameters: new { },
+            sentMethods,
+            timeout.Token);
+        Assert.True(pinged.TryGetProperty("result", out _), pinged.GetRawText());
+        Assert.False(pinged.TryGetProperty("error", out _), pinged.GetRawText());
+
+        var listed = await SendRequestAsync(
+            host,
+            publicLines,
+            requestId: 3,
             method: "tools/list",
             parameters: new { },
             sentMethods,
@@ -73,7 +89,7 @@ public sealed class GuardianAppHostProcessSmokeTests
         var jobs = await SendRequestAsync(
             host,
             publicLines,
-            requestId: 3,
+            requestId: 4,
             method: "tools/call",
             parameters: new
             {
@@ -88,7 +104,7 @@ public sealed class GuardianAppHostProcessSmokeTests
         var stateResponse = await SendRequestAsync(
             host,
             publicLines,
-            requestId: 4,
+            requestId: 5,
             method: "tools/call",
             parameters: new
             {
@@ -118,7 +134,8 @@ public sealed class GuardianAppHostProcessSmokeTests
         await stdoutTail;
 
         Assert.Equal(string.Empty, await host.ReadStandardErrorAsync(timeout.Token));
-        Assert.Equal(4, publicLines.Count);
+        // initialize, ping, tools/list, ptk_job, ptk_state.
+        Assert.Equal(5, publicLines.Count);
         Assert.All(publicLines, line =>
         {
             using var document = JsonDocument.Parse(line);

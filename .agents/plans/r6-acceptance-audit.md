@@ -288,9 +288,19 @@ delay, and half-open. The mechanism test
 (`State_polling_is_guardian_local_and_scheduler_inert`) makes this cheap: it
 should be a phase-parameterised theory rather than four separate tests.
 
-**G5 — No MCP `ping` promptness guard in any phase (C1.3).** Add `ping` and
-`tools/list` to whichever recovery-phase harness closes G4. `ping` is currently
-untested anywhere in the repository.
+**G5 — Mostly closed 2026-07-26.** `ping` was untested anywhere in the
+repository; `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof`
+now asserts the **real apphost** answers it with a result and no error. It does
+— the SDK handles the method — so this guards a working behaviour rather than
+fixing a defect, which matters because an unanswered `ping` is how a client
+concludes the server is gone and drops every tool in the session.
+
+Residual: `ping` is not exercised *during* a recovery phase. The mechanism that
+would make it phase-independent is already guarded
+(`GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
+proves guardian-local reads never touch the scheduler), so this is a small
+completeness gap rather than an open risk — fold it into G4's phase-parameterised
+harness if that gets built.
 
 **G6 — The soak proves bookkeeping, not resources (C3).** Either extend
 `Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` to assert

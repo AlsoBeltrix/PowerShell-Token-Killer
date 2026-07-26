@@ -690,11 +690,13 @@ Present and settle these in chat one at a time before implementation:
    execution path and removal of its OTLP protobuf/`Grpc.Tools` build
    dependency from the runtime server project; any future compliance audit is
    separately built and explicitly approved.
-4. **Rollout:** approve a canary installed-package validation before replacing
-   the current development registration.
 
 Silence approves none of these. Until decision 1 is settled, implementation is
 blocked and only plan/review work may proceed.
+
+Canary activation remains a separately gated outward action after
+implementation and verification. It is not a design decision and is never
+authorized by plan approval alone.
 
 ## Review requirement
 

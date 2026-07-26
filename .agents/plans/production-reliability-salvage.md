@@ -55,6 +55,27 @@ connection can fail outside PTK's control. PTK's enforceable contract is:
 The resilience branch is evidence and a source of individually reusable code
 and tests. It is never merged, rebased, or used as the base of this effort.
 
+### Known production blockers this topology does not erase
+
+The worker boundary is not permission to declare the compressor or client
+integration production-ready. Production cutover remains blocked until:
+
+- the open EXO/Outlook shaping failure is fixed under its own approved scope
+  and a real workflow proves useful values without unsafe active-member
+  evaluation;
+- the current Windows worker/Job Object kill-path failures pass on a supported
+  Windows host;
+- the intended harness proves that server restart replaces a stale MCP
+  transport instead of continuing to call the dead endpoint;
+- the audit-root/startup incidents are covered by the audit-removal regression
+  proof in this plan; and
+- installed-package and security-scanner behavior needed by the chosen
+  production distribution is either green or explicitly outside PTK's support
+  promise.
+
+These are gates, not additional worker-salvage implementation slices. A
+separately scoped product fix still needs its own approved plan.
+
 ## Proposed target topology
 
 The first production topology requires one agent-owned MCP stdio connection.
@@ -391,11 +412,13 @@ red/green guard proof.
 1. Create a new implementation branch from current `origin/master`; never from
    the resilience branch.
 2. Run and record the complete existing verification battery.
-3. Run a no-product-change production-harness probe and record whether two
+3. Record every existing failure as a production blocker; do not baseline it
+   away or silently convert it to an expected skip.
+4. Run a no-product-change production-harness probe and record whether two
    unrelated agents receive distinct PTK server PIDs and stdio connections.
    If they do not, stop: shared-connection multi-agent use is unsupported by
    this plan.
-4. Record the exact base SHA and reject any candidate whose value cannot be
+5. Record the exact base SHA and reject any candidate whose value cannot be
    separated from guardian/private-host policy more cheaply than a narrow
    rewrite.
 
@@ -588,7 +611,11 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 - supervisor hard-kill leaving no worker or PTK-contained descendant;
 - installer activation and rollback faults;
 - a staged real workflow proving module/connection warmth across calls and no
-  state leakage between the two server processes.
+  state leakage between the two server processes;
+- a real EXO/Outlook shaping check closing the known compressor blocker;
+- direct Windows runs closing the known worker/Job Object kill-path failures;
+- an intended-harness restart proving a dead PTK transport is replaced rather
+  than reused.
 
 Hosted CI is supporting evidence, not a substitute for direct platform runs.
 Record exact commands, SHAs, test counts, identities, and residue cleanup in

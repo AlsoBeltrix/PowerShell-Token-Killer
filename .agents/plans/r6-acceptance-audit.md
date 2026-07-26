@@ -215,7 +215,19 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | ID | Claim (abridged) | Status | Evidence |
 |----|------------------|--------|----------|
 | E1.1 | Common deterministic suites pass on Windows, Linux, and macOS | COVERED | All three platforms run at `e5f67a9`/`c600325`: macOS green, x64 Linux green, Windows green except its 18 pre-existing ordinary-account cert/DPAPI/mTLS and parked-dialect failures, which predate this branch and are unchanged. G8 closed — see `.agents/machines.md` |
-| E1.2 | Native tests hard-kill guardian/host/worker at the creation, initialize, bootstrap, ready, foreground-busy, and job-running barriers | PARTIAL | Creation is exact and enumerated (`UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Guardian_death_contains_every_creation_barrier`, `Guardian_death_interrupts_a_stalled_creation_protocol`; `WindowsContainmentIntegrationTests.Suspended_worker_is_contained_before_entry_and_job_owner_kills_its_tree`, `Runnable_worker_enters_without_a_proof_resume`). Ready and job-running are covered by the composition identities. **No identity was found that hard-kills at the initialize, bootstrap, or foreground-busy barriers by name.** See G10 |
+| E1.2 | Native tests hard-kill guardian/host/worker at the creation, initialize, bootstrap, ready, foreground-busy, and job-running barriers | PARTIAL | Five of six barriers covered; **bootstrap is the only true gap**, and initialize is covered only on Windows at real-process level. Full per-barrier map below. Corrected 2026-07-26 — the first revision wrongly called initialize, bootstrap and foreground-busy all uncovered. See G10 |
+
+**E1.2 per-barrier map** (searched by mechanism, not by name — the barriers are
+not named in test identities, which is what defeated the first pass):
+
+| Barrier | Status | Evidence |
+|---|---|---|
+| creation | COVERED, exhaustively | `UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact` pins seven sub-barriers (`host_gated`, `before_pending`, `during_move`, `before_armed_ack`, `after_armed_ack`, `after_release_command`, `after_release`) and `Guardian_death_contains_every_creation_barrier` kills at each; `Guardian_death_interrupts_a_stalled_creation_protocol`; Windows `WindowsContainmentIntegrationTests.Suspended_worker_is_contained_before_entry_and_job_owner_kills_its_tree`, `Runnable_worker_enters_without_a_proof_resume` |
+| initialize | PARTIAL | Real process, but Windows-only: `ProductionGuardianCompositionTests.Windows_composition_recovers_after_replacement_dies_during_startup` (`CrashSecondLaunchLauncher` kills the replacement before ready). Cross-platform coverage is rig-level only, against fake launchers: `WorkerPrivateHostRuntimeTests.A_worker_dying_during_initialization_recovers_once_ready`, `WorkerProcessClientTests.Exit_before_hello_refuses_launch_and_contains_once`. **No cross-platform real-process kill during initialize** |
+| bootstrap | **GAP** | Nothing hard-kills during the private-host descriptor bootstrap. `PrivateHostBootstrapTests` has no kill leg at all. Note the lazy-load amendment (F2) removed *template* bootstrap from R6, so the surviving phase is descriptor inheritance at process entry |
+| ready | COVERED | `Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection` (macOS + Linux); `Windows_composition_recovers_a_real_host_on_the_same_public_connection` |
+| foreground-busy | COVERED | `Composition_never_replays_a_real_effect_when_the_worker_dies` is cross-platform and kills the worker *from inside a live foreground `ptk_invoke`* — the script is `[System.Diagnostics.Process]::GetCurrentProcess().Kill()`. Windows adds three kill points around a real dispatch via the `RealDispatchBarrier` enum (`BeforeWriteAuthorization`, `WriteStarting`, `TerminalDecoded`) in `Windows_composition_classifies_real_prewrite_loss` / `..._possibly_written_loss` / `..._retains_real_decoded_terminal_on_loss` |
+| job-running | COVERED | `Composition_seals_a_real_background_job_artifact_for_handle_recovery` (cross-platform); `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` |
 | E2.1 | Windows proves creation-time outer containment, nested Job Objects, noninheritance, direct `NETWATCH-01` cleanup | COVERED | `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant`, `Disposable_probe_has_one_atomic_creator_and_no_job_handle_escape_path`; `WindowsProcessTreeSupervisorTests.Native_creation_flags_are_exact_and_suspension_is_proof_only`, `Native_production_has_one_atomic_create_and_no_fallback_or_sweep_escape_hatch`; `WindowsWorkerLifecycleIntegrationTests.Contained_worker_completes_lifecycle_with_silent_diagnostics`. Direct `NETWATCH-01` evidence is recorded in `.agents/machines.md` |
 | E2.2 | Linux/macOS prove broker liveness cleanup, host-group ownership, pending/armed registration, start-identity fencing, direct-host reap, descendant exit confirmation, nonchild reaping, no old/new group overlap | COVERED on macOS | `UnixGuardianBrokerIntegrationTests.*`; `UnixWorkerProcessLauncherTests.Production_broker_launches_real_worker_only_after_both_registry_acks`; `PrivateHostUnixWorkerContainmentRegistryTests`; `ProcessTreeContainmentTests.Terminal_release_sweeps_escaped_orphans`, `Instantly_daemonized_orphan_is_reaped_by_escalation`, `Tree_kill_defeats_a_sigterm_trap`, `Fallback_survivor_requires_matching_incarnation`. Linux execution is G8 |
 | E2.3 | Guards fail if an R5 child misses the host group, a worker leaves before pending acknowledgment, or release precedes armed acknowledgment | COVERED | `UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Corrupted_start_identity_cannot_signal_a_live_sentinel`, `Native_source_freezes_the_liveness_registry_and_reaping_boundary`; `UnixPrivateHostProcessLauncherTests.Native_source_freezes_the_outer_broker_boundary` |
@@ -328,10 +340,24 @@ the plan edit on 2026-07-26; `.agents/plans/mcp-resilience.md`
 `## Acceptance matrix` now strikes the B3 line and restates B4 as the empty-
 runspace baseline. No implementation work remains.
 
-**G10 — Three named hard-kill barriers have no matching identity (E1.2).**
-Confirm whether the initialize, bootstrap, and foreground-busy barriers are
-covered under other names in the native suites; if not, add them. This audit
-searched by concept and found creation, ready, and job-running only.
+**G10 — RESOLVED to one narrow gap 2026-07-26; the original three-barrier claim
+was wrong.** Re-searched by *mechanism* rather than by name — the barriers are
+not named in any test identity, which is exactly what defeated the first pass.
+The per-barrier map is under row E1.2 above. Outcome:
+
+- **foreground-busy was covered all along.** `Composition_never_replays_a_real_effect_when_the_worker_dies`
+  kills the worker from inside a live foreground `ptk_invoke`, cross-platform,
+  and Windows adds three more kill points via `RealDispatchBarrier`.
+- **initialize is covered, but only on Windows at real-process level.**
+  Cross-platform coverage uses fake launchers. Worth closing together with G7,
+  since both are "this identity only really runs on Windows".
+- **bootstrap is the one true gap.** Nothing kills during the private-host
+  descriptor bootstrap; `PrivateHostBootstrapTests` has no kill leg. Before
+  writing one, weigh it against `r6x-5`'s lesson: a kill inside a sub-second
+  window is a race-dependent real-process test, the exact shape that has
+  produced two findings on this branch. A deterministic barrier — the pattern
+  `CrashSecondLaunchLauncher` and the Unix broker fixtures already use — is the
+  only version worth having; do not write a sleep-and-kill.
 
 ## Out of scope for this audit
 

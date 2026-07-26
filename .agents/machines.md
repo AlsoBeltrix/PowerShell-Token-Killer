@@ -1872,3 +1872,30 @@ installed payload or host profile was changed._
   isolated runs, and the defect is in the test's observation budget.
 - The disposable root `/tmp/ptk-r6-linux-y090hl11` and `/tmp/r6.bundle` were
   removed after a scoped process check.
+
+### Linux re-verification of the r6x-5 fixes (2026-07-26)
+
+_Same host and transfer route as the battery above; disposable checkout at
+`7845907` plus the class-deadline patch, removed afterwards._
+
+- Both fixed budgets verified. `Unix_composition_recovers_real_host_and_...`
+  passed every post-fix run, and
+  `Composition_isolates_one_alias_worker_crash_from_a_second_alias` — which had
+  failed 3/3 against the old 30 s class deadline — passed once the class moved
+  to `CompositionTestTimeout`.
+- **The assembly still loses about one test per run, and this is the host, not
+  the code.** Default parallelism: five runs at 495/496 or 494/496, a
+  *different* identity failing each time. `-maxthreads 2`: two runs, both
+  495/496, the same identity both times. Every identity that failed passes 3/3
+  when run alone — the in-process rig ones in 0.4-0.6 s.
+- The assembly self-saturates: started at load 1.52 it drives the four CPUs to
+  ~7 on its own. `magneto` also carries the owner's steady background work
+  (observed `python`, `rtk`, `nmap`, `qbittorrent-nox`, an installed
+  `PtkMcpServer`), so it never has four free CPUs. Runs taken while the owner's
+  own load spiked to 13-17 produced four failures and are not comparable — do
+  not compare batteries across load levels on this host without recording
+  `/proc/loadavg`.
+- Consequence for the acceptance matrix: the R5 record's remedy of running one
+  MSBuild project at a time is not sufficient, because xUnit parallelizes within
+  the assembly too. Closing the Linux leg needs a decision about scheduling this
+  assembly on constrained hosts. Hosted `ubuntu-latest` has the same core count.

@@ -298,8 +298,21 @@ test's observation budget, and the same shape sits at eleven sites across seven
 composition identities. See `.agents/review/findings/r6x-5.md`. **Hosted
 `ubuntu-latest` runners have the same core count as `magneto`, so this is a
 latent CI flake in the acceptance suite, not a `magneto` quirk.**
-Still open under G8: **Windows re-run at the current head** to clear the
-one-commit lag.
+`r6x-5` is now **fixed — two defects**, both fixed budgets sized against a fast
+Mac: the attempt-counted polls, and (found by verifying that fix) the class's
+30 s deadline, against which `Composition_isolates_one_alias_worker_crash_from_a_second_alias`
+failed 3/3. Each previously failing identity now passes.
+
+Still open under G8, and **G8 cannot be called closed**:
+
+1. **The Linux guardian assembly is not green, for an environmental reason.**
+   It self-saturates a 4-CPU host and loses roughly one timing-sensitive test
+   per run — a different one each run under default parallelism, the same one
+   under `-maxthreads 2` — while every loser passes 3/3 in isolation. No
+   product behaviour is implicated. Needs an owner decision on scheduling this
+   assembly on constrained hosts; see `r6x-5`'s residual section. This is the
+   same core count as hosted `ubuntu-latest`.
+2. **Windows re-run at the current head** to clear the one-commit lag.
 
 **G9 — CLOSED 2026-07-26.** The matrix rows B3 and B4's first clause demanded
 template bootstrap the lazy-load amendment had already removed. Owner approved

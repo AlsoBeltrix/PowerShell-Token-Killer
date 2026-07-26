@@ -5,6 +5,31 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **`r6x-5` is FIXED (two defects) but the Linux guardian assembly is STILL NOT
+  GREEN, for an environmental reason that needs an owner decision.**
+  Both fixed defects were fixed budgets sized against a fast development Mac:
+  (1) eleven readiness polls counted **attempts** rather than wall clock, and an
+  attempt is a full MCP round trip, so under load the unit shrinks exactly when
+  recovery slows; (2) found only by verifying the first fix,
+  `Composition_isolates_one_alias_worker_crash_from_a_second_alias` — which
+  polls nothing — failed **3/3** against the class's 30 s deadline. All twelve
+  composition identities now share one `CompositionTestTimeout` (180 s); the
+  30 s constant survives only as `BrokerCompileTimeout`. Both fixes verified:
+  each previously failing identity now passes, macOS is 496/496, and setting
+  the poll budget to 1 ms reddens 3 of 15 composition identities (the other
+  five being Windows-gated — which corroborates F1 from the audit).
+  **What remains is not a defect.** The guardian assembly self-saturates a
+  4-CPU host — it drives load to ~7 from a 1.5 start — and roughly one
+  timing-sensitive test loses per run: a *different* one each run under default
+  parallelism, consistently the same one under `-maxthreads 2`, and **every
+  loser passes 3/3 in isolation**, the rig ones in 0.4-0.6 s. No product
+  behaviour is implicated. The R5 record's remedy ("one MSBuild project at a
+  time, no competing workload") is insufficient because xUnit also parallelizes
+  *within* an assembly. **Do not chase this one test at a time** — `r6x-5`
+  already spent two rounds proving the pattern. It needs a decision on how this
+  assembly is scheduled on constrained hosts, which is also the shape of a
+  hosted `ubuntu-latest` runner; capping parallelism costs wall clock
+  everywhere, so it was not done silently.
 - **The x64 Linux acceptance leg is RUN (2026-07-26 at `3fdbbff`), closing the
   largest part of audit gap G8.** Architecture 73/73, Guardian **495/496**,
   server 2,044/2,044, Pester 141 with two expected skips, complete stdio

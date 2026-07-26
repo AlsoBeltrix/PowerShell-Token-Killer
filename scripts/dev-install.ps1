@@ -136,6 +136,45 @@ function Get-PtkGuardianBinaryName {
     if ($TargetRid -like 'win-*') { 'PtkMcpGuardian.exe' } else { 'PtkMcpGuardian' }
 }
 
+# Retires script-evidence artifacts written in the pre-2026-07-11 filename
+# format (a bare GUID stem, before the digest was added). The current evidence
+# store treats an artifact it cannot parse as a control violation and fails the
+# whole audit subsystem closed; audit is mandatory, so the server then answers
+# initialize, lists its tools, and refuses every effect with "Required audit
+# persistence is unavailable". Upgrading across that format change therefore
+# leaves a tool that looks alive and does nothing (r7-1).
+#
+# Files are moved, never deleted: they carry exact submitted scripts, and a
+# format the store cannot verify is not a reason to destroy the record. The
+# server is already proven stopped by Assert-PtkServerNotRunning before this
+# runs, so nothing is holding them.
+function Move-PtkLegacyEvidence {
+    param([Parameter(Mandatory)][string]$PtkHome)
+
+    $evidenceRoot = Join-Path $PtkHome 'audit' 'evidence'
+    if (-not (Test-Path -LiteralPath $evidenceRoot)) { return }
+
+    # A current artifact stem is "<36-char guid>.<64-hex digest>"; the legacy
+    # form is the bare GUID. Match only the legacy shape so modern artifacts,
+    # and the store's own state suffixes, are left untouched.
+    $legacy = @(Get-ChildItem -LiteralPath $evidenceRoot -File -Filter '*.script' -ErrorAction SilentlyContinue |
+        Where-Object {
+            $stem = $_.Name.Substring(0, $_.Name.Length - '.script'.Length)
+            $parsed = [guid]::Empty
+            [guid]::TryParse($stem, [ref]$parsed) -and $stem.Length -eq 36
+        })
+    if ($legacy.Count -eq 0) { return }
+
+    $stamp = (Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ')
+    $archive = Join-Path $PtkHome 'audit' ("evidence-legacy-{0}" -f $stamp)
+    New-Item -ItemType Directory -Path $archive -Force | Out-Null
+    foreach ($file in $legacy) {
+        Move-Item -LiteralPath $file.FullName -Destination (Join-Path $archive $file.Name)
+    }
+    Write-Host ("Retired {0} pre-digest evidence artifact(s) to {1}" -f $legacy.Count, $archive)
+    Write-Host '  (kept, not deleted: the current store cannot verify that format)'
+}
+
 function Get-PtkFileSha256 {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -608,6 +647,7 @@ switch ($mode) {
         try {
             New-PtkLayout -Destination $staging -TargetRid $targetRid -PayloadVersion $payloadVersion
             Install-PtkPayload -Staging $staging
+            Move-PtkLegacyEvidence -PtkHome $ptkHome
         }
         finally {
             Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue

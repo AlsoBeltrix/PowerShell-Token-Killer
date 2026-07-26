@@ -211,7 +211,8 @@ public sealed class SessionRuntime :
             deadline: prepare.DeadlineUtc).ConfigureAwait(false);
         return new WorkerPreparedRuntimeResult(
             RenderInvokeResult(result),
-            result.UserExecutionStarted);
+            result.UserExecutionStarted,
+            ExecutionTimedOut: result.TimedOut && result.WarmStateLost);
     }
 
     async Task<System.Text.Json.JsonElement> IWorkerOperationExecutor.ExecuteAsync(

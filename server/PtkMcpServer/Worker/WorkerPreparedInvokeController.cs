@@ -10,7 +10,8 @@ internal sealed record WorkerPreparedBackgroundResult(
 internal sealed record WorkerPreparedRuntimeResult(
     string Text,
     bool UserExecutionStarted,
-    WorkerPreparedBackgroundResult? Background = null);
+    WorkerPreparedBackgroundResult? Background = null,
+    bool ExecutionTimedOut = false);
 
 internal interface IWorkerPreparedInvokeRuntime
 {
@@ -674,7 +675,22 @@ internal sealed class WorkerPreparedInvokeController
             WorkerPreparedRuntimeResult? result,
             Exception? failure)
         {
-            var kind = _state switch
+            // A destructive RunspaceHost timeout is a committed execution
+            // terminal, not successful text. Keep that machine-readable fact
+            // through the worker boundary so the private host can contain the
+            // worker without matching the rendered timeout message.
+            var executionTimedOut =
+                _state == ReservationState.Committed &&
+                failure is null &&
+                _prepare.Kind == WorkerPreparedInvokeKind.Foreground &&
+                result is
+                {
+                    ExecutionTimedOut: true,
+                    Background: null,
+                };
+            var kind = executionTimedOut
+                ? WorkerPreparedInvokeTerminalKind.Expired
+                : _state switch
             {
                 ReservationState.ReplanRequired =>
                     WorkerPreparedInvokeTerminalKind.ReplanRequired,
@@ -690,9 +706,12 @@ internal sealed class WorkerPreparedInvokeController
                     WorkerPreparedInvokeTerminalKind.Failed,
                 _ => WorkerPreparedInvokeTerminalKind.Completed,
             };
-            var detailCode = _terminalDetailCode ??
-                (failure is null ? null : "prepared_runtime_failure");
+            var detailCode = executionTimedOut
+                ? "prepared_execution_timed_out"
+                : _terminalDetailCode ??
+                    (failure is null ? null : "prepared_runtime_failure");
             if (kind != WorkerPreparedInvokeTerminalKind.Completed &&
+                !executionTimedOut &&
                 result?.UserExecutionStarted == true)
             {
                 kind = WorkerPreparedInvokeTerminalKind.Failed;
@@ -717,7 +736,7 @@ internal sealed class WorkerPreparedInvokeController
 
         private bool ValidOperationResult(WorkerPreparedRuntimeResult? result)
         {
-            if (result is null) return false;
+            if (result is null || result.ExecutionTimedOut) return false;
             if (_prepare.Kind == WorkerPreparedInvokeKind.Foreground)
                 return _prepare.PublicJobId is null && result.Background is null;
             if (_prepare.Kind != WorkerPreparedInvokeKind.Background ||

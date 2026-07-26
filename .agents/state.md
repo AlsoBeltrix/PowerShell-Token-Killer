@@ -5,18 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 acceptance gap G6 is closed (2026-07-26).**
-  `ProductionGuardianCompositionTests.Real_process_soak_bounds_os_and_guardian_resources_across_one_hundred_recoveries`
-  now runs 101 cross-platform real-apphost generations and bounds live child
-  processes, Windows handles or Unix FDs, guardian readers/timers,
-  buffers/registries, audit reservations, and post-GC managed ownership using
-  same-run ceilings rather than machine-sized constants. The original fake soak
-  is explicitly bookkeeping-only and retains the private request-ID proof.
-  Mutation retained old clients: the real soak failed at generation 2 and
-  passed all 101 after restoration. Full macOS verification is recorded in
-  `.agents/machines.md`. The canonical gap map is
+- **R6 G3's latent prepared-runtime timeout race is closed (2026-07-26).**
+  G10 verification exposed an intermittent path where `RunspaceHost` returned
+  a structured destructive timeout before the host-side deadline observer won.
+  `SessionRuntime` flattened that fact to rendered text, so the worker reported
+  `Completed`, the MCP wrapper returned `isError:false`, and the guardian did
+  not enter timeout containment. The prepared runtime now carries the
+  machine-readable `TimedOut && WarmStateLost` fact through its terminal;
+  message text is never classified. The new deterministic adapter guard failed
+  `Expected: Expired; Actual: Completed` before the fix and passes after it.
+  The real-apphost timeout identity then passed 5/5, and the full macOS battery
+  is green. The canonical gap map is
   `.agents/plans/r6-acceptance-audit.md`; G10's descriptor-bootstrap hard-kill
-  barrier is next.
+  barrier remains next.
 - **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
   session left open overnight came back dead with `API Error: 400 Tool reference
   'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the
@@ -362,6 +363,16 @@ short and update it when important repo facts change.
   ownership check in `ContainAfterExecutionTimeout` is not mutation-proven —
   removing it leaves the suite green, because no current call path can deliver
   a timeout terminal for a slot that is no longer the alias's current worker.
+  G10 verification later exposed a second, pre-existing race at exact head
+  `88482df`: `RunspaceHost` could return its structured destructive timeout
+  before the host deadline observer canceled the request, but `SessionRuntime`
+  flattened that result to text and the prepared controller emitted
+  `Completed`. `WorkerPreparedRuntimeResult.ExecutionTimedOut` now carries only
+  the structured `InvokeResult.TimedOut && InvokeResult.WarmStateLost`
+  condition, and the controller emits `prepared_execution_timed_out` as an
+  `Expired` terminal. This preserves the existing timeout-status containment
+  path without matching human-facing output and without treating a
+  non-destructive queue expiry as worker loss.
 - **Sub-slice 5's thinnest loss path is implemented and reviewed
   (`d9f9c2b` + repairs `0d6ffe1`, `0a84e45`, `49b9602`, acceptance record
   `3b99b6f`).** An unexpectedly dead worker is now detected per alias

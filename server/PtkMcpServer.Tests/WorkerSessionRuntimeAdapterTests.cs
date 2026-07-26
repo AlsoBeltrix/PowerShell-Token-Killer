@@ -52,6 +52,43 @@ public sealed class WorkerSessionRuntimeAdapterTests
     }
 
     [Fact]
+    public async Task Prepared_adapter_preserves_a_structured_execution_timeout_terminal()
+    {
+        var fixture = new RuntimeFixture();
+        var controller = new WorkerPreparedInvokeController(
+            BootId,
+            generation: 7,
+            fixture.Runtime,
+            new AcceptingObserver());
+        var prepare = Prepare(
+            "Start-Sleep -Seconds 30",
+            deadline: DateTimeOffset.FromUnixTimeMilliseconds(
+                DateTimeOffset.UtcNow.AddSeconds(5).ToUnixTimeMilliseconds()));
+        try
+        {
+            _ = await controller.PrepareAsync(
+                prepare,
+                TestContext.Current.CancellationToken);
+
+            var terminal = await controller.Commit(new WorkerCommitPayload(
+                    prepare.PlanId,
+                    prepare.ScriptDigest,
+                    prepare.Generation,
+                    prepare.DeadlineUtc))
+                .WaitAsync(TestContext.Current.CancellationToken);
+
+            Assert.Equal(WorkerPreparedInvokeTerminalKind.Expired, terminal.Kind);
+            Assert.Equal("prepared_execution_timed_out", terminal.DetailCode);
+            Assert.Null(terminal.Text);
+        }
+        finally
+        {
+            await controller.CancelAndDrainAsync();
+            await fixture.DisposeAsync();
+        }
+    }
+
+    [Fact]
     public async Task Prepared_background_adapter_starts_the_guardian_reserved_id_and_reports_terminal()
     {
         var fixture = new RuntimeFixture();
@@ -154,10 +191,11 @@ public sealed class WorkerSessionRuntimeAdapterTests
     private static WorkerInvokePreparePayload Prepare(
         string script,
         WorkerPreparedInvokeKind kind = WorkerPreparedInvokeKind.Foreground,
-        long? publicJobId = null) => new(
+        long? publicJobId = null,
+        DateTimeOffset? deadline = null) => new(
         Guid.NewGuid(),
         Generation: 7,
-        Deadline,
+        deadline ?? Deadline,
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(script)))
             .ToLowerInvariant(),
         new WorkerInvokeArguments(

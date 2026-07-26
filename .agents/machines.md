@@ -2110,3 +2110,30 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
   passed 141 tests with two expected platform skips. The complete stdio
   handshake passed, including cross-call state, output recovery, background
   recovery, audit, fail-closed audit outage, and hard-kill cleanup.
+
+## R6 G3 structured-timeout repair verification (`nagatha.local`, 2026-07-26)
+
+- G10 full verification exposed a latent defect at exact pre-G10 head
+  `88482df`: the real-apphost timeout identity intermittently received a
+  rendered `InvokeResult` timeout inside a `Completed` worker response. The
+  resulting MCP response had `isError:false`, so timeout containment did not
+  run. A detached worktree proved the defect was already present before G10.
+- The new deterministic
+  `WorkerSessionRuntimeAdapterTests.Prepared_adapter_preserves_a_structured_execution_timeout_terminal`
+  drove a real prepared `SessionRuntime` past its deadline. Before the fix it
+  failed `Expected: Expired; Actual: Completed`; after the structured
+  `TimedOut && WarmStateLost` fact was carried through
+  `WorkerPreparedRuntimeResult.ExecutionTimedOut`, it passed. The focused
+  prepared-controller and runtime-adapter group passed 12/12.
+- `ProductionGuardianCompositionTests.Composition_execution_timeout_recovers_a_fresh_declared_baseline_without_replay`
+  passed 5/5 consecutively after a current build. Each run proved the
+  `RequestDeadlineExpired` terminal, old-process death, a fresh generation and
+  declared baseline, no warm sentinel, and no replay.
+- With the physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore --verbosity minimal`
+  passed architecture 73/73, Guardian 503/503, and server **2,056/2,056**.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The complete stdio
+  handshake passed, including cross-call state, output recovery, background
+  recovery, audit, fail-closed audit outage, and hard-kill cleanup.

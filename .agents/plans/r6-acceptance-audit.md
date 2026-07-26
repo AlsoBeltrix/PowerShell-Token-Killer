@@ -1,7 +1,7 @@
 # R6 Acceptance Matrix Audit
 
-**Status**: first complete pass, 2026-07-26, at `feature/mcp-resilience-r1`
-head `fd9c108`. Owner-approved 2026-07-26 as the action gating R7.
+**Status**: all ten audit gaps closed and verified, 2026-07-26, on
+`feature/mcp-resilience-r1`. The owner-approved action gating R7 is complete.
 
 **Purpose**: the R6 exit gate in `.agents/plans/mcp-resilience.md` is
 "Close the R6 acceptance matrix before R7", and the matrix under
@@ -15,9 +15,10 @@ beyond an abridged claim per row.
 `server/PtkGuardianArchitecture.Tests` (2,201 distinct method identities), then
 matched against each matrix claim by concept search, with candidate test bodies
 read wherever a name alone would not settle the question. **No suite was re-run
-for this audit** — a row marked COVERED means a test exists that asserts the
-claim, not that it was observed passing in this pass. The last recorded full
-macOS battery is at `15568a0` (see `.agents/state.md`).
+for the initial audit** — a row marked COVERED means a test exists that asserts
+the claim, not that it was observed passing in that pass. Every corrective gap
+slice was subsequently mutation-proven where required and the final combined
+macOS battery is recorded in `.agents/machines.md`.
 
 **How to read a row**
 
@@ -201,7 +202,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | C4.2 | Host crash affects all live sessions but not the guardian connection | COVERED | `GuardianHostSupervisorTests.Host_loss_projects_last_known_ready_session_as_unavailable`; `GuardianHostSessionStateProjectionTests.Unavailable_host_removes_impossible_ready_session_claim`; `ResilienceFakeGuardianTests.Disposable_guardian_preserves_public_pipe_and_delivery_truth_across_host_loss` |
 | C4.3 | Guardian death is connection-fatal and leaves no descendant | COVERED | `UnixGuardianBrokerIntegrationTests.Guardian_death_contains_every_creation_barrier`, `Guardian_death_interrupts_a_stalled_creation_protocol`, `Creation_barrier_matrix_is_exact` (Unix); `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant` (Windows) |
 | C5.1 | Recovery never starts after intentional public EOF | COVERED | `ResilienceFakeGuardianTests.Public_eof_waits_for_an_active_recovery_loop_before_disposal`; `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof`; `CanonicalLayoutPackageTests.Unix_layout_is_matched_and_the_packaged_guardian_accepts_public_eof` / `Windows_layout_…` |
-| C5.2 | Idle policy never creates a restart loop; advancing a fake clock past every transitional idle interval on an open pipe preserves host/worker PIDs, generations, warm-state sentinel, and lifecycle-audit count | PARTIAL | `ProductionGuardianCompositionTests.Windows_private_host_ignores_the_transitional_idle_watchdog` asserts exactly this — **but only on Windows** (F1). `IdleWatchdogTests.Fires_once_the_idle_timeout_elapses` / `Does_not_fire_while_activity_keeps_arriving` cover the watchdog unit, not the guardian-level invariant. See G7 |
+| C5.2 | Idle policy never creates a restart loop; advancing a fake clock past every transitional idle interval on an open pipe preserves host/worker PIDs, generations, warm-state sentinel, and lifecycle-audit count | COVERED | `ProductionGuardianCompositionTests.Private_host_ignores_the_transitional_idle_watchdog` is cross-platform after G7 removed its vacuous Windows gate and supplied the platform launcher. `IdleWatchdogTests.Fires_once_the_idle_timeout_elapses` / `Does_not_fire_while_activity_keeps_arriving` retain the unit boundary. See G7 |
 
 ## Section D — Audit export compatibility
 
@@ -222,7 +223,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 | ID | Claim (abridged) | Status | Evidence |
 |----|------------------|--------|----------|
 | E1.1 | Common deterministic suites pass on Windows, Linux, and macOS | COVERED | All three platforms run at `e5f67a9`/`c600325`: macOS green, x64 Linux green, Windows green except its 18 pre-existing ordinary-account cert/DPAPI/mTLS and parked-dialect failures, which predate this branch and are unchanged. G8 closed — see `.agents/machines.md` |
-| E1.2 | Native tests hard-kill guardian/host/worker at the creation, initialize, bootstrap, ready, foreground-busy, and job-running barriers | PARTIAL | Five of six barriers covered; **bootstrap is the only true gap**, and initialize is covered only on Windows at real-process level. Full per-barrier map below. Corrected 2026-07-26 — the first revision wrongly called initialize, bootstrap and foreground-busy all uncovered. See G10 |
+| E1.2 | Native tests hard-kill guardian/host/worker at the creation, initialize, bootstrap, ready, foreground-busy, and job-running barriers | COVERED | All six barriers have real-process proof. G7 made initialize cross-platform; G10 added a deterministic cross-platform descriptor-bootstrap barrier. Full per-barrier map below |
 
 **E1.2 per-barrier map** (searched by mechanism, not by name — the barriers are
 not named in test identities, which is what defeated the first pass):
@@ -230,17 +231,17 @@ not named in test identities, which is what defeated the first pass):
 | Barrier | Status | Evidence |
 |---|---|---|
 | creation | COVERED, exhaustively | `UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact` pins seven sub-barriers (`host_gated`, `before_pending`, `during_move`, `before_armed_ack`, `after_armed_ack`, `after_release_command`, `after_release`) and `Guardian_death_contains_every_creation_barrier` kills at each; `Guardian_death_interrupts_a_stalled_creation_protocol`; Windows `WindowsContainmentIntegrationTests.Suspended_worker_is_contained_before_entry_and_job_owner_kills_its_tree`, `Runnable_worker_enters_without_a_proof_resume` |
-| initialize | PARTIAL | Real process, but Windows-only: `ProductionGuardianCompositionTests.Windows_composition_recovers_after_replacement_dies_during_startup` (`CrashSecondLaunchLauncher` kills the replacement before ready). Cross-platform coverage is rig-level only, against fake launchers: `WorkerPrivateHostRuntimeTests.A_worker_dying_during_initialization_recovers_once_ready`, `WorkerProcessClientTests.Exit_before_hello_refuses_launch_and_contains_once`. **No cross-platform real-process kill during initialize** |
-| bootstrap | **GAP** | Nothing hard-kills during the private-host descriptor bootstrap. `PrivateHostBootstrapTests` has no kill leg at all. Note the lazy-load amendment (F2) removed *template* bootstrap from R6, so the surviving phase is descriptor inheritance at process entry |
+| initialize | COVERED | `ProductionGuardianCompositionTests.Composition_recovers_after_replacement_dies_during_startup` drives the real platform launcher and kills the replacement before ready on Windows, Linux, and macOS after G7 removed its vacuous Windows gate. Rig-level `WorkerPrivateHostRuntimeTests.A_worker_dying_during_initialization_recovers_once_ready` and `WorkerProcessClientTests.Exit_before_hello_refuses_launch_and_contains_once` retain the protocol edges |
+| bootstrap | COVERED | `ProductionGuardianCompositionTests.Hard_kill_during_private_host_descriptor_bootstrap_closes_both_channels` launches the disposable fixture through the real platform launcher. The fixture enters production `PrivateHostBootstrapCapture` / `PrivateHostBootstrapNative`, signals only after the first inherited handle is owned, and blocks before the second; the test hard-kills there, confirms containment, event-channel EOF, and request-channel write failure. The barrier is deterministic rather than a sub-second observation race |
 | ready | COVERED | `Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection` (macOS + Linux); `Windows_composition_recovers_a_real_host_on_the_same_public_connection` |
 | foreground-busy | COVERED | `Composition_never_replays_a_real_effect_when_the_worker_dies` is cross-platform and kills the worker *from inside a live foreground `ptk_invoke`* — the script is `[System.Diagnostics.Process]::GetCurrentProcess().Kill()`. Windows adds three kill points around a real dispatch via the `RealDispatchBarrier` enum (`BeforeWriteAuthorization`, `WriteStarting`, `TerminalDecoded`) in `Windows_composition_classifies_real_prewrite_loss` / `..._possibly_written_loss` / `..._retains_real_decoded_terminal_on_loss` |
 | job-running | COVERED | `Composition_seals_a_real_background_job_artifact_for_handle_recovery` (cross-platform); `Windows_composition_keeps_a_real_job_tombstone_and_sealed_output` |
 | E2.1 | Windows proves creation-time outer containment, nested Job Objects, noninheritance, direct `NETWATCH-01` cleanup | COVERED | `WindowsNestedJobResilienceIntegrationTests.Outer_close_kills_creation_time_nested_host_worker_and_descendant`, `Disposable_probe_has_one_atomic_creator_and_no_job_handle_escape_path`; `WindowsProcessTreeSupervisorTests.Native_creation_flags_are_exact_and_suspension_is_proof_only`, `Native_production_has_one_atomic_create_and_no_fallback_or_sweep_escape_hatch`; `WindowsWorkerLifecycleIntegrationTests.Contained_worker_completes_lifecycle_with_silent_diagnostics`. Direct `NETWATCH-01` evidence is recorded in `.agents/machines.md` |
-| E2.2 | Linux/macOS prove broker liveness cleanup, host-group ownership, pending/armed registration, start-identity fencing, direct-host reap, descendant exit confirmation, nonchild reaping, no old/new group overlap | COVERED on macOS | `UnixGuardianBrokerIntegrationTests.*`; `UnixWorkerProcessLauncherTests.Production_broker_launches_real_worker_only_after_both_registry_acks`; `PrivateHostUnixWorkerContainmentRegistryTests`; `ProcessTreeContainmentTests.Terminal_release_sweeps_escaped_orphans`, `Instantly_daemonized_orphan_is_reaped_by_escalation`, `Tree_kill_defeats_a_sigterm_trap`, `Fallback_survivor_requires_matching_incarnation`. Linux execution is G8 |
+| E2.2 | Linux/macOS prove broker liveness cleanup, host-group ownership, pending/armed registration, start-identity fencing, direct-host reap, descendant exit confirmation, nonchild reaping, no old/new group overlap | COVERED | `UnixGuardianBrokerIntegrationTests.*`; `UnixWorkerProcessLauncherTests.Production_broker_launches_real_worker_only_after_both_registry_acks`; `PrivateHostUnixWorkerContainmentRegistryTests`; `ProcessTreeContainmentTests.Terminal_release_sweeps_escaped_orphans`, `Instantly_daemonized_orphan_is_reaped_by_escalation`, `Tree_kill_defeats_a_sigterm_trap`, `Fallback_survivor_requires_matching_incarnation`. G8 records complete macOS and x64 Linux execution |
 | E2.3 | Guards fail if an R5 child misses the host group, a worker leaves before pending acknowledgment, or release precedes armed acknowledgment | COVERED | `UnixGuardianBrokerIntegrationTests.Creation_barrier_matrix_is_exact`, `Corrupted_start_identity_cannot_signal_a_live_sentinel`, `Native_source_freezes_the_liveness_registry_and_reaping_boundary` |
 | E3 | Guardian stdout is exclusively valid MCP; all other output is bounded stderr/private diagnostics with no scripts, bootstrap, secrets, paths, raw environment, or exception text | COVERED | `ResilienceFakeGuardianTests.AssertPublicStdoutIsJsonRpcOnly` (applied at every barrier), `Structurally_invalid_public_json_is_recorded_and_the_next_response_is_drained`; `GuardianAppHostProcessSmokeTests.Apphost_rejects_relaxed_fake_host_flag_without_opening_stdout`; `GuardianMcpApplicationTests.Fake_host_startup_failure_is_stderr_only_and_never_opens_MCP`; `WorkerProcessExitTests.Unknown_server_detail_is_generic_and_cannot_inject_data`; `WorkerPreparedOperationCodecTests.Failures_retain_no_script_digest_identifier_or_inner_exception`; `AuditExportConfigurationTests.Sanitized_failures_never_echo_secret_values_paths_or_inner_exceptions`; `ScriptEvidenceStoreTests.Constructor_refuses_a_symlinked_evidence_root_without_disclosing_its_path` |
 | E4.1 | Existing tool names/schemas/default successful outputs remain compatible; only frozen recovery/state fields and failures change | COVERED | `ToolSchemaConformanceTests`; `McpResilienceR0ContractTests.Public_recovery_and_end_state_tool_contract_are_exact`, `Public_state_schema_closes_identity_state_combinations`, `Public_state_schema_closes_state_phase_and_readiness_combinations`; `RawUsageTests.*` |
-| E4.2 | Existing .NET, Pester, handshake, audit, output, release, and platform batteries remain green | PARTIAL | Same as E1.1 — Linux missing (G8); the handshake is a manual step per `.agents/repo-guidance.md` |
+| E4.2 | Existing .NET, Pester, handshake, audit, output, release, and platform batteries remain green | COVERED | Same complete macOS, x64 Linux, and recorded Windows baseline as E1.1/G8; the required manual handshake passed on every exact-head validation recorded in `.agents/machines.md` |
 | E5 | A local R7 package fixture proves one successful guardian-only cutover and failure at every payload-activation and per-harness registration boundary, each injected failure restoring byte-identical prior payload and registrations | R7 | Package *loading* is covered (`MatchedPackageLoaderTests.*`, `CanonicalLayoutPackageTests.*`, `CurrentMatchedPackageTests.*`); the cutover/rollback fixture is R7 work and cannot close before R7 |
 
 ---
@@ -434,32 +435,36 @@ the plan edit on 2026-07-26; `.agents/plans/mcp-resilience.md`
 `## Acceptance matrix` now strikes the B3 line and restates B4 as the empty-
 runspace baseline. No implementation work remains.
 
-**G10 — RESOLVED to one narrow gap 2026-07-26; the original three-barrier claim
-was wrong.** Re-searched by *mechanism* rather than by name — the barriers are
-not named in any test identity, which is exactly what defeated the first pass.
-The per-barrier map is under row E1.2 above. Outcome:
+**G10 — CLOSED 2026-07-26.** The original three-barrier claim was wrong.
+Re-searching by *mechanism* rather than by name showed foreground-busy was
+already covered and G7 made the initialize identity cross-platform. The one
+true gap was descriptor bootstrap.
 
 - **foreground-busy was covered all along.** `Composition_never_replays_a_real_effect_when_the_worker_dies`
   kills the worker from inside a live foreground `ptk_invoke`, cross-platform,
   and Windows adds three more kill points via `RealDispatchBarrier`.
-- **initialize is covered, but only on Windows at real-process level.**
-  Cross-platform coverage uses fake launchers. Worth closing together with G7,
-  since both are "this identity only really runs on Windows".
-- **bootstrap is the one true gap.** Nothing kills during the private-host
-  descriptor bootstrap; `PrivateHostBootstrapTests` has no kill leg. Before
-  writing one, weigh it against `r6x-5`'s lesson: a kill inside a sub-second
-  window is a race-dependent real-process test, the exact shape that has
-  produced two findings on this branch. A deterministic barrier — the pattern
-  `CrashSecondLaunchLauncher` and the Unix broker fixtures already use — is the
-  only version worth having; do not write a sleep-and-kill.
+- **initialize is cross-platform real-process coverage after G7.**
+  `Composition_recovers_after_replacement_dies_during_startup` now receives the
+  platform launcher instead of hard-coding Windows.
+- **bootstrap is now covered without a timing race.**
+  `Hard_kill_during_private_host_descriptor_bootstrap_closes_both_channels`
+  launches the existing disposable resilience fixture through the real platform
+  launcher. The fixture invokes production `PrivateHostBootstrapCapture` and
+  `PrivateHostBootstrapNative`, owns the first inherited handle, writes an exact
+  barrier marker, and blocks before returning it. The test hard-kills the process
+  at that barrier, observes real launcher containment, event EOF, and a failed
+  request write. Mutating the barrier fact from `first_handle_owned=true` to
+  false prevented the test from reaching the kill and failed at the exact marker
+  assertion; restoration passed.
 
 ## Out of scope for this audit
 
 - **The 38 required mutation proofs** (`.agents/plans/mcp-resilience.md`
   `## Required mutation proofs`). No map exists from mutation number to the guard
-  it should redden. That is a second, distinct gate on R6 acceptance and needs
-  its own pass; F3 came out of this audit only because mutation #38 shares A3's
-  missing symbol.
+  it should redden. This static audit neither certifies nor reopens that
+  implementation-era gate; each corrective gap slice records its own required
+  mutation proof. F3 came out of this audit only because mutation #38 shares
+  A3's missing symbol.
 - **Re-running any suite.** This pass read tests; it did not execute them.
 - **Whether each covering test is non-vacuous.** Rows record that a guard exists,
   not that reverting the behaviour reddens it. `r6x-2` #3 is the standing

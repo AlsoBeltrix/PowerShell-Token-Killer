@@ -23,6 +23,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="PtkMcpServer.Tests" />
+    <InternalsVisibleTo Include="PtkResilienceTestFixture" />
     <InternalsVisibleTo Include="PtkAuditAdmin" />
   </ItemGroup>
 

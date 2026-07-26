@@ -5,19 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 G3's latent prepared-runtime timeout race is closed (2026-07-26).**
-  G10 verification exposed an intermittent path where `RunspaceHost` returned
-  a structured destructive timeout before the host-side deadline observer won.
-  `SessionRuntime` flattened that fact to rendered text, so the worker reported
-  `Completed`, the MCP wrapper returned `isError:false`, and the guardian did
-  not enter timeout containment. The prepared runtime now carries the
-  machine-readable `TimedOut && WarmStateLost` fact through its terminal;
-  message text is never classified. The new deterministic adapter guard failed
-  `Expected: Expired; Actual: Completed` before the fix and passes after it.
-  The real-apphost timeout identity then passed 5/5, and the full macOS battery
-  is green. The canonical gap map is
-  `.agents/plans/r6-acceptance-audit.md`; G10's descriptor-bootstrap hard-kill
-  barrier remains next.
+- **The R6 acceptance gap map is fully closed (G1–G10, 2026-07-26).**
+  G10 added the one missing deterministic native hard-kill barrier: the existing
+  disposable fixture enters production descriptor bootstrap, owns the first
+  inherited handle, signals that exact fact, and blocks before the second. The
+  cross-platform real launcher test kills there and proves containment,
+  event-channel EOF, and request-channel write failure. Changing the barrier
+  fact to `first_handle_owned=false` failed at the exact marker; restoration
+  passed. The combined final macOS battery is green at architecture 73/73,
+  Guardian 504/504, server 2,057/2,057, Pester 141 passed with two expected
+  skips, and handshake passed. The canonical closed map is
+  `.agents/plans/r6-acceptance-audit.md`; the next owner decision is R7
+  `r7-1`'s runtime half.
 - **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
   session left open overnight came back dead with `API Error: 400 Tool reference
   'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the
@@ -52,8 +51,7 @@ short and update it when important repo facts change.
   removed**, so nothing is broken right now and a stale registration still
   works. Verifying the packaged guardian is what exposed `r7-1`. Note the
   guardian exposes **six** tools — it adds `ptk_session` to the installed five.
-- **Audit gaps closed today: G7, G5, and G6; G10 is narrowed; G8 was closed
-  earlier.** G7 turned out
+- **R6 audit gaps G1–G10 are closed.** G7 turned out
   far bigger than one test: **seven identities were Windows-gated and returned
   vacuously off Windows**, and the cause was a test-harness defect, not platform
   behaviour — both test launchers hard-coded `WindowsPrivateHostProcessLauncher`
@@ -61,7 +59,8 @@ short and update it when important repo facts change.
   silently erasing `IUnixWorkerContainmentAuthority`, which
   `PrivateHostAttemptFactory` recovers by `as`-cast. Six now run everywhere and
   pass on macOS and Linux. G10's original three-barrier claim was **wrong**;
-  only the bootstrap hard-kill barrier is genuinely uncovered.
+  the one genuine descriptor-bootstrap hard-kill gap now has deterministic
+  cross-platform real-process coverage.
 - **THE x64 LINUX LEG IS CLOSED (2026-07-26).** The complete battery is green on
   Linux for the first time on this branch, at `43ae190` plus the serialization
   cap: architecture 73/73, Guardian **496/496**, server 2,044/2,044, Pester 141
@@ -1043,25 +1042,21 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Close the R6 acceptance matrix before doing more R7 work.** Continue the
-   canonical gap map in `.agents/plans/r6-acceptance-audit.md`, one gap per
-   corrective commit with its required mutation proof. G1–G9 are closed; G10's
-   descriptor-bootstrap hard-kill barrier is next.
-2. **Then decide `r7-1`'s runtime half and finish R7.** Preserve fatal handling
+1. **Decide `r7-1`'s runtime half and finish R7.** Preserve fatal handling
    for integrity failures, decide whether unknown evidence formats are
    quarantined, and add an actual-root `audit=available` preflight before any
    registration mutation. Then remove the transitional public server entry,
    repoint the handshake at the guardian, and complete the matched-package
    cutover and real-client matrix.
-3. **Deliver only after verification.** Reconcile the feature branch with
+2. **Deliver only after verification.** Reconcile the feature branch with
    current `origin/master`, run the required exact-head platform evidence,
    integrate verified content into `master`, publish the verified refs, and
    reinstall the matched payload. Until then, report resilience work as in
    progress.
-4. After resilience delivery, retain and merge each other work-carrying branch
+3. After resilience delivery, retain and merge each other work-carrying branch
    into `master` one at a time, proving content arrival and relevant verification
    before deleting any branch.
-5. Keep mini-SIEM S4, release-distribution slice 3, the decision-log
+4. Keep mini-SIEM S4, release-distribution slice 3, the decision-log
    reconciliation, and Microsoft #7 follow-up behind their recorded gates in
    `## Open / Parked` and `## Blockers`.
 

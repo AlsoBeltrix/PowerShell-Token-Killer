@@ -2151,3 +2151,21 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
 - The final combined physical-TMPDIR battery passed architecture 73/73,
   Guardian **504/504**, server **2,057/2,057**, Pester 141 with two expected
   skips, and the complete stdio handshake.
+
+## R6 G10 descriptor-bootstrap hard-kill verification (`nagatha.local`, 2026-07-26)
+
+- `ProductionGuardianCompositionTests.Hard_kill_during_private_host_descriptor_bootstrap_closes_both_channels`
+  passed through the real macOS platform launcher. The existing resilience
+  fixture entered production `PrivateHostBootstrapCapture` and
+  `PrivateHostBootstrapNative`, owned the first inherited handle, wrote
+  `{"first_handle_owned":true}`, and blocked before returning it. The test
+  hard-killed at that barrier and proved launcher containment, event-channel
+  EOF, and request-channel write failure.
+- Mutation changed the marker fact to `first_handle_owned=false`. The identity
+  failed after 30 seconds at the exact barrier assertion; restoring the owned
+  fact returned it green.
+- The final combined physical-TMPDIR battery passed architecture 73/73,
+  Guardian **504/504** in 6 m 19 s, server **2,057/2,057**, Pester 141 with two
+  expected skips, and the complete stdio handshake. This run included the G3
+  structured-timeout and committed-deadline repairs that G10 verification
+  exposed.

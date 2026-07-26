@@ -31,6 +31,8 @@
     <ProjectReference Include="..\PtkMcpGuardian\PtkMcpGuardian.csproj" />
     <ProjectReference Include="..\PtkMcpServer\PtkMcpServer.csproj"
                       ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\PtkResilienceTestFixture\PtkResilienceTestFixture.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

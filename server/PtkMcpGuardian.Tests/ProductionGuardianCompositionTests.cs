@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO.Pipes;
 using System.Text;
 using System.Text.Json;
 using PtkMcpGuardian.Host;
@@ -1684,6 +1685,112 @@ public sealed class ProductionGuardianCompositionTests
             DeleteRoot(auditRoot);
             DeleteRoot(outputRoot);
             if (real.NativeRoot is not null) DeleteRoot(real.NativeRoot);
+        }
+    }
+
+    /// <summary>
+    /// Hard-kills a real process after production bootstrap has owned the first
+    /// inherited protocol handle but before it can own the second.
+    /// </summary>
+    [Fact]
+    public async Task Hard_kill_during_private_host_descriptor_bootstrap_closes_both_channels()
+    {
+        var controlRoot = TemporaryRoot("descriptor-bootstrap-control");
+        var real = await RealHostLaunchAsync(
+            "descriptor-bootstrap-broker",
+            FindResilienceFixtureAppHost());
+        Directory.CreateDirectory(controlRoot);
+        var marker = Path.Combine(
+            controlRoot,
+            "bootstrap-first-handle-owned.json");
+        using var timeout = new CancellationTokenSource(CompositionTestTimeout);
+        using var request = new AnonymousPipeServerStream(
+            PipeDirection.Out,
+            HandleInheritability.Inheritable);
+        using var events = new AnonymousPipeServerStream(
+            PipeDirection.In,
+            HandleInheritability.Inheritable);
+        var command = new PrivateHostLaunchCommand(
+            real.Package,
+            Pins(real.Package),
+            new GuardianHostIdentity(
+                Guardian,
+                new HostBootId(
+                    Guid.Parse("33333333-3333-4333-8333-333333333333")),
+                new HostGeneration(1)),
+            ParentEnvironmentWith(
+                "PTK_RESILIENCE_FIXTURE_CONTROL_ROOT",
+                controlRoot),
+            Handle(request.ClientSafePipeHandle),
+            Handle(events.ClientSafePipeHandle));
+
+        PrivateHostProcessLaunchResult launch;
+        try
+        {
+            launch = real.Inner.Launch(command);
+        }
+        finally
+        {
+            request.DisposeLocalCopyOfClientHandle();
+            events.DisposeLocalCopyOfClientHandle();
+        }
+
+        Assert.Equal(GuardianHostLaunchOutcome.Started, launch.Outcome);
+        var authority = Assert.IsAssignableFrom<IPrivateHostLaunchedProcess>(
+            launch.LaunchedHost);
+        Process? process = null;
+        try
+        {
+            await WaitForExactFileAsync(
+                marker,
+                "{\"first_handle_owned\":true}",
+                timeout.Token);
+            process = Process.GetProcessById(authority.ProcessId);
+            Assert.False(process.HasExited);
+            Assert.False(authority.Exited.IsCompleted);
+            Assert.False(authority.ContainmentConfirmed.IsCompleted);
+
+            process.Kill();
+            var started = Stopwatch.GetTimestamp();
+            authority.BeginContainment(new GuardianHostContainmentDeadline(
+                started,
+                started + Stopwatch.Frequency * 10));
+            await authority.Exited.WaitAsync(timeout.Token);
+            await authority.ContainmentConfirmed.WaitAsync(timeout.Token);
+            await process.WaitForExitAsync(timeout.Token);
+            Assert.True(process.HasExited);
+
+            var buffer = new byte[1];
+            Assert.Equal(
+                0,
+                await events.ReadAsync(buffer, timeout.Token));
+            await Assert.ThrowsAnyAsync<IOException>(async () =>
+            {
+                await request.WriteAsync(buffer, timeout.Token);
+                await request.FlushAsync(timeout.Token);
+            });
+        }
+        finally
+        {
+            process?.Dispose();
+            try
+            {
+                if (!authority.ContainmentConfirmed.IsCompleted)
+                {
+                    var started = Stopwatch.GetTimestamp();
+                    authority.BeginContainment(new GuardianHostContainmentDeadline(
+                        started,
+                        started + Stopwatch.Frequency * 10));
+                    await authority.ContainmentConfirmed.WaitAsync(
+                        CompositionTestTimeout);
+                }
+            }
+            finally
+            {
+                authority.Dispose();
+                DeleteRoot(controlRoot);
+                if (real.NativeRoot is not null) DeleteRoot(real.NativeRoot);
+            }
         }
     }
 
@@ -3387,13 +3494,16 @@ public sealed class ProductionGuardianCompositionTests
     /// the platform branch per test is what let identities drift into being
     /// Windows-only by accident (audit F1).
     /// </remarks>
-    private static async Task<RealHostLaunch> RealHostLaunchAsync(string label)
+    private static async Task<RealHostLaunch> RealHostLaunchAsync(
+        string label,
+        string? hostAppHost = null)
     {
+        hostAppHost ??= FindServerAppHost();
         if (OperatingSystem.IsWindows())
         {
             return new RealHostLaunch(
                 new WindowsPrivateHostProcessLauncher(),
-                Package(FindServerAppHost()),
+                Package(hostAppHost),
                 NativeRoot: null);
         }
 
@@ -3403,7 +3513,7 @@ public sealed class ProductionGuardianCompositionTests
         await CompileGuardianBrokerAsync(broker);
         return new RealHostLaunch(
             new UnixPrivateHostProcessLauncher(broker),
-            Package(FindServerAppHost(), broker),
+            Package(hostAppHost, broker),
             nativeRoot);
     }
 
@@ -3426,6 +3536,15 @@ public sealed class ProductionGuardianCompositionTests
                 MatchedPackageRole.GuardianHelper,
                 guardianHelper)]);
 
+    private static GuardianHostSupervisorPins Pins(
+        MatchedPackageFacts package) => new(
+        package.HostExecutableDigest,
+        package.HostBuildDigest,
+        package.PublicContractDigest,
+        Digest('3'),
+        Digest('4'),
+        package.PackageManifestDigest);
+
     private static string FindServerAppHost()
     {
         var configurationDirectory = Directory.GetParent(
@@ -3441,6 +3560,28 @@ public sealed class ProductionGuardianCompositionTests
             "net10.0",
             OperatingSystem.IsWindows() ? "PtkMcpServer.exe" : "PtkMcpServer");
         Assert.True(File.Exists(path), $"The private host apphost is absent: {path}");
+        return path;
+    }
+
+    private static string FindResilienceFixtureAppHost()
+    {
+        var configurationDirectory = Directory.GetParent(
+            Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)) ??
+            throw new InvalidOperationException(
+                "The test configuration directory is unavailable.");
+        var path = Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "PtkResilienceTestFixture",
+            "bin",
+            configurationDirectory.Name,
+            "net10.0",
+            OperatingSystem.IsWindows()
+                ? "PtkResilienceTestFixture.exe"
+                : "PtkResilienceTestFixture");
+        Assert.True(
+            File.Exists(path),
+            $"The resilience fixture apphost is absent: {path}");
         return path;
     }
 
@@ -3571,6 +3712,30 @@ public sealed class ProductionGuardianCompositionTests
             $"background_names={supervisor.BackgroundTaskNames}.");
     }
 
+    private static async Task WaitForExactFileAsync(
+        string path,
+        string expected,
+        CancellationToken cancellationToken)
+    {
+        for (var started = Stopwatch.GetTimestamp(); PollingWithinBudget(started);)
+        {
+            try
+            {
+                if (File.Exists(path) &&
+                    await File.ReadAllTextAsync(path, cancellationToken) == expected)
+                {
+                    return;
+                }
+            }
+            catch (IOException)
+            {
+            }
+            await Task.Delay(10, cancellationToken);
+        }
+
+        Assert.Fail($"The expected fixture marker did not appear: {path}");
+    }
+
     private static int CurrentHandleOrFileDescriptorCount()
     {
         if (OperatingSystem.IsWindows())
@@ -3604,6 +3769,10 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     private static Sha256Digest Digest(char value) => new(new string(value, 64));
+
+    private static nuint Handle(
+        Microsoft.Win32.SafeHandles.SafePipeHandle handle) =>
+        unchecked((nuint)handle.DangerousGetHandle());
 
     private sealed class NeverLauncher : IPrivateHostProcessLauncher
     {

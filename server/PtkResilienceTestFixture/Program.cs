@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using PtkMcpServer.GuardianHost;
 using PtkSharedContracts;
 
 namespace PtkResilienceTestFixture;
@@ -30,6 +31,13 @@ internal static class Program
                 return 64;
 
             Directory.CreateDirectory(controlRoot);
+            if (args is ["--host"])
+            {
+                using var bootstrap = PrivateHostBootstrapCapture.CaptureAndRemove(
+                    native: new FirstOwnedHandleBarrier(controlRoot));
+                return 0;
+            }
+
             if (args is ["--fake-host", var generationText, var guardianBootText] &&
                 long.TryParse(generationText, NumberStyles.None, CultureInfo.InvariantCulture, out var generation) &&
                 generation > 0 &&
@@ -92,6 +100,31 @@ internal static class Program
         if (Path.GetFileNameWithoutExtension(processPath).Equals("dotnet", StringComparison.OrdinalIgnoreCase))
             start.ArgumentList.Add(assemblyPath);
         return start;
+    }
+
+    /// <summary>
+    /// Runs the production inherited-handle ownership boundary and blocks after
+    /// the first handle is owned but before it returns to bootstrap capture.
+    /// The parent integration test hard-kills this disposable fixture at that
+    /// exact process barrier.
+    /// </summary>
+    private sealed class FirstOwnedHandleBarrier(string controlRoot) :
+        IPrivateHostBootstrapNative
+    {
+        private int _ownershipCount;
+
+        public IPrivateHostBootstrapHandle OwnInherited(nuint handleValue)
+        {
+            var owned = PrivateHostBootstrapNative.Instance.OwnInherited(handleValue);
+            if (Interlocked.Increment(ref _ownershipCount) == 1)
+            {
+                WriteControlFile(
+                    Path.Combine(controlRoot, "bootstrap-first-handle-owned.json"),
+                    "{\"first_handle_owned\":true}");
+                Thread.Sleep(Timeout.Infinite);
+            }
+            return owned;
+        }
     }
 }
 

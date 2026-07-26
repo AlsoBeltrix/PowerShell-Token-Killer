@@ -5,6 +5,20 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **HANDOFF 2026-07-26 at `15568a0` (pushed).** No work in flight, tree clean,
+  nothing part-done. Every open finding on the resilience branch is closed:
+  `r6x-1`, `r6x-2` (all three sub-items), `r6x-3`, `r6x-4`, `r6acc-1`. macOS at
+  `15568a0`: architecture 73/73, Guardian 496/496, server 2,044/2,044, Pester
+  141 with two expected skips, complete stdio handshake. Windows Guardian
+  496/496 at `d431a2c` — **one commit behind**, so the `r6x-4` fix is unverified
+  there (it is Unix-only code, so this is bookkeeping rather than risk).
+  **Next action is item 1 under `## Next`, already owner-approved.**
+- **`r6x-4` fixed 2026-07-26.** A test asserted a raw fd number was invalid
+  after close, which races descriptor reuse under parallel runs; closure is now
+  observed through the pipe's peer end (`write` → `EPIPE`), so the race is gone
+  by construction. Its guard proof is deliberately *not* red-to-green on the
+  flake — a rare race cannot be summoned — but non-vacuous against the property:
+  removing the product's `DisposeIgnoringFailure(ownedRequest)` reddens it.
 - **`r6x-2` and `r6acc-1` are both CLOSED, and every fix in them has been
   through `codereview` (2026-07-26).** Reviewer: codex, dispatched at the
   harness defaults per the owner's ruling that the playbook's tier/model/effort
@@ -866,17 +880,25 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Finish R6.** `r6x-1`, `r6x-2`, `r6x-3` and `r6acc-1` are all closed and
-   reviewed, and the acceptance matrix's one-alias isolation line is proven on
-   both platforms. What remains of sub-slice 5 is any other acceptance line the
-   plan names — read `.agents/plans/mcp-resilience.md` rather than assuming this
-   list is complete.
-2. **`r6x-4` (LOW, open): a test-determinism flake.**
-   `Unix_out_of_range_second_descriptor_closes_first_owned_descriptor` asserts a
-   raw fd number is invalid after close, which races descriptor reuse under a
-   loaded parallel run. Diagnosed with the mechanism confirmed but **not
-   reproduced** — capture the failure message if it recurs, because if the
-   failing assertion is not line 598 the diagnosis is wrong.
+1. **Audit the R6 acceptance matrix against existing tests and write the gap
+   list into `.agents/`. OWNER-APPROVED 2026-07-26 — do not re-ask, just do
+   it.** This is the next action and it is the only thing standing between here
+   and R7.
+   The matrix is `.agents/plans/mcp-resilience.md` under `## Acceptance matrix`
+   — roughly 40 bullets across five sections (public connection and host
+   recovery, generation and state restoration, and the rest). Most are
+   plausibly already covered by R0-R6 tests, but **no map exists** from matrix
+   line to covering test, which is exactly why this audit is the task. Produce
+   that map, then the gap list; do not assume a line is covered because it
+   sounds familiar.
+   Known-proven so far: one-alias crash isolation
+   (`Composition_isolates_one_alias_worker_crash_from_a_second_alias`), sealed
+   job output and tombstones, no-replay on worker death, ambiguous-reset
+   blocking. The plan also requires the complete battery and stdio handshake on
+   **x64 Linux**, which has not been run this session.
+2. **Then R7** (`.agents/plans/mcp-resilience.md`) — development registration,
+   package fixture, end-to-end cutover. Blocked on 1 by the plan's own gate:
+   "Close the R6 acceptance matrix before R7."
 3. **Diagnose `r6acc-1` — it blocks the R6 acceptance matrix and is a
    suspected regression from this session's own work.** Writing the acceptance
    test for one-alias crash isolation on the real apphost found that

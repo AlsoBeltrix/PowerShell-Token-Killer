@@ -161,9 +161,11 @@ public invoke.
 2. Terminalize its active request using the delivery boundary above.
 3. Stop admitting new work on that connection. Other agents' separate PTK
    connections remain usable.
-4. Kill and confirm the complete old worker tree.
-5. Only after confirmed death, allocate the next connection-local incarnation
-   and make one immediate replacement attempt.
+4. Kill the worker and sweep PTK's containment domain: the Windows Job Object
+   or the Unix broker-owned process group.
+5. Only after the worker has exited and that owned containment domain is
+   confirmed empty, allocate the next connection-local incarnation and make
+   one immediate replacement attempt.
 6. A successful replacement becomes `Ready` with
    `warm_state_lost=true` and an empty, sound runspace.
 7. A failed replacement marks the connection worker `Faulted`. No automatic
@@ -172,10 +174,17 @@ public invoke.
 No modules, variables, credentials, connections, profiles, or previous calls
 are replayed automatically.
 
+This is not a sandbox guarantee. A Unix descendant can leave a process group,
+and a remote service can continue work after the local process disappears.
+PTK never claims those effects stopped. Observed or unprovable escape is
+reported as `descendants_unknown`, keeps the preceding request
+`outcome_unknown`, and never makes it eligible for automatic retry.
+
 ### Timeout
 
-- A timeout requests cancellation, then terminates the complete worker tree if
-  execution does not stop within the configured containment grace.
+- A timeout requests cancellation, then terminates the worker and sweeps its
+  PTK-owned containment domain if execution does not stop within the configured
+  containment grace.
 - If the worker proves no command started, the result is a retryable no-start.
 - Otherwise the call is nonretryable `outcome_unknown` unless a complete
   timeout terminal was already decoded.
@@ -183,9 +192,10 @@ are replayed automatically.
 
 ### Supervisor or public-pipe loss
 
-Supervisor death or public EOF ends the MCP connection and every worker owned
-by it. PTK cannot repair dead stdio endpoints in-process. The harness must
-start a fresh MCP server. Installation and client guidance must state this
+Supervisor death or public EOF ends the MCP connection and every worker in its
+owned containment domain. PTK cannot repair dead stdio endpoints in-process or
+prove that an escaped local descendant or remote effect stopped. The harness
+must start a fresh MCP server. Installation and client guidance must state this
 boundary plainly.
 
 ### State projection
@@ -398,10 +408,14 @@ is unchanged.
 1. Port the worker-only Unix broker/launcher and Windows creation-time Job
    Object launcher without the outer guardian/host registry.
 2. Bind liveness to the public supervisor so supervisor death or EOF kills the
-   worker tree.
+   worker and its PTK-owned containment domain.
 3. Prove worker, direct child, and grandchild death on normal shutdown, reset,
    timeout, and hard supervisor termination.
-4. Confirm no replacement starts until old-tree death is proved.
+4. Confirm no replacement starts until the old worker has exited and its
+   Windows Job Object or Unix broker process group is empty.
+5. On Unix, deliberately escape the process group where the platform permits
+   and prove PTK reports `descendants_unknown` rather than claiming complete
+   descendant death.
 
 Exit: one disposable contained worker can be launched and killed on macOS,
 Linux, and Windows; public MCP behavior is unchanged.
@@ -438,7 +452,8 @@ full verification and handshake green.
 ### Slice 7 — truthful loss and one-attempt recovery
 
 1. Implement the delivery boundary and one-response terminal ownership.
-2. Implement confirmed-death-before-replacement.
+2. Implement confirmed worker exit and owned-containment sweep before
+   replacement.
 3. Make one automatic replacement attempt, then fault the session until
    explicit restart/reset.
 4. Prove no replay at every pre-write, partial-write, executing, terminal, and
@@ -483,6 +498,8 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 - worker hard-kill before write, during execution, after effect, during result,
   and after complete terminal decode;
 - timeout with a child and grandchild process;
+- Unix process-group escape reported as `descendants_unknown`, without replay
+  or a false complete-containment claim;
 - 100 sequential worker replacements with bounded process/handle/fd and memory
   growth;
 - public connection held idle beyond every former watchdog interval;
@@ -490,7 +507,7 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 - prompt `ptk_state` during an active invoke, worker loss, startup, recovery,
   and fault, with every worker-owned field either populated or explicitly
   unavailable;
-- supervisor hard-kill leaving no worker descendant;
+- supervisor hard-kill leaving no worker or PTK-contained descendant;
 - installer activation and rollback faults;
 - a staged real workflow proving module/connection warmth across calls and no
   state leakage between the two server processes.

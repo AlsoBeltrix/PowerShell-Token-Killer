@@ -332,7 +332,26 @@ red/green guard proof.
 
 Exit: clean baseline and exact base SHA. No runtime behavior changes.
 
-### Slice 1 — remove audit from the execution gate
+### Slice 1 — retire the frozen R0 guardian contract
+
+This slice is owner-gated because the current guards record an approved
+guardian-era contract; they are not ordinary obsolete tests to delete around.
+
+1. Replace the five-tool freeze in `ToolSchemaConformanceTests` with the
+   owner-approved first-cut tool surface.
+2. Remove or re-freeze `McpResilienceR0ContractTests`, the embedded R0 public
+   contract and digest, recovery schemas/examples, package-role assertions,
+   and native/helper inventories so they describe only the approved topology.
+3. Remove `PtkResilienceTestFixture` from the solution and delete guardian-only
+   test and native-fixture dependencies that no retained runtime path uses.
+4. Add a focused conformance guard for the resulting supported surface before
+   any public schema or tool list changes land.
+
+Exit: no guardian-era contract or fixture claims to be the active production
+surface, and the replacement conformance guard passes. No runtime execution
+path changes in this slice.
+
+### Slice 2 — remove audit from the execution gate
 
 1. Add a failing integration test proving a valid invoke succeeds when the
    audit root is absent or unwritable.
@@ -347,7 +366,7 @@ Exit: clean baseline and exact base SHA. No runtime behavior changes.
 Exit: no ordinary invoke depends on `~/.ptk/audit`; no exact script file is
 created by default; full verification green.
 
-### Slice 2 — minimal worker protocol
+### Slice 3 — minimal worker protocol
 
 1. Freeze the minimal message union and strict bounds in server-local tests.
 2. Reuse or rewrite the smallest existing worker codec that meets the frozen
@@ -360,7 +379,7 @@ created by default; full verification green.
 Exit: worker protocol is live only in a disposable fixture; public MCP behavior
 is unchanged.
 
-### Slice 3 — cross-platform worker launch and containment
+### Slice 4 — cross-platform worker launch and containment
 
 1. Port the worker-only Unix broker/launcher and Windows creation-time Job
    Object launcher without the outer guardian/host registry.
@@ -373,7 +392,7 @@ is unchanged.
 Exit: one disposable contained worker can be launched and killed on macOS,
 Linux, and Windows; public MCP behavior is unchanged.
 
-### Slice 4 — connection-local session registry
+### Slice 5 — connection-local session registry
 
 1. Add bounded session names and a bounded maximum count.
 2. Add one worker slot, incarnation counter, lifecycle state, and operation
@@ -386,7 +405,7 @@ Linux, and Windows; public MCP behavior is unchanged.
 Exit: lifecycle and isolation are proven with fixture workers; current default
 invoke path remains intact.
 
-### Slice 5 — production cutover to workers
+### Slice 6 — production cutover to workers
 
 1. Route default and named foreground invokes through their selected worker.
 2. Route state/reset and retained job/output operations through the smallest
@@ -400,7 +419,7 @@ invoke path remains intact.
 Exit: all production PowerShell work runs only in contained session workers;
 full verification and handshake green.
 
-### Slice 6 — truthful loss and one-attempt recovery
+### Slice 7 — truthful loss and one-attempt recovery
 
 1. Implement the delivery boundary and one-response terminal ownership.
 2. Implement confirmed-death-before-replacement.
@@ -413,7 +432,7 @@ full verification and handshake green.
 
 Exit: real apphost fault matrix green on every supported platform.
 
-### Slice 7 — optional jobs and output continuity
+### Slice 8 — optional jobs and output continuity
 
 1. Retain only job/output behavior that remains independent of mandatory
    audit and discarded guardian capabilities.
@@ -424,7 +443,7 @@ Exit: real apphost fault matrix green on every supported platform.
 
 Exit: retained tools are bounded and cannot reduce core invoke availability.
 
-### Slice 8 — install, rollback, and real smoke
+### Slice 9 — install, rollback, and real smoke
 
 1. Package the single public supervisor executable, its internal worker mode,
    and only required native containment helpers.
@@ -438,7 +457,7 @@ Exit: retained tools are bounded and cannot reduce core invoke availability.
 Exit: an installed package, not a build-tree process, passes the real smoke and
 rollback fault matrix.
 
-### Slice 9 — production acceptance
+### Slice 10 — production acceptance
 
 Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 
@@ -464,7 +483,7 @@ Record exact commands, SHAs, test counts, identities, and residue cleanup in
 Exit: all required evidence green, no unexplained failure, no skipped
 platform-specific behavior, and no known production blocker.
 
-### Slice 10 — documentation and integration
+### Slice 11 — documentation and integration
 
 1. Update `README.md`, server guidance, `.agents/state.md`, and active plan
    pointers to the implemented two-layer topology.
@@ -516,13 +535,17 @@ Present and settle these in chat one at a time before implementation:
 
 1. **Topology:** approve one public supervisor per MCP connection with one
    worker per explicit PTK session, and no private host/guardian layer.
-2. **Audit:** approve removal of mandatory exact-script audit from the default
+2. **R0 contract retirement:** approve retirement of the frozen guardian-era
+   public-contract digest, package-role guards, schemas, and
+   `PtkResilienceTestFixture` before introducing the replacement surface. If
+   this is declined, public schema changes and implementation stop.
+3. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path; any future compliance audit is separate and explicit.
-3. **Sessions:** approve `default` as connection-private and explicit session
+4. **Sessions:** approve `default` as connection-private and explicit session
    names as mandatory when one MCP connection multiplexes agents.
-4. **Optional tools:** confirm whether cold `ptk_job` and connection-local
+5. **Optional tools:** confirm whether cold `ptk_job` and connection-local
    `ptk_output` remain production features.
-5. **Rollout:** approve a canary installed-package validation before replacing
+6. **Rollout:** approve a canary installed-package validation before replacing
    the current development registration.
 
 Silence approves none of these. Until decision 1 is settled, implementation is

@@ -1474,33 +1474,31 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
-    public Task Windows_composition_classifies_real_prewrite_loss() =>
+    public Task Composition_classifies_real_prewrite_loss() =>
         RunRealDispatchBarrierAsync(RealDispatchBarrier.BeforeWriteAuthorization);
 
     [Fact]
-    public Task Windows_composition_classifies_real_possibly_written_loss() =>
+    public Task Composition_classifies_real_possibly_written_loss() =>
         RunRealDispatchBarrierAsync(RealDispatchBarrier.WriteStarting);
 
     [Fact]
-    public Task Windows_composition_retains_real_decoded_terminal_on_loss() =>
+    public Task Composition_retains_real_decoded_terminal_on_loss() =>
         RunRealDispatchBarrierAsync(RealDispatchBarrier.TerminalDecoded);
 
     private async Task RunRealDispatchBarrierAsync(
         RealDispatchBarrier barrier)
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot($"barrier-{barrier}-audit");
         var outputRoot = TemporaryRoot($"barrier-{barrier}-output");
         var effectRoot = TemporaryRoot($"barrier-{barrier}-effect");
         Directory.CreateDirectory(effectRoot);
         var effectPath = Path.Combine(effectRoot, "effect.txt");
-        var launcher = new GatedContainmentLauncher(
-            new WindowsPrivateHostProcessLauncher());
+        var real = await RealHostLaunchAsync($"barrier-{barrier}-broker");
+        var launcher = new GatedContainmentLauncher(real.Inner);
         launcher.ReleaseFirstContainmentConfirmation();
         var observer = new RealHostKillingDispatchObserver(barrier, launcher);
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            real.Package,
             LocalAudit(auditRoot),
             launcher,
             OutputOptions(outputRoot),
@@ -1697,26 +1695,25 @@ public sealed class ProductionGuardianCompositionTests
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
             DeleteRoot(effectRoot);
+            DeleteRoot(real.NativeRoot);
         }
 
         Assert.False(Directory.Exists(outputRoot));
     }
 
     [Fact]
-    public async Task Windows_composition_requires_explicit_repair_after_ambiguous_reset()
+    public async Task Composition_requires_explicit_repair_after_ambiguous_reset()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot("ambiguous-reset-audit");
         var outputRoot = TemporaryRoot("ambiguous-reset-output");
-        var launcher = new GatedContainmentLauncher(
-            new WindowsPrivateHostProcessLauncher());
+        var real = await RealHostLaunchAsync("ambiguous-reset-broker");
+        var launcher = new GatedContainmentLauncher(real.Inner);
         launcher.ReleaseFirstContainmentConfirmation();
         var observer = new RealHostKillingDispatchObserver(
             RealDispatchBarrier.WriteStarting,
             launcher);
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            real.Package,
             LocalAudit(auditRoot),
             launcher,
             OutputOptions(outputRoot),
@@ -1947,6 +1944,7 @@ public sealed class ProductionGuardianCompositionTests
             }
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
+            DeleteRoot(real.NativeRoot);
         }
 
         Assert.False(Directory.Exists(outputRoot));
@@ -2258,15 +2256,14 @@ public sealed class ProductionGuardianCompositionTests
     }
 
     [Fact]
-    public async Task Windows_composition_recovers_after_replacement_dies_during_startup()
+    public async Task Composition_recovers_after_replacement_dies_during_startup()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot("startup-crash-audit");
         var outputRoot = TemporaryRoot("startup-crash-output");
-        var launcher = new CrashSecondLaunchLauncher();
+        var real = await RealHostLaunchAsync("startup-crash-broker");
+        var launcher = new CrashSecondLaunchLauncher(real.Inner);
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            real.Package,
             LocalAudit(auditRoot),
             launcher,
             OutputOptions(outputRoot),
@@ -2346,22 +2343,21 @@ public sealed class ProductionGuardianCompositionTests
             }
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
+            DeleteRoot(real.NativeRoot);
         }
 
         Assert.False(Directory.Exists(outputRoot));
     }
 
     [Fact]
-    public async Task Windows_composition_keeps_a_real_job_tombstone_and_sealed_output()
+    public async Task Composition_keeps_a_real_job_tombstone_and_sealed_output()
     {
-        if (!OperatingSystem.IsWindows()) return;
-
         var auditRoot = TemporaryRoot("job-tombstone-audit");
         var outputRoot = TemporaryRoot("job-tombstone-output");
-        var launcher = new GatedContainmentLauncher(
-            new WindowsPrivateHostProcessLauncher());
+        var real = await RealHostLaunchAsync("job-tombstone-broker");
+        var launcher = new GatedContainmentLauncher(real.Inner);
         var composition = ProductionGuardianComposition.Create(
-            Package(FindServerAppHost()),
+            real.Package,
             LocalAudit(auditRoot),
             launcher,
             OutputOptions(outputRoot),
@@ -2648,6 +2644,7 @@ public sealed class ProductionGuardianCompositionTests
             }
             await composition.DisposeAsync();
             DeleteRoot(auditRoot);
+            DeleteRoot(real.NativeRoot);
         }
 
         Assert.False(Directory.Exists(outputRoot));
@@ -2968,6 +2965,41 @@ public sealed class ProductionGuardianCompositionTests
         return [.. environment];
     }
 
+    /// <summary>
+    /// The real private-host launcher for this platform and its matched package.
+    /// On Unix it compiles the guardian broker into a temporary root, which the
+    /// caller must delete through <see cref="DeleteRoot"/>.
+    /// </summary>
+    /// <remarks>
+    /// Every identity that drives a real host needs this pair, and open-coding
+    /// the platform branch per test is what let identities drift into being
+    /// Windows-only by accident (audit F1).
+    /// </remarks>
+    private static async Task<RealHostLaunch> RealHostLaunchAsync(string label)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return new RealHostLaunch(
+                new WindowsPrivateHostProcessLauncher(),
+                Package(FindServerAppHost()),
+                NativeRoot: null);
+        }
+
+        var nativeRoot = TemporaryRoot(label);
+        Directory.CreateDirectory(nativeRoot);
+        var broker = Path.Combine(nativeRoot, "PtkGuardianBroker");
+        await CompileGuardianBrokerAsync(broker);
+        return new RealHostLaunch(
+            new UnixPrivateHostProcessLauncher(broker),
+            Package(FindServerAppHost(), broker),
+            nativeRoot);
+    }
+
+    private sealed record RealHostLaunch(
+        IPrivateHostProcessLauncher Inner,
+        MatchedPackageFacts Package,
+        string? NativeRoot);
+
     private static MatchedPackageFacts Package(
         string hostAppHost,
         string? guardianHelper = null) => new(
@@ -3241,9 +3273,17 @@ public sealed class ProductionGuardianCompositionTests
         }
     }
 
-    private sealed class CrashSecondLaunchLauncher : IPrivateHostProcessLauncher
+    /// <summary>
+    /// Crashes the replacement host mid-startup. The inner launcher is supplied
+    /// by the caller for the same reason <see cref="GatedContainmentLauncher"/>
+    /// takes one — hard-coding the Windows launcher is what made this identity
+    /// Windows-only, and it covers the initialize hard-kill barrier (audit
+    /// E1.2), so off Windows that barrier had no real-process coverage at all.
+    /// </summary>
+    private sealed class CrashSecondLaunchLauncher(IPrivateHostProcessLauncher inner)
+        : IPrivateHostProcessLauncher
     {
-        private readonly WindowsPrivateHostProcessLauncher _inner = new();
+        private readonly IPrivateHostProcessLauncher _inner = inner;
         private readonly TaskCompletionSource<int> _firstHostProcessId = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource<int> _failedReplacementProcessId = new(

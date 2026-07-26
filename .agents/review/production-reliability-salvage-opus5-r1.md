@@ -233,7 +233,8 @@ The revised plan will present only four owner design decisions, one at a time:
    connection and one worker/runspace, with shared-connection multiplexing
    unsupported;
 2. whether to retire the frozen R0 guardian contract artifacts and guards;
-3. whether cold `ptk_job` leaves the first production surface; and
+3. whether cold `ptk_job` and invoke's background option leave the first
+   production surface; and
 4. whether mandatory audit and its OTLP/protobuf build dependency leave the
    default runtime.
 

@@ -1126,6 +1126,12 @@ second live execution path after the final sub-slice.
 
 ## Acceptance matrix
 
+Coverage of every line below is mapped to named tests in
+`.agents/plans/r6-acceptance-audit.md`, which also carries the resulting gap
+list (G1-G10). Read it before working any line here; it is the canonical map,
+and two of its findings (G1, G9) are unresolved conflicts between this section
+and the code.
+
 ### Public connection and host recovery
 
 - Initialize once, list tools, forcibly kill an otherwise-idle host, read

@@ -5,6 +5,23 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **The R6 acceptance-matrix audit is complete (2026-07-26):
+  `.agents/plans/r6-acceptance-audit.md`.** Every matrix line in
+  `.agents/plans/mcp-resilience.md` now has a status and named covering tests;
+  ten gaps are enumerated G1-G10 there, ordered by what blocks R7 first. That
+  file is the canonical map — do not rebuild it from the plan.
+  **Three findings change how the remaining work should be read.** (1) Seven
+  real-apphost composition identities are gated `if (!IsWindows()) return;` and
+  so pass *vacuously* on macOS and Linux — a green cross-platform run says
+  nothing about them; this is the `r6x-2` lesson as a structural fact rather
+  than an incident. (2) The matrix predates the 2026-07-24 lazy-load amendment
+  and still demands frozen template bootstrap, so two rows are unclosable as
+  written and need an owner amendment rather than implementation. (3) The plan
+  requires proving host containment never borrows `timeoutContainmentGrace`,
+  but that symbol exists only in plan prose — the code has one grace constant,
+  `GuardianHostLifecycleController.HostContainmentGrace`.
+  The audit is static: it read tests, ran none, and does not claim any covering
+  guard is non-vacuous.
 - **HANDOFF 2026-07-26 at `15568a0` (pushed).** No work in flight, tree clean,
   nothing part-done. Every open finding on the resilience branch is closed:
   `r6x-1`, `r6x-2` (all three sub-items), `r6x-3`, `r6x-4`, `r6acc-1`. macOS at
@@ -880,22 +897,22 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Audit the R6 acceptance matrix against existing tests and write the gap
-   list into `.agents/`. OWNER-APPROVED 2026-07-26 — do not re-ask, just do
-   it.** This is the next action and it is the only thing standing between here
-   and R7.
-   The matrix is `.agents/plans/mcp-resilience.md` under `## Acceptance matrix`
-   — roughly 40 bullets across five sections (public connection and host
-   recovery, generation and state restoration, and the rest). Most are
-   plausibly already covered by R0-R6 tests, but **no map exists** from matrix
-   line to covering test, which is exactly why this audit is the task. Produce
-   that map, then the gap list; do not assume a line is covered because it
-   sounds familiar.
-   Known-proven so far: one-alias crash isolation
-   (`Composition_isolates_one_alias_worker_crash_from_a_second_alias`), sealed
-   job output and tombstones, no-replay on worker death, ambiguous-reset
-   blocking. The plan also requires the complete battery and stdio handshake on
-   **x64 Linux**, which has not been run this session.
+1. **Work the R6 acceptance-matrix gap list in
+   `.agents/plans/r6-acceptance-audit.md`.** The audit itself is DONE
+   (2026-07-26): every matrix line now has a status and named covering tests,
+   and the ten gaps are enumerated as G1-G10 in that file, ordered by what
+   blocks R7 first. Take them in order; the audit is the canonical map and
+   nothing here duplicates it.
+   Two of the ten are owner calls rather than work items — **G1** (the plan
+   requires proving host containment never borrows `timeoutContainmentGrace`,
+   a symbol that does not exist anywhere in the code) and **G9** (matrix rows
+   B3/B4 still demand frozen template bootstrap, which the 2026-07-24
+   lazy-load amendment removed from R6 scope). Ask those two before spending
+   cycles on them.
+   **G8 is the largest single unclosed requirement and is a run, not a code
+   change**: the complete battery plus stdio handshake on x64 Linux `magneto`,
+   which has never been run on this branch at any head, plus a Windows re-run
+   to clear the one-commit lag.
 2. **Then R7** (`.agents/plans/mcp-resilience.md`) — development registration,
    package fixture, end-to-end cutover. Blocked on 1 by the plan's own gate:
    "Close the R6 acceptance matrix before R7."

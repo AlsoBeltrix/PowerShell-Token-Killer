@@ -158,8 +158,8 @@ Required message kinds:
 
 1. `initialize` / `ready`, binding protocol version, connection worker
    incarnation, and immutable limits;
-2. `invoke`, carrying one bounded strict-UTF-8 script and route/background
-   options;
+2. `invoke`, carrying one bounded strict-UTF-8 script plus raw, route, and
+   timeout options; the first cut has no background option;
 3. `state_query` / `state_snapshot`, carrying only bounded runspace diagnostics
    when the worker is idle;
 4. `cancel`, naming one active request;
@@ -317,7 +317,9 @@ causes command resubmission.
 Remove cold `ptk_job` from the first production surface. It does not preserve
 warm runspace state, and making the supervisor own submitted job execution
 violates the minimal ownership boundary. Do not port or recreate its
-guardian-era capability machinery.
+guardian-era capability machinery. The same owner decision removes
+`ptk_invoke(background=true)`; retaining a start-job flag without a job
+management tool would be an incoherent public contract.
 
 A later owner-approved job plan may add worker-owned cold jobs. That design must
 give every accepted job exactly one terminal, mark all jobs owned by a lost
@@ -345,7 +347,8 @@ accepted.
   `WorkerProcessEntry.cs`, `WindowsWorkerBootstrap.cs`, and
   `WindowsWorkerNative.cs`; these files already exist on `master` and are
   modified in place rather than ported from the resilience branch;
-- the current public invoke/state/reset/output contracts;
+- the current invoke/state/reset/output behavior, subject to the owner-approved
+  removal of invoke's background option;
 - bounded output shaping and `OutputStore` behavior that does not depend on
   mandatory audit;
 - the existing one-process handshake as the initial compatibility baseline.
@@ -541,7 +544,8 @@ workers; the current invoke path remains intact.
    bounded idle-worker query above. Keep output recovery in the supervisor.
 3. Remove the in-process production runspace path in the same slice; no dual
    execution mode remains.
-4. Preserve the existing public schema; add no session argument or
+4. Preserve the existing public schema except the owner-approved removal of
+   `ptk_job` and invoke's background option; add no session argument or
    `ptk_session` tool.
 5. Prove one submitted script executes once and its PowerShell objects reach
    the unchanged compressor.
@@ -699,10 +703,11 @@ Present and settle these in chat one at a time before implementation:
    `PtkResilienceTestFixture` before freezing the replacement contract.
    Recommendation: yes, because those guards freeze the topology this plan
    rejects. If declined, public schema changes and implementation stop.
-3. **Cold jobs:** remove `ptk_job` from the first production surface while
-   retaining invoke/state/reset/output. Recommendation: yes, because cold jobs
-   preserve no warm state and otherwise blur worker ownership. If declined,
-   stop and add a separately reviewed worker-owned job design before coding.
+3. **Cold jobs:** remove `ptk_job` and `ptk_invoke(background=true)` from the
+   first production surface while retaining foreground invoke/state/reset/
+   output. Recommendation: yes, because cold jobs preserve no warm state and
+   otherwise blur worker ownership. If declined, stop and add a separately
+   reviewed worker-owned job design before coding.
 4. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path and removal of its OTLP protobuf/`Grpc.Tools` build
    dependency from the runtime server project; any future compliance audit is

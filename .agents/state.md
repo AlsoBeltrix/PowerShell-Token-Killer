@@ -5,6 +5,56 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **HANDOFF 2026-07-26 at `27832f6` (pushed; branch and `origin` agree). Tree
+  clean, nothing in flight.** All work this session is committed and pushed —
+  the branch had been sitting 11 commits local because this session kept asking
+  before pushing; **`## Blockers` records the standing authority that already
+  covered it.** Two real field-impacting product bugs were found and fixed today
+  and neither is delivered yet, because delivery means merge to `master` plus a
+  reinstall.
+- **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
+  session left open overnight came back dead with `API Error: 400 Tool reference
+  'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the
+  process after 4h of no *runspace* activity, which is tool-call activity, not
+  client presence — a session sitting open and silent is indistinguishable from
+  an orphan by that measure. The server exits, the tool vanishes from a live
+  session, and every later reference fails the whole request.
+  `PTK_IDLE_EXIT_SECONDS` is now **opt-in and off by default**
+  (`IdleWatchdog.ReadConfiguredTimeout`; unset/empty/zero/negative/unparsable
+  all mean no timer, no fallback). Client disconnect via stdin EOF is the signal
+  that actually means nobody is there. Guard proof: reinstating the 14400s
+  default reddens exactly seven rows. This shipped 2026-07-02, so **the
+  installed build has it**.
+- **PRODUCT BUG 2 — FIXED for the install path: any upgrade left ptk inert
+  (`r7-1`).** Script evidence is named `<evidenceId>.<digest>.script`; the digest
+  entered the filename in `460c106` on 2026-07-11. Older builds wrote a bare
+  36-char GUID stem, `TryParseEvidenceName` cannot parse those, and an
+  unparseable artifact is a **control violation** → evidence storage unavailable
+  → audit unavailable → mandatory audit fails closed → **every effect refuses**.
+  One leftover file suffices. The server still answers `initialize` and lists
+  every tool, and install and registration both succeed, so nothing rolls back
+  and nothing reports a problem. This machine reproduces it: installed binary
+  dated 2026-07-10, twelve bare-GUID artifacts in `~/.ptk/audit/evidence`.
+  `Move-PtkLegacyEvidence` in `scripts/dev-install.ps1` now retires them to
+  `audit/evidence-legacy-<utc-stamp>/` before registration — moved, never
+  deleted. Verified on a copy of the real root: both guardian and plain server
+  then complete a real invoke. **The runtime is still brittle by an open
+  decision — see `## Blockers`.**
+- **R7 started, slice 1 only.** Registration and the Codex snippet now resolve
+  the guardian through `Get-PtkGuardianBinaryName`, so a reinstall registers
+  `PtkMcpGuardian`. **The transitional no-argument public server mode is NOT
+  removed**, so nothing is broken right now and a stale registration still
+  works. Verifying the packaged guardian is what exposed `r7-1`. Note the
+  guardian exposes **six** tools — it adds `ptk_session` to the installed five.
+- **Audit gaps closed today: G7, G10, G5; G8 was closed earlier.** G7 turned out
+  far bigger than one test: **seven identities were Windows-gated and returned
+  vacuously off Windows**, and the cause was a test-harness defect, not platform
+  behaviour — both test launchers hard-coded `WindowsPrivateHostProcessLauncher`
+  and `GatedContainmentProcess` implemented only `IPrivateHostLaunchedProcess`,
+  silently erasing `IUnixWorkerContainmentAuthority`, which
+  `PrivateHostAttemptFactory` recovers by `as`-cast. Six now run everywhere and
+  pass on macOS and Linux. G10's original three-barrier claim was **wrong**;
+  only the bootstrap hard-kill barrier is genuinely uncovered.
 - **THE x64 LINUX LEG IS CLOSED (2026-07-26).** The complete battery is green on
   Linux for the first time on this branch, at `43ae190` plus the serialization
   cap: architecture 73/73, Guardian **496/496**, server 2,044/2,044, Pester 141
@@ -967,7 +1017,29 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. **Work the R6 acceptance-matrix gap list in
+1. **Decide `r7-1`'s runtime half, then finish R7.** The install path is fixed
+   but the runtime still treats "artifact in a format I do not recognise" and
+   "artifact that failed its integrity check" as equally fatal, so anyone
+   upgrading by any other route is still bricked. The product fix is to separate
+   them and quarantine the first — the store already has an `Unreferenced` state
+   and `.unreferenced.script` naming for exactly that set-aside. **It was left
+   undone on purpose**: it loosens a control-violation path in the audit
+   subsystem, and it must be argued against the orphan-reconciler and
+   evidence-retention tests that encode the current rule. Its regression guard
+   (stand up a root holding a bare-GUID artifact, assert `audit=available`)
+   belongs with that decision, since the decision determines whether the runtime
+   or the installer owns the outcome.
+   Then the rest of R7: remove the transitional no-argument public server mode
+   (`PrivateHostProcessEntry.Classify` returns `TransitionalDevelopment` for zero
+   arguments; `Program.cs` branches on it), repoint `server/test-handshake.ps1`
+   at the guardian, and **add a check that the server reaches `audit=available`
+   against the actual target root before registrations are mutated** — the
+   absence of that check is exactly what let a completely inert install look
+   like a success.
+2. **Deliver.** Nothing today reaches the owner until the branch merges to
+   `master` and a reinstall happens; the branch is ~330 commits ahead. Per the
+   handoff contract, report this work as in progress until then.
+3. **Work the remaining R6 gap list in
    `.agents/plans/r6-acceptance-audit.md`.** The audit itself is DONE
    (2026-07-26): every matrix line now has a status and named covering tests,
    and the ten gaps are enumerated as G1-G10 in that file, ordered by what
@@ -1117,6 +1189,24 @@ short and update it when important repo facts change.
   contract; consider an stdin-EOF guardian watch in a later scoped test-hygiene
   slice.
 ## Blockers
+
+- **OPEN DECISION (`r7-1` runtime half): should an unrecognised evidence
+  filename be quarantined instead of disabling all auditing?** Today it is a
+  control violation, which fails audit closed and makes the whole product
+  refuse work. Separating "unknown format" from "failed integrity check" is the
+  real fix, but it loosens an audit-integrity guard, so it is routed as a
+  decision rather than changed. Details, reproduction and options are in
+  `.agents/review/findings/r7-1.md`. The install path is already fixed, so this
+  is not blocking day-to-day use — it blocks calling the upgrade path sound.
+- **PROCESS, not a defect: this session repeatedly asked for approvals the
+  owner had already granted.** `## Now`'s "Owner completion authority
+  (2026-07-23)" entry below covers corrective implementation, commits, required
+  exact-SHA pushes and hosted runs, the R6/R7 sequence, atomic development
+  cutover, integration into `master`, and publication; public release artifacts
+  and history rewriting stay out of scope. `.agents/machines.md` separately
+  records that **both `magneto` and `NETWATCH-01` are agent-drivable over SSH
+  without an owner-started session**. Read those before asking the owner to
+  authorise routine work — the owner spent this session repeating them.
 
 - **RESOLVED 2026-07-25: `pwsh` went missing from this Mac mid-session and the
   cause was an unlinked Homebrew formula, not an uninstall.** Between ~19:15

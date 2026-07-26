@@ -5,53 +5,59 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **`r6x-5` is FIXED (two defects) but the Linux guardian assembly is STILL NOT
-  GREEN, for an environmental reason that needs an owner decision.**
-  Both fixed defects were fixed budgets sized against a fast development Mac:
-  (1) eleven readiness polls counted **attempts** rather than wall clock, and an
-  attempt is a full MCP round trip, so under load the unit shrinks exactly when
-  recovery slows; (2) found only by verifying the first fix,
+- **THE x64 LINUX LEG IS CLOSED (2026-07-26).** The complete battery is green on
+  Linux for the first time on this branch, at `43ae190` plus the serialization
+  cap: architecture 73/73, Guardian **496/496**, server 2,044/2,044, Pester 141
+  with two expected skips, complete stdio handshake, all exit codes 0. Evidence
+  in `.agents/machines.md`. **G8's remaining half is the Windows re-run at the
+  current head** — it still sits at `d431a2c`.
+  Closing it took three fixes, all under `r6x-5`, and the third was an owner
+  decision: **the guardian assembly is now serialized**
+  (`server/PtkMcpGuardian.Tests/xunit.runner.json`, `maxParallelThreads: 1`).
+  It launches real guardian/host/worker processes, so it saturated a 4-CPU host
+  on its own and lost about one timing-sensitive test per run while every loser
+  passed in isolation. The cap is measured, not guessed — default lost 1-2 every
+  run, 3 threads green 1 of 2, 2 threads green 1 of 2, 1 thread green 2/2, and
+  the committed config green 3/3 plus the full battery. Cost is ~30 s → ~54 s on
+  the 16-CPU Mac, which is also the proof it takes effect. Scoped to this
+  assembly only: the server assembly passed 2,044/2,044 on Linux every time.
+- **`r6x-5`'s first two fixes were budgets sized against a fast Mac.** (1) Eleven
+  readiness polls counted **attempts** rather than wall clock, and an attempt is
+  a full MCP round trip, so the unit shrinks exactly when recovery slows.
+  (2) Found only by verifying the first fix,
   `Composition_isolates_one_alias_worker_crash_from_a_second_alias` — which
   polls nothing — failed **3/3** against the class's 30 s deadline. All twelve
   composition identities now share one `CompositionTestTimeout` (180 s); the
-  30 s constant survives only as `BrokerCompileTimeout`. Both fixes verified:
-  each previously failing identity now passes, macOS is 496/496, and setting
-  the poll budget to 1 ms reddens 3 of 15 composition identities (the other
-  five being Windows-gated — which corroborates F1 from the audit).
-  **What remains is not a defect.** The guardian assembly self-saturates a
-  4-CPU host — it drives load to ~7 from a 1.5 start — and roughly one
-  timing-sensitive test loses per run: a *different* one each run under default
-  parallelism, consistently the same one under `-maxthreads 2`, and **every
-  loser passes 3/3 in isolation**, the rig ones in 0.4-0.6 s. No product
-  behaviour is implicated. The R5 record's remedy ("one MSBuild project at a
-  time, no competing workload") is insufficient because xUnit also parallelizes
-  *within* an assembly. **Do not chase this one test at a time** — `r6x-5`
-  already spent two rounds proving the pattern. It needs a decision on how this
-  assembly is scheduled on constrained hosts, which is also the shape of a
-  hosted `ubuntu-latest` runner; capping parallelism costs wall clock
-  everywhere, so it was not done silently.
-- **The x64 Linux acceptance leg is RUN (2026-07-26 at `3fdbbff`), closing the
-  largest part of audit gap G8.** Architecture 73/73, Guardian **495/496**,
-  server 2,044/2,044, Pester 141 with two expected skips, complete stdio
-  handshake. Evidence and the exact transfer/run recipe are in
-  `.agents/machines.md`. **`magneto` answers `ssh -o BatchMode=yes` by key — an
-  agent on the Mac drives Linux work directly, no owner-started session**, the
-  same correction already recorded for `NETWATCH-01`.
-  The single failure is **`r6x-5`** (`.agents/review/findings/r6x-5.md`):
+  30 s constant survives only as `BrokerCompileTimeout`. Both verified: each
+  previously failing identity passes, and setting the poll budget to 1 ms
+  reddens 3 of 15 composition identities — the other five being Windows-gated,
+  which independently corroborates audit finding F1.
+  **Three transferable lessons, all recorded in the finding.** A test that fails
+  in a full assembly and passes alone on a low-core host is a *scheduling* fact,
+  not a defect — do not chase it one test at a time. A budget expressed in
+  attempts, retries, or round trips silently shrinks under load; express it in
+  wall clock. And batteries on `magneto` are not comparable across load levels:
+  record `/proc/loadavg` every time, because one comparison here was briefly
+  misread as a regression when it ran at load 13-17 against an earlier run at
+  5-8.
+- **How the Linux leg was first run (2026-07-26 at `3fdbbff`), superseded by the
+  green run above but keeping the reusable facts.** **`magneto` answers
+  `ssh -o BatchMode=yes` by key — an agent on the Mac drives Linux work
+  directly, no owner-started session**, the same correction already recorded for
+  `NETWATCH-01`. Transfer is bundle-over-SSH; the exact recipe is in
+  `.agents/machines.md`. That first run was 495/496 and its single failure
+  opened **`r6x-5`** (`.agents/review/findings/r6x-5.md`):
   `Unix_composition_recovers_real_host_and_descendants_on_the_same_public_connection`
   budgets its post-kill readiness poll in **200 attempts rather than wall-clock
   time**, and exhausted them under full-suite saturation on 4 CPUs. It passes
   **3/3 in isolation** on the same host, so the Linux recovery path itself is
   proven — real host killed, descendants and cold-background job reaped,
   generation 2, warm state lost, real invoke served on the same connection.
-  **The defective shape sits at eleven poll sites across seven composition
-  identities**, one of which was already quietly widened to 400 — the cliff was
-  found once and moved rather than removed. `ubuntu-latest` runners have
-  `magneto`'s core count, not a dev Mac's, so this is a latent hosted-CI flake
-  in the acceptance suite. Fix is diagnosed but **not authorized**; use a
-  wall-clock budget in one shared helper, not a bigger attempt count.
-  Still open under G8: a **Windows re-run at the current head** (it sits at
-  `d431a2c`, one commit behind).
+  The shape sat at eleven poll sites across seven composition identities, one
+  already quietly widened to 400 — the cliff had been found once and moved
+  rather than removed. All fixed above. Worth keeping: `ubuntu-latest` runners
+  have `magneto`'s core count, not a dev Mac's, so everything `r6x-5` found
+  applies to hosted CI.
 - **The R6 acceptance-matrix audit is complete (2026-07-26):
   `.agents/plans/r6-acceptance-audit.md`.** Every matrix line in
   `.agents/plans/mcp-resilience.md` now has a status and named covering tests;

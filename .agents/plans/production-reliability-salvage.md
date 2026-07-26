@@ -448,19 +448,21 @@ changes.
 This slice is owner-gated because the current guards record an approved
 guardian-era contract; they are not ordinary obsolete tests to delete around.
 
-1. Replace the five-tool freeze in `ToolSchemaConformanceTests` with the
-   owner-approved first-cut tool surface.
+1. Keep `ToolSchemaConformanceTests` matched to the live five-tool direct server
+   in this no-runtime-change slice; it changes atomically with job removal in
+   Slice 6.
 2. Remove or re-freeze `McpResilienceR0ContractTests`, the embedded R0 public
    contract and digest, recovery schemas/examples, package-role assertions,
    and native/helper inventories so they describe only the approved topology.
 3. Remove `PtkResilienceTestFixture` from the solution and delete guardian-only
    test and native-fixture dependencies that no retained runtime path uses.
-4. Add a focused conformance guard for the resulting supported surface before
-   any public schema or tool list changes land.
+4. Add a guardian-free conformance guard for the still-live direct-server
+   surface. The owner-approved four-tool first-cut guard replaces it only in
+   the Slice 6 commit that removes the fifth tool and its runtime.
 
 Exit: no guardian-era contract or fixture claims to be the active production
-surface, and the replacement conformance guard passes. No runtime execution
-path changes in this slice.
+surface, and the replacement direct-server guard still matches live behavior.
+No runtime execution path or public tool list changes in this slice.
 
 ### Slice 2 — remove audit from the execution gate
 
@@ -545,12 +547,20 @@ workers; the current invoke path remains intact.
 1. Route foreground invokes through the connection's worker.
 2. Keep supervisor state and reset local; obtain worker state only through the
    bounded idle-worker query above. Keep output recovery in the supervisor.
-3. Remove the in-process production runspace path in the same slice; no dual
+3. If the owner approved cold-job removal, delete `JobTool`, `JobManager`,
+   `BackgroundJobContainment`, `JobManagerTests`, their DI/factory wiring, and
+   every background branch/parameter/description in `InvokeTool`,
+   `ISessionOperations`, and `SessionRuntime`.
+4. In that same atomic change, remove `ptk_job` and invoke's background property
+   from the live MCP surface and replace the five-tool conformance expectation
+   with the approved four-tool contract. A test must never describe a surface
+   the server does not yet expose.
+5. Remove the in-process production runspace path in the same slice; no dual
    execution mode remains.
-4. Preserve the existing public schema except the owner-approved removal of
+6. Preserve the remaining public schema except the owner-approved removal of
    `ptk_job` and invoke's background option; add no session argument or
    `ptk_session` tool.
-5. Prove one submitted script executes once and its PowerShell objects reach
+7. Prove one submitted script executes once and its PowerShell objects reach
    the unchanged compressor.
 
 Exit: all production PowerShell work runs only in the connection's contained

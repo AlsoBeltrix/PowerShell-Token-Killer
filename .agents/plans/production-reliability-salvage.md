@@ -332,6 +332,10 @@ Similar names are not evidence that a file can be transplanted.
 ### Rewrite narrowly
 
 - a `WorkerSupervisor` owning the connection's single worker slot;
+- a supervisor-owned Unix containment registry replacing the branch's
+  private-host-only registry;
+- a Unix branch in `WorkerProcessEntry.RunAsync` that validates and opens the
+  Unix bootstrap/IPC handles before starting `WorkerServer`;
 - direct public-tool adapters from MCP requests to that worker;
 - minimal state projection and one-attempt replacement;
 - development installer smoke/rollback around the single supervisor package.
@@ -433,13 +437,17 @@ is unchanged.
 
 1. Port the worker-only Unix broker/launcher and Windows creation-time Job
    Object launcher without the outer guardian/host registry.
-2. Bind liveness to the public supervisor so supervisor death or EOF kills the
+2. Implement the supervisor-owned Unix containment registry and wire
+   `WorkerProcessEntry.RunAsync` to consume `UnixWorkerBootstrap`, validate
+   inherited handles, remove bootstrap variables, and open the worker IPC
+   channel.
+3. Bind liveness to the public supervisor so supervisor death or EOF kills the
    worker and its PTK-owned containment domain.
-3. Prove worker, direct child, and grandchild death on normal shutdown, reset,
+4. Prove worker, direct child, and grandchild death on normal shutdown, reset,
    timeout, and hard supervisor termination.
-4. Confirm no replacement starts until the old worker has exited and its
+5. Confirm no replacement starts until the old worker has exited and its
    Windows Job Object or Unix broker process group is empty.
-5. On Unix, deliberately escape the process group where the platform permits
+6. On Unix, deliberately escape the process group where the platform permits
    and prove PTK reports `descendants_unknown` rather than claiming complete
    descendant death.
 

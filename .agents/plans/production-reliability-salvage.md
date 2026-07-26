@@ -128,11 +128,13 @@ Required message kinds:
    incarnation, and immutable limits;
 2. `invoke`, carrying one bounded strict-UTF-8 script and route/background
    options;
-3. `cancel`, naming one active request;
-4. `result`, carrying exactly one completed, refused, cancelled, timed-out, or
+3. `state_query` / `state_snapshot`, carrying only bounded runspace diagnostics
+   when the worker is idle;
+4. `cancel`, naming one active request;
+5. `result`, carrying exactly one completed, refused, cancelled, timed-out, or
    failed terminal;
-5. `job_terminal` only if cold jobs remain worker-originated;
-6. `shutdown` / `stopped`.
+6. `job_terminal` only if cold jobs remain worker-originated;
+7. `shutdown` / `stopped`.
 
 The frame reader rejects invalid UTF-8, duplicate or unknown fields, wrong
 versions, stale incarnations, oversized frames, and unsolicited terminals. A
@@ -188,17 +190,25 @@ boundary plainly.
 
 ### State projection
 
-`ptk_state` remains prompt and reports the connection worker's lifecycle:
+`ptk_state` remains prompt and always returns a supervisor-owned section:
 
 - `Cold`, `Starting`, `Ready`, `Recovering`, `Faulted`, or `Closed`;
 - worker PID and incarnation where one exists;
 - whether warm state was lost;
 - current active request/job counts;
 - the last bounded failure class;
-- whether explicit reset/restart is required.
+- whether explicit reset is required.
 
-Calls during `Starting`, `Recovering`, `Faulted`, or `Closed` fail promptly.
-They are never queued for later execution.
+Runspace facts remain worker-owned. When the worker is ready and idle,
+`ptk_state` may request one bounded snapshot containing engine identity, current
+directory, loaded modules, environment/PATH/variable drift, and—only when
+`listAvailable=true`—the installed-module enumeration. When the worker is
+busy, absent, starting, recovering, faulted, or closed, the worker section is
+present as `unavailable` with the exact reason. No worker-owned field is
+silently omitted or guessed from supervisor state.
+
+New execution calls during `Starting`, `Recovering`, `Faulted`, or `Closed`
+fail promptly. They are never queued for later execution.
 
 ## Operational features
 
@@ -377,7 +387,8 @@ created by default; full verification green.
 3. Bind one `SessionRuntime` behind the worker server in an unwired test
    fixture.
 4. Prove fragmented/coalesced input, malformed UTF-8/JSON, stale incarnation,
-   duplicate request IDs, cancellation, and exactly one terminal.
+   duplicate request IDs, cancellation, bounded state snapshots, unavailable
+   busy-state diagnostics, and exactly one terminal.
 
 Exit: worker protocol is live only in a disposable fixture; public MCP behavior
 is unchanged.
@@ -410,8 +421,9 @@ workers; the current invoke path remains intact.
 ### Slice 6 — production cutover to workers
 
 1. Route foreground invokes through the connection's worker.
-2. Route state/reset and retained job/output operations through the smallest
-   correct owning layer.
+2. Keep supervisor state and reset local; obtain worker state only through the
+   bounded idle-worker query above. Route retained job/output operations
+   through the smallest correct owning layer.
 3. Remove the in-process production runspace path in the same slice; no dual
    execution mode remains.
 4. Preserve the existing public schema; add no session argument or
@@ -475,6 +487,9 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   growth;
 - public connection held idle beyond every former watchdog interval;
 - malformed and oversized worker frames;
+- prompt `ptk_state` during an active invoke, worker loss, startup, recovery,
+  and fault, with every worker-owned field either populated or explicitly
+  unavailable;
 - supervisor hard-kill leaving no worker descendant;
 - installer activation and rollback faults;
 - a staged real workflow proving module/connection warmth across calls and no

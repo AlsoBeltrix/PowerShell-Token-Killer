@@ -148,11 +148,12 @@ versions, stale incarnations, oversized frames, and unsolicited terminals. A
 worker executes only after a complete valid request frame is decoded.
 
 Do not port the resilience branch's prepare/descriptor/commit/abort protocol.
-The supervisor uses one conservative delivery boundary:
+The supervisor uses one conservative write-attempt boundary:
 
-- before it writes any request byte, failure is proved-no-start;
-- after it writes any request byte and before a complete valid terminal is
-  decoded, failure is `outcome_unknown`;
+- before the first pipe-write call is entered, failure is proved-no-start;
+- once the first pipe-write call is entered, even if it throws or reports a
+  short write, failure before a complete valid terminal is decoded is
+  `outcome_unknown`; PTK cannot prove how many bytes the OS transferred;
 - after a complete valid terminal is decoded, that terminal is delivered once
   even if the worker exits immediately afterward.
 
@@ -506,7 +507,9 @@ full verification and handshake green.
 
 ### Slice 7 — truthful loss and one-attempt recovery
 
-1. Implement the delivery boundary and one-response terminal ownership.
+1. Implement the write-attempt boundary and one-response terminal ownership,
+   including a fault injected at entry to and failure return from the first
+   write call.
 2. Implement confirmed worker exit and owned-containment sweep before
    replacement.
 3. Make one automatic replacement attempt, then fault the session until
@@ -555,8 +558,8 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   required;
 - at least two simultaneous agent-owned PTK server processes with distinct
   variables, modules, working directories, and successful concurrent calls;
-- worker hard-kill before write, during execution, after effect, during result,
-  and after complete terminal decode;
+- worker hard-kill before the first write call, after write-call entry, during
+  execution, after effect, during result, and after complete terminal decode;
 - timeout with a child and grandchild process;
 - Unix process-group escape reported as `descendants_unknown`, without replay
   or a false complete-containment claim;

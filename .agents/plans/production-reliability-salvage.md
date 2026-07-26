@@ -316,13 +316,24 @@ monotonically ordered, individually bounded chunks, then a seal with the total
 length and digest.
 
 The supervisor publishes an immutable public handle only after a valid seal.
-If local artifact writing fails after execution starts, it continues draining
-and discarding valid artifact frames so the worker can deliver the ordinary
-result, then reports `recovery=unavailable`. Gaps, duplicates, over-reservation
-bytes, unsolicited chunks, or a wrong seal are worker protocol violations and
-use the ordinary `outcome_unknown` worker-loss path; they never cause
-resubmission. A worker lost mid-transfer leaves an explicitly incomplete
-artifact.
+One dedicated protocol reader always drains the worker pipe and never awaits
+artifact storage. For an enabled artifact, quota reservation also reserves a
+fixed in-memory queue large enough for that invocation's maximum artifact.
+The reader copies chunks into that queue with a nonblocking `TryWrite` and
+continues parsing state, cancellation, and result frames. A separate sink owns
+disk writes and digest/length verification.
+
+If the queue unexpectedly refuses a chunk, the sink stalls or fails, or the
+sink has not completed the valid seal when the ordinary result terminal
+arrives, the supervisor atomically switches that artifact to
+discard-and-drain, cancels/cleans its sink, and reports
+`recovery=unavailable`; it never delays the ordinary result waiting for
+storage. Only a sink already complete at result delivery publishes the public
+handle. Gaps, duplicates, over-reservation bytes, unsolicited chunks, or a
+wrong seal remain worker protocol violations and use the ordinary
+`outcome_unknown` worker-loss path; they never cause resubmission. A worker
+lost mid-transfer leaves an explicitly incomplete artifact. Every queued
+buffer is cleared before release.
 
 ### `ptk_job`
 
@@ -605,11 +616,13 @@ Exit: real apphost fault matrix green on every supported platform.
 1. Retain only output behavior that remains independent of mandatory audit and
    discarded guardian capabilities.
 2. Implement full-quota reservation before execution, artifact-disabled invoke,
-   reserved artifact ID, chunk, seal, drain-on-local-write-failure, and
-   immutable-publication paths described above.
+   reserved artifact ID, the nonblocking protocol reader, fixed preallocated
+   queue, independent sink, chunk/seal validation, discard-and-drain fallback,
+   and immutable-publication paths described above.
 3. Prove wrong order, duplicate/gapped chunks, digest mismatch, quota overflow,
-   worker loss mid-transfer, and capture failure never cause replay or a false
-   complete handle.
+   worker loss mid-transfer, a deliberately stalled sink, a full queue, and
+   local write failure never block the ordinary result, replace the worker,
+   cause replay, or publish a false complete handle.
 4. Prove connection teardown removes its own output root, hard supervisor death
    leaves bounded residue, and the next startup reclaims that stale root without
    touching a simultaneously live supervisor's root.

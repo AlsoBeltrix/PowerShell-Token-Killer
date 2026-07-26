@@ -5,17 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **R6 acceptance gap G4 is closed (2026-07-26).**
-  `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
-  is now a five-row theory over Starting, Ready, an active Backoff, CircuitOpen,
-  and HalfOpen. Each row makes 100 public `ptk_state` reads and proves the
-  projected state/readiness, scheduler count, attempt count, and zero host
-  operations remain unchanged. Restricting the read to Ready reddened all four
-  non-ready rows while Ready stayed green; restoring unconditional local reads
-  returned 5/5 green. Full macOS verification is recorded in
-  `.agents/machines.md`. The canonical gap map is
-  `.agents/plans/r6-acceptance-audit.md`; G5's recovery-phase `ping`/`tools/list`
-  residual is next.
+- **R6 acceptance gap G5 is closed (2026-07-26).**
+  `R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry`
+  now holds containment unresolved and proves `ping` returns a result without an
+  error and `tools/list` returns the frozen contract on the same public MCP
+  connection. A following state read remains `Recovering`, and the crashed
+  private host's operation count is unchanged, so neither method waits for
+  recovery or crosses the private boundary. The healthy real-process ping guard
+  remains in `GuardianAppHostProcessSmokeTests`. Full macOS verification is
+  recorded in `.agents/machines.md`. The canonical gap map is
+  `.agents/plans/r6-acceptance-audit.md`; G6's resource-bounded soak is next.
 - **PRODUCT BUG 1 — FIXED: the idle watchdog killed live sessions.** Every agent
   session left open overnight came back dead with `API Error: 400 Tool reference
   'mcp__ptk__ptk_invoke' not found in available tools`. `IdleWatchdog` ended the

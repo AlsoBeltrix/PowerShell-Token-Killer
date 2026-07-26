@@ -2061,3 +2061,25 @@ _At `1889c8e` on `magneto`, disposable checkout removed afterwards._
   passed 141 tests with two expected platform skips. The stdio handshake was
   not run because G4 changes only the in-proc Guardian test harness and durable
   records.
+
+## R6 G5 recovery-phase MCP liveness verification (`nagatha.local`, 2026-07-26)
+
+- `R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry`
+  passed 1/1 after its existing containment barrier was extended to prove SDK-
+  owned liveness on the same public MCP connection. With containment proof still
+  blocked, `ping` returned a result without an error, `tools/list` returned the
+  complete frozen contract, a following state read remained `Recovering`, and
+  the crashed fake host's private-operation count did not move.
+- This is a guard for existing behavior, not a product fix and not a new test
+  identity. The healthy real-process `ping`/`tools/list` proof remains
+  `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof`;
+  the recovery leg uses the real MCP application over in-memory streams so it
+  can deterministically hold the replaceable fake host in containment.
+- With the required physical
+  `/private/var/folders/lx/d63h0hdj7xj24tqp2gsplcrr0000gn/T/` temporary root,
+  `dotnet test server/PtkMcpServer.slnx --no-restore --verbosity minimal` passed
+  architecture 73/73, Guardian 502/502, and server 2,055/2,055.
+- `Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal`
+  passed 141 tests with two expected platform skips. The stdio handshake was
+  not run because G5 changes only an existing Guardian integration test and
+  durable records.

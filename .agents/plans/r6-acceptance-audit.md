@@ -194,7 +194,7 @@ rely on this say so explicitly rather than claiming a test that does not exist.
 |----|------------------|--------|----------|
 | C1.1 | Guardian-local state/list/output stay prompt during containment | COVERED | `GuardianHostSupervisorTests.Lost_background_job_reads_stay_guardian_local_during_containment`; `Public_output_reads_searches_and_reports_guardian_local_artifacts`; `Public_session_list_is_guardian_local_and_uses_projected_state` |
 | C1.2 | …and during startup, every backoff delay, circuit-open, and half-open | COVERED | `GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert` is a phase-parameterised theory that holds real supervisor states at Starting, Ready, an active Backoff, CircuitOpen, and HalfOpen; each row performs 100 public `ptk_state` reads without scheduling a delay, launching an attempt, or reaching a host operation. Backoff has one state/read path independent of delay duration; the circuit arrangement also drives the exact five-delay sequence |
-| C1.3 | MCP `ping` and `tools/list` remain prompt in every phase | PARTIAL | `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof` proves the real healthy apphost answers `ping` with a result and no error and serves `tools/list`. No identity issues either method during a recovery phase. See G5 |
+| C1.3 | MCP `ping` and `tools/list` remain prompt in every phase | COVERED | `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof` proves the real healthy apphost answers both methods. `R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry` holds containment unresolved on that same MCP connection and proves `ping` returns a result, `tools/list` returns the frozen contract, the host remains Recovering, and neither reaches the crashed private host |
 | C2 | Fake-clock proof of the exact delay sequence, six-failure circuit, 60 s cooldown, one half-open attempt, 60 s stability reset | COVERED | `RecoveryCircuitMachineTests.Failure_table_schedules_exact_attempts_then_opens_the_circuit`, `Half_open_failure_reopens_for_sixty_seconds_with_next_ordinal`, `Half_open_loss_at_stability_boundary_starts_a_fresh_cycle`, `Explicit_stability_reset_makes_later_loss_a_fresh_immediate_attempt_one`, `Retry_after_uses_monotonic_ceiling_and_contract_clamp`; `GuardianHostLifecycleControllerTests.Six_confirmed_failed_generations_open_one_circuit_and_one_half_open_probe`, `Pre_stability_half_open_loss_reopens_the_circuit_after_slow_containment`; `SessionRecoveryStateMachineTests.Retryable_failures_use_exact_backoffs_six_failure_circuit_and_one_half_open` |
 | C3 | A 100-cycle soak proves bounded processes, handles, FDs, readers, timers, buffers, audit reservations, and memory; identities remain monotonic | PARTIAL | `GuardianHostSupervisorTests.Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` runs 101 in-proc generations and asserts bounded background tasks, scheduler entries, owned clients, and watcher sets, with monotonic generations. It does **not** measure processes, OS handles, file descriptors, buffers, audit reservations, or memory, and it does not run against real host processes. See G6 |
 | C4.1 | One worker crash affects only one alias | COVERED | `ProductionGuardianCompositionTests.Composition_isolates_one_alias_worker_crash_from_a_second_alias` (real apphost, cross-platform — landed with `r6acc-1`); `SessionRecoveryStateMachineTests.One_alias_failure_does_not_change_another_alias_circuit_or_generation`; `WorkerPrivateHostRuntimeTests.Failed_close_faults_only_its_alias`, `Failed_reset_faults_only_its_alias_and_clears_its_job_budget` |
@@ -304,21 +304,22 @@ The mutation proof restricted `ptk_state` to a Ready host. Starting, Backoff,
 CircuitOpen, and HalfOpen reddened while Ready stayed green; restoring the
 unconditional guardian-local read returned all five rows green.
 
-**G5 — Mostly closed 2026-07-26.** `ping` was untested anywhere in the
+**G5 — CLOSED 2026-07-26.** `ping` was untested anywhere in the
 repository; `GuardianAppHostProcessSmokeTests.Apphost_serves_one_clean_MCP_connection_and_exits_on_input_eof`
 now asserts the **real apphost** answers it with a result and no error. It does
 — the SDK handles the method — so this guards a working behaviour rather than
 fixing a defect, which matters because an unanswered `ping` is how a client
 concludes the server is gone and drops every tool in the session.
 
-Residual: `ping` is not exercised *during* a recovery phase. The mechanism that
-would make it phase-independent is already guarded
-(`GuardianHostSupervisorTests.State_polling_is_guardian_local_and_scheduler_inert`
-proves guardian-local reads never touch the scheduler), so this is a small
-completeness gap rather than an open risk. G4's phase-parameterised harness now
-exists, but it sits below the MCP SDK branch that owns `ping` and `tools/list`;
-closing this residual therefore needs an apphost-level recovery-phase hold, not
-another supervisor row.
+The recovery residual is now closed in
+`R3GuardianAppHostIntegrationTests.One_real_MCP_connection_survives_fake_host_crash_and_model_gated_retry`.
+The test holds containment proof unresolved, then proves `ping` returns a result
+without an error and `tools/list` returns the full frozen contract on the same
+public MCP connection. A following state read remains `Recovering`, and the
+crashed private host's operation count is unchanged, so neither method waited
+for recovery or crossed the private boundary. The SDK/contract handlers contain
+no host-phase branch; G4 separately pins truthful local state reads in Starting,
+Backoff, CircuitOpen, and HalfOpen.
 
 **G6 — The soak proves bookkeeping, not resources (C3).** Either extend
 `Attempt_watcher_ownership_is_bounded_across_one_hundred_recoveries` to assert

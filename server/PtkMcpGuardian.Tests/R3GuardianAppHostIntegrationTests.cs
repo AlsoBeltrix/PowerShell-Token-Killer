@@ -46,6 +46,28 @@ public sealed class R3GuardianAppHostIntegrationTests
         Assert.False(recovering.Host.ReadyForEffects);
         Assert.False(Assert.Single(recovering.Sessions).ReadyForEffects);
 
+        // Containment proof is still deliberately held, so either MCP method
+        // would time out if the apphost routed it through private-host
+        // readiness. The SDK-owned liveness and contract reads instead answer
+        // on this same public connection without touching the crashed host.
+        var recoveryPing = await harness.RequestAsync("ping", new { });
+        Assert.True(
+            recoveryPing.TryGetProperty("result", out _),
+            recoveryPing.GetRawText());
+        Assert.False(
+            recoveryPing.TryGetProperty("error", out _),
+            recoveryPing.GetRawText());
+        var recoveryTools = await harness.RequestAsync("tools/list", new { });
+        Assert.Equal(
+            PublicToolContractResource.Parse().Tools.Count,
+            recoveryTools
+                .GetProperty("result")
+                .GetProperty("tools")
+                .GetArrayLength());
+        var stillRecovering = await harness.ReadStateAsync();
+        Assert.Equal(PublicHostState.Recovering, stillRecovering.Host.State);
+        Assert.Equal(1, firstAttempt.Peer.JobListEffectCount);
+
         var refused = PublicRecoveryCodec.Decode(Encoding.UTF8.GetBytes(
             ToolText(await harness.CallJobListAsync(), expectedError: true)));
         Assert.True(refused.Retryable);

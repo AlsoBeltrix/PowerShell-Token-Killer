@@ -1326,7 +1326,9 @@ public sealed class JobManager : IDisposable
                 RequireInternalContainment(entry);
             _ = ObserveTerminalAsync(entry.StartPlan.Id, entry);
             if (containmentRequired)
-                _ = TryRequestContainmentBoundedAsync(entry.Process);
+                _ = TryRequestContainmentBoundedAsync(
+                    entry.Process,
+                    escalateTimedOutRequest: false);
             return true;
         }
         catch (Exception exception) when (!IsFatal(exception))
@@ -1556,8 +1558,9 @@ public sealed class JobManager : IDisposable
 
     private async Task<bool> TryContainAndConfirmExitAsync(JobEntry entry)
     {
-        var request = await TryRequestContainmentBoundedAsync(entry.Process)
-            .ConfigureAwait(false);
+        var request = await TryRequestContainmentBoundedAsync(
+            entry.Process,
+            escalateTimedOutRequest: true).ConfigureAwait(false);
         if (request == ContainmentRequestDisposition.AlreadyExited)
         {
             CacheExitCode(entry);
@@ -1876,7 +1879,9 @@ public sealed class JobManager : IDisposable
         if (RootAlreadyExited(entry.Process)) return;
         MarkExecutionOutcomeUnknown(entry, detailCode);
         RequireInternalContainment(entry);
-        _ = TryRequestContainmentBoundedAsync(entry.Process);
+        _ = TryRequestContainmentBoundedAsync(
+            entry.Process,
+            escalateTimedOutRequest: false);
     }
 
     private static void RequireInternalContainment(JobEntry entry)
@@ -1908,17 +1913,25 @@ public sealed class JobManager : IDisposable
     }
 
     private async Task<ContainmentRequestDisposition> TryRequestContainmentBoundedAsync(
-        Process process)
+        Process process,
+        bool escalateTimedOutRequest)
     {
         var request = Task.Run(() => TryRequestContainment(process));
         if (await Task.WhenAny(
                 request,
                 Task.Delay(_abortedOutputDrainGrace)).ConfigureAwait(false) != request)
         {
-            // The kill request itself is wedged; escalation is idempotent
-            // and never throws, so let it race the wedged kill instead of
-            // extending this method's bound.
-            _ = BackgroundJobContainment.EscalateAsync(process, stopped: false);
+            // The first asynchronous request wakes ObserveRootExitAsync, whose
+            // independent retry owns escalation. Escalating the first request
+            // here races that observer and can hide whether the retry path is
+            // still healthy. If the observer's own request wedges, it escalates
+            // without extending this method's bound.
+            if (escalateTimedOutRequest)
+            {
+                _ = BackgroundJobContainment.EscalateAsync(
+                    process,
+                    stopped: false);
+            }
             return ContainmentRequestDisposition.Indeterminate;
         }
 

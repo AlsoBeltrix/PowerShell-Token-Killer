@@ -1608,7 +1608,9 @@ public sealed class JobManagerTests : IDisposable
 
             var final = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-            Assert.True(containmentAttempts >= 2);
+            Assert.True(
+                containmentAttempts >= 2,
+                $"Expected at least two containment attempts, observed {containmentAttempts}.");
             Assert.False(final.Running);
             Assert.True(final.RootTerminationConfirmed);
             Assert.True(final.ExecutionOutcomeUnknown);
@@ -1677,7 +1679,9 @@ public sealed class JobManagerTests : IDisposable
             Assert.True(containmentEntered.Wait(TimeSpan.FromSeconds(5)));
             var final = await terminal.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-            Assert.True(containmentAttempts >= 2);
+            Assert.True(
+                containmentAttempts >= 2,
+                $"Expected at least two containment attempts, observed {containmentAttempts}.");
             Assert.False(final.Running);
             Assert.True(final.RootTerminationConfirmed);
             Assert.True(final.ExecutionOutcomeUnknown);

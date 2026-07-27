@@ -5,12 +5,13 @@ owner on 2026-07-26: one agent-owned MCP connection may own several explicitly
 named isolated PowerShell sessions, and every session is a separate long-lived
 PowerShell worker process. The earlier Claude Opus 5 acceptance of the
 one-worker-per-connection draft is superseded. Claude Opus 5 round 4 returned
-`REVISE`; its admitted findings and the global-output-lane adjudication are
-incorporated below. The canonical closure verdict for this exact plan blob is
-recorded externally under `.agents/review/`; no post-review status edit to this
-plan is required. No implementation is authorized unless that verdict is
-`ACCEPT` and pending decisions 2-4 under `Owner decisions` are approved in
-chat, one at a time.
+`REVISE`; round 5 closed every round-4 finding and accepted the single global
+output lane, then returned `REVISE` for three local omissions. All admitted
+findings are incorporated below. The canonical closure verdict for this exact
+plan blob is recorded externally under `.agents/review/`; no post-review status
+edit to this plan is required. No implementation is authorized unless that
+verdict is `ACCEPT` and pending decisions 2-4 under `Owner decisions` are
+approved in chat, one at a time.
 
 ## Goal
 
@@ -211,8 +212,10 @@ The contract is deliberately small:
   closing returns `session_busy`.
 - `close` is valid only for a non-default idle session. It stops that worker,
   confirms its containment domain is empty, and removes the name. It refuses
-  while an operation is active; EOF remains the unconditional all-session
-  teardown boundary.
+  while an operation is active or the old containment domain is unconfirmed.
+  An unconfirmed alias remains reserved and cannot be closed/reopened around
+  the no-overlap guard. EOF remains the unconditional all-session teardown
+  boundary.
 - `ptk_reset(session=...)` replaces only the selected session's worker and
   leaves every other session untouched. Omitting `session` preserves today's
   default-session behavior. Explicit reset is idle-only in this first cut: an
@@ -252,8 +255,8 @@ named slot absent and `default` cold. Failure after launch stops protocol,
 terminates that session's containment domain, and waits only the configured
 containment grace. Confirmed empty containment leaves the slot `Faulted`.
 Unconfirmed containment also leaves it `Faulted`, reports
-`descendants_unknown`, and refuses open/reset until the observer later confirms
-the old domain empty. No later worker may overlap it.
+`descendants_unknown`, and refuses open/reset/close until the observer later
+confirms the old domain empty. No later worker may overlap it.
 
 ## Minimal worker protocol
 
@@ -319,9 +322,10 @@ No modules, variables, credentials, connections, profiles, or previous calls
 are replayed automatically.
 
 If worker or containment death is not confirmed within the bounded grace, the
-session remains `Faulted` with `descendants_unknown`. Its containment observer
-continues supervisor-locally, but no open, reset, or replacement is admitted
-until that exact old domain is confirmed empty. Other sessions remain usable.
+session remains `Faulted` with `descendants_unknown` and its alias stays
+reserved. Its containment observer continues supervisor-locally, but no open,
+reset, close, or replacement is admitted until that exact old domain is
+confirmed empty. Other sessions remain usable.
 
 This is not a sandbox guarantee. A Unix descendant can leave a process group,
 and a remote service can continue work after the local process disappears.
@@ -427,13 +431,16 @@ Normal connection teardown removes its own sealed and unsealed residue.
 
 `OutputStore` deliberately retains one connection-wide foreground storage lane
 to cap potentially uninterruptible filesystem work at one task per supervisor.
-If one session wedges that lane, later sessions promptly receive
-`recovery=unavailable` for capture while their ordinary invokes, runspace
-state, and `ptk_state` continue; they never wait for that storage task. This
-shared optional-output degradation is an explicit non-guarantee, not session
-state sharing. Do not replace it with one potentially wedged storage task per
-session. Per-session byte quotas remain independent so ordinary quota
-exhaustion in one session does not consume another session's allocation.
+Lane acquisition waits only the existing bounded capture interval and never
+starts a second storage task while waiting. Healthy concurrent reservations
+and seals therefore serialize and retain their handles; a wedged lane times out
+as `recovery=unavailable`, after which the ordinary invoke, runspace state, and
+`ptk_state` continue. Result delivery never waits beyond its existing capture
+budget. This shared optional-output degradation is an explicit non-guarantee,
+not session state sharing. Do not replace it with one potentially wedged
+storage task per session. Per-session byte quotas remain independent so
+ordinary quota exhaustion in one session does not consume another session's
+allocation.
 
 Before an invoke, the supervisor reserves one connection-local artifact ID,
 charges it to the selected session, and reserves the complete per-invocation
@@ -654,11 +661,22 @@ execution path or public tool list changes in this slice.
    producer contract. Keep the standalone `siem/PtkSiem.slnx` receiver tests
    and their CI step; a future producer/exporter requires a separately approved
    optional project.
-7. Prove a clean ARM64 Linux restore/build no longer enters the removed protoc
+7. In the same commit, remove `AuditOtlpRecordMapper.cs`,
+   `AuditOtlpHttpExporter.cs`, `Protos/audit_otlp.proto`,
+   `FakeOtlpHttpsReceiver.cs`, `AuditOtlpRecordMapperTests.cs`,
+   `AuditOtlpHttpExporterTests.cs`, and
+   `AuditOtlpHttpExporterIntegrationTests.cs`; these are the runtime producer
+   and main-test-project consumers of the removed protobuf types.
+8. Update `server/test-handshake.ps1` atomically: retire its audit segment,
+   exact-script-evidence, and fail-closed audit-outage assertions; replace them
+   with the Slice 2 regression that an unwritable audit root does not block an
+   effect and `ptk_state` says audit is not enabled. Preserve every non-audit
+   handshake and schema assertion.
+9. Prove a clean ARM64 Linux restore/build no longer enters the removed protoc
    path.
-8. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
+10. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
    rather than reporting a false protected boundary.
-9. Keep any retained audit administration executable out of the installed
+11. Keep any retained audit administration executable out of the installed
    runtime package pending a separate product decision.
 
 Exit: no ordinary invoke depends on `~/.ptk/audit`; no exact script file is
@@ -732,7 +750,9 @@ behavior is unchanged.
    supervisor-local list.
 3. Prove concurrent opens share one startup task, startup obeys its deadline,
    a faulted open requires explicit reset, reset/close refuse while busy, and
-   no late frame can mutate a replacement or reopened session.
+   no late frame can mutate a replacement or reopened session. Also prove
+   close-then-reopen cannot free or reuse an alias while its old containment
+   domain is unconfirmed.
 4. Bind every slot and containment domain to the MCP stdio connection lifetime.
 5. Prove one fixture connection concurrently owns two different worker PIDs
    and runspaces. Give both the same function/cmdlet name with different
@@ -816,14 +836,18 @@ Exit: real apphost fault matrix green on every supported platform.
    leaves bounded residue, and the next startup reclaims that stale root without
    touching a simultaneously live supervisor's root.
 5. Prove a stalled or failed artifact sink for one session cannot delay an
-   ordinary result or state call in another session, and a handle remains
-   readable without selecting or reopening its originating session.
+   ordinary result or state call in another session beyond the existing
+   bounded capture interval, and a handle remains readable without selecting
+   or reopening its originating session.
 6. Prove a wedged connection-wide storage lane makes sibling capture fail
-   promptly as `recovery=unavailable` without delaying or failing the sibling
-   command, and does not start another potentially wedged storage task.
-7. Prove one session exhausting its byte quota does not consume another
+   within that bounded interval as `recovery=unavailable`, then allows the
+   sibling command to run without starting another potentially wedged storage
+   task.
+7. Prove two healthy concurrent sessions wait on the single lane within that
+   bound and both publish valid handles.
+8. Prove one session exhausting its byte quota does not consume another
    session's quota or disable that sibling's healthy capture.
-8. Remove unneeded capability/provenance machinery rather than recreating it.
+9. Remove unneeded capability/provenance machinery rather than recreating it.
 
 Exit: retained tools are bounded and cannot reduce core invoke availability.
 
@@ -872,9 +896,10 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   a clock abstraction or spend four wall-clock hours on an acceptance wait;
 - malformed and oversized worker frames;
 - stale output-root reclamation with a simultaneous live supervisor root;
-- one session exhausting its output quota while a sibling still publishes a
-  healthy handle, plus one deliberately wedged global storage operation that
-  makes every later capture fail promptly without delaying any command;
+- two healthy concurrent sessions both publishing handles, one session
+  exhausting its output quota while a sibling still publishes a healthy
+  handle, and one deliberately wedged global storage operation whose later
+  contenders time out within the capture bound before their commands run;
 - prompt selected-session `ptk_state` and supervisor-local `ptk_session list`
   during active invokes in other sessions, worker loss, startup, recovery, and
   fault, with every worker-owned field either populated or explicitly
@@ -983,15 +1008,16 @@ Present and settle these in chat one at a time before implementation:
    reviewed worker-owned job design before coding.
 4. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path and removal of its OTLP protobuf/`Grpc.Tools` build
-   dependency from the runtime server project. Retire the core
-   producer-to-SIEM conformance project/CI step that consumes those types, keep
-   the standalone SIEM receiver tests parked, and retain
-   `SecureAuditStorage` only as `OutputStore`'s proved local-storage primitive.
-   Any future compliance producer/exporter is separately built and explicitly
-   approved. Recommendation: yes, because the current gate has already
-   disabled valid execution and the build dependency blocks clean ARM64 Linux
-   builds. If declined, those availability and build failures remain accepted
-   production blockers.
+   dependency from the runtime server project. Remove the runtime OTLP
+   mapper/exporter, protobuf, and their main-project tests; retire the core
+   producer-to-SIEM conformance project/CI step that consumes those types; keep
+   the standalone SIEM receiver tests parked; and retain `SecureAuditStorage`
+   only as `OutputStore`'s proved local-storage primitive. Any future compliance
+   producer/exporter is separately built and explicitly approved.
+   Recommendation: yes, because the current gate has already disabled valid
+   execution and the build dependency blocks clean ARM64 Linux builds. If
+   declined, those availability and build failures remain accepted production
+   blockers.
 
 Silence approves none of the pending decisions. Until decisions 2-4 are settled
 and the owner later gives an explicit implementation go, implementation is

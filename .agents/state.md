@@ -31,7 +31,8 @@ short and update it when important repo facts change.
   but returned `REVISE` for three local omissions: Slice 2's handshake/OTLP
   consumer inventory, close while old containment is unconfirmed, and bounded
   waiting for healthy output-lane contention. Canonical evidence is
-  `.agents/review/production-reliability-salvage-opus5-r5.md`. No product
+  `.agents/review/production-reliability-salvage-opus5-r5.md`. All three are now
+  incorporated in the plan; exact-SHA closure review is pending. No product
   implementation is authorized. Decisions 2-4 remain, one at a time, after the
   corrected plan is accepted. Git workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
@@ -363,11 +364,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Correct the three R5 plan findings, commit the exact plan, and run another
-   read-only Claude Opus 5 maximum-effort review. If accepted, record the
-   evidence and present only owner decision 2 (R0 contract retirement). Make no
-   product code change until decisions 2-4 and a later explicit implementation
-   go are recorded.
+1. Commit the R5-corrected plan and run another read-only Claude Opus 5
+   maximum-effort review at the exact commit. If accepted, record the evidence
+   and present only owner decision 2 (R0 contract retirement). Make no product
+   code change until decisions 2-4 and a later explicit implementation go are
+   recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the replacement topology is undecided.
@@ -440,10 +441,10 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation is blocked on correction and
-  exact-SHA re-review of the three R5 findings, then owner decisions 2-4 one at
-  a time and a later explicit implementation go. Slice 0 must still prove the
-  intended harness gives unrelated agents distinct PTK server PIDs and stdio
+- Production-reliability salvage implementation is blocked on exact-SHA
+  re-review of the R5-corrected plan, then owner decisions 2-4 one at a time
+  and a later explicit implementation go. Slice 0 must still prove the intended
+  harness gives unrelated agents distinct PTK server PIDs and stdio
   connections; failure stops the plan before runtime changes.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled

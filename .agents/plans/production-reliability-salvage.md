@@ -6,12 +6,14 @@ named isolated PowerShell sessions, and every session is a separate long-lived
 PowerShell worker process. The earlier Claude Opus 5 acceptance of the
 one-worker-per-connection draft is superseded. Claude Opus 5 round 4 returned
 `REVISE`; round 5 closed every round-4 finding and accepted the single global
-output lane, then returned `REVISE` for three local omissions. All admitted
-findings are incorporated below. The canonical closure verdict for this exact
-plan blob is recorded externally under `.agents/review/`; no post-review status
-edit to this plan is required. No implementation is authorized unless that
-verdict is `ACCEPT` and pending decisions 2-4 under `Owner decisions` are
-approved in chat, one at a time.
+output lane, then returned `REVISE` for three local omissions. Round 6 closed
+the containment and output-lane omissions and found one incomplete Slice 2
+consumer inventory. Every supported finding is incorporated below. Exact-blob
+closure review is pending; its canonical verdict will be recorded externally
+under `.agents/review/`, so no post-review status edit to this plan is
+required. No implementation is authorized unless that verdict is `ACCEPT` and
+pending decisions 2-4 under `Owner decisions` are approved in chat, one at a
+time.
 
 ## Goal
 
@@ -651,8 +653,11 @@ execution path or public tool list changes in this slice.
    and tears down every session worker before the public process exits.
 4. Remove mandatory audit admission and exact-script evidence publication from
    ordinary tool execution.
-5. Remove default startup construction of audit/SIEM/export resources and the
-   runtime project's OTLP protobuf/`Grpc.Tools` build dependency. Retain
+5. Remove default startup construction of audit/SIEM/export resources from
+   `Program.cs`, remove the anchored-export construction from
+   `AuditRuntimeResources.cs`, and remove the runtime project's OTLP
+   protobuf/`Grpc.Tools` build dependency. Retain local journal/evidence
+   administration only where a non-OTLP caller remains. Retain
    `SecureAuditStorage` because `OutputStore` uses its protected root/file
    operations; do not rename or rewrite that proved storage primitive in this
    slice.
@@ -661,12 +666,43 @@ execution path or public tool list changes in this slice.
    producer contract. Keep the standalone `siem/PtkSiem.slnx` receiver tests
    and their CI step; a future producer/exporter requires a separately approved
    optional project.
-7. In the same commit, remove `AuditOtlpRecordMapper.cs`,
-   `AuditOtlpHttpExporter.cs`, `Protos/audit_otlp.proto`,
-   `FakeOtlpHttpsReceiver.cs`, `AuditOtlpRecordMapperTests.cs`,
-   `AuditOtlpHttpExporterTests.cs`, and
-   `AuditOtlpHttpExporterIntegrationTests.cs`; these are the runtime producer
-   and main-test-project consumers of the removed protobuf types.
+7. In the same commit, remove the complete anchored OTLP export path rather
+   than retaining dead abstractions merely to make the project compile:
+   - delete `AuditOtlpRecordMapper.cs`, `AuditOtlpHttpExporter.cs`,
+     `Protos/audit_otlp.proto`, `AuditExportCoordinator.cs`,
+     `AuditBootExportSource.cs`, `AuditClosedSpoolExportPump.cs`,
+     `AuditExportLoop.cs`, `AuditExportAcknowledgmentObserver.cs`,
+     `AuditExportConfiguration.cs`, `AuditExportRetrySchedule.cs`,
+     `AuditExportTransitionRecorder.cs`, and export-only transition/health
+     branches;
+   - delete `FakeOtlpHttpsReceiver.cs`, `AuditOtlpRecordMapperTests.cs`,
+     `AuditOtlpHttpExporterTests.cs`,
+     `AuditOtlpHttpExporterIntegrationTests.cs`,
+     `AuditOtlpExportCompositionTests.cs`,
+     `AuditClosedSpoolExportPumpTests.cs`,
+     `AuditExportCoordinatorTests.cs`, `AuditExportLoopTests.cs`,
+     `AuditExportAcknowledgmentObserverTests.cs`,
+     `AuditExportConfigurationTests.cs`, `AuditExportRetryScheduleTests.cs`,
+     and `AuditExportTransitionRecorderTests.cs`;
+   - remove anchored-export cases and transport stubs from
+     `AuditLiveSpoolReaderTests.cs`, `AuditAnchoredRuntimeTests.cs`,
+     `AuditEvidenceRetentionTests.cs`, and
+     `AuditEvidenceOrphanReconcilerTests.cs`, while retaining their unrelated
+     local journal, reader, evidence, and reconciliation coverage;
+   - edit `AuditRuntimeResources.cs`, `AuditStartupConfiguration.cs`,
+     `AuditEvidenceOrphanReconciler.cs`, `AuditHealth.cs`, shared
+     export-configuration identity/checkpoint code, and their retained tests to
+     remove only the now-dead anchored-export branches while preserving every
+     cited non-OTLP administration caller.
+   `AuditOtlpHttpExporter.cs` owns `IAuditOtlpExportTransport`; the production
+   and test files above are its consumers, so moving or stubbing that interface
+   elsewhere is forbidden. No source is retained solely because another dead
+   exporter source or its test references it; every retained export-named type
+   must have a cited non-OTLP production or administration caller. A reference
+   inventory must prove no
+   `IAuditOtlpExportTransport`, `Grpc.Tools`, or `Google.Protobuf` reference
+   remains in the runtime project and no anchored export loop remains compiled
+   but unreachable.
 8. Update `server/test-handshake.ps1` atomically: retire its audit segment,
    exact-script-evidence, and fail-closed audit-outage assertions; replace them
    with the Slice 2 regression that an unwritable audit root does not block an
@@ -680,7 +716,10 @@ execution path or public tool list changes in this slice.
    runtime package pending a separate product decision.
 
 Exit: no ordinary invoke depends on `~/.ptk/audit`; no exact script file is
-created by default; full verification green.
+created by default; no runtime-project reference to
+`IAuditOtlpExportTransport`, `Grpc.Tools`, or `Google.Protobuf` remains; no
+anchored export loop remains compiled but unreachable; full verification
+green.
 
 ### Slice 3 — minimal worker protocol
 
@@ -1008,8 +1047,11 @@ Present and settle these in chat one at a time before implementation:
    reviewed worker-owned job design before coding.
 4. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path and removal of its OTLP protobuf/`Grpc.Tools` build
-   dependency from the runtime server project. Remove the runtime OTLP
-   mapper/exporter, protobuf, and their main-project tests; retire the core
+   dependency from the runtime server project. Remove the complete anchored
+   OTLP export path — mapper/exporter, transport interface and every runtime
+   consumer, protobuf, export loop, export-only health/transition branches,
+   fixtures, and tests — while preserving unrelated local journal/evidence
+   administration only where a non-OTLP caller remains. Retire the core
    producer-to-SIEM conformance project/CI step that consumes those types; keep
    the standalone SIEM receiver tests parked; and retain `SecureAuditStorage`
    only as `OutputStore`'s proved local-storage primitive. Any future compliance

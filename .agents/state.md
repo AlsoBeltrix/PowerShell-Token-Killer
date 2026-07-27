@@ -43,9 +43,11 @@ short and update it when important repo facts change.
   three remaining test consumers, delete dead export identity while retaining
   live checkpoint code, remove linked conformance residue, and disposition the
   mixed operator document. Canonical evidence is
-  `.agents/review/production-reliability-salvage-opus5-r7.md`. No product
-  implementation is authorized. Decisions 2-4 remain, one at a time, after the
-  corrected plan is accepted. Git workspace mechanics remain agent-owned;
+  `.agents/review/production-reliability-salvage-opus5-r7.md`. All five
+  corrections and the explicit legacy-checkpoint disposition are now
+  incorporated; exact-SHA closure review is pending. No product implementation
+  is authorized. Decisions 2-4 remain, one at a time, after the corrected plan
+  is accepted. Git workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
@@ -375,11 +377,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Correct only round 7's five supported mechanical findings, commit the plan,
-   and run another read-only Claude Opus 5 maximum-effort review at the exact
-   commit. If accepted, record the evidence and present only owner decision 2
-   (R0 contract retirement). Make no product code change until decisions 2-4
-   and a later explicit implementation go are recorded.
+1. Run another read-only Claude Opus 5 maximum-effort review of round 7's five
+   mechanical corrections at the exact commit. If accepted, record the evidence
+   and present only owner decision 2 (R0 contract retirement). Make no product
+   code change until decisions 2-4 and a later explicit implementation go are
+   recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the replacement topology is undecided.
@@ -452,9 +454,8 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation is blocked on correction and
-  exact-SHA re-review of round 7's five mechanical findings, then owner
-  decisions 2-4 one at a time
+- Production-reliability salvage implementation is blocked on exact-SHA
+  re-review of the R7-corrected plan, then owner decisions 2-4 one at a time
   and a later explicit implementation go. Slice 0 must still prove the intended
   harness gives unrelated agents distinct PTK server PIDs and stdio
   connections; failure stops the plan before runtime changes.
@@ -479,8 +480,10 @@ short and update it when important repo facts change.
   `.agents/plans/security-layer.md` rejects that response. Its shared-host
   entry stages durable GUID sessions followed by sharing, while the owner's
   later direction removes both from the candidate build. Do not implement
-  either stale direction; preserve the decision-log conflict until the hold
-  is released.
+  either stale direction. Its audit-export evidence at line 312 also points to
+  producer behavior that the corrected plan removes; treat that as known stale
+  evidence after audit decision 4, never as authority to restore the producer.
+  Preserve these decision-log conflicts until the hold is released.
 - **GitHub #7 closure is gated on Microsoft's WDSI verdict** on the submitted
   `PtkMcpServer.dll` (owner-submitted 2026-07-20). Interim quarantine-detection
   mitigation is landed (`51ce880`); no further local action on #7 until the

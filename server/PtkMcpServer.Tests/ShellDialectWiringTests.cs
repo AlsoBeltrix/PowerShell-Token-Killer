@@ -427,6 +427,11 @@ public sealed class ShellDialectWiringTests : IDisposable
     [Fact]
     public async Task Route_pwsh_bypasses_detection_as_consent()
     {
+        const string errorMarker = "ptk-route-pwsh-consent-marker";
+        var definition = await _host.InvokeAsync(
+            $"function export {{ throw '{errorMarker}' }}");
+        Assert.True(definition.Success);
+
         ExecutionPlan? observed = null;
         var result = await _host.InvokeAsync(
             "export X=1",
@@ -438,7 +443,8 @@ public sealed class ShellDialectWiringTests : IDisposable
             route: "pwsh");
 
         Assert.DoesNotContain("[ptk:dialect]", result.Output);
-        Assert.Contains(result.Errors, error => error.Contains("export"));
+        Assert.Contains(result.Errors, error =>
+            error.Contains(errorMarker, StringComparison.Ordinal));
         Assert.Equal(RequestedExecutionRoute.PowerShell, observed?.RequestedRoute);
         Assert.Equal(ExecutionPath.PowerShellDirect, observed?.ExecutionPath);
     }

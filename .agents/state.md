@@ -26,10 +26,15 @@ short and update it when important repo facts change.
   `.agents/review/production-reliability-salvage-opus5-r4.md`. Every admitted
   finding is now incorporated in the plan, including the explicit adjudication
   that one fail-fast output-storage lane is safer than one potentially wedged
-  lane per session; exact-SHA re-review is pending. No product implementation
-  is authorized. Decisions 2-4 remain, one at a time, after the corrected plan
-  is accepted. Git workspace mechanics remain agent-owned; never ask the owner
-  to operate an intermediate workspace.
+  lane per session. Claude Opus 5 reviewed exact corrected commit `2536675` and
+  plan blob `ce9b319`; it closed every R4 finding and accepted the global lane,
+  but returned `REVISE` for three local omissions: Slice 2's handshake/OTLP
+  consumer inventory, close while old containment is unconfirmed, and bounded
+  waiting for healthy output-lane contention. Canonical evidence is
+  `.agents/review/production-reliability-salvage-opus5-r5.md`. No product
+  implementation is authorized. Decisions 2-4 remain, one at a time, after the
+  corrected plan is accepted. Git workspace mechanics remain agent-owned;
+  never ask the owner to operate an intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -358,11 +363,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Commit the R4-corrected plan and run another read-only Claude Opus 5
-   maximum-effort review at the exact commit. If accepted, record the evidence
-   and present only owner decision 2 (R0 contract retirement). Make no product
-   code change until decisions 2-4 and a later explicit implementation go are
-   recorded.
+1. Correct the three R5 plan findings, commit the exact plan, and run another
+   read-only Claude Opus 5 maximum-effort review. If accepted, record the
+   evidence and present only owner decision 2 (R0 contract retirement). Make no
+   product code change until decisions 2-4 and a later explicit implementation
+   go are recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the replacement topology is undecided.
@@ -435,9 +440,9 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation is blocked on exact-SHA
-  re-review of the R4-corrected plan, then owner decisions 2-4 one at a time
-  and a later explicit implementation go. Slice 0 must still prove the
+- Production-reliability salvage implementation is blocked on correction and
+  exact-SHA re-review of the three R5 findings, then owner decisions 2-4 one at
+  a time and a later explicit implementation go. Slice 0 must still prove the
   intended harness gives unrelated agents distinct PTK server PIDs and stdio
   connections; failure stops the plan before runtime changes.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific

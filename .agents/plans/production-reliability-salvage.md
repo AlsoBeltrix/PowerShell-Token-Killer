@@ -1,8 +1,9 @@
 # Plan: production reliability salvage
 
 **Status:** OWNER DECISIONS PENDING — topology decision 1 was settled by the
-owner on 2026-07-26: one agent-owned MCP connection may own several explicitly
-named isolated PowerShell sessions, and every session is a separate long-lived
+owner on 2026-07-26, and R0 contract-retirement decision 2 was approved on
+2026-07-27. One agent-owned MCP connection may own several explicitly named
+isolated PowerShell sessions, and every session is a separate long-lived
 PowerShell worker process. The earlier Claude Opus 5 acceptance of the
 one-worker-per-connection draft is superseded. Claude Opus 5 round 4 returned
 `REVISE`; round 5 closed every round-4 finding and accepted the single global
@@ -11,10 +12,10 @@ the containment and output-lane omissions and found one incomplete Slice 2
 consumer inventory. Round 7 closed that inventory finding, accepted the local
 evidence/admin boundary, and found five mechanical ownership and documentation
 gaps. Every supported finding is incorporated below. Exact-blob closure review
-is pending; its canonical verdict will be recorded externally under
-`.agents/review/`, so no post-review status edit to this plan is required. No
-implementation is authorized unless that verdict is `ACCEPT` and pending
-decisions 2-4 under `Owner decisions` are approved in chat, one at a time.
+round 8 returned `ACCEPT`; its canonical verdict is recorded under
+`.agents/review/`. No implementation is authorized until pending decisions 3-4
+under `Owner decisions` are approved in chat, one at a time, and the owner later
+gives an explicit implementation go.
 
 ## Goal
 
@@ -1068,15 +1069,14 @@ Present and settle these in chat one at a time before implementation:
    agents still require separate MCP connections because PTK receives no
    trustworthy caller identity; sharing one connection between unrelated
    agents remains unsupported. No shared or durable session is approved.
-2. **R0 contract retirement:** approve retirement of the frozen guardian-era
-   public-contract digest, package-role guards, schemas, the
+2. **R0 contract retirement — APPROVED 2026-07-27:** retire the frozen
+   guardian-era public-contract digest, package-role guards, schemas, the
    guardian/private-host-only `PtkResilienceTestFixture`, and its two consuming
    tests before freezing the replacement contract. Preserve the separate,
    already guardian-free `PtkContainmentTestFixture` and its Windows
-   containment tests unchanged. Recommendation: yes, because the retired
-   guards and fake fixture freeze the topology this plan rejects, while the
-   actual containment fixture protects code this plan keeps. If declined,
-   public schema changes and implementation stop.
+   containment tests unchanged. The retired guards and fake fixture freeze the
+   topology this plan rejects, while the actual containment fixture protects
+   code this plan keeps.
 3. **Cold jobs:** remove `ptk_job` and `ptk_invoke(background=true)` from the
    first production surface while retaining foreground invoke/state/reset/
    output. Recommendation: yes, because cold jobs preserve no warm state and
@@ -1100,9 +1100,9 @@ Present and settle these in chat one at a time before implementation:
    declined, those availability and build failures remain accepted production
    blockers.
 
-Silence approves none of the pending decisions. Until decisions 2-4 are settled
-and the owner later gives an explicit implementation go, implementation is
-blocked and only plan/review work may proceed.
+Silence approves none of the remaining decisions. Until decisions 3-4 are
+settled and the owner later gives an explicit implementation go, implementation
+is blocked and only plan/review work may proceed.
 
 Canary activation remains a separately gated outward action after
 implementation and verification. It is not a design decision and is never

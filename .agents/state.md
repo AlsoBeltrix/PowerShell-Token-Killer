@@ -50,7 +50,10 @@ short and update it when important repo facts change.
   disposition, found no new blocking or major issue, and returned `ACCEPT`.
   Canonical evidence is
   `.agents/review/production-reliability-salvage-opus5-r8.md`. No product
-  implementation is authorized. Decisions 2-4 remain, one at a time. Git
+  implementation is authorized. The owner approved decision 2 on 2026-07-27:
+  retire the obsolete guardian-era R0 public-contract artifacts and
+  guardian-only fake fixture while preserving the real containment fixture and
+  its Windows tests unchanged. Decisions 3-4 remain, one at a time. Git
   workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
@@ -381,14 +384,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Run another read-only Claude Opus 5 maximum-effort review of round 7's five
-   mechanical corrections at the exact commit. If accepted, record the evidence
-   and present only owner decision 2 (R0 contract retirement). Make no product
-   code change until decisions 2-4 and a later explicit implementation go are
-   recorded.
+1. Present only owner decision 3 (remove cold jobs from the first production
+   surface). Make no product code change until decisions 3-4 and a later
+   explicit implementation go are recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
-   while the replacement topology is undecided.
+   while the salvage plan awaits decisions 3-4 and an explicit implementation
+   go.
 3. Keep the rbc remainders parked until the replacement plan decides which
    runtime survives. rbc-15 remains closed; its residual recycled-PID
    incarnation hardening stays a follow-up. Do not continue the saved rbc-5
@@ -458,11 +460,10 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation is blocked on exact-SHA
-  re-review of the R7-corrected plan, then owner decisions 2-4 one at a time
-  and a later explicit implementation go. Slice 0 must still prove the intended
-  harness gives unrelated agents distinct PTK server PIDs and stdio
-  connections; failure stops the plan before runtime changes.
+- Production-reliability salvage implementation is blocked on owner decisions
+  3-4, one at a time, and a later explicit implementation go. Slice 0 must
+  still prove the intended harness gives unrelated agents distinct PTK server
+  PIDs and stdio connections; failure stops the plan before runtime changes.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

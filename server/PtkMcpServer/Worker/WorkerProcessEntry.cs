@@ -41,7 +41,6 @@ internal static class WorkerProcessEntry
             values,
             openBootstrap: captured => WindowsWorkerBootstrap.Open(captured),
             runtimeFactory: CreateRuntimeAsync,
-            bootIdFactory: Guid.NewGuid,
             standardErrorFactory: Console.OpenStandardError).ConfigureAwait(false);
     }
 
@@ -49,8 +48,7 @@ internal static class WorkerProcessEntry
         IReadOnlyList<string> arguments,
         IWorkerBootstrapEnvironmentSource? environment,
         Func<WorkerBootstrapValues, IWorkerBootstrapStreams> openBootstrap,
-        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> runtimeFactory,
-        Func<Guid> bootIdFactory,
+        Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>> runtimeFactory,
         Func<Stream> standardErrorFactory)
     {
         WorkerBootstrapValues values;
@@ -72,7 +70,6 @@ internal static class WorkerProcessEntry
         ArgumentNullException.ThrowIfNull(arguments);
         ArgumentNullException.ThrowIfNull(openBootstrap);
         ArgumentNullException.ThrowIfNull(runtimeFactory);
-        ArgumentNullException.ThrowIfNull(bootIdFactory);
         ArgumentNullException.ThrowIfNull(standardErrorFactory);
 
         return await RunCapturedAsync(
@@ -80,7 +77,6 @@ internal static class WorkerProcessEntry
             values,
             openBootstrap,
             runtimeFactory,
-            bootIdFactory,
             standardErrorFactory).ConfigureAwait(false);
     }
 
@@ -88,8 +84,7 @@ internal static class WorkerProcessEntry
         IReadOnlyList<string> arguments,
         WorkerBootstrapValues values,
         Func<WorkerBootstrapValues, IWorkerBootstrapStreams> openBootstrap,
-        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> runtimeFactory,
-        Func<Guid> bootIdFactory,
+        Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>> runtimeFactory,
         Func<Stream> standardErrorFactory)
     {
         if (arguments.Count != 1 ||
@@ -105,12 +100,10 @@ internal static class WorkerProcessEntry
         {
             bootstrap = openBootstrap(values) ?? throw new InvalidOperationException(
                 "Worker bootstrap returned no stream owner.");
-            var workerBootId = bootIdFactory();
             var server = new WorkerServer(
                 bootstrap.RequestStream,
                 bootstrap.EventStream,
-                runtimeFactory,
-                workerBootId);
+                runtimeFactory);
             serverConstructed = true;
             finalExit = await server.RunAsync().ConfigureAwait(false);
         }
@@ -149,22 +142,30 @@ internal static class WorkerProcessEntry
         return CompleteServerExit(finalExit, standardErrorFactory);
     }
 
-    private static Task<ISessionLifetime> CreateRuntimeAsync(
+    private static Task<IWorkerSession> CreateRuntimeAsync(
         WorkerInitializeRequest initialize,
         CancellationToken cancellationToken)
     {
-        _ = initialize;
         cancellationToken.ThrowIfCancellationRequested();
         var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
         var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
+        var localLimits = WorkerOperationProtocol.CreateLimits(
+            callTimeout,
+            maxCallTimeout);
+        if (initialize.Limits != localLimits)
+        {
+            throw new WorkerProtocolException(
+                "protocol_limits_mismatch",
+                "Worker initialize limits do not match the worker configuration.");
+        }
         var jobPwshExecutable = JobPwshExecutable.ResolveFromPath();
         cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult<ISessionLifetime>(
-            DefaultSessionRuntimeFactory.Create(
+        return Task.FromResult<IWorkerSession>(
+            new WorkerSession(DefaultSessionRuntimeFactory.Create(
                 callTimeout,
                 maxCallTimeout,
                 jobPwshExecutable,
-                cancellationToken));
+                cancellationToken)));
     }
 
     private static int CompleteInvocationFailure(Func<Stream> standardErrorFactory) =>

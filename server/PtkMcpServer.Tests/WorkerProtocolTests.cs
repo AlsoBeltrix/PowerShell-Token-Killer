@@ -9,27 +9,45 @@ public sealed class WorkerProtocolTests
 {
     private const int FrozenMaximumEncodedFrameBytes = 1_048_576;
     private const int FrozenMaximumJsonDepth = 32;
-    private static readonly Guid BootId = Guid.Parse("15a6bcb5-4f5f-4dc9-b8a8-c117e52159c2");
+    private static readonly Guid SessionId = Guid.Parse("15a6bcb5-4f5f-4dc9-b8a8-c117e52159c2");
+    private const long Incarnation = 7;
 
     [Fact]
-    public void Protocol_constants_match_frozen_v1_contract()
+    public void Protocol_constants_match_frozen_minimal_contract()
     {
-        Assert.Equal(1, WorkerProtocol.Version);
+        Assert.Equal(2, WorkerProtocol.Version);
         Assert.Equal(FrozenMaximumJsonDepth, WorkerProtocol.MaximumJsonDepth);
         Assert.Equal(FrozenMaximumEncodedFrameBytes, WorkerProtocol.MaximumEncodedFrameBytes);
+        Assert.Equal(
+            [
+                WorkerMessageKind.Initialize,
+                WorkerMessageKind.Ready,
+                WorkerMessageKind.Invoke,
+                WorkerMessageKind.StateQuery,
+                WorkerMessageKind.StateSnapshot,
+                WorkerMessageKind.Cancel,
+                WorkerMessageKind.ArtifactChunk,
+                WorkerMessageKind.ArtifactSeal,
+                WorkerMessageKind.Result,
+                WorkerMessageKind.Shutdown,
+                WorkerMessageKind.Stopped,
+            ],
+            Enum.GetValues<WorkerMessageKind>());
     }
 
     [Theory]
-    [InlineData((int)WorkerMessageKind.Initialize, null)]
-    [InlineData((int)WorkerMessageKind.Prepare, 1L)]
-    [InlineData((int)WorkerMessageKind.Commit, 2L)]
-    [InlineData((int)WorkerMessageKind.Abort, 3L)]
-    [InlineData((int)WorkerMessageKind.Request, 4L)]
-    [InlineData((int)WorkerMessageKind.Cancel, 5L)]
-    [InlineData((int)WorkerMessageKind.Event, null)]
-    [InlineData((int)WorkerMessageKind.Response, 6L)]
-    [InlineData((int)WorkerMessageKind.Shutdown, null)]
-    public void Codec_round_trips_every_v1_kind(int kindValue, long? requestId)
+    [InlineData((int)WorkerMessageKind.Initialize, 1L)]
+    [InlineData((int)WorkerMessageKind.Ready, 2L)]
+    [InlineData((int)WorkerMessageKind.Invoke, 3L)]
+    [InlineData((int)WorkerMessageKind.StateQuery, 4L)]
+    [InlineData((int)WorkerMessageKind.StateSnapshot, 5L)]
+    [InlineData((int)WorkerMessageKind.Cancel, 6L)]
+    [InlineData((int)WorkerMessageKind.ArtifactChunk, 7L)]
+    [InlineData((int)WorkerMessageKind.ArtifactSeal, 8L)]
+    [InlineData((int)WorkerMessageKind.Result, 9L)]
+    [InlineData((int)WorkerMessageKind.Shutdown, 10L)]
+    [InlineData((int)WorkerMessageKind.Stopped, 11L)]
+    public void Codec_round_trips_every_minimal_kind(int kindValue, long? requestId)
     {
         var kind = (WorkerMessageKind)kindValue;
         var envelope = Envelope(kind, requestId, "round-trip");
@@ -38,22 +56,25 @@ public sealed class WorkerProtocolTests
 
         Assert.Equal(WorkerProtocol.Version, decoded.ProtocolVersion);
         Assert.Equal(kind, decoded.Kind);
-        Assert.Equal(BootId, decoded.WorkerBootId);
+        Assert.Equal(SessionId, decoded.SessionId);
+        Assert.Equal(Incarnation, decoded.Incarnation);
         Assert.Equal(requestId, decoded.RequestId);
         Assert.Equal("round-trip", decoded.Payload.GetProperty("value").GetString());
     }
 
     [Theory]
     [InlineData((int)WorkerMessageKind.Initialize, "initialize")]
-    [InlineData((int)WorkerMessageKind.Prepare, "prepare")]
-    [InlineData((int)WorkerMessageKind.Commit, "commit")]
-    [InlineData((int)WorkerMessageKind.Abort, "abort")]
-    [InlineData((int)WorkerMessageKind.Request, "request")]
+    [InlineData((int)WorkerMessageKind.Ready, "ready")]
+    [InlineData((int)WorkerMessageKind.Invoke, "invoke")]
+    [InlineData((int)WorkerMessageKind.StateQuery, "state_query")]
+    [InlineData((int)WorkerMessageKind.StateSnapshot, "state_snapshot")]
     [InlineData((int)WorkerMessageKind.Cancel, "cancel")]
-    [InlineData((int)WorkerMessageKind.Event, "event")]
-    [InlineData((int)WorkerMessageKind.Response, "response")]
+    [InlineData((int)WorkerMessageKind.ArtifactChunk, "artifact_chunk")]
+    [InlineData((int)WorkerMessageKind.ArtifactSeal, "artifact_seal")]
+    [InlineData((int)WorkerMessageKind.Result, "result")]
     [InlineData((int)WorkerMessageKind.Shutdown, "shutdown")]
-    public void Codec_emits_frozen_v1_wire_kind(int kindValue, string wireKind)
+    [InlineData((int)WorkerMessageKind.Stopped, "stopped")]
+    public void Codec_emits_frozen_minimal_wire_kind(int kindValue, string wireKind)
     {
         var encoded = WorkerProtocol.Encode(Envelope((WorkerMessageKind)kindValue, null, "wire"));
         using var document = JsonDocument.Parse(encoded);
@@ -64,7 +85,7 @@ public sealed class WorkerProtocolTests
     [Fact]
     public async Task Reader_accepts_one_byte_fragmentation()
     {
-        var frame = Terminate(WorkerProtocol.Encode(Envelope(WorkerMessageKind.Request, 17, "fragmented")));
+        var frame = Terminate(WorkerProtocol.Encode(Envelope(WorkerMessageKind.Invoke, 17, "fragmented")));
         await using var input = new FragmentingReadStream(frame, maximumReadBytes: 1);
         var reader = new WorkerProtocolReader(input);
 
@@ -80,8 +101,8 @@ public sealed class WorkerProtocolTests
     [Fact]
     public async Task Reader_preserves_coalesced_frames_for_sequential_reads()
     {
-        var first = Terminate(WorkerProtocol.Encode(Envelope(WorkerMessageKind.Event, null, "first")));
-        var second = Terminate(WorkerProtocol.Encode(Envelope(WorkerMessageKind.Response, 29, "second")));
+        var first = Terminate(WorkerProtocol.Encode(Envelope(WorkerMessageKind.Ready, 28, "first")));
+        var second = Terminate(WorkerProtocol.Encode(Envelope(WorkerMessageKind.Result, 29, "second")));
         await using var input = new MemoryStream(first.Concat(second).ToArray());
         var reader = new WorkerProtocolReader(input);
 
@@ -130,7 +151,7 @@ public sealed class WorkerProtocolTests
     public void Codec_rejects_encoded_output_past_frame_limit()
     {
         var envelope = Envelope(
-            WorkerMessageKind.Event,
+            WorkerMessageKind.Result,
             null,
             new string('x', FrozenMaximumEncodedFrameBytes));
 
@@ -144,10 +165,10 @@ public sealed class WorkerProtocolTests
     public void Codec_emits_exact_encoded_frame_limit()
     {
         var emptyLength = WorkerProtocol.Encode(
-            Envelope(WorkerMessageKind.Event, null, string.Empty)).Length;
+            Envelope(WorkerMessageKind.Result, 1, string.Empty)).Length;
         var envelope = Envelope(
-            WorkerMessageKind.Event,
-            null,
+            WorkerMessageKind.Result,
+            1,
             new string('x', FrozenMaximumEncodedFrameBytes - emptyLength));
 
         var encoded = WorkerProtocol.Encode(envelope);
@@ -156,18 +177,18 @@ public sealed class WorkerProtocolTests
     }
 
     [Fact]
-    public void Codec_accepts_exact_v1_json_depth()
+    public void Codec_accepts_exact_protocol_json_depth()
     {
         var envelope = EnvelopeWithNestedPayload(nestedArrays: 30);
 
         var encoded = WorkerProtocol.Encode(envelope);
         var decoded = WorkerProtocol.Decode(encoded);
 
-        Assert.Equal(WorkerMessageKind.Event, decoded.Kind);
+        Assert.Equal(WorkerMessageKind.Result, decoded.Kind);
     }
 
     [Fact]
-    public void Codec_rejects_one_level_past_v1_json_depth()
+    public void Codec_rejects_one_level_past_protocol_json_depth()
     {
         var envelope = EnvelopeWithNestedPayload(nestedArrays: 31);
 
@@ -191,9 +212,10 @@ public sealed class WorkerProtocolTests
             new JsonDocumentOptions { MaxDepth = 128 });
         var envelope = new WorkerEnvelope(
             WorkerProtocol.Version,
-            WorkerMessageKind.Event,
-            BootId,
-            null,
+            WorkerMessageKind.Result,
+            SessionId,
+            Incarnation,
+            1,
             payload.RootElement.Clone());
 
         var exception = Assert.Throws<WorkerProtocolException>(
@@ -206,7 +228,7 @@ public sealed class WorkerProtocolTests
     public async Task Reader_rejects_eof_before_lf()
     {
         await using var input = new MemoryStream(
-            WorkerProtocol.Encode(Envelope(WorkerMessageKind.Event, null, "partial")));
+            WorkerProtocol.Encode(Envelope(WorkerMessageKind.Result, 1, "partial")));
         var reader = new WorkerProtocolReader(input);
 
         var exception = await Assert.ThrowsAsync<WorkerProtocolException>(
@@ -221,7 +243,7 @@ public sealed class WorkerProtocolTests
         const string sentinel = "private-script-frame-sentinel";
         var pool = new ObservingFramePool(sentinel);
         await using var input = new MemoryStream(Terminate(
-            WorkerProtocol.Encode(Envelope(WorkerMessageKind.Prepare, 33, sentinel))));
+            WorkerProtocol.Encode(Envelope(WorkerMessageKind.Invoke, 33, sentinel))));
         var reader = new WorkerProtocolReader(input, pool);
 
         _ = await reader.ReadAsync();
@@ -237,10 +259,10 @@ public sealed class WorkerProtocolTests
         await using var output = new CoordinatedWriteStream();
         var writer = new WorkerProtocolWriter(output);
 
-        var first = writer.WriteAsync(Envelope(WorkerMessageKind.Event, null, "first")).AsTask();
+        var first = writer.WriteAsync(Envelope(WorkerMessageKind.Ready, 40, "first")).AsTask();
         await output.FirstWriterEntered;
 
-        var second = writer.WriteAsync(Envelope(WorkerMessageKind.Response, 41, "second")).AsTask();
+        var second = writer.WriteAsync(Envelope(WorkerMessageKind.Result, 41, "second")).AsTask();
 
         // WriteAsync runs synchronously through gate acquisition. If the gate
         // is absent, the second stream writer has already entered here.
@@ -262,11 +284,11 @@ public sealed class WorkerProtocolTests
         var writer = new WorkerProtocolWriter(output);
 
         await Assert.ThrowsAsync<IOException>(async () =>
-            await writer.WriteAsync(Envelope(WorkerMessageKind.Event, null, "first")));
+            await writer.WriteAsync(Envelope(WorkerMessageKind.Result, 1, "first")));
         var bytesAfterFailure = output.BytesWritten;
 
         var exception = await Assert.ThrowsAsync<WorkerProtocolException>(async () =>
-            await writer.WriteAsync(Envelope(WorkerMessageKind.Event, null, "second")));
+            await writer.WriteAsync(Envelope(WorkerMessageKind.Result, 2, "second")));
 
         Assert.Equal("writer_faulted", exception.DetailCode);
         Assert.Equal(bytesAfterFailure, output.BytesWritten);
@@ -286,7 +308,7 @@ public sealed class WorkerProtocolTests
     public static IEnumerable<object[]> InvalidFrames()
     {
         var valid = Encoding.UTF8.GetString(WorkerProtocol.Encode(
-            Envelope(WorkerMessageKind.Event, null, "valid")));
+            Envelope(WorkerMessageKind.Result, 1, "valid")));
         yield return new object[]
         {
             new byte[] { 0xef, 0xbb, 0xbf }.Concat(Encoding.UTF8.GetBytes(valid)).ToArray(),
@@ -295,15 +317,15 @@ public sealed class WorkerProtocolTests
         yield return new object[]
         {
             Encoding.UTF8.GetBytes(valid.Replace(
-                "\"protocolVersion\":1",
                 "\"protocolVersion\":2",
+                "\"protocolVersion\":1",
                 StringComparison.Ordinal)),
             "unknown_version",
         };
         yield return new object[]
         {
             Encoding.UTF8.GetBytes(valid.Replace(
-                "\"kind\":\"event\"",
+                "\"kind\":\"result\"",
                 "\"kind\":\"hello\"",
                 StringComparison.Ordinal)),
             "unknown_kind",
@@ -319,8 +341,8 @@ public sealed class WorkerProtocolTests
         yield return new object[]
         {
             Encoding.UTF8.GetBytes(valid.Replace(
-                "\"kind\":\"event\"",
-                "\"kind\":\"event\",\"k\\u0069nd\":\"event\"",
+                "\"kind\":\"result\"",
+                "\"kind\":\"result\",\"k\\u0069nd\":\"result\"",
                 StringComparison.Ordinal)),
             "duplicate_field",
         };
@@ -358,7 +380,8 @@ public sealed class WorkerProtocolTests
         return new WorkerEnvelope(
             WorkerProtocol.Version,
             kind,
-            BootId,
+            SessionId,
+            Incarnation,
             requestId,
             payload.RootElement.Clone());
     }
@@ -375,9 +398,10 @@ public sealed class WorkerProtocolTests
             new JsonDocumentOptions { MaxDepth = 128 });
         return new WorkerEnvelope(
             WorkerProtocol.Version,
-            WorkerMessageKind.Event,
-            BootId,
-            null,
+            WorkerMessageKind.Result,
+            SessionId,
+            Incarnation,
+            1,
             payload.RootElement.Clone());
     }
 
@@ -392,7 +416,7 @@ public sealed class WorkerProtocolTests
     private static byte[] BuildValidFrame(int encodedBytes)
     {
         var prefix = Encoding.UTF8.GetBytes(
-            $"{{\"protocolVersion\":1,\"kind\":\"event\",\"workerBootId\":\"{BootId:D}\",\"payload\":{{\"value\":\"");
+            $"{{\"protocolVersion\":2,\"kind\":\"result\",\"sessionId\":\"{SessionId:D}\",\"incarnation\":{Incarnation},\"requestId\":1,\"payload\":{{\"value\":\"");
         var suffix = Encoding.UTF8.GetBytes("\"}}");
         var fillerBytes = encodedBytes - prefix.Length - suffix.Length;
         Assert.True(fillerBytes >= 0);
@@ -408,7 +432,7 @@ public sealed class WorkerProtocolTests
     {
         const int nesting = FrozenMaximumJsonDepth + 8;
         var prefix =
-            $"{{\"protocolVersion\":1,\"kind\":\"event\",\"workerBootId\":\"{BootId:D}\",\"payload\":{{\"value\":";
+            $"{{\"protocolVersion\":2,\"kind\":\"result\",\"sessionId\":\"{SessionId:D}\",\"incarnation\":{Incarnation},\"requestId\":1,\"payload\":{{\"value\":";
         var json = prefix + new string('[', nesting) + "0" + new string(']', nesting) + "}}";
         return Encoding.UTF8.GetBytes(json);
     }

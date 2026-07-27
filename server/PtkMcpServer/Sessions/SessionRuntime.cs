@@ -3,6 +3,15 @@ using PtkMcpServer.Audit;
 
 namespace PtkMcpServer.Sessions;
 
+internal sealed record SessionWorkerInvokeResult(
+    string Text,
+    InvokeDisposition Disposition,
+    bool TimedOut);
+
+internal sealed record SessionWorkerStateResult(
+    string Text,
+    bool RunspaceDetailsAvailable);
+
 /// <summary>
 /// Owns one warm PowerShell session and all session-lifetime execution state.
 /// Request-scoped audit capabilities and supervisor-owned output storage are
@@ -129,12 +138,7 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
             Console.Error.WriteLine($"ptk: raw=true call #{rawUsage.Increment()} this session");
         }
 
-        route = route?.ToLowerInvariant() switch
-        {
-            "pwsh" => "pwsh",
-            "rtk" => "rtk",
-            _ => "auto",
-        };
+        route = NormalizeRoute(route);
 
         if (background)
         {
@@ -479,6 +483,48 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
                 }
             }
         }
+        return (await InvokeForegroundCoreAsync(
+            host,
+            script,
+            cancellationToken,
+            route,
+            timeoutSeconds,
+            audit,
+            outputStore).ConfigureAwait(false)).Text;
+    }
+
+    internal Task<SessionWorkerInvokeResult> InvokeWorkerAsync(
+        string script,
+        CancellationToken cancellationToken,
+        bool raw,
+        string route,
+        int timeoutSeconds)
+    {
+        if (raw)
+        {
+            Console.Error.WriteLine(
+                $"ptk: raw=true call #{_rawUsage.Increment()} this session");
+        }
+        route = NormalizeRoute(route);
+        return InvokeForegroundCoreAsync(
+            _host,
+            script,
+            cancellationToken,
+            route,
+            timeoutSeconds,
+            audit: null,
+            outputStore: null);
+    }
+
+    private static async Task<SessionWorkerInvokeResult> InvokeForegroundCoreAsync(
+        RunspaceHost host,
+        string script,
+        CancellationToken cancellationToken,
+        string route,
+        int timeoutSeconds,
+        AuditCallContext? audit,
+        OutputStore? outputStore)
+    {
         using var outputCapture = outputStore is null
             ? null
             : new ForegroundOutputCapture(outputStore);
@@ -488,13 +534,13 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
                     script,
                     cancellationToken: cancellationToken,
                     route: route,
-                    timeoutSeconds: timeoutSeconds)
+                    timeoutSeconds: timeoutSeconds).ConfigureAwait(false)
                 : await host.InvokeWithOutputCaptureAsync(
                     script,
                     outputCapture,
                     cancellationToken: cancellationToken,
                     route: route,
-                    timeoutSeconds: timeoutSeconds)
+                    timeoutSeconds: timeoutSeconds).ConfigureAwait(false)
             : await host.InvokeAsync(
                 script,
                 audit,
@@ -502,7 +548,7 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
                 route: route,
                 timeoutSeconds: timeoutSeconds,
                 deadline: audit.Metadata.Request.DeadlineUtc,
-                outputCapture: outputCapture);
+                outputCapture: outputCapture).ConfigureAwait(false);
 
         var sb = new StringBuilder();
         var output = result.Output.TrimEnd();
@@ -567,8 +613,19 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
         if (audit?.AuthorizationPersistenceFailed == true && !result.UserExecutionStarted)
             response = AuditCallContext.NotStartedMessage;
         audit?.RecordInvokeResult(result, response);
-        return response;
+        return new SessionWorkerInvokeResult(
+            response,
+            result.Disposition,
+            result.TimedOut);
     }
+
+    private static string NormalizeRoute(string? route) =>
+        route?.ToLowerInvariant() switch
+        {
+            "pwsh" => "pwsh",
+            "rtk" => "rtk",
+            _ => "auto",
+        };
 
     private static string RecordJobNotStarted(
         AuditCallContext? audit,
@@ -852,13 +909,31 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
     internal async Task<string> StateAsync(
         bool listAvailable = false,
         CancellationToken cancellationToken = default,
+        AuditCallContext? audit = null) =>
+        (await StateCoreAsync(
+            listAvailable,
+            cancellationToken,
+            audit).ConfigureAwait(false)).Text;
+
+    internal Task<SessionWorkerStateResult> StateWorkerAsync(
+        bool listAvailable,
+        CancellationToken cancellationToken) =>
+        StateCoreAsync(listAvailable, cancellationToken, audit: null);
+
+    private async Task<SessionWorkerStateResult> StateCoreAsync(
+        bool listAvailable = false,
+        CancellationToken cancellationToken = default,
         AuditCallContext? audit = null)
     {
         var host = _host;
         var jobs = _jobs;
         var rawUsage = _rawUsage;
         if (audit is not null && !audit.AuthorizeControl("state.probe_requested"))
-            return AuditCallContext.NotStartedMessage;
+        {
+            return new SessionWorkerStateResult(
+                AuditCallContext.NotStartedMessage,
+                RunspaceDetailsAvailable: false);
+        }
         var runspaceLossRecorded = false;
 
         // No assignments in this script: probing the session must not add
@@ -893,14 +968,16 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
             ? "runspace_busy"
             : probeState == "partial" ? "probe_errors" : null;
 
-        string Finish(string response)
+        SessionWorkerStateResult Finish(string response)
         {
             audit?.CommitReadOutcome(
                 "state.probe_completed",
                 probeState,
                 response,
                 detailCode: probeDetailCode);
-            return response;
+            return new SessionWorkerStateResult(
+                response,
+                RunspaceDetailsAvailable: result is not null);
         }
 
         var sb = new StringBuilder();

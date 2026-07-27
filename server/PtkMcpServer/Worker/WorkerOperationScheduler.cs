@@ -1,18 +1,17 @@
-using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace PtkMcpServer.Worker;
 
 internal interface IWorkerOperationExecutor
 {
-    Task<JsonElement> ExecuteAsync(
+    Task<WorkerExecutionResult> ExecuteAsync(
         WorkerOperationRequest request,
         CancellationToken cancellationToken);
 }
 
 /// <summary>
-/// Deliberately unwired owner for operation correlation, cancellation, and
-/// terminal responses. The production worker does not construct this type in
-/// Slice 7f.
+/// Owns operation correlation, cancellation, deadlines, artifact ordering, and
+/// exactly one terminal frame for each admitted request.
 /// </summary>
 internal sealed class WorkerOperationScheduler
 {
@@ -21,10 +20,11 @@ internal sealed class WorkerOperationScheduler
     private static readonly TimeSpan MaximumDeadlinePoll = TimeSpan.FromMinutes(1);
 
     private readonly object _gate = new();
-    private readonly Guid _workerBootId;
-    private readonly long _generation;
+    private readonly Guid _sessionId;
+    private readonly long _incarnation;
+    private readonly WorkerProtocolLimits _limits;
     private readonly IWorkerOperationExecutor _executor;
-    private readonly Func<WorkerEnvelope, CancellationToken, Task> _writeResponse;
+    private readonly Func<WorkerEnvelope, CancellationToken, Task> _writeFrame;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Func<DateTimeOffset, CancellationToken, Task> _waitUntilDeadline;
     private readonly TaskScheduler _taskScheduler;
@@ -37,29 +37,32 @@ internal sealed class WorkerOperationScheduler
     private Task? _drainTask;
 
     internal WorkerOperationScheduler(
-        Guid workerBootId,
-        long generation,
+        Guid sessionId,
+        long incarnation,
+        WorkerProtocolLimits limits,
         long initialRequestIdHighWater,
         IWorkerOperationExecutor executor,
-        Func<WorkerEnvelope, CancellationToken, Task> writeResponse,
+        Func<WorkerEnvelope, CancellationToken, Task> writeFrame,
         Func<DateTimeOffset>? utcNow = null,
         Func<DateTimeOffset, CancellationToken, Task>? waitUntilDeadline = null,
         TaskScheduler? taskScheduler = null)
     {
-        if (workerBootId == Guid.Empty)
-            throw new ArgumentException("Worker boot ID cannot be empty.", nameof(workerBootId));
-        if (generation <= 0)
-            throw new ArgumentOutOfRangeException(nameof(generation));
+        if (sessionId == Guid.Empty)
+            throw new ArgumentException("Session ID cannot be empty.", nameof(sessionId));
+        if (incarnation <= 0)
+            throw new ArgumentOutOfRangeException(nameof(incarnation));
+        ArgumentNullException.ThrowIfNull(limits);
         if (initialRequestIdHighWater < 0)
             throw new ArgumentOutOfRangeException(nameof(initialRequestIdHighWater));
         ArgumentNullException.ThrowIfNull(executor);
-        ArgumentNullException.ThrowIfNull(writeResponse);
+        ArgumentNullException.ThrowIfNull(writeFrame);
 
-        _workerBootId = workerBootId;
-        _generation = generation;
+        _sessionId = sessionId;
+        _incarnation = incarnation;
+        _limits = limits;
         _requestIdHighWater = initialRequestIdHighWater;
         _executor = executor;
-        _writeResponse = writeResponse;
+        _writeFrame = writeFrame;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _waitUntilDeadline = waitUntilDeadline ?? WaitUntilDeadlineAsync;
         _taskScheduler = taskScheduler ?? TaskScheduler.Default;
@@ -85,22 +88,30 @@ internal sealed class WorkerOperationScheduler
         ArgumentNullException.ThrowIfNull(envelope);
         switch (envelope.Kind)
         {
-            case WorkerMessageKind.Request:
-                AdmitRequest(WorkerOperationProtocol.ParseRequest(
+            case WorkerMessageKind.Invoke:
+                AdmitRequest(WorkerOperationProtocol.ParseInvoke(
                     envelope,
-                    _workerBootId,
-                    _generation));
+                    _sessionId,
+                    _incarnation,
+                    _limits));
+                return;
+            case WorkerMessageKind.StateQuery:
+                AdmitRequest(WorkerOperationProtocol.ParseStateQuery(
+                    envelope,
+                    _sessionId,
+                    _incarnation,
+                    _limits));
                 return;
             case WorkerMessageKind.Cancel:
                 AdmitCancel(WorkerOperationProtocol.ParseCancel(
                     envelope,
-                    _workerBootId,
-                    _generation));
+                    _sessionId,
+                    _incarnation));
                 return;
             default:
                 throw new WorkerProtocolException(
                     "unsupported_operation_message",
-                    "The operation scheduler accepts only request and cancel frames.");
+                    "The operation scheduler accepts only invoke, state_query, and cancel frames.");
         }
     }
 
@@ -108,18 +119,50 @@ internal sealed class WorkerOperationScheduler
     {
         lock (_gate)
         {
-            if (_drainTask is not null) return _drainTask;
-            _stopped = true;
-            var requests = _active.Values.ToArray();
-            foreach (var request in requests)
-                request.RequestCancellation(CancellationReason.Shutdown);
-            _drainTask = DrainAsync(requests);
-            return _drainTask;
+            return BeginDrainUnderLock();
         }
+    }
+
+    internal Task ShutdownAndDrainAsync(long requestId)
+    {
+        lock (_gate)
+        {
+            ThrowIfUnavailable();
+            if (requestId <= _requestIdHighWater)
+            {
+                throw new WorkerProtocolException(
+                    "operation_request_replay",
+                    "Worker operation request IDs must increase strictly.");
+            }
+            _requestIdHighWater = requestId;
+            return BeginDrainUnderLock();
+        }
+    }
+
+    private Task BeginDrainUnderLock()
+    {
+        if (_drainTask is not null) return _drainTask;
+        _stopped = true;
+        var requests = _active.Values.ToArray();
+        foreach (var request in requests)
+            request.RequestCancellation(CancellationReason.Shutdown);
+        _drainTask = DrainAsync(requests);
+        return _drainTask;
     }
 
     private void AdmitRequest(WorkerOperationRequest request)
     {
+        DateTimeOffset deadline;
+        try
+        {
+            deadline = _utcNow().Add(request.Timeout);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            LatchFatal(exception);
+            return;
+        }
+
         ActiveRequest active;
         Exception? scheduleFailure = null;
         lock (_gate)
@@ -142,7 +185,7 @@ internal sealed class WorkerOperationScheduler
                     "Worker operation request capacity is exhausted.");
             }
 
-            active = new ActiveRequest(request);
+            active = new ActiveRequest(request, deadline);
             _active.Add(request.RequestId, active);
             // The outer admit hop must honor the injected scheduler (rbc-9):
             // dispatching on TaskScheduler.Default here silently bypassed the
@@ -192,13 +235,15 @@ internal sealed class WorkerOperationScheduler
 
     private async Task RunRequestAsync(ActiveRequest active)
     {
-        WorkerOperationResponse response;
-        if (_utcNow() >= active.Request.DeadlineUtc)
+        WorkerExecutionResult? executionResult = null;
+        WorkerResult? fallbackResult = null;
+        if (_utcNow() >= active.DeadlineUtc)
         {
             active.MarkTerminal();
-            response = WorkerOperationResponse.TimedOut(
+            fallbackResult = new WorkerResult(
                 active.Request.RequestId,
-                _generation,
+                WorkerResultStatus.TimedOut,
+                string.Empty,
                 "request_deadline_expired");
         }
         else
@@ -206,47 +251,48 @@ internal sealed class WorkerOperationScheduler
             active.DeadlineTask = ObserveDeadlineAsync(active);
             try
             {
-                var result = await _executor.ExecuteAsync(
+                executionResult = await _executor.ExecuteAsync(
                     active.Request,
                     active.Token).ConfigureAwait(false);
-                response = result.ValueKind == JsonValueKind.Object
-                    ? WorkerOperationResponse.Completed(
+                if (executionResult is null)
+                {
+                    fallbackResult = new WorkerResult(
                         active.Request.RequestId,
-                        _generation,
-                        result)
-                    : WorkerOperationResponse.Failed(
-                        active.Request.RequestId,
-                        _generation,
+                        WorkerResultStatus.Failed,
+                        string.Empty,
                         "invalid_operation_result");
+                }
             }
             catch (OperationCanceledException exception)
             {
                 if (active.IsCancellationRequested &&
                     exception.CancellationToken == active.Token)
                 {
-                    response = active.Reason == CancellationReason.Deadline
-                        ? WorkerOperationResponse.TimedOut(
-                            active.Request.RequestId,
-                            _generation,
-                            "request_deadline_expired")
-                        : WorkerOperationResponse.Canceled(
-                            active.Request.RequestId,
-                            _generation,
-                            "request_canceled");
+                    fallbackResult = new WorkerResult(
+                        active.Request.RequestId,
+                        active.Reason == CancellationReason.Deadline
+                            ? WorkerResultStatus.TimedOut
+                            : WorkerResultStatus.Canceled,
+                        string.Empty,
+                        active.Reason == CancellationReason.Deadline
+                            ? "request_deadline_expired"
+                            : "request_canceled");
                 }
                 else
                 {
-                    response = WorkerOperationResponse.Failed(
+                    fallbackResult = new WorkerResult(
                         active.Request.RequestId,
-                        _generation,
+                        WorkerResultStatus.Failed,
+                        string.Empty,
                         "operation_failed");
                 }
             }
             catch (Exception exception) when (!IsFatal(exception))
             {
-                response = WorkerOperationResponse.Failed(
+                fallbackResult = new WorkerResult(
                     active.Request.RequestId,
-                    _generation,
+                    WorkerResultStatus.Failed,
+                    string.Empty,
                     "operation_failed");
             }
             finally
@@ -260,11 +306,11 @@ internal sealed class WorkerOperationScheduler
 
         try
         {
-            var envelope = WorkerOperationProtocol.CreateResponseEnvelope(
-                _workerBootId,
-                response);
             // Request cancellation must never suppress the one terminal write.
-            await _writeResponse(envelope, CancellationToken.None).ConfigureAwait(false);
+            await WriteTerminalFramesAsync(
+                active.Request,
+                executionResult,
+                fallbackResult).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
@@ -276,6 +322,114 @@ internal sealed class WorkerOperationScheduler
             active.Dispose();
         }
     }
+
+    private async Task WriteTerminalFramesAsync(
+        WorkerOperationRequest request,
+        WorkerExecutionResult? executionResult,
+        WorkerResult? fallbackResult)
+    {
+        if (fallbackResult is not null)
+        {
+            await WriteFrameAsync(
+                WorkerOperationProtocol.CreateResultEnvelope(
+                    _sessionId,
+                    _incarnation,
+                    fallbackResult)).ConfigureAwait(false);
+            return;
+        }
+
+        switch (request, executionResult)
+        {
+            case (WorkerInvokeRequest invoke, WorkerInvokeExecutionResult result):
+                await WriteInvokeFramesAsync(invoke, result).ConfigureAwait(false);
+                return;
+            case (WorkerStateQueryRequest state, WorkerStateExecutionResult result):
+                await WriteFrameAsync(
+                    WorkerOperationProtocol.CreateStateSnapshotEnvelope(
+                        _sessionId,
+                        _incarnation,
+                        new WorkerStateSnapshot(
+                            state.RequestId,
+                            result.Available,
+                            result.Text,
+                            result.DetailCode))).ConfigureAwait(false);
+                return;
+            default:
+                await WriteFrameAsync(
+                    WorkerOperationProtocol.CreateResultEnvelope(
+                        _sessionId,
+                        _incarnation,
+                        new WorkerResult(
+                            request.RequestId,
+                            WorkerResultStatus.Failed,
+                            string.Empty,
+                            "invalid_operation_result"))).ConfigureAwait(false);
+                return;
+        }
+    }
+
+    private async Task WriteInvokeFramesAsync(
+        WorkerInvokeRequest request,
+        WorkerInvokeExecutionResult result)
+    {
+        if (result.Artifact is { } artifact)
+        {
+            if (result.Status != WorkerResultStatus.Completed ||
+                request.Artifact is not { } requested ||
+                artifact.ArtifactId != requested.ArtifactId ||
+                artifact.Bytes.Length > requested.MaximumBytes)
+            {
+                throw new WorkerProtocolException(
+                    "invalid_artifact_result",
+                    "Worker execution returned an unsolicited or oversized artifact.");
+            }
+
+            long offset = 0;
+            while (offset < artifact.Bytes.Length)
+            {
+                var count = Math.Min(
+                    _limits.MaximumArtifactChunkBytes,
+                    artifact.Bytes.Length - checked((int)offset));
+                var bytes = artifact.Bytes.Slice(checked((int)offset), count).ToArray();
+                await WriteFrameAsync(
+                    WorkerOperationProtocol.CreateArtifactChunkEnvelope(
+                        _sessionId,
+                        _incarnation,
+                        new WorkerArtifactChunk(
+                            request.RequestId,
+                            artifact.ArtifactId,
+                            offset,
+                            bytes),
+                        _limits)).ConfigureAwait(false);
+                offset = checked(offset + count);
+            }
+
+            var digest = Convert.ToHexString(SHA256.HashData(artifact.Bytes.Span))
+                .ToLowerInvariant();
+            await WriteFrameAsync(
+                WorkerOperationProtocol.CreateArtifactSealEnvelope(
+                    _sessionId,
+                    _incarnation,
+                    new WorkerArtifactSeal(
+                        request.RequestId,
+                        artifact.ArtifactId,
+                        artifact.Bytes.Length,
+                        digest))).ConfigureAwait(false);
+        }
+
+        await WriteFrameAsync(
+            WorkerOperationProtocol.CreateResultEnvelope(
+                _sessionId,
+                _incarnation,
+                new WorkerResult(
+                    request.RequestId,
+                    result.Status,
+                    result.Text,
+                    result.DetailCode))).ConfigureAwait(false);
+    }
+
+    private Task WriteFrameAsync(WorkerEnvelope envelope) =>
+        _writeFrame(envelope, CancellationToken.None);
 
     private async Task RunScheduledRequestAsync(ActiveRequest active)
     {
@@ -323,7 +477,7 @@ internal sealed class WorkerOperationScheduler
         try
         {
             await _waitUntilDeadline(
-                active.Request.DeadlineUtc,
+                active.DeadlineUtc,
                 active.DeadlineToken).ConfigureAwait(false);
             active.RequestCancellation(CancellationReason.Deadline);
         }
@@ -346,7 +500,10 @@ internal sealed class WorkerOperationScheduler
             requests = _active.Values.ToArray();
         }
 
-        _fatal.TrySetException(new WorkerOperationSchedulerException(exception));
+        // Preserve the original typed failure so WorkerServer can keep
+        // transport failures distinct from worker-runtime failures. Its
+        // process-exit mapping exposes only bounded detail codes.
+        _fatal.TrySetException(exception);
         foreach (var request in requests)
             request.RequestCancellation(CancellationReason.SchedulerFailure);
     }
@@ -410,9 +567,16 @@ internal sealed class WorkerOperationScheduler
         private CancellationReason _reason;
         private bool _terminal;
 
-        internal ActiveRequest(WorkerOperationRequest request) => Request = request;
+        internal ActiveRequest(
+            WorkerOperationRequest request,
+            DateTimeOffset deadlineUtc)
+        {
+            Request = request;
+            DeadlineUtc = deadlineUtc;
+        }
 
         internal WorkerOperationRequest Request { get; }
+        internal DateTimeOffset DeadlineUtc { get; }
         internal CancellationToken Token => _execution.Token;
         internal CancellationToken DeadlineToken => _deadline.Token;
         internal bool IsCancellationRequested => _execution.IsCancellationRequested;
@@ -486,14 +650,6 @@ internal sealed class WorkerOperationScheduler
                 // failure is observed and redacted; terminal ownership remains
                 // with the request owner task.
             }
-        }
-    }
-
-    private sealed class WorkerOperationSchedulerException : IOException
-    {
-        internal WorkerOperationSchedulerException(Exception innerException)
-            : base("Worker operation response transport failed.", innerException)
-        {
         }
     }
 }

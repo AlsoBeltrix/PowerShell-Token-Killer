@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using PtkMcpServer.Worker;
@@ -6,455 +7,403 @@ namespace PtkMcpServer.Tests;
 
 public sealed class WorkerOperationProtocolTests
 {
-    private static readonly Guid BootId =
-        Guid.Parse("75db238b-5828-4aca-9b73-5c69d707d62d");
-    private const long Generation = 7;
-    private static readonly DateTimeOffset Deadline =
-        DateTimeOffset.Parse("2035-06-07T08:09:10Z");
+    private static readonly Guid SessionId =
+        Guid.Parse("4a7400b0-9793-4f59-b37d-5dde53a19ca8");
+    private static readonly Guid ArtifactId =
+        Guid.Parse("8c06d417-2071-4719-b6d7-f2e5e6367e8a");
+    private const long Incarnation = 9;
+    private static readonly WorkerProtocolLimits Limits =
+        WorkerOperationProtocol.CreateLimits(
+            TimeSpan.FromMinutes(5),
+            TimeSpan.FromHours(1));
 
     [Fact]
-    public void Request_and_cancel_payloads_parse_with_exact_identity()
+    public void Initialize_and_ready_bind_identity_incarnation_and_immutable_limits()
     {
-        var arguments = JsonSerializer.SerializeToElement(new { listAvailable = true });
-        var request = WorkerOperationProtocol.ParseRequest(
-            Request(41, Generation, Deadline, new string('a', 64), arguments),
-            BootId,
-            Generation);
-
-        Assert.Equal(41, request.RequestId);
-        Assert.Equal(Generation, request.Generation);
-        Assert.Equal(Deadline, request.DeadlineUtc);
-        Assert.Equal(new string('a', 64), request.Operation);
-        Assert.True(request.Arguments.GetProperty("listAvailable").GetBoolean());
-
-        var cancel = WorkerOperationProtocol.ParseCancel(
-            Envelope(
-                WorkerMessageKind.Cancel,
-                41,
-                JsonSerializer.SerializeToElement(new { generation = Generation })),
-            BootId,
-            Generation);
-        Assert.Equal(new WorkerOperationCancel(41, Generation), cancel);
-    }
-
-    [Theory]
-    [InlineData((int)WorkerOperationStatus.Completed, "completed")]
-    [InlineData((int)WorkerOperationStatus.Failed, "failed")]
-    [InlineData((int)WorkerOperationStatus.Canceled, "canceled")]
-    [InlineData((int)WorkerOperationStatus.TimedOut, "timed_out")]
-    public void Response_union_round_trips_with_exact_wire_names(
-        int statusValue,
-        string wireStatus)
-    {
-        var status = (WorkerOperationStatus)statusValue;
-        var response = status == WorkerOperationStatus.Completed
-            ? WorkerOperationResponse.Completed(
-                51,
-                Generation,
-                JsonSerializer.SerializeToElement(new { text = "ok" }))
-            : new WorkerOperationResponse(
-                51,
-                Generation,
-                status,
-                null,
-                "fixed_detail");
-
-        var envelope = WorkerOperationProtocol.CreateResponseEnvelope(BootId, response);
-        var parsed = WorkerOperationProtocol.ParseResponse(envelope, BootId, Generation);
-
-        Assert.Equal(WorkerMessageKind.Response, envelope.Kind);
-        Assert.Equal(51, envelope.RequestId);
-        Assert.Equal(wireStatus, envelope.Payload.GetProperty("status").GetString());
-        Assert.Equal(status, parsed.Status);
-        if (status == WorkerOperationStatus.Completed)
-        {
-            Assert.Equal("ok", parsed.Result!.Value.GetProperty("text").GetString());
-            Assert.Null(parsed.DetailCode);
-        }
-        else
-        {
-            Assert.Null(parsed.Result);
-            Assert.Equal("fixed_detail", parsed.DetailCode);
-        }
-    }
-
-    [Fact]
-    public void Request_rejects_missing_unknown_wrong_type_and_invalid_codes()
-    {
-        var validArguments = JsonSerializer.SerializeToElement(new { });
-        var payloads = new[]
-        {
-            JsonSerializer.SerializeToElement(new
-            {
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state",
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state",
-                arguments = validArguments,
-                extra = true,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = 0,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state",
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = 0,
-                operation = "state",
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = long.MaxValue,
-                operation = "state",
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "State",
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state-name",
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = new string('a', 65),
-                arguments = validArguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state",
-                arguments = Array.Empty<object>(),
-            }),
-        };
-
-        foreach (var payload in payloads)
-        {
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseRequest(
-                    Envelope(WorkerMessageKind.Request, 1, payload),
-                    BootId,
-                    Generation));
-        }
-    }
-
-    [Fact]
-    public void Request_requires_each_outer_field_with_one_stable_failure()
-    {
-        var arguments = JsonSerializer.SerializeToElement(new { });
-        var payloads = new[]
-        {
-            JsonSerializer.SerializeToElement(new
-            {
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state",
-                arguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                operation = "state",
-                arguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                arguments,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                deadlineUnixTimeMilliseconds = Deadline.ToUnixTimeMilliseconds(),
-                operation = "state",
-            }),
-        };
-
-        foreach (var payload in payloads)
-        {
-            var exception = Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseRequest(
-                    Envelope(WorkerMessageKind.Request, 1, payload),
-                    BootId,
-                    Generation));
-            Assert.Equal("missing_operation_field", exception.DetailCode);
-        }
-    }
-
-    [Fact]
-    public void Request_and_cancel_reject_stale_identity_generation_and_request_id()
-    {
-        var request = Request(
+        var deadline = DateTimeOffset.FromUnixTimeMilliseconds(1_800_000_000_123);
+        var initializeEnvelope = WorkerOperationProtocol.CreateInitializeEnvelope(
+            SessionId,
+            Incarnation,
             1,
-            Generation,
-            Deadline,
-            "state",
-            JsonSerializer.SerializeToElement(new { }));
-        Assert.Equal(
-            "worker_boot_mismatch",
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseRequest(
-                    request with { WorkerBootId = Guid.NewGuid() },
-                    BootId,
-                    Generation)).DetailCode);
-        Assert.Equal(
-            "worker_generation_mismatch",
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseRequest(
-                    Request(
-                        1,
-                        Generation + 1,
-                        Deadline,
-                        "state",
-                        JsonSerializer.SerializeToElement(new { })),
-                    BootId,
-                    Generation)).DetailCode);
-        Assert.Equal(
-            "request_id_required",
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseRequest(
-                    request with { RequestId = null },
-                    BootId,
-                    Generation)).DetailCode);
+            deadline,
+            Limits);
 
-        var badCancels = new[]
-        {
-            Envelope(WorkerMessageKind.Cancel, 1, JsonSerializer.SerializeToElement(new { })),
-            Envelope(WorkerMessageKind.Cancel, 1, JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                extra = true,
-            })),
-            Envelope(WorkerMessageKind.Cancel, 1, JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation + 1,
-            })),
-        };
-        foreach (var cancel in badCancels)
-        {
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseCancel(cancel, BootId, Generation));
-        }
+        var initialize = WorkerOperationProtocol.ParseInitialize(initializeEnvelope);
+        var readyEnvelope = WorkerOperationProtocol.CreateReadyEnvelope(initialize);
+        var ready = WorkerOperationProtocol.ParseReady(
+            readyEnvelope,
+            SessionId,
+            Incarnation,
+            1);
+
+        Assert.Equal(SessionId, initialize.SessionId);
+        Assert.Equal(Incarnation, initialize.Incarnation);
+        Assert.Equal(deadline, initialize.DeadlineUtc);
+        Assert.Equal(Limits, initialize.Limits);
+        Assert.Equal(Limits, ready);
+        Assert.Equal(WorkerMessageKind.Ready, readyEnvelope.Kind);
     }
 
     [Fact]
-    public void Response_union_rejects_cross_branch_null_unknown_and_hostile_detail()
+    public void Invoke_state_cancel_result_and_snapshot_round_trip_closed_shapes()
     {
-        var payloads = new[]
-        {
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                status = "completed",
-                detailCode = "wrong_branch",
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                status = "failed",
-                result = new { },
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                status = "failed",
-                detailCode = "HOSTILE",
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                status = "unknown",
-                detailCode = "fixed_detail",
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                status = "completed",
-                result = (object?)null,
-            }),
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = Generation,
-                status = "completed",
-                result = new { },
-                extra = true,
-            }),
-        };
+        var artifact = new WorkerArtifactRequest(ArtifactId, 4096);
+        var invokeEnvelope = WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            Incarnation,
+            2,
+            "$value = 42; $value",
+            raw: true,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 17,
+            artifact,
+            Limits);
+        var invoke = WorkerOperationProtocol.ParseInvoke(
+            invokeEnvelope,
+            SessionId,
+            Incarnation,
+            Limits);
+        Assert.Equal("$value = 42; $value", invoke.Script);
+        Assert.True(invoke.Raw);
+        Assert.Equal(WorkerInvokeRoute.Pwsh, invoke.Route);
+        Assert.Equal(17, invoke.TimeoutSeconds);
+        Assert.Equal(TimeSpan.FromSeconds(17), invoke.Timeout);
+        Assert.Equal(artifact, invoke.Artifact);
 
-        foreach (var payload in payloads)
-        {
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseResponse(
-                    Envelope(WorkerMessageKind.Response, 9, payload),
-                    BootId,
-                    Generation));
-        }
+        var stateEnvelope = WorkerOperationProtocol.CreateStateQueryEnvelope(
+            SessionId,
+            Incarnation,
+            3,
+            listAvailable: true);
+        var state = WorkerOperationProtocol.ParseStateQuery(
+            stateEnvelope,
+            SessionId,
+            Incarnation,
+            Limits);
+        Assert.True(state.ListAvailable);
+        Assert.Equal(TimeSpan.FromMinutes(5), state.Timeout);
 
-        Assert.Throws<WorkerProtocolException>(() =>
-            WorkerOperationProtocol.CreateResponseEnvelope(
-                BootId,
-                new WorkerOperationResponse(
-                    9,
-                    Generation,
-                    WorkerOperationStatus.Completed,
-                    null,
+        var cancelEnvelope = WorkerOperationProtocol.CreateCancelEnvelope(
+            SessionId,
+            Incarnation,
+            2);
+        Assert.Equal(
+            new WorkerOperationCancel(2),
+            WorkerOperationProtocol.ParseCancel(
+                cancelEnvelope,
+                SessionId,
+                Incarnation));
+
+        var resultEnvelope = WorkerOperationProtocol.CreateResultEnvelope(
+            SessionId,
+            Incarnation,
+            new WorkerResult(
+                2,
+                WorkerResultStatus.Refused,
+                "not started",
+                "operation_not_started"));
+        Assert.Equal(
+            new WorkerResult(
+                2,
+                WorkerResultStatus.Refused,
+                "not started",
+                "operation_not_started"),
+            WorkerOperationProtocol.ParseResult(
+                resultEnvelope,
+                SessionId,
+                Incarnation));
+
+        var snapshotEnvelope = WorkerOperationProtocol.CreateStateSnapshotEnvelope(
+            SessionId,
+            Incarnation,
+            new WorkerStateSnapshot(3, false, "runspace: busy", "runspace_busy"));
+        Assert.Equal(
+            new WorkerStateSnapshot(3, false, "runspace: busy", "runspace_busy"),
+            WorkerOperationProtocol.ParseStateSnapshot(
+                snapshotEnvelope,
+                SessionId,
+                Incarnation));
+    }
+
+    [Fact]
+    public void Payloads_reject_missing_unknown_duplicate_wrong_type_and_stale_identity()
+    {
+        var valid = WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            Incarnation,
+            2,
+            "Get-Date",
+            raw: false,
+            WorkerInvokeRoute.Auto,
+            timeoutSeconds: 0,
+            artifact: null,
+            Limits);
+
+        AssertDetail(
+            "session_identity_mismatch",
+            () => WorkerOperationProtocol.ParseInvoke(
+                valid with { SessionId = Guid.NewGuid() },
+                SessionId,
+                Incarnation,
+                Limits));
+        AssertDetail(
+            "worker_incarnation_mismatch",
+            () => WorkerOperationProtocol.ParseInvoke(
+                valid with { Incarnation = Incarnation + 1 },
+                SessionId,
+                Incarnation,
+                Limits));
+        AssertDetail(
+            "missing_operation_field",
+            () => WorkerOperationProtocol.ParseInvoke(
+                valid with
+                {
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        script = "Get-Date",
+                        raw = false,
+                        route = "auto",
+                        timeoutSeconds = 0,
+                    }),
+                },
+                SessionId,
+                Incarnation,
+                Limits));
+        AssertDetail(
+            "unknown_operation_field",
+            () => WorkerOperationProtocol.ParseStateQuery(
+                WorkerOperationProtocol.CreateStateQueryEnvelope(
+                    SessionId,
+                    Incarnation,
+                    3,
+                    false) with
+                {
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        listAvailable = false,
+                        extra = true,
+                    }),
+                },
+                SessionId,
+                Incarnation,
+                Limits));
+        AssertDetail(
+            "unknown_operation_field",
+            () => WorkerOperationProtocol.ParseInvoke(
+                valid with
+                {
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        script = "Get-Date",
+                        raw = false,
+                        route = "auto",
+                        timeoutSeconds = 0,
+                        artifact = (object?)null,
+                        background = false,
+                    }),
+                },
+                SessionId,
+                Incarnation,
+                Limits));
+
+        using var duplicate = JsonDocument.Parse(
+            """{"script":"Get-Date","raw":false,"route":"auto","timeoutSeconds":0,"artifact":null,"script":"duplicate"}""");
+        AssertDetail(
+            "duplicate_field",
+            () => WorkerOperationProtocol.ParseInvoke(
+                valid with { Payload = duplicate.RootElement.Clone() },
+                SessionId,
+                Incarnation,
+                Limits));
+        AssertDetail(
+            "invalid_operation_field",
+            () => WorkerOperationProtocol.ParseInvoke(
+                valid with
+                {
+                    Payload = JsonSerializer.SerializeToElement(new
+                    {
+                        script = "Get-Date",
+                        raw = "false",
+                        route = "auto",
+                        timeoutSeconds = 0,
+                        artifact = (object?)null,
+                    }),
+                },
+                SessionId,
+                Incarnation,
+                Limits));
+    }
+
+    [Fact]
+    public void Script_and_result_bounds_use_strict_logical_utf8()
+    {
+        var exact = new string('x', Limits.MaximumScriptBytes);
+        var parsed = WorkerOperationProtocol.ParseInvoke(
+            WorkerOperationProtocol.CreateInvokeEnvelope(
+                SessionId,
+                Incarnation,
+                2,
+                exact,
+                false,
+                WorkerInvokeRoute.Auto,
+                0,
+                null,
+                Limits),
+            SessionId,
+            Incarnation,
+            Limits);
+        Assert.Equal(exact, parsed.Script);
+
+        AssertDetail(
+            "operation_text_too_large",
+            () => WorkerOperationProtocol.CreateInvokeEnvelope(
+                SessionId,
+                Incarnation,
+                2,
+                exact + "x",
+                false,
+                WorkerInvokeRoute.Auto,
+                0,
+                null,
+                Limits));
+        AssertDetail(
+            "invalid_operation_field",
+            () => WorkerOperationProtocol.CreateInvokeEnvelope(
+                SessionId,
+                Incarnation,
+                2,
+                "\ud800",
+                false,
+                WorkerInvokeRoute.Auto,
+                0,
+                null,
+                Limits));
+        AssertDetail(
+            "operation_text_too_large",
+            () => WorkerOperationProtocol.CreateResultEnvelope(
+                SessionId,
+                Incarnation,
+                new WorkerResult(
+                    2,
+                    WorkerResultStatus.Completed,
+                    new string('x', WorkerOperationProtocol.MaximumLogicalTextBytes + 1),
                     null)));
-        Assert.Throws<WorkerProtocolException>(() =>
-            WorkerOperationProtocol.CreateResponseEnvelope(
-                BootId,
-                new WorkerOperationResponse(
-                    9,
-                    Generation,
-                    WorkerOperationStatus.Completed,
-                    JsonSerializer.SerializeToElement(new { text = "ok" }),
-                    "wrong_branch")));
-        Assert.Throws<WorkerProtocolException>(() =>
-            WorkerOperationProtocol.CreateResponseEnvelope(
-                BootId,
-                new WorkerOperationResponse(
-                    9,
-                    Generation,
-                    WorkerOperationStatus.Completed,
-                    JsonSerializer.SerializeToElement(new[] { "not", "object" }),
+        AssertDetail(
+            "operation_text_too_large",
+            () => WorkerOperationProtocol.CreateStateSnapshotEnvelope(
+                SessionId,
+                Incarnation,
+                new WorkerStateSnapshot(
+                    3,
+                    true,
+                    new string('x', WorkerOperationProtocol.MaximumLogicalTextBytes + 1),
                     null)));
-        foreach (var status in new[]
-        {
-            WorkerOperationStatus.Failed,
-            WorkerOperationStatus.Canceled,
-            WorkerOperationStatus.TimedOut,
-        })
-        {
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.CreateResponseEnvelope(
-                    BootId,
-                    new WorkerOperationResponse(
-                        9,
-                        Generation,
-                        status,
-                        JsonSerializer.SerializeToElement(new { text = "wrong_branch" }),
-                        "fixed_detail")));
-        }
-        Assert.Throws<WorkerProtocolException>(() =>
-            WorkerOperationProtocol.CreateResponseEnvelope(
-                BootId,
-                WorkerOperationResponse.Failed(9, Generation, "secret/path")));
     }
 
     [Fact]
-    public void Response_rejects_stale_boot_generation_and_missing_request_identity()
+    public void Artifact_chunks_and_seal_require_order_exact_length_and_digest()
     {
-        var valid = WorkerOperationProtocol.CreateResponseEnvelope(
-            BootId,
-            WorkerOperationResponse.Completed(
-                9,
-                Generation,
-                JsonSerializer.SerializeToElement(new { text = "ok" })));
+        var firstBytes = Encoding.UTF8.GetBytes("first-");
+        var secondBytes = Encoding.UTF8.GetBytes("second");
+        var allBytes = firstBytes.Concat(secondBytes).ToArray();
+        var first = RoundTripChunk(new WorkerArtifactChunk(
+            7,
+            ArtifactId,
+            0,
+            firstBytes));
+        var second = RoundTripChunk(new WorkerArtifactChunk(
+            7,
+            ArtifactId,
+            firstBytes.Length,
+            secondBytes));
+        var digest = Convert.ToHexString(SHA256.HashData(allBytes)).ToLowerInvariant();
+        var seal = RoundTripSeal(new WorkerArtifactSeal(
+            7,
+            ArtifactId,
+            allBytes.Length,
+            digest));
 
-        Assert.Equal(
-            "worker_boot_mismatch",
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseResponse(
-                    valid with { WorkerBootId = Guid.NewGuid() },
-                    BootId,
-                    Generation)).DetailCode);
-        Assert.Equal(
-            "request_id_required",
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseResponse(
-                    valid with { RequestId = null },
-                    BootId,
-                    Generation)).DetailCode);
+        using var receiver = new WorkerArtifactReceiver(
+            7,
+            new WorkerArtifactRequest(ArtifactId, allBytes.Length));
+        receiver.Accept(first);
+        receiver.Accept(second);
+        receiver.Accept(seal);
+        Assert.True(receiver.IsSealed);
+        Assert.Equal(allBytes.Length, receiver.Length);
 
-        var stalePayload = JsonSerializer.SerializeToElement(new
-        {
-            generation = Generation + 1,
-            status = "completed",
-            result = new { text = "ok" },
-        });
-        Assert.Equal(
-            "worker_generation_mismatch",
-            Assert.Throws<WorkerProtocolException>(() =>
-                WorkerOperationProtocol.ParseResponse(
-                    Envelope(WorkerMessageKind.Response, 9, stalePayload),
-                    BootId,
-                    Generation)).DetailCode);
+        using var gap = new WorkerArtifactReceiver(
+            7,
+            new WorkerArtifactRequest(ArtifactId, allBytes.Length));
+        AssertDetail("artifact_sequence_invalid", () => gap.Accept(second));
+
+        using var wrongDigest = new WorkerArtifactReceiver(
+            7,
+            new WorkerArtifactRequest(ArtifactId, allBytes.Length));
+        wrongDigest.Accept(first);
+        wrongDigest.Accept(second);
+        AssertDetail(
+            "artifact_digest_mismatch",
+            () => wrongDigest.Accept(seal with { Sha256 = new string('0', 64) }));
+
+        using var wrongLength = new WorkerArtifactReceiver(
+            7,
+            new WorkerArtifactRequest(ArtifactId, allBytes.Length));
+        wrongLength.Accept(first);
+        wrongLength.Accept(second);
+        AssertDetail(
+            "artifact_seal_invalid",
+            () => wrongLength.Accept(seal with { Length = seal.Length - 1 }));
     }
 
     [Fact]
-    public void Full_codec_rejects_duplicate_payload_fields_before_operation_binding()
+    public void Result_and_snapshot_unions_reject_cross_branch_fields()
     {
-        var json = string.Concat(
-            "{\"protocolVersion\":1,\"kind\":\"request\",\"workerBootId\":\"",
-            BootId.ToString("D"),
-            "\",\"requestId\":1,\"payload\":{\"generation\":",
-            Generation,
-            ",\"generation\":",
-            Generation,
-            ",\"deadlineUnixTimeMilliseconds\":",
-            Deadline.ToUnixTimeMilliseconds(),
-            ",\"operation\":\"state\",\"arguments\":{}}}");
-
-        var exception = Assert.Throws<WorkerProtocolException>(() =>
-            WorkerProtocol.Decode(Encoding.UTF8.GetBytes(json)));
-        Assert.Equal("duplicate_field", exception.DetailCode);
-
-        using var document = JsonDocument.Parse(string.Concat(
-            "{\"generation\":",
-            Generation,
-            ",\"generation\":",
-            Generation,
-            ",\"deadlineUnixTimeMilliseconds\":",
-            Deadline.ToUnixTimeMilliseconds(),
-            ",\"operation\":\"state\",\"arguments\":{}}"));
-        var direct = Assert.Throws<WorkerProtocolException>(() =>
-            WorkerOperationProtocol.ParseRequest(
-                Envelope(WorkerMessageKind.Request, 1, document.RootElement.Clone()),
-                BootId,
-                Generation));
-        Assert.Equal("duplicate_field", direct.DetailCode);
+        AssertDetail(
+            "invalid_operation_result",
+            () => WorkerOperationProtocol.CreateResultEnvelope(
+                SessionId,
+                Incarnation,
+                new WorkerResult(
+                    1,
+                    WorkerResultStatus.Completed,
+                    "done",
+                    "must_be_null")));
+        AssertDetail(
+            "invalid_state_snapshot",
+            () => WorkerOperationProtocol.CreateStateSnapshotEnvelope(
+                SessionId,
+                Incarnation,
+                new WorkerStateSnapshot(
+                    1,
+                    false,
+                    "busy",
+                    null)));
     }
 
-    private static WorkerEnvelope Request(
-        long requestId,
-        long generation,
-        DateTimeOffset deadline,
-        string operation,
-        JsonElement arguments) =>
-        Envelope(
-            WorkerMessageKind.Request,
-            requestId,
-            JsonSerializer.SerializeToElement(new
-            {
-                generation,
-                deadlineUnixTimeMilliseconds = deadline.ToUnixTimeMilliseconds(),
-                operation,
-                arguments,
-            }));
+    private static WorkerArtifactChunk RoundTripChunk(WorkerArtifactChunk chunk) =>
+        WorkerOperationProtocol.ParseArtifactChunk(
+            WorkerOperationProtocol.CreateArtifactChunkEnvelope(
+                SessionId,
+                Incarnation,
+                chunk,
+                Limits),
+            SessionId,
+            Incarnation,
+            Limits);
 
-    private static WorkerEnvelope Envelope(
-        WorkerMessageKind kind,
-        long? requestId,
-        JsonElement payload) =>
-        new(WorkerProtocol.Version, kind, BootId, requestId, payload);
+    private static WorkerArtifactSeal RoundTripSeal(WorkerArtifactSeal seal) =>
+        WorkerOperationProtocol.ParseArtifactSeal(
+            WorkerOperationProtocol.CreateArtifactSealEnvelope(
+                SessionId,
+                Incarnation,
+                seal),
+            SessionId,
+            Incarnation);
+
+    private static void AssertDetail(string detailCode, Action action)
+    {
+        var exception = Assert.Throws<WorkerProtocolException>(action);
+        Assert.Equal(detailCode, exception.DetailCode);
+    }
 }

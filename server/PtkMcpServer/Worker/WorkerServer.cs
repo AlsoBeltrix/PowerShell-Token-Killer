@@ -1,11 +1,4 @@
-using System.Text.Json;
-using PtkMcpServer.Sessions;
-
 namespace PtkMcpServer.Worker;
-
-internal sealed record WorkerInitializeRequest(
-    long Generation,
-    DateTimeOffset DeadlineUtc);
 
 internal enum WorkerServerExitKind
 {
@@ -34,9 +27,8 @@ internal sealed class WorkerServer
 
     private readonly WorkerProtocolReader _reader;
     private readonly WorkerProtocolWriter _writer;
-    private readonly Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>>
+    private readonly Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>>
         _runtimeFactory;
-    private readonly Guid _workerBootId;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Func<DateTimeOffset, CancellationToken, Task> _waitUntilDeadline;
     private readonly TaskScheduler _factoryScheduler;
@@ -45,8 +37,7 @@ internal sealed class WorkerServer
     internal WorkerServer(
         Stream requestStream,
         Stream eventStream,
-        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> runtimeFactory,
-        Guid workerBootId,
+        Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>> runtimeFactory,
         Func<DateTimeOffset>? utcNow = null,
         Func<DateTimeOffset, CancellationToken, Task>? waitUntilDeadline = null,
         TaskScheduler? factoryScheduler = null)
@@ -54,13 +45,10 @@ internal sealed class WorkerServer
         ArgumentNullException.ThrowIfNull(requestStream);
         ArgumentNullException.ThrowIfNull(eventStream);
         ArgumentNullException.ThrowIfNull(runtimeFactory);
-        if (workerBootId == Guid.Empty)
-            throw new ArgumentException("Worker boot ID cannot be empty.", nameof(workerBootId));
 
         _reader = new WorkerProtocolReader(requestStream);
         _writer = new WorkerProtocolWriter(eventStream);
         _runtimeFactory = runtimeFactory;
-        _workerBootId = workerBootId;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _waitUntilDeadline = waitUntilDeadline ?? WaitUntilDeadlineAsync;
         _factoryScheduler = factoryScheduler ?? TaskScheduler.Default;
@@ -122,13 +110,6 @@ internal sealed class WorkerServer
         WorkerRunOwnership ownership,
         CancellationToken cancellationToken)
     {
-        await WriteEnvelopeAsync(
-            Envelope(
-                WorkerMessageKind.Event,
-                requestId: null,
-                JsonSerializer.SerializeToElement(new { @event = "hello" })),
-            cancellationToken).ConfigureAwait(false);
-
         ownership.PendingRead = ReadEnvelopeAsync(ownership.ReaderToken);
         await Task.WhenAny(
             ownership.PendingRead,
@@ -137,21 +118,20 @@ internal sealed class WorkerServer
         var initializeEnvelope = await ownership.TakePendingReadAsync().ConfigureAwait(false);
         if (initializeEnvelope is null)
             return new WorkerServerExit(WorkerServerExitKind.Eof, "eof_before_initialize");
-        ValidateBootId(initializeEnvelope);
         if (initializeEnvelope.Kind != WorkerMessageKind.Initialize)
         {
             throw new WorkerProtocolException(
                 "initialize_required",
                 "The first supervisor frame must initialize the worker.");
         }
-        var initializeRequestId = RequireRequestId(initializeEnvelope);
-        var initialize = ParseInitialize(initializeEnvelope.Payload);
+        var initialize = WorkerOperationProtocol.ParseInitialize(initializeEnvelope);
+        var initializeRequestId = initialize.RequestId;
 
         if (DeadlineExpired(initialize))
         {
             await WriteFailureAsync(
                 initializeRequestId,
-                initialize.Generation,
+                initialize,
                 "initialize_deadline_expired",
                 cancellationToken).ConfigureAwait(false);
             return new WorkerServerExit(
@@ -174,7 +154,7 @@ internal sealed class WorkerServer
                     WorkerServerExitKind.Eof,
                     "eof_during_initialize");
             }
-            ValidateBeforeReady(queuedEnvelope);
+            ValidateBeforeReady(queuedEnvelope, initialize);
         }
         if (ownership.DeadlineTask.IsCompleted)
         {
@@ -182,7 +162,7 @@ internal sealed class WorkerServer
             return await InitializeDeadlineExpiredAsync(
                 ownership,
                 initializeRequestId,
-                initialize.Generation,
+                initialize,
                 cancellationToken).ConfigureAwait(false);
         }
         if (DeadlineExpired(initialize))
@@ -190,7 +170,7 @@ internal sealed class WorkerServer
             return await InitializeDeadlineExpiredAsync(
                 ownership,
                 initializeRequestId,
-                initialize.Generation,
+                initialize,
                 cancellationToken).ConfigureAwait(false);
         }
 
@@ -236,7 +216,7 @@ internal sealed class WorkerServer
                         WorkerServerExitKind.Eof,
                         "eof_during_initialize");
                 }
-                ValidateBeforeReady(queuedEnvelope);
+                ValidateBeforeReady(queuedEnvelope, initialize);
             }
             if (ownership.DeadlineTask.IsCompleted)
             {
@@ -244,7 +224,7 @@ internal sealed class WorkerServer
                 return await InitializeDeadlineExpiredAsync(
                     ownership,
                     initializeRequestId,
-                    initialize.Generation,
+                    initialize,
                     cancellationToken).ConfigureAwait(false);
             }
             if (DeadlineExpired(initialize))
@@ -252,7 +232,7 @@ internal sealed class WorkerServer
                 return await InitializeDeadlineExpiredAsync(
                     ownership,
                     initializeRequestId,
-                    initialize.Generation,
+                    initialize,
                     cancellationToken).ConfigureAwait(false);
             }
             if (!ownership.FactoryTask.IsCompleted) continue;
@@ -265,9 +245,9 @@ internal sealed class WorkerServer
             catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
             {
                 await WriteFailureAsync(
-                    initializeRequestId,
-                    initialize.Generation,
-                    "initialize_canceled",
+                        initializeRequestId,
+                        initialize,
+                        "initialize_canceled",
                     cancellationToken).ConfigureAwait(false);
                 return new WorkerServerExit(
                     WorkerServerExitKind.InitializeFailed,
@@ -277,7 +257,7 @@ internal sealed class WorkerServer
             {
                 await WriteFailureAsync(
                     initializeRequestId,
-                    initialize.Generation,
+                    initialize,
                     "initialize_failed",
                     cancellationToken).ConfigureAwait(false);
                 return new WorkerServerExit(
@@ -295,59 +275,96 @@ internal sealed class WorkerServer
                         WorkerServerExitKind.Eof,
                         "eof_after_initialize");
                 }
-                ValidateBeforeReady(queuedEnvelope);
+                ValidateBeforeReady(queuedEnvelope, initialize);
             }
             if (DeadlineExpired(initialize))
             {
                 return await InitializeDeadlineExpiredAsync(
                     ownership,
                     initializeRequestId,
-                    initialize.Generation,
+                    initialize,
                     cancellationToken).ConfigureAwait(false);
             }
 
-            // The supervisor must wait for this response before sending the
-            // next frame. Dedicated pipes have no cross-stream total order;
-            // once the ready write is admitted, the retained read belongs to
-            // the ready-state protocol.
+            ownership.Scheduler = new WorkerOperationScheduler(
+                initialize.SessionId,
+                initialize.Incarnation,
+                initialize.Limits,
+                initialize.RequestId,
+                ownership.Session
+                    ?? throw new InvalidOperationException(
+                        "The initialized worker session is unavailable."),
+                (frame, token) => WriteEnvelopeAsync(frame, token));
+
+            // The supervisor must wait for ready before sending an operation.
             await WriteEnvelopeAsync(
-                Envelope(
-                    WorkerMessageKind.Response,
-                    initializeRequestId,
-                    JsonSerializer.SerializeToElement(new
-                    {
-                        status = "ready",
-                        generation = initialize.Generation,
-                    })),
+                WorkerOperationProtocol.CreateReadyEnvelope(initialize),
                 cancellationToken).ConfigureAwait(false);
             break;
         }
 
         while (true)
         {
+            var scheduler = ownership.Scheduler
+                ?? throw new InvalidOperationException("The worker scheduler is unavailable.");
             await Task.WhenAny(
                 ownership.PendingRead,
-                ownership.HostCancellation).ConfigureAwait(false);
+                ownership.HostCancellation,
+                scheduler.Fatal).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
+            if (scheduler.Fatal.IsCompleted)
+            {
+                try
+                {
+                    await scheduler.Fatal.ConfigureAwait(false);
+                }
+                catch (WorkerProtocolException exception)
+                {
+                    // The request reader validates supervisor input before
+                    // admission. A protocol failure latched by the scheduler
+                    // therefore came from encoding worker-owned output.
+                    throw new WorkerRuntimeException(
+                        "outbound_protocol_failure",
+                        exception);
+                }
+            }
+
             var envelope = await ownership.TakePendingReadAsync().ConfigureAwait(false);
             if (envelope is null)
                 return new WorkerServerExit(WorkerServerExitKind.Eof, "eof_after_ready");
-            ValidateBootId(envelope);
+
+            if (envelope.Kind is
+                WorkerMessageKind.Invoke or
+                WorkerMessageKind.StateQuery or
+                WorkerMessageKind.Cancel)
+            {
+                ownership.PendingRead = ReadEnvelopeAsync(ownership.ReaderToken);
+                scheduler.Admit(envelope);
+                continue;
+            }
+
             if (envelope.Kind != WorkerMessageKind.Shutdown)
             {
                 throw new WorkerProtocolException(
                     "unsupported_message",
-                    $"Worker lifecycle core does not accept '{envelope.Kind}' after initialize.");
+                    $"Worker does not accept '{envelope.Kind}' from the supervisor.");
             }
 
-            var shutdownRequestId = RequireRequestId(envelope);
-            RequireEmptyPayload(envelope.Payload, WorkerMessageKind.Shutdown);
+            WorkerOperationProtocol.ParseEmpty(
+                envelope,
+                WorkerMessageKind.Shutdown,
+                initialize.SessionId,
+                initialize.Incarnation);
+            var shutdownRequestId = envelope.RequestId!.Value;
+            var operationDrainFailed =
+                await ownership.DrainOperationsAsync(
+                    shutdownRequestId).ConfigureAwait(false);
             var shutdownFailed = await ownership.DrainSessionAsync().ConfigureAwait(false);
-            if (shutdownFailed)
+            if (operationDrainFailed || shutdownFailed)
             {
                 await WriteFailureAsync(
                     shutdownRequestId,
-                    initialize.Generation,
+                    initialize,
                     "shutdown_failed",
                     cancellationToken).ConfigureAwait(false);
                 return new WorkerServerExit(
@@ -356,14 +373,11 @@ internal sealed class WorkerServer
             }
 
             await WriteEnvelopeAsync(
-                Envelope(
-                    WorkerMessageKind.Response,
-                    shutdownRequestId,
-                    JsonSerializer.SerializeToElement(new
-                    {
-                        status = "stopped",
-                        generation = initialize.Generation,
-                    })),
+                WorkerOperationProtocol.CreateEmptyEnvelope(
+                    WorkerMessageKind.Stopped,
+                    initialize.SessionId,
+                    initialize.Incarnation,
+                    shutdownRequestId),
                 cancellationToken).ConfigureAwait(false);
             return new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown");
         }
@@ -372,7 +386,7 @@ internal sealed class WorkerServer
     private async Task<WorkerServerExit> InitializeDeadlineExpiredAsync(
         WorkerRunOwnership ownership,
         long initializeRequestId,
-        long generation,
+        WorkerInitializeRequest initialize,
         CancellationToken cancellationToken)
     {
         var cleanupFailed = await ownership.StopFactoryAsync().ConfigureAwait(false);
@@ -382,7 +396,7 @@ internal sealed class WorkerServer
             : "initialize_deadline_expired";
         await WriteFailureAsync(
             initializeRequestId,
-            generation,
+            initialize,
             detailCode,
             cancellationToken).ConfigureAwait(false);
         return new WorkerServerExit(
@@ -392,111 +406,25 @@ internal sealed class WorkerServer
             detailCode);
     }
 
-    private WorkerEnvelope Envelope(
-        WorkerMessageKind kind,
-        long? requestId,
-        JsonElement payload)
-        => new(WorkerProtocol.Version, kind, _workerBootId, requestId, payload);
-
-    private void ValidateBootId(WorkerEnvelope envelope)
+    private static void ValidateBeforeReady(
+        WorkerEnvelope envelope,
+        WorkerInitializeRequest initialize)
     {
-        if (envelope.WorkerBootId != _workerBootId)
+        if (envelope.SessionId != initialize.SessionId)
         {
             throw new WorkerProtocolException(
-                "worker_boot_mismatch",
-                "Worker protocol frame targets a different worker boot.");
+                "session_identity_mismatch",
+                "Worker protocol frame targets a different session identity.");
         }
-    }
-
-    private void ValidateBeforeReady(WorkerEnvelope envelope)
-    {
-        ValidateBootId(envelope);
+        if (envelope.Incarnation != initialize.Incarnation)
+        {
+            throw new WorkerProtocolException(
+                "worker_incarnation_mismatch",
+                "Worker protocol frame targets a stale worker incarnation.");
+        }
         throw new WorkerProtocolException(
             "message_before_ready",
             $"Worker received '{envelope.Kind}' before initialize completed.");
-    }
-
-    private static long RequireRequestId(WorkerEnvelope envelope)
-    {
-        if (envelope.RequestId is not > 0)
-        {
-            throw new WorkerProtocolException(
-                "request_id_required",
-                $"Worker protocol kind '{envelope.Kind}' requires a positive request ID.");
-        }
-        return envelope.RequestId.Value;
-    }
-
-    private static WorkerInitializeRequest ParseInitialize(JsonElement payload)
-    {
-        long? generation = null;
-        long? deadlineUnixTimeMilliseconds = null;
-        foreach (var property in payload.EnumerateObject())
-        {
-            switch (property.Name)
-            {
-                case "generation":
-                    if (property.Value.ValueKind != JsonValueKind.Number ||
-                        !property.Value.TryGetInt64(out var parsedGeneration) ||
-                        parsedGeneration <= 0)
-                    {
-                        throw InvalidInitialize("generation");
-                    }
-                    generation = parsedGeneration;
-                    break;
-                case "deadlineUnixTimeMilliseconds":
-                    if (property.Value.ValueKind != JsonValueKind.Number ||
-                        !property.Value.TryGetInt64(out var parsedDeadline) ||
-                        parsedDeadline <= 0)
-                    {
-                        throw InvalidInitialize("deadlineUnixTimeMilliseconds");
-                    }
-                    deadlineUnixTimeMilliseconds = parsedDeadline;
-                    break;
-                default:
-                    throw new WorkerProtocolException(
-                        "unknown_initialize_field",
-                        $"Worker initialize payload contains unknown field '{property.Name}'.");
-            }
-        }
-
-        if (generation is null || deadlineUnixTimeMilliseconds is null)
-        {
-            throw new WorkerProtocolException(
-                "missing_initialize_field",
-                "Worker initialize payload is missing a required field.");
-        }
-
-        DateTimeOffset deadlineUtc;
-        try
-        {
-            deadlineUtc = DateTimeOffset.FromUnixTimeMilliseconds(
-                deadlineUnixTimeMilliseconds.Value);
-        }
-        catch (ArgumentOutOfRangeException exception)
-        {
-            throw new WorkerProtocolException(
-                "invalid_initialize_field",
-                "Worker initialize deadline is outside the supported UTC range.",
-                exception);
-        }
-
-        return new WorkerInitializeRequest(generation.Value, deadlineUtc);
-    }
-
-    private static WorkerProtocolException InvalidInitialize(string field) =>
-        new(
-            "invalid_initialize_field",
-            $"Worker initialize field '{field}' is invalid.");
-
-    private static void RequireEmptyPayload(JsonElement payload, WorkerMessageKind kind)
-    {
-        if (payload.EnumerateObject().Any())
-        {
-            throw new WorkerProtocolException(
-                "invalid_payload",
-                $"Worker protocol kind '{kind}' requires an empty payload.");
-        }
     }
 
     private bool DeadlineExpired(WorkerInitializeRequest initialize) =>
@@ -518,20 +446,19 @@ internal sealed class WorkerServer
 
     private async Task WriteFailureAsync(
         long requestId,
-        long generation,
+        WorkerInitializeRequest initialize,
         string detailCode,
         CancellationToken cancellationToken)
     {
         await WriteEnvelopeAsync(
-            Envelope(
-                WorkerMessageKind.Response,
-                requestId,
-                JsonSerializer.SerializeToElement(new
-                {
-                    status = "failed",
-                    detailCode,
-                    generation,
-                })),
+            WorkerOperationProtocol.CreateResultEnvelope(
+                initialize.SessionId,
+                initialize.Incarnation,
+                new WorkerResult(
+                    requestId,
+                    WorkerResultStatus.Failed,
+                    string.Empty,
+                    detailCode)),
             cancellationToken).ConfigureAwait(false);
     }
 
@@ -583,7 +510,7 @@ internal sealed class WorkerServer
         }
     }
 
-    private static async Task<bool> TryDrainSessionAsync(ISessionLifetime session)
+    private static async Task<bool> TryDrainSessionAsync(IWorkerSession session)
     {
         var failed = false;
         try
@@ -606,7 +533,7 @@ internal sealed class WorkerServer
     }
 
     private static void ObserveLateFactory(
-        Task<ISessionLifetime> factoryTask,
+        Task<IWorkerSession> factoryTask,
         CancellationTokenSource cancellation,
         Task? cancellationTask = null)
     {
@@ -618,7 +545,7 @@ internal sealed class WorkerServer
     }
 
     private static async Task ObserveLateFactoryAsync(
-        Task<ISessionLifetime> factoryTask,
+        Task<IWorkerSession> factoryTask,
         CancellationTokenSource cancellation,
         Task<Task> cancellationHandoff)
     {
@@ -630,7 +557,7 @@ internal sealed class WorkerServer
     }
 
     private static async Task ObserveLateFactoryResultAsync(
-        Task<ISessionLifetime> factoryTask)
+        Task<IWorkerSession> factoryTask)
     {
         try
         {
@@ -741,11 +668,12 @@ internal sealed class WorkerServer
         internal CancellationToken FactoryToken => FactoryCancellation?.Token ??
             throw new InvalidOperationException("The worker runtime factory is no longer owned.");
         private CancellationTokenSource? FactoryCancellation { get; set; }
-        internal Task<ISessionLifetime>? FactoryTask { get; set; }
+        internal Task<IWorkerSession>? FactoryTask { get; set; }
         internal CancellationTokenSource? DeadlineCancellation { get; set; }
         internal Task? DeadlineTask { get; set; }
         internal Task<WorkerEnvelope?>? PendingRead { get; set; }
-        internal ISessionLifetime? Session { get; set; }
+        internal IWorkerSession? Session { get; set; }
+        internal WorkerOperationScheduler? Scheduler { get; set; }
 
         internal Task<WorkerEnvelope?> TakePendingReadAsync()
         {
@@ -755,7 +683,7 @@ internal sealed class WorkerServer
             return pendingRead;
         }
 
-        internal Task<ISessionLifetime> TakeFactory()
+        internal Task<IWorkerSession> TakeFactory()
         {
             var factoryTask = FactoryTask
                 ?? throw new InvalidOperationException("No worker runtime factory is pending.");
@@ -779,6 +707,34 @@ internal sealed class WorkerServer
             Session = null;
             return session is not null &&
                 await TryDrainSessionAsync(session).ConfigureAwait(false);
+        }
+
+        internal async Task<bool> DrainOperationsAsync(long? shutdownRequestId = null)
+        {
+            var scheduler = Scheduler;
+            if (scheduler is null)
+                return false;
+            Task drain;
+            try
+            {
+                drain = shutdownRequestId is { } requestId
+                    ? scheduler.ShutdownAndDrainAsync(requestId)
+                    : scheduler.CancelAndDrainAsync();
+            }
+            catch (WorkerProtocolException)
+            {
+                throw;
+            }
+            Scheduler = null;
+            try
+            {
+                await drain.ConfigureAwait(false);
+                return false;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                return true;
+            }
         }
 
         internal async Task<bool> StopFactoryAsync()
@@ -828,9 +784,10 @@ internal sealed class WorkerServer
             PendingRead = null;
             ObserveDetachedTask(pendingRead ?? Task.CompletedTask, ReaderCancellation);
 
+            var operationCleanupFailed = await DrainOperationsAsync().ConfigureAwait(false);
             var sessionCleanupFailed = await DrainSessionAsync().ConfigureAwait(false);
             TryDispose(_hostCancellationRegistration);
-            return factoryCleanupFailed || sessionCleanupFailed;
+            return factoryCleanupFailed || operationCleanupFailed || sessionCleanupFailed;
         }
 
         private void RequestFactoryCancellation()

@@ -11,8 +11,12 @@ namespace PtkMcpServer.Tests;
 [Collection(WindowsProcessCreationCollection.Name)]
 public sealed class WorkerProcessEntryTests
 {
-    private static readonly Guid BootId =
+    private static readonly Guid SessionId =
         Guid.Parse("27e13a09-3106-4c60-936d-2f6e165f54ad");
+    private static readonly WorkerProtocolLimits Limits =
+        WorkerOperationProtocol.CreateLimits(
+            TimeSpan.FromMinutes(5),
+            TimeSpan.FromHours(1));
 
     [Fact]
     public void Classification_finds_only_the_exact_worker_token_in_any_position()
@@ -56,7 +60,6 @@ public sealed class WorkerProcessEntryTests
                     runtimeCalls++;
                     throw new InvalidOperationException("runtime must not run");
                 },
-                () => BootId,
                 () => diagnostic);
 
             Assert.Equal(64, exitCode);
@@ -89,7 +92,6 @@ public sealed class WorkerProcessEntryTests
             environment,
             _ => throw new InvalidOperationException("bootstrap must not run"),
             (_, _) => throw new InvalidOperationException("runtime must not run"),
-            () => BootId,
             () => new MemoryStream());
 
         Assert.Equal(64, exitCode);
@@ -126,7 +128,6 @@ public sealed class WorkerProcessEntryTests
                 runtimeCalls++;
                 throw new InvalidOperationException("runtime must not run");
             },
-            () => BootId,
             () => diagnostic);
 
         Assert.Equal(80, exitCode);
@@ -153,7 +154,6 @@ public sealed class WorkerProcessEntryTests
                 throw new InvalidOperationException("bootstrap must not run");
             },
             (_, _) => throw new InvalidOperationException("runtime must not run"),
-            () => BootId,
             () => diagnostic);
 
         Assert.Equal(80, exitCode);
@@ -188,7 +188,6 @@ public sealed class WorkerProcessEntryTests
                 runtimeCalls++;
                 throw new InvalidOperationException("runtime must not run");
             },
-            () => BootId,
             () => diagnostic);
 
         Assert.Equal(80, exitCode);
@@ -223,9 +222,8 @@ public sealed class WorkerProcessEntryTests
                 Assert.True(streams.Opened);
                 Assert.False(streams.Disposed);
                 Interlocked.Increment(ref runtimeCalls);
-                return Task.FromResult<ISessionLifetime>(lifetime);
+                return Task.FromResult<IWorkerSession>(lifetime);
             },
-            () => BootId,
             () =>
             {
                 standardErrorCalls++;
@@ -234,22 +232,16 @@ public sealed class WorkerProcessEntryTests
 
         var eventReader = new WorkerProtocolReader(streams.EventStream);
         var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
-        var hello = await ReadAsync(eventReader);
-        Assert.Equal(WorkerMessageKind.Event, hello.Kind);
-        Assert.Equal(BootId, hello.WorkerBootId);
-        Assert.Equal("hello", hello.Payload.GetProperty("event").GetString());
         Assert.Equal(0, Volatile.Read(ref runtimeCalls));
 
         await WriteInitializeAsync(requestWriter);
         var ready = await ReadAsync(eventReader);
-        Assert.Equal(WorkerMessageKind.Response, ready.Kind);
-        Assert.Equal("ready", ready.Payload.GetProperty("status").GetString());
+        Assert.Equal(WorkerMessageKind.Ready, ready.Kind);
         Assert.Equal(1, Volatile.Read(ref runtimeCalls));
 
         await WriteShutdownAsync(requestWriter);
         var stopped = await ReadAsync(eventReader);
-        Assert.Equal(WorkerMessageKind.Response, stopped.Kind);
-        Assert.Equal("stopped", stopped.Payload.GetProperty("status").GetString());
+        Assert.Equal(WorkerMessageKind.Stopped, stopped.Kind);
 
         Assert.Equal(0, await run.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.Equal(1, runtimeCalls);
@@ -279,8 +271,6 @@ public sealed class WorkerProcessEntryTests
                 throw new InvalidOperationException("zero exit touched stderr");
             });
 
-        var eventReader = new WorkerProtocolReader(streams.EventStream);
-        _ = await ReadAsync(eventReader);
         streams.RequestStreamPipe.CompleteWriting();
 
         Assert.Equal(0, await run.WaitAsync(TimeSpan.FromSeconds(10)));
@@ -304,13 +294,12 @@ public sealed class WorkerProcessEntryTests
             },
             () => diagnostic);
 
-        var eventReader = new WorkerProtocolReader(streams.EventStream);
         var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
-        _ = await ReadAsync(eventReader);
         await requestWriter.WriteAsync(new WorkerEnvelope(
             WorkerProtocol.Version,
             WorkerMessageKind.Shutdown,
-            BootId,
+            SessionId,
+            1,
             1,
             JsonSerializer.SerializeToElement(new { })));
 
@@ -329,12 +318,11 @@ public sealed class WorkerProcessEntryTests
         var lifetime = new RecordingLifetime { ThrowOnShutdown = true };
         var run = StartEntry(
             streams,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime),
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime),
             () => diagnostic);
 
         var eventReader = new WorkerProtocolReader(streams.EventStream);
         var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
-        _ = await ReadAsync(eventReader);
         await WriteInitializeAsync(requestWriter);
         _ = await ReadAsync(eventReader);
         await WriteShutdownAsync(requestWriter);
@@ -357,17 +345,16 @@ public sealed class WorkerProcessEntryTests
         var diagnostic = new MemoryStream();
         var run = StartEntry(
             streams,
-            (_, _) => Task.FromResult<ISessionLifetime>(new RecordingLifetime()),
+            (_, _) => Task.FromResult<IWorkerSession>(new RecordingLifetime()),
             () => diagnostic);
 
         var eventReader = new WorkerProtocolReader(streams.EventStream);
         var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
-        _ = await ReadAsync(eventReader);
         await WriteInitializeAsync(requestWriter);
         _ = await ReadAsync(eventReader);
         await WriteShutdownAsync(requestWriter);
         var stopped = await ReadAsync(eventReader);
-        Assert.Equal("stopped", stopped.Payload.GetProperty("status").GetString());
+        Assert.Equal(WorkerMessageKind.Stopped, stopped.Kind);
 
         Assert.Equal(84, await run.WaitAsync(TimeSpan.FromSeconds(10)));
         Assert.True(streams.Disposed);
@@ -386,13 +373,12 @@ public sealed class WorkerProcessEntryTests
             (_, _) => throw new InvalidOperationException("runtime must not run"),
             () => throw new IOException("simulated stderr open failure"));
 
-        var eventReader = new WorkerProtocolReader(streams.EventStream);
         var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
-        _ = await ReadAsync(eventReader);
         await requestWriter.WriteAsync(new WorkerEnvelope(
             WorkerProtocol.Version,
             WorkerMessageKind.Shutdown,
-            BootId,
+            SessionId,
+            1,
             1,
             JsonSerializer.SerializeToElement(new { })));
 
@@ -582,7 +568,7 @@ public sealed class WorkerProcessEntryTests
 
     private static Task<int> StartEntry(
         TestBootstrapStreams streams,
-        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> runtimeFactory,
+        Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>> runtimeFactory,
         Func<Stream> standardErrorFactory)
     {
         var environment = EnvironmentWithHandles();
@@ -597,7 +583,6 @@ public sealed class WorkerProcessEntryTests
                 return streams;
             },
             runtimeFactory,
-            () => BootId,
             standardErrorFactory);
     }
 
@@ -615,30 +600,24 @@ public sealed class WorkerProcessEntryTests
         var run = StartEntry(
             streams,
             (_, _) => failure == ManagedFailure.Initialize
-                ? Task.FromException<ISessionLifetime>(
+                ? Task.FromException<IWorkerSession>(
                     new IOException("simulated runtime initialization failure"))
-                : Task.FromResult<ISessionLifetime>(lifetime),
+                : Task.FromResult<IWorkerSession>(lifetime),
             () => diagnostic);
 
-        if (failure == ManagedFailure.Transport)
-            return await run.WaitAsync(TimeSpan.FromSeconds(10));
-
-        var eventReader = new WorkerProtocolReader(streams.EventStream);
         var requestWriter = new WorkerProtocolWriter(streams.RequestStream);
-        _ = await ReadAsync(eventReader);
 
         if (failure == ManagedFailure.Protocol)
         {
-            await requestWriter.WriteAsync(new WorkerEnvelope(
-                WorkerProtocol.Version,
-                WorkerMessageKind.Shutdown,
-                BootId,
-                1,
-                JsonSerializer.SerializeToElement(new { })));
+            await WriteShutdownAsync(requestWriter);
             return await run.WaitAsync(TimeSpan.FromSeconds(10));
         }
 
         await WriteInitializeAsync(requestWriter);
+        if (failure == ManagedFailure.Transport)
+            return await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        var eventReader = new WorkerProtocolReader(streams.EventStream);
         var initialized = await ReadAsync(eventReader);
         if (failure == ManagedFailure.Initialize)
         {
@@ -649,7 +628,7 @@ public sealed class WorkerProcessEntryTests
             return await run.WaitAsync(TimeSpan.FromSeconds(10));
         }
 
-        Assert.Equal("ready", initialized.Payload.GetProperty("status").GetString());
+        Assert.Equal(WorkerMessageKind.Ready, initialized.Kind);
         await WriteShutdownAsync(requestWriter);
         var stopped = await ReadAsync(eventReader);
         Assert.Equal("failed", stopped.Payload.GetProperty("status").GetString());
@@ -667,28 +646,21 @@ public sealed class WorkerProcessEntryTests
 
     private static async Task WriteInitializeAsync(WorkerProtocolWriter writer)
     {
-        await writer.WriteAsync(new WorkerEnvelope(
-            WorkerProtocol.Version,
-            WorkerMessageKind.Initialize,
-            BootId,
+        await writer.WriteAsync(WorkerOperationProtocol.CreateInitializeEnvelope(
+            SessionId,
             1,
-            JsonSerializer.SerializeToElement(new
-            {
-                generation = 1L,
-                deadlineUnixTimeMilliseconds = DateTimeOffset.UtcNow
-                    .AddSeconds(30)
-                    .ToUnixTimeMilliseconds(),
-            })));
+            1,
+            DateTimeOffset.UtcNow.AddSeconds(30),
+            Limits));
     }
 
     private static async Task WriteShutdownAsync(WorkerProtocolWriter writer)
     {
-        await writer.WriteAsync(new WorkerEnvelope(
-            WorkerProtocol.Version,
+        await writer.WriteAsync(WorkerOperationProtocol.CreateEmptyEnvelope(
             WorkerMessageKind.Shutdown,
-            BootId,
-            2,
-            JsonSerializer.SerializeToElement(new { })));
+            SessionId,
+            1,
+            2));
     }
 
     private static async Task<WorkerEnvelope> ReadAsync(WorkerProtocolReader reader)
@@ -930,7 +902,7 @@ public sealed class WorkerProcessEntryTests
         int ExitCode,
         string Diagnostic);
 
-    private sealed class RecordingLifetime : ISessionLifetime
+    private sealed class RecordingLifetime : IWorkerSession
     {
         internal int ShutdownCalls { get; private set; }
         internal int DisposeCalls { get; private set; }
@@ -943,6 +915,12 @@ public sealed class WorkerProcessEntryTests
                 ? Task.FromException(new IOException("simulated runtime shutdown failure"))
                 : Task.CompletedTask;
         }
+
+        public Task<WorkerExecutionResult> ExecuteAsync(
+            WorkerOperationRequest request,
+            CancellationToken cancellationToken) =>
+            Task.FromException<WorkerExecutionResult>(
+                new NotSupportedException("No operation was expected."));
 
         public void Dispose() => DisposeCalls++;
     }

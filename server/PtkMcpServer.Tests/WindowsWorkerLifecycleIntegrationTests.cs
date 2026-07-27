@@ -2,7 +2,6 @@ using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Text.Json;
 using PtkMcpServer.Worker;
 
 namespace PtkMcpServer.Tests;
@@ -11,6 +10,12 @@ namespace PtkMcpServer.Tests;
 public sealed class WindowsWorkerLifecycleIntegrationTests
 {
     private static readonly TimeSpan CheckpointTimeout = TimeSpan.FromSeconds(60);
+    private static readonly Guid SessionId =
+        Guid.Parse("72b2c475-503f-466f-9f32-bd171e4ea517");
+    private static readonly WorkerProtocolLimits Limits =
+        WorkerOperationProtocol.CreateLimits(
+            TimeSpan.FromMinutes(5),
+            TimeSpan.FromHours(1));
 
     [Fact]
     public async Task Contained_worker_completes_lifecycle_with_silent_diagnostics()
@@ -29,48 +34,45 @@ public sealed class WindowsWorkerLifecycleIntegrationTests
             var reader = new WorkerProtocolReader(worker.EventReader);
             var writer = new WorkerProtocolWriter(worker.RequestWriter);
 
-            var hello = await ReadAsync(reader);
-            Assert.NotNull(hello);
-            Assert.Equal(WorkerMessageKind.Event, hello.Kind);
-            Assert.Null(hello.RequestId);
-            Assert.Equal("hello", hello.Payload.GetProperty("event").GetString());
-
-            const long generation = 7;
-            await writer.WriteAsync(new WorkerEnvelope(
-                WorkerProtocol.Version,
-                WorkerMessageKind.Initialize,
-                hello.WorkerBootId,
-                RequestId: 1,
-                JsonSerializer.SerializeToElement(new
-                {
-                    generation,
-                    deadlineUnixTimeMilliseconds = DateTimeOffset.UtcNow
-                        .AddMinutes(2)
-                        .ToUnixTimeMilliseconds(),
-                })));
+            const long incarnation = 7;
+            await writer.WriteAsync(WorkerOperationProtocol.CreateInitializeEnvelope(
+                SessionId,
+                incarnation,
+                1,
+                DateTimeOffset.UtcNow.AddMinutes(2),
+                Limits));
 
             var ready = await ReadAsync(reader);
             Assert.NotNull(ready);
-            Assert.Equal(WorkerMessageKind.Response, ready.Kind);
-            Assert.Equal(hello.WorkerBootId, ready.WorkerBootId);
+            Assert.Equal(WorkerMessageKind.Ready, ready.Kind);
+            Assert.Equal(SessionId, ready.SessionId);
+            Assert.Equal(incarnation, ready.Incarnation);
             Assert.Equal(1, ready.RequestId);
-            Assert.Equal("ready", ready.Payload.GetProperty("status").GetString());
-            Assert.Equal(generation, ready.Payload.GetProperty("generation").GetInt64());
+            Assert.Equal(
+                Limits,
+                WorkerOperationProtocol.ParseReady(
+                    ready,
+                    SessionId,
+                    incarnation,
+                    expectedRequestId: 1));
 
-            await writer.WriteAsync(new WorkerEnvelope(
-                WorkerProtocol.Version,
+            await writer.WriteAsync(WorkerOperationProtocol.CreateEmptyEnvelope(
                 WorkerMessageKind.Shutdown,
-                hello.WorkerBootId,
-                RequestId: 2,
-                JsonSerializer.SerializeToElement(new { })));
+                SessionId,
+                incarnation,
+                2));
 
             var stopped = await ReadAsync(reader);
             Assert.NotNull(stopped);
-            Assert.Equal(WorkerMessageKind.Response, stopped.Kind);
-            Assert.Equal(hello.WorkerBootId, stopped.WorkerBootId);
+            Assert.Equal(WorkerMessageKind.Stopped, stopped.Kind);
+            Assert.Equal(SessionId, stopped.SessionId);
+            Assert.Equal(incarnation, stopped.Incarnation);
             Assert.Equal(2, stopped.RequestId);
-            Assert.Equal("stopped", stopped.Payload.GetProperty("status").GetString());
-            Assert.Equal(generation, stopped.Payload.GetProperty("generation").GetInt64());
+            WorkerOperationProtocol.ParseEmpty(
+                stopped,
+                WorkerMessageKind.Stopped,
+                SessionId,
+                incarnation);
 
             await worker.WaitForExitAsync().WaitAsync(CheckpointTimeout);
             await witness.WaitForExitAsync().WaitAsync(CheckpointTimeout);

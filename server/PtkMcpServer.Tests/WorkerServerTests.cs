@@ -10,12 +10,16 @@ namespace PtkMcpServer.Tests;
 
 public sealed class WorkerServerTests
 {
-    private static readonly Guid BootId = Guid.Parse("8de8da91-1522-4d93-a768-5a07fe55e6ee");
+    private static readonly Guid SessionId = Guid.Parse("8de8da91-1522-4d93-a768-5a07fe55e6ee");
     private static readonly DateTimeOffset Now =
         new(2026, 7, 14, 12, 0, 0, TimeSpan.Zero);
+    private static readonly WorkerProtocolLimits Limits =
+        WorkerOperationProtocol.CreateLimits(
+            TimeSpan.FromMinutes(5),
+            TimeSpan.FromHours(1));
 
     [Fact]
-    public async Task Hello_precedes_the_first_read_and_cancellation_never_constructs_a_runtime()
+    public async Task Cancellation_before_initialize_never_constructs_a_runtime()
     {
         using var input = new FeedableReadStream(ignoreCancellation: true);
         using var output = new CapturingWriteStream();
@@ -31,17 +35,11 @@ public sealed class WorkerServerTests
             });
 
         var run = server.RunAsync(cancellation.Token);
-        await output.WaitForWritesAsync(1);
-        Assert.False(run.IsCompleted);
-        var hello = Assert.Single(await output.FramesAsync());
-        Assert.Equal(WorkerMessageKind.Event, hello.Kind);
-        Assert.Null(hello.RequestId);
-        Assert.Equal("hello", hello.Payload.GetProperty("event").GetString());
-
         cancellation.Cancel();
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Canceled, "canceled"), exit);
         Assert.Equal(0, factoryCalls);
+        Assert.Empty(await output.FramesAsync());
     }
 
     [Fact]
@@ -58,7 +56,11 @@ public sealed class WorkerServerTests
         });
         WorkerInitializeRequest? captured = null;
         var initialize = Initialize(requestId: 41, generation: 7, deadline: Now.AddMinutes(1));
-        var shutdown = Envelope(WorkerMessageKind.Shutdown, 42, EmptyPayload());
+        var shutdown = Envelope(
+            WorkerMessageKind.Shutdown,
+            42,
+            EmptyPayload(),
+            incarnation: 7);
         input.Enqueue(Frame(initialize));
 
         var server = Server(
@@ -67,20 +69,19 @@ public sealed class WorkerServerTests
             (request, _) =>
             {
                 captured = request;
-                return Task.FromResult<ISessionLifetime>(lifetime);
+                return Task.FromResult<IWorkerSession>(lifetime);
             });
         Task<WorkerServerExit>? run = null;
         try
         {
             run = server.RunAsync();
-            await output.WaitForWritesAsync(2);
+            await output.WaitForWritesAsync(1);
             input.Enqueue(Frame(shutdown));
             await shutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.False(run.IsCompleted, "worker emitted terminal shutdown before lifetime drain");
             var beforeRelease = await output.FramesAsync();
-            Assert.Equal([WorkerMessageKind.Event, WorkerMessageKind.Response],
+            Assert.Equal([WorkerMessageKind.Ready],
                 beforeRelease.Select(frame => frame.Kind));
-            Assert.Equal("ready", beforeRelease[1].Payload.GetProperty("status").GetString());
 
             releaseShutdown.TrySetResult();
             var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -97,16 +98,23 @@ public sealed class WorkerServerTests
             }
         }
 
-        Assert.Equal(new WorkerInitializeRequest(7, Now.AddMinutes(1)), captured);
+        Assert.Equal(
+            new WorkerInitializeRequest(
+                SessionId,
+                7,
+                41,
+                Now.AddMinutes(1),
+                Limits),
+            captured);
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
         var frames = await output.FramesAsync();
-        Assert.Equal(3, frames.Count);
+        Assert.Equal(2, frames.Count);
         AssertProtocolIdentity(frames);
-        Assert.Equal([null, 41L, 42L], frames.Select(frame => frame.RequestId));
-        Assert.Equal(7, frames[1].Payload.GetProperty("generation").GetInt64());
-        Assert.Equal("stopped", frames[2].Payload.GetProperty("status").GetString());
-        Assert.Equal(7, frames[2].Payload.GetProperty("generation").GetInt64());
+        Assert.Equal([41L, 42L], frames.Select(frame => frame.RequestId));
+        Assert.Equal(
+            [WorkerMessageKind.Ready, WorkerMessageKind.Stopped],
+            frames.Select(frame => frame.Kind));
     }
 
     [Fact]
@@ -114,7 +122,7 @@ public sealed class WorkerServerTests
     {
         using var input = new FeedableReadStream();
         using var output = new CapturingWriteStream();
-        input.Enqueue(Frame(Envelope(WorkerMessageKind.Request, 1, EmptyPayload())));
+        input.Enqueue(Frame(Envelope(WorkerMessageKind.Invoke, 1, EmptyPayload())));
         input.Complete();
         var factoryCalls = 0;
         var server = Server(
@@ -132,7 +140,7 @@ public sealed class WorkerServerTests
             new WorkerServerExit(WorkerServerExitKind.ProtocolError, "initialize_required"),
             exit);
         Assert.Equal(0, factoryCalls);
-        Assert.Single(await output.FramesAsync());
+        Assert.Empty(await output.FramesAsync());
     }
 
     [Fact]
@@ -158,7 +166,7 @@ public sealed class WorkerServerTests
                 "request_transport_failure"),
             exit);
         Assert.Equal(0, factoryCalls);
-        Assert.Single(await output.FramesAsync());
+        Assert.Empty(await output.FramesAsync());
     }
 
     [Fact]
@@ -166,6 +174,8 @@ public sealed class WorkerServerTests
     {
         using var input = new FeedableReadStream();
         using var output = new ThrowingWriteStream();
+        input.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
+        var lifetime = new RecordingLifetime();
         var factoryCalls = 0;
         var server = Server(
             input,
@@ -173,7 +183,7 @@ public sealed class WorkerServerTests
             (_, _) =>
             {
                 factoryCalls++;
-                throw new InvalidOperationException("factory must not run");
+                return Task.FromResult<IWorkerSession>(lifetime);
             });
 
         var exit = await server.RunAsync().WaitAsync(TimeSpan.FromSeconds(10));
@@ -183,7 +193,92 @@ public sealed class WorkerServerTests
                 WorkerServerExitKind.TransportFailure,
                 "event_transport_failure"),
             exit);
-        Assert.Equal(0, factoryCalls);
+        Assert.Equal(1, factoryCalls);
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Operation_response_transport_failure_keeps_transport_classification()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new FailingSecondWriteStream();
+        var lifetime = new RecordingLifetime(
+            execute: (_, _) => Task.FromResult<WorkerExecutionResult>(
+                new WorkerInvokeExecutionResult(
+                    WorkerResultStatus.Completed,
+                    "done")));
+        input.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
+        var run = server.RunAsync();
+        await output.FirstFrameWritten.WaitAsync(TimeSpan.FromSeconds(10));
+
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            incarnation: 1,
+            requestId: 2,
+            "'done'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 0,
+            artifact: null,
+            Limits)));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            new WorkerServerExit(
+                WorkerServerExitKind.TransportFailure,
+                "event_transport_failure"),
+            exit);
+        Assert.Equal(2, output.WriteCalls);
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
+    }
+
+    [Fact]
+    public async Task Invalid_executor_terminal_is_a_worker_runtime_failure()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var lifetime = new RecordingLifetime(
+            execute: (_, _) => Task.FromResult<WorkerExecutionResult>(
+                new WorkerInvokeExecutionResult(
+                    WorkerResultStatus.Completed,
+                    "done",
+                    DetailCode: "must_be_null")));
+        input.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(1);
+
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            incarnation: 1,
+            requestId: 2,
+            "'done'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 0,
+            artifact: null,
+            Limits)));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            new WorkerServerExit(
+                WorkerServerExitKind.RuntimeFailure,
+                "outbound_protocol_failure"),
+            exit);
+        Assert.Collection(
+            await output.FramesAsync(),
+            frame => Assert.Equal(WorkerMessageKind.Ready, frame.Kind));
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
     }
 
     [Fact]
@@ -196,9 +291,9 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
         var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
+        await output.WaitForWritesAsync(1);
 
         input.Enqueue(Frame(Initialize(2, 1, Now.AddMinutes(1))));
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -208,19 +303,14 @@ public sealed class WorkerServerTests
             exit);
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
-        Assert.Equal(2, (await output.FramesAsync()).Count);
+        Assert.Collection(
+            await output.FramesAsync(),
+            frame => Assert.Equal(WorkerMessageKind.Ready, frame.Kind));
     }
 
-    [Theory]
-    [InlineData((int)WorkerMessageKind.Prepare)]
-    [InlineData((int)WorkerMessageKind.Commit)]
-    [InlineData((int)WorkerMessageKind.Abort)]
-    [InlineData((int)WorkerMessageKind.Request)]
-    [InlineData((int)WorkerMessageKind.Cancel)]
-    public async Task Operation_frames_remain_unwired_after_ready(
-        int kindValue)
+    [Fact]
+    public async Task Unsolicited_terminal_after_ready_is_protocol_fatal()
     {
-        var kind = (WorkerMessageKind)kindValue;
         using var input = new FeedableReadStream();
         using var output = new CapturingWriteStream();
         var lifetime = new RecordingLifetime();
@@ -228,19 +318,95 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
         var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
+        await output.WaitForWritesAsync(1);
 
-        input.Enqueue(Frame(Envelope(kind, 2, EmptyPayload())));
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateResultEnvelope(
+            SessionId,
+            incarnation: 1,
+            new WorkerResult(
+                RequestId: 2,
+                WorkerResultStatus.Completed,
+                "unsolicited",
+                DetailCode: null))));
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(
-            new WorkerServerExit(WorkerServerExitKind.ProtocolError, "unsupported_message"),
+            new WorkerServerExit(
+                WorkerServerExitKind.ProtocolError,
+                "unsupported_message"),
             exit);
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
-        Assert.Equal(2, (await output.FramesAsync()).Count);
+        Assert.Collection(
+            await output.FramesAsync(),
+            frame => Assert.Equal(WorkerMessageKind.Ready, frame.Kind));
+    }
+
+    [Fact]
+    public async Task Invoke_and_state_frames_dispatch_after_ready()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var lifetime = new RecordingLifetime(
+            execute: (request, _) => Task.FromResult<WorkerExecutionResult>(
+                request switch
+                {
+                    WorkerInvokeRequest => new WorkerInvokeExecutionResult(
+                        WorkerResultStatus.Completed,
+                        "invoke-result"),
+                    WorkerStateQueryRequest => new WorkerStateExecutionResult(
+                        Available: false,
+                        "runspace: busy",
+                        "runspace_busy"),
+                    _ => throw new InvalidOperationException(),
+                }));
+        input.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            1,
+            2,
+            "'invoke'",
+            false,
+            WorkerInvokeRoute.Pwsh,
+            0,
+            null,
+            Limits)));
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateStateQueryEnvelope(
+            SessionId,
+            1,
+            3,
+            false)));
+        await output.WaitForWritesAsync(2);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Shutdown,
+            4,
+            EmptyPayload(),
+            incarnation: 1)));
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Shutdown, "shutdown"), exit);
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
+        var frames = await output.FramesAsync();
+        Assert.Equal(4, frames.Count);
+        Assert.Equal(WorkerMessageKind.Ready, frames[0].Kind);
+        Assert.Equal(WorkerMessageKind.Stopped, frames[^1].Kind);
+        Assert.Contains(
+            frames[1..^1],
+            frame => frame.Kind == WorkerMessageKind.Result &&
+                frame.RequestId == 2);
+        Assert.Contains(
+            frames[1..^1],
+            frame => frame.Kind == WorkerMessageKind.StateSnapshot &&
+                frame.RequestId == 3);
     }
 
     [Fact]
@@ -263,7 +429,7 @@ public sealed class WorkerServerTests
 
         Assert.Equal(new WorkerServerExit(WorkerServerExitKind.Eof, "eof_before_initialize"), exit);
         Assert.Equal(0, factoryCalls);
-        Assert.Single(await output.FramesAsync());
+        Assert.Empty(await output.FramesAsync());
     }
 
     [Fact]
@@ -282,16 +448,16 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
         Task<WorkerServerExit>? run = null;
         try
         {
             run = server.RunAsync();
-            await output.WaitForWritesAsync(2);
+            await output.WaitForWritesAsync(1);
             input.Complete();
             await shutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.False(run.IsCompleted, "worker EOF cleanup did not await lifetime shutdown");
-            Assert.Equal(2, (await output.FramesAsync()).Count);
+            Assert.Single(await output.FramesAsync());
 
             releaseShutdown.TrySetResult();
             var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -310,7 +476,7 @@ public sealed class WorkerServerTests
 
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
-        Assert.Equal(2, (await output.FramesAsync()).Count);
+        Assert.Single(await output.FramesAsync());
     }
 
     [Fact]
@@ -320,7 +486,7 @@ public sealed class WorkerServerTests
         using var output = new CapturingWriteStream();
         var factoryEntered = NewSignal();
         var factoryCanceled = NewSignal();
-        var releaseFactory = new TaskCompletionSource<ISessionLifetime>(
+        var releaseFactory = new TaskCompletionSource<IWorkerSession>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var lifetime = new RecordingLifetime();
         input.Enqueue(Frame(Initialize(1, 5, Now.AddMinutes(1))));
@@ -345,7 +511,7 @@ public sealed class WorkerServerTests
                 new WorkerServerExit(WorkerServerExitKind.Eof, "eof_during_initialize"),
                 exit);
             await factoryCanceled.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Single(await output.FramesAsync());
+            Assert.Empty(await output.FramesAsync());
 
             releaseFactory.TrySetResult(lifetime);
             await lifetime.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -383,7 +549,7 @@ public sealed class WorkerServerTests
                     () => factoryCanceled.TrySetResult());
                 factoryEntered.TrySetResult();
                 releaseFactory.Wait();
-                return Task.FromResult<ISessionLifetime>(lifetime);
+                return Task.FromResult<IWorkerSession>(lifetime);
             });
 
         Task<Task<WorkerServerExit>>? start = null;
@@ -404,7 +570,7 @@ public sealed class WorkerServerTests
                 new WorkerServerExit(WorkerServerExitKind.Eof, "eof_during_initialize"),
                 exit);
             await factoryCanceled.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            Assert.Single(await output.FramesAsync());
+            Assert.Empty(await output.FramesAsync());
 
             releaseFactory.Set();
             await lifetime.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -436,7 +602,7 @@ public sealed class WorkerServerTests
     public async Task Active_initialize_deadline_cancels_and_cleans_a_late_runtime()
     {
         using var input = new FeedableReadStream();
-        using var output = new BlockingSecondWriteStream();
+        using var output = new BlockingFirstWriteStream();
         var deadline = Now.AddMinutes(1);
         var deadlineReached = 0;
         DateTimeOffset? observedDeadline = null;
@@ -444,7 +610,7 @@ public sealed class WorkerServerTests
         var releaseDeadline = NewSignal();
         var factoryEntered = NewSignal();
         var factoryCanceled = NewSignal();
-        var releaseFactory = new TaskCompletionSource<ISessionLifetime>(
+        var releaseFactory = new TaskCompletionSource<IWorkerSession>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var lifetime = new RecordingLifetime();
         input.Enqueue(Frame(Initialize(17, 5, deadline)));
@@ -486,15 +652,13 @@ public sealed class WorkerServerTests
                     "initialize_deadline_expired"),
                 exit);
             var frames = await output.FramesAsync();
-            Assert.Equal(2, frames.Count);
+            Assert.Single(frames);
             AssertProtocolIdentity(frames);
-            Assert.Equal(17, frames[1].RequestId);
-            Assert.Equal("failed", frames[1].Payload.GetProperty("status").GetString());
-            Assert.Equal(5, frames[1].Payload.GetProperty("generation").GetInt64());
+            Assert.Equal(17, frames[0].RequestId);
+            Assert.Equal("failed", frames[0].Payload.GetProperty("status").GetString());
             Assert.DoesNotContain(
                 frames,
-                frame => frame.Payload.TryGetProperty("status", out var status) &&
-                    status.GetString() == "ready");
+                frame => frame.Kind == WorkerMessageKind.Ready);
 
             releaseFactory.TrySetResult(lifetime);
             await lifetime.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -534,7 +698,7 @@ public sealed class WorkerServerTests
             (_, _) =>
             {
                 Interlocked.Increment(ref factoryCalls);
-                return Task.FromResult<ISessionLifetime>(lifetime);
+                return Task.FromResult<IWorkerSession>(lifetime);
             },
             () => Volatile.Read(ref deadlineReached) == 0 ? Now : deadline,
             async (_, cancellationToken) =>
@@ -564,11 +728,8 @@ public sealed class WorkerServerTests
             Assert.Equal(0, lifetime.ShutdownCount);
             Assert.Equal(0, lifetime.DisposeCount);
             var frames = await output.FramesAsync();
-            Assert.Equal(2, frames.Count);
-            Assert.DoesNotContain(
-                frames,
-                frame => frame.Payload.TryGetProperty("status", out var status) &&
-                    status.GetString() == "ready");
+            Assert.Single(frames);
+            Assert.DoesNotContain(frames, frame => frame.Kind == WorkerMessageKind.Ready);
         }
         finally
         {
@@ -598,15 +759,15 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
         var run = server.RunAsync(cancellation.Token);
         try
         {
-            await output.WaitForWritesAsync(2);
+            await output.WaitForWritesAsync(1);
             cancellation.Cancel();
             await shutdownEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.False(run.IsCompleted, "host cancellation did not await lifetime shutdown");
-            Assert.Equal(2, (await output.FramesAsync()).Count);
+            Assert.Single(await output.FramesAsync());
 
             releaseShutdown.TrySetResult();
             var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -640,7 +801,7 @@ public sealed class WorkerServerTests
             (_, _) =>
             {
                 factoryCalls++;
-                return Task.FromResult<ISessionLifetime>(lifetime);
+                return Task.FromResult<IWorkerSession>(lifetime);
             });
 
         var exit = await server.RunAsync().WaitAsync(TimeSpan.FromSeconds(10));
@@ -648,7 +809,7 @@ public sealed class WorkerServerTests
         Assert.Equal(
             new WorkerServerExit(WorkerServerExitKind.Eof, "eof_during_initialize"),
             exit);
-        Assert.Single(await output.FramesAsync());
+        Assert.Empty(await output.FramesAsync());
         Assert.Equal(0, factoryCalls);
         Assert.Equal(0, lifetime.ShutdownCount);
         Assert.Equal(0, lifetime.DisposeCount);
@@ -660,7 +821,7 @@ public sealed class WorkerServerTests
         using var input = new FeedableReadStream();
         using var output = new CapturingWriteStream();
         var factoryEntered = NewSignal();
-        var releaseFactory = new TaskCompletionSource<ISessionLifetime>(
+        var releaseFactory = new TaskCompletionSource<IWorkerSession>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var lifetime = new RecordingLifetime();
         input.Enqueue(Frame(Initialize(1, 5, Now.AddMinutes(1))));
@@ -677,12 +838,16 @@ public sealed class WorkerServerTests
         try
         {
             await factoryEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
-            input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 2, EmptyPayload())));
+            input.Enqueue(Frame(Envelope(
+                WorkerMessageKind.Shutdown,
+                2,
+                EmptyPayload(),
+                incarnation: 5)));
             var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
             Assert.Equal(
                 new WorkerServerExit(WorkerServerExitKind.ProtocolError, "message_before_ready"),
                 exit);
-            Assert.Single(await output.FramesAsync());
+            Assert.Empty(await output.FramesAsync());
 
             releaseFactory.TrySetResult(lifetime);
             await lifetime.Disposed.Task.WaitAsync(TimeSpan.FromSeconds(10));
@@ -709,7 +874,7 @@ public sealed class WorkerServerTests
         var factoryEntered = NewSignal();
         var cancellationCallback = NewSignal();
         var callbackCount = 0;
-        var releaseFactory = new TaskCompletionSource<ISessionLifetime>(
+        var releaseFactory = new TaskCompletionSource<IWorkerSession>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var lifetime = new RecordingLifetime();
         input.Enqueue(Frame(Initialize(1, 5, Now.AddMinutes(1))));
@@ -767,7 +932,7 @@ public sealed class WorkerServerTests
         var factoryEntered = NewSignal();
         var cancellationCallback = NewSignal();
         var callbackCount = 0;
-        var releaseFactory = new TaskCompletionSource<ISessionLifetime>(
+        var releaseFactory = new TaskCompletionSource<IWorkerSession>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var lifetime = new RecordingLifetime();
         input.Enqueue(Frame(Initialize(1, 5, Now.AddMinutes(1))));
@@ -826,9 +991,9 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
         var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
+        await output.WaitForWritesAsync(1);
 
         input.Complete();
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -838,7 +1003,7 @@ public sealed class WorkerServerTests
             exit);
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
-        Assert.Equal(2, (await output.FramesAsync()).Count);
+        Assert.Single(await output.FramesAsync());
         Assert.DoesNotContain(
             "secret cleanup failure",
             Encoding.UTF8.GetString(output.Snapshot()),
@@ -856,9 +1021,9 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
         var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
+        await output.WaitForWritesAsync(1);
 
         input.Enqueue(Frame(Initialize(2, 3, Now.AddMinutes(1))));
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -868,7 +1033,7 @@ public sealed class WorkerServerTests
             exit);
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
-        Assert.Equal(2, (await output.FramesAsync()).Count);
+        Assert.Single(await output.FramesAsync());
     }
 
     [Fact]
@@ -882,11 +1047,15 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
 
         var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
-        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 2, EmptyPayload())));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Shutdown,
+            2,
+            EmptyPayload(),
+            incarnation: 2)));
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(
@@ -895,9 +1064,14 @@ public sealed class WorkerServerTests
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
         var frames = await output.FramesAsync();
-        Assert.Equal(3, frames.Count);
-        Assert.Equal("failed", frames[2].Payload.GetProperty("status").GetString());
-        Assert.Equal("shutdown_failed", frames[2].Payload.GetProperty("detailCode").GetString());
+        Assert.Equal(2, frames.Count);
+        Assert.Equal(WorkerMessageKind.Ready, frames[0].Kind);
+        var failure = WorkerOperationProtocol.ParseResult(
+            frames[1],
+            SessionId,
+            expectedIncarnation: 2);
+        Assert.Equal(WorkerResultStatus.Failed, failure.Status);
+        Assert.Equal("shutdown_failed", failure.DetailCode);
         Assert.DoesNotContain(
             frames,
             frame => frame.Payload.TryGetProperty("status", out var status) &&
@@ -915,11 +1089,15 @@ public sealed class WorkerServerTests
         var server = Server(
             input,
             output,
-            (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
 
         var run = server.RunAsync();
-        await output.WaitForWritesAsync(2);
-        input.Enqueue(Frame(Envelope(WorkerMessageKind.Shutdown, 2, EmptyPayload())));
+        await output.WaitForWritesAsync(1);
+        input.Enqueue(Frame(Envelope(
+            WorkerMessageKind.Shutdown,
+            2,
+            EmptyPayload(),
+            incarnation: 2)));
         var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(
@@ -941,13 +1119,18 @@ public sealed class WorkerServerTests
         var cases = new[]
         {
             (
-                Envelope(WorkerMessageKind.Shutdown, requestId: null, EmptyPayload()),
+                Envelope(
+                    WorkerMessageKind.Shutdown,
+                    requestId: null,
+                    EmptyPayload(),
+                    incarnation: 2),
                 DetailCode: "request_id_required"),
             (
                 Envelope(
                     WorkerMessageKind.Shutdown,
                     requestId: 2,
-                    JsonSerializer.SerializeToElement(new { unexpected = true })),
+                    JsonSerializer.SerializeToElement(new { unexpected = true }),
+                    incarnation: 2),
                 DetailCode: "invalid_payload"),
         };
 
@@ -960,9 +1143,9 @@ public sealed class WorkerServerTests
             var server = Server(
                 input,
                 output,
-                (_, _) => Task.FromResult<ISessionLifetime>(lifetime));
+                (_, _) => Task.FromResult<IWorkerSession>(lifetime));
             var run = server.RunAsync();
-            await output.WaitForWritesAsync(2);
+            await output.WaitForWritesAsync(1);
 
             input.Enqueue(Frame(testCase.Item1));
             var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
@@ -977,6 +1160,55 @@ public sealed class WorkerServerTests
                 frame => frame.Payload.TryGetProperty("status", out var status) &&
                     status.GetString() == "stopped");
         }
+    }
+
+    [Fact]
+    public async Task Shutdown_request_id_cannot_reuse_an_operation_correlation()
+    {
+        using var input = new FeedableReadStream();
+        using var output = new CapturingWriteStream();
+        var lifetime = new RecordingLifetime(
+            execute: (_, _) => Task.FromResult<WorkerExecutionResult>(
+                new WorkerInvokeExecutionResult(
+                    WorkerResultStatus.Completed,
+                    "done")));
+        input.Enqueue(Frame(Initialize(1, 2, Now.AddMinutes(1))));
+        var server = Server(
+            input,
+            output,
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
+        var run = server.RunAsync();
+        await output.WaitForWritesAsync(1);
+
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            incarnation: 2,
+            requestId: 2,
+            "'done'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 0,
+            artifact: null,
+            Limits)));
+        input.Enqueue(Frame(WorkerOperationProtocol.CreateEmptyEnvelope(
+            WorkerMessageKind.Shutdown,
+            SessionId,
+            incarnation: 2,
+            requestId: 2)));
+
+        var exit = await run.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(
+            new WorkerServerExit(
+                WorkerServerExitKind.ProtocolError,
+                "operation_request_replay"),
+            exit);
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
+        Assert.Collection(
+            await output.FramesAsync(),
+            frame => Assert.Equal(WorkerMessageKind.Ready, frame.Kind),
+            frame => Assert.Equal(WorkerMessageKind.Result, frame.Kind));
     }
 
     [Fact]
@@ -1005,12 +1237,12 @@ public sealed class WorkerServerTests
             exit);
         Assert.Equal(0, factoryCalls);
         var frames = await output.FramesAsync();
-        Assert.Equal(2, frames.Count);
-        Assert.Equal(91, frames[1].RequestId);
-        Assert.Equal("failed", frames[1].Payload.GetProperty("status").GetString());
+        Assert.Single(frames);
+        Assert.Equal(91, frames[0].RequestId);
+        Assert.Equal("failed", frames[0].Payload.GetProperty("status").GetString());
         Assert.Equal(
             "initialize_deadline_expired",
-            frames[1].Payload.GetProperty("detailCode").GetString());
+            frames[0].Payload.GetProperty("detailCode").GetString());
     }
 
     [Fact]
@@ -1034,7 +1266,7 @@ public sealed class WorkerServerTests
             (_, _) =>
             {
                 Volatile.Write(ref deadlineReached, 1);
-                return Task.FromResult<ISessionLifetime>(lifetime);
+                return Task.FromResult<IWorkerSession>(lifetime);
             },
             () => Volatile.Read(ref deadlineReached) == 0 ? Now : deadline);
 
@@ -1063,12 +1295,9 @@ public sealed class WorkerServerTests
         Assert.Equal(1, lifetime.ShutdownCount);
         Assert.Equal(1, lifetime.DisposeCount);
         var frames = await output.FramesAsync();
-        Assert.Equal(2, frames.Count);
-        Assert.Equal("failed", frames[1].Payload.GetProperty("status").GetString());
-        Assert.DoesNotContain(
-            frames,
-            frame => frame.Payload.TryGetProperty("status", out var status) &&
-                status.GetString() == "ready");
+        Assert.Single(frames);
+        Assert.Equal("failed", frames[0].Payload.GetProperty("status").GetString());
+        Assert.DoesNotContain(frames, frame => frame.Kind == WorkerMessageKind.Ready);
     }
 
     [Fact]
@@ -1079,7 +1308,8 @@ public sealed class WorkerServerTests
         input.Enqueue(Frame(Envelope(
             WorkerMessageKind.Initialize,
             requestId: null,
-            InitializePayload(1, Now.AddMinutes(1)))));
+            Initialize(1, 1, Now.AddMinutes(1)).Payload,
+            incarnation: 1)));
         input.Complete();
         var factoryCalls = 0;
         var exit = await Server(
@@ -1131,33 +1361,40 @@ public sealed class WorkerServerTests
         var text = Encoding.UTF8.GetString(output.Snapshot());
         Assert.DoesNotContain("secret factory detail", text, StringComparison.Ordinal);
         var frames = await output.FramesAsync();
-        Assert.Equal("initialize_failed", frames[1].Payload.GetProperty("detailCode").GetString());
+        Assert.Equal("initialize_failed", frames[0].Payload.GetProperty("detailCode").GetString());
     }
 
     [Fact]
-    public async Task Boot_mismatch_and_truncated_frames_are_stable_protocol_failures()
+    public async Task Misrouted_session_and_truncated_frames_are_stable_protocol_failures()
     {
         using var mismatchedInput = new FeedableReadStream();
         using var mismatchedOutput = new CapturingWriteStream();
-        mismatchedInput.Enqueue(Frame(new WorkerEnvelope(
-            WorkerProtocol.Version,
-            WorkerMessageKind.Initialize,
-            Guid.Parse("2f609093-486a-46d9-904f-20e68ea34b72"),
-            1,
-            InitializePayload(1, Now.AddMinutes(1)))));
-        mismatchedInput.Complete();
-        var mismatch = await Server(
+        var lifetime = new RecordingLifetime();
+        mismatchedInput.Enqueue(Frame(Initialize(1, 1, Now.AddMinutes(1))));
+        var mismatchedServer = Server(
             mismatchedInput,
             mismatchedOutput,
-            (_, _) => throw new InvalidOperationException("factory must not run"))
-            .RunAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            (_, _) => Task.FromResult<IWorkerSession>(lifetime));
+        var mismatchRun = mismatchedServer.RunAsync();
+        await mismatchedOutput.WaitForWritesAsync(1);
+        mismatchedInput.Enqueue(Frame(
+            WorkerOperationProtocol.CreateStateQueryEnvelope(
+                Guid.Parse("2f609093-486a-46d9-904f-20e68ea34b72"),
+                1,
+                2,
+                false)));
+        var mismatch = await mismatchRun.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal(
-            new WorkerServerExit(WorkerServerExitKind.ProtocolError, "worker_boot_mismatch"),
+            new WorkerServerExit(
+                WorkerServerExitKind.ProtocolError,
+                "session_identity_mismatch"),
             mismatch);
+        Assert.Equal(1, lifetime.ShutdownCount);
+        Assert.Equal(1, lifetime.DisposeCount);
 
         using var truncatedInput = new FeedableReadStream();
         using var truncatedOutput = new CapturingWriteStream();
-        truncatedInput.Enqueue(Encoding.UTF8.GetBytes("{\"protocolVersion\":1"));
+        truncatedInput.Enqueue(Encoding.UTF8.GetBytes("{\"protocolVersion\":2"));
         truncatedInput.Complete();
         var truncated = await Server(
             truncatedInput,
@@ -1180,14 +1417,22 @@ public sealed class WorkerServerTests
             }),
             JsonSerializer.SerializeToElement(new
             {
-                generation = 1,
                 deadlineUnixTimeMilliseconds = Now.AddMinutes(1).ToUnixTimeMilliseconds(),
+                maximumScriptBytes = Limits.MaximumScriptBytes,
+                maximumArtifactBytes = Limits.MaximumArtifactBytes,
+                maximumArtifactChunkBytes = Limits.MaximumArtifactChunkBytes,
+                defaultTimeoutSeconds = Limits.DefaultTimeoutSeconds,
+                maximumTimeoutSeconds = Limits.MaximumTimeoutSeconds,
                 extra = true,
             }),
             JsonSerializer.SerializeToElement(new
             {
-                generation = 0,
                 deadlineUnixTimeMilliseconds = Now.AddMinutes(1).ToUnixTimeMilliseconds(),
+                maximumScriptBytes = 0,
+                maximumArtifactBytes = Limits.MaximumArtifactBytes,
+                maximumArtifactChunkBytes = Limits.MaximumArtifactChunkBytes,
+                defaultTimeoutSeconds = Limits.DefaultTimeoutSeconds,
+                maximumTimeoutSeconds = Limits.MaximumTimeoutSeconds,
             }),
         };
 
@@ -1195,7 +1440,11 @@ public sealed class WorkerServerTests
         {
             using var input = new FeedableReadStream();
             using var output = new CapturingWriteStream();
-            input.Enqueue(Frame(Envelope(WorkerMessageKind.Initialize, 1, payload)));
+            input.Enqueue(Frame(Envelope(
+                WorkerMessageKind.Initialize,
+                1,
+                payload,
+                incarnation: 1)));
             input.Complete();
             var factoryCalls = 0;
             var exit = await Server(
@@ -1254,7 +1503,7 @@ public sealed class WorkerServerTests
     private static WorkerServer Server(
         Stream input,
         Stream output,
-        Func<WorkerInitializeRequest, CancellationToken, Task<ISessionLifetime>> factory,
+        Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>> factory,
         Func<DateTimeOffset>? utcNow = null,
         Func<DateTimeOffset, CancellationToken, Task>? waitUntilDeadline = null,
         TaskScheduler? factoryScheduler = null)
@@ -1262,7 +1511,6 @@ public sealed class WorkerServerTests
             input,
             output,
             factory,
-            BootId,
             utcNow ?? (() => Now),
             waitUntilDeadline,
             factoryScheduler);
@@ -1271,23 +1519,25 @@ public sealed class WorkerServerTests
         long requestId,
         long generation,
         DateTimeOffset deadline)
-        => Envelope(
-            WorkerMessageKind.Initialize,
-            requestId,
-            InitializePayload(generation, deadline));
-
-    private static JsonElement InitializePayload(long generation, DateTimeOffset deadline) =>
-        JsonSerializer.SerializeToElement(new
-        {
+        => WorkerOperationProtocol.CreateInitializeEnvelope(
+            SessionId,
             generation,
-            deadlineUnixTimeMilliseconds = deadline.ToUnixTimeMilliseconds(),
-        });
+            requestId,
+            deadline,
+            Limits);
 
     private static WorkerEnvelope Envelope(
         WorkerMessageKind kind,
         long? requestId,
-        JsonElement payload)
-        => new(WorkerProtocol.Version, kind, BootId, requestId, payload);
+        JsonElement payload,
+        long incarnation = 1)
+        => new(
+            WorkerProtocol.Version,
+            kind,
+            SessionId,
+            incarnation,
+            requestId,
+            payload);
 
     private static JsonElement EmptyPayload() =>
         JsonSerializer.SerializeToElement(new { });
@@ -1309,7 +1559,8 @@ public sealed class WorkerServerTests
         Assert.All(frames, frame =>
         {
             Assert.Equal(WorkerProtocol.Version, frame.ProtocolVersion);
-            Assert.Equal(BootId, frame.WorkerBootId);
+            Assert.Equal(SessionId, frame.SessionId);
+            Assert.True(frame.Incarnation > 0);
         });
     }
 
@@ -1374,7 +1625,9 @@ public sealed class WorkerServerTests
 
     private sealed class RecordingLifetime(
         Func<Task>? shutdown = null,
-        Action? dispose = null) : ISessionLifetime
+        Action? dispose = null,
+        Func<WorkerOperationRequest, CancellationToken, Task<WorkerExecutionResult>>? execute = null) :
+        IWorkerSession
     {
         private readonly Func<Task> _shutdown = shutdown ?? (() => Task.CompletedTask);
         private readonly Action _dispose = dispose ?? (() => { });
@@ -1395,6 +1648,13 @@ public sealed class WorkerServerTests
             Disposed.TrySetResult();
             _dispose();
         }
+
+        public Task<WorkerExecutionResult> ExecuteAsync(
+            WorkerOperationRequest request,
+            CancellationToken cancellationToken) =>
+            execute?.Invoke(request, cancellationToken) ??
+            Task.FromException<WorkerExecutionResult>(
+                new NotSupportedException("No operation executor was configured."));
     }
 
     private sealed class ThrowingReadStream : Stream
@@ -1442,6 +1702,56 @@ public sealed class WorkerServerTests
         public override int Read(byte[] buffer, int offset, int count) =>
             throw new NotSupportedException();
         public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+    }
+
+    private sealed class FailingSecondWriteStream : Stream
+    {
+        private readonly MemoryStream _inner = new();
+        private readonly TaskCompletionSource _firstFrameWritten = NewSignal();
+        private int _writeCalls;
+
+        internal Task FirstFrameWritten => _firstFrameWritten.Task;
+        internal int WriteCalls => Volatile.Read(ref _writeCalls);
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            var call = Interlocked.Increment(ref _writeCalls);
+            if (call == 2)
+                throw new IOException("injected operation response failure");
+            await _inner.WriteAsync(buffer, cancellationToken);
+        }
+
+        public override async Task FlushAsync(CancellationToken cancellationToken)
+        {
+            await _inner.FlushAsync(cancellationToken);
+            if (WriteCalls == 1) _firstFrameWritten.TrySetResult();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) _inner.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+        public override void Flush() => throw new NotSupportedException();
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();
         public override void Write(byte[] buffer, int offset, int count) =>
             throw new NotSupportedException();
@@ -1512,7 +1822,7 @@ public sealed class WorkerServerTests
             throw new NotSupportedException();
     }
 
-    private sealed class BlockingSecondWriteStream : Stream
+    private sealed class BlockingFirstWriteStream : Stream
     {
         private readonly CapturingWriteStream _inner = new();
         private int _writeCount;
@@ -1526,7 +1836,7 @@ public sealed class WorkerServerTests
             ReadOnlyMemory<byte> buffer,
             CancellationToken cancellationToken = default)
         {
-            if (Interlocked.Increment(ref _writeCount) == 2)
+            if (Interlocked.Increment(ref _writeCount) == 1)
             {
                 BlockedWriteEntered.TrySetResult();
                 await ReleaseBlockedWrite.Task.WaitAsync(cancellationToken);

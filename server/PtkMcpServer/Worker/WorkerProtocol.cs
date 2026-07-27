@@ -8,20 +8,23 @@ namespace PtkMcpServer.Worker;
 internal enum WorkerMessageKind
 {
     Initialize,
-    Prepare,
-    Commit,
-    Abort,
-    Request,
+    Ready,
+    Invoke,
+    StateQuery,
+    StateSnapshot,
     Cancel,
-    Event,
-    Response,
+    ArtifactChunk,
+    ArtifactSeal,
+    Result,
     Shutdown,
+    Stopped,
 }
 
 internal sealed record WorkerEnvelope(
     int ProtocolVersion,
     WorkerMessageKind Kind,
-    Guid WorkerBootId,
+    Guid SessionId,
+    long Incarnation,
     long? RequestId,
     JsonElement Payload);
 
@@ -43,12 +46,12 @@ internal sealed class WorkerProtocolException : IOException
 }
 
 /// <summary>
-/// Frozen v1 worker-envelope codec. Frames are strict UTF-8 JSON terminated by
+/// Frozen minimal worker-envelope codec. Frames are strict UTF-8 JSON terminated by
 /// one LF. The terminator is outside the encoded-frame limit.
 /// </summary>
 internal static class WorkerProtocol
 {
-    internal const int Version = 1;
+    internal const int Version = 2;
     internal const int MaximumJsonDepth = 32;
     internal const int MaximumEncodedFrameBytes = 1_048_576;
 
@@ -122,7 +125,8 @@ internal static class WorkerProtocol
 
             int? protocolVersion = null;
             WorkerMessageKind? kind = null;
-            Guid? workerBootId = null;
+            Guid? sessionId = null;
+            long? incarnation = null;
             long? requestId = null;
             var requestIdPresent = false;
             JsonElement? payload = null;
@@ -149,14 +153,23 @@ internal static class WorkerProtocol
                         }
                         kind = parsedKind;
                         break;
-                    case "workerBootId":
+                    case "sessionId":
                         if (property.Value.ValueKind != JsonValueKind.String ||
-                            !Guid.TryParseExact(property.Value.GetString(), "D", out var parsedBootId) ||
-                            parsedBootId == Guid.Empty)
+                            !Guid.TryParseExact(property.Value.GetString(), "D", out var parsedSessionId) ||
+                            parsedSessionId == Guid.Empty)
                         {
-                            throw InvalidField("workerBootId");
+                            throw InvalidField("sessionId");
                         }
-                        workerBootId = parsedBootId;
+                        sessionId = parsedSessionId;
+                        break;
+                    case "incarnation":
+                        if (property.Value.ValueKind != JsonValueKind.Number ||
+                            !property.Value.TryGetInt64(out var parsedIncarnation) ||
+                            parsedIncarnation <= 0)
+                        {
+                            throw InvalidField("incarnation");
+                        }
+                        incarnation = parsedIncarnation;
                         break;
                     case "requestId":
                         requestIdPresent = true;
@@ -182,7 +195,8 @@ internal static class WorkerProtocol
                 }
             }
 
-            if (protocolVersion is null || kind is null || workerBootId is null || payload is null)
+            if (protocolVersion is null || kind is null || sessionId is null ||
+                incarnation is null || payload is null)
             {
                 throw new WorkerProtocolException(
                     "missing_field",
@@ -199,7 +213,8 @@ internal static class WorkerProtocol
             return new WorkerEnvelope(
                 protocolVersion.Value,
                 kind.Value,
-                workerBootId.Value,
+                sessionId.Value,
+                incarnation.Value,
                 requestIdPresent ? requestId : null,
                 payload.Value);
         }
@@ -215,7 +230,8 @@ internal static class WorkerProtocol
             writer.WriteStartObject();
             writer.WriteNumber("protocolVersion", envelope.ProtocolVersion);
             writer.WriteString("kind", ToWireName(envelope.Kind));
-            writer.WriteString("workerBootId", envelope.WorkerBootId.ToString("D"));
+            writer.WriteString("sessionId", envelope.SessionId.ToString("D"));
+            writer.WriteNumber("incarnation", envelope.Incarnation);
             if (envelope.RequestId is { } requestId)
                 writer.WriteNumber("requestId", requestId);
             writer.WritePropertyName("payload");
@@ -257,8 +273,10 @@ internal static class WorkerProtocol
         }
         if (!Enum.IsDefined(envelope.Kind))
             throw new WorkerProtocolException("unknown_kind", "Worker protocol kind is unknown.");
-        if (envelope.WorkerBootId == Guid.Empty)
-            throw InvalidField("workerBootId");
+        if (envelope.SessionId == Guid.Empty)
+            throw InvalidField("sessionId");
+        if (envelope.Incarnation <= 0)
+            throw InvalidField("incarnation");
         if (envelope.RequestId is <= 0)
             throw InvalidField("requestId");
         if (envelope.Payload.ValueKind != JsonValueKind.Object)
@@ -315,32 +333,37 @@ internal static class WorkerProtocol
         kind = value switch
         {
             "initialize" => WorkerMessageKind.Initialize,
-            "prepare" => WorkerMessageKind.Prepare,
-            "commit" => WorkerMessageKind.Commit,
-            "abort" => WorkerMessageKind.Abort,
-            "request" => WorkerMessageKind.Request,
+            "ready" => WorkerMessageKind.Ready,
+            "invoke" => WorkerMessageKind.Invoke,
+            "state_query" => WorkerMessageKind.StateQuery,
+            "state_snapshot" => WorkerMessageKind.StateSnapshot,
             "cancel" => WorkerMessageKind.Cancel,
-            "event" => WorkerMessageKind.Event,
-            "response" => WorkerMessageKind.Response,
+            "artifact_chunk" => WorkerMessageKind.ArtifactChunk,
+            "artifact_seal" => WorkerMessageKind.ArtifactSeal,
+            "result" => WorkerMessageKind.Result,
             "shutdown" => WorkerMessageKind.Shutdown,
+            "stopped" => WorkerMessageKind.Stopped,
             _ => default,
         };
         return value is
-            "initialize" or "prepare" or "commit" or "abort" or "request" or
-            "cancel" or "event" or "response" or "shutdown";
+            "initialize" or "ready" or "invoke" or "state_query" or
+            "state_snapshot" or "cancel" or "artifact_chunk" or
+            "artifact_seal" or "result" or "shutdown" or "stopped";
     }
 
     private static string ToWireName(WorkerMessageKind kind) => kind switch
     {
         WorkerMessageKind.Initialize => "initialize",
-        WorkerMessageKind.Prepare => "prepare",
-        WorkerMessageKind.Commit => "commit",
-        WorkerMessageKind.Abort => "abort",
-        WorkerMessageKind.Request => "request",
+        WorkerMessageKind.Ready => "ready",
+        WorkerMessageKind.Invoke => "invoke",
+        WorkerMessageKind.StateQuery => "state_query",
+        WorkerMessageKind.StateSnapshot => "state_snapshot",
         WorkerMessageKind.Cancel => "cancel",
-        WorkerMessageKind.Event => "event",
-        WorkerMessageKind.Response => "response",
+        WorkerMessageKind.ArtifactChunk => "artifact_chunk",
+        WorkerMessageKind.ArtifactSeal => "artifact_seal",
+        WorkerMessageKind.Result => "result",
         WorkerMessageKind.Shutdown => "shutdown",
+        WorkerMessageKind.Stopped => "stopped",
         _ => throw new WorkerProtocolException("unknown_kind", "Worker protocol kind is unknown."),
     };
 

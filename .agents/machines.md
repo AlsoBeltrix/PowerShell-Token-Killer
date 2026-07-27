@@ -165,6 +165,34 @@ not an installed-payload update._
   `OutputStoreTests.cs` and `AuditAdminOperations.cs`; neither unrelated file
   was rewritten. Known `System.Security.Cryptography.Xml` advisories remain.
 
+### Production-reliability salvage Slice 3 checkout validation
+
+_Verified 2026-07-27 at exact code head
+`bfa335ec223609df9ce0dbfcfd9efe99382203d4`, tree
+`49bdb5822e4a37bf7cee302854451fb273eaae12`; this was checkout validation,
+not an installed-payload update._
+
+- The connected installed PTK MCP transport returned `Transport closed` before
+  the run, including for `ptk_state`, so repo guidance selected the normal
+  shell fallback. The Slice 3 candidate was not installed and this pre-run
+  transport failure is not attributed to it; it remains evidence for the
+  already-open stale/dead-client-transport reliability boundary.
+- The first focused run caught invalid worker-owned terminal data being
+  misclassified as supervisor protocol input. After correction, the focused
+  116-test worker set passed three consecutive runs. A later full run exposed
+  and corrected a test-only assumption that concurrent invoke/state responses
+  must be globally ordered; correlation is strict, cross-request completion
+  order is deliberately not.
+- Deliberate regressions independently made the exact message-union,
+  no-background, artifact-seal length, capacity, shutdown-correlation,
+  warm-state, cross-session routing, and unsolicited-terminal guards fail.
+  Every production file was restored to its pre-mutation SHA-256 before the
+  final battery.
+- The final server suite passed 1,223/1,223 in 5m05s. Pester passed 141 tests
+  with two platform skips, SIEM passed 247/247, the scoped formatter and
+  `git diff --check` passed, and the unchanged public five-tool stdio handshake
+  passed. The known five `System.Security.Cryptography.Xml` advisories remain.
+
 ## `magneto` — Michael's Linux x86_64 host
 
 _Verified 2026-07-27 against exact candidate tree
@@ -183,6 +211,25 @@ SSH-based checkout validation, not an installed-payload update._
 - Local and remote disposable checkouts were removed. No installed payload or
   persistent host configuration changed. ARM64 Linux remains untested, and
   UTM is not an approved validation route.
+
+### Production-reliability salvage Slice 3 checkout validation
+
+_Verified 2026-07-27 against exact commit
+`bfa335ec223609df9ce0dbfcfd9efe99382203d4`; this was a disposable SSH-based
+checkout validation, not an installed-payload update._
+
+- The transferred `git archive` matched SHA-256
+  `938103827f6161d3d9dc23da6eac70b9923f982e2b444da5b3b27eb0b718cd03`
+  locally and remotely. The host reported x86_64 and .NET SDK 10.0.110.
+- A clean restore/build and the complete server suite passed 1,223/1,223 in
+  3m13s. Pester 6.0.1, saved and imported only under the disposable test root,
+  passed 141 tests with two skips; SIEM passed 247/247; and the complete public
+  stdio handshake passed.
+- The only restore/build warnings were the five already-recorded transitive
+  `System.Security.Cryptography.Xml` advisories. The local archive and remote
+  checkout, temporary Pester module, and build products were removed. No
+  installed payload or persistent host configuration changed. ARM64 Linux
+  remains untested, and UTM is not an approved validation route.
 
 ## `NETWATCH-01` — Michael's Windows machine
 

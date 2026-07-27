@@ -1,6 +1,6 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 2 LOCALLY IMPLEMENTED AND VERIFIED — topology decision 1
+**Status:** SLICE 3 LOCALLY IMPLEMENTED AND VERIFIED — topology decision 1
 was settled by the owner on 2026-07-26, R0 contract-retirement decision 2 was
 approved on 2026-07-27, and the owner authorized the test-only Slice 1a on
 2026-07-27. One agent-owned MCP connection may own several explicitly named
@@ -22,8 +22,14 @@ receiver and legacy audit administration, and adds audit-independent
 supervisor admission/drain/shutdown. Exact candidate tree `faf8c2338a1a729fc5c46d87376475265148a5b0`
 passes the complete local macOS ARM64 battery and a clean SSH-based Linux
 x86_64 battery on `magneto`; ARM64 Linux remains untested after the owner
-stopped the UTM route. Slice 3 is next. No push, PR, installation, or
-deployment is authorized by this status.
+stopped the UTM route. Slice 3 code head
+`bfa335ec223609df9ce0dbfcfd9efe99382203d4` removes the prepared/commit
+protocol and cold-job codec from the worker boundary, freezes the minimal
+bounded protocol, and binds one real warm `SessionRuntime` only behind the
+internal worker entry and disposable fixture. The exact commit passes the
+complete macOS ARM64 and Linux x86_64 batteries; the normal public MCP path and
+five-tool handshake remain unchanged. Slice 4 is next. No push, PR,
+installation, or deployment is authorized by this status.
 
 ## Goal
 

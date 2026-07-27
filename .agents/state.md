@@ -120,6 +120,25 @@ short and update it when important repo facts change.
   guard fail, byte-exact restoration made it pass, and the runtime-package
   boundary guard was separately proved red-to-green. ARM64 Linux is untested;
   UTM is not to be used. Exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 3 is complete locally at code head
+  `bfa335ec223609df9ce0dbfcfd9efe99382203d4`.** The prepared
+  prepare/descriptor/commit/abort protocol, cold-job worker codec, and their
+  staging-only tests are removed. One strict v2 worker protocol now has only
+  initialize/ready, foreground invoke, nonblocking state, targeted cancel,
+  bounded artifact transfer, one terminal, and shutdown/stopped messages.
+  Request IDs are monotonic, stale session/incarnation frames and unsolicited
+  terminals are fatal, frames and logical fields are bounded, and invalid
+  worker-owned output is classified as a runtime failure rather than blaming
+  supervisor input. A real unwired fixture proves warm variables, prompt busy
+  state, cancellation with one terminal, and isolation between two differently
+  identified worker servers. Deliberate mutations proved the message union,
+  no-background boundary, artifact length/digest, capacity, shutdown
+  correlation, warm-state, cross-routing, and unsolicited-terminal guards.
+  The exact commit passed 1,223/1,223 server tests, Pester 141 with two platform
+  skips, SIEM 247/247, formatting, and the public handshake on macOS ARM64, then
+  the same behavior battery in a clean disposable checkout on Linux x86_64
+  `magneto`. Public MCP behavior is unchanged. The slice is not pushed or
+  installed; exact evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -448,10 +467,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Slice 2 is complete locally and is not pushed. Implement Slice 3 next:
-   replace the oversized prepared worker protocol with the plan's minimal,
-   bounded server-local protocol and keep it unwired until its contract and
-   worker fixture are proved.
+1. Slice 3 is complete locally at `bfa335e` and is not pushed. Implement Slice
+   4 next: port only the worker-level Unix broker and Windows creation-time
+   containment, prove independent teardown of two disposable worker domains on
+   macOS, Linux, and Windows, and keep public MCP behavior unchanged.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

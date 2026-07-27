@@ -100,8 +100,14 @@ short and update it when important repo facts change.
   `Runspace.Open()` lock convoy, narrows the exit claim to removal of
   cross-collection contention, defines an owner-gated `ci/**`/PR matrix around
   the carried Windows blockers, and requires the blocker record to be rewritten
-  rather than erased. Exact-blob closure review is next; owner approval remains
-  required. Exact machine evidence is in `.agents/machines.md`.
+  rather than erased. Claude Opus 5 round 10 reviewed exact commit `dbac8d5`
+  and plan blob `5607af7`, closed all four findings and both verification
+  addenda, found no blocking or major issue, and returned `ACCEPT`. Canonical
+  evidence is
+  `.agents/review/production-reliability-salvage-opus5-r10.md`. Slice 1a now
+  awaits one separate owner approval for the test-only implementation; product
+  decisions 3-4 and any `ci/**` push or PR remain independently gated. Exact
+  machine evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

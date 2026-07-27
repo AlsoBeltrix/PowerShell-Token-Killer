@@ -82,10 +82,12 @@ internal static class BackgroundJobContainment
 
     /// <summary>
     /// Kill-time escalation. On Windows closes the kill-on-close job
-    /// handle, which terminates every remaining member of the tree. On
-    /// Unix delegates to
-    /// <see cref="ProcessTreeContainment.EscalateAsync"/>. Never throws;
-    /// a no-op when <paramref name="process"/> was never attached.
+    /// handle, which terminates every remaining member of the tree, only
+    /// when killing the root is permitted or the root is confirmed stopped.
+    /// A descendants-only sweep cannot close a live root's Job Object without
+    /// changing a failed kill request into a successful kill. On Unix this
+    /// delegates to <see cref="ProcessTreeContainment.EscalateAsync"/>.
+    /// Never throws; a no-op when <paramref name="process"/> was never attached.
     /// </summary>
     internal static async Task EscalateAsync(Process process, bool stopped)
     {
@@ -102,6 +104,8 @@ internal static class BackgroundJobContainment
 
         if (state.Job is not null)
         {
+            if (stopped && !RootAlreadyExited(process))
+                return;
             state.Dispose();
             return;
         }
@@ -114,6 +118,12 @@ internal static class BackgroundJobContainment
         catch
         {
         }
+    }
+
+    private static bool RootAlreadyExited(Process process)
+    {
+        try { return process.HasExited; }
+        catch { return false; }
     }
 
     /// <summary>

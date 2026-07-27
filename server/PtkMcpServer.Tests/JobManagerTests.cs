@@ -2246,7 +2246,10 @@ public sealed class JobManagerTests : IDisposable
         finally
         {
             _jobs.BeforeKillForTests = null;
-            Assert.True(_jobs.Kill(job.Id));
+            var retry = _jobs.RequestKill(job.Id);
+            Assert.True(
+                retry.KillRequested,
+                $"Expected a successful retry, observed {retry.Disposition}.");
         }
 
         var final = await WaitForExitAsync(job.Id);

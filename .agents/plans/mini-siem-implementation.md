@@ -30,7 +30,7 @@
 | MVP surface | Receiver + durable store + query + alert rules + web dashboard |
 | Storage | SQLite (`Microsoft.Data.Sqlite`), with receiver-side hash-chain tamper evidence in rows |
 | Dev home | New top-level `siem/` directory with its own solution; separate product box |
-| Code sharing | Share the vendored proto (`server/PtkMcpServer/Protos/audit_otlp.proto`) and golden v1/v2/v3 fixture bytes only; no shared runtime code |
+| Code sharing | Keep the vendored proto receiver-owned at `siem/PtkSiemReceiver/Protos/audit_otlp.proto` and share only golden v1/v2/v3 fixture bytes; no shared runtime code |
 | Dashboard | ASP.NET Core minimal API + embedded static htmx pages; no node toolchain |
 | Platforms | Cross-platform (ubuntu/windows/macos); MSI as optional Windows component in a later packaging phase; tar/zip elsewhere |
 
@@ -41,7 +41,7 @@ New solution `siem/PtkSiem.slnx` (house `.slnx` format), all projects `net10.0`,
 - **`siem/PtkSiemReceiver/PtkSiemReceiver.csproj`** (`Microsoft.NET.Sdk.Web`, Exe). Generic Host + `BackgroundService` composition mirroring `server/PtkMcpServer/Program.cs`. Two Kestrel endpoints:
   - **Ingest endpoint** (mTLS required): `POST /v1/logs`, OTLP/HTTP protobuf only (`Content-Type: application/x-protobuf`). Frozen client-cert policy per ingest listener: Kestrel `ClientCertificateMode.RequireCertificate`; chain validation via `X509ChainPolicy` with custom root trust pinned to the configured CA **bundle** (multiple CAs allowed so old+new overlap during rotation); clientAuth EKU + validity window enforced; revocation-check mode explicit in config, no silent fallback. S2 negative tests on all three OSes: missing cert, wrong CA, expired, wrong EKU, revocation-policy mismatch, old/new rotation pairs.
   - **Operator endpoint** (separate port, loopback-bound by default): query API + dashboard. A non-loopback operator bind is a **startup failure** unless an operator HTTPS certificate is configured — the bearer token never travels plaintext off-host (startup validation + network integration test, S1/S5).
-- **Wire layer**: compiles the canonical proto via `<Protobuf Include="../../server/PtkMcpServer/Protos/audit_otlp.proto" Link="Protos/audit_otlp.proto" GrpcServices="None" />` with `Google.Protobuf` 3.35.1 + `Grpc.Tools` 2.82.0 (`PrivateAssets=all`) — same packages/pattern as the producer, independently compiled, no `OpenTelemetry.*` NuGet. PTK's copy of the proto is never edited by this plan.
+- **Wire layer**: compiles the receiver-owned canonical proto via `<Protobuf Include="Protos/audit_otlp.proto" GrpcServices="None" />` with `Google.Protobuf` 3.35.1 + `Grpc.Tools` 2.82.0 (`PrivateAssets=all`), independently of the PTK runtime and with no `OpenTelemetry.*` NuGet.
 - **Ingest pipeline** (per request, in order):
   1. Parse `ExportLogsServiceRequest`; malformed/oversized ⇒ HTTP 400, never an ack. Request size cap configurable (default 1 MiB).
   2. Extract the single log record (producer sends one record per request); validate schema version (v1/v2/v3 accepted), retained attribute names/types, and the four `ptk.host.*` rules.
@@ -129,4 +129,4 @@ Each slice lands as its own commit(s) with tests green (AGENTS.md: commit each s
 - `.agents/plans/mini-siem-discovery.md` — matrix `:85-95`, grading rule `:106-112`, identity `:113-121`, barriers `:122-138`, fixtures `:134-138`, non-goals `:150-156`, discrimination `:163-170`.
 - `server/AUDIT-EXPORT.md` — transport/ack/anchor contract (valid nonrejecting ack `:87-97`, interface-boundary precedent `:205`).
 - `git show 33d6a35:.agents/plans/mcp-resilience.md` — transport `:561-584`, compat fixtures `:785-801`, prohibitions `:853-856`.
-- Producer code (patterns, read-only; never shared at runtime): `server/PtkMcpServer/Protos/audit_otlp.proto`, `server/PtkMcpServer/Audit/AuditOtlpHttpExporter.cs`, `AuditOtlpRecordMapper.cs`, `AuditExportCheckpointStore.cs`, `AuditExportConfiguration.cs`, `AuditStartupConfiguration.cs`, `SecureAuditStorage.cs`, `server/PtkMcpServer.Tests/FakeOtlpHttpsReceiver.cs`, `AuditCoreSchemaTestRecords.cs`.
+- Retained wire and legacy-administration references (read-only; never shared at runtime): `siem/PtkSiemReceiver/Protos/audit_otlp.proto`, `server/PtkMcpServer/Audit/AuditExportCheckpointStore.cs`, `AuditStartupConfiguration.cs`, `SecureAuditStorage.cs`, and `server/PtkMcpServer.Tests/AuditCoreSchemaTestRecords.cs`.

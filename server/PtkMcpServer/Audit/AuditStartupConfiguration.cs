@@ -1,84 +1,71 @@
 namespace PtkMcpServer.Audit;
 
 /// <summary>
-/// Loads the process-wide, startup-frozen audit mode. The absence of an export
-/// configuration selects local-only logging; the presence of one selects
-/// anchored mode and must produce a complete validated exporter configuration.
+/// Resolves the legacy audit root for the separate administration executable.
+/// The production MCP server does not load audit configuration.
 /// </summary>
 internal sealed class AuditStartupConfiguration : IDisposable
 {
     internal const string AuditRootEnvironmentVariable = "PTK_AUDIT_ROOT";
-    internal const string ExportConfigurationEnvironmentVariable =
-        "PTK_AUDIT_EXPORT_CONFIG";
 
-    private readonly AuditExportOptions? _exportOptions;
     private int _disposed;
 
-    private AuditStartupConfiguration(
-        AuditOptions auditOptions,
-        AuditExportOptions? exportOptions)
+    private AuditStartupConfiguration(AuditOptions auditOptions)
     {
         AuditOptions = auditOptions;
-        _exportOptions = exportOptions;
     }
 
     internal AuditOptions AuditOptions { get; }
 
-    internal AuditExportOptions? ExportOptions
-    {
-        get
-        {
-            ObjectDisposedException.ThrowIf(
-                Volatile.Read(ref _disposed) != 0,
-                this);
-            return _exportOptions;
-        }
-    }
-
     internal static AuditStartupConfiguration LoadFromEnvironment() =>
-        Load(
-            Environment.GetEnvironmentVariable(AuditRootEnvironmentVariable),
-            Environment.GetEnvironmentVariable(ExportConfigurationEnvironmentVariable),
-            static (configurationPath, auditRoot) =>
-                AuditExportConfigurationLoader.Load(configurationPath, auditRoot));
+        Load(Environment.GetEnvironmentVariable(AuditRootEnvironmentVariable));
 
-    internal static AuditStartupConfiguration Load(
-        string? configuredAuditRoot,
-        string? configuredExportPath,
-        Func<string, string, AuditExportOptions> loadExportOptions)
+    internal static AuditStartupConfiguration Load(string? configuredAuditRoot)
     {
-        ArgumentNullException.ThrowIfNull(loadExportOptions);
-
         var localOptions = string.IsNullOrWhiteSpace(configuredAuditRoot)
             ? AuditOptions.CreateDefault()
             : AuditOptions.Create(Path.GetFullPath(configuredAuditRoot));
-        if (configuredExportPath is null)
-            return new AuditStartupConfiguration(localOptions, exportOptions: null);
-
-        AuditExportOptions? exportOptions = null;
-        try
-        {
-            // An explicitly present but empty value is intentionally delegated
-            // to the strict loader and fails as incomplete anchored setup.
-            exportOptions = loadExportOptions(
-                configuredExportPath,
-                localOptions.RootDirectory);
-            var anchoredOptions = AuditOptions.Create(
-                localOptions.RootDirectory,
-                AuditProtectionMode.Anchored,
-                exportOptions.ConfigurationIdentity);
-            return new AuditStartupConfiguration(anchoredOptions, exportOptions);
-        }
-        catch
-        {
-            exportOptions?.Dispose();
-            throw;
-        }
+        return new AuditStartupConfiguration(localOptions);
     }
 
-    public void Dispose()
+    internal static AuditOptions ResolvePermanentBlockOptions(
+        AuditOptions localOptions,
+        Guid supervisorBootId,
+        Guid blockedEventId)
     {
-        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        _exportOptions?.Dispose();
+        ArgumentNullException.ThrowIfNull(localOptions);
+        var probeOptions = AsAnchored(
+            localOptions,
+            new string('0', 64));
+        var checkpoint = AuditExportCheckpointStore.ReadSnapshot(
+            probeOptions,
+            supervisorBootId);
+        var blocked = checkpoint.BlockedRecord;
+        if (blocked is null || blocked.EventId != blockedEventId)
+        {
+            throw new IOException(
+                "The requested legacy audit export block is not present.");
+        }
+        return AsAnchored(
+            localOptions,
+            blocked.ExportConfigurationIdentity);
     }
+
+    public void Dispose() => Interlocked.Exchange(ref _disposed, 1);
+
+    private static AuditOptions AsAnchored(
+        AuditOptions options,
+        string exportConfigurationIdentity) =>
+        AuditOptions.Create(
+            options.RootDirectory,
+            AuditProtectionMode.Anchored,
+            exportConfigurationIdentity,
+            options.MaxRecordBytes,
+            options.SegmentBytes,
+            options.AggregateBytes,
+            options.EmergencyReserveBytes,
+            options.RetentionAge,
+            options.MaxEvidenceBytes,
+            options.EvidenceAggregateBytes,
+            options.EvidenceRetentionAge);
 }

@@ -514,8 +514,10 @@ public sealed class WorkerProcessEntryTests
             "Host.CreateApplicationBuilder(args)",
             "DefaultSessionRuntimeFactory.ReadCallTimeout()",
             "JobPwshExecutable.ResolveFromPath()",
-            "AuditStartupConfiguration.LoadFromEnvironment()",
             "new OutputStore(",
+            "new WorkerSupervisor(",
+            "new SupervisorLifecycle(",
+            "SupervisorCallFilter.Create()",
             ".AddMcpServer(",
             "ChildStdinGuard.DetachChildStdin()",
         })
@@ -552,7 +554,7 @@ public sealed class WorkerProcessEntryTests
     }
 
     [Fact]
-    public async Task Subprocess_malformed_worker_bypasses_poisoned_audit_startup()
+    public async Task Subprocess_malformed_worker_bypasses_supervisor_startup()
     {
         var result = await RunWorkerSubprocessAsync("--worker", "extra");
 
@@ -564,7 +566,7 @@ public sealed class WorkerProcessEntryTests
     }
 
     [Fact]
-    public async Task Subprocess_missing_handles_bypasses_poisoned_audit_startup()
+    public async Task Subprocess_missing_handles_bypasses_supervisor_startup()
     {
         var result = await RunWorkerSubprocessAsync("--worker");
 
@@ -737,7 +739,6 @@ public sealed class WorkerProcessEntryTests
         start.ArgumentList.Add("exec");
         start.ArgumentList.Add(serverDll);
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
-        start.Environment["PTK_AUDIT_EXPORT_CONFIG"] = string.Empty;
         start.Environment.Remove(WorkerBootstrapEnvironment.RequestHandle);
         start.Environment.Remove(WorkerBootstrapEnvironment.EventHandle);
 

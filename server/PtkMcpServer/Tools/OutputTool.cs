@@ -3,7 +3,6 @@ using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.Text;
 using ModelContextProtocol.Server;
-using PtkMcpServer.Audit;
 
 namespace PtkMcpServer.Tools;
 
@@ -41,73 +40,50 @@ public static class OutputTool
         [Range(1, OutputStore.MaximumReadBytes)]
         int maxBytes = OutputStore.DefaultReadBytes,
         [Description(
-            "Bounded ordinal literal required only for action=search; raw pattern text is not written to audit.")]
+            "Bounded ordinal literal required only for action=search.")]
         [MaxLength(OutputStore.MaximumPatternBytes)]
         string? pattern = null,
-        CancellationToken cancellationToken = default,
-        AuditCallContextAccessor? auditContext = null)
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
         cancellationToken.ThrowIfCancellationRequested();
         action = action?.ToLowerInvariant() ?? "read";
-        var audit = auditContext?.Current;
 
         switch (action)
         {
             case "status":
-            {
-                var status = store.Status(handle);
-                var response = FormatStatus(status);
-                audit?.CommitReadOutcome(
-                    "output.status_accessed",
-                    status.State.ToMachineCode(),
-                    response,
-                    detailCode: status.DetailCode);
-                return response;
-            }
+                {
+                    var status = store.Status(handle);
+                    return FormatStatus(status);
+                }
             case "search":
-            {
-                if (pattern is null)
-                    return "[ptk output] invalid request: action=search requires pattern.";
-                OutputSearchResult result;
-                try
                 {
-                    result = store.Search(handle, pattern, offset, maxBytes);
+                    if (pattern is null)
+                        return "[ptk output] invalid request: action=search requires pattern.";
+                    OutputSearchResult result;
+                    try
+                    {
+                        result = store.Search(handle, pattern, offset, maxBytes);
+                    }
+                    catch (ArgumentOutOfRangeException)
+                    {
+                        return "[ptk output] invalid request: offset, maxBytes, or pattern is outside the bounded contract.";
+                    }
+                    return FormatSearch(result);
                 }
-                catch (ArgumentOutOfRangeException)
-                {
-                    return "[ptk output] invalid request: offset, maxBytes, or pattern is outside the bounded contract.";
-                }
-                var response = FormatSearch(result);
-                audit?.CommitReadOutcome(
-                    "output.search_accessed",
-                    result.State.ToMachineCode(),
-                    response,
-                    detailCode: result.DetailCode,
-                    nextOffset: result.NextOffset);
-                return response;
-            }
             case "read":
-            {
-                OutputReadResult result;
-                try
                 {
-                    result = store.Read(handle, offset, maxBytes);
+                    OutputReadResult result;
+                    try
+                    {
+                        result = store.Read(handle, offset, maxBytes);
+                    }
+                    catch (ArgumentOutOfRangeException)
+                    {
+                        return "[ptk output] invalid request: offset or maxBytes is outside the bounded contract.";
+                    }
+                    return FormatRead(result);
                 }
-                catch (ArgumentOutOfRangeException)
-                {
-                    return "[ptk output] invalid request: offset or maxBytes is outside the bounded contract.";
-                }
-                var response = FormatRead(result);
-                audit?.CommitReadOutcome(
-                    "output.read_accessed",
-                    result.State.ToMachineCode(),
-                    response,
-                    detailCode: result.DetailCode,
-                    nextOffset: result.NextOffset,
-                    bytesReturnedOverride: result.BytesRead);
-                return response;
-            }
             default:
                 return "[ptk output] unknown action - use read | search | status.";
         }

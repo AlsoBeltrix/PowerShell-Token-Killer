@@ -333,16 +333,16 @@ public sealed class RawUsageTests : IDisposable
         }
 
         Assert.Equal(
-            "runtime,script,cancellationToken,raw,route,background,timeoutSeconds,auditContext,outputStore",
+            "runtime,script,cancellationToken,raw,route,background,timeoutSeconds,outputStore",
             string.Join(',', methods[0].GetParameters().Select(parameter => parameter.Name)));
         Assert.Equal(
-            "runtime,action,cancellationToken,id,offset,auditContext",
+            "runtime,action,cancellationToken,id,offset",
             string.Join(',', methods[1].GetParameters().Select(parameter => parameter.Name)));
         Assert.Equal(
-            "runtime,listAvailable,cancellationToken,auditContext",
+            "runtime,listAvailable,cancellationToken",
             string.Join(',', methods[2].GetParameters().Select(parameter => parameter.Name)));
         Assert.Equal(
-            "runtime,cancellationToken,auditContext",
+            "runtime,cancellationToken",
             string.Join(',', methods[3].GetParameters().Select(parameter => parameter.Name)));
 
         Assert.Equal(false, Parameter(methods[0], "raw").DefaultValue);

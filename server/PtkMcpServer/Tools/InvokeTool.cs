@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
-using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tools;
@@ -65,7 +64,6 @@ public static class InvokeTool
             "the warm session (live connections, imported modules); stateless long " +
             "work should use background=true instead.")]
         int timeoutSeconds = 0,
-        AuditCallContextAccessor? auditContext = null,
         OutputStore? outputStore = null)
         => runtime.InvokeAsync(
             script,
@@ -74,6 +72,5 @@ public static class InvokeTool
             route,
             background,
             timeoutSeconds,
-            auditContext,
             outputStore);
 }

@@ -99,27 +99,3 @@ internal sealed class AuditEvidenceOrphanReconciler
         }
     }
 }
-
-/// <summary>
-/// Gives a long-lived exporter safe periodic reconciliation points without
-/// coupling evidence retention to transport success or checkpoint progress.
-/// </summary>
-internal sealed class AuditEvidenceReconcilingExportSource(
-    IAuditExportStepSource inner,
-    AuditEvidenceOrphanReconciler reconciler) : IAuditExportStepSource
-{
-    private readonly IAuditExportStepSource _inner =
-        inner ?? throw new ArgumentNullException(nameof(inner));
-    private readonly AuditEvidenceOrphanReconciler _reconciler =
-        reconciler ?? throw new ArgumentNullException(nameof(reconciler));
-
-    public Task<AuditExportCoordinatorStep> ExportNextAsync(
-        CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        _ = _reconciler.ReconcileIfDue();
-        return _inner.ExportNextAsync(cancellationToken);
-    }
-
-    public void Dispose() => _inner.Dispose();
-}

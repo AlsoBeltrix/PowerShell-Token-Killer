@@ -23,11 +23,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Compile Remove="AuditOtlpSiemConformanceTests.cs" />
-    <Compile Remove="SiemConformance/**/*.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\PtkContainmentTestFixture\PtkContainmentTestFixture.csproj" />
     <ProjectReference Include="..\PtkMcpServer\PtkMcpServer.csproj" />
     <ProjectReference Include="..\PtkRtkTestFixture\PtkRtkTestFixture.csproj" />

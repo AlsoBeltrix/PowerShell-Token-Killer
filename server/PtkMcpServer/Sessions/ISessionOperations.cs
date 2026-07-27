@@ -18,24 +18,19 @@ public interface ISessionOperations
         string route,
         bool background,
         int timeoutSeconds,
-        AuditCallContextAccessor? auditContext,
         OutputStore? outputStore);
 
     Task<string> JobAsync(
         string action,
         CancellationToken cancellationToken,
         long id,
-        long offset,
-        AuditCallContextAccessor? auditContext);
+        long offset);
 
     Task<string> StateAsync(
         bool listAvailable,
-        CancellationToken cancellationToken,
-        AuditCallContextAccessor? auditContext);
+        CancellationToken cancellationToken);
 
-    Task<string> ResetAsync(
-        CancellationToken cancellationToken,
-        AuditCallContextAccessor? auditContext);
+    Task<string> ResetAsync(CancellationToken cancellationToken);
 }
 
 /// <summary>

@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Text;
 using System.Text.Json;
 using PtkMcpServer.Audit;
 
@@ -19,69 +18,42 @@ public sealed class AuditProgramStartupTests : IDisposable
     }
 
     [Fact]
-    public async Task Explicit_empty_export_configuration_fails_before_host_start()
+    public async Task Unwritable_audit_root_does_not_block_invoke_and_state_reports_disabled()
     {
-        var auditRoot = NewRoot("invalid-audit");
-        using var process = StartServer(
-            auditRoot,
-            exportConfigurationPath: string.Empty);
-        var stderr = process.StandardError.ReadToEndAsync();
-        try
-        {
-            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
-
-            Assert.NotEqual(0, process.ExitCode);
-            Assert.Contains(
-                "audit_export_configuration_invalid: config_path",
-                await stderr,
-                StringComparison.Ordinal);
-            Assert.Equal(string.Empty, await process.StandardOutput.ReadToEndAsync());
-        }
-        finally
-        {
-            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
-            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
-            catch { /* Preserve the test assertion. */ }
-        }
-    }
-
-    [Fact]
-    public async Task Valid_anchored_configuration_starts_and_network_loss_keeps_state_available()
-    {
-        var auditRoot = NewRoot("anchored-audit");
-        var configRoot = NewRoot("anchored-config");
-        var configPath = Path.Combine(configRoot, "export.json");
-        var configuration = """
-            {"schema_version":"ptk.export-config/2","protection_mode":"anchored","endpoint":"https://127.0.0.1:1/v1/logs","headers":{"Authorization":"Bearer integration-test"},"ca_file":null,"client_certificate_file":null,"client_private_key_file":null,"revocation_check_mode":"Online"}
-            """;
-        using (var stream = SecureAuditStorage.CreateExclusiveFile(configPath))
-        {
-            stream.Write(Encoding.UTF8.GetBytes(configuration));
-            stream.Flush(flushToDisk: true);
-        }
-
-        using var process = StartServer(auditRoot, configPath);
+        var auditRoot = NewBlockedAuditRoot();
+        using var process = StartServer(auditRoot);
         var stderr = process.StandardError.ReadToEndAsync();
         try
         {
             await SendAsync(
                 process,
-                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"anchored-startup-test","version":"1"}}}""");
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-independent-startup-test","version":"1"}}}""");
             _ = await ReadResponseAsync(process, 1);
             await SendAsync(
                 process,
                 """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
             await SendAsync(
                 process,
-                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_state","arguments":{}}}""");
-            var response = await ReadResponseAsync(process, 2);
-            var result = response.GetProperty("result");
-            Assert.False(result.TryGetProperty("isError", out var isError) && isError.GetBoolean());
-            var text = result.GetProperty("content")[0].GetProperty("text").GetString()!;
-            Assert.Contains("protection anchored", text, StringComparison.Ordinal);
-            Assert.Contains("audit exporter:", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("audit exporter: disabled", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("unrecorded=true", text, StringComparison.Ordinal);
+                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_invoke","arguments":{"script":"'audit-independent-effect'","route":"pwsh"}}}""");
+            var invoke = (await ReadResponseAsync(process, 2)).GetProperty("result");
+            Assert.False(
+                invoke.TryGetProperty("isError", out var invokeError) &&
+                invokeError.GetBoolean());
+            Assert.Contains(
+                "audit-independent-effect",
+                invoke.GetProperty("content")[0].GetProperty("text").GetString(),
+                StringComparison.Ordinal);
+
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ptk_state","arguments":{}}}""");
+            var state = (await ReadResponseAsync(process, 3)).GetProperty("result");
+            Assert.False(
+                state.TryGetProperty("isError", out var stateError) &&
+                stateError.GetBoolean());
+            var text = state.GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("audit: disabled", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("audit exporter:", text, StringComparison.Ordinal);
         }
         finally
         {
@@ -92,7 +64,7 @@ public sealed class AuditProgramStartupTests : IDisposable
         }
     }
 
-    private Process StartServer(string auditRoot, string exportConfigurationPath)
+    private Process StartServer(string auditRoot)
     {
         var serverDll = Path.Combine(AppContext.BaseDirectory, "PtkMcpServer.dll");
         Assert.True(File.Exists(serverDll), $"server dll not found at {serverDll}");
@@ -109,10 +81,16 @@ public sealed class AuditProgramStartupTests : IDisposable
         start.ArgumentList.Add("exec");
         start.ArgumentList.Add(serverDll);
         start.Environment[AuditStartupConfiguration.AuditRootEnvironmentVariable] = auditRoot;
-        start.Environment[AuditStartupConfiguration.ExportConfigurationEnvironmentVariable] =
-            exportConfigurationPath;
         return Process.Start(start)
             ?? throw new InvalidOperationException("The audit startup test server did not start.");
+    }
+
+    private string NewBlockedAuditRoot()
+    {
+        var root = NewRoot("blocked-audit");
+        var blocker = Path.Combine(root, "blocker");
+        File.WriteAllText(blocker, "not a directory");
+        return Path.Combine(blocker, "audit");
     }
 
     private string NewRoot(string label)

@@ -105,6 +105,21 @@ short and update it when important repo facts change.
   carried Windows failures, or the lack of current cross-platform CI evidence.
   Product decisions 3-4 and any `ci/**` push or PR remain independently gated.
   Exact machine evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 2 is complete in the local
+  checkout.** Ordinary invoke no longer opens or depends on audit storage;
+  `ptk_state` reports audit disabled. `WorkerSupervisor`,
+  `SupervisorLifecycle`, and `SupervisorCallFilter` now own admission,
+  cancellation/drain, and ordered runtime shutdown without the idle watchdog.
+  The anchored OTLP producer, its runtime protobuf dependencies, and its
+  producer-to-SIEM conformance surface are removed; the relocated receiver
+  proto, standalone SIEM, legacy `PtkAuditAdmin`, and local legacy-state
+  primitives remain. The runtime installer excludes `PtkAuditAdmin`. Exact
+  candidate tree `faf8c2338a1a729fc5c46d87376475265148a5b0` passed the full
+  macOS ARM64 battery and a clean Linux x86_64 battery over SSH on `magneto`.
+  A deliberate startup regression made the unwritable-audit-root integration
+  guard fail, byte-exact restoration made it pass, and the runtime-package
+  boundary guard was separately proved red-to-green. ARM64 Linux is untested;
+  UTM is not to be used. Exact evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -433,10 +448,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Slice 1a is committed locally at `18ef351` and is not pushed. Implement
-   Slice 2 next: remove mandatory audit from execution admission and retire the
-   runtime OTLP/export path exactly within the active plan, one commit per
-   slice, while preserving the standalone SIEM receiver.
+1. Slice 2 is complete locally and is not pushed. Implement Slice 3 next:
+   replace the oversized prepared worker protocol with the plan's minimal,
+   bounded server-local protocol and keep it unwired until its contract and
+   worker fixture are proved.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

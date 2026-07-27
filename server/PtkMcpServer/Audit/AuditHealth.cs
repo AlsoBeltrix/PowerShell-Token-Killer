@@ -182,24 +182,6 @@ public sealed class AuditHealth
     private static readonly Regex FailureClassPattern = new(
         "^[a-z][a-z0-9_.-]{0,63}$",
         RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
-    private static readonly HashSet<string> ExportDetailCodes = new(
-        [
-            "chain.complete",
-            "http.200.content_type",
-            "http.200.protobuf",
-            "http.200.rejected_count",
-            "http.200.response_too_large",
-            "live.tail",
-            "mapping.identity",
-            "otlp.acknowledged",
-            "otlp.acknowledged_warning",
-            "otlp.partial_rejection",
-            "prefix.complete",
-            "tls.validation",
-            "transport.connection",
-            "transport.timeout",
-        ],
-        StringComparer.Ordinal);
 
     private readonly object _gate = new();
     private readonly object _transitionGate = new();
@@ -240,15 +222,7 @@ public sealed class AuditHealth
             LastProgress: null,
             LastAcknowledgment: null,
             HasHealthWarning: false);
-        ExportObserver = new ExportHealthObserver(this);
     }
-
-    /// <summary>
-    /// A write-only in-memory observer for the export loop. It cannot append
-    /// audit records or change journal availability, which prevents exporter
-    /// telemetry from creating an audit/export feedback loop.
-    /// </summary>
-    internal IAuditExportHealthObserver ExportObserver { get; }
 
     public AuditHealthSnapshot Snapshot()
     {
@@ -459,146 +433,6 @@ public sealed class AuditHealth
         _emergencyProbeFirstUtc,
         _emergencyProbeLastUtc,
         _exporter);
-
-    private void ObserveExport(AuditExportHealthObservation observation)
-    {
-        if (_protectionMode == AuditProtectionMode.LocalOnly)
-            return;
-
-        var observedUtc = observation.ObservedAtUtc.ToUniversalTime();
-        lock (_gate)
-        {
-            var nextState = MapExporterState(observation.Snapshot);
-            var stateChangedUtc = nextState == _exporter.State
-                ? _exporter.StateChangedUtc
-                : observedUtc;
-            var scheduledDelay = nextState is AuditExporterState.Idle or
-                AuditExporterState.Retrying or AuditExporterState.Stalled
-                    ? observation.Snapshot.ScheduledDelay
-                    : null;
-            var nextActionUtc = AddDelay(observedUtc, scheduledDelay);
-            var blocked = _exporter.Blocked;
-            var lastProgress = _exporter.LastProgress;
-            var lastAcknowledgment = _exporter.LastAcknowledgment;
-            var hasHealthWarning = _exporter.HasHealthWarning;
-
-            if (observation.ObservedStep is { } step)
-            {
-                var detailCode = SafeDetailCode(step.DetailCode);
-                if (step.Kind == AuditExportCoordinatorStepKind.Blocked)
-                {
-                    blocked = new AuditExporterBlockSnapshot(
-                        step.SupervisorBootId,
-                        step.IsCurrentBoot,
-                        step.EventId,
-                        detailCode,
-                        FailureClass(step.FailureClass));
-                }
-
-                if (step.Kind is AuditExportCoordinatorStepKind.Advanced or
-                    AuditExportCoordinatorStepKind.Progressed or
-                    AuditExportCoordinatorStepKind.Complete)
-                {
-                    lastProgress = new AuditExporterActivitySnapshot(
-                        observedUtc,
-                        step.SupervisorBootId,
-                        step.IsCurrentBoot,
-                        step.EventId,
-                        detailCode,
-                        step.HasHealthWarning);
-                    if (step.EventId is not null &&
-                        step.Kind is AuditExportCoordinatorStepKind.Advanced or
-                            AuditExportCoordinatorStepKind.Complete)
-                    {
-                        lastAcknowledgment = lastProgress;
-                        hasHealthWarning = step.HasHealthWarning;
-                    }
-                }
-            }
-
-            _exporter = new AuditExporterHealthSnapshot(
-                nextState,
-                stateChangedUtc,
-                scheduledDelay,
-                nextActionUtc,
-                blocked,
-                lastProgress,
-                lastAcknowledgment,
-                hasHealthWarning);
-        }
-    }
-
-    private static AuditExporterState MapExporterState(
-        AuditExportLoopSnapshot snapshot) => snapshot.State switch
-    {
-        AuditExportLoopState.Created => AuditExporterState.Created,
-        AuditExportLoopState.Running => AuditExporterState.Running,
-        AuditExportLoopState.WaitingForWork
-            when snapshot.LastStep?.Kind == AuditExportCoordinatorStepKind.Blocked =>
-                AuditExporterState.Stalled,
-        AuditExportLoopState.WaitingForWork => AuditExporterState.Idle,
-        AuditExportLoopState.WaitingToRetry => AuditExporterState.Retrying,
-        AuditExportLoopState.Completed => AuditExporterState.Completed,
-        AuditExportLoopState.Stopped or AuditExportLoopState.Disposed =>
-            AuditExporterState.Stopped,
-        AuditExportLoopState.Faulted => AuditExporterState.Faulted,
-        _ => AuditExporterState.Faulted,
-    };
-
-    private static DateTimeOffset? AddDelay(
-        DateTimeOffset observedUtc,
-        TimeSpan? delay)
-    {
-        if (delay is null)
-            return null;
-        try
-        {
-            return observedUtc.Add(delay.Value);
-        }
-        catch (ArgumentOutOfRangeException)
-        {
-            return null;
-        }
-    }
-
-    private static string SafeDetailCode(string? detailCode)
-    {
-        if (detailCode is null)
-            return "unknown";
-        return IsSafeDetailCode(detailCode) ||
-               detailCode.StartsWith("retry.", StringComparison.Ordinal) &&
-               IsSafeDetailCode(detailCode["retry.".Length..])
-            ? detailCode
-            : "unknown";
-    }
-
-    private static bool IsSafeDetailCode(string detailCode)
-    {
-        if (ExportDetailCodes.Contains(detailCode))
-            return true;
-        return detailCode.Length == 8 &&
-               detailCode.StartsWith("http.", StringComparison.Ordinal) &&
-               detailCode[5] is >= '1' and <= '5' &&
-               detailCode[6] is >= '0' and <= '9' &&
-               detailCode[7] is >= '0' and <= '9';
-    }
-
-    private static string? FailureClass(AuditExportFailureClass? failureClass) =>
-        failureClass switch
-        {
-            AuditExportFailureClass.Configuration => "configuration",
-            AuditExportFailureClass.PartialRejection => "partial_rejection",
-            AuditExportFailureClass.Data => "data",
-            AuditExportFailureClass.Protocol => "protocol",
-            null => null,
-            _ => "unknown",
-        };
-
-    private sealed class ExportHealthObserver(AuditHealth owner) : IAuditExportHealthObserver
-    {
-        public void Observe(AuditExportHealthObservation observation) =>
-            owner.ObserveExport(observation);
-    }
 
     private DateTimeOffset GetUtcNow()
     {

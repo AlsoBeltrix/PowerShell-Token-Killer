@@ -142,6 +142,48 @@ not an installed-payload update._
   was still in flight. Its isolated guard passed 10/10 and the clean full rerun
   above passed; this is not counted as a passing run or as R0 behavior evidence.
 
+### Production-reliability salvage Slice 2 checkout validation
+
+_Verified 2026-07-27 against exact candidate tree
+`faf8c2338a1a729fc5c46d87376475265148a5b0`; this was checkout validation,
+not an installed-payload update._
+
+- The complete server suite passed 1,250/1,250 twice; Pester passed 141 tests
+  with two platform skips; the standalone SIEM suite passed 247/247; and the
+  full stdio handshake passed, including audit-disabled execution, an
+  unwritable audit root, output recovery, and cleanup.
+- Clean static inventory found no removed OTLP producer symbol, anchored export
+  loop, runtime `Grpc.Tools`, runtime `Google.Protobuf`, or server protobuf
+  artifact. The runtime package boundary test was proved red before the
+  installer correction and green after restoration.
+- Deliberately reintroducing startup access to `PTK_AUDIT_ROOT` made the
+  focused unwritable-root integration test fail because the server exited.
+  Restoring `Program.cs` byte-exactly to SHA-256
+  `890598568aafc8a5df15582f3580c357da8a69f5f5e2f9df8666d6ed6ab15063`
+  made the test pass.
+- Repository-wide formatting still reports pre-existing whitespace only in
+  `OutputStoreTests.cs` and `AuditAdminOperations.cs`; neither unrelated file
+  was rewritten. Known `System.Security.Cryptography.Xml` advisories remain.
+
+## `magneto` — Michael's Linux x86_64 host
+
+_Verified 2026-07-27 against exact candidate tree
+`faf8c2338a1a729fc5c46d87376475265148a5b0`; this was a disposable
+SSH-based checkout validation, not an installed-payload update._
+
+- The host is x86_64 with .NET SDK 10.0.110 and PowerShell 7.6.3. `gabrielle`
+  and `altiera` were also confirmed x86_64, but the full battery used
+  `magneto`.
+- The transferred archive matched SHA-256
+  `cd54244720384c08422353b5ce93fcf0b56a738e9c913f24d7639e9843d94f0a`.
+  Clean restore/build produced no runtime protobuf or gRPC artifact.
+- The server suite passed 1,250/1,250; Pester 6.0.1, loaded only into the
+  disposable validation environment, passed 141 tests with two skips; the
+  SIEM suite passed 247/247; and the stdio handshake passed.
+- Local and remote disposable checkouts were removed. No installed payload or
+  persistent host configuration changed. ARM64 Linux remains untested, and
+  UTM is not an approved validation route.
+
 ## `NETWATCH-01` — Michael's Windows machine
 
 _Verified 2026-07-11 for audited-session slice 0 at repo base `2a83723`._

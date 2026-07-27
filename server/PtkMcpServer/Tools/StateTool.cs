@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
-using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tools;
@@ -25,10 +24,8 @@ public static class StateTool
         ISessionOperations runtime,
         [Description("Also enumerate every installed module instead of only loaded ones.")]
         bool listAvailable = false,
-        CancellationToken cancellationToken = default,
-        AuditCallContextAccessor? auditContext = null)
+        CancellationToken cancellationToken = default)
         => runtime.StateAsync(
             listAvailable,
-            cancellationToken,
-            auditContext);
+            cancellationToken);
 }

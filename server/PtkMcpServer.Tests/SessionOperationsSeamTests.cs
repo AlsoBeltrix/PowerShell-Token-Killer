@@ -10,7 +10,6 @@ public sealed class SessionOperationsSeamTests
     public async Task Tool_adapters_delegate_only_through_the_session_operations_seam()
     {
         var operations = new RecordingSessionOperations();
-        var audit = new AuditCallContextAccessor();
         using var cancellation = new CancellationTokenSource();
         using var outputStore = new OutputStore(new OutputStoreOptions(
             Path.Combine(
@@ -34,10 +33,9 @@ public sealed class SessionOperationsSeamTests
                 route: "rtk",
                 background: true,
                 timeoutSeconds: 17,
-                auditContext: audit,
                 outputStore: outputStore));
         Assert.Equal(
-            ["Get-Item .", cancellation.Token, true, "rtk", true, 17, audit, outputStore],
+            ["Get-Item .", cancellation.Token, true, "rtk", true, 17, outputStore],
             operations.LastArguments);
 
         Assert.Equal(
@@ -47,10 +45,9 @@ public sealed class SessionOperationsSeamTests
                 "status",
                 cancellation.Token,
                 id: 41,
-                offset: 9,
-                auditContext: audit));
+                offset: 9));
         Assert.Equal(
-            ["status", cancellation.Token, 41L, 9L, audit],
+            ["status", cancellation.Token, 41L, 9L],
             operations.LastArguments);
 
         Assert.Equal(
@@ -58,20 +55,18 @@ public sealed class SessionOperationsSeamTests
             await StateTool.State(
                 operations,
                 listAvailable: true,
-                cancellationToken: cancellation.Token,
-                auditContext: audit));
+                cancellationToken: cancellation.Token));
         Assert.Equal(
-            [true, cancellation.Token, audit],
+            [true, cancellation.Token],
             operations.LastArguments);
 
         Assert.Equal(
             "reset",
             await ResetTool.Reset(
                 operations,
-                cancellationToken: cancellation.Token,
-                auditContext: audit));
+                cancellationToken: cancellation.Token));
         Assert.Equal(
-            [cancellation.Token, audit],
+            [cancellation.Token],
             operations.LastArguments);
     }
 
@@ -86,11 +81,10 @@ public sealed class SessionOperationsSeamTests
             string route,
             bool background,
             int timeoutSeconds,
-            AuditCallContextAccessor? auditContext,
             OutputStore? outputStore)
         {
             LastArguments =
-                [script, cancellationToken, raw, route, background, timeoutSeconds, auditContext, outputStore];
+                [script, cancellationToken, raw, route, background, timeoutSeconds, outputStore];
             return Task.FromResult("invoke");
         }
 
@@ -98,27 +92,23 @@ public sealed class SessionOperationsSeamTests
             string action,
             CancellationToken cancellationToken,
             long id,
-            long offset,
-            AuditCallContextAccessor? auditContext)
+            long offset)
         {
-            LastArguments = [action, cancellationToken, id, offset, auditContext];
+            LastArguments = [action, cancellationToken, id, offset];
             return Task.FromResult("job");
         }
 
         public Task<string> StateAsync(
             bool listAvailable,
-            CancellationToken cancellationToken,
-            AuditCallContextAccessor? auditContext)
+            CancellationToken cancellationToken)
         {
-            LastArguments = [listAvailable, cancellationToken, auditContext];
+            LastArguments = [listAvailable, cancellationToken];
             return Task.FromResult("state");
         }
 
-        public Task<string> ResetAsync(
-            CancellationToken cancellationToken,
-            AuditCallContextAccessor? auditContext)
+        public Task<string> ResetAsync(CancellationToken cancellationToken)
         {
-            LastArguments = [cancellationToken, auditContext];
+            LastArguments = [cancellationToken];
             return Task.FromResult("reset");
         }
     }

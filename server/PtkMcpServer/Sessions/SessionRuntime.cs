@@ -40,7 +40,6 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
         string route,
         bool background,
         int timeoutSeconds,
-        AuditCallContextAccessor? auditContext,
         OutputStore? outputStore)
         => InvokeAsync(
             script,
@@ -49,37 +48,33 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
             route,
             background,
             timeoutSeconds,
-            auditContext?.Current,
+            audit: null,
             outputStore);
 
     Task<string> ISessionOperations.JobAsync(
         string action,
         CancellationToken cancellationToken,
         long id,
-        long offset,
-        AuditCallContextAccessor? auditContext)
+        long offset)
         => JobAsync(
             action,
             cancellationToken,
             id,
             offset,
-            auditContext?.Current);
+            audit: null);
 
     Task<string> ISessionOperations.StateAsync(
         bool listAvailable,
-        CancellationToken cancellationToken,
-        AuditCallContextAccessor? auditContext)
+        CancellationToken cancellationToken)
         => StateAsync(
             listAvailable,
             cancellationToken,
-            auditContext?.Current);
+            audit: null);
 
-    Task<string> ISessionOperations.ResetAsync(
-        CancellationToken cancellationToken,
-        AuditCallContextAccessor? auditContext)
+    Task<string> ISessionOperations.ResetAsync(CancellationToken cancellationToken)
         => ResetAsync(
             cancellationToken,
-            auditContext?.Current);
+            audit: null);
 
     Task ISessionLifetime.ShutdownAsync() => ShutdownAsync();
 
@@ -914,7 +909,10 @@ public sealed class SessionRuntime : ISessionOperations, ISessionLifetime, IDisp
         sb.AppendLine(
             $"ptk server: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
             $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
-        if (audit is not null) sb.AppendLine(audit.HealthStatusLine());
+        if (audit is not null)
+            sb.AppendLine(audit.HealthStatusLine());
+        else
+            sb.AppendLine("audit: disabled");
         var busyLineEmitted = false;
         if (result is null)
         {

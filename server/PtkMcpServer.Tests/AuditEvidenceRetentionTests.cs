@@ -63,14 +63,6 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
         Assert.Equal(
             "evidence_retention",
             events[0].GetProperty("session").GetProperty("declared_purpose").GetString());
-
-        var observer = new ScriptEvidenceAcknowledgmentObserver(
-            new ScriptEvidenceStoreProvider(store));
-        foreach (var line in fixture.Sink.Lines)
-        {
-            using var ignored = observer.ObserveAcknowledgment(line);
-            ignored.CompleteAfterCheckpoint();
-        }
     }
 
     [Fact]
@@ -412,69 +404,6 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
     }
 
     [Fact]
-    public async Task Runtime_startup_audits_retention_after_server_started()
-    {
-        var options = Options("runtime-startup", evidenceAggregateBytes: 512);
-        var seed = new ScriptEvidenceStore(options);
-        var reference = seed.Store("runtime startup retained evidence");
-        var path = EvidencePath(options, reference);
-        File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddMinutes(-2));
-        var health = new AuditHealth(options);
-        using var runtime = new AuditRuntimeGate(
-            options,
-            health,
-            new ScriptEvidenceStoreProvider(options),
-            "evidence-retention-runtime-test");
-
-        await runtime.StartAsync(CancellationToken.None);
-
-        Assert.False(File.Exists(path));
-        await runtime.StopAsync(CancellationToken.None);
-        runtime.Dispose();
-        var events = SpoolEvents(options);
-        Assert.Equal(
-            [
-                "server.started",
-                "evidence.retention_intent",
-                "evidence.retention_completed",
-                "server.stopped",
-            ],
-            events.Select(EventType));
-        AssertRetentionTuple(events[1], reference, "local_committed", "age_expired");
-    }
-
-    [Fact]
-    public async Task Anchored_runtime_startup_audits_eligible_retention()
-    {
-        var options = Options(
-            "anchored-runtime-startup",
-            evidenceAggregateBytes: 512,
-            protectionMode: AuditProtectionMode.Anchored);
-        var reference = SeedExpiredAnchoredArtifact(options, "anchored runtime evidence");
-        var path = EvidencePath(options, reference);
-        var health = new AuditHealth(options);
-        var evidence = new ScriptEvidenceStoreProvider(options);
-        var transport = new AcknowledgingTransport(options.ExportConfigurationIdentity!);
-        var runtime = new AuditRuntimeGate(
-            options,
-            health,
-            evidence,
-            "anchored-evidence-retention-runtime-test",
-            openRuntime: () => AuditRuntimeResources.OpenAnchored(
-                options,
-                health,
-                "anchored-evidence-retention-runtime-test",
-                transport,
-                evidence));
-
-        await runtime.StartAsync(CancellationToken.None);
-
-        Assert.False(File.Exists(path));
-        await runtime.StopAsync(CancellationToken.None);
-        runtime.Dispose();
-    }
-
-    [Fact]
     public void Admin_startup_audits_retention_before_returning_the_session()
     {
         var options = Options("admin-startup", evidenceAggregateBytes: 512);
@@ -655,19 +584,4 @@ public sealed class AuditEvidenceRetentionTests : IDisposable
         public void Dispose() => Journal.Dispose();
     }
 
-    private sealed class AcknowledgingTransport(string configurationIdentity)
-        : IAuditOtlpExportTransport
-    {
-        public string ConfigurationIdentity { get; } = configurationIdentity;
-
-        public Task<AuditExportAttemptResult> ExportAsync(
-            AuditOtlpRecord record,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(AuditExportAttemptResult.Acknowledged(
-                new string('0', 64),
-                warning: false));
-        }
-    }
 }

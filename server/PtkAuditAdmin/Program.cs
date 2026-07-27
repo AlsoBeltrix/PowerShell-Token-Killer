@@ -17,9 +17,15 @@ static int Run(string[] args)
         }
 
         using var startup = AuditStartupConfiguration.LoadFromEnvironment();
+        var auditOptions = command is Disposition dispositionCommand
+            ? AuditStartupConfiguration.ResolvePermanentBlockOptions(
+                startup.AuditOptions,
+                dispositionCommand.BootId,
+                dispositionCommand.EventId)
+            : startup.AuditOptions;
         var version = typeof(AuditOptions).Assembly.GetName().Version?.ToString() ?? "0.0.0";
-        using var journal = AuditAdminJournalSession.Open(startup.AuditOptions, version);
-        var operations = new AuditAdminOperations(startup.AuditOptions, journal.Journal);
+        using var journal = AuditAdminJournalSession.Open(auditOptions, version);
+        var operations = new AuditAdminOperations(auditOptions, journal.Journal);
 
         switch (command)
         {

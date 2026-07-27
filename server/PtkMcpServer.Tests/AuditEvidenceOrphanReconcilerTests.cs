@@ -150,152 +150,6 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
     }
 
     [Fact]
-    public async Task Local_runtime_stays_diagnostic_only_without_sweeping_incomplete_history()
-    {
-        var options = CreateLocalOptions(NewRoot());
-        var health = new AuditHealth(options);
-        var evidence = new ScriptEvidenceStoreProvider(options);
-        var retainedFloor = SeedIncompleteStartupTopology(
-            options,
-            evidence,
-            "local startup pinned evidence");
-        using var gate = new AuditRuntimeGate(
-            options,
-            health,
-            evidence,
-            "local-startup-barrier-test");
-
-        await gate.StartAsync(CancellationToken.None);
-
-        Assert.Equal(AuditHealthState.Unavailable, health.Snapshot().State);
-        Assert.Equal("evidence.reconciliation", health.Snapshot().FailureClass);
-        Assert.True(File.Exists(retainedFloor));
-        Assert.Single(AwaitingPaths(options));
-        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-        Assert.False(gate.TryCreateCallContext(1, out _));
-        Assert.True(File.Exists(retainedFloor));
-        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-
-        File.Delete(retainedFloor);
-        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
-        Assert.NotNull(recoveredContext);
-        Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
-        Assert.Empty(AwaitingPaths(options));
-        Assert.Single(Directory.GetFiles(
-            options.EvidenceDirectory,
-            "*.unreferenced.script"));
-        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-    }
-
-    [Fact]
-    public async Task Anchored_runtime_stays_diagnostic_only_until_startup_proof_completes()
-    {
-        var options = CreateOptions(NewRoot());
-        var health = new AuditHealth(options);
-        var evidence = new ScriptEvidenceStoreProvider(options);
-        using (var publication = evidence.Publish("anchored startup pinned evidence"))
-        {
-        }
-        var foreignBoot = Guid.NewGuid();
-        using var preparation = FileAuditJournalSink.PrepareAnchored(options, foreignBoot);
-        using var checkpoint = preparation.CreateCheckpointStore();
-        var foreignSink = preparation.Activate(checkpoint);
-        using var foreignJournal = new AuditJournal(
-            options,
-            new AuditHealth(options),
-            foreignSink,
-            "anchored-foreign-writer-test",
-            binaryDigest: null,
-            Guid.NewGuid(),
-            foreignBoot);
-        AppendRecord(
-            foreignJournal,
-            evidence: null,
-            protectionMode: "anchored",
-            configurationIdentity: ConfigurationIdentity);
-        var retainedForeign = Path.Combine(
-            options.SpoolDirectory,
-            AuditSpoolSegmentIdentity.Create(foreignBoot, 0).FileName);
-        using var gate = new AuditRuntimeGate(
-            options,
-            health,
-            evidence,
-            "anchored-startup-barrier-test",
-            openRuntime: () => AuditRuntimeResources.OpenAnchored(
-                options,
-                health,
-                "anchored-startup-barrier-test",
-                new AcknowledgingTransport(ConfigurationIdentity),
-                evidence));
-
-        await gate.StartAsync(CancellationToken.None);
-
-        Assert.Equal(AuditHealthState.Unavailable, health.Snapshot().State);
-        Assert.Equal("evidence.reconciliation", health.Snapshot().FailureClass);
-        Assert.True(File.Exists(retainedForeign));
-        Assert.Single(AwaitingPaths(options));
-        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-        Assert.False(gate.TryCreateCallContext(1, out _));
-        Assert.True(File.Exists(retainedForeign));
-        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-
-        foreignJournal.Dispose();
-        checkpoint.Dispose();
-        preparation.Dispose();
-        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
-        Assert.NotNull(recoveredContext);
-        Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
-        Assert.Empty(AwaitingPaths(options));
-        Assert.Single(Directory.GetFiles(
-            options.EvidenceDirectory,
-            "*.unreferenced.script"));
-        Assert.InRange(
-            Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl").Length,
-            1,
-            2);
-    }
-
-    [Fact]
-    public async Task Startup_storage_recovery_reruns_evidence_proof_before_admission()
-    {
-        var options = CreateLocalOptions(NewRoot());
-        using (var publication = new ScriptEvidenceStore(options)
-                   .Publish("startup storage recovery evidence"))
-        {
-        }
-        var failEvidenceOpen = true;
-        var evidence = new ScriptEvidenceStoreProvider(options, () =>
-        {
-            if (failEvidenceOpen)
-                throw new ScriptEvidenceStorageException();
-            return new ScriptEvidenceStore(options);
-        });
-        var health = new AuditHealth(options);
-        using var gate = new AuditRuntimeGate(
-            options,
-            health,
-            evidence,
-            "evidence-storage-recovery-test");
-
-        await gate.StartAsync(CancellationToken.None);
-
-        Assert.Equal(AuditHealthState.Unavailable, health.Snapshot().State);
-        Assert.Equal("evidence.storage", health.Snapshot().FailureClass);
-        Assert.Empty(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-        Assert.Single(AwaitingPaths(options));
-
-        failEvidenceOpen = false;
-        Assert.True(gate.TryCreateCallContext(1, out var recoveredContext));
-        Assert.NotNull(recoveredContext);
-        Assert.Equal(AuditHealthState.Healthy, health.Snapshot().State);
-        Assert.Empty(AwaitingPaths(options));
-        Assert.Single(Directory.GetFiles(
-            options.EvidenceDirectory,
-            "*.unreferenced.script"));
-        Assert.Single(Directory.GetFiles(options.SpoolDirectory, "ptk-audit-*.jsonl"));
-    }
-
-    [Fact]
     public void Local_failed_append_with_no_written_bytes_is_proved_unreferenced()
     {
         using var fixture = CreateLocalFixture(
@@ -335,26 +189,6 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
         Assert.Empty(Directory.GetFiles(
             fixture.Options.EvidenceDirectory,
             "*.unreferenced.script"));
-    }
-
-    [Fact]
-    public void Local_startup_reconciles_before_age_eligible_spool_retention()
-    {
-        var options = CreateLocalOptions(NewRoot());
-        SeedAwaitingLocalDurableReference(options);
-
-        var health = new AuditHealth(options);
-        using var resources = AuditRuntimeResources.OpenLocal(
-            options,
-            health,
-            "local-startup-reconcile-test",
-            new ScriptEvidenceStoreProvider(options));
-
-        Assert.NotEqual(AuditHealthState.Unavailable, health.Snapshot().State);
-        Assert.Empty(AwaitingPaths(options));
-        Assert.Single(Directory.GetFiles(
-            options.EvidenceDirectory,
-            "*.local-committed.script"));
     }
 
     [Fact]
@@ -441,46 +275,15 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
             quota?.Dispose();
             return new ScriptEvidenceStore(options);
         });
-        using var resources = AuditRuntimeResources.OpenAnchored(
+        AuditEvidenceOrphanReconciler.RequireCompleteBeforeWriter(
             options,
             new AuditHealth(options),
-            "evidence-startup-test",
-            new AcknowledgingTransport(ConfigurationIdentity),
             evidence);
 
         Assert.True(observedReleasedQuota);
         Assert.Single(Directory.GetFiles(
             options.EvidenceDirectory,
             "*.unreferenced.script"));
-    }
-
-    [Fact]
-    public async Task Export_loop_periodically_reconciles_orphans_created_after_startup()
-    {
-        var options = CreateOptions(NewRoot());
-        var time = new MutableTimeProvider(
-            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero));
-        var evidence = new ScriptEvidenceStoreProvider(options);
-        using var resources = AuditRuntimeResources.OpenAnchored(
-            options,
-            new AuditHealth(options),
-            "evidence-periodic-test",
-            new AcknowledgingTransport(ConfigurationIdentity),
-            evidence,
-            time);
-        using (var publication = evidence.Publish("periodic orphan"))
-        {
-            publication.Dispose();
-        }
-        time.Advance(AuditEvidenceOrphanReconciler.DefaultInterval + TimeSpan.FromSeconds(1));
-
-        resources.StartExporter();
-        await WaitUntilAsync(
-            () => Directory.GetFiles(
-                options.EvidenceDirectory,
-                "*.unreferenced.script").Length == 1,
-            TimeSpan.FromSeconds(10));
-        await resources.StopExporterAsync();
     }
 
     public void Dispose()
@@ -805,28 +608,4 @@ public sealed class AuditEvidenceOrphanReconcilerTests : IDisposable
         public void Dispose() => _inner.Dispose();
     }
 
-    private sealed class AcknowledgingTransport(string configurationIdentity) :
-        IAuditOtlpExportTransport
-    {
-        public string ConfigurationIdentity { get; } = configurationIdentity;
-
-        public Task<AuditExportAttemptResult> ExportAsync(
-            AuditOtlpRecord record,
-            CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(AuditExportAttemptResult.Acknowledged(
-                new string('0', 64),
-                warning: false));
-        }
-    }
-
-    private sealed class MutableTimeProvider(DateTimeOffset now) : TimeProvider
-    {
-        private DateTimeOffset _now = now;
-
-        public override DateTimeOffset GetUtcNow() => _now;
-
-        internal void Advance(TimeSpan duration) => _now += duration;
-    }
 }

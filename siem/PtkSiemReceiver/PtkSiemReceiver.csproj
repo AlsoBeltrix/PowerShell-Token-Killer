@@ -21,9 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="../../server/PtkMcpServer/Protos/audit_otlp.proto"
-              Link="Protos/audit_otlp.proto"
-              GrpcServices="None" />
+    <Protobuf Include="Protos/audit_otlp.proto" GrpcServices="None" />
   </ItemGroup>
 
 </Project>

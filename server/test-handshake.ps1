@@ -311,10 +311,11 @@ try {
     }
     $call = Read-RpcResponse -Id 3
     $text = $call.result.content[0].text
-    if ($text -notmatch 'ptk server: pid \d+') {
+    if ($text -notmatch 'ptk server: pid \d+' -or
+        $text -notmatch '(?m)^audit: disabled\r?$') {
         throw "ptk_state returned unexpected text: '$text'"
     }
-    Write-Host 'ptk_state ok: server header present'
+    Write-Host 'ptk_state ok: server header present and audit disabled'
 
     # Two ptk_invoke calls sharing state prove the warm runspace end to end.
     Send-Rpc @{
@@ -441,108 +442,12 @@ finally {
     else {
         'server process remained alive after bounded shutdown attempts'
     }
-    if (-not $failed) {
-        try {
-            $segments = @(Get-ChildItem -LiteralPath (Join-Path $auditRoot 'spool') -Filter '*.jsonl' |
-                Sort-Object Name)
-            if ($segments.Count -eq 0) { throw 'no audit JSONL segment was created' }
-            $rawAudit = ($segments | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName }) -join ''
-            $events = @($segments | ForEach-Object {
-                Get-Content -LiteralPath $_.FullName | ForEach-Object { $_ | ConvertFrom-Json }
-            })
-            if ($events[0].event_type -ne 'server.started') {
-                throw "first audit event was '$($events[0].event_type)', not server.started"
-            }
-            for ($index = 0; $index -lt $events.Count; $index++) {
-                if ($events[$index].sequence -ne ($index + 1)) {
-                    throw "audit sequence gap at record $($index + 1)"
-                }
-            }
-            $invokeAccepted = @($events | Where-Object {
-                $_.event_type -eq 'call.accepted' -and $_.request.tool -eq 'ptk_invoke'
-            })
-            if ($invokeAccepted.Count -ne 3) {
-                throw "expected three accepted invoke audit events; got $($invokeAccepted.Count)"
-            }
-            $providedFieldSets = @($invokeAccepted | ForEach-Object {
-                (@($_.request.provided_fields) | Sort-Object) -join ','
-            })
-            if (@($providedFieldSets | Where-Object { $_ -eq 'script' }).Count -ne 2 -or
-                @($providedFieldSets | Where-Object { $_ -eq 'background,route,script' }).Count -ne 1) {
-                throw "provided_fields did not preserve the three exact invoke boundaries: $($providedFieldSets -join '; ')"
-            }
-            foreach ($accepted in $invokeAccepted) {
-                if ($accepted.actor.client_name -ne 'ptk-handshake') {
-                    throw 'MCP client attribution was not captured at the boundary'
-                }
-                if (-not $accepted.request.script_evidence_id -or
-                    -not $accepted.request.original_script_digest) {
-                    throw 'accepted invoke did not reference exact script evidence'
-                }
-            }
-            if ($rawAudit.Contains($outputToken) -or
-                $rawAudit.Contains($backgroundToken) -or
-                $rawAudit.Contains($warmSeedScript) -or
-                $rawAudit.Contains($warmReadScript) -or
-                $rawAudit.Contains($backgroundScript)) {
-                throw 'runtime output token or exact script text leaked into the core audit stream'
-            }
-            $outputAccepted = @($events | Where-Object {
-                $_.event_type -eq 'call.accepted' -and $_.request.tool -eq 'ptk_output'
-            })
-            if ($outputAccepted.Count -ne 2) {
-                throw "expected two accepted output audit events; got $($outputAccepted.Count)"
-            }
-            foreach ($acceptedOutput in $outputAccepted) {
-                $outputCallId = $acceptedOutput.correlation.call_id
-                $outputEvents = @($events | Where-Object {
-                    $_.correlation.call_id -eq $outputCallId
-                } | Sort-Object sequence)
-                $outputEventTypes = @($outputEvents.event_type)
-                if (($outputEventTypes -join ',') -ne 'call.accepted,output.read_accessed,call.completed') {
-                    throw "output audit lifecycle drifted: $($outputEventTypes -join ', ')"
-                }
-                $outputAccess = @($outputEvents | Where-Object event_type -EQ 'output.read_accessed')
-                if ($outputAccess.Count -ne 1 -or
-                    $outputAccess[0].outcome.state -ne 'available' -or
-                    $outputAccess[0].outcome.bytes_returned -le 0 -or
-                    $outputAccess[0].outcome.next_offset -le 0 -or
-                    -not $outputAccess[0].request.output_handle_digest) {
-                    throw 'output read audit facts were incomplete or incorrect'
-                }
-            }
-            $jobStatusAccepted = @($events | Where-Object {
-                $_.event_type -eq 'call.accepted' -and $_.request.tool -eq 'ptk_job'
-            })
-            if ($jobStatusAccepted.Count -lt 1) {
-                throw 'background recovery produced no accepted ptk_job status call'
-            }
-            foreach ($acceptedStatus in $jobStatusAccepted) {
-                $statusEvents = @($events | Where-Object {
-                    $_.correlation.call_id -eq $acceptedStatus.correlation.call_id
-                } | Sort-Object sequence)
-                if ((@($statusEvents.event_type) -join ',') -ne
-                    'call.accepted,job.status_accessed,call.completed') {
-                    throw "job status audit lifecycle drifted: $(@($statusEvents.event_type) -join ', ')"
-                }
-            }
-            if ($rawAudit.Contains($recoveryHandle) -or $rawAudit.Contains($backgroundHandle)) {
-                throw 'raw output handle leaked into the core audit stream'
-            }
-            $evidence = @(Get-ChildItem -LiteralPath (Join-Path $auditRoot 'evidence') -Filter '*.script')
-            if ($evidence.Count -ne 3) { throw "expected three evidence payloads; got $($evidence.Count)" }
-            $payloads = @($evidence | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName })
-            if ($payloads -notcontains $warmSeedScript -or
-                $payloads -notcontains $warmReadScript -or
-                $payloads -notcontains $backgroundScript) {
-                throw 'evidence payloads did not preserve the exact submitted scripts'
-            }
-            Write-Host 'audit ok: boundary attribution, provided fields, evidence references, and core secrecy verified'
-        }
-        catch {
-            Write-Host "AUDIT VERIFICATION FAILED: $_"
-            $failed = $true
-        }
+    if (Test-Path -LiteralPath $auditRoot) {
+        Write-Host 'AUDIT DISABLEMENT VERIFICATION FAILED: the runtime created the configured audit root.'
+        $failed = $true
+    }
+    else {
+        Write-Host 'audit disablement ok: runtime created no audit or exact-script storage'
     }
     if ($mainExitedGracefully) {
         try {
@@ -574,15 +479,13 @@ finally {
     }
 }
 
-# A broken protected root must leave the stdio/MCP supervisor available for
-# its narrow emergency diagnostic while keeping every runtime dependency and
-# user effect behind the audit gate.
+# A broken legacy audit root must not affect ordinary execution.
 if (-not $failed) {
     $diagnosticParent = Join-Path (
         [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) (
         '.ptk/test-handshake-diagnostic-' + [guid]::NewGuid().ToString('N'))
     $blocker = Join-Path $diagnosticParent 'not-a-directory'
-    $marker = Join-Path $diagnosticParent 'must-not-exist'
+    $marker = Join-Path $diagnosticParent 'effect-ran'
     $diagnosticOutputParent = Join-Path $diagnosticParent 'output'
     $proc = $null
     try {
@@ -617,30 +520,31 @@ if (-not $failed) {
             params = @{ name = 'ptk_state'; arguments = @{} }
         }
         $diagnosticState = (Read-RpcResponse -Id 103).result.content[0].text
-        if ($diagnosticState -notmatch '(?m)^audit=unavailable$' -or
-            $diagnosticState -notmatch '(?m)^unrecorded=true$' -or
-            $diagnosticState -match 'ptk server:') {
-            throw "diagnostic-only ptk_state leaked or omitted state: '$diagnosticState'"
+        if ($diagnosticState -notmatch 'ptk server: pid \d+' -or
+            $diagnosticState -notmatch '(?m)^audit: disabled\r?$') {
+            throw "audit-independent ptk_state omitted expected state: '$diagnosticState'"
         }
 
         $literalMarker = "'" + $marker.Replace("'", "''") + "'"
+        $effectToken = 'audit-independent-effect'
         Send-Rpc @{
             jsonrpc = '2.0'; id = 104; method = 'tools/call'
             params = @{
                 name = 'ptk_invoke'
-                arguments = @{ script = "Set-Content -LiteralPath $literalMarker -Value ran" }
+                arguments = @{
+                    script = "Set-Content -LiteralPath $literalMarker -Value ran; '$effectToken'"
+                    route = 'pwsh'
+                }
             }
         }
         $diagnosticInvoke = (Read-RpcResponse -Id 104).result
-        if (-not $diagnosticInvoke.isError -or
-            $diagnosticInvoke.content[0].text -notmatch 'operation was not started' -or
-            (Test-Path -LiteralPath $marker)) {
-            throw 'diagnostic-only invoke was not rejected before its effect'
+        if ($diagnosticInvoke.isError -or
+            $diagnosticInvoke.content[0].text -notmatch $effectToken -or
+            -not (Test-Path -LiteralPath $marker)) {
+            throw 'unwritable legacy audit root blocked a valid invoke'
         }
-        if (Test-Path -LiteralPath $diagnosticOutputParent) {
-            throw 'diagnostic-only audit outage allocated an output-store root behind the audit gate'
-        }
-        Write-Host 'audit outage ok: MCP diagnostic remains available and invoke stays fail-closed'
+        Assert-LiveOutputRoot -Parent $diagnosticOutputParent -Label 'audit-independent server'
+        Write-Host 'audit independence ok: unwritable legacy root did not block state or execution'
     }
     catch {
         Write-Host "DIAGNOSTIC HANDSHAKE FAILED: $_"

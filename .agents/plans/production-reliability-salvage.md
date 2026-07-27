@@ -1,6 +1,6 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 1A LOCALLY IMPLEMENTED AND VERIFIED — topology decision 1
+**Status:** SLICE 2 LOCALLY IMPLEMENTED AND VERIFIED — topology decision 1
 was settled by the owner on 2026-07-26, R0 contract-retirement decision 2 was
 approved on 2026-07-27, and the owner authorized the test-only Slice 1a on
 2026-07-27. One agent-owned MCP connection may own several explicitly named
@@ -16,8 +16,14 @@ the owner ended that review lane after exhausting Claude credits. On
 implementing agent, directed continued work toward the stated core product,
 and prohibited further low-level approval questions. That settles decisions
 3-4 in favor of the recommendations below and authorizes continued local
-implementation of this plan. No push, PR, installation, or deployment is
-authorized by this status.
+implementation of this plan. Slice 2 removes mandatory audit storage and the
+anchored OTLP producer from ordinary execution, preserves the standalone SIEM
+receiver and legacy audit administration, and adds audit-independent
+supervisor admission/drain/shutdown. Exact candidate tree `faf8c2338a1a729fc5c46d87376475265148a5b0`
+passes the complete local macOS ARM64 battery and a clean SSH-based Linux
+x86_64 battery on `magneto`; ARM64 Linux remains untested after the owner
+stopped the UTM route. Slice 3 is next. No push, PR, installation, or
+deployment is authorized by this status.
 
 ## Goal
 

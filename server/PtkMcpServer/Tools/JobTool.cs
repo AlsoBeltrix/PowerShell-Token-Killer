@@ -1,6 +1,5 @@
 using System.ComponentModel;
 using ModelContextProtocol.Server;
-using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tools;
@@ -25,12 +24,10 @@ public static class JobTool
         [Description("status | output | kill | list")] string action,
         CancellationToken cancellationToken,
         [Description("Job id (required for status/output/kill).")] long id = 0,
-        [Description("Byte offset for action=output: pass the previous poll's 'next offset'; 0 reads from the start.")] long offset = 0,
-        AuditCallContextAccessor? auditContext = null)
+        [Description("Byte offset for action=output: pass the previous poll's 'next offset'; 0 reads from the start.")] long offset = 0)
         => runtime.JobAsync(
             action,
             cancellationToken,
             id,
-            offset,
-            auditContext);
+            offset);
 }

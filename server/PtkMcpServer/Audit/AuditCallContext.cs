@@ -12,7 +12,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     private static readonly UTF8Encoding Utf8 = new(false);
 
     internal const string NotStartedMessage =
-        "[operation not started] Required audit persistence is unavailable; the original operation was not started.";
+        "[operation not started] The operation was not started.";
 
     private readonly AuditJournal _journal;
     private readonly ScriptEvidenceStoreProvider _evidence;
@@ -1334,14 +1334,14 @@ internal sealed class AuditJobTerminalLease
                 : snapshot.ExecutionOutcomeUnknown
                 ? snapshot.ExecutionOutcomeFailureCode ?? "execution_outcome_unknown"
                 : snapshot.TerminationReason switch
-            {
-                JobTerminationReason.ExplicitKill => "explicit_kill",
-                JobTerminationReason.Reset => "reset",
-                JobTerminationReason.Shutdown => "shutdown",
-                _ => snapshot.OutputCaptureComplete == false
-                    ? snapshot.OutputFailureCode ?? "output_capture_incomplete"
-                    : null,
-            };
+                {
+                    JobTerminationReason.ExplicitKill => "explicit_kill",
+                    JobTerminationReason.Reset => "reset",
+                    JobTerminationReason.Shutdown => "shutdown",
+                    _ => snapshot.OutputCaptureComplete == false
+                        ? snapshot.OutputFailureCode ?? "output_capture_incomplete"
+                        : null,
+                };
             _journal.Append(
                 _reservation,
                 new AuditEventInput

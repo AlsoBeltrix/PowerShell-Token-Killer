@@ -21,6 +21,7 @@ public sealed class WindowsProcessTreeSupervisorTests
                 "create_job",
                 "set_job",
                 "query_job",
+                "create_empty_observer",
                 "create_pipes",
                 "create_process:Runnable",
                 "close_child_ends",
@@ -39,7 +40,12 @@ public sealed class WindowsProcessTreeSupervisorTests
 
         worker.Dispose();
         Assert.Equal(
-            ["dispose_job", "dispose_process", "dispose_pipes"],
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
             native.Calls.Where(call => call.StartsWith("dispose_", StringComparison.Ordinal)));
 
         var callsAfterFirstDispose = native.Calls.ToArray();
@@ -97,7 +103,12 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.IsType<IOException>(failure.InnerException);
         Assert.Equal(1, native.Calls.Count(call => call == "resume"));
         Assert.Equal(
-            ["dispose_job", "dispose_process", "dispose_pipes"],
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
             native.Calls.Where(call => call.StartsWith("dispose_", StringComparison.Ordinal)));
         Assert.Throws<ObjectDisposedException>(worker.ResumeForContainmentProof);
     }
@@ -160,7 +171,12 @@ public sealed class WindowsProcessTreeSupervisorTests
 
         Assert.Equal(1, native.CreateProcessCalls);
         Assert.Equal(
-            ["dispose_job", "dispose_process", "dispose_pipes"],
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
             native.Calls.Where(call => call.StartsWith("dispose_", StringComparison.Ordinal)));
     }
 
@@ -209,28 +225,44 @@ public sealed class WindowsProcessTreeSupervisorTests
                 ["dispose_job"]
             },
             {
+                "create_empty_observer",
+                "containment_setup_failed",
+                nameof(WorkerLaunchStage.QueryJob),
+                ["dispose_job"]
+            },
+            {
                 "create_pipes",
                 "containment_setup_failed",
                 nameof(WorkerLaunchStage.CreatePipe),
-                ["dispose_job"]
+                ["dispose_job", "dispose_empty_observer"]
             },
             {
                 "create_process:Runnable",
                 "worker_create_failed",
                 nameof(WorkerLaunchStage.CreateProcess),
-                ["dispose_job", "dispose_pipes"]
+                ["dispose_job", "dispose_empty_observer", "dispose_pipes"]
             },
             {
                 "close_child_ends",
                 "containment_setup_failed",
                 nameof(WorkerLaunchStage.CloseChildHandles),
-                ["dispose_job", "dispose_process", "dispose_pipes"]
+                [
+                    "dispose_job",
+                    "dispose_empty_observer",
+                    "dispose_process",
+                    "dispose_pipes",
+                ]
             },
             {
                 "verify_membership",
                 "containment_verification_failed",
                 nameof(WorkerLaunchStage.VerifyContainment),
-                ["dispose_job", "dispose_process", "dispose_pipes"]
+                [
+                    "dispose_job",
+                    "dispose_empty_observer",
+                    "dispose_process",
+                    "dispose_pipes",
+                ]
             },
         };
 
@@ -263,7 +295,11 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.Equal(WorkerLaunchStage.CreatePipe, failure.Stage);
         Assert.Equal(0, native.CreateProcessCalls);
         Assert.Equal(
-            ["dispose_job", "dispose_pipes"],
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_pipes",
+            ],
             native.Calls.Where(call => call.StartsWith("dispose_", StringComparison.Ordinal)));
     }
 
@@ -280,7 +316,12 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.Equal(1, native.CreateProcessCalls);
         Assert.Equal(1, native.Calls.Count(call => call == "close_child_ends"));
         Assert.Equal(
-            ["dispose_job", "dispose_process", "dispose_pipes"],
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
             native.Calls.Where(call => call.StartsWith("dispose_", StringComparison.Ordinal)));
     }
 
@@ -295,8 +336,207 @@ public sealed class WindowsProcessTreeSupervisorTests
 
         Assert.Same(native.Job.DisposeFailure, failure);
         Assert.Equal(
-            ["dispose_job", "dispose_process", "dispose_pipes"],
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
             native.Calls.Where(call => call.StartsWith("dispose_", StringComparison.Ordinal)));
+    }
+
+    [Fact]
+    public async Task Containment_waits_for_active_process_zero_before_confirming_empty()
+    {
+        var empty = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var native = new RecordingNative();
+        native.EmptyObserver.WaitTask = empty.Task;
+        var worker = Supervisor(native).Launch(Command());
+
+        var containment = worker.ContainAsync(WorkerContainmentReason.Close);
+
+        Assert.False(containment.IsCompleted);
+        Assert.False(worker.ContainmentEmpty.IsCompleted);
+        Assert.Equal(
+            [
+                "wait_job_empty",
+                "dispose_job",
+                "dispose_process",
+                "dispose_pipes",
+            ],
+            native.Calls.TakeLast(4));
+
+        empty.SetResult();
+        var result = await containment.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            result.Outcome);
+        Assert.True(worker.ContainmentEmpty.IsCompletedSuccessfully);
+        Assert.Equal("dispose_empty_observer", native.Calls[^1]);
+        worker.Dispose();
+    }
+
+    [Fact]
+    public async Task Containing_one_job_does_not_touch_a_sibling_job()
+    {
+        var firstEmpty = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstNative = new RecordingNative(processId: 4101);
+        firstNative.EmptyObserver.WaitTask = firstEmpty.Task;
+        var secondNative = new RecordingNative(processId: 4202);
+        var first = Supervisor(firstNative).Launch(Command());
+        var second = Supervisor(secondNative).Launch(Command());
+
+        var firstContainment = first.ContainAsync(
+            WorkerContainmentReason.Reset);
+
+        Assert.False(firstContainment.IsCompleted);
+        Assert.Equal(4202, second.ProcessId);
+        Assert.DoesNotContain(
+            secondNative.Calls,
+            call => call.StartsWith("dispose_", StringComparison.Ordinal));
+
+        firstEmpty.SetResult();
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            (await firstContainment.WaitAsync(TimeSpan.FromSeconds(5))).Outcome);
+        Assert.Equal(4202, second.ProcessId);
+
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            (await second.ContainAsync(
+                WorkerContainmentReason.Close)).Outcome);
+        first.Dispose();
+        second.Dispose();
+    }
+
+    [Fact]
+    public async Task Replacement_is_blocked_until_the_exact_old_job_is_empty()
+    {
+        var firstEmpty = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstNative = new RecordingNative(processId: 4303);
+        firstNative.EmptyObserver.WaitTask = firstEmpty.Task;
+        var secondNative = new RecordingNative(processId: 4404);
+        var inner = new SequenceLauncher(
+            () => Supervisor(firstNative).Launch(Command()),
+            () => Supervisor(secondNative).Launch(Command()));
+        var launcher = new SingleDomainWorkerProcessLauncher(inner);
+
+        var first = await launcher.LaunchAsync(Command());
+        var containment = first.ContainAsync(
+            WorkerContainmentReason.Timeout);
+
+        var blocked = await Assert.ThrowsAsync<WorkerProcessException>(
+            async () => await launcher.LaunchAsync(Command()));
+        Assert.Equal(
+            "previous_containment_unconfirmed",
+            blocked.DetailCode);
+        Assert.Equal(1, inner.LaunchCount);
+
+        firstEmpty.SetResult();
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            (await containment.WaitAsync(TimeSpan.FromSeconds(5))).Outcome);
+
+        var replacement = await launcher.LaunchAsync(Command());
+        Assert.Equal(4404, replacement.ProcessId);
+        Assert.Equal(2, inner.LaunchCount);
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            (await replacement.ContainAsync(
+                WorkerContainmentReason.Close)).Outcome);
+        first.Dispose();
+        replacement.Dispose();
+    }
+
+    [Fact]
+    public async Task Failed_launch_blocks_retry_until_its_job_is_empty()
+    {
+        var empty = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var native = new RecordingNative
+        {
+            ThrowAt = "close_child_ends",
+        };
+        native.EmptyObserver.WaitTask = empty.Task;
+        var launcher = new SingleDomainWorkerProcessLauncher(
+            new WindowsWorkerProcessLauncher(Supervisor(native)));
+
+        var failure = await Assert.ThrowsAsync<WorkerLaunchException>(
+            async () => await launcher.LaunchAsync(Command()));
+        var containmentEmpty = Assert.IsAssignableFrom<Task>(
+            failure.ContainmentEmpty);
+        Assert.False(containmentEmpty.IsCompleted);
+
+        var blocked = await Assert.ThrowsAsync<WorkerProcessException>(
+            async () => await launcher.LaunchAsync(Command()));
+        Assert.Equal(
+            "previous_containment_unconfirmed",
+            blocked.DetailCode);
+
+        empty.SetResult();
+        await containmentEmpty.WaitAsync(TimeSpan.FromSeconds(5));
+        native.ThrowAt = null;
+
+        var replacement = await launcher.LaunchAsync(Command());
+        Assert.Equal(4242, replacement.ProcessId);
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            (await replacement.ContainAsync(
+                WorkerContainmentReason.Close)).Outcome);
+        replacement.Dispose();
+    }
+
+    [Fact]
+    public async Task Active_process_zero_remains_authoritative_when_handle_cleanup_fails()
+    {
+        var native = new RecordingNative();
+        native.Job.DisposeFailure = new IOException("job close failed");
+        native.EmptyObserver.DisposeFailure =
+            new IOException("completion port close failed");
+        var worker = Supervisor(native).Launch(Command());
+
+        var result = await worker.ContainAsync(
+            WorkerContainmentReason.Close);
+
+        Assert.Equal(
+            WorkerContainmentOutcome.ConfirmedEmpty,
+            result.Outcome);
+        Assert.True(worker.ContainmentEmpty.IsCompletedSuccessfully);
+        Assert.Contains("dispose_job", native.Calls);
+        Assert.Contains("dispose_empty_observer", native.Calls);
+        worker.Dispose();
+    }
+
+    [Fact]
+    public async Task Rollback_still_closes_the_job_when_observation_cannot_start()
+    {
+        var native = new RecordingNative
+        {
+            ThrowAt = "close_child_ends",
+        };
+        native.EmptyObserver.WaitFailure =
+            new IOException("completion wait failed");
+
+        var failure = Assert.Throws<WorkerLaunchException>(() =>
+            Supervisor(native).Launch(Command()));
+
+        var containmentEmpty = Assert.IsAssignableFrom<Task>(
+            failure.ContainmentEmpty);
+        await Assert.ThrowsAsync<IOException>(
+            async () => await containmentEmpty);
+        Assert.Equal(
+            [
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
+            native.Calls.Where(call =>
+                call.StartsWith("dispose_", StringComparison.Ordinal)));
     }
 
     [Fact]
@@ -316,17 +556,21 @@ public sealed class WindowsProcessTreeSupervisorTests
             [
                 "CloseHandle",
                 "CreateFileW",
+                "CreateIoCompletionPort",
                 "CreateJobObjectW",
                 "CreatePipe",
                 "CreateProcessW",
                 "DeleteProcThreadAttributeList",
                 "DuplicateHandle",
                 "GetCurrentProcess",
+                "GetQueuedCompletionStatus",
                 "InitializeProcThreadAttributeList",
                 "IsProcessInJob",
                 "QueryInformationJobObject",
+                "QueryInformationJobObject",
                 "ResumeThread",
                 "SetHandleInformation",
+                "SetInformationJobObject",
                 "SetInformationJobObject",
                 "UpdateProcThreadAttribute",
             ],
@@ -472,6 +716,20 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.DoesNotContain("DangerousRelease", executableWaitBody, StringComparison.Ordinal);
         Assert.DoesNotContain("DangerousGetHandle", executableWaitBody, StringComparison.Ordinal);
         Assert.DoesNotContain("ownsHandle: false", executableWaitBody, StringComparison.Ordinal);
+        Assert.Contains(
+            "JobObjectAssociateCompletionPortInformationClass = 7",
+            executableSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "JobObjectMessageActiveProcessZero = 4",
+            executableSource,
+            StringComparison.Ordinal);
+        Assert.Matches(
+            new Regex(
+                @"completionKey\s*==\s*JobCompletionKey\s*&&\s*" +
+                    @"message\s*==\s*JobObjectMessageActiveProcessZero",
+                RegexOptions.CultureInvariant),
+            executableSource);
     }
 
     [Fact]
@@ -662,22 +920,27 @@ public sealed class WindowsProcessTreeSupervisorTests
 
     private sealed class RecordingNative : IWindowsWorkerNative
     {
-        internal RecordingNative(int childHandleCount = 5)
+        internal RecordingNative(
+            int childHandleCount = 5,
+            int processId = 4242)
         {
             Job = new RecordingJob(Calls);
-            Process = new RecordingProcess(Calls);
+            EmptyObserver = new RecordingEmptyObserver(Calls);
+            Process = new RecordingProcess(Calls, processId);
             Pipes = new RecordingPipeSet(Calls, () => ThrowAt, childHandleCount);
         }
 
         internal List<string> Calls { get; } = [];
         internal RecordingJob Job { get; }
+        internal RecordingEmptyObserver EmptyObserver { get; }
         internal RecordingProcess Process { get; }
         internal RecordingPipeSet Pipes { get; }
-        internal string? ThrowAt { get; init; }
+        internal string? ThrowAt { get; set; }
         internal Action<string>? OnCall { get; init; }
         internal uint QueriedFlags { get; init; } =
             WindowsProcessTreeSupervisor.KillOnJobClose;
         internal uint? ConfiguredFlags { get; private set; }
+        internal uint ActiveProcessCount { get; set; }
         internal bool IsMember { get; init; } = true;
         internal int CreateProcessCalls { get; private set; }
 
@@ -701,6 +964,21 @@ public sealed class WindowsProcessTreeSupervisorTests
             return QueriedFlags;
         }
 
+        public uint QueryJobActiveProcessCount(IWindowsJobHandle job)
+        {
+            Assert.Same(Job, job);
+            Record("query_active_processes");
+            return ActiveProcessCount;
+        }
+
+        public IWindowsJobEmptyObserver CreateJobEmptyObserver(
+            IWindowsJobHandle job)
+        {
+            Assert.Same(Job, job);
+            Record("create_empty_observer");
+            return EmptyObserver;
+        }
+
         public IWindowsWorkerPipeSet CreateWorkerPipeSet()
         {
             Record("create_pipes");
@@ -718,6 +996,7 @@ public sealed class WindowsProcessTreeSupervisorTests
             Assert.Same(Pipes, pipes);
             CreateProcessCalls++;
             Record($"create_process:{mode}");
+            ActiveProcessCount = 1;
             return Process;
         }
 
@@ -755,10 +1034,36 @@ public sealed class WindowsProcessTreeSupervisorTests
         }
     }
 
-    private sealed class RecordingProcess(List<string> calls) : IWindowsProcessHandle
+    private sealed class RecordingEmptyObserver(List<string> calls) :
+        IWindowsJobEmptyObserver
+    {
+        internal Task WaitTask { get; set; } = Task.CompletedTask;
+        internal Exception? WaitFailure { get; set; }
+        internal Exception? DisposeFailure { get; set; }
+
+        public Task WaitForEmptyAsync(
+            CancellationToken cancellationToken = default)
+        {
+            calls.Add("wait_job_empty");
+            if (WaitFailure is not null)
+                throw WaitFailure;
+            return WaitTask.WaitAsync(cancellationToken);
+        }
+
+        public void Dispose()
+        {
+            calls.Add("dispose_empty_observer");
+            if (DisposeFailure is not null)
+                throw DisposeFailure;
+        }
+    }
+
+    private sealed class RecordingProcess(
+        List<string> calls,
+        int processId) : IWindowsProcessHandle
     {
         internal Task WaitTask { get; } = Task.CompletedTask;
-        public int ProcessId => 4242;
+        public int ProcessId => processId;
 
         public Task WaitForExitAsync(CancellationToken cancellationToken = default) =>
             WaitTask;
@@ -795,5 +1100,27 @@ public sealed class WindowsProcessTreeSupervisorTests
         }
 
         public void Dispose() => _calls.Add("dispose_pipes");
+    }
+
+    private sealed class SequenceLauncher(
+        params Func<IWorkerContainedProcess>[] launches) :
+        IWorkerProcessLauncher
+    {
+        private int _next;
+
+        internal int LaunchCount => Volatile.Read(ref _next);
+
+        public Task<IWorkerContainedProcess> LaunchAsync(
+            WorkerLaunchCommand command,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(command);
+            cancellationToken.ThrowIfCancellationRequested();
+            var index = Interlocked.Increment(ref _next) - 1;
+            if ((uint)index >= (uint)launches.Length)
+                throw new InvalidOperationException(
+                    "No recorded worker launch remains.");
+            return Task.FromResult(launches[index]());
+        }
     }
 }

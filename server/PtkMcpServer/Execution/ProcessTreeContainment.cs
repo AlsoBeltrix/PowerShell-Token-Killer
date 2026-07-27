@@ -75,6 +75,7 @@ internal sealed class ProcessTreeContainment : IDisposable
         TimeSpan.FromMilliseconds(100).Ticks;
 
     private const int Sigkill = 9;
+    private static int _workerOwnedGroupMode;
 
     private readonly int _rootPid;
     private readonly long _rootStartUtcTicks;
@@ -143,6 +144,41 @@ internal sealed class ProcessTreeContainment : IDisposable
     {
         if (OperatingSystem.IsWindows()) return;
         try { _ = ExclusiveGroup.Value; } catch { }
+    }
+
+    /// <summary>
+    /// Selects the broker-owned worker process group before any command can
+    /// launch. The broker has already made this worker the group leader, so
+    /// worker mode validates that fact and never attempts a nested setpgid or
+    /// setsid transition.
+    /// </summary>
+    internal static void EnterWorkerOwnedGroupMode()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            throw new PlatformNotSupportedException(
+                "A broker-owned process group is a Unix worker boundary.");
+        }
+        if (ExclusiveGroup.IsValueCreated)
+        {
+            throw new InvalidOperationException(
+                "Process containment was initialized before worker bootstrap.");
+        }
+
+        var processId = getpid();
+        if (processId <= 0 || getpgrp() != processId)
+        {
+            throw new InvalidOperationException(
+                "The Unix worker is not its broker-owned process-group leader.");
+        }
+        if (Interlocked.CompareExchange(
+                ref _workerOwnedGroupMode,
+                1,
+                0) != 0)
+        {
+            throw new InvalidOperationException(
+                "The Unix worker containment mode was already selected.");
+        }
     }
 
     /// <summary>Test seam: this tracker's classification.</summary>
@@ -246,6 +282,8 @@ internal sealed class ProcessTreeContainment : IDisposable
         if (OperatingSystem.IsWindows()) return false;
         try
         {
+            if (Volatile.Read(ref _workerOwnedGroupMode) != 0)
+                return getpgrp() == getpid();
             if (getpgrp() != getpid()) _ = setpgid(0, 0);
             return getpgrp() == getpid();
         }
@@ -508,6 +546,10 @@ internal readonly record struct ProcessTableRow(int Pid, int Ppid, int Pgid);
 /// </summary>
 internal static class ProcessTableSnapshot
 {
+    private static readonly Lock SharedGate = new();
+    private static List<ProcessTableRow>? _sharedSnapshot;
+    private static long _sharedTimestamp;
+
     internal static List<ProcessTableRow>? TryTake()
     {
         try
@@ -517,6 +559,31 @@ internal static class ProcessTableSnapshot
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Returns one read-only-by-convention snapshot shared by concurrent
+    /// containment observers for a short interval. Kill-time callers continue
+    /// to use <see cref="TryTake"/> directly and always receive a fresh view.
+    /// </summary>
+    internal static List<ProcessTableRow>? TryTakeShared(TimeSpan maximumAge)
+    {
+        if (maximumAge <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(maximumAge));
+
+        lock (SharedGate)
+        {
+            var now = Stopwatch.GetTimestamp();
+            if (_sharedTimestamp != 0 &&
+                Stopwatch.GetElapsedTime(_sharedTimestamp, now) <= maximumAge)
+            {
+                return _sharedSnapshot;
+            }
+
+            _sharedSnapshot = TryTake();
+            _sharedTimestamp = now;
+            return _sharedSnapshot;
         }
     }
 

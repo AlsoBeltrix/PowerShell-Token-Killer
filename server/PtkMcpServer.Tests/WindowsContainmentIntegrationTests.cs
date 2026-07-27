@@ -2,6 +2,7 @@ using System.Collections;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using PtkContainmentTestFixture;
 using PtkMcpServer.Worker;
 
@@ -55,15 +56,22 @@ public sealed class WindowsContainmentIntegrationTests
 
             var owner = worker;
             worker = null;
-            owner.Dispose();
+            var containment = await owner.ContainAsync(
+                WorkerContainmentReason.Close);
 
             await Assert.ThrowsAnyAsync<OperationCanceledException>(
                 async () => await canceledWait);
             await WaitForExitAsync(workerWitness);
+            Assert.Equal(
+                WorkerContainmentOutcome.ConfirmedEmpty,
+                containment.Outcome);
+            await owner.ContainmentEmpty.WaitAsync(CheckpointTimeout);
+            owner.Dispose();
         }
         finally
         {
             Environment.SetEnvironmentVariable(AmbientLeakEnvironmentVariable, priorAmbientLeak);
+            await ContainBestEffortAsync(worker);
             worker?.Dispose();
             workerWitness?.Dispose();
             DeleteScratchBestEffort(scratch);
@@ -136,16 +144,23 @@ public sealed class WindowsContainmentIntegrationTests
             // both the worker and the ordinary no-breakaway descendant.
             var owner = worker;
             worker = null;
-            owner.Dispose();
+            var containment = await owner.ContainAsync(
+                WorkerContainmentReason.Close);
 
             await WaitForExitAsync(workerWitness);
             await WaitForExitAsync(descendantWitness);
+            Assert.Equal(
+                WorkerContainmentOutcome.ConfirmedEmpty,
+                containment.Outcome);
+            await owner.ContainmentEmpty.WaitAsync(CheckpointTimeout);
+            owner.Dispose();
         }
         finally
         {
             Environment.SetEnvironmentVariable(AmbientLeakEnvironmentVariable, priorAmbientLeak);
             try
             {
+                await ContainBestEffortAsync(worker);
                 worker?.Dispose();
             }
             finally
@@ -154,6 +169,106 @@ public sealed class WindowsContainmentIntegrationTests
                 descendantWitness?.Dispose();
                 DeleteScratchBestEffort(scratch);
             }
+        }
+    }
+
+    [Fact]
+    public async Task Two_worker_jobs_contain_child_and_grandchild_independently()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        IWorkerContainedProcess? first = null;
+        IWorkerContainedProcess? second = null;
+        var witnesses = new List<Process>();
+        try
+        {
+            first = await WorkerProcessLauncher.Create().LaunchAsync(
+                CreateContainedFixtureCommand());
+            second = await WorkerProcessLauncher.Create().LaunchAsync(
+                CreateContainedFixtureCommand());
+            var firstTree = await ReadTreeAsync(first.StandardOutputReader);
+            var secondTree = await ReadTreeAsync(second.StandardOutputReader);
+
+            Assert.Equal(first.ProcessId, firstTree.WorkerPid);
+            Assert.Equal(second.ProcessId, secondTree.WorkerPid);
+            Assert.NotEqual(first.ProcessId, second.ProcessId);
+
+            var firstWitnesses = OpenTreeWitnesses(firstTree);
+            var secondWitnesses = OpenTreeWitnesses(secondTree);
+            witnesses.AddRange(firstWitnesses);
+            witnesses.AddRange(secondWitnesses);
+
+            var firstResult = await first.ContainAsync(
+                WorkerContainmentReason.Reset);
+            Assert.Equal(
+                WorkerContainmentOutcome.ConfirmedEmpty,
+                firstResult.Outcome);
+            await first.ContainmentEmpty.WaitAsync(CheckpointTimeout);
+            foreach (var witness in firstWitnesses)
+                await WaitForExitAsync(witness);
+            Assert.All(
+                secondWitnesses,
+                witness => Assert.False(witness.HasExited));
+
+            var secondResult = await second.ContainAsync(
+                WorkerContainmentReason.Timeout);
+            Assert.Equal(
+                WorkerContainmentOutcome.ConfirmedEmpty,
+                secondResult.Outcome);
+            await second.ContainmentEmpty.WaitAsync(CheckpointTimeout);
+            foreach (var witness in secondWitnesses)
+                await WaitForExitAsync(witness);
+        }
+        finally
+        {
+            await ContainBestEffortAsync(first);
+            await ContainBestEffortAsync(second);
+            first?.Dispose();
+            second?.Dispose();
+            foreach (var witness in witnesses)
+                witness.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task Hard_supervisor_death_closes_both_worker_jobs()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        using var supervisor = StartContainedSupervisor();
+        var standardError = supervisor.StandardError.ReadToEndAsync();
+        var ready = await ReadSupervisorReadyAsync(
+            supervisor.StandardOutput);
+        var witnesses = ready.OwnedProcessIds
+            .Select(OpenProcessWitness)
+            .ToArray();
+        try
+        {
+            Assert.Equal(supervisor.Id, ready.SupervisorPid);
+            Assert.NotEqual(ready.FirstWorkerPid, ready.SecondWorkerPid);
+            Assert.NotEqual(
+                ready.FirstDescendantPid,
+                ready.FirstGrandchildPid);
+            Assert.NotEqual(
+                ready.SecondDescendantPid,
+                ready.SecondGrandchildPid);
+            Assert.All(witnesses, witness => Assert.False(witness.HasExited));
+
+            supervisor.Kill();
+            await supervisor.WaitForExitAsync().WaitAsync(CheckpointTimeout);
+
+            foreach (var witness in witnesses)
+                await WaitForExitAsync(witness);
+            Assert.Equal(
+                string.Empty,
+                await standardError.WaitAsync(CheckpointTimeout));
+        }
+        finally
+        {
+            if (!supervisor.HasExited)
+                supervisor.Kill(entireProcessTree: true);
+            foreach (var witness in witnesses)
+                witness.Dispose();
         }
     }
 
@@ -188,6 +303,100 @@ public sealed class WindowsContainmentIntegrationTests
             fixtureDirectory,
             environment);
     }
+
+    private static WorkerLaunchCommand CreateContainedFixtureCommand()
+    {
+        var fixture = ResolveFixtureInvocation("contained-worker");
+        return new WorkerLaunchCommand(
+            fixture.Executable,
+            fixture.Arguments,
+            fixture.WorkingDirectory,
+            CaptureCurrentEnvironment());
+    }
+
+    private static Process StartContainedSupervisor()
+    {
+        var fixture = ResolveFixtureInvocation(
+            "contained-supervisor",
+            "unused-on-windows");
+        var start = new ProcessStartInfo
+        {
+            FileName = fixture.Executable,
+            WorkingDirectory = fixture.WorkingDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        foreach (var argument in fixture.Arguments)
+            start.ArgumentList.Add(argument);
+        return Process.Start(start) ??
+            throw new InvalidOperationException(
+                "The contained supervisor fixture did not start.");
+    }
+
+    private static FixtureInvocation ResolveFixtureInvocation(
+        params string[] arguments)
+    {
+        var assembly = typeof(FixtureAssemblyMarker).Assembly.Location;
+        var directory = Path.GetDirectoryName(assembly) ??
+            throw new InvalidOperationException(
+                "The containment fixture directory is unavailable.");
+        var appHost = Path.Combine(
+            directory,
+            "PtkContainmentTestFixture.exe");
+        return File.Exists(appHost)
+            ? new FixtureInvocation(
+                appHost,
+                arguments,
+                directory)
+            : new FixtureInvocation(
+                ResolveDotnetHost(),
+                [assembly, .. arguments],
+                directory);
+    }
+
+    private static async Task<TreeSnapshot> ReadTreeAsync(Stream stream)
+    {
+        using var reader = new StreamReader(
+            stream,
+            Encoding.UTF8,
+            detectEncodingFromByteOrderMarks: false,
+            leaveOpen: true);
+        var line = await ReadLineAsync(reader);
+        using var document = JsonDocument.Parse(line);
+        var root = document.RootElement;
+        return new TreeSnapshot(
+            root.GetProperty("workerPid").GetInt32(),
+            root.GetProperty("descendantPid").GetInt32(),
+            root.GetProperty("grandchildPid").GetInt32());
+    }
+
+    private static async Task<SupervisorReadySnapshot>
+        ReadSupervisorReadyAsync(StreamReader reader)
+    {
+        using var cancellation = new CancellationTokenSource(
+            CheckpointTimeout);
+        var line = await reader.ReadLineAsync(cancellation.Token) ??
+            throw new EndOfStreamException(
+                "The contained supervisor exited before readiness.");
+        using var document = JsonDocument.Parse(line);
+        var root = document.RootElement;
+        return new SupervisorReadySnapshot(
+            root.GetProperty("supervisorPid").GetInt32(),
+            root.GetProperty("firstWorkerPid").GetInt32(),
+            root.GetProperty("firstDescendantPid").GetInt32(),
+            root.GetProperty("firstGrandchildPid").GetInt32(),
+            root.GetProperty("secondWorkerPid").GetInt32(),
+            root.GetProperty("secondDescendantPid").GetInt32(),
+            root.GetProperty("secondGrandchildPid").GetInt32());
+    }
+
+    private static Process[] OpenTreeWitnesses(TreeSnapshot tree) =>
+    [
+        OpenProcessWitness(tree.WorkerPid),
+        OpenProcessWitness(tree.DescendantPid),
+        OpenProcessWitness(tree.GrandchildPid),
+    ];
 
     private static string ResolveDotnetHost()
     {
@@ -259,6 +468,21 @@ public sealed class WindowsContainmentIntegrationTests
         await process.WaitForExitAsync(cancellation.Token);
     }
 
+    private static async Task ContainBestEffortAsync(
+        IWorkerContainedProcess? process)
+    {
+        if (process is null)
+            return;
+        try
+        {
+            await process.ContainAsync(
+                WorkerContainmentReason.SupervisorShutdown);
+        }
+        catch
+        {
+        }
+    }
+
     private static void ForceFullCollection()
     {
         GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true, compacting: true);
@@ -281,5 +505,35 @@ public sealed class WindowsContainmentIntegrationTests
         {
             // See the IOException cleanup note above.
         }
+    }
+
+    private sealed record FixtureInvocation(
+        string Executable,
+        IReadOnlyList<string> Arguments,
+        string WorkingDirectory);
+
+    private sealed record TreeSnapshot(
+        int WorkerPid,
+        int DescendantPid,
+        int GrandchildPid);
+
+    private sealed record SupervisorReadySnapshot(
+        int SupervisorPid,
+        int FirstWorkerPid,
+        int FirstDescendantPid,
+        int FirstGrandchildPid,
+        int SecondWorkerPid,
+        int SecondDescendantPid,
+        int SecondGrandchildPid)
+    {
+        internal IEnumerable<int> OwnedProcessIds =>
+        [
+            FirstWorkerPid,
+            FirstDescendantPid,
+            FirstGrandchildPid,
+            SecondWorkerPid,
+            SecondDescendantPid,
+            SecondGrandchildPid,
+        ];
     }
 }

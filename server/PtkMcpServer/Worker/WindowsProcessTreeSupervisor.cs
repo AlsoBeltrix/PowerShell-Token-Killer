@@ -11,6 +11,8 @@ internal interface IWindowsWorkerNative
     IWindowsJobHandle CreateUnnamedJob();
     void SetJobLimitFlags(IWindowsJobHandle job, uint limitFlags);
     uint QueryJobLimitFlags(IWindowsJobHandle job);
+    uint QueryJobActiveProcessCount(IWindowsJobHandle job);
+    IWindowsJobEmptyObserver CreateJobEmptyObserver(IWindowsJobHandle job);
     IWindowsWorkerPipeSet CreateWorkerPipeSet();
     IWindowsProcessHandle CreateProcessInJob(
         WorkerLaunchCommand command,
@@ -22,6 +24,11 @@ internal interface IWindowsWorkerNative
 }
 
 internal interface IWindowsJobHandle : IDisposable;
+
+internal interface IWindowsJobEmptyObserver : IDisposable
+{
+    Task WaitForEmptyAsync(CancellationToken cancellationToken = default);
+}
 
 internal interface IWindowsProcessHandle : IDisposable
 {
@@ -86,6 +93,7 @@ internal sealed class WindowsProcessTreeSupervisor
         cancellationToken.ThrowIfCancellationRequested();
 
         IWindowsJobHandle? job = null;
+        IWindowsJobEmptyObserver? emptyObserver = null;
         IWindowsWorkerPipeSet? pipes = null;
         IWindowsProcessHandle? process = null;
         try
@@ -109,6 +117,14 @@ internal sealed class WindowsProcessTreeSupervisor
                     "containment_setup_failed",
                     WorkerLaunchStage.QueryJob);
             }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            emptyObserver = InvokeStage(
+                "containment_setup_failed",
+                WorkerLaunchStage.QueryJob,
+                () => _native.CreateJobEmptyObserver(job) ??
+                    throw new InvalidOperationException(
+                        "Native job observation returned no owner."));
 
             cancellationToken.ThrowIfCancellationRequested();
             pipes = InvokeStage(
@@ -151,23 +167,121 @@ internal sealed class WindowsProcessTreeSupervisor
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            var contained = new ContainedWindowsWorker(_native, job, process, pipes, mode);
+            var contained = new ContainedWindowsWorker(
+                _native,
+                job,
+                emptyObserver,
+                process,
+                pipes,
+                mode);
             job = null;
+            emptyObserver = null;
             process = null;
             pipes = null;
             return contained;
         }
-        catch
+        catch (Exception exception)
         {
             // Closing the sole job handle is the first rollback action after a
             // process exists. That contains the entire tree before ordinary
             // process/stream handle cleanup, including when cleanup itself fails.
-            DisposeIgnoringFailure(job);
-            DisposeIgnoringFailure(process);
-            DisposeIgnoringFailure(pipes);
-            throw;
+            Task? containmentEmpty = null;
+            try
+            {
+                if (job is not null && emptyObserver is not null &&
+                    JobMayContainProcesses(job))
+                {
+                    containmentEmpty = ObserveAfterJobClose(
+                        job,
+                        emptyObserver);
+                    job = null;
+                    emptyObserver = null;
+                }
+                else
+                {
+                    DisposeIgnoringFailure(job);
+                    DisposeIgnoringFailure(emptyObserver);
+                }
+            }
+            finally
+            {
+                DisposeIgnoringFailure(process);
+                DisposeIgnoringFailure(pipes);
+            }
+
+            if (containmentEmpty is null ||
+                containmentEmpty.IsCompletedSuccessfully)
+                throw;
+            throw AttachContainment(exception, containmentEmpty);
         }
     }
+
+    private bool JobMayContainProcesses(IWindowsJobHandle job)
+    {
+        try
+        {
+            return _native.QueryJobActiveProcessCount(job) != 0;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return true;
+        }
+    }
+
+    private static Task ObserveAfterJobClose(
+        IWindowsJobHandle job,
+        IWindowsJobEmptyObserver observer)
+    {
+        Task empty;
+        try
+        {
+            empty = observer.WaitForEmptyAsync(CancellationToken.None);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            empty = Task.FromException(exception);
+        }
+        catch
+        {
+            DisposeIgnoringFailure(observer);
+            throw;
+        }
+        finally
+        {
+            DisposeIgnoringFailure(job);
+        }
+
+        return CompleteObservationAsync(empty, observer);
+    }
+
+    private static async Task CompleteObservationAsync(
+        Task empty,
+        IWindowsJobEmptyObserver observer)
+    {
+        try
+        {
+            await empty.ConfigureAwait(false);
+        }
+        finally
+        {
+            DisposeIgnoringFailure(observer);
+        }
+    }
+
+    private static Exception AttachContainment(
+        Exception exception,
+        Task containmentEmpty) =>
+        exception is WorkerLaunchException launch
+            ? new WorkerLaunchException(
+                launch.DetailCode,
+                launch.Stage,
+                launch.NativeErrorCode,
+                launch,
+                containmentEmpty)
+            : new WorkerProcessException(
+                "worker_launch_containment_unconfirmed",
+                exception,
+                containmentEmpty);
 
     private static void DisposeIgnoringFailure(IDisposable? value)
     {
@@ -218,32 +332,131 @@ internal sealed class WindowsProcessTreeSupervisor
             AccessViolationException or AppDomainUnloadedException;
 }
 
-internal sealed class ContainedWindowsWorker : IDisposable
+internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
 {
+    private static readonly TimeSpan ContainmentConfirmationGrace =
+        TimeSpan.FromSeconds(10);
+
+    private readonly object _containmentGate = new();
+    private readonly TaskCompletionSource _containmentEmpty = new(
+        TaskCreationOptions.RunContinuationsAsynchronously);
     private Ownership? _ownership;
+    private Task<WorkerContainmentResult>? _containment;
 
     internal ContainedWindowsWorker(
         IWindowsWorkerNative native,
         IWindowsJobHandle job,
+        IWindowsJobEmptyObserver emptyObserver,
         IWindowsProcessHandle process,
         IWindowsWorkerPipeSet pipes,
         WindowsProcessCreationMode mode)
     {
         ArgumentNullException.ThrowIfNull(native);
         ArgumentNullException.ThrowIfNull(job);
+        ArgumentNullException.ThrowIfNull(emptyObserver);
         ArgumentNullException.ThrowIfNull(process);
         ArgumentNullException.ThrowIfNull(pipes);
-        _ownership = new Ownership(native, job, process, pipes, mode);
+        _ownership = new Ownership(
+            native,
+            job,
+            emptyObserver,
+            process,
+            pipes,
+            mode);
     }
 
-    internal int ProcessId => Current.Process.ProcessId;
-    internal Stream RequestWriter => Current.Pipes.RequestWriter;
-    internal Stream EventReader => Current.Pipes.EventReader;
-    internal Stream StandardOutputReader => Current.Pipes.StandardOutputReader;
-    internal Stream StandardErrorReader => Current.Pipes.StandardErrorReader;
+    public int ProcessId => Current.Process.ProcessId;
+    public int ContainmentProcessId => ProcessId;
+    public Stream RequestWriter => Current.Pipes.RequestWriter;
+    public Stream EventReader => Current.Pipes.EventReader;
+    public Stream StandardOutputReader => Current.Pipes.StandardOutputReader;
+    public Stream StandardErrorReader => Current.Pipes.StandardErrorReader;
+    public Task ContainmentEmpty => _containmentEmpty.Task;
 
-    internal Task WaitForExitAsync(CancellationToken cancellationToken = default) =>
+    public Task WaitForExitAsync(CancellationToken cancellationToken = default) =>
         Current.Process.WaitForExitAsync(cancellationToken);
+
+    public Task<WorkerContainmentResult> ContainAsync(
+        WorkerContainmentReason reason)
+    {
+        if (!Enum.IsDefined(reason))
+            throw new ArgumentOutOfRangeException(nameof(reason));
+        lock (_containmentGate)
+            return _containment ??= ContainCoreAsync();
+    }
+
+    private async Task<WorkerContainmentResult> ContainCoreAsync()
+    {
+        var ownership = Interlocked.Exchange(ref _ownership, null);
+        if (ownership is null)
+        {
+            return WorkerContainmentResult.Unknown(
+                "windows_worker_containment_unconfirmed");
+        }
+
+        Task observation;
+        try
+        {
+            observation = ownership.EmptyObserver.WaitForEmptyAsync(
+                CancellationToken.None);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            DisposeOwnership(ownership, includeObserver: true);
+            return WorkerContainmentResult.Unknown(
+                "windows_worker_containment_unconfirmed");
+        }
+        catch
+        {
+            DisposeOwnership(ownership, includeObserver: true);
+            throw;
+        }
+
+        DisposeIgnoringFailure(ownership.Job);
+        DisposeIgnoringFailure(ownership.Process);
+        DisposeIgnoringFailure(ownership.Pipes);
+
+        var bounded = await Task.WhenAny(
+            observation,
+            Task.Delay(ContainmentConfirmationGrace)).ConfigureAwait(false);
+        if (bounded == observation)
+        {
+            try
+            {
+                await observation.ConfigureAwait(false);
+                _containmentEmpty.TrySetResult();
+                DisposeIgnoringFailure(ownership.EmptyObserver);
+                return WorkerContainmentResult.Confirmed();
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                DisposeIgnoringFailure(ownership.EmptyObserver);
+                return WorkerContainmentResult.Unknown(
+                    "windows_worker_containment_unconfirmed");
+            }
+        }
+
+        _ = CompleteLaterAsync(observation, ownership.EmptyObserver);
+        return WorkerContainmentResult.Unknown("descendants_unknown");
+    }
+
+    private async Task CompleteLaterAsync(
+        Task observation,
+        IWindowsJobEmptyObserver observer)
+    {
+        try
+        {
+            await observation.ConfigureAwait(false);
+            _containmentEmpty.TrySetResult();
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+        }
+        finally
+        {
+            DisposeIgnoringFailure(observer);
+        }
+    }
 
     internal void ResumeForContainmentProof()
     {
@@ -287,6 +500,7 @@ internal sealed class ContainedWindowsWorker : IDisposable
 
         List<Exception>? failures = null;
         DisposeAndCapture(ownership.Job, ref failures);
+        DisposeAndCapture(ownership.EmptyObserver, ref failures);
         DisposeAndCapture(ownership.Process, ref failures);
         DisposeAndCapture(ownership.Pipes, ref failures);
 
@@ -323,6 +537,28 @@ internal sealed class ContainedWindowsWorker : IDisposable
         }
     }
 
+    private static void DisposeOwnership(
+        Ownership ownership,
+        bool includeObserver)
+    {
+        DisposeIgnoringFailure(ownership.Job);
+        if (includeObserver)
+            DisposeIgnoringFailure(ownership.EmptyObserver);
+        DisposeIgnoringFailure(ownership.Process);
+        DisposeIgnoringFailure(ownership.Pipes);
+    }
+
+    private static void DisposeIgnoringFailure(IDisposable value)
+    {
+        try
+        {
+            value.Dispose();
+        }
+        catch
+        {
+        }
+    }
+
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or
             AccessViolationException or AppDomainUnloadedException;
@@ -330,12 +566,15 @@ internal sealed class ContainedWindowsWorker : IDisposable
     private sealed class Ownership(
         IWindowsWorkerNative native,
         IWindowsJobHandle job,
+        IWindowsJobEmptyObserver emptyObserver,
         IWindowsProcessHandle process,
         IWindowsWorkerPipeSet pipes,
         WindowsProcessCreationMode mode)
     {
         internal IWindowsWorkerNative Native { get; } = native;
         internal IWindowsJobHandle Job { get; } = job;
+        internal IWindowsJobEmptyObserver EmptyObserver { get; } =
+            emptyObserver;
         internal IWindowsProcessHandle Process { get; } = process;
         internal IWindowsWorkerPipeSet Pipes { get; } = pipes;
         internal WindowsProcessCreationMode Mode { get; } = mode;

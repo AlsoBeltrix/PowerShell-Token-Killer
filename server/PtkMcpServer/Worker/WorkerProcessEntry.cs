@@ -39,7 +39,7 @@ internal static class WorkerProcessEntry
         return await RunCapturedAsync(
             arguments,
             values,
-            openBootstrap: captured => WindowsWorkerBootstrap.Open(captured),
+            openBootstrap: OpenProductionBootstrap,
             runtimeFactory: CreateRuntimeAsync,
             standardErrorFactory: Console.OpenStandardError).ConfigureAwait(false);
     }
@@ -140,6 +140,37 @@ internal static class WorkerProcessEntry
         }
 
         return CompleteServerExit(finalExit, standardErrorFactory);
+    }
+
+    private static IWorkerBootstrapStreams OpenProductionBootstrap(
+        WorkerBootstrapValues values)
+    {
+        var bootstrap = WorkerBootstrap.Open(values);
+        if (OperatingSystem.IsWindows())
+            return bootstrap;
+
+        try
+        {
+            ProcessTreeContainment.EnterWorkerOwnedGroupMode();
+            return bootstrap;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            try
+            {
+                bootstrap.Dispose();
+            }
+            catch (Exception cleanupFailure) when (!IsFatal(cleanupFailure))
+            {
+                throw new WorkerBootstrapException(
+                    "containment_group_invalid",
+                    new AggregateException(exception, cleanupFailure));
+            }
+
+            throw new WorkerBootstrapException(
+                "containment_group_invalid",
+                exception);
+        }
     }
 
     private static Task<IWorkerSession> CreateRuntimeAsync(

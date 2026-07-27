@@ -29,17 +29,20 @@ internal sealed class WorkerLaunchException : Exception
         string detailCode,
         WorkerLaunchStage stage,
         int? nativeErrorCode = null,
-        Exception? innerException = null)
+        Exception? innerException = null,
+        Task? containmentEmpty = null)
         : base(BuildMessage(detailCode, stage, nativeErrorCode), innerException)
     {
         DetailCode = detailCode;
         Stage = stage;
         NativeErrorCode = nativeErrorCode;
+        ContainmentEmpty = containmentEmpty;
     }
 
     internal string DetailCode { get; }
     internal WorkerLaunchStage Stage { get; }
     internal int? NativeErrorCode { get; }
+    internal Task? ContainmentEmpty { get; }
 
     private static string BuildMessage(
         string detailCode,
@@ -58,7 +61,13 @@ internal sealed class WorkerLaunchException : Exception
 internal sealed class WindowsWorkerNative : IWindowsWorkerNative
 {
     private const int ErrorInsufficientBuffer = 122;
+    private const uint JobObjectBasicAccountingInformationClass = 1;
+    private const uint JobObjectAssociateCompletionPortInformationClass = 7;
     private const uint JobObjectExtendedLimitInformationClass = 9;
+    private const uint JobObjectMessageActiveProcessZero = 4;
+    private const int WaitTimeout = 258;
+    private const uint CompletionPollMilliseconds = 100;
+    private static readonly nuint JobCompletionKey = 0x50544B57;
     private const uint HandleFlagInherit = 0x00000001;
     private const uint StartfUseStdHandles = 0x00000100;
     private const uint CreateSuspended = 0x00000004;
@@ -117,7 +126,7 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
         if (NativeMethods.QueryInformationJobObject(
                 nativeJob,
                 JobObjectExtendedLimitInformationClass,
-                out var information,
+                out JobObjectExtendedLimitInformation information,
                 (uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>(),
                 out _))
         {
@@ -128,6 +137,73 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
             "containment_setup_failed",
             WorkerLaunchStage.QueryJob,
             Marshal.GetLastWin32Error());
+    }
+
+    public uint QueryJobActiveProcessCount(IWindowsJobHandle job)
+    {
+        var nativeJob = RequireJob(job);
+        if (NativeMethods.QueryInformationJobObject(
+                nativeJob,
+                JobObjectBasicAccountingInformationClass,
+                out JobObjectBasicAccountingInformation information,
+                (uint)Marshal.SizeOf<JobObjectBasicAccountingInformation>(),
+                out _))
+        {
+            return information.ActiveProcesses;
+        }
+
+        throw Failure(
+            "containment_setup_failed",
+            WorkerLaunchStage.QueryJob,
+            Marshal.GetLastWin32Error());
+    }
+
+    public IWindowsJobEmptyObserver CreateJobEmptyObserver(
+        IWindowsJobHandle job)
+    {
+        var nativeJob = RequireJob(job);
+        var completionPort = NativeMethods.CreateIoCompletionPort(
+            new IntPtr(-1),
+            IntPtr.Zero,
+            0,
+            1);
+        if (completionPort.IsInvalid)
+        {
+            var error = Marshal.GetLastWin32Error();
+            completionPort.Dispose();
+            throw Failure(
+                "containment_setup_failed",
+                WorkerLaunchStage.QueryJob,
+                error);
+        }
+
+        try
+        {
+            var information = new JobObjectAssociateCompletionPort
+            {
+                CompletionKey = (IntPtr)JobCompletionKey,
+                CompletionPort = completionPort.DangerousGetHandle(),
+            };
+            if (!NativeMethods.SetInformationJobObject(
+                    nativeJob,
+                    JobObjectAssociateCompletionPortInformationClass,
+                    ref information,
+                    (uint)Marshal.SizeOf<JobObjectAssociateCompletionPort>()))
+            {
+                throw Failure(
+                    "containment_setup_failed",
+                    WorkerLaunchStage.QueryJob,
+                    Marshal.GetLastWin32Error());
+            }
+
+            var observer = new NativeJobEmptyObserver(completionPort);
+            completionPort = null!;
+            return observer;
+        }
+        finally
+        {
+            completionPort?.Dispose();
+        }
     }
 
     public IWindowsWorkerPipeSet CreateWorkerPipeSet()
@@ -535,6 +611,56 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
         }
 
         protected override bool ReleaseHandle() => NativeMethods.CloseHandle(handle);
+    }
+
+    private sealed class NativeJobEmptyObserver(
+        SafeFileHandle completionPort) : IWindowsJobEmptyObserver
+    {
+        private SafeFileHandle? _completionPort = completionPort;
+
+        public Task WaitForEmptyAsync(
+            CancellationToken cancellationToken = default)
+        {
+            var port = Volatile.Read(ref _completionPort) ??
+                throw new ObjectDisposedException(
+                    nameof(NativeJobEmptyObserver));
+            return Task.Run(
+                () => WaitForEmpty(port, cancellationToken),
+                CancellationToken.None);
+        }
+
+        public void Dispose()
+        {
+            Interlocked.Exchange(ref _completionPort, null)?.Dispose();
+        }
+
+        private static void WaitForEmpty(
+            SafeFileHandle completionPort,
+            CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (NativeMethods.GetQueuedCompletionStatus(
+                        completionPort,
+                        out var message,
+                        out var completionKey,
+                        out _,
+                        CompletionPollMilliseconds))
+                {
+                    if (completionKey == JobCompletionKey &&
+                        message == JobObjectMessageActiveProcessZero)
+                    {
+                        return;
+                    }
+                    continue;
+                }
+
+                var error = Marshal.GetLastWin32Error();
+                if (error != WaitTimeout)
+                    throw new Win32Exception(error);
+            }
+        }
     }
 
     private sealed class NativeThreadHandle : SafeHandleZeroOrMinusOneIsInvalid
@@ -1073,6 +1199,26 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
     }
 
     [StructLayout(LayoutKind.Sequential)]
+    private struct JobObjectBasicAccountingInformation
+    {
+        internal long TotalUserTime;
+        internal long TotalKernelTime;
+        internal long ThisPeriodTotalUserTime;
+        internal long ThisPeriodTotalKernelTime;
+        internal uint TotalPageFaultCount;
+        internal uint TotalProcesses;
+        internal uint ActiveProcesses;
+        internal uint TotalTerminatedProcesses;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JobObjectAssociateCompletionPort
+    {
+        internal IntPtr CompletionKey;
+        internal IntPtr CompletionPort;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
     private struct JobObjectBasicLimitInformation
     {
         internal long PerProcessUserTimeLimit;
@@ -1164,12 +1310,45 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool SetInformationJobObject(
+            NativeJobHandle job,
+            uint informationClass,
+            ref JobObjectAssociateCompletionPort information,
+            uint informationLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
         internal static extern bool QueryInformationJobObject(
             NativeJobHandle job,
             uint informationClass,
             out JobObjectExtendedLimitInformation information,
             uint informationLength,
             out uint returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool QueryInformationJobObject(
+            NativeJobHandle job,
+            uint informationClass,
+            out JobObjectBasicAccountingInformation information,
+            uint informationLength,
+            out uint returnLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        internal static extern SafeFileHandle CreateIoCompletionPort(
+            IntPtr fileHandle,
+            IntPtr existingCompletionPort,
+            nuint completionKey,
+            uint numberOfConcurrentThreads);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetQueuedCompletionStatus(
+            SafeFileHandle completionPort,
+            out uint numberOfBytesTransferred,
+            out nuint completionKey,
+            out IntPtr overlapped,
+            uint milliseconds);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

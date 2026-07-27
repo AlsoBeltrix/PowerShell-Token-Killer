@@ -999,3 +999,36 @@ was used._
   recurrence, fixed watchdog sensitivity, two recorded Windows containment
   failures, and five transitive high-severity
   `System.Security.Cryptography.Xml` advisories remain open.
+
+## Production-reliability salvage Slice 4 cross-platform validation (2026-07-27)
+
+_Verified at exact commit `75505b98021229efebc338597d38450059da9294`,
+tree `101a0e33b243c8cfd73e9f6f9e29c8a26876e123`; this was checkout
+validation, not an install or deployment._
+
+- The exact `git archive` SHA-256 was
+  `d950a72d6c317405db3667c9fa53fd77993f75a6daf0a2d589fd2085d960f94d`
+  locally, on Linux x86_64 `magneto`, and on Windows x64 `NETWATCH-01`.
+  No emulator or UTM was used.
+- The final macOS ARM64, Linux x86_64, and Windows x64 batteries each passed:
+  server 1,240/1,240; Pester 141 passed with two platform skips; SIEM
+  247/247; and the complete public stdio handshake.
+- Windows validation first caught four defects or false assumptions. Commit
+  `cba10d3` replaced close-to-kill with `TerminateJobObject`, retained the Job
+  Object while querying active membership, and refused to claim containment
+  when termination could not be proved. Commit `f5e3b16` made the route-consent
+  guard independent of `NETWATCH-01`'s legitimate `export` alias. Commit
+  `585b75c` stopped descendants-only cleanup from turning a failed kill request
+  into a successful root kill. Commit `75505b9` gave the bounded containment
+  observer its independent retry before fallback escalation; its formerly
+  intermittent Windows guard then passed 30 consecutive runs.
+- The five known `System.Security.Cryptography.Xml` 10.0.6 advisories were the
+  only dependency warnings. The installed PTK MCP transport returned
+  `Transport closed` before validation, so the normal shell fallback was used;
+  the candidate was never installed and the transport failure is not attributed
+  to it.
+- No matching test, fixture, or checkout process survived. The disposable
+  Linux and Windows validation trees were removed. The three local transfer
+  directories were moved to the macOS Trash, so they remain recoverable there
+  until Trash is emptied. No installed payload or persistent host configuration
+  changed.

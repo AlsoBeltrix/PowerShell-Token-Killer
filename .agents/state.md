@@ -139,6 +139,21 @@ short and update it when important repo facts change.
   the same behavior battery in a clean disposable checkout on Linux x86_64
   `magneto`. Public MCP behavior is unchanged. The slice is not pushed or
   installed; exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 4 is complete locally at code head
+  `75505b98021229efebc338597d38450059da9294`.** Disposable workers now use
+  the worker-only Unix broker or Windows creation-time Job Object containment,
+  with independent per-worker teardown and unchanged public MCP behavior.
+  Direct Windows validation found and repaired four concrete issues: Job Object
+  termination now retains the handle until emptiness is proved; route-consent
+  testing no longer depends on host aliases; a failed kill request cannot kill
+  the root through descendants-only cleanup; and a wedged first containment
+  request cannot race away the bounded observer's independent retry. The last
+  retry guard passed 30 consecutive Windows runs. Exact-head full batteries
+  passed on macOS ARM64, Linux x86_64 `magneto`, and Windows x64 `NETWATCH-01`:
+  server 1,240/1,240, Pester 141 passed with two platform skips, SIEM 247/247,
+  and the full stdio handshake. No test process survived and every disposable
+  remote checkout was removed. The slice is not pushed or installed; exact
+  evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -467,10 +482,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Slice 3 is complete locally at `bfa335e` and is not pushed. Implement Slice
-   4 next: port only the worker-level Unix broker and Windows creation-time
-   containment, prove independent teardown of two disposable worker domains on
-   macOS, Linux, and Windows, and keep public MCP behavior unchanged.
+1. Slice 4 is complete locally at `75505b9` and is not pushed. Implement Slice
+   5 next: add the connection-owned fixed eight-slot named-session lifecycle
+   behind its internal fixture, prove two isolated worker PIDs/runspaces with
+   overlapping command names, and keep the public MCP surface unchanged.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.
@@ -552,10 +567,11 @@ short and update it when important repo facts change.
   as high as 60.86. This closes the scheduling artifact, not every underlying
   risk. A recurrence of the anchored-evidence publication/removal ordering race
   or `JobManager.Dispose` bounded-observer failure in a serialized run is still
-  a real signal. Fixed watchdog sensitivity remains. Two previously recorded
-  Windows containment failures and current cross-platform CI evidence also
-  remain open; never call the product production-ready from the macOS result
-  alone.
+  a real signal. Fixed watchdog sensitivity remains. The two recorded Windows
+  containment failures are repaired and the exact Slice 4 head passed direct
+  Mac, Linux, and Windows batteries; current hosted-CI evidence is still
+  absent, and later plan slices plus the deployment gates remain before any
+  production-ready claim.
 - **The server dependency graph now reports five high-severity advisories for
   transitive `System.Security.Cryptography.Xml` 10.0.6.** The path is
   `Microsoft.PowerShell.SDK` 7.6.3 through

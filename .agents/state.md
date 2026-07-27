@@ -45,9 +45,13 @@ short and update it when important repo facts change.
   mixed operator document. Canonical evidence is
   `.agents/review/production-reliability-salvage-opus5-r7.md`. All five
   corrections and the explicit legacy-checkpoint disposition are now
-  incorporated; exact-SHA closure review is pending. No product implementation
-  is authorized. Decisions 2-4 remain, one at a time, after the corrected plan
-  is accepted. Git workspace mechanics remain agent-owned;
+  incorporated. Claude Opus 5 reviewed exact commit `bf47d60` and plan blob
+  `431aecf` in round 8, closed all five findings, confirmed the legacy-state
+  disposition, found no new blocking or major issue, and returned `ACCEPT`.
+  Canonical evidence is
+  `.agents/review/production-reliability-salvage-opus5-r8.md`. No product
+  implementation is authorized. Decisions 2-4 remain, one at a time. Git
+  workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is

@@ -56,6 +56,18 @@ short and update it when important repo facts change.
   its Windows tests unchanged. Decisions 3-4 remain, one at a time. Git
   workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
+- **Production-reliability salvage Slice 0 is recorded on
+  `impl/production-reliability-salvage`.** The unchanged product base is exact
+  `origin/master` commit `c9b11bc`; only the reviewed plan/review records sit
+  between that product tree and the implementation branch head. The Pester
+  suite passed 141 tests with two platform skips, the SIEM suite passed
+  247/247, the handshake passed, and the third full server run passed
+  1,587/1,587. The first two full server runs exposed three different
+  intermittent failures that each passed immediately in isolation; they remain
+  recorded production blockers rather than being normalized away. Two
+  independent ephemeral Codex agents received distinct PTK server PIDs `9595`
+  and `9596`, proving the production harness gives them separate MCP server
+  processes/connections. No product file changed during the baseline.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -384,9 +396,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Present only owner decision 3 (remove cold jobs from the first production
-   surface). Make no product code change until decisions 3-4 and a later
-   explicit implementation go are recorded.
+1. Implement the owner-approved Slice 1 retirement of the guardian-era R0
+   contract, fake resilience fixture, and its two tests. Preserve the real
+   containment fixture and Windows containment tests unchanged. Do not begin
+   later slices whose scope depends on decisions 3-4.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the salvage plan awaits decisions 3-4 and an explicit implementation
@@ -460,10 +473,18 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation is blocked on owner decisions
-  3-4, one at a time, and a later explicit implementation go. Slice 0 must
-  still prove the intended harness gives unrelated agents distinct PTK server
-  PIDs and stdio connections; failure stops the plan before runtime changes.
+- Production-reliability salvage implementation beyond the owner-approved R0
+  retirement is blocked on decisions 3-4 and a later explicit implementation
+  go.
+- **The unchanged macOS server baseline is intermittent.** Full run 1 failed
+  `JobManagerTests.Associated_start_failure_retries_internal_containment_on_a_bounded_observer`;
+  full run 2 failed
+  `AuditAnchoredRuntimeTests.Anchored_runtime_exports_only_after_start_and_restart_adopts_clean_stop`
+  and
+  `AuditRuntimeGateTests.Concurrent_startup_repair_opens_and_publishes_one_runtime`.
+  All three passed immediately in isolation and full run 3 passed 1,587/1,587.
+  Keep the intermittent failures visible as production blockers; never
+  attribute a later recurrence to a new slice without change-specific evidence.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

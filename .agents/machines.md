@@ -769,3 +769,35 @@ snapshots named below). S4-S6 and PTK runtime sources were not changed._
   attempted. Two empty/test-content handshake roots discovered under
   `/Users/michael/.ptk` predated this run (creation 2026-07-14) and were
   preserved; the failed runs created no new retained root.
+
+## Production-reliability salvage Slice 0 baseline (Mac, 2026-07-27)
+
+_Recorded on `impl/production-reliability-salvage` with unchanged product base
+`c9b11bcb0b4e41a11110c5870562b4980c0b86b3`; reviewed plan/review documentation
+head before this record was `f729ed2a300d3fbf43269845ffc82aa6856a98b9`._
+
+- `pwsh -NoProfile -Command "Invoke-Pester -Path
+  tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"` passed 141 tests with
+  two platform skips.
+- `dotnet test siem/PtkSiem.slnx` passed 247/247.
+- `pwsh -NoProfile -File server/test-handshake.ps1` passed the complete stdio
+  handshake with a zero-warning build.
+- The first `dotnet test server/PtkMcpServer.slnx` run passed 1,586/1,587 and
+  failed
+  `JobManagerTests.Associated_start_failure_retries_internal_containment_on_a_bounded_observer`
+  during `JobManager.Dispose`; the focused test then passed 1/1.
+- The second full server run passed 1,585/1,587 and failed
+  `AuditAnchoredRuntimeTests.Anchored_runtime_exports_only_after_start_and_restart_adopts_clean_stop`
+  plus
+  `AuditRuntimeGateTests.Concurrent_startup_repair_opens_and_publishes_one_runtime`;
+  both focused tests then passed 1/1.
+- The third and final full server run passed 1,587/1,587. The earlier failures
+  remain production blockers because the baseline is intermittent even though
+  a green reference run exists.
+- Two independent direct MCP clients against the exact Codex registration
+  command `/Users/michael/.ptk/bin/PtkMcpServer` received separate process and
+  reported server PIDs `7523` and `7524` over distinct stdio streams.
+- Two independent ephemeral read-only Codex agents then called only
+  `ptk_state`; they received distinct PTK server PIDs `9595` and `9596`.
+  Both probe servers exited. This is the plan-required production-harness proof
+  that unrelated agents receive separate PTK server processes/connections.

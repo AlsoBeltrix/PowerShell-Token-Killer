@@ -68,6 +68,19 @@ short and update it when important repo facts change.
   independent ephemeral Codex agents received distinct PTK server PIDs `9595`
   and `9596`, proving the production harness gives them separate MCP server
   processes/connections. No product file changed during the baseline.
+- **The owner-approved Slice 1 R0 retirement is implemented on
+  `impl/production-reliability-salvage`.** The frozen guardian/private-host
+  contract, recovery/package schemas and examples, native acquisition
+  inventory, `PtkResilienceTestFixture`, and its two consuming test classes are
+  removed with their project references. The retained audit/SIEM vectors now
+  have a smaller `AuditInteropContractTests` guard, and
+  `ToolSchemaConformanceTests` freezes the exact live five-tool direct-server
+  surface. The real `PtkContainmentTestFixture` and both Windows containment
+  test files are byte-identical to the base. Focused contract/schema tests,
+  Pester, SIEM, formatting, and the stdio handshake pass. Three bounded
+  post-change server-suite attempts each passed 1,556/1,557 but hit a different
+  already-isolated timing failure; no full post-change server run is claimed
+  green. Exact machine evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -396,10 +409,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Implement the owner-approved Slice 1 retirement of the guardian-era R0
-   contract, fake resilience fixture, and its two tests. Preserve the real
-   containment fixture and Windows containment tests unchanged. Do not begin
-   later slices whose scope depends on decisions 3-4.
+1. Do not begin later product slices whose scope depends on decisions 3-4.
+   Keep the Slice 1 commit isolated and preserve every work-carrying branch.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the salvage plan awaits decisions 3-4 and an explicit implementation
@@ -483,8 +494,20 @@ short and update it when important repo facts change.
   and
   `AuditRuntimeGateTests.Concurrent_startup_repair_opens_and_publishes_one_runtime`.
   All three passed immediately in isolation and full run 3 passed 1,587/1,587.
-  Keep the intermittent failures visible as production blockers; never
-  attribute a later recurrence to a new slice without change-specific evidence.
+  Post-change full runs then failed, one at a time,
+  `StateToolTests.Path_drift_reports_an_entry_level_diff`, the same
+  `JobManagerTests` case, and
+  `RunspaceHostTests.Healthy_private_render_cleanup_can_complete_before_same_call_shaping`;
+  each passed immediately in isolation. No post-change full run passed within
+  the bounded three-attempt threshold. Keep these intermittent failures visible
+  as production blockers; never attribute a recurrence to a new slice without
+  change-specific evidence.
+- **The server dependency graph now reports five high-severity advisories for
+  transitive `System.Security.Cryptography.Xml` 10.0.6.** The path is
+  `Microsoft.PowerShell.SDK` 7.6.3 through
+  `Microsoft.Windows.Compatibility`/`System.ServiceModel`. This was discovered
+  during Slice 1 restore/audit and is outside the R0-retirement scope; do not
+  suppress it or claim the server dependency audit is clean.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

@@ -92,6 +92,15 @@ public sealed class ToolSchemaConformanceTests
         return tool.ProtocolTool.InputSchema.GetRawText();
     }
 
+    private static string GenerateToolName(MethodInfo method)
+    {
+        var tool = McpServerTool.Create(
+            method,
+            target: null,
+            new McpServerToolCreateOptions { Services = SchemaServices.Value });
+        return tool.ProtocolTool.Name;
+    }
+
     public static IEnumerable<object[]> GeneratedToolSchemas()
     {
         foreach (var (type, method) in ToolMethods())
@@ -109,11 +118,13 @@ public sealed class ToolSchemaConformanceTests
         });
 
     [Fact]
-    public void Tool_discovery_finds_all_five_tools()
+    public void Tool_discovery_finds_exact_direct_server_surface()
     {
-        // One [McpServerTool] method per tool class; update alongside the
-        // public contract when a tool is added.
-        Assert.Equal(5, ToolMethods().Count());
+        Assert.Equal(
+            ["ptk_invoke", "ptk_job", "ptk_output", "ptk_reset", "ptk_state"],
+            ToolMethods()
+                .Select(entry => GenerateToolName(entry.Method))
+                .Order(StringComparer.Ordinal));
     }
 
     [Theory]

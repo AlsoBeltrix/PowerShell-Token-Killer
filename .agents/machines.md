@@ -801,3 +801,41 @@ head before this record was `f729ed2a300d3fbf43269845ffc82aa6856a98b9`._
   `ptk_state`; they received distinct PTK server PIDs `9595` and `9596`.
   Both probe servers exited. This is the plan-required production-harness proof
   that unrelated agents receive separate PTK server processes/connections.
+
+## Production-reliability salvage Slice 1 verification (Mac, 2026-07-27)
+
+_Verified on the candidate tree based on Slice 0 record `e449a99`; the commit
+containing this record carries the exact product diff._
+
+- The retired surface consists only of the guardian/private-host fixture and
+  its two test classes, the frozen public/recovery/package contract artifacts,
+  and their solution/project references. Retained audit/SIEM vectors remain
+  covered by `AuditInteropContractTests`.
+- SHA-256 values for all three `PtkContainmentTestFixture` sources and both
+  Windows containment test files matched the pre-change values exactly, and
+  `git diff` reported no change in those paths. Windows execution was not
+  available on this Mac.
+- The new exact direct-server tool guard was proved nonvacuous: temporarily
+  adding a production `ptk_guardian_probe` tool made
+  `Tool_discovery_finds_exact_direct_server_surface` fail with the unexpected
+  sixth tool. Removing the probe restored the focused
+  `AuditInteropContractTests|ToolSchemaConformanceTests` run to 43/43.
+- `dotnet format server/PtkMcpServer.slnx --no-restore
+  --verify-no-changes --include
+  server/PtkMcpServer.Tests/AuditInteropContractTests.cs
+  server/PtkMcpServer.Tests/ToolSchemaConformanceTests.cs` exited zero.
+- Pester passed 141 tests with two platform skips; the SIEM solution passed
+  247/247; and the complete stdio handshake passed with a zero-warning build.
+- Post-change server run 1 passed 1,556/1,557 and failed
+  `StateToolTests.Path_drift_reports_an_entry_level_diff`; its focused rerun
+  passed 1/1. Run 2 passed 1,556/1,557 and reproduced the pre-change
+  `JobManagerTests.Associated_start_failure_retries_internal_containment_on_a_bounded_observer`
+  failure. Run 3 passed 1,556/1,557 and failed
+  `RunspaceHostTests.Healthy_private_render_cleanup_can_complete_before_same_call_shaping`;
+  its focused rerun passed 1/1. The three-attempt stall threshold ended further
+  full reruns, so no post-change full server pass is claimed.
+- `dotnet list ... package --vulnerable --include-transitive` reported five
+  high-severity advisories for `System.Security.Cryptography.Xml` 10.0.6.
+  `dotnet nuget why` traced it through `Microsoft.PowerShell.SDK` 7.6.3 and
+  `Microsoft.Windows.Compatibility`/`System.ServiceModel`. No dependency was
+  changed or suppressed in this slice.

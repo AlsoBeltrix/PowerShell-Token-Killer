@@ -874,3 +874,39 @@ MCP transport was unavailable, so the normal shell fallback was used._
   parallelism at the server test assembly. Do not widen product/test deadlines
   or patch the five currently visible classes individually. Explicit
   concurrency inside tests remains unaffected.
+
+## Production-reliability salvage Slice 1a verification (Mac, 2026-07-27)
+
+_Verified on `impl/production-reliability-salvage` from pre-commit head
+`224079474299`. PTK MCP transport was unavailable, so the normal shell fallback
+was used._
+
+- The proposed assembly-level `CollectionBehavior` attribute compiled into the
+  test assembly with `DisableTestParallelization = true`, but xUnit still
+  reported `parallel test collections = on [16 threads]`. An isolated project
+  using the repository's exact xUnit 2.9.3, VSTest adapter 3.1.4, .NET test SDK
+  17.14.1, and .NET 10 reproduced the failure. The ineffective attribute was
+  removed rather than retained as false assurance.
+- `server/PtkMcpServer.Tests/xunit.runner.json` with
+  `parallelizeTestCollections: false`, copied by the test project, reported
+  `parallel test collections = off`. The explicit
+  `xUnit.ParallelizeTestCollections=true` command-line diagnostic restored
+  `on [16 threads]`. Both filtered proofs passed 1/1.
+- Three consecutive unmodified `dotnet test server/PtkMcpServer.slnx` runs
+  passed 1,557/1,557 with no retry or parallelism override:
+  - run 1: starting load `60.86 24.72 14.24`; test duration 7m20s; real 457.79s;
+  - run 2: starting load `28.35 33.05 23.37`; test duration 6m20s; real 391.18s;
+  - run 3: starting load `19.07 23.78 22.53`; test duration 6m32s; real 400.87s.
+- The remaining local battery passed: Pester 141 passed / 0 failed / 2 platform
+  skips; SIEM 247/247; and the complete stdio handshake reported
+  `HANDSHAKE PASSED` after a zero-warning build.
+- `git diff --check` and JSON parsing passed. The repository-wide
+  `dotnet format ... --verify-no-changes` command remains red on committed,
+  unrelated whitespace in `AuditOtlpRecordMapperTests.cs`; Slice 1a does not
+  touch that file and does not claim the pre-existing formatter baseline is
+  clean.
+- Evidence is local macOS only. No `ci/**` push or PR was authorized. The
+  anchored-evidence ordering race, any serialized `JobManager.Dispose`
+  recurrence, fixed watchdog sensitivity, two recorded Windows containment
+  failures, and five transitive high-severity
+  `System.Security.Cryptography.Xml` advisories remain open.

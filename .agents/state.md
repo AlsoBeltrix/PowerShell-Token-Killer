@@ -49,12 +49,16 @@ short and update it when important repo facts change.
   `431aecf` in round 8, closed all five findings, confirmed the legacy-state
   disposition, found no new blocking or major issue, and returned `ACCEPT`.
   Canonical evidence is
-  `.agents/review/production-reliability-salvage-opus5-r8.md`. No product
-  implementation is authorized. The owner approved decision 2 on 2026-07-27:
+  `.agents/review/production-reliability-salvage-opus5-r8.md`. The owner
+  approved decision 2 on 2026-07-27:
   retire the obsolete guardian-era R0 public-contract artifacts and
   guardian-only fake fixture while preserving the real containment fixture and
-  its Windows tests unchanged. Decisions 3-4 remain, one at a time. Git
-  workspace mechanics remain agent-owned;
+  its Windows tests unchanged. The owner approved the test-only Slice 1a and
+  later directed agents to stop asking low-level implementation questions:
+  choose the engineering details that best advance a reliable product, and
+  escalate only product intent or real external risk. No further Claude Opus
+  reviews are available because the owner's Claude credits are exhausted.
+  Decisions 3-4 remain, one at a time. Git workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
 - **Production-reliability salvage Slice 0 is recorded on
   `impl/production-reliability-salvage`.** The unchanged product base is exact
@@ -86,28 +90,17 @@ short and update it when important repo facts change.
   default-parallel full run also passed 1,557/1,557, confirming intermittent
   load sensitivity. The 16-logical-CPU Mac was under unrelated load averages
   around 24/45/47, including a long-running Headroom proxy using about two
-  cores; no PTK, pwsh, testhost, or sleep-process leak remained. The plan now
-  proposes one test-only assembly serialization attribute as Slice 1a, with no
-  timeout or product change. Claude Opus 5 round 9 accepted that mechanism as
-  the smallest safe repair and confirmed explicit concurrency coverage remains,
-  but returned `REVISE` for four plan corrections: cite the concrete static
-  runspace-creation-lock convoy, stop claiming literal determinism while the
-  known anchored-evidence ordering race remains, make cross-platform CI
-  executable around the two carried Windows failures, and rewrite rather than
-  erase the blocker record. Canonical evidence is
-  `.agents/review/production-reliability-salvage-opus5-r9.md`. The corrections
-  are incorporated in the plan: it now cites the concrete static
-  `Runspace.Open()` lock convoy, narrows the exit claim to removal of
-  cross-collection contention, defines an owner-gated `ci/**`/PR matrix around
-  the carried Windows blockers, and requires the blocker record to be rewritten
-  rather than erased. Claude Opus 5 round 10 reviewed exact commit `dbac8d5`
-  and plan blob `5607af7`, closed all four findings and both verification
-  addenda, found no blocking or major issue, and returned `ACCEPT`. Canonical
-  evidence is
-  `.agents/review/production-reliability-salvage-opus5-r10.md`. Slice 1a now
-  awaits one separate owner approval for the test-only implementation; product
-  decisions 3-4 and any `ci/**` push or PR remain independently gated. Exact
-  machine evidence is in `.agents/machines.md`.
+  cores; no PTK, pwsh, testhost, or sleep-process leak remained. Slice 1a is
+  now implemented with test-runner JSON and no timeout or product change. The
+  reviewed assembly attribute was discarded after the exact runner and an
+  isolated reproduction both ignored it; the runner JSON setting proved
+  effective and remains explicitly overrideable. Three consecutive ordinary
+  server runs passed 1,557/1,557, followed by green Pester, SIEM, and stdio
+  handshake checks. This removes invalid cross-collection testhost contention;
+  it does not erase the anchored-evidence ordering race, fixed watchdog residue,
+  carried Windows failures, or the lack of current cross-platform CI evidence.
+  Product decisions 3-4 and any `ci/**` push or PR remain independently gated.
+  Exact machine evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -436,8 +429,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Do not begin later product slices whose scope depends on decisions 3-4.
-   Keep the Slice 1 commit isolated and preserve every work-carrying branch.
+1. Commit the verified Slice 1a locally as one isolated test-only slice. Do
+   not push it. Do not begin later product slices whose scope depends on
+   decisions 3-4.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the salvage plan awaits decisions 3-4 and an explicit implementation
@@ -511,24 +505,21 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation beyond the owner-approved R0
-  retirement is blocked on decisions 3-4 and a later explicit implementation
-  go.
-- **The unchanged macOS server baseline is intermittent.** Full run 1 failed
-  `JobManagerTests.Associated_start_failure_retries_internal_containment_on_a_bounded_observer`;
-  full run 2 failed
-  `AuditAnchoredRuntimeTests.Anchored_runtime_exports_only_after_start_and_restart_adopts_clean_stop`
-  and
-  `AuditRuntimeGateTests.Concurrent_startup_repair_opens_and_publishes_one_runtime`.
-  All three passed immediately in isolation and full run 3 passed 1,587/1,587.
-  Post-change full runs then failed, one at a time,
-  `StateToolTests.Path_drift_reports_an_entry_level_diff`, the same
-  `JobManagerTests` case, and
-  `RunspaceHostTests.Healthy_private_render_cleanup_can_complete_before_same_call_shaping`;
-  each passed immediately in isolation. No post-change full run passed within
-  the bounded three-attempt threshold. Keep these intermittent failures visible
-  as production blockers; never attribute a recurrence to a new slice without
-  change-specific evidence.
+- Production-reliability salvage implementation beyond the owner-approved
+  Slice 1a is blocked on decisions 3-4 and the scope rules in the active plan.
+- **The invalid same-testhost cross-collection contention is repaired locally,
+  but its residual signals remain open.** Before Slice 1a, six default-parallel
+  runs exposed five intermittent fixed-watchdog/PATH failures while a serialized
+  control passed. Slice 1a disables default collection parallelism without
+  changing explicit concurrency tests, product deadlines, or assertions; three
+  consecutive ordinary runs then passed 1,557/1,557 under starting load averages
+  as high as 60.86. This closes the scheduling artifact, not every underlying
+  risk. A recurrence of the anchored-evidence publication/removal ordering race
+  or `JobManager.Dispose` bounded-observer failure in a serialized run is still
+  a real signal. Fixed watchdog sensitivity remains. Two previously recorded
+  Windows containment failures and current cross-platform CI evidence also
+  remain open; never call the product production-ready from the macOS result
+  alone.
 - **The server dependency graph now reports five high-severity advisories for
   transitive `System.Security.Cryptography.Xml` 10.0.6.** The path is
   `Microsoft.PowerShell.SDK` 7.6.3 through

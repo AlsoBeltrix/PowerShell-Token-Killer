@@ -1,29 +1,20 @@
 # Plan: production reliability salvage
 
-**Status:** OWNER DECISIONS PENDING — topology decision 1 was settled by the
-owner on 2026-07-26, and R0 contract-retirement decision 2 was approved on
+**Status:** SLICE 1A LOCALLY IMPLEMENTED AND VERIFIED — topology decision 1
+was settled by the owner on 2026-07-26, R0 contract-retirement decision 2 was
+approved on 2026-07-27, and the owner authorized the test-only Slice 1a on
 2026-07-27. One agent-owned MCP connection may own several explicitly named
 isolated PowerShell sessions, and every session is a separate long-lived
-PowerShell worker process. The earlier Claude Opus 5 acceptance of the
-one-worker-per-connection draft is superseded. Claude Opus 5 round 4 returned
-`REVISE`; round 5 closed every round-4 finding and accepted the single global
-output lane, then returned `REVISE` for three local omissions. Round 6 closed
-the containment and output-lane omissions and found one incomplete Slice 2
-consumer inventory. Round 7 closed that inventory finding, accepted the local
-evidence/admin boundary, and found five mechanical ownership and documentation
-gaps. Every supported finding is incorporated below. Exact-blob closure review
-round 8 returned `ACCEPT`; its canonical verdict is recorded under
-`.agents/review/`. That acceptance predates the test-reliability prerequisite
-added after Slice 1 exposed pre-existing server-suite flakiness; the exact
-amendment requires a fresh read-only Claude Opus 5 review and owner approval
-before implementation. No further product implementation is authorized until
-pending decisions 3-4 under `Owner decisions` are approved in chat, one at a
-time, and the owner later gives an explicit implementation go. Claude Opus 5
-round 9 accepted the one-attribute Slice 1a mechanism but returned `REVISE` for
-four plan/gate corrections. All four are incorporated below. Claude Opus 5
-round 10 reviewed exact plan blob `5607af7`, closed every finding, found no new
-blocking or major issue, and returned `ACCEPT`. Slice 1a now awaits the owner's
-separate test-only implementation approval.
+PowerShell worker process. Slice 1a uses runner JSON rather than the reviewed
+assembly attribute because mechanical testing proved that the repository's
+exact xUnit/VSTest combination ignores the attribute; the effective
+configuration and its explicit override are both proved below. Three
+consecutive default server runs and the complete local repository battery
+pass. No further Claude Opus review is available or required for this effort;
+the owner ended that review lane after exhausting Claude credits. Product
+implementation beyond the already approved slices remains gated by pending
+owner decisions 3-4 and the scope rules below. No push, PR, installation, or
+deployment is authorized by this status.
 
 ## Goal
 
@@ -679,16 +670,22 @@ process-wide creation lock, held across unbounded `Runspace.Open()`;
 held. Default cross-class scheduling lets those tests withhold runspace
 creation from unrelated classes until their fixed watchdogs expire.
 
-1. Add one assembly-level xUnit `CollectionBehavior` attribute under
-   `server/PtkMcpServer.Tests/` with `DisableTestParallelization = true`.
+1. Add `server/PtkMcpServer.Tests/xunit.runner.json` with
+   `parallelizeTestCollections` set to `false`, and have the test project copy
+   it to the output directory. Do not use an assembly-level
+   `CollectionBehavior` attribute: with this repository's exact xUnit 2.9.3
+   and VSTest adapter 3.1.4 combination, both the repository and a minimal
+   isolated reproduction compiled the attribute correctly but still reported
+   16-way collection scheduling. The runner JSON setting reported collections
+   off, while the explicit command-line override still restored parallelism.
 2. Do not raise the existing 5-15 second test watchdogs, weaken assertions,
    retry failed tests, annotate an expanding list of individual flaky classes,
    or change product deadlines. Those alternatives either hide a deadlock,
    preserve invalid same-process contention, or turn each newly exposed class
    into another scheduling patch.
-3. Preserve every explicit concurrency test unchanged. Assembly-level
-   collection serialization does not serialize tasks, threads, workers, or
-   processes created inside one test.
+3. Preserve every explicit concurrency test unchanged. Test-collection
+   serialization does not serialize tasks, threads, workers, or processes
+   created inside one test.
 4. Prove the configuration mechanically with xUnit diagnostic output:
    temporarily absent, the runner reports parallel test collections enabled;
    restored, the ordinary project configuration reports them disabled. Also

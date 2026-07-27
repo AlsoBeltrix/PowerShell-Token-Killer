@@ -358,10 +358,11 @@ public sealed class WindowsProcessTreeSupervisorTests
 
         Assert.False(containment.IsCompleted);
         Assert.False(worker.ContainmentEmpty.IsCompleted);
+        Assert.DoesNotContain("dispose_job", native.Calls);
         Assert.Equal(
             [
                 "wait_job_empty",
-                "dispose_job",
+                "terminate_job",
                 "dispose_process",
                 "dispose_pipes",
             ],
@@ -375,6 +376,35 @@ public sealed class WindowsProcessTreeSupervisorTests
             result.Outcome);
         Assert.True(worker.ContainmentEmpty.IsCompletedSuccessfully);
         Assert.Equal("dispose_empty_observer", native.Calls[^1]);
+        worker.Dispose();
+    }
+
+    [Fact]
+    public async Task Termination_failure_closes_the_job_and_never_claims_empty()
+    {
+        var native = new RecordingNative
+        {
+            ThrowAt = "terminate_job",
+        };
+        var worker = Supervisor(native).Launch(Command());
+
+        var result = await worker.ContainAsync(
+            WorkerContainmentReason.Close);
+
+        Assert.Equal(
+            WorkerContainmentOutcome.DescendantsUnknown,
+            result.Outcome);
+        Assert.False(worker.ContainmentEmpty.IsCompleted);
+        Assert.Equal(
+            [
+                "wait_job_empty",
+                "terminate_job",
+                "dispose_job",
+                "dispose_empty_observer",
+                "dispose_process",
+                "dispose_pipes",
+            ],
+            native.Calls.TakeLast(6));
         worker.Dispose();
     }
 
@@ -540,7 +570,7 @@ public sealed class WindowsProcessTreeSupervisorTests
     }
 
     [Fact]
-    public void Native_production_has_one_atomic_create_and_no_fallback_or_sweep_escape_hatch()
+    public void Native_production_has_one_atomic_create_and_job_only_termination()
     {
         var methods = typeof(IWindowsWorkerNative).GetMethods();
 
@@ -572,6 +602,7 @@ public sealed class WindowsProcessTreeSupervisorTests
                 "SetHandleInformation",
                 "SetInformationJobObject",
                 "SetInformationJobObject",
+                "TerminateJobObject",
                 "UpdateProcThreadAttribute",
             ],
             pInvokes
@@ -666,10 +697,29 @@ public sealed class WindowsProcessTreeSupervisorTests
         Assert.DoesNotMatch(
             new Regex(
                 @"Process\s*\.\s*(?:Start|GetProcess)|\.\s*Kill\s*\(|AssignProcessToJobObject|" +
-                    @"TerminateJobObject|TerminateProcess|taskkill|Stop-Process|" +
+                    @"TerminateProcess|taskkill|Stop-Process|" +
                     @"ProcessStartInfo|new\s+(?:System\.Diagnostics\.)?Process\b",
                 RegexOptions.CultureInvariant | RegexOptions.IgnoreCase),
             executableSource);
+        Assert.Single(
+            Regex.Matches(
+                executableSource,
+                @"NativeMethods\s*\.\s*TerminateJobObject\s*\(",
+                RegexOptions.CultureInvariant));
+        Assert.Contains(
+            "if (QueryActiveProcessCount(job) == 0)",
+            executableSource,
+            StringComparison.Ordinal);
+        var terminateJobPInvoke = pInvokes.Single(candidate => string.Equals(
+            candidate.Import!.EntryPoint ?? candidate.Method.Name,
+            "TerminateJobObject",
+            StringComparison.Ordinal)).Method;
+        var terminateJob = typeof(WindowsWorkerNative).GetMethod(
+            nameof(IWindowsWorkerNative.TerminateJob),
+            BindingFlags.Instance | BindingFlags.Public) ??
+            throw new InvalidOperationException(
+                "The native job termination method is unavailable.");
+        Assert.Equal(1, CountDirectCalls(terminateJob, terminateJobPInvoke));
 
         var createStart = source.IndexOf(
             "public IWindowsProcessHandle CreateProcessInJob(",
@@ -969,6 +1019,12 @@ public sealed class WindowsProcessTreeSupervisorTests
             Assert.Same(Job, job);
             Record("query_active_processes");
             return ActiveProcessCount;
+        }
+
+        public void TerminateJob(IWindowsJobHandle job)
+        {
+            Assert.Same(Job, job);
+            Record("terminate_job");
         }
 
         public IWindowsJobEmptyObserver CreateJobEmptyObserver(

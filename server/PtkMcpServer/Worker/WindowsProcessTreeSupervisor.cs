@@ -12,6 +12,7 @@ internal interface IWindowsWorkerNative
     void SetJobLimitFlags(IWindowsJobHandle job, uint limitFlags);
     uint QueryJobLimitFlags(IWindowsJobHandle job);
     uint QueryJobActiveProcessCount(IWindowsJobHandle job);
+    void TerminateJob(IWindowsJobHandle job);
     IWindowsJobEmptyObserver CreateJobEmptyObserver(IWindowsJobHandle job);
     IWindowsWorkerPipeSet CreateWorkerPipeSet();
     IWindowsProcessHandle CreateProcessInJob(
@@ -191,7 +192,7 @@ internal sealed class WindowsProcessTreeSupervisor
                 if (job is not null && emptyObserver is not null &&
                     JobMayContainProcesses(job))
                 {
-                    containmentEmpty = ObserveAfterJobClose(
+                    containmentEmpty = ObserveAfterJobTermination(
                         job,
                         emptyObserver);
                     job = null;
@@ -228,7 +229,7 @@ internal sealed class WindowsProcessTreeSupervisor
         }
     }
 
-    private static Task ObserveAfterJobClose(
+    private Task ObserveAfterJobTermination(
         IWindowsJobHandle job,
         IWindowsJobEmptyObserver observer)
     {
@@ -246,16 +247,30 @@ internal sealed class WindowsProcessTreeSupervisor
             DisposeIgnoringFailure(observer);
             throw;
         }
-        finally
+
+        try
+        {
+            _native.TerminateJob(job);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
         {
             DisposeIgnoringFailure(job);
+            DisposeIgnoringFailure(observer);
+            return Task.FromException(exception);
+        }
+        catch
+        {
+            DisposeIgnoringFailure(job);
+            DisposeIgnoringFailure(observer);
+            throw;
         }
 
-        return CompleteObservationAsync(empty, observer);
+        return CompleteObservationAsync(empty, job, observer);
     }
 
     private static async Task CompleteObservationAsync(
         Task empty,
+        IWindowsJobHandle job,
         IWindowsJobEmptyObserver observer)
     {
         try
@@ -264,6 +279,7 @@ internal sealed class WindowsProcessTreeSupervisor
         }
         finally
         {
+            DisposeIgnoringFailure(job);
             DisposeIgnoringFailure(observer);
         }
     }
@@ -412,7 +428,22 @@ internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
             throw;
         }
 
-        DisposeIgnoringFailure(ownership.Job);
+        try
+        {
+            ownership.Native.TerminateJob(ownership.Job);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            DisposeOwnership(ownership, includeObserver: true);
+            return WorkerContainmentResult.Unknown(
+                "windows_worker_containment_unconfirmed");
+        }
+        catch
+        {
+            DisposeOwnership(ownership, includeObserver: true);
+            throw;
+        }
+
         DisposeIgnoringFailure(ownership.Process);
         DisposeIgnoringFailure(ownership.Pipes);
 
@@ -425,23 +456,29 @@ internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
             {
                 await observation.ConfigureAwait(false);
                 _containmentEmpty.TrySetResult();
+                DisposeIgnoringFailure(ownership.Job);
                 DisposeIgnoringFailure(ownership.EmptyObserver);
                 return WorkerContainmentResult.Confirmed();
             }
             catch (Exception exception) when (!IsFatal(exception))
             {
+                DisposeIgnoringFailure(ownership.Job);
                 DisposeIgnoringFailure(ownership.EmptyObserver);
                 return WorkerContainmentResult.Unknown(
                     "windows_worker_containment_unconfirmed");
             }
         }
 
-        _ = CompleteLaterAsync(observation, ownership.EmptyObserver);
+        _ = CompleteLaterAsync(
+            observation,
+            ownership.Job,
+            ownership.EmptyObserver);
         return WorkerContainmentResult.Unknown("descendants_unknown");
     }
 
     private async Task CompleteLaterAsync(
         Task observation,
+        IWindowsJobHandle job,
         IWindowsJobEmptyObserver observer)
     {
         try
@@ -454,6 +491,7 @@ internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
         }
         finally
         {
+            DisposeIgnoringFailure(job);
             DisposeIgnoringFailure(observer);
         }
     }

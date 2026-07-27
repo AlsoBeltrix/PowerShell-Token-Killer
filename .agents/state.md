@@ -88,8 +88,16 @@ short and update it when important repo facts change.
   around 24/45/47, including a long-running Headroom proxy using about two
   cores; no PTK, pwsh, testhost, or sleep-process leak remained. The plan now
   proposes one test-only assembly serialization attribute as Slice 1a, with no
-  timeout or product change; it awaits exact-plan Opus review and owner
-  approval. Exact machine evidence is in `.agents/machines.md`.
+  timeout or product change. Claude Opus 5 round 9 accepted that mechanism as
+  the smallest safe repair and confirmed explicit concurrency coverage remains,
+  but returned `REVISE` for four plan corrections: cite the concrete static
+  runspace-creation-lock convoy, stop claiming literal determinism while the
+  known anchored-evidence ordering race remains, make cross-platform CI
+  executable around the two carried Windows failures, and rewrite rather than
+  erase the blocker record. Canonical evidence is
+  `.agents/review/production-reliability-salvage-opus5-r9.md`. The corrections
+  and exact-blob closure review are next; owner approval remains required.
+  Exact machine evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

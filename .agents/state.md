@@ -96,8 +96,12 @@ short and update it when important repo facts change.
   executable around the two carried Windows failures, and rewrite rather than
   erase the blocker record. Canonical evidence is
   `.agents/review/production-reliability-salvage-opus5-r9.md`. The corrections
-  and exact-blob closure review are next; owner approval remains required.
-  Exact machine evidence is in `.agents/machines.md`.
+  are incorporated in the plan: it now cites the concrete static
+  `Runspace.Open()` lock convoy, narrows the exit claim to removal of
+  cross-collection contention, defines an owner-gated `ci/**`/PR matrix around
+  the carried Windows blockers, and requires the blocker record to be rewritten
+  rather than erased. Exact-blob closure review is next; owner approval remains
+  required. Exact machine evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

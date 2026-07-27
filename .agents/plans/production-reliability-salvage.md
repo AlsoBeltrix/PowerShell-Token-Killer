@@ -18,7 +18,10 @@ added after Slice 1 exposed pre-existing server-suite flakiness; the exact
 amendment requires a fresh read-only Claude Opus 5 review and owner approval
 before implementation. No further product implementation is authorized until
 pending decisions 3-4 under `Owner decisions` are approved in chat, one at a
-time, and the owner later gives an explicit implementation go.
+time, and the owner later gives an explicit implementation go. Claude Opus 5
+round 9 accepted the one-attribute Slice 1a mechanism but returned `REVISE` for
+four plan/gate corrections. All four are incorporated below; exact-blob closure
+review remains pending.
 
 ## Goal
 
@@ -656,7 +659,7 @@ surface, the existing containment fixture remains green and unchanged, and the
 replacement direct-server guard still matches live behavior. No runtime
 execution path or public tool list changes in this slice.
 
-### Slice 1a — make server verification deterministic
+### Slice 1a — remove cross-collection verification contention
 
 This is a test-only prerequisite discovered after Slice 1. It changes no
 runtime, package, public schema, timeout, or production scheduling behavior.
@@ -668,7 +671,11 @@ containment. Default xUnit class parallelism runs up to the machine's logical
 CPU count; on the diagnostic Mac that meant up to 16 collections competing in
 one testhost. That is not the production topology: supported sessions run in
 separate worker processes, while explicit within-test concurrency remains the
-place to prove races.
+place to prove races. The concrete convoy is `RunspaceHost`'s static
+process-wide creation lock, held across unbounded `Runspace.Open()`;
+`RunspaceHostTests` has two hooks that deliberately block while that lock is
+held. Default cross-class scheduling lets those tests withhold runspace
+creation from unrelated classes until their fixed watchdogs expire.
 
 1. Add one assembly-level xUnit `CollectionBehavior` attribute under
    `server/PtkMcpServer.Tests/` with `DisableTestParallelization = true`.
@@ -682,20 +689,39 @@ place to prove races.
    processes created inside one test.
 4. Prove the configuration mechanically with xUnit diagnostic output:
    temporarily absent, the runner reports parallel test collections enabled;
-   restored, the ordinary project configuration reports them disabled.
+   restored, the ordinary project configuration reports them disabled. Also
+   prove that the explicit command-line override can still re-enable parallel
+   scheduling for a separately scoped diagnostic without changing source.
 5. Run the unmodified repository entry point
    `dotnet test server/PtkMcpServer.slnx` three consecutive times with no
-   command-line parallelism override. Record counts and durations. Any failure
-   stops the slice; do not normalize it as a retry.
-6. Before production cutover, require the same exact commit to pass the normal
-   Ubuntu, macOS, and Windows CI matrix. CI may still run OS jobs and the
-   separate SIEM job concurrently.
+   command-line parallelism override. Record the host load average immediately
+   before each run, then record counts and durations. Any failure stops the
+   slice; do not normalize it as a retry. A recurrence of the anchored-evidence
+   publication/removal race or the bounded-observer `JobManager.Dispose`
+   failure remains its own signal and is not excused by this scheduling repair.
+6. Cross-platform evidence is a separately authorized outward action because
+   the normal workflow does not trigger for `impl/**`. On the owner's go, push
+   the exact commit to a `ci/**` branch or open a PR to `master`, then record the
+   Ubuntu, macOS, and Windows matrix. Require no new failure and no
+   scheduling-class failure on any OS. If either already-recorded Windows
+   worker/Job Object kill-path test fails, carry it explicitly as the
+   pre-existing production blocker; never call that run all-green or silently
+   ignore it. Until this run exists, Slice 1a evidence is macOS-only. CI may
+   still run OS jobs and the separate SIEM job concurrently.
+7. After verification, rewrite rather than delete the intermittent-suite entry
+   in `.agents/state.md`: record the diagnosed cross-collection cause, the
+   retained anchored-evidence publication/removal race and fixed watchdog
+   residue, and the current Windows/CI status.
 
-Exit: the default server verification command is deterministic under the
-repository's own configuration, every explicit concurrency proof remains
-active, and `git diff` confirms that no production project or runtime file
-changed. This repairs the trustworthiness of the gate; it is not evidence by
-itself that the product is production-ready.
+Exit: the repository's default server verification command no longer permits
+cross-collection scheduling contention, every explicit concurrency proof
+remains active, and `git diff` confirms that no production project or runtime
+file changed. This does not claim literal determinism: real process/runspace
+startup still has fixed watchdogs, the pre-existing anchored-evidence
+publication/removal ordering race remains separately scoped, and
+cross-platform status is reported exactly. The slice repairs the
+trustworthiness of one gate; it is not evidence by itself that the product is
+production-ready.
 
 ### Slice 2 — remove audit from the execution gate
 

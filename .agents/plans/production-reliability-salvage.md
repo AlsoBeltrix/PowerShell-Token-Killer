@@ -11,10 +11,13 @@ exact xUnit/VSTest combination ignores the attribute; the effective
 configuration and its explicit override are both proved below. Three
 consecutive default server runs and the complete local repository battery
 pass. No further Claude Opus review is available or required for this effort;
-the owner ended that review lane after exhausting Claude credits. Product
-implementation beyond the already approved slices remains gated by pending
-owner decisions 3-4 and the scope rules below. No push, PR, installation, or
-deployment is authorized by this status.
+the owner ended that review lane after exhausting Claude credits. On
+2026-07-27 the owner delegated the remaining engineering choices to the
+implementing agent, directed continued work toward the stated core product,
+and prohibited further low-level approval questions. That settles decisions
+3-4 in favor of the recommendations below and authorizes continued local
+implementation of this plan. No push, PR, installation, or deployment is
+authorized by this status.
 
 ## Goal
 
@@ -1156,13 +1159,13 @@ Present and settle these in chat one at a time before implementation:
    containment tests unchanged. The retired guards and fake fixture freeze the
    topology this plan rejects, while the actual containment fixture protects
    code this plan keeps.
-3. **Cold jobs:** remove `ptk_job` and `ptk_invoke(background=true)` from the
-   first production surface while retaining foreground invoke/state/reset/
-   output. Recommendation: yes, because cold jobs preserve no warm state and
-   otherwise blur worker ownership. If declined, stop and add a separately
-   reviewed worker-owned job design before coding.
-4. **Audit:** approve removal of mandatory exact-script audit from the default
-   execution path and removal of the runtime server project's OTLP
+3. **Cold jobs — APPROVED BY OWNER DELEGATION 2026-07-27:** remove `ptk_job`
+   and `ptk_invoke(background=true)` from the first production surface while
+   retaining foreground invoke/state/reset/output. Cold jobs preserve no warm
+   state and otherwise blur worker ownership.
+4. **Audit — APPROVED BY OWNER DELEGATION 2026-07-27:** remove mandatory
+   exact-script audit from the default execution path and remove the runtime
+   server project's OTLP
    protobuf/`Grpc.Tools` build dependency. Relocate the vendored OTLP wire
    contract and its license into the retained SIEM receiver, which keeps its
    own protobuf tooling and tests. Remove the complete anchored OTLP export
@@ -1173,33 +1176,23 @@ Present and settle these in chat one at a time before implementation:
    conformance project/CI step that consumes those types; keep the standalone
    SIEM receiver tests parked; and retain `SecureAuditStorage` only as
    `OutputStore`'s proved local-storage primitive. Any future compliance
-   producer/exporter is separately built and explicitly approved.
-   Recommendation: yes, because the current gate has already disabled valid
-   execution and the build dependency blocks clean ARM64 Linux builds. If
-   declined, those availability and build failures remain accepted production
-   blockers.
+   producer/exporter is separately built and explicitly approved. The current
+   gate has already disabled valid execution and the build dependency blocks
+   clean ARM64 Linux builds.
 
-Silence approves none of the remaining decisions. Until decisions 3-4 are
-settled and the owner later gives an explicit implementation go, implementation
-is blocked and only plan/review work may proceed.
+The owner's 2026-07-27 instruction to make the detailed engineering choices
+and continue toward the stated product goal is the implementation go for the
+local slices in this plan. New scope and outward actions remain separately
+gated.
 
 Canary activation remains a separately gated outward action after
 implementation and verification. It is not a design decision and is never
 authorized by plan approval alone.
 
-## Review requirement
+## Review record
 
-Before owner approval, dispatch one read-only, headless
-`claude-opus-5` plan review at maximum effort over the exact committed plan
-SHA. The reviewer may inspect the repository but may not edit, commit, push, or
-make network mutations. It must evaluate whether this is the simplest safe
-path to the stated reliability, explicit multi-session module isolation, and
-cross-agent isolation goals; verify that one failed or reset session cannot
-damage a sibling; adjudicate the deliberate single fail-fast output-storage
-lane against the rejected per-session-lane remedy; identify material omissions
-or unnecessary mechanisms; and return evidence-backed findings.
-
-Record the exact Claude Code version, model, effort, reviewed SHA, prompt,
-verdict, and findings under `.agents/review/`. Amend the plan for admitted
-findings and re-review the exact amended SHA so the owner receives a reviewed
-final draft, not a stale verdict.
+The completed Claude Opus review rounds and exact verdicts remain under
+`.agents/review/` as historical evidence. The owner ended further Claude
+review on 2026-07-27 because those credits are exhausted. No remaining local
+slice is gated on another Claude review; ordinary implementation verification
+and the explicit outward-action gates still apply.

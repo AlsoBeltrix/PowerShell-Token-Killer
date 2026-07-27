@@ -57,9 +57,13 @@ short and update it when important repo facts change.
   later directed agents to stop asking low-level implementation questions:
   choose the engineering details that best advance a reliable product, and
   escalate only product intent or real external risk. No further Claude Opus
-  reviews are available because the owner's Claude credits are exhausted.
-  Decisions 3-4 remain, one at a time. Git workspace mechanics remain agent-owned;
-  never ask the owner to operate an intermediate workspace.
+  reviews are available because the owner's Claude credits are exhausted. The
+  same direction delegates decisions 3-4 to the implementing agent: remove
+  cold jobs from the first production surface and remove mandatory exact-script
+  audit/OTLP export from the runtime, matching the owner's stated warm
+  PowerShell plus token-compression product. This is the go for continued local
+  plan implementation; outward actions remain gated. Git workspace mechanics
+  remain agent-owned; never ask the owner to operate an intermediate workspace.
 - **Production-reliability salvage Slice 0 is recorded on
   `impl/production-reliability-salvage`.** The unchanged product base is exact
   `origin/master` commit `c9b11bc`; only the reviewed plan/review records sit
@@ -429,13 +433,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Commit the verified Slice 1a locally as one isolated test-only slice. Do
-   not push it. Do not begin later product slices whose scope depends on
-   decisions 3-4.
+1. Slice 1a is committed locally at `18ef351` and is not pushed. Implement
+   Slice 2 next: remove mandatory audit from execution admission and retire the
+   runtime OTLP/export path exactly within the active plan, one commit per
+   slice, while preserving the standalone SIEM receiver.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
-   Do not merge, install, delete, or continue the guardian/private-host line
-   while the salvage plan awaits decisions 3-4 and an explicit implementation
-   go.
+   Do not merge, install, delete, or continue the guardian/private-host line;
+   the production-reliability salvage plan supersedes it.
 3. Keep the rbc remainders parked until the replacement plan decides which
    runtime survives. rbc-15 remains closed; its residual recycled-PID
    incarnation hardening stays a follow-up. Do not continue the saved rbc-5
@@ -505,8 +509,6 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation beyond the owner-approved
-  Slice 1a is blocked on decisions 3-4 and the scope rules in the active plan.
 - **The invalid same-testhost cross-collection contention is repaired locally,
   but its residual signals remain open.** Before Slice 1a, six default-parallel
   runs exposed five intermittent fixed-watchdog/PATH failures while a serialized

@@ -392,3 +392,26 @@ isolated branch `plan/mini-siem-storage-hardening` (S3H).
 (this change). If S3H lands, retention sweeps enforce the limits and
 the warning is removed; if parked, the warning stands and disk usage
 must be bounded operationally. See `.agents/review/findings/rbc-11.md`.
+
+## 2026-07-27: Production salvage decisions delegated to the implementing agent
+
+**Decision:** The owner directed the implementing agent to stop asking
+low-level technical questions and to make the engineering choices that advance
+the stated product: reliable token-compressed PowerShell execution with warm,
+isolated sessions. The owner also directed continued work and ended further
+Claude Opus reviews because Claude credits are exhausted.
+
+**Applied to the active salvage plan:** Decisions 3-4 are settled in favor of
+the plan's recommendations. The first production surface removes cold
+`ptk_job` and `ptk_invoke(background=true)` behavior because it has no warm
+state. The runtime removes mandatory exact-script audit admission and the
+anchored OTLP exporter/build dependency while the separately built SIEM
+receiver remains parked and independently tested. Future compliance export is
+new, separately approved scope.
+
+**Authorization boundary:** This is the go for the local implementation slices
+already specified in `.agents/plans/production-reliability-salvage.md`. It does
+not authorize a push, PR, merge, installation, deployment, canary, branch
+deletion, history rewrite, or any other outward/destructive action. The older
+broad decision-log reconciliation hold remains in force outside these two
+salvage decisions.

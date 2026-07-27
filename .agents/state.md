@@ -6,17 +6,21 @@ short and update it when important repo facts change.
 ## Now
 
 - **Owner direction changed on 2026-07-26: pause the three-process resilience
-  delivery line and plan a smaller production-reliability salvage.** PTK's
-  product is reliable token-compressed PowerShell execution with warm state and
-  isolated runspaces for unrelated agents/sessions. Do not implement, merge,
+  delivery line and use the reviewed production-reliability salvage instead.**
+  PTK's product is reliable token-compressed PowerShell execution with warm
+  state and isolated runspaces for unrelated agents. Do not implement, merge,
   install, or cut over `feature/mcp-resilience-r1`; retain its pushed head
   `93e7992` as evidence and a source of individually reviewed worker/
-  containment code. The draft replacement is
+  containment code. The replacement plan is
   `.agents/plans/production-reliability-salvage.md` on
-  `plan/production-reliability-salvage`. It receives an exact-SHA
-  `claude-opus-5` plan review before the owner rules on its decisions. No
-  product implementation is authorized yet. Git workspace mechanics remain
-  agent-owned; never ask the owner to operate an intermediate workspace.
+  `plan/production-reliability-salvage`. Claude Opus 5 at maximum effort
+  accepted exact plan commit `4d7f6b3` and plan blob `9c4938d` after three
+  fixed-SHA rounds; final evidence is
+  `.agents/review/production-reliability-salvage-opus5-r3.md` at `8a6886b`.
+  No product implementation is authorized. Four owner decisions remain, one
+  at a time, beginning with the one-agent-owned-connection topology. Git
+  workspace mechanics remain agent-owned; never ask the owner to operate an
+  intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -345,10 +349,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Commit the draft production-reliability salvage plan, dispatch the requested
-   read-only `claude-opus-5` exact-SHA review, admit or decline its findings
-   against repo evidence, amend and re-review if needed, then present the first
-   owner decision in plain English. Make no product-code change first.
+1. Present only owner decision 1 from the accepted production-reliability
+   salvage plan: require one agent-owned MCP connection, supervisor, worker,
+   and runspace, with shared-connection multi-agent use unsupported. Record the
+   owner's exact ruling durably before presenting decision 2. Make no product
+   code change until all plan decisions and a later explicit implementation go
+   are recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the replacement topology is undecided.
@@ -421,6 +427,11 @@ short and update it when important repo facts change.
 
 ## Blockers
 
+- Production-reliability salvage implementation is blocked on four owner
+  decisions, one at a time. Decision 1 is the supported topology. If approved,
+  Slice 0 must still prove the intended harness gives unrelated agents distinct
+  PTK server PIDs and stdio connections; failure stops the plan before runtime
+  changes.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

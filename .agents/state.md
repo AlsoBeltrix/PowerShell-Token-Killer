@@ -31,8 +31,12 @@ short and update it when important repo facts change.
   but returned `REVISE` for three local omissions: Slice 2's handshake/OTLP
   consumer inventory, close while old containment is unconfirmed, and bounded
   waiting for healthy output-lane contention. Canonical evidence is
-  `.agents/review/production-reliability-salvage-opus5-r5.md`. All three are now
-  incorporated in the plan; exact-SHA closure review is pending. No product
+  `.agents/review/production-reliability-salvage-opus5-r5.md`. Claude Opus 5
+  reviewed exact commit `0ca5fbc` and plan blob `bed6177` in round 6. It closed
+  the containment and output-lane findings but returned `REVISE` because
+  Slice 2 still omits consumers of the OTLP transport interface that its
+  listed deletion removes. Canonical evidence is
+  `.agents/review/production-reliability-salvage-opus5-r6.md`. No product
   implementation is authorized. Decisions 2-4 remain, one at a time, after the
   corrected plan is accepted. Git workspace mechanics remain agent-owned;
   never ask the owner to operate an intermediate workspace.
@@ -364,11 +368,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Commit the R5-corrected plan and run another read-only Claude Opus 5
-   maximum-effort review at the exact commit. If accepted, record the evidence
-   and present only owner decision 2 (R0 contract retirement). Make no product
-   code change until decisions 2-4 and a later explicit implementation go are
-   recorded.
+1. Correct only round 6's supported Slice 2 OTLP consumer-inventory finding,
+   commit the plan, and run another read-only Claude Opus 5 maximum-effort
+   review at the exact commit. If accepted, record the evidence and present
+   only owner decision 2 (R0 contract retirement). Make no product code change
+   until decisions 2-4 and a later explicit implementation go are recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the replacement topology is undecided.

@@ -79,8 +79,17 @@ short and update it when important repo facts change.
   test files are byte-identical to the base. Focused contract/schema tests,
   Pester, SIEM, formatting, and the stdio handshake pass. Three bounded
   post-change server-suite attempts each passed 1,556/1,557 but hit a different
-  already-isolated timing failure; no full post-change server run is claimed
-  green. Exact machine evidence is in `.agents/machines.md`.
+  already-isolated timing failure. Diagnosis then proved that none of the five
+  implicated runtime or test files differs from the product base, all five
+  implicated classes pass together under default parallelism, and the complete
+  suite passes 1,557/1,557 when xUnit collections are serialized. A paired
+  default-parallel full run also passed 1,557/1,557, confirming intermittent
+  load sensitivity. The 16-logical-CPU Mac was under unrelated load averages
+  around 24/45/47, including a long-running Headroom proxy using about two
+  cores; no PTK, pwsh, testhost, or sleep-process leak remained. The plan now
+  proposes one test-only assembly serialization attribute as Slice 1a, with no
+  timeout or product change; it awaits exact-plan Opus review and owner
+  approval. Exact machine evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

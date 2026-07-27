@@ -839,3 +839,38 @@ containing this record carries the exact product diff._
   `dotnet nuget why` traced it through `Microsoft.PowerShell.SDK` 7.6.3 and
   `Microsoft.Windows.Compatibility`/`System.ServiceModel`. No dependency was
   changed or suppressed in this slice.
+
+## Production-reliability salvage intermittent-suite diagnosis (Mac, 2026-07-27)
+
+_Diagnosed on clean `impl/production-reliability-salvage` head `36af69a`; PTK
+MCP transport was unavailable, so the normal shell fallback was used._
+
+- Exact `git diff --exit-code` from product base `c9b11bc` through `36af69a`
+  was empty for `RunspaceHost.cs`, `JobManager.cs`, the runtime audit directory,
+  and all five implicated test files. The Slice 1 R0 retirement therefore
+  changed none of the failing paths.
+- Direct environment/PATH mutation inventory found the relevant test classes
+  already grouped under `ProcessEnvironment`; no unannotated PATH writer
+  explained `StateToolTests.Path_drift_reports_an_entry_level_diff`.
+- The five implicated classes ran together under ordinary xUnit scheduling and
+  passed 125/125 in 1m08s. The same 125 tests passed with
+  `xUnit.ParallelizeTestCollections=false` in 1m38s; diagnostic output confirmed
+  `parallel test collections = off`.
+- The complete suite passed 1,557/1,557 with collection parallelism disabled in
+  9m37s. One final paired default-parallel control passed 1,557/1,557 in 7m58s.
+  This does not erase the five failures in the six earlier default-parallel
+  runs; it confirms their intermittent rather than deterministic character.
+- The failing tests use fixed 5-15 second observation/watchdog bounds or, in the
+  PATH case, omit an invocation-success assertion before checking state. Their
+  production paths were unchanged, and every failure passed immediately alone.
+  The evidence supports aggregate same-testhost scheduling pressure, not an R0
+  product regression.
+- During diagnosis the 16-logical-CPU Mac reported load averages
+  `24.05 45.07 47.35`. An unrelated Headroom memory proxy had been running for
+  more than twelve days and was consuming about 212% CPU; other unrelated Node
+  work was active. No `PtkMcpServer`, fixture, `pwsh`, `dotnet test`, `testhost`,
+  or `sleep 300` process remained after the tests.
+- The smallest proposed repair is test-only: disable xUnit test-collection
+  parallelism at the server test assembly. Do not widen product/test deadlines
+  or patch the five currently visible classes individually. Explicit
+  concurrency inside tests remains unaffected.

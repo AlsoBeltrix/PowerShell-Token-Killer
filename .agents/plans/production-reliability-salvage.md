@@ -13,9 +13,12 @@ consumer inventory. Round 7 closed that inventory finding, accepted the local
 evidence/admin boundary, and found five mechanical ownership and documentation
 gaps. Every supported finding is incorporated below. Exact-blob closure review
 round 8 returned `ACCEPT`; its canonical verdict is recorded under
-`.agents/review/`. No implementation is authorized until pending decisions 3-4
-under `Owner decisions` are approved in chat, one at a time, and the owner later
-gives an explicit implementation go.
+`.agents/review/`. That acceptance predates the test-reliability prerequisite
+added after Slice 1 exposed pre-existing server-suite flakiness; the exact
+amendment requires a fresh read-only Claude Opus 5 review and owner approval
+before implementation. No further product implementation is authorized until
+pending decisions 3-4 under `Owner decisions` are approved in chat, one at a
+time, and the owner later gives an explicit implementation go.
 
 ## Goal
 
@@ -66,6 +69,16 @@ connection can fail outside PTK's control. PTK's enforceable contract is:
   approved target. `server/README.md` instead describes the current direct
   in-process server. The root README conflicts with the owner's current
   direction and is corrected only after this replacement plan is approved.
+- The unchanged baseline and the no-runtime-change Slice 1 produced five
+  intermittent failures across six default-parallel full server runs. Every
+  failing case passed immediately alone. The five implicated classes passed
+  125/125 together under normal parallelism, and the complete post-Slice-1
+  suite passed 1,557/1,557 with xUnit collection parallelism disabled. A paired
+  default-parallel run also passed 1,557/1,557, confirming intermittency rather
+  than a deterministic product failure. No implicated runtime or test file
+  differs from the exact product base. The diagnostic machine was heavily
+  loaded by unrelated long-running work; exact evidence is in
+  `.agents/machines.md`.
 
 The resilience branch is evidence and a source of individually reusable code
 and tests. It is never merged, rebased, or used as the base of this effort.
@@ -642,6 +655,47 @@ Exit: no guardian-era contract or fixture claims to be the active production
 surface, the existing containment fixture remains green and unchanged, and the
 replacement direct-server guard still matches live behavior. No runtime
 execution path or public tool list changes in this slice.
+
+### Slice 1a — make server verification deterministic
+
+This is a test-only prerequisite discovered after Slice 1. It changes no
+runtime, package, public schema, timeout, or production scheduling behavior.
+It must land as its own commit before Slice 2.
+
+The server test assembly deliberately exercises process-global PowerShell
+engine state, environment variables, console streams, process creation, and
+containment. Default xUnit class parallelism runs up to the machine's logical
+CPU count; on the diagnostic Mac that meant up to 16 collections competing in
+one testhost. That is not the production topology: supported sessions run in
+separate worker processes, while explicit within-test concurrency remains the
+place to prove races.
+
+1. Add one assembly-level xUnit `CollectionBehavior` attribute under
+   `server/PtkMcpServer.Tests/` with `DisableTestParallelization = true`.
+2. Do not raise the existing 5-15 second test watchdogs, weaken assertions,
+   retry failed tests, annotate an expanding list of individual flaky classes,
+   or change product deadlines. Those alternatives either hide a deadlock,
+   preserve invalid same-process contention, or turn each newly exposed class
+   into another scheduling patch.
+3. Preserve every explicit concurrency test unchanged. Assembly-level
+   collection serialization does not serialize tasks, threads, workers, or
+   processes created inside one test.
+4. Prove the configuration mechanically with xUnit diagnostic output:
+   temporarily absent, the runner reports parallel test collections enabled;
+   restored, the ordinary project configuration reports them disabled.
+5. Run the unmodified repository entry point
+   `dotnet test server/PtkMcpServer.slnx` three consecutive times with no
+   command-line parallelism override. Record counts and durations. Any failure
+   stops the slice; do not normalize it as a retry.
+6. Before production cutover, require the same exact commit to pass the normal
+   Ubuntu, macOS, and Windows CI matrix. CI may still run OS jobs and the
+   separate SIEM job concurrently.
+
+Exit: the default server verification command is deterministic under the
+repository's own configuration, every explicit concurrency proof remains
+active, and `git diff` confirms that no production project or runtime file
+changed. This repairs the trustworthiness of the gate; it is not evidence by
+itself that the product is production-ready.
 
 ### Slice 2 — remove audit from the execution gate
 

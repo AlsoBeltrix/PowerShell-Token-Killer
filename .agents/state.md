@@ -18,11 +18,15 @@ short and update it when important repo facts change.
   this is required to isolate on-prem Exchange and Exchange Online modules,
   overlapping cmdlets, and connection state. Unrelated agents still require
   separate MCP connections. The prior Claude Opus 5 acceptance of exact plan
-  commit `4d7f6b3` and blob `9c4938d` is superseded by this correction; an exact
-  post-correction review is pending. No product implementation is authorized.
-  Decisions 2-4 remain, one at a time, after the corrected plan is accepted.
-  Git workspace mechanics remain agent-owned; never ask the owner to operate an
-  intermediate workspace.
+  commit `4d7f6b3` and blob `9c4938d` is superseded. Claude Opus 5 reviewed the
+  corrected topology at exact commit `9c50c38` and plan blob `bc12299`; it
+  accepted process-per-named-session but returned `REVISE` for concrete fixture,
+  guard, audit-coupling, lifecycle, output-contract, and Exchange fault-proof
+  gaps. Canonical evidence is
+  `.agents/review/production-reliability-salvage-opus5-r4.md`. No product
+  implementation is authorized. Decisions 2-4 remain, one at a time, after the
+  corrected plan is accepted. Git workspace mechanics remain agent-owned;
+  never ask the owner to operate an intermediate workspace.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -351,11 +355,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Commit the corrected production-reliability salvage plan and run its
-   required read-only Claude Opus 5 maximum-effort review at the exact commit.
-   If accepted, record the evidence and present only owner decision 2 (R0
-   contract retirement). Make no product code change until decisions 2-4 and a
-   later explicit implementation go are recorded.
+1. Correct every admitted R4 plan finding, commit the new exact plan, and run
+   another read-only Claude Opus 5 maximum-effort review. If accepted, record
+   the evidence and present only owner decision 2 (R0 contract retirement).
+   Make no product code change until decisions 2-4 and a later explicit
+   implementation go are recorded.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line
    while the replacement topology is undecided.
@@ -428,11 +432,11 @@ short and update it when important repo facts change.
 
 ## Blockers
 
-- Production-reliability salvage implementation is blocked on exact-SHA review
-  of the corrected multi-session plan, then owner decisions 2-4 one at a time
-  and a later explicit implementation go. Slice 0 must still prove the intended
-  harness gives unrelated agents distinct PTK server PIDs and stdio
-  connections; failure stops the plan before runtime changes.
+- Production-reliability salvage implementation is blocked on correction and
+  exact-SHA re-review of the R4 `REVISE` findings, then owner decisions 2-4 one
+  at a time and a later explicit implementation go. Slice 0 must still prove
+  the intended harness gives unrelated agents distinct PTK server PIDs and
+  stdio connections; failure stops the plan before runtime changes.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

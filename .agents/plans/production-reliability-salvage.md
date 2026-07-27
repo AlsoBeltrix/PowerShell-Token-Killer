@@ -4,11 +4,13 @@
 owner on 2026-07-26: one agent-owned MCP connection may own several explicitly
 named isolated PowerShell sessions, and every session is a separate long-lived
 PowerShell worker process. The earlier Claude Opus 5 acceptance of the
-one-worker-per-connection draft is superseded. The canonical post-correction
-verdict for this exact plan blob is recorded externally under
-`.agents/review/`; no post-review status edit to this plan is required. No
-implementation is authorized unless that verdict is `ACCEPT` and pending
-decisions 2-4 under `Owner decisions` are approved in chat, one at a time.
+one-worker-per-connection draft is superseded. Claude Opus 5 round 4 returned
+`REVISE`; its admitted findings and the global-output-lane adjudication are
+incorporated below. The canonical closure verdict for this exact plan blob is
+recorded externally under `.agents/review/`; no post-review status edit to this
+plan is required. No implementation is authorized unless that verdict is
+`ACCEPT` and pending decisions 2-4 under `Owner decisions` are approved in
+chat, one at a time.
 
 ## Goal
 
@@ -202,13 +204,21 @@ The contract is deliberately small:
 - `open` is idempotent for an already-open name. It starts one fresh contained
   worker and succeeds only after that worker is ready. It accepts no bootstrap
   template, script, credential, profile, or policy parameter.
+- Concurrent opens of the same cold name share one bounded startup task; they
+  can never launch two workers. `open` on `Faulted` refuses with that session's
+  bounded failure and directs the caller to `ptk_reset(session=...)`; it never
+  silently retries under a second lifecycle verb. `open` during recovery or
+  closing returns `session_busy`.
 - `close` is valid only for a non-default idle session. It stops that worker,
   confirms its containment domain is empty, and removes the name. It refuses
   while an operation is active; EOF remains the unconditional all-session
   teardown boundary.
 - `ptk_reset(session=...)` replaces only the selected session's worker and
   leaves every other session untouched. Omitting `session` preserves today's
-  default-session behavior.
+  default-session behavior. Explicit reset is idle-only in this first cut: an
+  active, starting, recovering, or closing session returns `session_busy`
+  promptly with no cancellation or side effect. Execution timeout retains its
+  separate internal cancel/containment path.
 - One supervisor admits at most eight open sessions including `default`.
   Admission beyond that fixed first-cut bound refuses before worker creation.
 - `ptk_session list` is supervisor-local, never starts or queries a worker, and
@@ -217,9 +227,33 @@ The contract is deliberately small:
 - `ptk_output` remains handle-only. Handles are globally unique inside the
   connection and internally attributed to their originating session; reading
   one never opens, selects, or executes a session.
+- Closing a session cancels and discards only its unsealed captures. Already
+  sealed handles remain supervisor-owned and readable until their existing TTL
+  or quota eviction; reopening the same alias creates a new session identity
+  and never restores warm state. Artifact quota attribution remains with the
+  immutable originating identity until expiry; the supervisor aggregate quota
+  bounds close/reopen churn.
 - Session names provide operational isolation, not authorization. The
   supervisor process still runs under one OS identity, and upstream Exchange,
   Graph, AD, and other service permissions remain authoritative.
+
+Every session slot has one asynchronous lifecycle gate. Open publishes
+`Starting`, and close/reset publishes `Closing`/`Recovering`, before releasing
+that gate; later worker-bound admissions then refuse rather than queue behind
+the transition. A ready invoke captures the slot identity and worker
+incarnation and takes one operation lease before the gate is released. Close
+and explicit reset require zero leases. A late frame may complete only its
+captured caller; it can never install state, output, or readiness into a
+replacement incarnation or a reopened alias.
+
+Worker open and replacement use one operator-configured startup deadline; it
+is not another public parameter. Failure before process launch leaves a new
+named slot absent and `default` cold. Failure after launch stops protocol,
+terminates that session's containment domain, and waits only the configured
+containment grace. Confirmed empty containment leaves the slot `Faulted`.
+Unconfirmed containment also leaves it `Faulted`, reports
+`descendants_unknown`, and refuses open/reset until the observer later confirms
+the old domain empty. No later worker may overlap it.
 
 ## Minimal worker protocol
 
@@ -283,6 +317,11 @@ not to resubmit automatically.
 
 No modules, variables, credentials, connections, profiles, or previous calls
 are replayed automatically.
+
+If worker or containment death is not confirmed within the bounded grace, the
+session remains `Faulted` with `descendants_unknown`. Its containment observer
+continues supervisor-locally, but no open, reset, or replacement is admitted
+until that exact old domain is confirmed empty. Other sessions remain usable.
 
 This is not a sandbox guarantee. A Unix descendant can leave a process group,
 and a remote service can continue work after the local process disappears.
@@ -357,7 +396,12 @@ The proposed core:
   execution;
 - removes audit health from the ordinary invoke gate;
 - removes the OTLP protobuf and `Grpc.Tools` build path from the runtime server
-  project; any retained exporter moves to a separately built optional product;
+  project and retires the core producer-to-SIEM conformance step that consumes
+  those runtime types; the standalone SIEM receiver and its own tests remain
+  parked, and any future exporter moves to a separately built optional product;
+- retains `SecureAuditStorage` as the already-proved protected-local-storage
+  dependency used by `OutputStore`; keeping that primitive does not retain
+  audit admission, evidence publication, export, or startup coupling;
 - moves active-call admission/drain and ordered shutdown into a small
   supervisor lifecycle service, while `WorkerSupervisor` owns worker creation
   and reset;
@@ -380,6 +424,16 @@ Each supervisor uses a uniquely owned output root with a creation identity and
 exclusive live-owner marker. Startup reclaims only roots whose recorded owner
 is provably dead; it never scans or deletes another live supervisor's root.
 Normal connection teardown removes its own sealed and unsealed residue.
+
+`OutputStore` deliberately retains one connection-wide foreground storage lane
+to cap potentially uninterruptible filesystem work at one task per supervisor.
+If one session wedges that lane, later sessions promptly receive
+`recovery=unavailable` for capture while their ordinary invokes, runspace
+state, and `ptk_state` continue; they never wait for that storage task. This
+shared optional-output degradation is an explicit non-guarantee, not session
+state sharing. Do not replace it with one potentially wedged storage task per
+session. Per-session byte quotas remain independent so ordinary quota
+exhaustion in one session does not consume another session's allocation.
 
 Before an invoke, the supervisor reserves one connection-local artifact ID,
 charges it to the selected session, and reserves the complete per-invocation
@@ -560,24 +614,23 @@ guardian-era contract; they are not ordinary obsolete tests to delete around.
 2. Remove or re-freeze `McpResilienceR0ContractTests`, the embedded R0 public
    contract and digest, recovery schemas/examples, package-role assertions,
    and native/helper inventories so they describe only the approved topology.
-3. Remove the R0/guardian contract assertions and guardian-only fixtures from
-   `PtkResilienceTestFixture`, but retain its cross-platform worker
-   containment, bootstrap, native-binding, and parent-death coverage.
-4. Rename that retained project to a worker-containment fixture and remove
-   prepared/private-host linked sources as their production code disappears.
-   Remove the old project/solution identity only in the same commit that the
-   renamed fixture builds and runs every retained test on its applicable
-   platforms; never create a coverage gap.
+3. Delete the guardian/private-host-only `PtkResilienceTestFixture`,
+   `ResilienceFakeGuardianTests.cs`, and `FakePrivateProtocolTests.cs`, plus
+   their project/solution references. They contain no retained containment
+   coverage.
+4. Preserve the already guardian-free `PtkContainmentTestFixture` under its
+   existing name, together with `WindowsContainmentIntegrationTests.cs` and
+   `WindowsNestedJobResilienceIntegrationTests.cs`. Do not rename, replace, or
+   weaken that coverage.
 5. Add a guardian-free conformance guard for the still-live direct-server
    surface. The owner-approved replacement five-tool guard replaces it only in
    the Slice 6 commit that atomically removes `ptk_job`, adds `ptk_session`,
    and changes the related schemas and runtime.
 
 Exit: no guardian-era contract or fixture claims to be the active production
-surface, the renamed worker-containment fixture preserves every retained
-cross-platform guard, and the replacement direct-server guard still matches
-live behavior. No runtime execution path or public tool list changes in this
-slice.
+surface, the existing containment fixture remains green and unchanged, and the
+replacement direct-server guard still matches live behavior. No runtime
+execution path or public tool list changes in this slice.
 
 ### Slice 2 — remove audit from the execution gate
 
@@ -592,12 +645,20 @@ slice.
 4. Remove mandatory audit admission and exact-script evidence publication from
    ordinary tool execution.
 5. Remove default startup construction of audit/SIEM/export resources and the
-   runtime project's OTLP protobuf/`Grpc.Tools` build dependency.
-6. Prove a clean ARM64 Linux restore/build no longer enters the removed protoc
+   runtime project's OTLP protobuf/`Grpc.Tools` build dependency. Retain
+   `SecureAuditStorage` because `OutputStore` uses its protected root/file
+   operations; do not rename or rewrite that proved storage primitive in this
+   slice.
+6. Remove the producer-to-SIEM conformance test project and only its CI step in
+   `.github/workflows/ci.yml`, because both compile the removed runtime OTLP
+   producer contract. Keep the standalone `siem/PtkSiem.slnx` receiver tests
+   and their CI step; a future producer/exporter requires a separately approved
+   optional project.
+7. Prove a clean ARM64 Linux restore/build no longer enters the removed protoc
    path.
-7. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
+8. Ensure `ptk_state` remains usable and truthfully says audit is not enabled
    rather than reporting a false protected boundary.
-8. Keep any retained audit administration executable out of the installed
+9. Keep any retained audit administration executable out of the installed
    runtime package pending a separate product decision.
 
 Exit: no ordinary invoke depends on `~/.ptk/audit`; no exact script file is
@@ -626,23 +687,33 @@ is unchanged.
 
 1. Port the worker-only Unix broker/launcher and Windows creation-time Job
    Object launcher without the outer guardian/host registry.
-2. Implement the supervisor-owned per-session Unix containment registry and wire
+2. In the same commit, reduce
+   `UnixGuardianBrokerIntegrationTests.cs` and
+   `Native/ptk_guardian_broker_fixture.c` to the worker-broker half. Preserve
+   direct Unix parent-death, worker-as-process-group-leader, descendant-tree
+   death, and native-binding assertions; remove outer guardian/host transcript
+   fields and assertions only after their worker equivalents pass on Linux and
+   macOS.
+3. Implement the supervisor-owned per-session Unix containment registry and wire
    `WorkerProcessEntry.RunAsync` to consume `UnixWorkerBootstrap`, validate
    inherited handles, remove bootstrap variables, and open the worker IPC
    channel.
-3. Add an internal, validated worker-containment mode that makes
+4. Add an internal, validated worker-containment mode that makes
    `ProcessTreeContainment` reuse the broker-owned group. Prove it performs no
    nested `setpgid`/`setsid` ownership attempt and every ordinary direct child
    inherits the worker group.
-4. Bind liveness to the public supervisor so supervisor death or EOF kills
+5. Require the broker for every Unix worker launch. Keep the old unbrokered,
+   process-global containment fallback only for the still-live in-process
+   public path through Slice 5; it is not a supported worker mode.
+6. Bind liveness to the public supervisor so supervisor death or EOF kills
    every worker and PTK-owned containment domain.
-5. Prove one selected worker, direct child, and grandchild die on normal
+7. Prove one selected worker, direct child, and grandchild die on normal
    session close, reset, timeout, and hard supervisor termination while a
    sibling session worker and its descendants remain alive except at
    supervisor termination.
-6. Confirm no replacement starts until the old worker has exited and its
+8. Confirm no replacement starts until the old worker has exited and its
    Windows Job Object or Unix broker process group is empty.
-7. On Unix, deliberately escape the process group where the platform permits
+9. On Unix, deliberately escape the process group where the platform permits
    and prove PTK reports `descendants_unknown` rather than claiming complete
    descendant death.
 
@@ -659,14 +730,19 @@ behavior is unchanged.
    strict names, explicit non-default open, idempotent open, idle-only close,
    no fallback, no auto-create, no `select`, fixed-bound refusal, and
    supervisor-local list.
-3. Bind every slot and containment domain to the MCP stdio connection lifetime.
-4. Prove one fixture connection concurrently owns two different worker PIDs
+3. Prove concurrent opens share one startup task, startup obeys its deadline,
+   a faulted open requires explicit reset, reset/close refuse while busy, and
+   no late frame can mutate a replacement or reopened session.
+4. Bind every slot and containment domain to the MCP stdio connection lifetime.
+5. Prove one fixture connection concurrently owns two different worker PIDs
    and runspaces. Give both the same function/cmdlet name with different
    implementations and prove each explicit session resolves only its own
    command, variables, modules, directory, environment, and connection state.
-5. Prove reset, timeout, crash, replacement, and close affect only the selected
+6. Prove reset, timeout, crash, replacement, and close affect only the selected
    slot; public EOF removes every slot and worker.
-6. Prove a second supervisor owns a disjoint session registry and cannot
+7. Prove sealed output handles survive close until normal expiry while
+   unsealed captures are discarded and never attach to a reopened alias.
+8. Prove a second supervisor owns a disjoint session registry and cannot
    address, reset, or observe the first supervisor's sessions.
 
 Exit: bounded named-session ownership and both within-connection and
@@ -686,10 +762,14 @@ public invoke path remains intact.
 4. In that same atomic change, remove `ptk_job` and invoke's background
    property, add `ptk_session`, and add the optional `session` field to invoke,
    state, and reset. Replace the old five-tool conformance expectation with the
-   replacement five-tool contract. A test must never describe a surface the
-   server does not yet expose.
+   replacement five-tool contract in `ToolSchemaConformanceTests`,
+   `server/test-handshake.ps1`, the replacement
+   `Contracts/ResilienceR0/public-tool-contract.json`, and its frozen digest. A
+   test must never describe a surface the server does not yet expose.
 5. Remove the in-process production runspace path in the same slice; no dual
-   execution mode remains.
+   execution mode remains. On Unix, remove the now-unreachable process-global
+   exclusive-group/polled-closure fallback in `ProcessTreeContainment`; a
+   worker without its broker fails startup closed.
 6. Preserve the remaining public schema except the owner-approved job removal
    and named-session additions defined above. `ptk_output` remains
    session-argument-free.
@@ -738,7 +818,12 @@ Exit: real apphost fault matrix green on every supported platform.
 5. Prove a stalled or failed artifact sink for one session cannot delay an
    ordinary result or state call in another session, and a handle remains
    readable without selecting or reopening its originating session.
-6. Remove unneeded capability/provenance machinery rather than recreating it.
+6. Prove a wedged connection-wide storage lane makes sibling capture fail
+   promptly as `recovery=unavailable` without delaying or failing the sibling
+   command, and does not start another potentially wedged storage task.
+7. Prove one session exhausting its byte quota does not consume another
+   session's quota or disable that sibling's healthy capture.
+8. Remove unneeded capability/provenance machinery rather than recreating it.
 
 Exit: retained tools are bounded and cannot reduce core invoke availability.
 
@@ -787,6 +872,9 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
   a clock abstraction or spend four wall-clock hours on an acceptance wait;
 - malformed and oversized worker frames;
 - stale output-root reclamation with a simultaneous live supervisor root;
+- one session exhausting its output quota while a sibling still publishes a
+  healthy handle, plus one deliberately wedged global storage operation that
+  makes every later capture fail promptly without delaying any command;
 - prompt selected-session `ptk_state` and supervisor-local `ptk_session list`
   during active invokes in other sessions, worker loss, startup, recovery, and
   fault, with every worker-owned field either populated or explicitly
@@ -798,8 +886,9 @@ Run at one exact committed SHA on macOS, x64 Linux, and Windows:
 - a staged real Exchange workflow on a supported Windows admin host: import and
   connect the on-prem Exchange tooling in `exchange-onprem`, import and connect
   Exchange Online in `exchange-online`, prove each remains warm across calls,
-  and prove overlapping cmdlet names resolve to the intended module/connection
-  without cross-session state leakage;
+  prove overlapping cmdlet names resolve to the intended module/connection,
+  then hard-kill or reset `exchange-online` and prove the existing on-prem
+  worker PID and remote connection remain usable without reauthentication;
 - a staged real workflow proving no state leakage between two independent
   agent-owned server processes;
 - a real EXO/Outlook shaping check closing the known compressor blocker;
@@ -879,12 +968,14 @@ Present and settle these in chat one at a time before implementation:
    trustworthy caller identity; sharing one connection between unrelated
    agents remains unsupported. No shared or durable session is approved.
 2. **R0 contract retirement:** approve retirement of the frozen guardian-era
-   public-contract digest, package-role guards, schemas, and
-   `PtkResilienceTestFixture` identity before freezing the replacement
-   contract, while preserving its retained containment coverage in a renamed
-   fixture. Recommendation: yes, because the retired guards freeze the
-   topology this plan rejects and the retained tests protect code this plan
-   keeps. If declined, public schema changes and implementation stop.
+   public-contract digest, package-role guards, schemas, the
+   guardian/private-host-only `PtkResilienceTestFixture`, and its two consuming
+   tests before freezing the replacement contract. Preserve the separate,
+   already guardian-free `PtkContainmentTestFixture` and its Windows
+   containment tests unchanged. Recommendation: yes, because the retired
+   guards and fake fixture freeze the topology this plan rejects, while the
+   actual containment fixture protects code this plan keeps. If declined,
+   public schema changes and implementation stop.
 3. **Cold jobs:** remove `ptk_job` and `ptk_invoke(background=true)` from the
    first production surface while retaining foreground invoke/state/reset/
    output. Recommendation: yes, because cold jobs preserve no warm state and
@@ -892,11 +983,15 @@ Present and settle these in chat one at a time before implementation:
    reviewed worker-owned job design before coding.
 4. **Audit:** approve removal of mandatory exact-script audit from the default
    execution path and removal of its OTLP protobuf/`Grpc.Tools` build
-   dependency from the runtime server project; any future compliance audit is
-   separately built and explicitly approved. Recommendation: yes, because the
-   current gate has already disabled valid execution and the build dependency
-   blocks clean ARM64 Linux builds. If declined, those availability and build
-   failures remain accepted production blockers.
+   dependency from the runtime server project. Retire the core
+   producer-to-SIEM conformance project/CI step that consumes those types, keep
+   the standalone SIEM receiver tests parked, and retain
+   `SecureAuditStorage` only as `OutputStore`'s proved local-storage primitive.
+   Any future compliance producer/exporter is separately built and explicitly
+   approved. Recommendation: yes, because the current gate has already
+   disabled valid execution and the build dependency blocks clean ARM64 Linux
+   builds. If declined, those availability and build failures remain accepted
+   production blockers.
 
 Silence approves none of the pending decisions. Until decisions 2-4 are settled
 and the owner later gives an explicit implementation go, implementation is
@@ -914,8 +1009,9 @@ SHA. The reviewer may inspect the repository but may not edit, commit, push, or
 make network mutations. It must evaluate whether this is the simplest safe
 path to the stated reliability, explicit multi-session module isolation, and
 cross-agent isolation goals; verify that one failed or reset session cannot
-damage a sibling; identify material omissions or unnecessary mechanisms; and
-return evidence-backed findings.
+damage a sibling; adjudicate the deliberate single fail-fast output-storage
+lane against the rejected per-session-lane remedy; identify material omissions
+or unnecessary mechanisms; and return evidence-backed findings.
 
 Record the exact Claude Code version, model, effort, reviewed SHA, prompt,
 verdict, and findings under `.agents/review/`. Amend the plan for admitted

@@ -306,7 +306,7 @@ public sealed class NamedSessionProcessIntegrationTests
                 WorkerInvokeRoute.Pwsh,
                 timeoutSeconds: 600,
                 outputStore: null);
-            await WaitForFileAsync(marker);
+            await WaitForFileContentAsync(marker, "once");
             victimWitness.Kill();
             await WaitForExitAsync(victimWitness);
 
@@ -492,5 +492,35 @@ public sealed class NamedSessionProcessIntegrationTests
         while (!File.Exists(path) && DateTimeOffset.UtcNow < deadline)
             await Task.Delay(25);
         Assert.True(File.Exists(path), $"Timed out waiting for '{path}'.");
+    }
+
+    private static async Task WaitForFileContentAsync(
+        string path,
+        string expected)
+    {
+        var deadline = DateTimeOffset.UtcNow + CheckpointTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            try
+            {
+                if (File.Exists(path) &&
+                    string.Equals(
+                        await File.ReadAllTextAsync(path),
+                        expected,
+                        StringComparison.Ordinal))
+                {
+                    return;
+                }
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+            await Task.Delay(25);
+        }
+
+        Assert.Fail($"Timed out waiting for '{path}' to contain '{expected}'.");
     }
 }

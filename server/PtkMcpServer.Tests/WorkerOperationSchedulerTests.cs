@@ -202,6 +202,269 @@ public sealed class WorkerOperationSchedulerTests
     }
 
     [Fact]
+    public async Task Executor_receives_the_admission_deadline()
+    {
+        var receivedDeadline = new TaskCompletionSource<DateTimeOffset>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var frames = new ConcurrentQueue<WorkerEnvelope>();
+        var scheduler = new WorkerOperationScheduler(
+            SessionId,
+            Incarnation,
+            Limits,
+            initialRequestIdHighWater: 1,
+            new DeadlineRecordingExecutor(receivedDeadline),
+            (frame, _) =>
+            {
+                frames.Enqueue(frame);
+                return Task.CompletedTask;
+            },
+            _ => { },
+            utcNow: () => Now);
+
+        scheduler.Admit(Invoke(2, timeoutSeconds: 7));
+
+        Assert.Equal(
+            Now.AddSeconds(7),
+            await receivedDeadline.Task.WaitAsync(TimeSpan.FromSeconds(5)));
+        await WaitUntilAsync(() => frames.Count == 1);
+    }
+
+    [Fact]
+    public async Task Deadline_cancellation_does_not_terminate_a_responsive_worker()
+    {
+        var entered = NewSignal();
+        var releaseDeadline = NewSignal();
+        var canceled = NewSignal();
+        var frames = new ConcurrentQueue<WorkerEnvelope>();
+        var waitCalls = 0;
+        var terminations = 0;
+        var scheduler = Scheduler(
+            new DelegateExecutor(async (_, cancellationToken) =>
+            {
+                entered.TrySetResult();
+                using var registration = cancellationToken.Register(
+                    () => canceled.TrySetResult());
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("unreachable");
+            }),
+            frames,
+            waitUntilDeadline: (_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref waitCalls) == 1)
+                {
+                    releaseDeadline.Task.Wait(cancellationToken);
+                    return;
+                }
+                cancellationToken.WaitHandle.WaitOne();
+                cancellationToken.ThrowIfCancellationRequested();
+            },
+            terminateUnresponsiveWorker: _ =>
+                Interlocked.Increment(ref terminations));
+
+        scheduler.Admit(Invoke(2, timeoutSeconds: 1));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseDeadline.TrySetResult();
+        await canceled.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => frames.Count == 1);
+
+        Assert.Equal(0, Volatile.Read(ref terminations));
+        Assert.Equal(
+            WorkerResultStatus.TimedOut,
+            WorkerOperationProtocol.ParseResult(
+                Assert.Single(frames),
+                SessionId,
+                Incarnation).Status);
+        await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Deadline_cancellation_terminates_an_unresponsive_worker()
+    {
+        var entered = NewSignal();
+        var releaseDeadline = NewSignal();
+        var graceEntered = NewSignal();
+        var releaseGrace = NewSignal();
+        var releaseExecutor = NewSignal();
+        var terminated = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var frames = new ConcurrentQueue<WorkerEnvelope>();
+        var waitCalls = 0;
+        var scheduler = Scheduler(
+            new DelegateExecutor(async (_, _) =>
+            {
+                entered.TrySetResult();
+                await releaseExecutor.Task;
+                return new WorkerInvokeExecutionResult(
+                    WorkerResultStatus.Completed,
+                    "released after termination");
+            }),
+            frames,
+            waitUntilDeadline: (_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref waitCalls) == 1)
+                {
+                    releaseDeadline.Task.Wait(cancellationToken);
+                    return;
+                }
+                graceEntered.TrySetResult();
+                releaseGrace.Task.Wait(cancellationToken);
+            },
+            terminateUnresponsiveWorker: message =>
+                terminated.TrySetResult(message));
+
+        scheduler.Admit(Invoke(2, timeoutSeconds: 1));
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        releaseDeadline.TrySetResult();
+        await graceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(terminated.Task.IsCompleted);
+        releaseGrace.TrySetResult();
+
+        var message = await terminated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("request 2", message, StringComparison.Ordinal);
+        Assert.Contains("10s after cancellation", message, StringComparison.Ordinal);
+        var failure = await Assert.ThrowsAsync<WorkerProtocolException>(
+            async () => await scheduler.Fatal.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.Equal("operation_cancellation_unresponsive", failure.DetailCode);
+
+        releaseExecutor.TrySetResult();
+        await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Deadline_cancellation_stays_armed_until_callbacks_finish()
+    {
+        var entered = NewSignal();
+        var releaseDeadline = NewSignal();
+        var callbackEntered = NewSignal();
+        var releaseCallback = new ManualResetEventSlim();
+        var graceEntered = NewSignal();
+        var releaseGrace = NewSignal();
+        var terminated = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var frames = new ConcurrentQueue<WorkerEnvelope>();
+        var waitCalls = 0;
+        var scheduler = Scheduler(
+            new DelegateExecutor(async (_, cancellationToken) =>
+            {
+                using var registration = cancellationToken.Register(() =>
+                {
+                    callbackEntered.TrySetResult();
+                    releaseCallback.Wait();
+                });
+                entered.TrySetResult();
+                await callbackEntered.Task;
+                return new WorkerInvokeExecutionResult(
+                    WorkerResultStatus.TimedOut,
+                    "executor returned while cancellation was still draining");
+            }),
+            frames,
+            waitUntilDeadline: (_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref waitCalls) == 1)
+                {
+                    releaseDeadline.Task.Wait(cancellationToken);
+                    return;
+                }
+                graceEntered.TrySetResult();
+                releaseGrace.Task.Wait(cancellationToken);
+            },
+            terminateUnresponsiveWorker: message =>
+                terminated.TrySetResult(message));
+
+        try
+        {
+            scheduler.Admit(Invoke(2, timeoutSeconds: 1));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            releaseDeadline.TrySetResult();
+            await callbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await graceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(terminated.Task.IsCompleted);
+            releaseGrace.TrySetResult();
+
+            var message = await terminated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Contains("request 2", message, StringComparison.Ordinal);
+            var failure = await Assert.ThrowsAsync<WorkerProtocolException>(
+                async () => await scheduler.Fatal.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal("operation_cancellation_unresponsive", failure.DetailCode);
+            Assert.Empty(frames);
+        }
+        finally
+        {
+            releaseCallback.Set();
+        }
+
+        await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    [Fact]
+    public async Task Deadline_cancellation_stays_armed_until_terminal_is_written()
+    {
+        var entered = NewSignal();
+        var releaseDeadline = NewSignal();
+        var graceEntered = NewSignal();
+        var releaseGrace = NewSignal();
+        var terminalWriteEntered = NewSignal();
+        var releaseTerminalWrite = NewSignal();
+        var terminated = new TaskCompletionSource<string>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var frames = new ConcurrentQueue<WorkerEnvelope>();
+        var waitCalls = 0;
+        var scheduler = new WorkerOperationScheduler(
+            SessionId,
+            Incarnation,
+            Limits,
+            initialRequestIdHighWater: 1,
+            new DelegateExecutor(async (_, cancellationToken) =>
+            {
+                entered.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                throw new InvalidOperationException("unreachable");
+            }),
+            async (frame, _) =>
+            {
+                terminalWriteEntered.TrySetResult();
+                await releaseTerminalWrite.Task;
+                frames.Enqueue(frame);
+            },
+            message => terminated.TrySetResult(message),
+            utcNow: () => Now,
+            waitUntilDeadline: (_, cancellationToken) =>
+            {
+                if (Interlocked.Increment(ref waitCalls) == 1)
+                {
+                    releaseDeadline.Task.Wait(cancellationToken);
+                    return;
+                }
+                graceEntered.TrySetResult();
+                releaseGrace.Task.Wait(cancellationToken);
+            });
+
+        try
+        {
+            scheduler.Admit(Invoke(2, timeoutSeconds: 1));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            releaseDeadline.TrySetResult();
+            await terminalWriteEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await graceEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(terminated.Task.IsCompleted);
+            releaseGrace.TrySetResult();
+
+            var message = await terminated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Contains("request 2", message, StringComparison.Ordinal);
+            var failure = await Assert.ThrowsAsync<WorkerProtocolException>(
+                async () => await scheduler.Fatal.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.Equal("operation_cancellation_unresponsive", failure.DetailCode);
+        }
+        finally
+        {
+            releaseTerminalWrite.TrySetResult();
+        }
+
+        await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Single(frames);
+    }
+
+    [Fact]
     public async Task Artifact_chunks_seal_then_one_result_in_order()
     {
         var bytes = Encoding.UTF8.GetBytes(new string(
@@ -262,6 +525,49 @@ public sealed class WorkerOperationSchedulerTests
                 ordered[3],
                 SessionId,
                 Incarnation).Status);
+    }
+
+    [Fact]
+    public async Task Timed_out_result_can_transfer_an_incomplete_artifact()
+    {
+        var bytes = Encoding.UTF8.GetBytes("bounded timeout prefix");
+        var frames = new ConcurrentQueue<WorkerEnvelope>();
+        var scheduler = Scheduler(
+            new DelegateExecutor((_, _) =>
+                Task.FromResult<WorkerExecutionResult>(
+                    new WorkerInvokeExecutionResult(
+                        WorkerResultStatus.TimedOut,
+                        "execution timed out",
+                        "execution_timed_out",
+                        new WorkerArtifactPayload(ArtifactId, bytes)))),
+            frames);
+
+        scheduler.Admit(WorkerOperationProtocol.CreateInvokeEnvelope(
+            SessionId,
+            Incarnation,
+            2,
+            "'artifact'",
+            false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 0,
+            new WorkerArtifactRequest(ArtifactId, bytes.Length),
+            Limits));
+        await WaitUntilAsync(() => frames.Count == 3);
+
+        var ordered = frames.ToArray();
+        Assert.Equal(
+            [
+                WorkerMessageKind.ArtifactChunk,
+                WorkerMessageKind.ArtifactSeal,
+                WorkerMessageKind.Result,
+            ],
+            ordered.Select(frame => frame.Kind));
+        var result = WorkerOperationProtocol.ParseResult(
+            ordered[2],
+            SessionId,
+            Incarnation);
+        Assert.Equal(WorkerResultStatus.TimedOut, result.Status);
+        Assert.Equal("execution_timed_out", result.DetailCode);
     }
 
     [Fact]
@@ -353,6 +659,7 @@ public sealed class WorkerOperationSchedulerTests
                 throw new InvalidOperationException("unreachable");
             }),
             (_, _) => Task.FromException(new IOException("injected write failure")),
+            _ => { },
             utcNow: () => Now);
 
         scheduler.Admit(Invoke(2));
@@ -370,7 +677,8 @@ public sealed class WorkerOperationSchedulerTests
         IWorkerOperationExecutor executor,
         ConcurrentQueue<WorkerEnvelope> frames,
         Func<DateTimeOffset>? utcNow = null,
-        Func<DateTimeOffset, CancellationToken, Task>? waitUntilDeadline = null)
+        Action<DateTimeOffset, CancellationToken>? waitUntilDeadline = null,
+        Action<string>? terminateUnresponsiveWorker = null)
         => new(
             SessionId,
             Incarnation,
@@ -382,10 +690,13 @@ public sealed class WorkerOperationSchedulerTests
                 frames.Enqueue(frame);
                 return Task.CompletedTask;
             },
+            terminateUnresponsiveWorker ?? (_ => { }),
             utcNow ?? (() => Now),
             waitUntilDeadline);
 
-    private static WorkerEnvelope Invoke(long requestId) =>
+    private static WorkerEnvelope Invoke(
+        long requestId,
+        int timeoutSeconds = 0) =>
         WorkerOperationProtocol.CreateInvokeEnvelope(
             SessionId,
             Incarnation,
@@ -393,7 +704,7 @@ public sealed class WorkerOperationSchedulerTests
             "'ok'",
             false,
             WorkerInvokeRoute.Pwsh,
-            0,
+            timeoutSeconds,
             null,
             Limits);
 
@@ -413,7 +724,25 @@ public sealed class WorkerOperationSchedulerTests
     {
         public Task<WorkerExecutionResult> ExecuteAsync(
             WorkerOperationRequest request,
+            DateTimeOffset deadlineUtc,
             CancellationToken cancellationToken) =>
             execute(request, cancellationToken);
+    }
+
+    private sealed class DeadlineRecordingExecutor(
+        TaskCompletionSource<DateTimeOffset> receivedDeadline) :
+        IWorkerOperationExecutor
+    {
+        public Task<WorkerExecutionResult> ExecuteAsync(
+            WorkerOperationRequest request,
+            DateTimeOffset deadlineUtc,
+            CancellationToken cancellationToken)
+        {
+            receivedDeadline.TrySetResult(deadlineUtc);
+            return Task.FromResult<WorkerExecutionResult>(
+                new WorkerInvokeExecutionResult(
+                    WorkerResultStatus.Completed,
+                    "done"));
+        }
     }
 }

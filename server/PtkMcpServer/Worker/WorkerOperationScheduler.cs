@@ -6,6 +6,7 @@ internal interface IWorkerOperationExecutor
 {
     Task<WorkerExecutionResult> ExecuteAsync(
         WorkerOperationRequest request,
+        DateTimeOffset deadlineUtc,
         CancellationToken cancellationToken);
 }
 
@@ -16,6 +17,8 @@ internal interface IWorkerOperationExecutor
 internal sealed class WorkerOperationScheduler
 {
     internal const int MaximumOutstandingRequests = 64;
+    internal static readonly TimeSpan DeadlineCancellationGrace =
+        TimeSpan.FromSeconds(10);
 
     private static readonly TimeSpan MaximumDeadlinePoll = TimeSpan.FromMinutes(1);
 
@@ -26,7 +29,8 @@ internal sealed class WorkerOperationScheduler
     private readonly IWorkerOperationExecutor _executor;
     private readonly Func<WorkerEnvelope, CancellationToken, Task> _writeFrame;
     private readonly Func<DateTimeOffset> _utcNow;
-    private readonly Func<DateTimeOffset, CancellationToken, Task> _waitUntilDeadline;
+    private readonly Action<DateTimeOffset, CancellationToken> _waitUntilDeadline;
+    private readonly Action<string> _terminateUnresponsiveWorker;
     private readonly TaskScheduler _taskScheduler;
     private readonly Dictionary<long, ActiveRequest> _active = [];
     private readonly TaskCompletionSource _fatal = new(
@@ -43,8 +47,9 @@ internal sealed class WorkerOperationScheduler
         long initialRequestIdHighWater,
         IWorkerOperationExecutor executor,
         Func<WorkerEnvelope, CancellationToken, Task> writeFrame,
+        Action<string> terminateUnresponsiveWorker,
         Func<DateTimeOffset>? utcNow = null,
-        Func<DateTimeOffset, CancellationToken, Task>? waitUntilDeadline = null,
+        Action<DateTimeOffset, CancellationToken>? waitUntilDeadline = null,
         TaskScheduler? taskScheduler = null)
     {
         if (sessionId == Guid.Empty)
@@ -56,6 +61,7 @@ internal sealed class WorkerOperationScheduler
             throw new ArgumentOutOfRangeException(nameof(initialRequestIdHighWater));
         ArgumentNullException.ThrowIfNull(executor);
         ArgumentNullException.ThrowIfNull(writeFrame);
+        ArgumentNullException.ThrowIfNull(terminateUnresponsiveWorker);
 
         _sessionId = sessionId;
         _incarnation = incarnation;
@@ -63,8 +69,9 @@ internal sealed class WorkerOperationScheduler
         _requestIdHighWater = initialRequestIdHighWater;
         _executor = executor;
         _writeFrame = writeFrame;
+        _terminateUnresponsiveWorker = terminateUnresponsiveWorker;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
-        _waitUntilDeadline = waitUntilDeadline ?? WaitUntilDeadlineAsync;
+        _waitUntilDeadline = waitUntilDeadline ?? WaitUntilDeadline;
         _taskScheduler = taskScheduler ?? TaskScheduler.Default;
     }
 
@@ -239,7 +246,6 @@ internal sealed class WorkerOperationScheduler
         WorkerResult? fallbackResult = null;
         if (_utcNow() >= active.DeadlineUtc)
         {
-            active.MarkTerminal();
             fallbackResult = new WorkerResult(
                 active.Request.RequestId,
                 WorkerResultStatus.TimedOut,
@@ -248,11 +254,20 @@ internal sealed class WorkerOperationScheduler
         }
         else
         {
-            active.DeadlineTask = ObserveDeadlineAsync(active);
+            // PowerShell can leave the worker thread pool blocked while it
+            // abandons a timed-out pipeline. Keep the containment deadline on
+            // a dedicated thread so starvation cannot disable worker death.
+            active.DeadlineTask = Task.Factory.StartNew(
+                () => ObserveDeadline(active),
+                CancellationToken.None,
+                TaskCreationOptions.DenyChildAttach |
+                    TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
             try
             {
                 executionResult = await _executor.ExecuteAsync(
                     active.Request,
+                    active.DeadlineUtc,
                     active.Token).ConfigureAwait(false);
                 if (executionResult is null)
                 {
@@ -297,10 +312,7 @@ internal sealed class WorkerOperationScheduler
             }
             finally
             {
-                active.MarkTerminal();
-                active.StopDeadline();
                 await active.ObserveCancellationAsync().ConfigureAwait(false);
-                await active.ObserveDeadlineAsync().ConfigureAwait(false);
             }
         }
 
@@ -318,6 +330,9 @@ internal sealed class WorkerOperationScheduler
         }
         finally
         {
+            active.MarkTerminal();
+            active.StopDeadline();
+            await active.ObserveDeadlineAsync().ConfigureAwait(false);
             lock (_gate) _active.Remove(active.Request.RequestId);
             active.Dispose();
         }
@@ -374,8 +389,7 @@ internal sealed class WorkerOperationScheduler
     {
         if (result.Artifact is { } artifact)
         {
-            if (result.Status != WorkerResultStatus.Completed ||
-                request.Artifact is not { } requested ||
+            if (request.Artifact is not { } requested ||
                 artifact.ArtifactId != requested.ArtifactId ||
                 artifact.Bytes.Length > requested.MaximumBytes)
             {
@@ -472,14 +486,14 @@ internal sealed class WorkerOperationScheduler
         }
     }
 
-    private async Task ObserveDeadlineAsync(ActiveRequest active)
+    private void ObserveDeadline(ActiveRequest active)
     {
         try
         {
-            await _waitUntilDeadline(
-                active.DeadlineUtc,
-                active.DeadlineToken).ConfigureAwait(false);
+            _waitUntilDeadline(active.DeadlineUtc, active.DeadlineToken);
+            var cancellationDeadline = _utcNow() + DeadlineCancellationGrace;
             active.RequestCancellation(CancellationReason.Deadline);
+            ObserveDeadlineCancellationGrace(active, cancellationDeadline);
         }
         catch (OperationCanceledException) when (active.DeadlineToken.IsCancellationRequested)
         {
@@ -488,6 +502,49 @@ internal sealed class WorkerOperationScheduler
         {
             LatchFatal(exception);
         }
+    }
+
+    private void ObserveDeadlineCancellationGrace(
+        ActiveRequest active,
+        DateTimeOffset cancellationDeadline)
+    {
+        try
+        {
+            _waitUntilDeadline(cancellationDeadline, active.DeadlineToken);
+        }
+        catch (OperationCanceledException) when (
+            active.DeadlineToken.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception exception)
+        {
+            LatchFatal(exception);
+            return;
+        }
+
+        if (active.IsTerminal)
+            return;
+
+        var message =
+            $"PTK worker request {active.Request.RequestId} exceeded its " +
+            $"deadline and did not stop within " +
+            $"{DeadlineCancellationGrace.TotalSeconds:0}s after cancellation.";
+        var failure = new WorkerProtocolException(
+            "operation_cancellation_unresponsive",
+            message);
+        try
+        {
+            _terminateUnresponsiveWorker(message);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            failure = new WorkerProtocolException(
+                "operation_cancellation_unresponsive",
+                message,
+                exception);
+        }
+        LatchFatal(failure);
     }
 
     private void LatchFatal(Exception exception)
@@ -530,7 +587,7 @@ internal sealed class WorkerOperationScheduler
         await Task.WhenAll(tasks).ConfigureAwait(false);
     }
 
-    private async Task WaitUntilDeadlineAsync(
+    private void WaitUntilDeadline(
         DateTimeOffset deadlineUtc,
         CancellationToken cancellationToken)
     {
@@ -538,9 +595,11 @@ internal sealed class WorkerOperationScheduler
         {
             var remaining = deadlineUtc - _utcNow();
             if (remaining <= TimeSpan.Zero) return;
-            await Task.Delay(
-                remaining < MaximumDeadlinePoll ? remaining : MaximumDeadlinePoll,
-                cancellationToken).ConfigureAwait(false);
+            var wait = remaining < MaximumDeadlinePoll
+                ? remaining
+                : MaximumDeadlinePoll;
+            if (cancellationToken.WaitHandle.WaitOne(wait))
+                cancellationToken.ThrowIfCancellationRequested();
         }
     }
 
@@ -580,6 +639,13 @@ internal sealed class WorkerOperationScheduler
         internal CancellationToken Token => _execution.Token;
         internal CancellationToken DeadlineToken => _deadline.Token;
         internal bool IsCancellationRequested => _execution.IsCancellationRequested;
+        internal bool IsTerminal
+        {
+            get
+            {
+                lock (_cancellationGate) return _terminal;
+            }
+        }
         internal CancellationReason Reason
         {
             get
@@ -599,7 +665,15 @@ internal sealed class WorkerOperationScheduler
             {
                 if (_terminal || _reason != CancellationReason.None) return;
                 _reason = reason;
-                _cancellationTask = CancelAsync(_execution);
+                // PowerShell cancellation callbacks can block. Run them on
+                // their own thread so the deadline observer remains able to
+                // enforce the containment grace.
+                _cancellationTask = Task.Factory.StartNew(
+                    () => Cancel(_execution),
+                    CancellationToken.None,
+                    TaskCreationOptions.DenyChildAttach |
+                        TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
             }
         }
 
@@ -638,11 +712,11 @@ internal sealed class WorkerOperationScheduler
             _execution.Dispose();
         }
 
-        private static async Task CancelAsync(CancellationTokenSource cancellation)
+        private static void Cancel(CancellationTokenSource cancellation)
         {
             try
             {
-                await cancellation.CancelAsync().ConfigureAwait(false);
+                cancellation.Cancel();
             }
             catch (Exception exception) when (!IsFatal(exception))
             {

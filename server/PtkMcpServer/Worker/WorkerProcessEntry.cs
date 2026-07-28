@@ -103,7 +103,9 @@ internal static class WorkerProcessEntry
             var server = new WorkerServer(
                 bootstrap.RequestStream,
                 bootstrap.EventStream,
-                runtimeFactory);
+                runtimeFactory,
+                terminateUnresponsiveWorker:
+                    static message => Environment.FailFast(message));
             serverConstructed = true;
             finalExit = await server.RunAsync().ConfigureAwait(false);
         }

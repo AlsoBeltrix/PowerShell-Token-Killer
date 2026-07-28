@@ -914,6 +914,7 @@ public sealed class WorkerProcessEntryTests
 
         public Task<WorkerExecutionResult> ExecuteAsync(
             WorkerOperationRequest request,
+            DateTimeOffset deadlineUtc,
             CancellationToken cancellationToken) =>
             Task.FromException<WorkerExecutionResult>(
                 new NotSupportedException("No operation was expected."));

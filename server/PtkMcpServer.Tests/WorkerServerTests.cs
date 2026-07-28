@@ -1651,6 +1651,7 @@ public sealed class WorkerServerTests
 
         public Task<WorkerExecutionResult> ExecuteAsync(
             WorkerOperationRequest request,
+            DateTimeOffset deadlineUtc,
             CancellationToken cancellationToken) =>
             execute?.Invoke(request, cancellationToken) ??
             Task.FromException<WorkerExecutionResult>(

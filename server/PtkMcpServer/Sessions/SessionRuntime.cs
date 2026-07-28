@@ -94,6 +94,7 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
         bool raw,
         string route,
         int timeoutSeconds,
+        DateTimeOffset deadlineUtc,
         IForegroundOutputCapture? outputCapture = null)
     {
         if (raw)
@@ -110,7 +111,8 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
             timeoutSeconds,
             audit: null,
             outputStore: null,
-            outputCapture);
+            outputCapture,
+            deadlineUtc);
     }
 
     private static async Task<SessionWorkerInvokeResult> InvokeForegroundCoreAsync(
@@ -121,7 +123,8 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
         int timeoutSeconds,
         AuditCallContext? audit,
         OutputStore? outputStore,
-        IForegroundOutputCapture? workerOutputCapture = null)
+        IForegroundOutputCapture? workerOutputCapture = null,
+        DateTimeOffset? workerDeadlineUtc = null)
     {
         if (outputStore is not null && workerOutputCapture is not null)
             throw new ArgumentException("Only one output-capture owner may be supplied.");
@@ -135,13 +138,15 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
                     script,
                     cancellationToken: cancellationToken,
                     route: route,
-                    timeoutSeconds: timeoutSeconds).ConfigureAwait(false)
+                    timeoutSeconds: timeoutSeconds,
+                    deadline: workerDeadlineUtc).ConfigureAwait(false)
                 : await host.InvokeWithOutputCaptureAsync(
                     script,
                     outputCapture,
                     cancellationToken: cancellationToken,
                     route: route,
-                    timeoutSeconds: timeoutSeconds).ConfigureAwait(false)
+                    timeoutSeconds: timeoutSeconds,
+                    deadline: workerDeadlineUtc).ConfigureAwait(false)
             : await host.InvokeAsync(
                 script,
                 audit,
@@ -200,7 +205,8 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
             foreach (var warning in result.Warnings) sb.AppendLine(warning);
         }
 
-        if (result.OutputRecovery is { Advertise: true } recovery)
+        if (workerOutputCapture is null &&
+            result.OutputRecovery is { Advertise: true } recovery)
         {
             sb.AppendLine();
             sb.Append(recovery.Handle is { } handle

@@ -21,6 +21,7 @@ internal sealed class WorkerSession : IWorkerSession
 
     public async Task<WorkerExecutionResult> ExecuteAsync(
         WorkerOperationRequest request,
+        DateTimeOffset deadlineUtc,
         CancellationToken cancellationToken)
     {
         switch (request)
@@ -37,6 +38,7 @@ internal sealed class WorkerSession : IWorkerSession
                         invoke.Raw,
                         RouteName(invoke.Route),
                         invoke.TimeoutSeconds,
+                        deadlineUtc,
                         capture).ConfigureAwait(false);
                     var (status, detailCode) = MapInvokeResult(result);
                     WorkerArtifactPayload? artifact = null;

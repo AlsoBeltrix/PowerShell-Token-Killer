@@ -1155,6 +1155,7 @@ public sealed class RunspaceHost : IDisposable
             var delay = Task.Delay(chunk, cancellationToken);
             var finished = await Task.WhenAny(work, delay);
             if (finished == work) return WaitOutcome.Completed;
+            if (DateTimeOffset.UtcNow >= deadline) return WaitOutcome.TimedOut;
             if (delay.IsCanceled) return WaitOutcome.Canceled;
         }
     }

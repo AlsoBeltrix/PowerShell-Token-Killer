@@ -682,6 +682,37 @@ function New-SessionProbeScript {
         "[bool](Get-Module -Name $moduleLiteral); `$PID"
 }
 
+function New-BlockingProcessTreeScript {
+    param(
+        [Parameter(Mandatory)][string]$Marker,
+        [Parameter(Mandatory)][string]$BlockingStatement
+    )
+
+    $pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
+    $grandchildEncoded = ConvertTo-EncodedCommand 'Start-Sleep -Seconds 300'
+    $childTemplate = @'
+$grandchild = Start-Process -FilePath __PWSH__ -ArgumentList @('-NoProfile', '-EncodedCommand', '__GRANDCHILD__') -PassThru
+[IO.File]::WriteAllText(__MARKER__, "$PID`n$($grandchild.Id)")
+Start-Sleep -Seconds 300
+'@
+    $childEncoded = ConvertTo-EncodedCommand (
+        $childTemplate.
+            Replace('__PWSH__', (ConvertTo-PsLiteral $pwshPath)).
+            Replace('__GRANDCHILD__', $grandchildEncoded).
+            Replace('__MARKER__', (ConvertTo-PsLiteral $Marker))
+    )
+    $invokeTemplate = @'
+$child = Start-Process -FilePath __PWSH__ -ArgumentList @('-NoProfile', '-EncodedCommand', '__CHILD__') -PassThru
+while (-not [IO.File]::Exists(__MARKER__)) { Start-Sleep -Milliseconds 10 }
+__BLOCK__
+'@
+    $invokeTemplate.
+        Replace('__PWSH__', (ConvertTo-PsLiteral $pwshPath)).
+        Replace('__CHILD__', $childEncoded).
+        Replace('__MARKER__', (ConvertTo-PsLiteral $Marker)).
+        Replace('__BLOCK__', $BlockingStatement)
+}
+
 function Assert-Probe {
     param(
         [Parameter(Mandatory)][string]$Text,
@@ -705,6 +736,7 @@ New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 $serverA = $null
 $serverB = $null
 $hardKillServer = $null
+$timeoutKnownIds = @()
 $hardKillKnownIds = @()
 try {
     # Phase 1: public multi-session and multi-server isolation.
@@ -979,6 +1011,103 @@ try {
     Assert-NoMonotonicGrowth $samples 'HandleCount'
     Assert-NoMonotonicGrowth $samples 'PrivateBytes'
 
+    # Phase 3: a timed-out, uncooperative pipeline must replace only its
+    # worker and contain the native child/grandchild it started.
+    $timeoutMarker = Join-Path $testRoot 'timeout-tree.txt'
+    $timeoutScript = New-BlockingProcessTreeScript `
+        -Marker $timeoutMarker `
+        -BlockingStatement '[Threading.Thread]::Sleep(300000)'
+    $timeoutRequest = Send-PtkTool $serverA 'ptk_invoke' @{
+        script = $timeoutScript
+        route = 'pwsh'
+        session = 'exchange-online'
+        timeoutSeconds = 1
+    }
+    Wait-ForFiles @($timeoutMarker)
+    $timeoutMarkerIds = @(
+        Get-Content -LiteralPath $timeoutMarker |
+            Where-Object { $_ -match '^\d+$' } |
+            ForEach-Object { [int]$_ }
+    )
+    if ($timeoutMarkerIds.Count -ne 2) {
+        throw "Timeout child marker was invalid: '$(
+            Get-Content -LiteralPath $timeoutMarker -Raw
+        )'"
+    }
+    $timeoutKnownIds = @(
+        Get-ProcessFleet -SupervisorId $victimPid
+    )
+    foreach ($expectedId in $timeoutMarkerIds) {
+        if ($timeoutKnownIds -notcontains $expectedId -or
+            -not (Test-ProcessAlive $expectedId)) {
+            throw "Timeout process $expectedId was not a live worker descendant."
+        }
+    }
+
+    $timeoutResult = Receive-PtkToolResult $serverA $timeoutRequest
+    $timeoutText = Get-PtkToolText $timeoutResult
+    if ($timeoutText -notmatch (
+            '(?m)^\[ptk worker\] status=timed_out ' +
+            'detail=execution_timed_out; '
+        )) {
+        throw "Uncooperative timeout returned the wrong terminal result: '$timeoutText'"
+    }
+    $timeoutRecovery = [regex]::Matches(
+        $timeoutText,
+        '(?m)^recovery=(.+)$'
+    )
+    if ($timeoutRecovery.Count -ne 1 -or
+        $timeoutRecovery[0].Groups[1].Value -notmatch (
+            '^available: ptk_output handle=ptko_[A-Za-z0-9_-]+$'
+        )) {
+        throw "Timeout recovery guidance was duplicated or unavailable: '$timeoutText'"
+    }
+
+    $replacementPid = $null
+    $replacementList = ''
+    $replacementDeadline = [DateTimeOffset]::UtcNow + $checkpoint
+    do {
+        $replacementList = Get-PtkToolText (
+            Invoke-PtkTool $serverA 'ptk_session' @{ action = 'list' }
+        )
+        $replacementMatch = [regex]::Match(
+            $replacementList,
+            '(?m)^session=exchange-online state=ready worker_pid=(\d+) ' +
+                'active=false '
+        )
+        if ($replacementMatch.Success -and
+            [int]$replacementMatch.Groups[1].Value -ne $victimPid) {
+            $replacementPid = [int]$replacementMatch.Groups[1].Value
+            break
+        }
+        Start-Sleep -Milliseconds 25
+    } while ([DateTimeOffset]::UtcNow -lt $replacementDeadline)
+    if ($null -eq $replacementPid) {
+        throw "Timed-out worker $victimPid was not replaced: '$replacementList'"
+    }
+    if ($replacementList -notmatch (
+            "(?m)^session=exchange-onprem state=ready worker_pid=$siblingPid " +
+            'active=false '
+        )) {
+        throw "Timeout recovery changed or faulted sibling worker $siblingPid."
+    }
+    Wait-ForProcessExit $timeoutKnownIds
+    $timeoutKnownIds = @()
+
+    $postTimeout = Get-SettledFleetResources $serverA.Process.Id
+    if ($postTimeout.ProcessCount -ne $baseline.ProcessCount -or
+        $postTimeout.HandleCount -gt $handleCeiling) {
+        throw (
+            "Timeout recovery left resources outside baseline: processes=" +
+            "$($postTimeout.ProcessCount)/$($baseline.ProcessCount), " +
+            "handles/fds=$($postTimeout.HandleCount)/$($baseline.HandleCount)."
+        )
+    }
+    Write-Host (
+        "timeout containment passed: worker $victimPid replaced by " +
+        "$replacementPid; $($timeoutMarkerIds.Count) native descendants exited"
+    )
+
     $siblingProbe = Invoke-PtkScript $serverA 'exchange-onprem' (
         New-SessionProbeScript $moduleAOnPrem
     )
@@ -992,35 +1121,16 @@ try {
     )
     Stop-PtkServer $serverA
 
-    # Phase 3: kill only the public supervisor and let production containment
+    # Phase 4: kill only the public supervisor and let production containment
     # own its worker tree. Never use Process.Kill(entireProcessTree: true) here.
     $hardKillWork = Join-Path $testRoot 'work-hard-kill'
     $hardKillServer = Start-PtkServer -Label 'hard-kill' -WorkingDirectory $hardKillWork
     Initialize-PtkServer $hardKillServer
     $hardKillWorkerPid = Open-PtkSession $hardKillServer 'kill-target'
     $marker = Join-Path $testRoot 'hard-kill-tree.txt'
-    $pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
-    $grandchildScript = 'Start-Sleep -Seconds 300'
-    $grandchildEncoded = ConvertTo-EncodedCommand $grandchildScript
-    $childTemplate = @'
-$grandchild = Start-Process -FilePath __PWSH__ -ArgumentList @('-NoProfile', '-EncodedCommand', '__GRANDCHILD__') -PassThru
-[IO.File]::WriteAllText(__MARKER__, "$PID`n$($grandchild.Id)")
-Start-Sleep -Seconds 300
-'@
-    $childScript = $childTemplate.
-        Replace('__PWSH__', (ConvertTo-PsLiteral $pwshPath)).
-        Replace('__GRANDCHILD__', $grandchildEncoded).
-        Replace('__MARKER__', (ConvertTo-PsLiteral $marker))
-    $childEncoded = ConvertTo-EncodedCommand $childScript
-    $invokeTemplate = @'
-$child = Start-Process -FilePath __PWSH__ -ArgumentList @('-NoProfile', '-EncodedCommand', '__CHILD__') -PassThru
-while (-not [IO.File]::Exists(__MARKER__)) { Start-Sleep -Milliseconds 10 }
-Start-Sleep -Seconds 300
-'@
-    $hardKillScript = $invokeTemplate.
-        Replace('__PWSH__', (ConvertTo-PsLiteral $pwshPath)).
-        Replace('__CHILD__', $childEncoded).
-        Replace('__MARKER__', (ConvertTo-PsLiteral $marker))
+    $hardKillScript = New-BlockingProcessTreeScript `
+        -Marker $marker `
+        -BlockingStatement 'Start-Sleep -Seconds 300'
     [void](Send-PtkTool $hardKillServer 'ptk_invoke' @{
         script = $hardKillScript
         route = 'pwsh'
@@ -1075,13 +1185,16 @@ finally {
             }
         }
     }
-    foreach ($processId in $hardKillKnownIds) {
+    foreach ($processId in @(
+            @($timeoutKnownIds) + @($hardKillKnownIds) |
+                Sort-Object -Unique
+        )) {
         if (Test-ProcessAlive $processId) {
             try {
                 Stop-Process -Id $processId -Force -ErrorAction Stop
             }
             catch {
-                Write-Warning "Could not clean hard-kill descendant PID ${processId}: $_"
+                Write-Warning "Could not clean acceptance descendant PID ${processId}: $_"
             }
         }
     }

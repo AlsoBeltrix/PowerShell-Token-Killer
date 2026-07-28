@@ -31,6 +31,7 @@ internal sealed class WorkerServer
         _runtimeFactory;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Func<DateTimeOffset, CancellationToken, Task> _waitUntilDeadline;
+    private readonly Action<string> _terminateUnresponsiveWorker;
     private readonly TaskScheduler _factoryScheduler;
     private int _started;
 
@@ -40,7 +41,8 @@ internal sealed class WorkerServer
         Func<WorkerInitializeRequest, CancellationToken, Task<IWorkerSession>> runtimeFactory,
         Func<DateTimeOffset>? utcNow = null,
         Func<DateTimeOffset, CancellationToken, Task>? waitUntilDeadline = null,
-        TaskScheduler? factoryScheduler = null)
+        TaskScheduler? factoryScheduler = null,
+        Action<string>? terminateUnresponsiveWorker = null)
     {
         ArgumentNullException.ThrowIfNull(requestStream);
         ArgumentNullException.ThrowIfNull(eventStream);
@@ -51,6 +53,7 @@ internal sealed class WorkerServer
         _runtimeFactory = runtimeFactory;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _waitUntilDeadline = waitUntilDeadline ?? WaitUntilDeadlineAsync;
+        _terminateUnresponsiveWorker = terminateUnresponsiveWorker ?? (_ => { });
         _factoryScheduler = factoryScheduler ?? TaskScheduler.Default;
     }
 
@@ -294,7 +297,8 @@ internal sealed class WorkerServer
                 ownership.Session
                     ?? throw new InvalidOperationException(
                         "The initialized worker session is unavailable."),
-                (frame, token) => WriteEnvelopeAsync(frame, token));
+                (frame, token) => WriteEnvelopeAsync(frame, token),
+                _terminateUnresponsiveWorker);
 
             // The supervisor must wait for ready before sending an operation.
             await WriteEnvelopeAsync(

@@ -87,6 +87,61 @@ public sealed class WorkerSessionIntegrationTests
     }
 
     [Fact]
+    public async Task Timeout_returns_one_supervisor_owned_incomplete_artifact()
+    {
+        var host = new RunspaceHost(
+            callTimeout: TimeSpan.FromSeconds(30),
+            maxCallTimeout: TimeSpan.FromMinutes(5));
+        var session = new WorkerSession(new SessionRuntime(
+            host,
+            new RawUsageCounter()));
+        var artifactId = Guid.NewGuid();
+        const int maximumArtifactBytes = 64 * 1024;
+        try
+        {
+            var request = new WorkerInvokeRequest(
+                RequestId: 2,
+                TimeoutSeconds: 1,
+                Timeout: TimeSpan.FromSeconds(1),
+                Script: "'timeout-prefix'; Start-Sleep -Seconds 60",
+                Raw: false,
+                Route: WorkerInvokeRoute.Pwsh,
+                Artifact: new WorkerArtifactRequest(
+                    artifactId,
+                    maximumArtifactBytes));
+
+            var result = Assert.IsType<WorkerInvokeExecutionResult>(
+                await session.ExecuteAsync(
+                    request,
+                    DateTimeOffset.UtcNow.AddSeconds(1),
+                    CancellationToken.None));
+
+            Assert.Equal(WorkerResultStatus.TimedOut, result.Status);
+            Assert.Equal("execution_timed_out", result.DetailCode);
+            Assert.DoesNotContain(
+                "recovery=",
+                result.Text,
+                StringComparison.Ordinal);
+            var artifact = Assert.IsType<WorkerArtifactPayload>(result.Artifact);
+            Assert.Equal(artifactId, artifact.ArtifactId);
+            var content = WorkerOutputArtifactCodec.Decode(
+                artifact.Bytes.Span,
+                maximumArtifactBytes);
+            Assert.False(content.Complete);
+            Assert.Equal("pipeline_timed_out", content.IncompleteReason);
+            Assert.Contains(
+                "timeout-prefix",
+                content.StandardOutput,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            await session.ShutdownAsync();
+            session.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task Two_real_worker_servers_reject_stale_and_cross_routed_frames()
     {
         var firstSessionId = Guid.NewGuid();

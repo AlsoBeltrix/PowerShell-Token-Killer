@@ -154,6 +154,25 @@ short and update it when important repo facts change.
   and the full stdio handshake. No test process survived and every disposable
   remote checkout was removed. The slice is not pushed or installed; exact
   evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 5 is complete locally at code head
+  `001c4ebe23d48e1804f2bb169f09a8f0e0c0dd2a`.** One MCP connection now owns
+  a fixed maximum of eight internal named-session slots, including lazy
+  `default`, with one isolated contained worker process and warm runspace per
+  session. Lifecycle admission, shared startup, per-session foreground
+  serialization, automatic timeout/crash/transport recovery, confirmed-empty
+  replacement, cached PID health, sealed-output survival, close/reset, and
+  concurrent connection shutdown are covered behind the internal fixture.
+  The real-process guard proves overlapping commands, variables, modules,
+  environment, directories, and processes remain isolated and that workers
+  inherit the supervisor's launch directory. Deliberate mutations proved the
+  launch-directory, containment-proof, stopped-worker PID, late-start
+  shutdown, and invoke/state transport-recovery guards. Exact-commit batteries
+  passed on macOS ARM64, Linux x86_64 `magneto`, and Windows x64
+  `NETWATCH-01`: server 1,264/1,264, SIEM 247/247, platform-appropriate Pester
+  counts, and the public stdio handshake. No candidate process or disposable
+  remote checkout survived. The public MCP surface remains unchanged; the
+  slice is not pushed or installed. Exact evidence is in
+  `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -482,10 +501,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Slice 4 is complete locally at `75505b9` and is not pushed. Implement Slice
-   5 next: add the connection-owned fixed eight-slot named-session lifecycle
-   behind its internal fixture, prove two isolated worker PIDs/runspaces with
-   overlapping command names, and keep the public MCP surface unchanged.
+1. Slice 5 is complete locally at `001c4eb` and is not pushed. Implement Slice
+   6 next: route foreground invoke/state/reset through the selected worker,
+   remove the in-process production runspace and cold-job surface atomically,
+   add the public named-session contract, and preserve the remaining public
+   schema exactly as the approved plan specifies.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

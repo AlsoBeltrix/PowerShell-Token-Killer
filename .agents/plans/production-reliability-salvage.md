@@ -1,35 +1,18 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 3 LOCALLY IMPLEMENTED AND VERIFIED — topology decision 1
-was settled by the owner on 2026-07-26, R0 contract-retirement decision 2 was
-approved on 2026-07-27, and the owner authorized the test-only Slice 1a on
-2026-07-27. One agent-owned MCP connection may own several explicitly named
-isolated PowerShell sessions, and every session is a separate long-lived
-PowerShell worker process. Slice 1a uses runner JSON rather than the reviewed
-assembly attribute because mechanical testing proved that the repository's
-exact xUnit/VSTest combination ignores the attribute; the effective
-configuration and its explicit override are both proved below. Three
-consecutive default server runs and the complete local repository battery
-pass. No further Claude Opus review is available or required for this effort;
-the owner ended that review lane after exhausting Claude credits. On
-2026-07-27 the owner delegated the remaining engineering choices to the
-implementing agent, directed continued work toward the stated core product,
-and prohibited further low-level approval questions. That settles decisions
-3-4 in favor of the recommendations below and authorizes continued local
-implementation of this plan. Slice 2 removes mandatory audit storage and the
-anchored OTLP producer from ordinary execution, preserves the standalone SIEM
-receiver and legacy audit administration, and adds audit-independent
-supervisor admission/drain/shutdown. Exact candidate tree `faf8c2338a1a729fc5c46d87376475265148a5b0`
-passes the complete local macOS ARM64 battery and a clean SSH-based Linux
-x86_64 battery on `magneto`; ARM64 Linux remains untested after the owner
-stopped the UTM route. Slice 3 code head
-`bfa335ec223609df9ce0dbfcfd9efe99382203d4` removes the prepared/commit
-protocol and cold-job codec from the worker boundary, freezes the minimal
-bounded protocol, and binds one real warm `SessionRuntime` only behind the
-internal worker entry and disposable fixture. The exact commit passes the
-complete macOS ARM64 and Linux x86_64 batteries; the normal public MCP path and
-five-tool handshake remain unchanged. Slice 4 is next. No push, PR,
-installation, or deployment is authorized by this status.
+**Status:** SLICE 5 LOCALLY IMPLEMENTED, COMMITTED, AND CROSS-PLATFORM
+VERIFIED — topology decision 1, R0 contract-retirement decision 2, test-runner
+Slice 1a, and delegated decisions 3-4 are settled as recorded in
+`.agents/decisions.md`. No further Claude Opus review is available or required.
+Exact Slice 5 commit `001c4ebe23d48e1804f2bb169f09a8f0e0c0dd2a`
+adds the connection-owned fixed eight-slot named-session lifecycle behind the
+internal fixture. One long-lived contained worker process/runspace belongs to
+each session; startup, foreground calls, recovery, reset, close, output, and
+shutdown obey the isolation and no-overlap rules below. Exact-commit batteries
+pass on macOS ARM64, Linux x86_64 `magneto`, and Windows x64 `NETWATCH-01`.
+The public MCP tool surface and in-process invoke path remain unchanged through
+this slice. Slice 6 is next. No push, PR, installation, or deployment is
+authorized by this status.
 
 ## Goal
 

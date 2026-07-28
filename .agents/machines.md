@@ -1032,3 +1032,42 @@ validation, not an install or deployment._
   directories were moved to the macOS Trash, so they remain recoverable there
   until Trash is emptied. No installed payload or persistent host configuration
   changed.
+
+## Production-reliability salvage Slice 5 cross-platform validation (2026-07-27)
+
+_Verified at exact commit `001c4ebe23d48e1804f2bb169f09a8f0e0c0dd2a`,
+tree `6f0fa1a387da4d09e04d1fc849974c6d1581f401`; this was checkout
+validation, not an install or deployment._
+
+- The exact `git archive` SHA-256 was
+  `6446eb24503947f92aeb722452055ff6177790923eac77f93eccdc7f28c154b9`
+  locally, on Linux x86_64 `magneto`, and on Windows x64 `NETWATCH-01`.
+  No emulator or UTM was used.
+- On macOS ARM64, the 24 focused Slice 5 tests and complete 1,264/1,264
+  server suite passed. Pester passed 141 tests with two platform skips, SIEM
+  passed 247/247, the changed-file formatter and `git diff --check` passed,
+  and the complete public stdio handshake passed.
+- Deliberate regressions separately made the worker-launch-directory,
+  confirmed-empty containment proof, supervisor-owned stopped-worker PID,
+  late-start/concurrent shutdown, and admitted invoke/state transport-recovery
+  guards fail. Production sources were restored before the final battery.
+- `magneto` reported x86_64, .NET SDK 10.0.110, and PowerShell 7.6.3. Its
+  complete server suite passed 1,264/1,264 in 3m23s, Pester 6.0.1 loaded only
+  from the disposable validation root passed 141 tests with two skips, the
+  direct SIEM test project passed 247/247, and the public handshake passed.
+- `NETWATCH-01` reported x64, .NET SDK 10.0.302, and PowerShell 7.6.4. Its
+  complete server suite passed 1,264/1,264 in 2m30s, Pester passed 142 tests
+  with one platform skip, the direct SIEM test project passed 247/247, and the
+  public handshake passed.
+- On both remote SDKs, `dotnet test siem/PtkSiem.slnx` returned success with
+  no build, output, or tests. That no-op was rejected as evidence; direct
+  execution of
+  `siem/PtkSiemReceiver.Tests/PtkSiemReceiver.Tests.csproj` produced the
+  recorded 247/247 results.
+- The five known `System.Security.Cryptography.Xml` 10.0.6 advisories were
+  unchanged. No matching candidate, worker, broker, or test process survived.
+  The disposable Linux and Windows validation trees were removed. The local
+  transfer directory was moved to
+  `/Users/michael/.Trash/ptk-slice5-001c4eb-lZWhDsQHms`, so it remains
+  recoverable until Trash is emptied. No installed payload or persistent host
+  configuration changed.

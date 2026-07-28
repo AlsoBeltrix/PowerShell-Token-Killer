@@ -1099,9 +1099,56 @@ checkout validation, not an install or deployment._
 - Windows x64 validation remains pending. On 2026-07-28,
   `netwatch-01.internal` resolved to `10.1.10.173` but was down/unroutable, and
   SSH to the previously used `10.1.10.177` timed out. No Windows files or
-  installed payload were touched. Slice 7 remains held until this exact commit
-  passes the disposable Windows battery.
+  installed payload were touched. Slice 7 was held when this validation run
+  ended; the owner subsequently directed local Slice 7 work to continue
+  without waiving this exact-commit Windows battery.
 - The five known `System.Security.Cryptography.Xml` 10.0.6 advisories were the
   only dependency warnings. After its log was copied and hashed, the disposable
   Linux checkout was removed. The local transfer directory remains only until
   Windows evidence and final cleanup are complete.
+
+## Production-reliability salvage Slice 7 cross-platform validation (2026-07-28)
+
+_Verified at exact code commit
+`51594735e40c6d50a2aaf94c84a9e55a70f63b50`, tree
+`a59d665adcc589e5d4b05e193493ffb59d0082e7`; this was checkout
+validation, not an install or deployment._
+
+- The exact source archive SHA-256 is
+  `7369426331fbade378c8dba5853c409628cb84b13150bf8596c36bff4084698e`.
+  The disposable Pester 6.0.1 archive SHA-256 remains
+  `87fb1475455d2b895d7ccc031465998e28ea12b8b557d50c5b41ee88f4623969`.
+- On macOS ARM64, six deliberate regressions independently proved the first
+  pipe-write boundary, post-write transport poisoning, no resend, valid
+  terminal ownership, public failure projection, and failed-replacement/reset
+  guards. Every production file returned to its pre-mutation SHA-256 before
+  the focused 37/37 recovery battery passed. The complete server suite then
+  passed 1,180/1,180 in 7m29s; Pester passed 141 tests with two platform skips;
+  SIEM passed 247/247; the built-tree and self-contained published-executable
+  handshakes passed; scoped formatting and `git diff --check` passed. Both the
+  published server and `PtkWorkerBroker` were executable ARM64 Mach-O files.
+- The real-process recovery guard hard-killed a worker after one external file
+  effect. The call returned `outcome_unknown`, the effect remained exactly
+  once, one fresh worker replaced the victim, and its sibling retained the same
+  PID and warm variable. Deterministic protocol guards separately covered
+  failure before write entry, synchronous/asynchronous/partial write failure,
+  loss after a complete write, loss during a result frame, and worker death
+  immediately after a complete terminal.
+- On Linux x86_64 `magneto`, the transferred archives matched the local hashes.
+  The host reported .NET SDK 10.0.110 and PowerShell 7.6.3. The complete server
+  suite passed 1,180/1,180 in 2m49s, Pester passed 141 tests with two platform
+  skips, SIEM passed 247/247, and the complete public stdio handshake passed.
+  The combined log SHA-256 is
+  `be080564f725837a28e4623d09e714e0662c64c61e55761f3157a9cc7266c374`;
+  its recorded exit was zero.
+- No candidate server, worker, broker, fixture, or test process survived on
+  either validated host. The disposable Linux checkout was removed after its
+  log was copied. The local exact-commit transfer directory is
+  `/tmp/ptk-slice7-5159473-transfer.Jb134Y` and remains for Windows validation.
+  The macOS publish directory was moved to
+  `/Users/michael/.Trash/ptk-slice7-publish.2NCq6d`, so it remains recoverable
+  until Trash is emptied.
+- Windows x64 remains pending for both Slice 6 and Slice 7. A fresh
+  `NETWATCH-01` probe after the Linux run timed out without touching the host.
+  The five known transitive `System.Security.Cryptography.Xml` 10.0.6
+  advisories were the only dependency warnings.

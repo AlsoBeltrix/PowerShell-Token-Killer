@@ -1,17 +1,21 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 6 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
-X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING — topology decision 1, R0
-contract-retirement decision 2, test-runner Slice 1a, and delegated decisions
-3-4 are settled as recorded in `.agents/decisions.md`. No further Claude Opus
-review is available or required. Exact Slice 6 commit
+**Status:** SLICE 7 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
+X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-7 — topology
+decision 1, R0 contract-retirement decision 2, test-runner Slice 1a, and
+delegated decisions 3-4 are settled as recorded in `.agents/decisions.md`. No
+further Claude Opus review is available or required. Exact Slice 6 commit
 `6c9bdacc84685af54055b22627666bfb8231c2d1` exposes only the five named-session
 tools and routes every production invocation through the selected session's
-long-lived contained worker process/runspace. The exact commit passes the full
-macOS ARM64 and Linux x86_64 batteries. `NETWATCH-01` was offline on the final
-validation attempt, so Slice 6 is not yet recorded cross-platform complete and
-Slice 7 has not started. No push, PR, installation, or deployment is authorized
-by this status.
+long-lived contained worker process/runspace. Exact Slice 7 code commit
+`51594735e40c6d50a2aaf94c84a9e55a70f63b50` adds the first-pipe-write outcome
+boundary, one automatic replacement attempt, explicit reset-required fault
+projection, and no-replay/sibling-isolation coverage. Both exact commits pass
+their full macOS ARM64 and Linux x86_64 batteries. `NETWATCH-01` remains
+offline, so neither slice is yet recorded cross-platform complete. The owner's
+direction to continue authorizes later local slices without waiving the pending
+exact-commit Windows gates. No push, PR, installation, or deployment is
+authorized by this status.
 
 ## Goal
 

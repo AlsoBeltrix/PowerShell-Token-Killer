@@ -174,8 +174,8 @@ short and update it when important repo facts change.
   slice is not pushed or installed. Exact evidence is in
   `.agents/machines.md`.
 - **Production-reliability salvage Slice 6 is locally implemented and committed
-  at code head `6c9bdacc84685af54055b22627666bfb8231c2d1`; final platform
-  validation is in progress.** Production now exposes exactly `ptk_invoke`,
+  at code head `6c9bdacc84685af54055b22627666bfb8231c2d1`; Windows validation
+  remains pending.** Production now exposes exactly `ptk_invoke`,
   `ptk_output`, `ptk_reset`, `ptk_session`, and `ptk_state`. Cold jobs and the
   in-process runspace path are gone; every command executes only in the
   explicitly resolved named session's contained worker, while reset, state,
@@ -186,9 +186,26 @@ short and update it when important repo facts change.
   macOS ARM64; the same server/Pester/SIEM/handshake battery passed from the
   verified archive on Linux x86_64 `magneto`. `NETWATCH-01` was unreachable at
   both its current DNS address and its previously used address, so Windows x64
-  remains pending and Slice 7 has not started. No candidate Linux process
-  survived. The slice is not pushed or installed; exact evidence is in
-  `.agents/machines.md`.
+  remains pending. No candidate Linux process survived. The slice is not
+  pushed or installed; exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 7 is locally implemented and committed
+  at code head `51594735e40c6d50a2aaf94c84a9e55a70f63b50`; macOS ARM64 and
+  Linux x86_64 are verified, and Windows x64 remains pending.** It classifies
+  failure before the first invoke pipe-write call as `not_started` and every
+  failure after write-call entry and before a complete terminal as
+  `outcome_unknown`. A complete terminal remains authoritative; recovery makes
+  one automatic replacement attempt; a failed replacement projects
+  `reset_required=true`; and sibling and separate-supervisor isolation remain
+  intact. Six deliberate regressions failed for their intended reason and
+  every source was restored byte-for-byte. Exact-commit batteries passed on
+  macOS and Linux: server 1,180/1,180, SIEM 247/247, platform-appropriate
+  Pester counts, and the public stdio handshake; macOS additionally passed
+  scoped formatting and self-contained publish smoke. No candidate process or
+  disposable Linux checkout survived. `NETWATCH-01` timed out again after the
+  Linux run. The local Slice 6 and Slice 7 archives remain available for
+  Windows validation. The owner directed continued local implementation
+  without waiving either Windows gate. The slice is not pushed or installed;
+  exact evidence is in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -517,11 +534,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Slice 5 is complete locally at `001c4eb` and is not pushed. Implement Slice
-   6 next: route foreground invoke/state/reset through the selected worker,
-   remove the in-process production runspace and cold-job surface atomically,
-   add the public named-session contract, and preserve the remaining public
-   schema exactly as the approved plan specifies.
+1. Implement Slice 8 locally: keep output recovery optional, add the bounded
+   per-invocation queue/sink path and session quotas from the approved plan,
+   and prove a stalled or failed output path cannot delay, replay, or replace
+   ordinary execution. When `NETWATCH-01` returns, first validate the exact
+   Slice 6 and Slice 7 archives before claiming either cross-platform complete.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

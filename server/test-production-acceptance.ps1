@@ -837,6 +837,46 @@ try {
         )
     }
     Wait-ForFiles @($readyAOnPrem, $readyAOnline, $readyBOnPrem)
+
+    $activeStateId = Send-PtkTool $serverA 'ptk_state' @{
+        session = 'exchange-onprem'
+        listAvailable = $false
+    }
+    $activeListId = Send-PtkTool $serverA 'ptk_session' @{
+        action = 'list'
+    }
+    $activeState = Get-PtkToolText (
+        Receive-PtkToolResult $serverA $activeStateId
+    )
+    $activeList = Get-PtkToolText (
+        Receive-PtkToolResult $serverA $activeListId
+    )
+    if ($activeState -notmatch (
+            "(?m)^ptk supervisor: pid=$($serverA.Process.Id) sessions=3/8`r?$"
+        ) -or
+        $activeState -notmatch (
+            "(?m)^session=exchange-onprem state=ready worker_pid=$aOnPremPid " +
+            "active=true warm_state_lost=false last_failure=none " +
+            "reset_required=false`r?$"
+        ) -or
+        $activeState -notmatch (
+            '(?m)^runspace: unavailable \(detail=session_busy\)\r?$'
+        )) {
+        throw "Active selected-session state was not prompt and truthful: '$activeState'"
+    }
+    foreach ($expected in @(
+            "session=default state=cold worker_pid=none active=false ",
+            "session=exchange-onprem state=ready worker_pid=$aOnPremPid active=true ",
+            "session=exchange-online state=ready worker_pid=$aOnlinePid active=true "
+        )) {
+        if ($activeList -notmatch "(?m)^$([regex]::Escape($expected))") {
+            throw "Active session list omitted '$expected' from: '$activeList'"
+        }
+    }
+    if ($activeList -match [regex]::Escape([string]$bOnPremPid)) {
+        throw "Active session list crossed the independent server boundary: '$activeList'"
+    }
+
     [IO.File]::WriteAllText($release, 'release')
     foreach ($call in $concurrent) {
         $result = Receive-PtkToolResult $call.Server $call.RequestId

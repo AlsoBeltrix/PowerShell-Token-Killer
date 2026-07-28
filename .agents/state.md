@@ -21,6 +21,19 @@ short and update it when important repo facts change.
   `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` was the exact merge base; local
   `master` was fast-forwarded and its content diff against the verified salvage
   branch was empty. Nothing was pushed, installed, registered, or deployed.
+- **The five high-severity XML-crypto dependency advisories are closed locally
+  at exact commit `b6fcbcdd9a81bdd5ce9e9ba8dde087a2adc02ff3`.**
+  `Microsoft.PowerShell.SDK` 7.6.3 still requests vulnerable
+  `System.Security.Cryptography.Xml` 10.0.6, so the server now directly pins
+  patched 10.0.10. The transitive vulnerability audit changed from five
+  advisories on every server project to no vulnerable packages; the complete
+  Pester/server/SIEM/handshake battery and 100-cycle production acceptance
+  passed with zero build warnings. A validated self-contained layout resolved
+  only 10.0.10 and passed the complete public handshake. A replacement-server
+  diagnostic also preserved all values on an EXO-style selected/deserialized
+  object, evaluated an explicitly selected script property exactly once, and
+  surfaced a terminating error's message. This is useful synthetic evidence,
+  not a substitute for the pending real EXO/Outlook workflow on Windows.
 - **Owner direction changed on 2026-07-26: pause the three-process resilience
   delivery line and use the reviewed production-reliability salvage instead.**
   PTK's product is reliable token-compressed PowerShell execution with warm
@@ -648,13 +661,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue Slice 10 production acceptance. First inspect the five
-   `System.Security.Cryptography.Xml` advisories for a compatible patched
-   dependency path; do not suppress them. When `NETWATCH-01` and a clean ARM64
-   Linux build path are available, finish the retained Slice 6-10
-   platform/Exchange gates. Candidate installation, the real shaping workflow,
-   and intended-harness restart remain separately authorized deployment work;
-   do not claim Slice 10 cross-platform complete before they pass.
+1. Continue Slice 10 production acceptance. When `NETWATCH-01` and a clean
+   ARM64 Linux build path are available, finish the retained Slice 6-10
+   platform/Exchange gates. The replacement server's synthetic EXO-style
+   projection is useful but does not close the real EXO/Outlook shaping gate.
+   Candidate installation, the real shaping workflow, and intended-harness
+   restart remain separately authorized deployment work; do not claim Slice 10
+   cross-platform complete before they pass.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.
@@ -698,11 +711,13 @@ short and update it when important repo facts change.
 - GitHub issue #3 remains open (verified 2026-07-11): item 1 landed; items
   2-4 are an unplanned follow-up candidate, while its permission-bypass
   concern belongs to the open security track.
-- GitHub #8, #9, and #10 are new owner field reports from 2026-07-23,
-  unplanned and recorded here for durable tracking. #8: the object shaper
-  emits `[active member not evaluated]` for script/lazy/COM members, making
-  shaping unusable for EXO cmdlets and Outlook COM (Windows Server 2022);
-  presentation-layer only. #9: calls hung 120 s on a dead MCP transport
+- GitHub #8, #9, and #10 are owner field reports from 2026-07-23. #8's older
+  installed runtime dropped script/lazy/COM values. The replacement server now
+  preserves synthetic EXO-style selected/deserialized values, evaluates an
+  explicitly selected script property exactly once in the user pipeline, and
+  surfaces the tested terminating-error message; it still truthfully labels
+  uninspected active type data as incomplete. Keep #8 open until the real
+  EXO/Outlook Windows workflow passes. #9: calls hung 120 s on a dead MCP transport
   instead of failing fast, then the installed payload wedged on
   "audit persistence unavailable" across a full session restart. #10: the
   same wedge from a cold boot — `failure_class=journal.startup` every start
@@ -742,12 +757,6 @@ short and update it when important repo facts change.
   Mac, Linux, and Windows batteries; current hosted-CI evidence is still
   absent, and later plan slices plus the deployment gates remain before any
   production-ready claim.
-- **The server dependency graph now reports five high-severity advisories for
-  transitive `System.Security.Cryptography.Xml` 10.0.6.** The path is
-  `Microsoft.PowerShell.SDK` 7.6.3 through
-  `Microsoft.Windows.Compatibility`/`System.ServiceModel`. This was discovered
-  during Slice 1 restore/audit and is outside the R0-retirement scope; do not
-  suppress it or claim the server dependency audit is clean.
 - **Direct ARM64 Linux clean-build validation is blocked by a host-specific
   `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
   `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact

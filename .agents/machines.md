@@ -1462,3 +1462,37 @@ deployment, or push._
   `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` was the exact merge base. Local
   `master` fast-forwarded to the verified commit, and
   `git diff impl/production-reliability-salvage master` was empty.
+
+## Post-Slice 11 dependency remediation and shaping diagnostic (2026-07-28)
+
+_Validated exact code commit
+`b6fcbcdd9a81bdd5ce9e9ba8dde087a2adc02ff3`, tree
+`b76e88a94f00eb9af5ffdf91eb4ed6ece06493c2`, on `nagatha.local`; no
+installation, registration, deployment, or push occurred._
+
+- Before the fix, every server project resolved
+  `System.Security.Cryptography.Xml` 10.0.6 through
+  `Microsoft.PowerShell.SDK` 7.6.3 and reported five high advisories. GitHub's
+  affected ranges end at 10.0.9, while even PowerShell SDK 7.6.4 still declares
+  10.0.6. The direct 10.0.10 override changed
+  `dotnet list ... --vulnerable --include-transitive` to no vulnerable packages
+  in all five server projects; `dotnet nuget why` and the built dependency file
+  both resolved XML crypto and PKCS at 10.0.10.
+- Pester passed 141 with two platform skips; server passed 1,212/1,212; SIEM
+  passed 247/247; the stdout-clean registration handshake passed with zero
+  build warnings. Production acceptance passed 100 replacements with
+  process count 5/5, handles/fds 544/546, and private footprint
+  323.1/333.8 MiB. Timeout and direct-worker-death containment, process-group
+  escape refusal, sibling isolation, and supervisor hard-kill cleanup all
+  passed.
+- A disposable `osx-arm64` self-contained layout validated its complete public
+  handshake and contained 10.0.10 with no 10.0.6 XML-crypto dependency. Its
+  prefix-checked temporary root was removed afterward.
+- A direct replacement-server diagnostic preserved the requested values from a
+  synthetic `Deserialized.Microsoft.Exchange.*` object, returned an explicitly
+  selected script property's value, and proved its getter ran once rather than
+  again during shaping. A terminating error surfaced its exact message. The
+  conservative incomplete marker remained because active type data was not
+  inspected. These checks do not replace the real EXO/Outlook Windows gate.
+- Both recorded `NETWATCH-01` addresses timed out again before this diagnostic;
+  no Windows host state was read or changed.

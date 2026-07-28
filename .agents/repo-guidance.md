@@ -55,6 +55,13 @@ dotnet test siem/PtkSiem.slnx
 — 247/247 passed (standalone retained SIEM receiver suite).
 
 ```
+dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
+```
+— every server project reported no vulnerable packages. Treat any listed
+package as a failed production dependency check even if the command itself
+returns zero.
+
+```
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
 ```
 — passed the stdout-clean direct-checkout launch and complete five-tool,

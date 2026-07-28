@@ -59,7 +59,12 @@ build warnings off protocol stdout. It passed the complete local battery and a
 red-to-green registration-command handshake, then fast-forwarded from current
 `origin/master` base `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` to local
 `master` with an empty content diff against the verified salvage branch. The
-remaining production gates stay open.
+post-integration dependency fix
+`b6fcbcdd9a81bdd5ce9e9ba8dde087a2adc02ff3` overrides PowerShell SDK's
+vulnerable XML-crypto minimum with patched 10.0.10; the transitive audit, full
+repository battery, 100-cycle production acceptance, and validated
+self-contained package all pass without dependency warnings. The remaining
+production gates stay open.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

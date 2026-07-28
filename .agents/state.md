@@ -34,6 +34,17 @@ short and update it when important repo facts change.
   object, evaluated an explicitly selected script property exactly once, and
   surfaced a terminating error's message. This is useful synthetic evidence,
   not a substitute for the pending real EXO/Outlook workflow on Windows.
+- **Cross-RID package generation now fails closed at exact commit
+  `e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0`.** A macOS probe of the advertised
+  `linux-arm64` layout path found a Mach-O ARM64 `PtkWorkerBroker` inside the
+  package rather than a Linux ELF binary. PTK has no proved cross-target native
+  compiler contract, so `dev-install.ps1 -LayoutOnly` now refuses a target RID
+  that differs from the build host before creating the output directory. The
+  new guard failed when the check was removed and passed when restored; Pester
+  passed 142 with two platform skips, server 1,212/1,212, SIEM 247/247, the
+  direct-checkout handshake, and a same-RID self-contained package handshake.
+  This prevents a mislabeled release artifact; it does not replace the pending
+  build and execution on a real ARM64 Linux host. UTM is not used.
 - **Owner direction changed on 2026-07-26: pause the three-process resilience
   delivery line and use the reviewed production-reliability salvage instead.**
   PTK's product is reliable token-compressed PowerShell execution with warm
@@ -757,14 +768,13 @@ short and update it when important repo facts change.
   Mac, Linux, and Windows batteries; current hosted-CI evidence is still
   absent, and later plan slices plus the deployment gates remain before any
   production-ready claim.
-- **Direct ARM64 Linux clean-build validation is blocked by a host-specific
-  `Grpc.Tools` launch failure.** On the Ubuntu 26.04 ARM64 VM, the bundled
-  `Grpc.Tools` 2.82.0 `protoc` succeeds when invoked directly with the exact
-  generated command but exits 139 only when MSBuild launches it. Manually
-  generating the identical intermediate files allowed every Linux behavior
-  suite to pass. This does not invalidate that behavior evidence, but a clean
-  ARM64 build must not be claimed until the launch failure is resolved or
-  independently disproved; see `.agents/machines.md`.
+- **Direct ARM64 Linux build/execution validation needs a matching real host.**
+  The prior UTM VM is not in use by owner direction. Cross-publishing from
+  macOS is now correctly refused because it produced a Mach-O worker broker
+  inside a `linux-arm64` layout. Do not claim this gate from cross-build output;
+  run it on real ARM64 Linux when such a host is available. Historical UTM/
+  `Grpc.Tools` evidence remains in `.agents/machines.md`, not as the current
+  execution path.
 
 - **Current Slice 10 Windows validation is pending while `NETWATCH-01` is
   unavailable.** Unix production containment and timeout replacement now pass

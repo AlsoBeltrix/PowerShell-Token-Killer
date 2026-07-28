@@ -40,7 +40,7 @@ Confirmed automated verification commands (re-run 2026-07-28, all passing):
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 141 passed, 2 platform-skipped (PowerShell module/setup suite; requires
+— 142 passed, 2 platform-skipped (PowerShell module/setup suite; requires
 Pester 5 or later).
 
 ```

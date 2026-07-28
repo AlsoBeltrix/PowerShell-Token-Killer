@@ -63,8 +63,12 @@ post-integration dependency fix
 `b6fcbcdd9a81bdd5ce9e9ba8dde087a2adc02ff3` overrides PowerShell SDK's
 vulnerable XML-crypto minimum with patched 10.0.10; the transitive audit, full
 repository battery, 100-cycle production acceptance, and validated
-self-contained package all pass without dependency warnings. The remaining
-production gates stay open.
+self-contained package all pass without dependency warnings. Exact packaging
+fix `e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0` then prevents a cross-RID build
+from labeling a host-compiled native worker broker as another platform: the
+guard has a red-to-green mutation proof, and the full repository battery plus a
+same-RID self-contained package pass. The remaining production gates stay
+open.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

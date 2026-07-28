@@ -1496,3 +1496,25 @@ installation, registration, deployment, or push occurred._
   inspected. These checks do not replace the real EXO/Outlook Windows gate.
 - Both recorded `NETWATCH-01` addresses timed out again before this diagnostic;
   no Windows host state was read or changed.
+
+## Native package target guard (2026-07-28)
+
+_Validated exact code/test commit
+`e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0`, tree
+`42dd0feb73366ae81d438ecea4eedef9e84a4431`, on `nagatha.local`; no UTM,
+installation, registration, deployment, or push was used._
+
+- A disposable macOS `-LayoutOnly -Rid linux-arm64` probe completed but
+  `/usr/bin/file` identified its bundled `PtkWorkerBroker` as
+  `Mach-O 64-bit executable arm64`, not Linux ELF. The disposable layout was
+  prefix-checked and removed. Ignored compiler intermediates were not treated as
+  release evidence.
+- `dev-install.ps1` now requires the requested layout RID to equal the build
+  host RID before it creates the output directory. The owner has matching
+  hardware/runners in the release plan; cross-target native compilation remains
+  unsupported rather than silently producing a bad package.
+- Removing the new guard made its focused Pester test fail 1/1; restoring it
+  passed 1/1. The complete Pester suite passed 142 with two platform skips,
+  server passed 1,212/1,212, SIEM passed 247/247, and the stdout-clean
+  direct-checkout handshake passed with zero warnings. A same-RID `osx-arm64`
+  self-contained layout then passed the complete public handshake.

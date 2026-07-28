@@ -34,6 +34,12 @@ implementation authority. Its release outcomes and already-landed Slices 0-2
 remain evidence; topology and package-cutover mechanics must be reconciled to
 the production-reliability plan before Slice 3 is implemented.
 
+Each release RID must now be built on a matching OS/architecture runner.
+`PtkWorkerBroker` is native and PTK has no proved cross-target compiler
+contract. Exact fix `e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0` makes the
+layout generator refuse cross-RID builds after a macOS-to-`linux-arm64` probe
+demonstrated that the old path silently packaged a Mach-O broker as Linux.
+
 ## Goal
 
 For the first public release, a user on Windows, macOS, or Linux installs ptk

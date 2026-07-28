@@ -47,7 +47,7 @@ public sealed class NamedSessionSupervisorTests
                 raw: false,
                 WorkerInvokeRoute.Pwsh,
                 timeoutSeconds: 30,
-                captureOutput: false));
+                outputStore: null));
         Assert.Equal("session_not_found", unknown.DetailCode);
         Assert.Equal(0, fleet.StartCount);
 
@@ -57,7 +57,7 @@ public sealed class NamedSessionSupervisorTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            captureOutput: false);
+            outputStore: null);
         Assert.Equal(WorkerResultStatus.Completed, defaultInvoke.Result.Status);
         Assert.Equal(
             NamedSessionState.Ready,
@@ -313,7 +313,7 @@ public sealed class NamedSessionSupervisorTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            captureOutput: false);
+            outputStore: null);
         await entered.Task.WaitAsync(CheckpointTimeout);
         Assert.True(
             sessions.List().Single(item => item.Name == "busy").Active);
@@ -502,7 +502,7 @@ public sealed class NamedSessionSupervisorTests
                     string.Empty,
                     "execution_timed_out"),
                 ArtifactId: null,
-                ArtifactBytes: null));
+                ArtifactContent: null));
 
         var result = await sessions.InvokeAsync(
             "first",
@@ -510,7 +510,7 @@ public sealed class NamedSessionSupervisorTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 1,
-            captureOutput: false);
+            outputStore: null);
         Assert.Equal(WorkerResultStatus.TimedOut, result.Result.Status);
 
         await WaitUntilAsync(() =>
@@ -627,7 +627,7 @@ public sealed class NamedSessionSupervisorTests
                     string.Empty,
                     "execution_timed_out"),
                 ArtifactId: null,
-                ArtifactBytes: null);
+                ArtifactContent: null);
         };
 
         var active = Invoke(sessions, "queued");
@@ -700,13 +700,31 @@ public sealed class NamedSessionSupervisorTests
     {
         var fleet = new FakeFleet();
         await using var sessions = CreateSupervisor(fleet);
+        var outputRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "named-session-output-tests",
+            Guid.NewGuid().ToString("N"));
+        using var outputStore = new OutputStore(new OutputStoreOptions(
+            outputRoot,
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 1024 * 1024,
+            MaximumSessionBytes: 2 * 1024 * 1024,
+            MaximumAggregateBytes: 4 * 1024 * 1024));
         await sessions.OpenAsync("output");
         var worker = Assert.Single(fleet.Workers);
         worker.InvokeHandler = (request, _) =>
         {
-            var bytes = request.Artifact is null
+            var content = request.Artifact is null
                 ? null
-                : "sealed-output"u8.ToArray();
+                : new OutputArtifactContent(
+                    "sealed-output",
+                    StandardError: [],
+                    Errors: [],
+                    Warnings: [],
+                    ExitCode: null,
+                    OutputProvenance.DirectText);
             return Task.FromResult(new SessionWorkerInvocation(
                 new WorkerResult(
                     request.RequestId,
@@ -714,7 +732,7 @@ public sealed class NamedSessionSupervisorTests
                     "ok",
                     DetailCode: null),
                 request.Artifact?.ArtifactId,
-                bytes));
+                content));
         };
 
         var sealedResult = await sessions.InvokeAsync(
@@ -723,10 +741,13 @@ public sealed class NamedSessionSupervisorTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            captureOutput: true);
-        var handle = Assert.IsType<Guid>(sealedResult.OutputHandle);
-        Assert.True(sessions.TryReadOutput(handle, out var beforeClose));
-        Assert.Equal("sealed-output"u8.ToArray(), beforeClose);
+            outputStore);
+        var handle = Assert.IsType<string>(sealedResult.OutputRecovery?.Handle);
+        var beforeClose = outputStore.Read(
+            handle,
+            offset: 0,
+            maximumBytes: OutputStore.MaximumReadBytes);
+        Assert.Contains("sealed-output", beforeClose.Text);
 
         worker.InvokeHandler = (request, _) =>
             Task.FromResult(Completed(request));
@@ -736,17 +757,22 @@ public sealed class NamedSessionSupervisorTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            captureOutput: true);
-        Assert.Null(unsealed.OutputHandle);
+            outputStore);
+        Assert.Null(unsealed.OutputRecovery?.Handle);
 
         var oldIdentity = sessions.List().Single(item => item.Name == "output").Identity;
         await sessions.CloseAsync("output");
-        Assert.True(sessions.TryReadOutput(handle, out var afterClose));
-        Assert.Equal(beforeClose, afterClose);
+        var afterClose = outputStore.Read(
+            handle,
+            offset: 0,
+            maximumBytes: OutputStore.MaximumReadBytes);
+        Assert.Equal(beforeClose.Text, afterClose.Text);
 
         var reopened = await sessions.OpenAsync("output");
         Assert.NotEqual(oldIdentity, reopened.Identity);
-        Assert.True(sessions.TryReadOutput(handle, out _));
+        Assert.Equal(
+            OutputArtifactState.Available,
+            outputStore.Status(handle).State);
     }
 
     [Fact]
@@ -792,7 +818,7 @@ public sealed class NamedSessionSupervisorTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            captureOutput: false);
+            outputStore: null);
 
     private static SessionWorkerInvocation Completed(FakeInvokeRequest request) =>
         new(
@@ -802,7 +828,7 @@ public sealed class NamedSessionSupervisorTests
                 "ok",
                 DetailCode: null),
             ArtifactId: null,
-            ArtifactBytes: null);
+            ArtifactContent: null);
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {

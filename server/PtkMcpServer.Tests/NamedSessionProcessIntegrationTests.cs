@@ -183,7 +183,7 @@ public sealed class NamedSessionProcessIntegrationTests
                 raw: false,
                 WorkerInvokeRoute.Pwsh,
                 timeoutSeconds: 600,
-                captureOutput: false);
+                outputStore: null);
             await WaitForFileAsync(activeMarker);
             await sessions.ShutdownAsync().WaitAsync(CheckpointTimeout);
             _ = await Assert.ThrowsAnyAsync<Exception>(
@@ -213,7 +213,7 @@ public sealed class NamedSessionProcessIntegrationTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            captureOutput: false).WaitAsync(CheckpointTimeout);
+            outputStore: null).WaitAsync(CheckpointTimeout);
         Assert.Equal(WorkerResultStatus.Completed, response.Result.Status);
         return response.Result.Text;
     }

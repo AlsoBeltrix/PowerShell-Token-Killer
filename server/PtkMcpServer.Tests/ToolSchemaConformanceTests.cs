@@ -1,5 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Server;
@@ -121,10 +123,72 @@ public sealed class ToolSchemaConformanceTests
     public void Tool_discovery_finds_exact_direct_server_surface()
     {
         Assert.Equal(
-            ["ptk_invoke", "ptk_job", "ptk_output", "ptk_reset", "ptk_state"],
+            ["ptk_invoke", "ptk_output", "ptk_reset", "ptk_session", "ptk_state"],
             ToolMethods()
                 .Select(entry => GenerateToolName(entry.Method))
                 .Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Frozen_public_contract_matches_the_exact_live_five_tool_surface()
+    {
+        var contractBytes = File.ReadAllBytes(ContractPath(
+            "public-tool-contract.json"));
+        Assert.NotEmpty(contractBytes);
+        Assert.Equal((byte)'\n', contractBytes[^1]);
+        Assert.Equal(1, contractBytes.Count(value => value == (byte)'\n'));
+        Assert.DoesNotContain((byte)'\r', contractBytes);
+
+        using var contract = JsonDocument.Parse(contractBytes);
+        Assert.Equal(
+            "ptk.public-contract/1",
+            contract.RootElement.GetProperty("schema_version").GetString());
+        var frozenTools = contract.RootElement.GetProperty("tools")
+            .EnumerateArray()
+            .ToDictionary(
+                tool => tool.GetProperty("name").GetString()!,
+                StringComparer.Ordinal);
+        var liveTools = ToolMethods()
+            .Select(entry => McpServerTool.Create(
+                entry.Method,
+                target: null,
+                new McpServerToolCreateOptions
+                {
+                    Services = SchemaServices.Value,
+                }).ProtocolTool)
+            .ToDictionary(tool => tool.Name, StringComparer.Ordinal);
+
+        Assert.Equal(
+            liveTools.Keys.Order(StringComparer.Ordinal),
+            frozenTools.Keys.Order(StringComparer.Ordinal));
+        foreach (var (name, live) in liveTools)
+        {
+            var frozen = frozenTools[name];
+            Assert.Equal(
+                ["name", "description", "inputSchema"],
+                frozen.EnumerateObject().Select(property => property.Name));
+            Assert.Equal(live.Description, frozen.GetProperty("description").GetString());
+            Assert.True(JsonElement.DeepEquals(
+                live.InputSchema,
+                frozen.GetProperty("inputSchema")));
+        }
+    }
+
+    [Fact]
+    public void Frozen_public_contract_digest_matches_exact_domain_separated_bytes()
+    {
+        var contractBytes = File.ReadAllBytes(ContractPath(
+            "public-tool-contract.json"));
+        Assert.Equal((byte)'\n', contractBytes[^1]);
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.ASCII.GetBytes("ptk.public-contract/1"));
+        hash.AppendData([0]);
+        hash.AppendData(contractBytes.AsSpan(0, contractBytes.Length - 1));
+        var actual = Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+        var expected = File.ReadAllText(ContractPath(
+            "public-tool-contract.sha256")).Trim();
+        Assert.Matches("^[0-9a-f]{64}$", expected);
+        Assert.Equal(expected, actual);
     }
 
     [Theory]
@@ -401,5 +465,25 @@ public sealed class ToolSchemaConformanceTests
         var range = parameter.GetCustomAttribute<RangeAttribute>()!;
         Assert.Equal(0d, range.Minimum);
         Assert.Equal(MaxSafeInteger, range.Maximum);
+    }
+
+    private static string ContractPath(string fileName)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory);
+             directory is not null;
+             directory = directory.Parent)
+        {
+            var candidate = Path.Combine(
+                directory.FullName,
+                "server",
+                "Contracts",
+                "ResilienceR0",
+                fileName);
+            if (File.Exists(candidate))
+                return candidate;
+        }
+
+        throw new FileNotFoundException(
+            $"Could not locate frozen public contract file {fileName}.");
     }
 }

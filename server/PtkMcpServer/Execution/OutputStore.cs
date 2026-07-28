@@ -209,10 +209,28 @@ internal sealed class OutputCaptureReservation : IDisposable
     public void Dispose() => _ = TryCancel();
 }
 
+internal interface IForegroundOutputCapture : IDisposable
+{
+    long MaximumArtifactBytes { get; }
+
+    Task PrepareAsync(
+        TimeSpan maximumWait,
+        CancellationToken cancellationToken);
+
+    Task<OutputRecoverySummary> SealAsync(
+        OutputArtifactContent content,
+        TimeSpan maximumWait);
+
+    Task<OutputRecoverySummary> SealIncompleteAsync(
+        OutputArtifactContent content,
+        string reason,
+        TimeSpan maximumWait);
+}
+
 /// <summary>Request-owned supervisor coordinator for one foreground capture.
 /// Reservation stays lazy until the host has selected a capturable dispatch,
 /// then the worker-facing path receives only the one-shot write capability.</summary>
-internal sealed class ForegroundOutputCapture : IDisposable
+internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
 {
     private sealed class ReservationAttempt
     {
@@ -236,23 +254,30 @@ internal sealed class ForegroundOutputCapture : IDisposable
     private OutputCaptureReservation? _reservation;
     private readonly Action? _sealCancellationRejectedForTests;
     private readonly Func<TimeSpan, Task>? _sealDelayForTests;
+    private readonly string _sessionAlias;
     private string? _failure;
     private bool _prepared;
 
     internal ForegroundOutputCapture(
         OutputStore store,
         Action? sealCancellationRejectedForTests = null,
-        Func<TimeSpan, Task>? sealDelayForTests = null)
+        Func<TimeSpan, Task>? sealDelayForTests = null,
+        string sessionAlias = "default")
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _sealCancellationRejectedForTests = sealCancellationRejectedForTests;
         _sealDelayForTests = sealDelayForTests;
+        _sessionAlias = string.IsNullOrWhiteSpace(sessionAlias)
+            ? throw new ArgumentException(
+                "Output session attribution is required.",
+                nameof(sessionAlias))
+            : sessionAlias;
     }
 
-    internal long MaximumArtifactBytes =>
+    public long MaximumArtifactBytes =>
         _store?.MaximumArtifactBytes ?? OutputStore.DefaultReadBytes;
 
-    internal async Task PrepareAsync(
+    public async Task PrepareAsync(
         TimeSpan maximumWait,
         CancellationToken cancellationToken)
     {
@@ -274,7 +299,7 @@ internal sealed class ForegroundOutputCapture : IDisposable
                     try
                     {
                         if (!store.TryReserve(
-                                "default",
+                                _sessionAlias,
                                 out var reservation,
                                 out var failure))
                         {
@@ -326,12 +351,12 @@ internal sealed class ForegroundOutputCapture : IDisposable
         _failure = result.Failure;
     }
 
-    internal Task<OutputRecoverySummary> SealAsync(
+    public Task<OutputRecoverySummary> SealAsync(
         OutputArtifactContent content,
         TimeSpan maximumWait) =>
         SealCoreAsync(content, incompleteReason: null, maximumWait);
 
-    internal Task<OutputRecoverySummary> SealIncompleteAsync(
+    public Task<OutputRecoverySummary> SealIncompleteAsync(
         OutputArtifactContent content,
         string reason,
         TimeSpan maximumWait) =>

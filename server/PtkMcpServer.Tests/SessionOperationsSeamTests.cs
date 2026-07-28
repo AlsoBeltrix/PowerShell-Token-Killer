@@ -31,23 +31,11 @@ public sealed class SessionOperationsSeamTests
                 cancellation.Token,
                 raw: true,
                 route: "rtk",
-                background: true,
                 timeoutSeconds: 17,
+                session: "exchange-online",
                 outputStore: outputStore));
         Assert.Equal(
-            ["Get-Item .", cancellation.Token, true, "rtk", true, 17, outputStore],
-            operations.LastArguments);
-
-        Assert.Equal(
-            "job",
-            await JobTool.Job(
-                operations,
-                "status",
-                cancellation.Token,
-                id: 41,
-                offset: 9));
-        Assert.Equal(
-            ["status", cancellation.Token, 41L, 9L],
+            ["Get-Item .", cancellation.Token, true, "rtk", 17, "exchange-online", outputStore],
             operations.LastArguments);
 
         Assert.Equal(
@@ -55,18 +43,31 @@ public sealed class SessionOperationsSeamTests
             await StateTool.State(
                 operations,
                 listAvailable: true,
+                session: "exchange-onprem",
                 cancellationToken: cancellation.Token));
         Assert.Equal(
-            [true, cancellation.Token],
+            [true, "exchange-onprem", cancellation.Token],
             operations.LastArguments);
 
         Assert.Equal(
             "reset",
             await ResetTool.Reset(
                 operations,
+                session: "exchange-online",
                 cancellationToken: cancellation.Token));
         Assert.Equal(
-            [cancellation.Token],
+            ["exchange-online", cancellation.Token],
+            operations.LastArguments);
+
+        Assert.Equal(
+            "session",
+            await SessionTool.Session(
+                operations,
+                "open",
+                name: "exchange-online",
+                cancellationToken: cancellation.Token));
+        Assert.Equal(
+            ["open", "exchange-online", cancellation.Token],
             operations.LastArguments);
     }
 
@@ -79,37 +80,39 @@ public sealed class SessionOperationsSeamTests
             CancellationToken cancellationToken,
             bool raw,
             string route,
-            bool background,
             int timeoutSeconds,
+            string session,
             OutputStore? outputStore)
         {
             LastArguments =
-                [script, cancellationToken, raw, route, background, timeoutSeconds, outputStore];
+                [script, cancellationToken, raw, route, timeoutSeconds, session, outputStore];
             return Task.FromResult("invoke");
-        }
-
-        public Task<string> JobAsync(
-            string action,
-            CancellationToken cancellationToken,
-            long id,
-            long offset)
-        {
-            LastArguments = [action, cancellationToken, id, offset];
-            return Task.FromResult("job");
         }
 
         public Task<string> StateAsync(
             bool listAvailable,
+            string session,
             CancellationToken cancellationToken)
         {
-            LastArguments = [listAvailable, cancellationToken];
+            LastArguments = [listAvailable, session, cancellationToken];
             return Task.FromResult("state");
         }
 
-        public Task<string> ResetAsync(CancellationToken cancellationToken)
+        public Task<string> ResetAsync(
+            string session,
+            CancellationToken cancellationToken)
         {
-            LastArguments = [cancellationToken];
+            LastArguments = [session, cancellationToken];
             return Task.FromResult("reset");
+        }
+
+        public Task<string> SessionAsync(
+            string action,
+            string? name,
+            CancellationToken cancellationToken)
+        {
+            LastArguments = [action, name, cancellationToken];
+            return Task.FromResult("session");
         }
     }
 }

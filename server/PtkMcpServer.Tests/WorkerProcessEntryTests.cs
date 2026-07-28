@@ -499,9 +499,8 @@ public sealed class WorkerProcessEntryTests
         {
             "Host.CreateApplicationBuilder(args)",
             "DefaultSessionRuntimeFactory.ReadCallTimeout()",
-            "JobPwshExecutable.ResolveFromPath()",
             "new OutputStore(",
-            "new WorkerSupervisor(",
+            "WorkerSupervisor.CreateDefault(",
             "new SupervisorLifecycle(",
             "SupervisorCallFilter.Create()",
             ".AddMcpServer(",

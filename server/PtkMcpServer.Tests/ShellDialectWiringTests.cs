@@ -5,7 +5,7 @@ namespace PtkMcpServer.Tests;
 
 // Server wiring for the shell-dialect detector. Foreground parse-fatal Bash
 // shapes may pass the bounded Bash validator and execute through RTK; every
-// other detected shape and all background detections remain not-started.
+// other detected shape remains not-started.
 // route=pwsh still bypasses by explicit consent. ProcessEnvironment collection:
 // tests mutate PTK_RTK_PATH.
 [Collection("ProcessEnvironment")]
@@ -15,14 +15,12 @@ public sealed class ShellDialectWiringTests : IDisposable
     {
         RtkIdentityOverrideForTests = ResolveFixtureRtkIdentity,
     };
-    private readonly JobManager _jobs = new(
-        Path.Combine(Path.GetTempPath(), "ptk-dialect-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
     private readonly SessionRuntime _runtime;
 
     public ShellDialectWiringTests()
     {
-        _runtime = new SessionRuntime(_host, _jobs, _rawUsage);
+        _runtime = new SessionRuntime(_host, _rawUsage);
     }
 
     public void Dispose()
@@ -465,73 +463,13 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task Warm_session_definition_exempts_foreground_but_not_background()
+    public async Task Warm_session_definition_exempts_foreground_detection()
     {
-        // Resolution context must match execution context (plan slice 1(iii)).
         await _host.InvokeAsync("function export { param($Assignment) \"shadow:$Assignment\" }");
 
         var foreground = await _host.InvokeAsync("export X=1");
         Assert.True(foreground.Success);
         Assert.Contains("shadow:X=1", foreground.Output);
-
-        // The same script as a background job runs in a cold child where the
-        // warm function does not exist — it must still be refused.
-        var backgroundText = await _runtime.InvokeAsync("export X=1", CancellationToken.None, background: true);
-        Assert.Contains("[ptk:dialect] job not started", backgroundText);
-        Assert.Empty(_jobs.List());
-    }
-
-    [Fact]
-    public async Task Background_detected_script_is_refused_before_any_job_starts()
-    {
-        var text = await _runtime.InvokeAsync("export X=1", CancellationToken.None, background: true);
-
-        Assert.Contains("[ptk:dialect] job not started", text);
-        Assert.DoesNotContain("[job", text);
-        Assert.Empty(_jobs.List());
-    }
-
-    [Fact]
-    public async Task Background_refusal_counts_as_activity_for_the_idle_watchdog()
-    {
-        // sd2-3: a refused background call returns before the cwd probe
-        // (the first InvokeAsync touch), so it must stamp the idle clock
-        // itself or the watchdog can stop a server right after it answered.
-        var before = _host.LastActivityUtc;
-        await Task.Delay(50);
-
-        var refusal = await _host.TryGetBackgroundDialectRefusalAsync("export X=1");
-
-        Assert.NotNull(refusal);
-        Assert.True(_host.LastActivityUtc > before);
-    }
-
-    [Fact]
-    public async Task Background_legacy_raw_cannot_bypass_detection()
-    {
-        var text = await _runtime.InvokeAsync("export X=1", CancellationToken.None, raw: true, background: true);
-
-        Assert.Contains("[ptk:dialect] job not started", text);
-        Assert.DoesNotContain("[job 1 started]", text);
-        Assert.Empty(_jobs.List());
-    }
-
-    [Fact]
-    public async Task Background_route_pwsh_bypasses_detection_and_starts_the_job()
-    {
-        // sd2-5: the second background consent path. Mixed case on purpose:
-        // this also pins that route normalization sits ABOVE the background
-        // branch — its pre-slice-2 position would leave "PWSH" unnormalized
-        // here and refuse a consented call.
-        JobStartPlan? observed = null;
-        _jobs.BeforeProcessStartForTests = plan => observed = plan;
-        var text = await _runtime.InvokeAsync("export X=1", CancellationToken.None, route: "PWSH", background: true);
-
-        Assert.DoesNotContain("[ptk:dialect]", text);
-        Assert.Contains("[job 1 started]", text);
-        Assert.Single(_jobs.List());
-        Assert.NotNull(observed);
-        Assert.Equal(ExecutionPath.PowerShellDirect, observed.ExecutionPath);
     }
 
     [Fact]
@@ -594,7 +532,7 @@ public sealed class ShellDialectWiringTests : IDisposable
     }
 
     [Fact]
-    public async Task Moduleless_host_skips_detection_on_both_paths()
+    public async Task Moduleless_host_skips_detection()
     {
         // No module means no detector; both paths degrade to today's behavior
         // rather than refusing or blocking.
@@ -604,10 +542,6 @@ public sealed class ShellDialectWiringTests : IDisposable
 
         var foreground = await host.InvokeAsync("export X=1");
         Assert.DoesNotContain("[ptk:dialect]", foreground.Output);
-
-        var backgroundText = await (new SessionRuntime(host, _jobs, _rawUsage)).InvokeAsync("export X=1", CancellationToken.None, background: true);
-        Assert.Contains("[job 1 started]", backgroundText);
-        Assert.Single(_jobs.List());
     }
 
     [Fact]
@@ -661,112 +595,6 @@ public sealed class ShellDialectWiringTests : IDisposable
             // A wrap that cannot run here is not offered.
             Assert.Contains("Rewrite it in PowerShell", result.Output);
             Assert.DoesNotContain("bash -lc", result.Output);
-        }
-    }
-
-    [Fact]
-    public async Task Background_detection_tracks_live_path_application_addition_and_removal()
-    {
-        var directory = Directory.CreateTempSubdirectory("ptk-background-path-");
-        var savedPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        var executable = OperatingSystem.IsWindows()
-            ? Path.Combine(directory.FullName, "export.cmd")
-            : Path.Combine(directory.FullName, "export");
-        try
-        {
-            var initial = await _host.TryGetBackgroundDialectRefusalAsync("export X=1");
-            Assert.Contains("[ptk:dialect]", initial);
-
-            File.WriteAllText(
-                executable,
-                OperatingSystem.IsWindows() ? "@exit /b 0\r\n" : "#!/bin/sh\nexit 0\n");
-            if (!OperatingSystem.IsWindows())
-            {
-                File.SetUnixFileMode(
-                    executable,
-                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-            }
-            var changedPath = directory.FullName + Path.PathSeparator + savedPath;
-            var mutation = await _host.InvokeAsync(
-                $"$env:PATH = '{changedPath.Replace("'", "''")}'",
-                raw: true,
-                route: "pwsh");
-            Assert.True(mutation.Success, string.Join(Environment.NewLine, mutation.Errors));
-
-            Assert.Null(await _host.TryGetBackgroundDialectRefusalAsync("export X=1"));
-
-            File.Delete(executable);
-            var afterRemoval = await _host.TryGetBackgroundDialectRefusalAsync("export X=1");
-            Assert.Contains("[ptk:dialect]", afterRemoval);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("PATH", savedPath);
-            directory.Delete(recursive: true);
-        }
-    }
-
-    [Fact]
-    public async Task Background_detection_remains_prompt_while_foreground_holds_the_warm_gate()
-    {
-        using var cancellation = new CancellationTokenSource();
-        var foreground = _host.InvokeAsync(
-            "Start-Sleep -Seconds 30",
-            raw: true,
-            cancellationToken: cancellation.Token,
-            route: "pwsh");
-        try
-        {
-            var busyDeadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
-            while (!_host.GetGateStatus().Busy)
-            {
-                if (DateTimeOffset.UtcNow >= busyDeadline)
-                    throw new TimeoutException("Foreground call never acquired the warm gate.");
-                await Task.Delay(10);
-            }
-
-            var deadline = DateTimeOffset.UtcNow + TimeSpan.FromSeconds(5);
-            var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var refusal = await _host.TryGetBackgroundDialectRefusalAsync(
-                "export X=1",
-                deadline: deadline);
-
-            Assert.Contains("[ptk:dialect]", refusal);
-            Assert.True(
-                stopwatch.Elapsed < TimeSpan.FromSeconds(2),
-                $"Background classification waited {stopwatch.Elapsed} for the warm gate.");
-        }
-        finally
-        {
-            cancellation.Cancel();
-            _ = await foreground.WaitAsync(TimeSpan.FromSeconds(10));
-        }
-    }
-
-    [Fact]
-    public async Task Background_relative_path_collision_is_conservative_and_never_uses_process_cwd()
-    {
-        var savedPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-        try
-        {
-            Environment.SetEnvironmentVariable(
-                "PATH",
-                "relative-job-tools" + Path.PathSeparator + savedPath);
-
-            // The future job CWD might contain an `export` command. Refusing it
-            // from the unrelated server process CWD would be a false positive.
-            Assert.Null(await _host.TryGetBackgroundDialectRefusalAsync("export X=1"));
-
-            // Parse-fatal evidence is still identified, but an unproven `bash`
-            // collision must not produce wrap advice.
-            var parseFatal = await _host.TryGetBackgroundDialectRefusalAsync(
-                "cat <<EOF\nhello\nEOF");
-            Assert.Contains("[ptk:dialect]", parseFatal);
-            Assert.DoesNotContain("bash -lc", parseFatal);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("PATH", savedPath);
         }
     }
 }

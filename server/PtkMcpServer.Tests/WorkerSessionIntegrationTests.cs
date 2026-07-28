@@ -171,24 +171,16 @@ public sealed class WorkerSessionIntegrationTests
                     RunspaceHost? host = new(
                         callTimeout: TimeSpan.FromSeconds(30),
                         maxCallTimeout: TimeSpan.FromMinutes(5));
-                    JobManager? jobs = null;
                     try
                     {
-                        jobs = new JobManager(
-                            JobPwshExecutable.ResolveFromPath(),
-                            Root,
-                            allowColdBackground: false);
                         var session = new WorkerSession(new SessionRuntime(
                             host,
-                            jobs,
                             new RawUsageCounter()));
                         host = null;
-                        jobs = null;
                         return Task.FromResult<IWorkerSession>(session);
                     }
                     finally
                     {
-                        jobs?.Dispose();
                         host?.Dispose();
                     }
                 });

@@ -10,14 +10,12 @@ namespace PtkMcpServer.Tests;
 public sealed class StateToolTests : IDisposable
 {
     private readonly RunspaceHost _host = new();
-    private readonly JobManager _jobs = new(
-        Path.Combine(Path.GetTempPath(), "ptk-state-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
     private readonly SessionRuntime _runtime;
 
     public StateToolTests()
     {
-        _runtime = new SessionRuntime(_host, _jobs, _rawUsage);
+        _runtime = new SessionRuntime(_host, _rawUsage);
     }
 
     public void Dispose()
@@ -43,7 +41,6 @@ public sealed class StateToolTests : IDisposable
         Assert.Contains("unavailable while busy", state);
         Assert.Contains($"pid {Environment.ProcessId}", state);
         Assert.Contains("[env drift since server start]", state);
-        Assert.Contains("jobs:", state);
 
         var slowResult = await slow;
         Assert.True(slowResult.Success); // the probe disturbed nothing
@@ -138,9 +135,7 @@ public sealed class StateToolTests : IDisposable
         };
 
         var secondHost = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
-        var secondJobs = new JobManager(
-            Path.Combine(Path.GetTempPath(), "ptk-state-runtime-b-jobs-" + Guid.NewGuid().ToString("N")));
-        using var secondRuntime = new SessionRuntime(secondHost, secondJobs, new RawUsageCounter());
+        using var secondRuntime = new SessionRuntime(secondHost, new RawUsageCounter());
         secondHost.IdleInvocationOverrideForTests = script =>
             script.Contains("-ListAvailable", StringComparison.Ordinal)
                 ? SuccessfulModuleEnumeration("RuntimeB")
@@ -284,24 +279,6 @@ public sealed class StateToolTests : IDisposable
         static string VariablesLine(string state) =>
             state.Split('\n').First(l => l.StartsWith("variables: ")).Trim();
         Assert.Equal(VariablesLine(first), VariablesLine(second));
-    }
-
-    [Fact]
-    public async Task Running_jobs_appear_in_the_state_report()
-    {
-        var before = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
-        Assert.Contains("jobs: (none)", before);
-
-        var job = _jobs.Start("Start-Sleep -Seconds 300");
-        try
-        {
-            var during = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
-            Assert.Contains($"job {job.Id}: running", during);
-        }
-        finally
-        {
-            _jobs.Kill(job.Id);
-        }
     }
 
     [Fact]

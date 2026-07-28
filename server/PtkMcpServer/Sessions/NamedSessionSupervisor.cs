@@ -25,7 +25,7 @@ internal sealed record NamedSessionSnapshot(
 
 internal sealed record NamedSessionInvokeResult(
     WorkerResult Result,
-    Guid? OutputHandle);
+    OutputRecoverySummary? OutputRecovery);
 
 internal sealed class NamedSessionException : InvalidOperationException
 {
@@ -47,6 +47,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
 {
     internal const string DefaultName = "default";
     internal const int MaximumSessions = 8;
+    private static readonly TimeSpan OutputStorageWait =
+        TimeSpan.FromSeconds(5);
 
     private static readonly Regex ValidName = new(
         "^[a-z0-9][a-z0-9._-]{0,63}$",
@@ -58,7 +60,6 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
     private readonly Func<ISessionWorkerFactory> _createWorkerFactory;
     private readonly TimeSpan _startupTimeout;
     private readonly TimeSpan _containmentGrace;
-    private readonly SessionArtifactCatalog _artifacts = new();
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskCompletionSource _shutdownComplete = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -106,7 +107,7 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
         bool raw,
         WorkerInvokeRoute route,
         int timeoutSeconds,
-        bool captureOutput,
+        OutputStore? outputStore,
         CancellationToken cancellationToken = default)
     {
         name = ValidateName(name);
@@ -115,11 +116,13 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
 
         var lease = await AcquireOperationAsync(name, cancellationToken)
             .ConfigureAwait(false);
-        var artifact = captureOutput
-            ? _artifacts.Begin(
-                lease.Slot.Identity,
-                WorkerOperationProtocol.MaximumArtifactBytes)
-            : null;
+        var artifact = outputStore is null
+            ? null
+            : new WorkerArtifactRequest(
+                Guid.NewGuid(),
+                Math.Min(
+                    outputStore.MaximumArtifactBytes,
+                    WorkerOperationProtocol.MaximumArtifactBytes));
         var beginRecovery = false;
         var recoveryReason = WorkerContainmentReason.LaunchFailure;
         try
@@ -131,19 +134,27 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
                 timeoutSeconds,
                 artifact,
                 cancellationToken).ConfigureAwait(false);
-            Guid? outputHandle = null;
+            OutputRecoverySummary? outputRecovery = null;
             if (artifact is not null &&
                 invocation.ArtifactId == artifact.ArtifactId &&
-                invocation.ArtifactBytes is not null)
+                invocation.ArtifactContent is { } content)
             {
-                outputHandle = _artifacts.Seal(
-                    lease.Slot.Identity,
-                    artifact.ArtifactId,
-                    invocation.ArtifactBytes);
+                using var capture = new ForegroundOutputCapture(
+                    outputStore!,
+                    sessionAlias: lease.Slot.Identity.ToString("N"));
+                await capture.PrepareAsync(
+                    OutputStorageWait,
+                    CancellationToken.None).ConfigureAwait(false);
+                outputRecovery = await capture.SealAsync(
+                    content,
+                    OutputStorageWait).ConfigureAwait(false);
             }
-            else if (artifact is not null)
+            else if (invocation.ArtifactId is not null ||
+                     invocation.ArtifactContent is not null)
             {
-                _artifacts.Abandon(artifact.ArtifactId);
+                throw new WorkerProtocolException(
+                    "artifact_identity_mismatch",
+                    "Worker output does not match the reserved artifact.");
             }
 
             if (invocation.Result.Status == WorkerResultStatus.TimedOut)
@@ -160,12 +171,10 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             }
             return new NamedSessionInvokeResult(
                 invocation.Result,
-                outputHandle);
+                outputRecovery);
         }
         catch (Exception exception)
         {
-            if (artifact is not null)
-                _artifacts.Abandon(artifact.ArtifactId);
             if (!IsFatal(exception) &&
                 !lease.Worker.IsTransportUsable)
             {
@@ -361,9 +370,6 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
         return completion.Task.WaitAsync(cancellationToken);
     }
 
-    internal bool TryReadOutput(Guid handle, out byte[] bytes) =>
-        _artifacts.TryRead(handle, out bytes);
-
     internal async Task ShutdownAsync()
     {
         SessionSlot[]? slots = null;
@@ -396,7 +402,6 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
                 .ConfigureAwait(false);
             lock (_gate)
                 _slots.Clear();
-            _artifacts.Clear();
             _shutdownComplete.TrySetResult();
         }
         catch (Exception exception)
@@ -642,7 +647,6 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             slot.WorkerProcessId = null;
             slot.Incarnation++;
             slot.WarmStateLost = true;
-            _artifacts.AbandonUnsealed(slot.Identity);
         }
 
         await StartSlotAsync(
@@ -785,7 +789,6 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
                 slot.Worker = null;
                 slot.WorkerProcessId = null;
                 slot.Transition = null;
-                _artifacts.AbandonUnsealed(slot.Identity);
             }
             snapshot = SnapshotLocked(slot);
         }
@@ -846,7 +849,6 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             await lateWorker.DisposeAsync().ConfigureAwait(false);
         }
 
-        _artifacts.AbandonUnsealed(slot.Identity);
         lock (_gate)
         {
             slot.Worker = null;
@@ -1211,89 +1213,4 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
         }
     }
 
-    private sealed class SessionArtifactCatalog
-    {
-        private readonly object _gate = new();
-        private readonly Dictionary<Guid, ArtifactEntry> _entries = [];
-
-        internal WorkerArtifactRequest Begin(Guid sessionIdentity, long maximumBytes)
-        {
-            var id = Guid.NewGuid();
-            lock (_gate)
-                _entries.Add(id, new ArtifactEntry(sessionIdentity));
-            return new WorkerArtifactRequest(id, maximumBytes);
-        }
-
-        internal Guid Seal(Guid sessionIdentity, Guid id, byte[] bytes)
-        {
-            lock (_gate)
-            {
-                if (!_entries.TryGetValue(id, out var entry) ||
-                    entry.SessionIdentity != sessionIdentity ||
-                    entry.Bytes is not null)
-                {
-                    throw new NamedSessionException(
-                        "output_capture_stale",
-                        "Output capture does not belong to this session incarnation.");
-                }
-                entry.Bytes = bytes.ToArray();
-                return id;
-            }
-        }
-
-        internal void Abandon(Guid id)
-        {
-            lock (_gate)
-            {
-                if (_entries.TryGetValue(id, out var entry) &&
-                    entry.Bytes is null)
-                {
-                    _entries.Remove(id);
-                }
-            }
-        }
-
-        internal void AbandonUnsealed(Guid sessionIdentity)
-        {
-            lock (_gate)
-            {
-                foreach (var id in _entries
-                             .Where(pair =>
-                                 pair.Value.SessionIdentity == sessionIdentity &&
-                                 pair.Value.Bytes is null)
-                             .Select(pair => pair.Key)
-                             .ToArray())
-                {
-                    _entries.Remove(id);
-                }
-            }
-        }
-
-        internal bool TryRead(Guid id, out byte[] bytes)
-        {
-            lock (_gate)
-            {
-                if (_entries.TryGetValue(id, out var entry) &&
-                    entry.Bytes is not null)
-                {
-                    bytes = entry.Bytes.ToArray();
-                    return true;
-                }
-            }
-            bytes = [];
-            return false;
-        }
-
-        internal void Clear()
-        {
-            lock (_gate)
-                _entries.Clear();
-        }
-
-        private sealed class ArtifactEntry(Guid sessionIdentity)
-        {
-            internal Guid SessionIdentity { get; } = sessionIdentity;
-            internal byte[]? Bytes;
-        }
-    }
 }

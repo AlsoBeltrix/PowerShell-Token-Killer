@@ -16,27 +16,21 @@ internal static class DefaultSessionRuntimeFactory
     internal static SessionRuntime Create(
         TimeSpan callTimeout,
         TimeSpan maxCallTimeout,
-        JobPwshExecutable jobPwshExecutable,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         RunspaceHost? host = null;
-        JobManager? jobs = null;
         try
         {
             host = new RunspaceHost(callTimeout, maxCallTimeout: maxCallTimeout);
             cancellationToken.ThrowIfCancellationRequested();
-            jobs = new JobManager(jobPwshExecutable);
-            cancellationToken.ThrowIfCancellationRequested();
 
-            var runtime = new SessionRuntime(host, jobs, new RawUsageCounter());
+            var runtime = new SessionRuntime(host, new RawUsageCounter());
             host = null;
-            jobs = null;
             return runtime;
         }
         finally
         {
-            jobs?.Dispose();
             host?.Dispose();
         }
     }

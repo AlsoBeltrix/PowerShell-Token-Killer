@@ -27,17 +27,43 @@ internal sealed class WorkerSession : IWorkerSession
         {
             case WorkerInvokeRequest invoke:
                 {
+                    using var capture = invoke.Artifact is null
+                        ? null
+                        : new WorkerForegroundOutputCapture(
+                            invoke.Artifact.MaximumBytes);
                     var result = await _runtime.InvokeWorkerAsync(
                         invoke.Script,
                         cancellationToken,
                         invoke.Raw,
                         RouteName(invoke.Route),
-                        invoke.TimeoutSeconds).ConfigureAwait(false);
+                        invoke.TimeoutSeconds,
+                        capture).ConfigureAwait(false);
                     var (status, detailCode) = MapInvokeResult(result);
+                    WorkerArtifactPayload? artifact = null;
+                    var text = result.Text;
+                    if (capture?.TakeContent() is { } content)
+                    {
+                        try
+                        {
+                            artifact = new WorkerArtifactPayload(
+                                invoke.Artifact!.ArtifactId,
+                                WorkerOutputArtifactCodec.Encode(
+                                    content,
+                                    invoke.Artifact.MaximumBytes));
+                        }
+                        catch (WorkerProtocolException exception) when (
+                            exception.DetailCode == "artifact_content_too_large")
+                        {
+                            text = AppendRecoveryUnavailable(
+                                text,
+                                exception.DetailCode);
+                        }
+                    }
                     return new WorkerInvokeExecutionResult(
                         status,
-                        result.Text,
-                        detailCode);
+                        text,
+                        detailCode,
+                        artifact);
                 }
             case WorkerStateQueryRequest state:
                 {
@@ -87,4 +113,11 @@ internal sealed class WorkerSession : IWorkerSession
             "invalid_operation_field",
             "Worker invoke route is invalid."),
     };
+
+    private static string AppendRecoveryUnavailable(
+        string text,
+        string detailCode) =>
+        text.TrimEnd() + Environment.NewLine +
+        $"recovery=unavailable: output capture unavailable " +
+        $"(detail={detailCode}); command was not rerun";
 }

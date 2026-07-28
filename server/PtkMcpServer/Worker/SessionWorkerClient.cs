@@ -6,7 +6,7 @@ namespace PtkMcpServer.Worker;
 internal sealed record SessionWorkerInvocation(
     WorkerResult Result,
     Guid? ArtifactId,
-    byte[]? ArtifactBytes);
+    OutputArtifactContent? ArtifactContent);
 
 internal interface ISessionWorker : IAsyncDisposable
 {
@@ -417,10 +417,17 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                         "artifact_seal_missing",
                         "Worker terminal arrived before its artifact seal.");
                 }
+                OutputArtifactContent? artifactContent = null;
+                if (receiver?.IsSealed == true)
+                {
+                    artifactContent = WorkerOutputArtifactCodec.Decode(
+                        artifactBytes.ToArray(),
+                        artifact!.MaximumBytes);
+                }
                 return new SessionWorkerInvocation(
                     result,
-                    receiver?.IsSealed == true ? artifact?.ArtifactId : null,
-                    receiver?.IsSealed == true ? artifactBytes.ToArray() : null);
+                    artifactContent is null ? null : artifact?.ArtifactId,
+                    artifactContent);
             }
         }
         catch (Exception exception) when (!IsFatal(exception))

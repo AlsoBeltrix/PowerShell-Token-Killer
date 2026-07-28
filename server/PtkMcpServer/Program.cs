@@ -20,19 +20,12 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 
 var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
 var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
-// Resolve once before serving. Warm-session scripts can mutate the process
-// PATH, but background jobs must keep using the executable selected at server
-// startup. A failed lookup is also frozen so a later PATH cannot supply one.
-var jobPwshExecutable = JobPwshExecutable.ResolveFromPath();
 
-// Harness-lifetime recovery belongs to the supervisor service provider, not
-// a request scope or the replaceable runspace host.
+// One supervisor owns this MCP connection's bounded worker/session registry.
+// Submitted scripts execute only in contained worker processes.
 builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
-builder.Services.AddSingleton(_ => new WorkerSupervisor(() =>
-    DefaultSessionRuntimeFactory.Create(
-        callTimeout,
-        maxCallTimeout,
-        jobPwshExecutable)));
+builder.Services.AddSingleton(_ =>
+    WorkerSupervisor.CreateDefault(callTimeout, maxCallTimeout));
 builder.Services.AddSingleton<ISessionOperations>(
     sp => sp.GetRequiredService<WorkerSupervisor>());
 builder.Services.AddSingleton(sp => new SupervisorLifecycle(

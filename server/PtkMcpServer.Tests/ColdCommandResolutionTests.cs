@@ -430,8 +430,7 @@ public sealed class ColdCommandResolutionTests : IDisposable
         string commandName = "fixture",
         string pathExtensions = ".EXE")
     {
-        var pwsh = JobPwshExecutable.ResolveFromPath().AbsolutePath;
-        Assert.False(string.IsNullOrWhiteSpace(pwsh));
+        var pwsh = ResolvePowerShellFromCurrentPath();
         var startInfo = new ProcessStartInfo
         {
             FileName = pwsh,
@@ -464,5 +463,26 @@ public sealed class ColdCommandResolutionTests : IDisposable
         Assert.True(Enum.TryParse<CommandTypes>(output[..separator], out var commandType));
         var source = output[(separator + 1)..];
         return new ResolvedCommand(commandType, source, source);
+    }
+
+    private static string ResolvePowerShellFromCurrentPath()
+    {
+        var executable = OperatingSystem.IsWindows() ? "pwsh.exe" : "pwsh";
+        var path = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
+        foreach (var entry in path.Split(
+                     Path.PathSeparator,
+                     StringSplitOptions.RemoveEmptyEntries))
+        {
+            var directory = entry.Trim().Trim('"');
+            if (directory.Length == 0)
+                continue;
+
+            var candidate = Path.Combine(directory, executable);
+            if (File.Exists(candidate))
+                return Path.GetFullPath(candidate);
+        }
+
+        throw new InvalidOperationException(
+            $"PowerShell executable '{executable}' was not found on the current PATH.");
     }
 }

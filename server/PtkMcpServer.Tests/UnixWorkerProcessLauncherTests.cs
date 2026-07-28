@@ -305,31 +305,28 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
     }
 
     [Fact]
-    public void Worker_mode_validates_the_broker_group_before_setpgid_fallback()
+    public void Worker_mode_uses_only_the_broker_owned_group()
     {
         var source = File.ReadAllText(ProcessTreeContainmentSourcePath());
-        var acquireStart = source.IndexOf(
-            "private static bool TryAcquireExclusiveGroup()",
+        Assert.Contains(
+            "EnterWorkerOwnedGroupMode()",
+            source,
             StringComparison.Ordinal);
-        Assert.True(acquireStart >= 0);
-        var acquireEnd = source.IndexOf(
-            "private async Task PollLoopAsync",
-            acquireStart,
+        Assert.Contains(
+            "The Unix worker is not its broker-owned process-group leader.",
+            source,
             StringComparison.Ordinal);
-        Assert.True(acquireEnd > acquireStart);
-        var acquire = source[acquireStart..acquireEnd];
-        var workerMode = acquire.IndexOf(
-            "Volatile.Read(ref _workerOwnedGroupMode)",
-            StringComparison.Ordinal);
-        var processGroupMutation = acquire.IndexOf(
-            "setpgid(0, 0)",
-            StringComparison.Ordinal);
-
-        Assert.True(workerMode >= 0);
-        Assert.True(processGroupMutation > workerMode);
         Assert.DoesNotContain(
-            "setsid",
-            acquire,
+            "TryAcquireExclusiveGroup",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "PollLoopAsync",
+            source,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "setpgid(0, 0)",
+            source,
             StringComparison.Ordinal);
     }
 

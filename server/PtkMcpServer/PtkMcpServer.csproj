@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PtkNativeCompiler Condition="'$(PtkNativeCompiler)' == ''">cc</PtkNativeCompiler>
+    <PtkWorkerBrokerPath
+      Condition="'$(OS)' != 'Windows_NT'">$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/ptk-native/$(RuntimeIdentifier)/PtkWorkerBroker</PtkWorkerBrokerPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,14 +22,23 @@
     <InternalsVisibleTo Include="PtkAuditAdmin" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(OS)' != 'Windows_NT'">
+    <None
+      Include="$(PtkWorkerBrokerPath)"
+      Link="PtkWorkerBroker"
+      CopyToOutputDirectory="PreserveNewest"
+      CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <Target
     Name="BuildPtkWorkerBroker"
-    AfterTargets="Build"
+    BeforeTargets="GetCopyToOutputDirectoryItems;ComputeFilesToPublish"
     Condition="'$(OS)' != 'Windows_NT'"
     Inputs="$(MSBuildProjectDirectory)/Native/ptk_worker_broker.c;$(MSBuildProjectFullPath)"
-    Outputs="$(TargetDir)PtkWorkerBroker">
+    Outputs="$(PtkWorkerBrokerPath)">
+    <MakeDir Directories="$([System.IO.Path]::GetDirectoryName('$(PtkWorkerBrokerPath)'))" />
     <Exec
-      Command="&quot;$(PtkNativeCompiler)&quot; -std=c17 -O2 -fno-common -fstack-protector-strong -Wall -Wextra -Werror -Wpedantic -Wshadow -Wstrict-prototypes -Wmissing-prototypes &quot;$(MSBuildProjectDirectory)/Native/ptk_worker_broker.c&quot; -o &quot;$(TargetDir)PtkWorkerBroker&quot;" />
+      Command="&quot;$(PtkNativeCompiler)&quot; -std=c17 -O2 -fno-common -fstack-protector-strong -Wall -Wextra -Werror -Wpedantic -Wshadow -Wstrict-prototypes -Wmissing-prototypes &quot;$(MSBuildProjectDirectory)/Native/ptk_worker_broker.c&quot; -o &quot;$(PtkWorkerBrokerPath)&quot;" />
   </Target>
 
 </Project>

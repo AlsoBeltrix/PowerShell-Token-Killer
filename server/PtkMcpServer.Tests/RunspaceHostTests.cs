@@ -1252,7 +1252,6 @@ public sealed class RunspaceHostTests : IDisposable
 
     [Theory]
     [InlineData("reset")]
-    [InlineData("cold-detection")]
     [InlineData("timeout-rebuild")]
     public async Task Post_start_module_file_mutation_cannot_execute_during_repriming(string reprimePath)
     {
@@ -1295,9 +1294,6 @@ public sealed class RunspaceHostTests : IDisposable
             {
                 case "reset":
                     await host.ResetAsync();
-                    break;
-                case "cold-detection":
-                    _ = await host.TryGetBackgroundDialectRefusalAsync("export PTK_TEST=1");
                     break;
                 case "timeout-rebuild":
                     var timedOut = await host.InvokeAsync(

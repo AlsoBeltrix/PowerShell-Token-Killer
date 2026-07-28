@@ -189,13 +189,11 @@ internal static class WorkerProcessEntry
                 "protocol_limits_mismatch",
                 "Worker initialize limits do not match the worker configuration.");
         }
-        var jobPwshExecutable = JobPwshExecutable.ResolveFromPath();
         cancellationToken.ThrowIfCancellationRequested();
         return Task.FromResult<IWorkerSession>(
             new WorkerSession(DefaultSessionRuntimeFactory.Create(
                 callTimeout,
                 maxCallTimeout,
-                jobPwshExecutable,
                 cancellationToken)));
     }
 

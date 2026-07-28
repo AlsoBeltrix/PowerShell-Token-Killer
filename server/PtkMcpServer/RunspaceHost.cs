@@ -202,7 +202,8 @@ public sealed class RunspaceHost : IDisposable
     internal Action? PrivateOutputInvocationStartingForTests { get; set; }
     internal Action? PrivateOutputInvocationStartedForTests { get; set; }
     internal Func<PowerShell, PSDataCollection<PSObject>,
-        Task<PSDataCollection<PSObject>>>? PrivateOutputInvocationOverrideForTests { get; set; }
+        Task<PSDataCollection<PSObject>>>? PrivateOutputInvocationOverrideForTests
+    { get; set; }
     internal Action? PrivateOutputStopStartingForTests { get; set; }
     internal Action? PrivateOutputProcessorDisposingForTests { get; set; }
     internal bool OutputProcessorUnavailableForTests =>
@@ -298,13 +299,6 @@ public sealed class RunspaceHost : IDisposable
         return powerShell.InvokeAsync<object, PSObject>(input, output);
     }
 
-    // Background jobs execute in a cold `pwsh -NoProfile` child. Preserve the
-    // stock alias/function/cmdlet table captured before the first user runspace
-    // is published, then overlay live PATH applications for each job request.
-    // The classifier itself is pure C#; there is no second enumerable runspace
-    // for prior user code (or a ThreadJob) to poison.
-    private readonly TrustedCommandSnapshot _backgroundStockCommands;
-
     /// <summary>Timestamp of the most recent invoke/reset; read by the idle watchdog.</summary>
     public DateTimeOffset LastActivityUtc { get; private set; } = DateTimeOffset.UtcNow;
 
@@ -362,7 +356,6 @@ public sealed class RunspaceHost : IDisposable
             _bashExecutableIdentity = CaptureStartupBashIdentity(
                 initialPrimed.Runspace,
                 bashPathOverride);
-            _backgroundStockCommands = CaptureBackgroundStockCommands(initialPrimed.Runspace);
         }
         catch
         {
@@ -534,7 +527,8 @@ public sealed class RunspaceHost : IDisposable
     /// RTK after constructing a shared host. Production always uses the
     /// startup-frozen identity.</summary>
     internal Func<RtkExecutableIdentity?, RtkExecutableIdentity?>?
-        RtkIdentityOverrideForTests { get; set; }
+        RtkIdentityOverrideForTests
+    { get; set; }
 
     /// <summary>Test-only exception seam for the post-access job-output
     /// shaping pipeline. Production never assigns it.</summary>
@@ -576,7 +570,6 @@ public sealed class RunspaceHost : IDisposable
 
     /// <summary>Test hook for current-directory failure and timeout branches.
     /// Production reads the provider intrinsic directly.</summary>
-    internal Func<string?>? CurrentLocationReaderOverrideForTests { get; set; }
 
     /// <summary>A runspace plus the metadata its own priming produced. The
     /// bundle is immutable and host-global fields are published only when a
@@ -878,54 +871,6 @@ public sealed class RunspaceHost : IDisposable
         });
     }
 
-    private static TrustedCommandSnapshot CaptureBackgroundStockCommands(Runspace runspace)
-    {
-        return WithReadOnlyCommandLookup(runspace, invocation =>
-        {
-            // A cold child receives stock aliases/functions/cmdlets but resolves
-            // PATH applications at launch time. Exclude applications/scripts
-            // here so each background request can overlay the current process
-            // environment and observe both additions and removals.
-            var names = invocation
-                .GetCommands("*", CommandTypes.All, nameIsPattern: true)
-                .Where(command => command.CommandType is not
-                    (CommandTypes.Application or CommandTypes.ExternalScript))
-                .Select(command => command.Name)
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToArray();
-            var snapshot = new TrustedCommandSnapshot();
-            foreach (var name in names)
-            {
-                var resolved = CaptureResolvedCommand(invocation, name, CommandTypes.All);
-                if (resolved is not null && resolved.CommandType is not
-                    (CommandTypes.Application or CommandTypes.ExternalScript))
-                {
-                    snapshot.Set(name, CommandTypes.All, resolved);
-                }
-            }
-            return snapshot;
-        });
-    }
-
-    private TrustedCommandSnapshot CaptureBackgroundCommandFacts(
-        string script,
-        string? workingDirectory = null)
-    {
-        var snapshot = _backgroundStockCommands.Clone();
-        foreach (var name in TrustedPreflightClassifier
-                     .GetRequiredCommandNames(script)
-                     .Append("bash")
-                     .Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            if (snapshot.Resolve(name, CommandTypes.All) is not null) continue;
-            snapshot.Set(
-                name,
-                CommandTypes.All,
-                ColdPathCommandResolver.Resolve(name, workingDirectory));
-        }
-        return snapshot;
-    }
-
     private static TrustedCommandSnapshot CaptureForegroundCommandFacts(
         Runspace runspace,
         string script)
@@ -1087,9 +1032,8 @@ public sealed class RunspaceHost : IDisposable
         return BashExecutableIdentity.TryCapture(resolved?.Source);
     }
 
-    private static string FormatDialectRefusal(string finding, bool bashAvailable, bool background)
+    private static string FormatDialectRefusal(string finding, bool bashAvailable)
     {
-        var refused = background ? "job not started" : "not executed";
         // Two quoting layers compose in the wrap (sd2-1): the wrap itself is
         // a PowerShell command line (its single-quoted argument is a
         // PowerShell string literal — escape ' by doubling), and bash then
@@ -1102,7 +1046,7 @@ public sealed class RunspaceHost : IDisposable
               "inside the wrap by doubling it for PowerShell and backslash-escaping it for bash: " +
               "bash -lc 'echo it\\''s' prints it's."
             : "Rewrite it in PowerShell (bash is not available on this machine).";
-        return $"[ptk:dialect] {refused}: the script contains {finding} - bash-only syntax, " +
+        return $"[ptk:dialect] not executed: the script contains {finding} - bash-only syntax, " +
                $"and this tool runs PowerShell 7. {recovery}";
     }
 
@@ -1185,171 +1129,6 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
-    /// <summary>Dialect check for a script about to start as a background job
-    /// (shell-dialect plan, slice 2): must run BEFORE the job starts, so a
-    /// detected script is refused fast instead of dying in its log. Resolves
-    /// against a cold command table because that is where the job will run.
-    /// Null means no finding — or no way to check, which falls back to
-    /// today's behavior rather than blocking the job.</summary>
-    public async Task<string?> TryGetBackgroundDialectRefusalAsync(string script, CancellationToken cancellationToken = default, DateTimeOffset? deadline = null)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        // A served refusal is user activity (sd2-3): this is a user-call
-        // boundary like InvokeAsync/ResetAsync, and a refused background
-        // call returns before anything else touches the idle clock — the
-        // watchdog must not stop a server right after it answered.
-        LastActivityUtc = DateTimeOffset.UtcNow;
-        if (_moduleSource is null) return null;
-        var callDeadline = deadline ?? DateTimeOffset.UtcNow + _callTimeout;
-        var work = Task.Run(() =>
-        {
-            try
-            {
-                var commands = CaptureBackgroundCommandFacts(script);
-                var finding = TrustedPreflightClassifier.GetShellDialectFinding(script, commands);
-                return finding is null
-                    ? null
-                    : FormatDialectRefusal(finding, BashAvailable(commands), background: true);
-            }
-            catch { return null; }
-        }, CancellationToken.None);
-        TrackOwnedBackgroundWork(work);
-        if (await WaitForDeadlineAsync(work, callDeadline, cancellationToken) == WaitOutcome.Completed)
-        {
-            return await work;
-        }
-        return null;
-    }
-
-    internal enum BackgroundExecutionPreparationStatus
-    {
-        Ready,
-        DialectRefused,
-        TimedOut,
-        Canceled,
-        Failed,
-    }
-
-    internal sealed record BackgroundExecutionPreparation(
-        BackgroundExecutionPreparationStatus Status,
-        ExecutionPlan? Plan = null,
-        string? DetailCode = null,
-        string? Response = null);
-
-    /// <summary>Builds one cold execution plan from one post-cwd command
-    /// snapshot. A timeout, cancellation, or snapshot failure is explicit and
-    /// fail-closed: callers must not degrade to an unplanned direct start.</summary>
-    internal async Task<BackgroundExecutionPreparation> PrepareBackgroundExecutionAsync(
-        string script,
-        string route,
-        string workingDirectory,
-        DateTimeOffset deadline,
-        CancellationToken cancellationToken)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        ArgumentNullException.ThrowIfNull(script);
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-        if (!Path.IsPathFullyQualified(workingDirectory))
-            throw new ArgumentException(
-                "A cold execution working directory must be absolute.",
-                nameof(workingDirectory));
-
-        LastActivityUtc = DateTimeOffset.UtcNow;
-        if (cancellationToken.IsCancellationRequested)
-        {
-            return new BackgroundExecutionPreparation(
-                BackgroundExecutionPreparationStatus.Canceled,
-                DetailCode: "canceled");
-        }
-        if (DateTimeOffset.UtcNow >= deadline)
-        {
-            return new BackgroundExecutionPreparation(
-                BackgroundExecutionPreparationStatus.TimedOut,
-                DetailCode: "prestart_deadline_expired");
-        }
-
-        // Explicit PowerShell consent has no dialect or PATH dependency. It
-        // still receives a typed cold plan so audit and job metadata share the
-        // same immutable dispatch contract as automatic routing.
-        if (string.Equals(route, "pwsh", StringComparison.OrdinalIgnoreCase))
-        {
-            return new BackgroundExecutionPreparation(
-                BackgroundExecutionPreparationStatus.Ready,
-                ExecutionPlanner.CreateDirect(
-                    script,
-                    route,
-                    compressAvailable: false,
-                    ResolutionContext.Cold));
-        }
-
-        var preflightDelay = PreflightDelayForTests;
-        var work = Task.Run(() =>
-        {
-            try
-            {
-                if (preflightDelay > TimeSpan.Zero)
-                    Thread.Sleep(preflightDelay);
-                if (DateTimeOffset.UtcNow >= deadline)
-                {
-                    return new BackgroundExecutionPreparation(
-                        BackgroundExecutionPreparationStatus.TimedOut,
-                        DetailCode: "prestart_deadline_expired");
-                }
-
-                var commands = CaptureBackgroundCommandFacts(script, workingDirectory);
-                if (_moduleSource is not null)
-                {
-                    var finding = TrustedPreflightClassifier.GetShellDialectFinding(
-                        script,
-                        commands);
-                    if (finding is not null)
-                    {
-                        return new BackgroundExecutionPreparation(
-                            BackgroundExecutionPreparationStatus.DialectRefused,
-                            DetailCode: "dialect_refused",
-                            Response: FormatDialectRefusal(
-                                finding,
-                                BashAvailable(commands),
-                                background: true));
-                    }
-                }
-
-                var plan = ExecutionPlanner.Create(
-                    script,
-                    route,
-                    EffectiveRtkIdentity(),
-                    commands,
-                    compressAvailable: false,
-                    ResolutionContext.Cold,
-                    allowFileSystemGuidance: false,
-                    workingDirectory,
-                    nativeArgumentPassing: null);
-                return new BackgroundExecutionPreparation(
-                    BackgroundExecutionPreparationStatus.Ready,
-                    plan);
-            }
-            catch (Exception exception) when (exception is not (
-                OutOfMemoryException or StackOverflowException or
-                AccessViolationException or AppDomainUnloadedException))
-            {
-                return new BackgroundExecutionPreparation(
-                    BackgroundExecutionPreparationStatus.Failed,
-                    DetailCode: "cold_planning_failed");
-            }
-        }, CancellationToken.None);
-        TrackOwnedBackgroundWork(work);
-
-        return await WaitForDeadlineAsync(work, deadline, cancellationToken) switch
-        {
-            WaitOutcome.Completed => await work,
-            WaitOutcome.Canceled => new BackgroundExecutionPreparation(
-                BackgroundExecutionPreparationStatus.Canceled,
-                DetailCode: "canceled"),
-            _ => new BackgroundExecutionPreparation(
-                BackgroundExecutionPreparationStatus.TimedOut,
-                DetailCode: "prestart_deadline_expired"),
-        };
-    }
 
     internal enum WaitOutcome { Completed, TimedOut, Canceled }
 
@@ -1456,8 +1235,8 @@ public sealed class RunspaceHost : IDisposable
         ? TimeSpan.FromSeconds(Math.Min(timeoutSeconds, _maxCallTimeout.TotalSeconds))
         : _callTimeout;
 
-    /// <summary>The request's wall-clock deadline. Computed at the tool boundary
-    /// for background calls so every pre-start step shares one budget.</summary>
+    /// <summary>The request's wall-clock deadline. Computed at the tool
+    /// boundary so every step shares one budget.</summary>
     internal DateTimeOffset ComputeDeadline(int timeoutSeconds) =>
         DateTimeOffset.UtcNow + EffectiveBudget(timeoutSeconds);
 
@@ -1476,7 +1255,7 @@ public sealed class RunspaceHost : IDisposable
             Output: string.Empty,
             Errors: [$"Runspace busy: this call's {budget.TotalSeconds:0}s wall-clock budget expired while waiting for another call to finish ({busyDetail}). " +
                 "The script was NOT executed and warm state is untouched. " +
-                "Retry when the active call finishes, raise timeoutSeconds, or use background=true for stateless work."],
+                "Retry when the active call finishes or raise timeoutSeconds."],
             Warnings: [],
             TimedOut: true,
             Disposition: InvokeDisposition.NotStarted,
@@ -1488,8 +1267,8 @@ public sealed class RunspaceHost : IDisposable
         Output: string.Empty,
         Errors: [$"Call timed out: it exceeded its {budget.TotalSeconds:0}s wall-clock budget (queue wait + execution); the runspace was recycled and all warm state was lost. " +
             "Command and PATH resolution can differ in the fresh runspace - ptk_state shows what drifted. " +
-            "For stateless long work (builds, watchers), rerun with background=true and poll with ptk_job. " +
-            "For work that needs the warm session (live connections, imported modules), rerun with a larger timeoutSeconds."],
+            "The command may have started; do not resubmit it automatically. " +
+            "For a new independently approved long call, use a larger timeoutSeconds."],
         Warnings: [],
         TimedOut: true,
         Disposition: userExecutionStarted
@@ -1515,7 +1294,7 @@ public sealed class RunspaceHost : IDisposable
     /// user script can be committed and is consumed at most once by this call.</summary>
     internal Task<InvokeResult> InvokeWithOutputCaptureAsync(
         string script,
-        ForegroundOutputCapture outputCapture,
+        IForegroundOutputCapture outputCapture,
         bool raw = false,
         CancellationToken cancellationToken = default,
         string route = "auto",
@@ -1540,7 +1319,7 @@ public sealed class RunspaceHost : IDisposable
         string route = "auto",
         int timeoutSeconds = 0,
         DateTimeOffset? deadline = null,
-        ForegroundOutputCapture? outputCapture = null) =>
+        IForegroundOutputCapture? outputCapture = null) =>
         InvokeCoreAsync(
             script,
             cancellationToken,
@@ -1557,7 +1336,7 @@ public sealed class RunspaceHost : IDisposable
         int timeoutSeconds,
         DateTimeOffset? deadline,
         IInvocationAuthorizer? authorizer,
-        ForegroundOutputCapture? outputCapture)
+        IForegroundOutputCapture? outputCapture)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         var budget = EffectiveBudget(timeoutSeconds);
@@ -3277,7 +3056,7 @@ public sealed class RunspaceHost : IDisposable
         TimeSpan budget,
         CancellationToken cancellationToken,
         IInvocationAuthorizer? authorizer,
-        ForegroundOutputCapture? outputCapture)
+        IForegroundOutputCapture? outputCapture)
     {
         var ps = PowerShell.Create();
         var handedOff = false;
@@ -3355,8 +3134,7 @@ public sealed class RunspaceHost : IDisposable
                         return (
                             Refusal: FormatDialectRefusal(
                                 finding,
-                                BashAvailable(commands),
-                                background: false),
+                                BashAvailable(commands)),
                             Plan: plan);
                     }
                     plan = ExecutionPlanner.Create(
@@ -4188,13 +3966,8 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
-    /// <summary>Runs a text chunk through the module's shaping pipeline in the warm
-    /// runspace (ptk_job output polls). The text enters as pipeline INPUT, never as
-    /// script, so job output cannot inject code. Falls back to the raw text on any
-    /// failure — shaping must never fail a poll — and a shaping call that wedges
-    /// (e.g. a hung rtk child on the log leg) is timed out and the runspace
-    /// recycled, exactly like a timed-out foreground call: a poll must never hold
-    /// the gate forever.</summary>
+    /// <summary>Runs a text chunk through the module's shaping pipeline in the
+    /// warm runspace. The text enters as pipeline input, never as script.</summary>
     public async Task<string> ShapeTextAsync(
         string text,
         CancellationToken cancellationToken = default,
@@ -4205,21 +3978,6 @@ public sealed class RunspaceHost : IDisposable
             elisionHint,
             OutputProvenance.DirectText,
             EffectiveRtkIdentity(),
-            runspaceRecycled: null)).Text;
-
-    internal async Task<string> ShapeJobTextAsync(
-        string text,
-        OutputProvenance inputProvenance,
-        CancellationToken cancellationToken,
-        string elisionHint) =>
-        (await ShapeTextCoreAsync(
-            text,
-            cancellationToken,
-            elisionHint,
-            inputProvenance,
-            inputProvenance == OutputProvenance.DirectText
-                ? EffectiveRtkIdentity()
-                : null,
             runspaceRecycled: null)).Text;
 
     internal RtkExecutableIdentity? CaptureOutputShapingRtkIdentity() =>
@@ -4332,97 +4090,7 @@ public sealed class RunspaceHost : IDisposable
         }
     }
 
-    public enum CwdProbeOutcome
-    {
-        /// <summary>Path resolved; the job may start there.</summary>
-        Ok,
-        /// <summary>The probe ran but produced no usable path.</summary>
-        Failed,
-        /// <summary>Budget expired before the probe ran; warm state untouched.</summary>
-        QueueExpired,
-        /// <summary>The probe itself timed out EXECUTING; the runspace was
-        /// recycled and warm state is gone — reporting this as a mere queue
-        /// expiry would tell the model its connections survived when they did
-        /// not (codex finding i56-6).</summary>
-        TimedOutExecuting,
-        /// <summary>A post-recycle rebuild was still in flight; the probe never
-        /// ran. Distinct from queue contention: no other call holds the gate,
-        /// and the queue-expiry message's claims would be false (i56-11).</summary>
-        Recovering,
-    }
 
-    /// <summary>Current directory of the warm session (background jobs start
-    /// there). The caller must FAIL the job start on anything but Ok rather
-    /// than silently start the job in the server process cwd — the wrong
-    /// project (plan finding i56p-4; codex finding i56-5). Cancellation
-    /// propagates.</summary>
-    public async Task<(string? Path, CwdProbeOutcome Outcome)> TryGetCurrentLocationAsync(
-        CancellationToken cancellationToken = default,
-        DateTimeOffset? deadline = null,
-        Action? canceledRecycleObserver = null)
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        var callDeadline = deadline ?? DateTimeOffset.UtcNow + _callTimeout;
-        LastActivityUtc = DateTimeOffset.UtcNow;
-        if (!await TryEnterGateAsync(callDeadline, cancellationToken))
-            return (null, CwdProbeOutcome.QueueExpired);
-
-        MarkGateAcquired();
-        try
-        {
-            var (primed, readyOutcome) = await AwaitRunspaceReadyAsync(callDeadline, cancellationToken);
-            if (primed is null)
-            {
-                return readyOutcome == ReadyOutcome.Canceled
-                    ? throw new OperationCanceledException(cancellationToken)
-                    : (null, CwdProbeOutcome.Recovering);
-            }
-            var runspace = primed.Runspace;
-
-            // Read the provider intrinsic directly. Running `(Get-Location).Path`
-            // as a user-scope script allowed a prior call to shadow Get-Location
-            // and execute arbitrary effects before the background job's durable
-            // start authorization.
-            var locationReader = CurrentLocationReaderOverrideForTests;
-            var probe = Task.Run(() =>
-            {
-                if (locationReader is not null)
-                    return locationReader();
-                var location = runspace.SessionStateProxy.Path.CurrentLocation;
-                return string.Equals(location.Provider?.Name, "FileSystem", StringComparison.OrdinalIgnoreCase)
-                    ? location.Path
-                    : null;
-            }, CancellationToken.None);
-            var probeOutcome = await WaitForDeadlineAsync(probe, callDeadline, cancellationToken);
-            if (probeOutcome == WaitOutcome.Canceled)
-            {
-                if (await Task.WhenAny(probe, Task.Delay(StopGrace)) == probe)
-                    throw new OperationCanceledException(cancellationToken);
-                RecycleAbandoning(probe, runspace);
-                canceledRecycleObserver?.Invoke();
-                throw new OperationCanceledException(cancellationToken);
-            }
-            if (probeOutcome == WaitOutcome.TimedOut)
-            {
-                RecycleAbandoning(probe, runspace);
-                return (null, CwdProbeOutcome.TimedOutExecuting);
-            }
-
-            var path = await probe;
-            return path is { Length: > 0 }
-                ? (path, CwdProbeOutcome.Ok)
-                : (null, CwdProbeOutcome.Failed);
-        }
-        catch (OperationCanceledException) { throw; }
-        catch { return (null, CwdProbeOutcome.Failed); }
-        finally
-        {
-            ReleaseGate();
-        }
-    }
-
-    /// <summary>Discard all warm state and start a fresh runspace. Caller-facing
-    /// (ptk_reset); also used internally on timeout. Must hold the gate.</summary>
     public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);

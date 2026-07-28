@@ -1,115 +1,359 @@
-using PtkMcpServer.Audit;
+using System.Globalization;
+using System.Text;
 using PtkMcpServer.Worker;
 
 namespace PtkMcpServer.Sessions;
 
 /// <summary>
-/// Owns the current connection's session runtime. Later worker slices replace
-/// the in-process runtime behind this boundary without changing public tools.
+/// Owns every worker and named session for one MCP connection. No submitted
+/// script executes in this supervisor process.
 /// </summary>
 internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
 {
-    private readonly ISessionOperations _operations;
-    private readonly ISessionLifetime _lifetime;
-    private readonly NamedSessionSupervisor? _namedSessions;
+    private readonly NamedSessionSupervisor _sessions;
     private int _disposed;
 
-    internal WorkerSupervisor(Func<SessionRuntime> createRuntime)
+    internal WorkerSupervisor(NamedSessionSupervisor sessions)
     {
-        ArgumentNullException.ThrowIfNull(createRuntime);
-        var runtime = createRuntime();
-        _operations = runtime;
-        _lifetime = runtime;
+        _sessions = sessions ??
+            throw new ArgumentNullException(nameof(sessions));
+    }
+
+    internal static WorkerSupervisor CreateDefault(
+        TimeSpan callTimeout,
+        TimeSpan maxCallTimeout)
+    {
         var limits = WorkerOperationProtocol.CreateLimits(
-            DefaultSessionRuntimeFactory.ReadCallTimeout(),
-            DefaultSessionRuntimeFactory.ReadMaxCallTimeout());
-        _namedSessions = new NamedSessionSupervisor(
-            () => ProcessSessionWorkerFactory.CreateDefault(limits),
-            startupTimeout: TimeSpan.FromSeconds(30),
-            containmentGrace: TimeSpan.FromSeconds(10));
+            callTimeout,
+            maxCallTimeout);
+        return new WorkerSupervisor(
+            new NamedSessionSupervisor(
+                () => ProcessSessionWorkerFactory.CreateDefault(limits),
+                startupTimeout: TimeSpan.FromSeconds(30),
+                containmentGrace: TimeSpan.FromSeconds(10)));
     }
 
-    internal WorkerSupervisor(
-        ISessionOperations operations,
-        ISessionLifetime lifetime)
-    {
-        ArgumentNullException.ThrowIfNull(operations);
-        ArgumentNullException.ThrowIfNull(lifetime);
-        _operations = operations;
-        _lifetime = lifetime;
-    }
+    internal NamedSessionSupervisor NamedSessions => _sessions;
 
-    internal WorkerSupervisor(
-        ISessionOperations operations,
-        ISessionLifetime lifetime,
-        NamedSessionSupervisor namedSessions)
-        : this(operations, lifetime)
-    {
-        _namedSessions = namedSessions ??
-            throw new ArgumentNullException(nameof(namedSessions));
-    }
-
-    internal NamedSessionSupervisor NamedSessions =>
-        _namedSessions ?? throw new InvalidOperationException(
-            "This supervisor has no named-session registry.");
-
-    Task<string> ISessionOperations.InvokeAsync(
+    async Task<string> ISessionOperations.InvokeAsync(
         string script,
         CancellationToken cancellationToken,
         bool raw,
         string route,
-        bool background,
         int timeoutSeconds,
-        OutputStore? outputStore) =>
-        _operations.InvokeAsync(
-            script,
-            cancellationToken,
-            raw,
-            route,
-            background,
-            timeoutSeconds,
-            outputStore);
-
-    Task<string> ISessionOperations.JobAsync(
-        string action,
-        CancellationToken cancellationToken,
-        long id,
-        long offset) =>
-        _operations.JobAsync(action, cancellationToken, id, offset);
-
-    Task<string> ISessionOperations.StateAsync(
-        bool listAvailable,
-        CancellationToken cancellationToken) =>
-        _operations.StateAsync(listAvailable, cancellationToken);
-
-    Task<string> ISessionOperations.ResetAsync(CancellationToken cancellationToken) =>
-        _operations.ResetAsync(cancellationToken);
-
-    public async Task ShutdownAsync()
+        string session,
+        OutputStore? outputStore)
     {
         try
         {
-            if (_namedSessions is not null)
-                await _namedSessions.ShutdownAsync().ConfigureAwait(false);
+            var invocation = await _sessions.InvokeAsync(
+                session,
+                script,
+                raw,
+                ParseRoute(route),
+                timeoutSeconds,
+                outputStore,
+                cancellationToken).ConfigureAwait(false);
+            return FormatInvocation(invocation);
         }
-        finally
+        catch (NamedSessionException exception)
         {
-            await _lifetime.ShutdownAsync().ConfigureAwait(false);
+            return Refused("invoke", session, exception);
+        }
+        catch (SessionWorkerStartException exception)
+        {
+            return Failed("invoke", session, exception.DetailCode);
+        }
+        catch (WorkerProcessException exception)
+        {
+            return Failed("invoke", session, exception.DetailCode);
+        }
+        catch (WorkerProtocolException exception)
+        {
+            return Failed("invoke", session, exception.DetailCode);
         }
     }
+
+    async Task<string> ISessionOperations.StateAsync(
+        bool listAvailable,
+        string session,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var workerState = await _sessions.StateAsync(
+                session,
+                listAvailable,
+                cancellationToken).ConfigureAwait(false);
+            var snapshot = _sessions.List().Single(item =>
+                string.Equals(item.Name, session, StringComparison.Ordinal));
+            var sb = new StringBuilder();
+            sb.Append("ptk supervisor: pid=")
+                .Append(Environment.ProcessId.ToString(CultureInfo.InvariantCulture))
+                .Append(" sessions=")
+                .Append(_sessions.List().Length.ToString(CultureInfo.InvariantCulture))
+                .Append('/')
+                .Append(NamedSessionSupervisor.MaximumSessions);
+            sb.AppendLine();
+            AppendSnapshot(sb, snapshot);
+            sb.AppendLine();
+            sb.AppendLine("audit: disabled");
+            if (workerState.Available)
+            {
+                var text = workerState.Text.TrimEnd();
+                sb.Append(text.Length == 0 ? "(no runspace state)" : text);
+            }
+            else
+            {
+                sb.Append("runspace: unavailable (detail=")
+                    .Append(workerState.DetailCode ?? "state_unavailable")
+                    .Append(')');
+            }
+            return sb.ToString().TrimEnd();
+        }
+        catch (NamedSessionException exception)
+        {
+            return Refused("state", session, exception);
+        }
+        catch (WorkerProcessException exception)
+        {
+            return Failed("state", session, exception.DetailCode);
+        }
+        catch (WorkerProtocolException exception)
+        {
+            return Failed("state", session, exception.DetailCode);
+        }
+    }
+
+    async Task<string> ISessionOperations.ResetAsync(
+        string session,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var snapshot = await _sessions.ResetAsync(
+                session,
+                cancellationToken).ConfigureAwait(false);
+            var sb = new StringBuilder("[ptk reset] completed");
+            sb.AppendLine();
+            AppendSnapshot(sb, snapshot);
+            sb.AppendLine();
+            sb.Append("warm state was discarded only for this session.");
+            return sb.ToString();
+        }
+        catch (NamedSessionException exception)
+        {
+            return Refused("reset", session, exception);
+        }
+        catch (SessionWorkerStartException exception)
+        {
+            return Failed("reset", session, exception.DetailCode);
+        }
+    }
+
+    async Task<string> ISessionOperations.SessionAsync(
+        string action,
+        string? name,
+        CancellationToken cancellationToken)
+    {
+        action = action?.ToLowerInvariant() ?? string.Empty;
+        try
+        {
+            switch (action)
+            {
+                case "list":
+                    if (name is not null)
+                    {
+                        return "[ptk session] refused detail=unexpected_session_name; " +
+                            "omit name when action=list.";
+                    }
+                    return FormatList(_sessions.List());
+                case "open":
+                    if (name is null)
+                        return MissingName(action);
+                    if (name == NamedSessionSupervisor.DefaultName)
+                    {
+                        return "[ptk session] refused session=default " +
+                            "detail=default_session_exists; default is lazy and " +
+                            "already belongs to this connection.";
+                    }
+                    return FormatTransition(
+                        "opened",
+                        await _sessions.OpenAsync(
+                            name,
+                            cancellationToken).ConfigureAwait(false));
+                case "close":
+                    if (name is null)
+                        return MissingName(action);
+                    await _sessions.CloseAsync(
+                        name,
+                        cancellationToken).ConfigureAwait(false);
+                    return $"[ptk session] closed session={name}";
+                default:
+                    return "[ptk session] refused detail=invalid_action; " +
+                        "use list | open | close.";
+            }
+        }
+        catch (NamedSessionException exception)
+        {
+            return Refused("session", name, exception);
+        }
+        catch (SessionWorkerStartException exception)
+        {
+            return Failed("session", name, exception.DetailCode);
+        }
+    }
+
+    public Task ShutdownAsync() => _sessions.ShutdownAsync();
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        try
-        {
-            if (_namedSessions is not null)
-                _namedSessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        }
-        finally
-        {
-            _lifetime.Dispose();
-        }
+        _sessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
     }
+
+    private static WorkerInvokeRoute ParseRoute(string? route) =>
+        route?.ToLowerInvariant() switch
+        {
+            "pwsh" => WorkerInvokeRoute.Pwsh,
+            "rtk" => WorkerInvokeRoute.Rtk,
+            _ => WorkerInvokeRoute.Auto,
+        };
+
+    private static string FormatInvocation(NamedSessionInvokeResult invocation)
+    {
+        var sb = new StringBuilder(invocation.Result.Text.TrimEnd());
+        if (sb.Length == 0)
+            sb.Append("(no output)");
+
+        if (invocation.OutputRecovery is { Advertise: true } recovery)
+        {
+            sb.AppendLine();
+            if (recovery.Handle is { } handle)
+            {
+                sb.Append("recovery=available: ptk_output handle=")
+                    .Append(handle);
+            }
+            else
+            {
+                sb.Append("recovery=unavailable: output capture unavailable")
+                    .Append(recovery.DetailCode is null
+                        ? string.Empty
+                        : $" (detail={recovery.DetailCode})")
+                    .Append("; command was not rerun");
+            }
+        }
+
+        switch (invocation.Result.Status)
+        {
+            case WorkerResultStatus.Completed:
+                break;
+            case WorkerResultStatus.Refused:
+                AppendTerminal(
+                    sb,
+                    "refused",
+                    invocation.Result.DetailCode,
+                    "the command was not started");
+                break;
+            case WorkerResultStatus.Canceled:
+                AppendTerminal(
+                    sb,
+                    "canceled",
+                    invocation.Result.DetailCode,
+                    "the command was not retried");
+                break;
+            case WorkerResultStatus.TimedOut:
+                AppendTerminal(
+                    sb,
+                    "timed_out",
+                    invocation.Result.DetailCode,
+                    "this session worker is being replaced; the command was not retried");
+                break;
+            case WorkerResultStatus.Failed:
+                AppendTerminal(
+                    sb,
+                    "failed",
+                    invocation.Result.DetailCode,
+                    "outcome may be unknown; the command was not retried");
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+        return sb.ToString().TrimEnd();
+    }
+
+    private static void AppendTerminal(
+        StringBuilder sb,
+        string status,
+        string? detailCode,
+        string guidance)
+    {
+        sb.AppendLine();
+        sb.Append("[ptk worker] status=")
+            .Append(status)
+            .Append(" detail=")
+            .Append(detailCode ?? "unspecified")
+            .Append("; ")
+            .Append(guidance)
+            .Append('.');
+    }
+
+    private static string FormatList(NamedSessionSnapshot[] sessions)
+    {
+        var sb = new StringBuilder("[ptk sessions]");
+        foreach (var session in sessions)
+        {
+            sb.AppendLine();
+            AppendSnapshot(sb, session);
+        }
+        return sb.ToString();
+    }
+
+    private static string FormatTransition(
+        string action,
+        NamedSessionSnapshot snapshot)
+    {
+        var sb = new StringBuilder("[ptk session] ")
+            .Append(action);
+        sb.AppendLine();
+        AppendSnapshot(sb, snapshot);
+        return sb.ToString();
+    }
+
+    private static void AppendSnapshot(
+        StringBuilder sb,
+        NamedSessionSnapshot snapshot)
+    {
+        sb.Append("session=").Append(snapshot.Name)
+            .Append(" state=")
+            .Append(snapshot.State.ToString().ToLowerInvariant())
+            .Append(" worker_pid=")
+            .Append(snapshot.WorkerProcessId?.ToString(CultureInfo.InvariantCulture) ??
+                "none")
+            .Append(" active=")
+            .Append(snapshot.Active ? "true" : "false")
+            .Append(" warm_state_lost=")
+            .Append(snapshot.WarmStateLost ? "true" : "false")
+            .Append(" last_failure=")
+            .Append(snapshot.LastFailure ?? "none");
+    }
+
+    private static string MissingName(string action) =>
+        $"[ptk session] refused action={action} detail=session_name_required; " +
+        "name is required.";
+
+    private static string Refused(
+        string operation,
+        string? session,
+        NamedSessionException exception) =>
+        $"[ptk {operation}] refused session={session ?? "none"} " +
+        $"detail={exception.DetailCode}; {exception.Message} Nothing was executed.";
+
+    private static string Failed(
+        string operation,
+        string? session,
+        string detailCode) =>
+        $"[ptk {operation}] failed session={session ?? "none"} " +
+        $"detail={detailCode}; no operation was retried.";
 }

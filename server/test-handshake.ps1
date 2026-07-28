@@ -203,14 +203,15 @@ function Assert-LiveOutputRoot {
     }
 }
 
-$outputToken = 'ptk-handshake-' + [guid]::NewGuid().ToString('N')
-$escapedOutputToken = [regex]::Escape($outputToken)
-$quotedOutputToken = "'" + $outputToken.Replace("'", "''") + "'"
-$warmSeedScript = '$warm = ' + $quotedOutputToken
-$warmReadScript = '$warm'
-$backgroundToken = 'ptk-background-' + [guid]::NewGuid().ToString('N')
-$escapedBackgroundToken = [regex]::Escape($backgroundToken)
-$backgroundScript = "Write-Output '" + $backgroundToken.Replace("'", "''") + "'"
+$onlineToken = 'ptk-online-' + [guid]::NewGuid().ToString('N')
+$onPremToken = 'ptk-onprem-' + [guid]::NewGuid().ToString('N')
+$escapedOnlineToken = [regex]::Escape($onlineToken)
+$escapedOnPremToken = [regex]::Escape($onPremToken)
+$quotedOnlineToken = "'" + $onlineToken.Replace("'", "''") + "'"
+$quotedOnPremToken = "'" + $onPremToken.Replace("'", "''") + "'"
+$onlineSeedScript = '$shared = ' + $quotedOnlineToken + '; $shared'
+$onPremSeedScript = '$shared = ' + $quotedOnPremToken + '; $shared'
+$executionScript = 'if (-not (Test-Path Variable:executionCount)) { $executionCount = 0 }; $executionCount++; $executionCount'
 $mainExitedGracefully = $false
 $failed = $false
 try {
@@ -232,25 +233,26 @@ try {
 
     Send-Rpc @{ jsonrpc = '2.0'; id = 2; method = 'tools/list' }
     $tools = Read-RpcResponse -Id 2
-    $names = @($tools.result.tools.name)
-    foreach ($required in @('ptk_invoke', 'ptk_job', 'ptk_state', 'ptk_reset', 'ptk_output')) {
-        if ($names -notcontains $required) {
-            throw "$required missing from tools/list; got: $($names -join ', ')"
-        }
+    $names = @($tools.result.tools.name | Sort-Object)
+    $expectedNames = @('ptk_invoke', 'ptk_output', 'ptk_reset', 'ptk_session', 'ptk_state')
+    if ($names.Count -ne $expectedNames.Count -or
+        ($names -join ',') -cne ($expectedNames -join ',')) {
+        throw "tools/list surface changed; expected=$($expectedNames -join ','); actual=$($names -join ',')"
     }
+
     $expectedInputFields = @{
-        ptk_invoke = @('script', 'raw', 'route', 'background', 'timeoutSeconds')
-        ptk_job    = @('action', 'id', 'offset')
-        ptk_state  = @('listAvailable')
-        ptk_reset  = @()
-        ptk_output = @('handle', 'action', 'offset', 'maxBytes', 'pattern')
+        ptk_invoke  = @('script', 'raw', 'route', 'timeoutSeconds', 'session')
+        ptk_output  = @('handle', 'action', 'offset', 'maxBytes', 'pattern')
+        ptk_reset   = @('session')
+        ptk_session = @('action', 'name')
+        ptk_state   = @('listAvailable', 'session')
     }
     $expectedRequiredFields = @{
-        ptk_invoke = @('script')
-        ptk_job    = @('action')
-        ptk_state  = @()
-        ptk_reset  = @()
-        ptk_output = @('handle')
+        ptk_invoke  = @('script')
+        ptk_output  = @('handle')
+        ptk_reset   = @()
+        ptk_session = @('action')
+        ptk_state   = @()
     }
     foreach ($tool in @($tools.result.tools)) {
         $inputFields = @($tool.inputSchema.properties.PSObject.Properties.Name | Where-Object { $null -ne $_ })
@@ -267,34 +269,30 @@ try {
         if ($missingRequired.Count -gt 0 -or $unexpectedRequired.Count -gt 0) {
             throw "$($tool.name) MCP required fields changed; missing=$($missingRequired -join ','); unexpected=$($unexpectedRequired -join ',')"
         }
-        foreach ($hostOnlyField in @('auditContext', 'outputStore', 'runtime')) {
+        foreach ($hostOnlyField in @('auditContext', 'cancellationToken', 'outputStore', 'runtime')) {
             if ($inputFields -contains $hostOnlyField) {
                 throw "host-only $hostOnlyField leaked into the $($tool.name) MCP input schema"
             }
         }
     }
-    $outputTool = @($tools.result.tools | Where-Object name -EQ 'ptk_output')
+
+    $outputTool = @($tools.result.tools | Where-Object name -CEQ 'ptk_output')
     if ($outputTool.Count -ne 1) {
         throw "tools/list returned $($outputTool.Count) ptk_output definitions"
     }
     $outputSchema = $outputTool[0].inputSchema
-    if (@($outputSchema.required) -notcontains 'handle') {
-        throw 'ptk_output input schema does not require handle'
-    }
     $outputFields = @($outputSchema.properties.PSObject.Properties.Name | Sort-Object)
     if (($outputFields -join ',') -ne 'action,handle,maxBytes,offset,pattern') {
         throw "ptk_output input fields drifted: $($outputFields -join ', ')"
     }
-    $actions = @($outputSchema.properties.action.enum)
-    if (($actions -join ',') -ne 'read,search,status') {
-        throw "ptk_output action enum drifted: $($actions -join ', ')"
+    $outputActions = @($outputSchema.properties.action.enum)
+    if (($outputActions -join ',') -ne 'read,search,status') {
+        throw "ptk_output action enum drifted: $($outputActions -join ', ')"
     }
-    if ($outputSchema.properties.offset.minimum -ne 0) {
-        throw "ptk_output offset minimum drifted: $($outputSchema.properties.offset.minimum)"
-    }
-    if ($outputSchema.properties.maxBytes.minimum -ne 1 -or
+    if ($outputSchema.properties.offset.minimum -ne 0 -or
+        $outputSchema.properties.maxBytes.minimum -ne 1 -or
         $outputSchema.properties.maxBytes.maximum -ne 65536) {
-        throw 'ptk_output maxBytes bounds drifted'
+        throw 'ptk_output bounds drifted'
     }
     if ($outputSchema.properties.action.default -ne 'read' -or
         $outputSchema.properties.offset.default -ne 0 -or
@@ -303,120 +301,261 @@ try {
         $null -ne $outputSchema.properties.pattern.default) {
         throw 'ptk_output defaults drifted'
     }
-    Write-Host "tools/list ok: $($names -join ', ')"
+
+    $sessionTool = @($tools.result.tools | Where-Object name -CEQ 'ptk_session')
+    $sessionActions = @($sessionTool[0].inputSchema.properties.action.enum)
+    if ($sessionTool.Count -ne 1 -or
+        ($sessionActions -join ',') -ne 'list,open,close') {
+        throw "ptk_session action enum drifted: $($sessionActions -join ', ')"
+    }
+    Write-Host "tools/list ok: exactly $($names.Count) tools ($($names -join ', '))"
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 3; method = 'tools/call'
         params = @{ name = 'ptk_state'; arguments = @{} }
     }
-    $call = Read-RpcResponse -Id 3
-    $text = $call.result.content[0].text
-    if ($text -notmatch 'ptk server: pid \d+' -or
-        $text -notmatch '(?m)^audit: disabled\r?$') {
-        throw "ptk_state returned unexpected text: '$text'"
+    $coldState = (Read-RpcResponse -Id 3).result
+    $coldStateText = $coldState.content[0].text
+    if ($coldState.isError -or
+        $coldStateText -notmatch '(?m)^ptk supervisor: pid=\d+ sessions=1/8\r?$' -or
+        $coldStateText -notmatch '(?m)^session=default state=cold worker_pid=none active=false ' -or
+        $coldStateText -notmatch '(?m)^audit: disabled\r?$' -or
+        $coldStateText -notmatch 'runspace: unavailable \(detail=session_cold\)') {
+        throw "cold default ptk_state returned unexpected text: '$coldStateText'"
     }
-    Write-Host 'ptk_state ok: server header present and audit disabled'
+    Write-Host 'ptk_state ok: default remained cold and audit is disabled'
 
-    # Two ptk_invoke calls sharing state prove the warm runspace end to end.
     Send-Rpc @{
         jsonrpc = '2.0'; id = 4; method = 'tools/call'
-        params = @{ name = 'ptk_invoke'; arguments = @{ script = $warmSeedScript } }
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$neverDispatched = 1'; session = 'missing-session' }
+        }
     }
-    [void](Read-RpcResponse -Id 4)
+    $unknownInvoke = (Read-RpcResponse -Id 4).result.content[0].text
+    if ($unknownInvoke -notmatch '^\[ptk invoke\] refused session=missing-session detail=session_not_found;' -or
+        $unknownInvoke -notmatch 'Nothing was executed\.$') {
+        throw "unknown session did not refuse before dispatch: '$unknownInvoke'"
+    }
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 5; method = 'tools/call'
-        params = @{ name = 'ptk_invoke'; arguments = @{ script = $warmReadScript } }
+        params = @{ name = 'ptk_session'; arguments = @{ action = 'list' } }
     }
-    $warmText = (Read-RpcResponse -Id 5).result.content[0].text
-    if ($warmText -notmatch "(?m)^$escapedOutputToken\r?$") {
-        throw "ptk_invoke cross-call state failed; second call returned '$warmText'."
+    $afterRefusalList = (Read-RpcResponse -Id 5).result.content[0].text
+    if ([regex]::Matches($afterRefusalList, '(?m)^session=').Count -ne 1 -or
+        $afterRefusalList -notmatch '(?m)^session=default state=cold worker_pid=none ') {
+        throw "unknown-session refusal changed the session registry: '$afterRefusalList'"
     }
-    Write-Host 'ptk_invoke cross-call state ok: runtime token survived'
+    Write-Host 'unknown-session refusal ok: no worker started and no fallback occurred'
 
-    $handleMatches = [regex]::Matches(
-        $warmText,
-        '(?m)^recovery=available: ptk_output handle=(ptko_[A-Za-z0-9_-]+)\r?$')
-    if ($handleMatches.Count -ne 1) {
-        throw "ptk_invoke returned $($handleMatches.Count) recovery handles; text was '$warmText'."
-    }
-    $recoveryHandle = $handleMatches[0].Groups[1].Value
     Send-Rpc @{
         jsonrpc = '2.0'; id = 6; method = 'tools/call'
-        params = @{ name = 'ptk_output'; arguments = @{ handle = $recoveryHandle } }
+        params = @{
+            name = 'ptk_session'
+            arguments = @{ action = 'open'; name = 'exchange-online' }
+        }
     }
-    $outputRead = (Read-RpcResponse -Id 6).result
-    $outputText = $outputRead.content[0].text
-    $outputHeader = ($outputText -split '\r?\n', 2)[0]
-    if ($outputRead.isError -or
-        $outputHeader -notmatch '^\[ptk output\] action=read state=available complete=true bytes=\d+ provenance=powershell_objects offset=0 next_offset=\d+ bytes_returned=\d+$' -or
-        $outputText -notmatch "(?m)^$escapedOutputToken\r?$") {
-        throw "ptk_output did not retrieve the advertised invocation: '$outputText'."
+    $onlineOpen = (Read-RpcResponse -Id 6).result
+    $onlineOpenText = $onlineOpen.content[0].text
+    $onlinePidMatch = [regex]::Match(
+        $onlineOpenText,
+        '(?m)^session=exchange-online state=ready worker_pid=(\d+) active=false ')
+    if ($onlineOpen.isError -or -not $onlinePidMatch.Success) {
+        throw "exchange-online did not open a ready worker: '$onlineOpenText'"
     }
-    Write-Host 'ptk_output recovery ok: advertised handle returned the runtime token with PowerShell-object provenance'
+    $onlinePid = [int]$onlinePidMatch.Groups[1].Value
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 7; method = 'tools/call'
         params = @{
-            name = 'ptk_invoke'
-            arguments = @{ script = $backgroundScript; route = 'pwsh'; background = $true }
+            name = 'ptk_session'
+            arguments = @{ action = 'open'; name = 'exchange-onprem' }
         }
     }
-    $backgroundStart = (Read-RpcResponse -Id 7).result
-    $backgroundStartText = $backgroundStart.content[0].text
-    $jobMatch = [regex]::Match($backgroundStartText, '\[job (\d+) started\]')
-    if ($backgroundStart.isError -or -not $jobMatch.Success -or
-        $backgroundStartText -notmatch 'recovery=pending' -or
-        $backgroundStartText -match 'ptko_[A-Za-z0-9_-]+' -or
-        $backgroundStartText -match '(?i)\blog:') {
-        throw "background invoke did not return one path-free pending job: '$backgroundStartText'."
+    $onPremOpen = (Read-RpcResponse -Id 7).result
+    $onPremOpenText = $onPremOpen.content[0].text
+    $onPremPidMatch = [regex]::Match(
+        $onPremOpenText,
+        '(?m)^session=exchange-onprem state=ready worker_pid=(\d+) active=false ')
+    if ($onPremOpen.isError -or -not $onPremPidMatch.Success) {
+        throw "exchange-onprem did not open a ready worker: '$onPremOpenText'"
     }
-    $backgroundJobId = [long]$jobMatch.Groups[1].Value
-    $rpcId = 8
-    $statusDeadline = [DateTimeOffset]::UtcNow.AddSeconds(60)
-    do {
-        Send-Rpc @{
-            jsonrpc = '2.0'; id = $rpcId; method = 'tools/call'
-            params = @{
-                name = 'ptk_job'
-                arguments = @{ action = 'status'; id = $backgroundJobId }
-            }
-        }
-        $backgroundStatus = (Read-RpcResponse -Id $rpcId).result
-        $backgroundStatusText = $backgroundStatus.content[0].text
-        $backgroundHandles = [regex]::Matches(
-            $backgroundStatusText,
-            'ptk_output handle=(ptko_[A-Za-z0-9_-]+)')
-        if ($backgroundStatus.isError) {
-            throw "background ptk_job status failed: '$backgroundStatusText'."
-        }
-        if ($backgroundHandles.Count -eq 1) { break }
-        if ([DateTimeOffset]::UtcNow -ge $statusDeadline) {
-            throw "background job did not publish one recovery handle: '$backgroundStatusText'."
-        }
-        $rpcId++
-        Start-Sleep -Milliseconds 50
-    } while ($true)
+    $onPremPid = [int]$onPremPidMatch.Groups[1].Value
+    if ($onlinePid -eq $onPremPid) {
+        throw "named sessions shared worker pid $onlinePid"
+    }
+    Write-Host "named worker topology ok: exchange-online pid=$onlinePid, exchange-onprem pid=$onPremPid"
 
-    $backgroundHandle = $backgroundHandles[0].Groups[1].Value
-    if ($backgroundStatusText -notmatch 'recovery=handle:' -or
-        $backgroundStatusText -match '(?i)\blog:') {
-        throw "background status did not publish one path-free stable handle: '$backgroundStatusText'."
-    }
-    $rpcId++
     Send-Rpc @{
-        jsonrpc = '2.0'; id = $rpcId; method = 'tools/call'
-        params = @{ name = 'ptk_output'; arguments = @{ handle = $backgroundHandle } }
+        jsonrpc = '2.0'; id = 8; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = $onlineSeedScript; session = 'exchange-online' }
+        }
     }
-    $backgroundRead = (Read-RpcResponse -Id $rpcId).result
-    $backgroundOutputText = $backgroundRead.content[0].text
-    $backgroundHeader = ($backgroundOutputText -split '\r?\n', 2)[0]
-    if ($backgroundRead.isError -or
-        $backgroundHeader -notmatch '^\[ptk output\] action=read state=available complete=true bytes=\d+ provenance=direct_text offset=0 next_offset=\d+ bytes_returned=\d+$' -or
-        $backgroundOutputText -notmatch "(?m)^$escapedBackgroundToken\r?$") {
-        throw "ptk_output did not retrieve the advertised background invocation: '$backgroundOutputText'."
+    $onlineSeed = (Read-RpcResponse -Id 8).result.content[0].text
+    if ($onlineSeed -notmatch "(?m)^$escapedOnlineToken\r?$") {
+        throw "exchange-online seed failed: '$onlineSeed'"
     }
-    Write-Host 'background recovery ok: ptk_job published a path-free handle and ptk_output returned the same direct invocation'
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 9; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = $onPremSeedScript; session = 'exchange-onprem' }
+        }
+    }
+    $onPremSeed = (Read-RpcResponse -Id 9).result.content[0].text
+    if ($onPremSeed -notmatch "(?m)^$escapedOnPremToken\r?$") {
+        throw "exchange-onprem seed failed: '$onPremSeed'"
+    }
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 10; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$shared'; session = 'exchange-online' }
+        }
+    }
+    $onlineRead = (Read-RpcResponse -Id 10).result.content[0].text
+    if ($onlineRead -notmatch "(?m)^$escapedOnlineToken\r?$" -or
+        $onlineRead -match $escapedOnPremToken) {
+        throw "exchange-online warm state was not isolated: '$onlineRead'"
+    }
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 11; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$shared'; session = 'exchange-onprem' }
+        }
+    }
+    $onPremRead = (Read-RpcResponse -Id 11).result.content[0].text
+    if ($onPremRead -notmatch "(?m)^$escapedOnPremToken\r?$" -or
+        $onPremRead -match $escapedOnlineToken) {
+        throw "exchange-onprem warm state was not isolated: '$onPremRead'"
+    }
+    Write-Host 'warm-state isolation ok: identical variable names retained different values'
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 12; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = $executionScript; session = 'exchange-online' }
+        }
+    }
+    $executionResult = (Read-RpcResponse -Id 12).result.content[0].text
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 13; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$executionCount'; session = 'exchange-online' }
+        }
+    }
+    $executionState = (Read-RpcResponse -Id 13).result.content[0].text
+    if ($executionResult -notmatch '(?m)^1\r?$' -or
+        $executionState -notmatch '(?m)^1\r?$') {
+        throw "one accepted invoke did not execute exactly once: first='$executionResult'; state='$executionState'"
+    }
+    Write-Host 'exactly-once dispatch ok: one accepted invoke changed warm state once'
+
+    $handleMatches = [regex]::Matches(
+        $onlineRead,
+        '(?m)^recovery=available: ptk_output handle=(ptko_[A-Za-z0-9_-]+)\r?$')
+    if ($handleMatches.Count -ne 1) {
+        throw "ptk_invoke returned $($handleMatches.Count) recovery handles; text was '$onlineRead'."
+    }
+    $recoveryHandle = $handleMatches[0].Groups[1].Value
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 14; method = 'tools/call'
+        params = @{ name = 'ptk_reset'; arguments = @{ session = 'exchange-online' } }
+    }
+    $resetText = (Read-RpcResponse -Id 14).result.content[0].text
+    if ($resetText -notmatch '(?m)^\[ptk reset\] completed\r?$' -or
+        $resetText -notmatch '(?m)^session=exchange-online state=ready worker_pid=\d+ ') {
+        throw "selected-session reset failed: '$resetText'"
+    }
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 15; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$shared'; session = 'exchange-online' }
+        }
+    }
+    $onlineAfterReset = (Read-RpcResponse -Id 15).result.content[0].text
+    if ($onlineAfterReset -match $escapedOnlineToken -or
+        $onlineAfterReset -match $escapedOnPremToken) {
+        throw "reset retained or crossed warm state: '$onlineAfterReset'"
+    }
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 16; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$shared'; session = 'exchange-onprem' }
+        }
+    }
+    $onPremAfterReset = (Read-RpcResponse -Id 16).result.content[0].text
+    if ($onPremAfterReset -notmatch "(?m)^$escapedOnPremToken\r?$") {
+        throw "reset of exchange-online damaged exchange-onprem: '$onPremAfterReset'"
+    }
+    Write-Host 'selected reset ok: one worker lost warm state and the other did not'
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 17; method = 'tools/call'
+        params = @{
+            name = 'ptk_session'
+            arguments = @{ action = 'close'; name = 'exchange-online' }
+        }
+    }
+    $closeText = (Read-RpcResponse -Id 17).result.content[0].text
+    if ($closeText -ne '[ptk session] closed session=exchange-online') {
+        throw "exchange-online close failed: '$closeText'"
+    }
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 18; method = 'tools/call'
+        params = @{
+            name = 'ptk_invoke'
+            arguments = @{ script = '$neverDispatched = 2'; session = 'exchange-online' }
+        }
+    }
+    $closedInvoke = (Read-RpcResponse -Id 18).result.content[0].text
+    if ($closedInvoke -notmatch '^\[ptk invoke\] refused session=exchange-online detail=session_not_found;' -or
+        $closedInvoke -notmatch 'Nothing was executed\.$') {
+        throw "closed session did not refuse before dispatch: '$closedInvoke'"
+    }
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 19; method = 'tools/call'
+        params = @{ name = 'ptk_output'; arguments = @{ handle = $recoveryHandle } }
+    }
+    $outputRead = (Read-RpcResponse -Id 19).result
+    $outputText = $outputRead.content[0].text
+    $outputHeader = ($outputText -split '\r?\n', 2)[0]
+    if ($outputRead.isError -or
+        $outputHeader -notmatch '^\[ptk output\] action=read state=available complete=true bytes=\d+ provenance=powershell_objects offset=0 next_offset=\d+ bytes_returned=\d+$' -or
+        $outputText -notmatch "(?m)^$escapedOnlineToken\r?$") {
+        throw "sealed output did not survive reset and close: '$outputText'"
+    }
+    Write-Host 'output recovery ok: sealed handle survived worker reset and session close'
+
+    Send-Rpc @{
+        jsonrpc = '2.0'; id = 20; method = 'tools/call'
+        params = @{ name = 'ptk_session'; arguments = @{ action = 'list' } }
+    }
+    $finalList = (Read-RpcResponse -Id 20).result.content[0].text
+    if ([regex]::Matches($finalList, '(?m)^session=').Count -ne 2 -or
+        $finalList -notmatch '(?m)^session=default state=cold worker_pid=none ' -or
+        $finalList -notmatch '(?m)^session=exchange-onprem state=ready worker_pid=\d+ ' -or
+        $finalList -match '(?m)^session=exchange-online ') {
+        throw "final session registry was wrong: '$finalList'"
+    }
+    Write-Host 'session close ok: closed alias stayed absent and remaining session stayed ready'
+
     Assert-LiveOutputRoot -Parent $outputParent -Label 'main server'
 
 }
@@ -520,7 +659,8 @@ if (-not $failed) {
             params = @{ name = 'ptk_state'; arguments = @{} }
         }
         $diagnosticState = (Read-RpcResponse -Id 103).result.content[0].text
-        if ($diagnosticState -notmatch 'ptk server: pid \d+' -or
+        if ($diagnosticState -notmatch '(?m)^ptk supervisor: pid=\d+ sessions=1/8\r?$' -or
+            $diagnosticState -notmatch '(?m)^session=default state=cold worker_pid=none ' -or
             $diagnosticState -notmatch '(?m)^audit: disabled\r?$') {
             throw "audit-independent ptk_state omitted expected state: '$diagnosticState'"
         }

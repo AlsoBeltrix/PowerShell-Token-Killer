@@ -1,4 +1,3 @@
-using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Tests;
@@ -9,8 +8,7 @@ public sealed class SupervisorLifecycleTests
     public async Task Stop_refuses_new_calls_cancels_and_drains_all_active_calls_then_disposes_session()
     {
         var session = new RecordingSession();
-        var workers = new WorkerSupervisor(session, session);
-        using var lifecycle = new SupervisorLifecycle(workers);
+        using var lifecycle = new SupervisorLifecycle(session);
         Assert.True(lifecycle.TryBeginCall(
             CancellationToken.None,
             out var firstLease,
@@ -71,7 +69,7 @@ public sealed class SupervisorLifecycleTests
         }
     }
 
-    private sealed class RecordingSession : ISessionOperations, ISessionLifetime
+    private sealed class RecordingSession : ISessionLifetime
     {
         private readonly List<string> _events = [];
 
@@ -89,30 +87,5 @@ public sealed class SupervisorLifecycleTests
         }
 
         public void Dispose() => _events.Add("dispose");
-
-        public Task<string> InvokeAsync(
-            string script,
-            CancellationToken cancellationToken,
-            bool raw,
-            string route,
-            bool background,
-            int timeoutSeconds,
-            OutputStore? outputStore) =>
-            throw new NotSupportedException();
-
-        public Task<string> JobAsync(
-            string action,
-            CancellationToken cancellationToken,
-            long id,
-            long offset) =>
-            throw new NotSupportedException();
-
-        public Task<string> StateAsync(
-            bool listAvailable,
-            CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
-
-        public Task<string> ResetAsync(CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
     }
 }

@@ -10,7 +10,7 @@ namespace PtkMcpServer;
 internal sealed class SupervisorLifecycle : IHostedService, IDisposable
 {
     private readonly object _gate = new();
-    private readonly WorkerSupervisor _workers;
+    private readonly ISessionLifetime _sessions;
     private readonly CancellationTokenSource _shutdown = new();
 
     private TaskCompletionSource<bool>? _activeCallsDrained;
@@ -19,10 +19,10 @@ internal sealed class SupervisorLifecycle : IHostedService, IDisposable
     private bool _stopping;
     private bool _disposed;
 
-    internal SupervisorLifecycle(WorkerSupervisor workers)
+    internal SupervisorLifecycle(ISessionLifetime sessions)
     {
-        ArgumentNullException.ThrowIfNull(workers);
-        _workers = workers;
+        ArgumentNullException.ThrowIfNull(sessions);
+        _sessions = sessions;
     }
 
     internal bool TryBeginCall(
@@ -98,11 +98,11 @@ internal sealed class SupervisorLifecycle : IHostedService, IDisposable
         await activeCalls.ConfigureAwait(false);
         try
         {
-            await _workers.ShutdownAsync().ConfigureAwait(false);
+            await _sessions.ShutdownAsync().ConfigureAwait(false);
         }
         finally
         {
-            _workers.Dispose();
+            _sessions.Dispose();
         }
     }
 

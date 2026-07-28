@@ -20,7 +20,7 @@ public sealed class AuditCallMetadataTests
             "ptk_invoke",
             ("raw", false),
             ("script", "Get-Process"),
-            ("background", false));
+            ("session", "exchange-online"));
         var client = new AuditClientContext("Claude Code", "2.1.207", "stdio-7");
 
         Assert.True(Capture(call, client, out var metadata, out var script, out var failure));
@@ -34,18 +34,17 @@ public sealed class AuditCallMetadataTests
         Assert.Equal("client_asserted", metadata.Actor.AttributionStrength);
         Assert.Equal("ptk_invoke", metadata.Request.Tool);
         Assert.Equal("invoke", metadata.Request.Action);
-        Assert.Equal(["background", "raw", "script"], metadata.Request.ProvidedFields);
-        Assert.Equal("default", metadata.Request.SessionRequested);
+        Assert.Equal(["raw", "script", "session"], metadata.Request.ProvidedFields);
+        Assert.Equal("exchange-online", metadata.Request.SessionRequested);
         Assert.Equal("auto", metadata.Request.Route);
-        Assert.False(metadata.Request.Background);
+        Assert.Null(metadata.Request.Background);
         Assert.False(metadata.Request.Raw);
         Assert.Equal(300_000, metadata.Request.TimeoutMs);
         Assert.Equal(Now.AddMinutes(5), metadata.Request.DeadlineUtc);
         Assert.DoesNotContain("Get-Process", metadata.ToString(), StringComparison.Ordinal);
         Assert.True(metadata.OperationProfile.RequiresScriptEvidence);
         Assert.True(metadata.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(11, metadata.OperationProfile.MaximumCallRecordSlots);
-        Assert.Equal(0, metadata.OperationProfile.PersistentJobTerminalSlots);
+        Assert.Equal(11, metadata.OperationProfile.MaximumRecordSlots);
     }
 
     [Fact]
@@ -71,61 +70,59 @@ public sealed class AuditCallMetadataTests
     }
 
     [Fact]
-    public void Background_profile_carries_a_separate_persistent_job_terminal_slot()
+    public void Invoke_profile_reserves_only_bounded_call_records()
     {
-        var call = Call("ptk_invoke", ("script", "dotnet test"), ("background", true));
+        var call = Call("ptk_invoke", ("script", "dotnet test"));
 
         Assert.True(Capture(call, new(), out var metadata, out _, out _));
 
         var profile = metadata!.OperationProfile;
-        Assert.Equal(11, profile.MaximumCallRecordSlots);
-        Assert.Equal(1, profile.PersistentJobTerminalSlots);
-        Assert.Equal(12, profile.MaximumRecordSlots);
-        Assert.Equal(12L * 65_536, profile.MaximumReservationBytes(65_536));
+        Assert.Equal(11, profile.MaximumRecordSlots);
+        Assert.Equal(11L * 65_536, profile.MaximumReservationBytes(65_536));
     }
 
     [Fact]
-    public void Job_capture_uses_normalized_action_positive_int64_id_and_effective_output_offset()
+    public void Session_capture_records_explicit_lifecycle_target_without_job_fields()
     {
-        const long jobId = 5_000_000_000;
-        var call = Call("ptk_job", ("id", jobId), ("action", "OUTPUT"));
-
-        Assert.True(Capture(call, new(), out var metadata, out var script, out _));
+        Assert.True(Capture(
+            Call("ptk_session", ("action", "open"), ("name", "exchange-online")),
+            new(),
+            out var opened,
+            out var script,
+            out _));
 
         Assert.Null(script);
-        Assert.Equal("output", metadata!.Request.Action);
-        Assert.Equal(jobId, metadata.Request.JobId);
-        Assert.Equal(0, metadata.Request.Offset);
-        Assert.Equal(["action", "id"], metadata.Request.ProvidedFields);
-        Assert.True(metadata.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(6, metadata.OperationProfile.MaximumCallRecordSlots);
-
-        Assert.True(Capture(Call("ptk_job", ("action", "list")), new(), out metadata, out _, out _));
-        Assert.Null(metadata!.Request.JobId);
-        Assert.Null(metadata.Request.Offset);
-        Assert.Equal(3, metadata.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal("open", opened!.Request.Action);
+        Assert.Equal("exchange-online", opened.Request.SessionRequested);
+        Assert.Equal(["action", "name"], opened.Request.ProvidedFields);
+        Assert.Null(opened.Request.JobId);
+        Assert.True(opened.OperationProfile.MayHaveSideEffects);
+        Assert.Equal(4, opened.OperationProfile.MaximumRecordSlots);
 
         Assert.True(Capture(
-            Call("ptk_job", ("action", "list"), ("id", 42L)),
+            Call("ptk_session", ("action", "list")),
             new(),
-            out metadata,
+            out var listed,
             out _,
             out _));
-        Assert.Null(metadata!.Request.JobId);
-        Assert.Contains("id", metadata.Request.ProvidedFields);
+        Assert.Null(listed!.Request.SessionRequested);
+        Assert.False(listed.OperationProfile.MayHaveSideEffects);
+        Assert.Equal(2, listed.OperationProfile.MaximumRecordSlots);
     }
 
-    [Theory]
-    [InlineData("status")]
-    [InlineData("output")]
-    [InlineData("kill")]
-    public void Job_specific_actions_require_an_identifier(string action)
+    [Fact]
+    public void Session_action_and_name_requirements_fail_closed()
     {
         AssertRejected(
-            Call("ptk_job", ("action", action)),
-            "id is required for this action");
+            Call("ptk_session", ("action", "open")),
+            "name is required for this action");
+        AssertRejected(
+            Call("ptk_session", ("action", "list"), ("name", "exchange-online")),
+            "list does not accept name");
+        AssertRejected(
+            Call("ptk_session", ("action", "future")),
+            "action is unsupported");
     }
-
     [Fact]
     public void State_and_reset_capture_effective_current_defaults()
     {
@@ -133,14 +130,21 @@ public sealed class AuditCallMetadataTests
         Assert.Equal("state", state!.Request.Action);
         Assert.False(state.Request.ListAvailable);
         Assert.Empty(state.Request.ProvidedFields);
+        Assert.Equal("default", state.Request.SessionRequested);
         Assert.Equal("transport_only", state.Actor.AttributionStrength);
         Assert.True(state.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(5, state.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(5, state.OperationProfile.MaximumRecordSlots);
 
-        Assert.True(Capture(Call("ptk_reset"), new(), out var reset, out _, out _));
+        Assert.True(Capture(
+            Call("ptk_reset", ("session", "exchange-onprem")),
+            new(),
+            out var reset,
+            out _,
+            out _));
         Assert.Equal("reset", reset!.Request.Action);
+        Assert.Equal("exchange-onprem", reset.Request.SessionRequested);
         Assert.True(reset.OperationProfile.MayHaveSideEffects);
-        Assert.Equal(4, reset.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(4, reset.OperationProfile.MaximumRecordSlots);
     }
 
     [Fact]
@@ -180,7 +184,7 @@ public sealed class AuditCallMetadataTests
         Assert.Equal(
             Convert.ToHexString(HMACSHA256.HashData(key, hmacInput)).ToLowerInvariant(),
             metadata.Request.PatternFingerprint);
-        Assert.Equal(3, metadata.OperationProfile.MaximumCallRecordSlots);
+        Assert.Equal(3, metadata.OperationProfile.MaximumRecordSlots);
         Assert.False(metadata.OperationProfile.MayHaveSideEffects);
         Assert.False(metadata.OperationProfile.RequiresScriptEvidence);
         Assert.DoesNotContain(handle, metadata.ToString(), StringComparison.Ordinal);
@@ -251,18 +255,10 @@ public sealed class AuditCallMetadataTests
     public void Unknown_tools_fields_and_actions_fail_closed_without_partial_metadata()
     {
         AssertRejected(Call("ptk_future"), "unknown tool");
+        AssertRejected(Call("ptk_job", ("action", "list")), "unknown tool");
         AssertRejected(Call("ptk_state", ("futureField", "secret-value")), "unknown argument field", "secret-value");
         AssertRejected(Call("ptk_reset", ("force", true)), "unknown argument field");
-
-        Assert.True(Capture(
-            Call("ptk_job", ("action", "future-action")),
-            new(),
-            out var unknownAction,
-            out _,
-            out _));
-        Assert.Equal("future-action", unknownAction!.Request.Action);
-        Assert.Equal(2, unknownAction.OperationProfile.MaximumCallRecordSlots);
-        Assert.False(unknownAction.OperationProfile.MayHaveSideEffects);
+        AssertRejected(Call("ptk_session", ("action", "future-action")), "action is unsupported");
     }
 
     [Fact]
@@ -271,9 +267,11 @@ public sealed class AuditCallMetadataTests
         AssertRejected(Call("ptk_invoke", ("script", 42)), "wrong JSON kind");
         AssertRejected(Call("ptk_invoke", ("script", "'ok'"), ("raw", "true")), "wrong JSON kind");
         AssertRejected(Call("ptk_invoke"), "required argument script is missing");
-        AssertRejected(Call("ptk_job", ("action", "status"), ("id", 0)), "positive int64");
-        AssertRejected(Call("ptk_job", ("action", "output"), ("offset", -1)), "nonnegative int64");
+        AssertRejected(Call("ptk_invoke", ("script", "'ok'"), ("session", null)), "wrong JSON kind");
         AssertRejected(Call("ptk_state", ("listAvailable", 1)), "wrong JSON kind");
+        AssertRejected(Call("ptk_state", ("session", "Not-Canonical")), "valid session name");
+        AssertRejected(Call("ptk_session", ("action", "open"), ("name", 42)), "wrong JSON kind");
+        AssertRejected(Call("ptk_session", ("action", null)), "wrong JSON kind");
 
         Assert.True(Capture(
             Call("ptk_invoke", ("script", "'ok'"), ("route", null)),
@@ -284,13 +282,9 @@ public sealed class AuditCallMetadataTests
         Assert.Equal("auto", nullRoute!.Request.Route);
         Assert.Contains("route", nullRoute.Request.ProvidedFields);
 
-        Assert.True(Capture(
-            Call("ptk_job", ("action", null)),
-            new(),
-            out var nullAction,
-            out _,
-            out _));
-        Assert.Null(nullAction!.Request.Action);
+        AssertRejected(
+            Call("ptk_session", ("action", "open"), ("name", null)),
+            "name is required for this action");
     }
 
     [Fact]

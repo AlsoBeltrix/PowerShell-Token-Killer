@@ -9,14 +9,12 @@ namespace PtkMcpServer.Tests;
 public sealed class ResetToolTests : IDisposable
 {
     private readonly RunspaceHost _host = new(callTimeout: TimeSpan.FromSeconds(60));
-    private readonly JobManager _jobs = new(
-        Path.Combine(Path.GetTempPath(), "ptk-reset-jobs-" + Guid.NewGuid().ToString("N")));
     private readonly RawUsageCounter _rawUsage = new();
     private readonly SessionRuntime _runtime;
 
     public ResetToolTests()
     {
-        _runtime = new SessionRuntime(_host, _jobs, _rawUsage);
+        _runtime = new SessionRuntime(_host, _rawUsage);
     }
 
     public void Dispose()
@@ -39,36 +37,6 @@ public sealed class ResetToolTests : IDisposable
 
         var state = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
         Assert.DoesNotContain("PtkWarmTest", state);
-    }
-
-    [Fact]
-    public async Task Reset_adapter_forwards_to_the_session_runtime()
-    {
-        await _host.InvokeAsync("$adapterResetProbe = 'present'");
-
-        var message = await ResetTool.Reset(_runtime, CancellationToken.None);
-
-        Assert.Contains("recycled", message);
-        var probe = await _host.InvokeAsync(
-            "if ($null -eq $adapterResetProbe) { 'gone' } else { $adapterResetProbe }");
-        Assert.Equal("gone", probe.Output.Trim());
-    }
-
-    [Fact]
-    public async Task Reset_kills_running_background_jobs()
-    {
-        var job = _jobs.Start("Start-Sleep -Seconds 300");
-        Assert.True(_jobs.Snapshot(job.Id)!.Running);
-
-        var message = await _runtime.ResetAsync(CancellationToken.None);
-        Assert.Contains("1 background job(s) killed", message);
-
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        while (_jobs.Snapshot(job.Id)!.Running && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(200);
-        }
-        Assert.False(_jobs.Snapshot(job.Id)!.Running);
     }
 
     [Fact]

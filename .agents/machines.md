@@ -5,16 +5,31 @@ entries during a `drift` pass.
 
 ## `nagatha.local` — Michael's Mac
 
-_Last verified 2026-07-11 against repo base `78779b0`._
+_Installed-state baseline re-verified 2026-07-28 against local `master`
+`14daad6`; this was read-only inventory, not installation or registration
+change._
 
 - The live server runs from `~/.ptk/bin/PtkMcpServer`; installed version is
-  `0.2.0-dev.g6db333c`.
-- Installed `ptk_init.ps1`, `ptk-hook.ps1`, and
-  `PwshTokenCompressor.psm1` hash-match the checkout. No product file
-  changed between `6db333c` and `78779b0`.
-- The Claude and Codex guidance blocks contain the current PowerShell-dialect
-  and raw-recovery wording, and the Claude hook points at the installed copy.
-  No dev-install or `ptk_init` rerun is pending on this Mac.
+  `0.2.0-dev.g6db333c`; its SHA-256 is
+  `e06d25635adcc07deaf6dea82716ce70bf8fa29f5c3e64c7e1756acd562cb0ca`.
+  The connected server process was PID 1435, started 2026-07-28 08:41:16
+  local time from that exact path.
+- Codex's PTK registration is exactly
+  `command = "/Users/michael/.ptk/bin/PtkMcpServer"` with no arguments. The
+  9,824-byte `~/.codex/config.toml` SHA-256 was
+  `bb6a71e1e800fe50840439e4b07fe596af488c8412c66d46987b38c8e2fd3ee2`;
+  the normalized PTK section SHA-256 was
+  `814d6bab2cba1843a716e4b0960fbdb678eba384b7576d2258c153002ec7de5d`.
+- A deterministic inventory of managed installed paths (`bin`, `src`,
+  `scripts`, and `VERSION`) contained 564 files and 38 directories with
+  nothing missing. Sorted type/path/length/Unix-mode/content-hash records had
+  aggregate SHA-256
+  `c646ca4bed255559b2a43c0b0cdaad4cc2b051be6a564e5cd2641d0b62bbb274`.
+- This active installation predates the candidate five-tool named-session
+  runtime: the connected surface exposes the older job API rather than
+  `ptk_output` and `ptk_session`. It is a rollback baseline, not evidence that
+  the current candidate is installed. Candidate canary activation and client
+  restart remain separately authorized deployment work.
 - On 2026-07-11 at plan base `2a83723`, disposable Darwin fork/pipe probes
   proved the audited-session Unix topology at the mid-creation, armed/gated,
   and released-with-descendant barriers. The broker observed supervisor

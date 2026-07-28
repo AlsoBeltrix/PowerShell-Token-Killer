@@ -1,8 +1,354 @@
 using System.Buffers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
 namespace PtkMcpServer.Worker;
+
+internal interface IWorkerArtifactCapture : IDisposable
+{
+    WorkerArtifactRequest Request { get; }
+    bool IsSealed { get; }
+    Task SinkCompletionForTests { get; }
+
+    void BindRequest(long requestId);
+    void Accept(WorkerArtifactChunk chunk);
+    void Accept(WorkerArtifactSeal seal);
+    Task<OutputRecoverySummary> CompleteAtResultAsync();
+}
+
+/// <summary>
+/// Supervisor-owned optional artifact path. The protocol reader performs only
+/// bounded validation and copies into one fixed byte buffer. A separate sink owns
+/// decoding, storage, and publication; failure discards recovery without
+/// delaying or replaying the ordinary invocation.
+/// </summary>
+internal sealed class SupervisorWorkerArtifactCapture : IWorkerArtifactCapture
+{
+    private readonly OutputStore _store;
+    private readonly OutputCaptureReservation _reservation;
+    private readonly TimeSpan _storageWait;
+    private readonly int _maximumChunkBytes;
+    private readonly byte[] _buffer;
+    private readonly CancellationTokenSource _discard = new();
+    private readonly Func<CancellationToken, Task>? _sinkGateForTests;
+    private readonly object _discardGate = new();
+    private WorkerArtifactReceiver? _receiver;
+    private Task<SinkResult>? _sink;
+    private string? _failure;
+    private int _sealedLength;
+    private int _bound;
+    private int _discarding;
+    private int _completed;
+    private int _disposed;
+
+    internal SupervisorWorkerArtifactCapture(
+        OutputStore store,
+        OutputCaptureReservation reservation,
+        long maximumBytes,
+        int maximumChunkBytes,
+        TimeSpan storageWait,
+        int? captureBufferBytesForTests = null,
+        Func<CancellationToken, Task>? sinkGateForTests = null)
+    {
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _reservation = reservation ??
+            throw new ArgumentNullException(nameof(reservation));
+        if (maximumBytes is < 1 or > WorkerOperationProtocol.MaximumArtifactBytes)
+            throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+        if (maximumChunkBytes is < 1 or >
+            WorkerOperationProtocol.MaximumArtifactChunkBytes ||
+            maximumChunkBytes > maximumBytes)
+        {
+            throw new ArgumentOutOfRangeException(nameof(maximumChunkBytes));
+        }
+        if (storageWait <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(storageWait));
+
+        var bufferBytes = captureBufferBytesForTests ??
+            checked((int)maximumBytes);
+        if (bufferBytes is < 1 || bufferBytes > maximumBytes)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(captureBufferBytesForTests));
+        }
+
+        Request = new WorkerArtifactRequest(
+            reservation.ArtifactGuid,
+            maximumBytes);
+        _maximumChunkBytes = maximumChunkBytes;
+        _storageWait = storageWait;
+        _sinkGateForTests = sinkGateForTests;
+        _buffer = new byte[bufferBytes];
+    }
+
+    public WorkerArtifactRequest Request { get; }
+    public bool IsSealed => _receiver?.IsSealed == true;
+    public Task SinkCompletionForTests =>
+        _sink ?? Task.CompletedTask;
+
+    public void BindRequest(long requestId)
+    {
+        ObjectDisposedException.ThrowIf(
+            Volatile.Read(ref _disposed) != 0,
+            this);
+        if (Interlocked.Exchange(ref _bound, 1) != 0)
+            throw new InvalidOperationException("Artifact capture is already bound.");
+        _receiver = new WorkerArtifactReceiver(requestId, Request);
+    }
+
+    public void Accept(WorkerArtifactChunk chunk)
+    {
+        ArgumentNullException.ThrowIfNull(chunk);
+        if (chunk.Bytes.Length > _maximumChunkBytes)
+        {
+            throw new WorkerProtocolException(
+                "artifact_chunk_too_large",
+                "Worker artifact chunk exceeds the negotiated bound.");
+        }
+
+        var receiver = RequireReceiver();
+        receiver.Accept(chunk);
+        if (Volatile.Read(ref _discarding) != 0) return;
+
+        var end = checked((int)receiver.Length);
+        var start = end - chunk.Bytes.Length;
+        if (end > _buffer.Length)
+        {
+            BeginDiscard("artifact_queue_full");
+            return;
+        }
+
+        chunk.Bytes.CopyTo(_buffer, start);
+    }
+
+    public void Accept(WorkerArtifactSeal seal)
+    {
+        var receiver = RequireReceiver();
+        receiver.Accept(seal);
+        _sealedLength = checked((int)receiver.Length);
+        if (Volatile.Read(ref _discarding) == 0)
+            _sink = RunSinkAsync();
+    }
+
+    public Task<OutputRecoverySummary> CompleteAtResultAsync()
+    {
+        if (Interlocked.Exchange(ref _completed, 1) != 0)
+        {
+            return Task.FromResult(
+                OutputRecoverySummary.Unavailable(
+                    "artifact_result_already_completed",
+                    advertise: true));
+        }
+
+        var sink = _sink;
+        if (sink is null)
+        {
+            var detailCode =
+                Volatile.Read(ref _failure) ?? "artifact_sink_incomplete";
+            _ = TryBeginDiscard(detailCode);
+            return Task.FromResult(
+                OutputRecoverySummary.Unavailable(
+                    detailCode,
+                    advertise: true));
+        }
+
+        return CompleteSinkAtResultAsync(sink);
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        BeginDiscard(_failure ?? "artifact_capture_disposed");
+        _receiver?.Dispose();
+        _receiver = null;
+        var sink = _sink;
+        if (sink is null || sink.IsCompleted)
+        {
+            ClearBuffer();
+            _discard.Dispose();
+        }
+        else
+            _ = sink.ContinueWith(
+                _ =>
+                {
+                    ClearBuffer();
+                    _discard.Dispose();
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+    }
+
+    private async Task<SinkResult> RunSinkAsync()
+    {
+        try
+        {
+            if (_sinkGateForTests is not null)
+                await _sinkGateForTests(_discard.Token).ConfigureAwait(false);
+
+            if (Volatile.Read(ref _discarding) != 0)
+                return SinkResult.Unavailable(_failure ?? "artifact_discarded");
+
+            Task<OutputSealResult>? storage;
+            try
+            {
+                storage = await _store.WaitToStartForegroundOperationAsync(
+                    () => _reservation.Seal(
+                        WorkerOutputArtifactCodec.Decode(
+                            _buffer.AsSpan(0, _sealedLength),
+                            Request.MaximumBytes)),
+                    _storageWait,
+                    _discard.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return SinkResult.Unavailable(
+                    _failure ?? "artifact_sink_canceled");
+            }
+
+            if (storage is null)
+            {
+                _ = _reservation.TryCancel();
+                return SinkResult.Unavailable("output_store_seal_timed_out");
+            }
+
+            OutputSealResult sealedResult;
+            try
+            {
+                sealedResult = await storage.ConfigureAwait(false);
+            }
+            catch (WorkerProtocolException exception)
+            {
+                _ = _reservation.TryCancel();
+                return SinkResult.Protocol(exception);
+            }
+            catch
+            {
+                _ = _reservation.TryCancel();
+                return SinkResult.Unavailable("output_store_unavailable");
+            }
+            finally
+            {
+                _reservation.CompleteObserved();
+            }
+
+            return sealedResult.Success
+                ? SinkResult.Available(
+                    OutputRecoverySummary.FromSeal(sealedResult))
+                : SinkResult.Unavailable(
+                    sealedResult.DetailCode ?? "output_store_unavailable");
+        }
+        catch (WorkerProtocolException exception)
+        {
+            _ = _reservation.TryCancel();
+            return SinkResult.Protocol(exception);
+        }
+        catch (OperationCanceledException)
+        {
+            _ = _reservation.TryCancel();
+            return SinkResult.Unavailable(
+                _failure ?? "artifact_sink_canceled");
+        }
+        catch
+        {
+            _ = _reservation.TryCancel();
+            return SinkResult.Unavailable("artifact_sink_failed");
+        }
+        finally
+        {
+            ClearBuffer();
+        }
+    }
+
+    private WorkerArtifactReceiver RequireReceiver() =>
+        _receiver ??
+        throw new InvalidOperationException("Artifact capture is not bound.");
+
+    private async Task<OutputRecoverySummary> CompleteSinkAtResultAsync(
+        Task<SinkResult> sink)
+    {
+        if (!sink.IsCompleted)
+        {
+            var deadline = Task.Delay(_storageWait);
+            if (await Task.WhenAny(sink, deadline).ConfigureAwait(false) != sink &&
+                TryBeginDiscard("artifact_sink_incomplete"))
+            {
+                Observe(sink);
+                return OutputRecoverySummary.Unavailable(
+                    "artifact_sink_incomplete",
+                    advertise: true);
+            }
+        }
+
+        var result = await sink.ConfigureAwait(false);
+        if (result.ProtocolFailure is not null)
+            throw result.ProtocolFailure;
+        return result.Recovery;
+    }
+
+    private void BeginDiscard(string detailCode) =>
+        _ = TryBeginDiscard(detailCode);
+
+    private bool TryBeginDiscard(string detailCode)
+    {
+        lock (_discardGate)
+        {
+            if (Volatile.Read(ref _discarding) != 0)
+                return true;
+            if (!_reservation.TryCancel())
+            {
+                // The store crossed its irreversible publication claim.
+                // Returning unavailable now would strand a valid but
+                // unreachable handle, so the terminal coordinator must observe
+                // the exact sink result instead.
+                return false;
+            }
+            _failure = detailCode;
+            Volatile.Write(ref _discarding, 1);
+        }
+
+        try { _discard.Cancel(); }
+        catch (ObjectDisposedException) { }
+        return true;
+    }
+
+    private void ClearBuffer() =>
+        CryptographicOperations.ZeroMemory(_buffer);
+
+    private static void Observe(Task? task)
+    {
+        if (task is null) return;
+        _ = task.ContinueWith(
+            static completed => _ = completed.Exception,
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted |
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private sealed record SinkResult(
+        OutputRecoverySummary Recovery,
+        WorkerProtocolException? ProtocolFailure)
+    {
+        internal static SinkResult Available(OutputRecoverySummary recovery) =>
+            new(recovery, null);
+
+        internal static SinkResult Unavailable(string detailCode) =>
+            new(
+                OutputRecoverySummary.Unavailable(
+                    detailCode,
+                    advertise: true),
+                null);
+
+        internal static SinkResult Protocol(WorkerProtocolException failure) =>
+            new(
+                OutputRecoverySummary.Unavailable(
+                    failure.DetailCode,
+                    advertise: true),
+                failure);
+    }
+}
 
 internal sealed class WorkerForegroundOutputCapture : IForegroundOutputCapture
 {

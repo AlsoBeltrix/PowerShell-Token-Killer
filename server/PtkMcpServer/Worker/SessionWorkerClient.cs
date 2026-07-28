@@ -6,7 +6,9 @@ namespace PtkMcpServer.Worker;
 internal sealed record SessionWorkerInvocation(
     WorkerResult Result,
     Guid? ArtifactId,
-    OutputArtifactContent? ArtifactContent);
+    OutputArtifactContent? ArtifactContent,
+    OutputRecoverySummary? OutputRecovery = null,
+    Task<OutputRecoverySummary>? OutputRecoveryCompletion = null);
 
 internal enum WorkerInvocationDisposition
 {
@@ -48,7 +50,7 @@ internal interface ISessionWorker : IAsyncDisposable
         bool raw,
         WorkerInvokeRoute route,
         int timeoutSeconds,
-        WorkerArtifactRequest? artifact,
+        IWorkerArtifactCapture? artifactCapture,
         CancellationToken cancellationToken);
 
     Task<WorkerStateSnapshot> StateAsync(
@@ -372,16 +374,15 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         bool raw,
         WorkerInvokeRoute route,
         int timeoutSeconds,
-        WorkerArtifactRequest? artifact,
+        IWorkerArtifactCapture? artifactCapture,
         CancellationToken cancellationToken)
     {
         await _operation.WaitAsync(cancellationToken).ConfigureAwait(false);
         var writeStarted = false;
-        WorkerArtifactReceiver? receiver = null;
-        using var artifactBytes = new MemoryStream();
         try
         {
             var requestId = NextRequestId();
+            artifactCapture?.BindRequest(requestId);
             var request = WorkerOperationProtocol.CreateInvokeEnvelope(
                 SessionId,
                 Incarnation,
@@ -390,10 +391,8 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                 raw,
                 route,
                 timeoutSeconds,
-                artifact,
+                artifactCapture?.Request,
                 _limits);
-            if (artifact is not null)
-                receiver = new WorkerArtifactReceiver(requestId, artifact);
 
             await WriteRequiredAsync(
                     request,
@@ -413,10 +412,9 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                         Incarnation,
                         _limits);
                     RequireRequest(requestId, chunk.RequestId);
-                    receiver?.Accept(chunk);
-                    if (receiver is null)
+                    if (artifactCapture is null)
                         throw UnsolicitedArtifact();
-                    artifactBytes.Write(chunk.Bytes);
+                    artifactCapture.Accept(chunk);
                     artifactStarted = true;
                     continue;
                 }
@@ -427,9 +425,9 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                         SessionId,
                         Incarnation);
                     RequireRequest(requestId, seal.RequestId);
-                    receiver?.Accept(seal);
-                    if (receiver is null)
+                    if (artifactCapture is null)
                         throw UnsolicitedArtifact();
+                    artifactCapture.Accept(seal);
                     artifactStarted = true;
                     continue;
                 }
@@ -439,23 +437,23 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                     SessionId,
                     Incarnation);
                 RequireRequest(requestId, result.RequestId);
-                if (artifactStarted && receiver?.IsSealed != true)
+                if (artifactStarted && artifactCapture?.IsSealed != true)
                 {
                     throw new WorkerProtocolException(
                         "artifact_seal_missing",
                         "Worker terminal arrived before its artifact seal.");
                 }
-                OutputArtifactContent? artifactContent = null;
-                if (receiver?.IsSealed == true)
-                {
-                    artifactContent = WorkerOutputArtifactCodec.Decode(
-                        artifactBytes.ToArray(),
-                        artifact!.MaximumBytes);
-                }
+                var outputRecoveryCompletion =
+                    artifactCapture?.CompleteAtResultAsync();
                 return new SessionWorkerInvocation(
                     result,
-                    artifactContent is null ? null : artifact?.ArtifactId,
-                    artifactContent);
+                    ArtifactId: null,
+                    ArtifactContent: null,
+                    OutputRecoveryCompletion:
+                        outputRecoveryCompletion is null
+                            ? null
+                            : ObserveArtifactCompletionAsync(
+                                outputRecoveryCompletion));
             }
         }
         catch (Exception exception) when (!IsFatal(exception))
@@ -482,7 +480,6 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         }
         finally
         {
-            receiver?.Dispose();
             _operation.Release();
         }
     }
@@ -723,6 +720,23 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
+        }
+    }
+
+    private async Task<OutputRecoverySummary> ObserveArtifactCompletionAsync(
+        Task<OutputRecoverySummary> completion)
+    {
+        try
+        {
+            return await completion.ConfigureAwait(false);
+        }
+        catch (WorkerProtocolException exception)
+        {
+            Poison(exception);
+            throw new WorkerInvocationException(
+                WorkerInvocationDisposition.OutcomeUnknown,
+                exception.DetailCode,
+                exception);
         }
     }
 

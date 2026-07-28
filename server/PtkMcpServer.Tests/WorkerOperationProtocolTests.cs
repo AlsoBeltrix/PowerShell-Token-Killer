@@ -337,6 +337,22 @@ public sealed class WorkerOperationProtocolTests
             new WorkerArtifactRequest(ArtifactId, allBytes.Length));
         AssertDetail("artifact_sequence_invalid", () => gap.Accept(second));
 
+        using var duplicate = new WorkerArtifactReceiver(
+            7,
+            new WorkerArtifactRequest(ArtifactId, allBytes.Length));
+        duplicate.Accept(first);
+        AssertDetail(
+            "artifact_sequence_invalid",
+            () => duplicate.Accept(first));
+
+        using var overReservation = new WorkerArtifactReceiver(
+            7,
+            new WorkerArtifactRequest(ArtifactId, firstBytes.Length));
+        overReservation.Accept(first);
+        AssertDetail(
+            "artifact_sequence_invalid",
+            () => overReservation.Accept(second));
+
         using var wrongDigest = new WorkerArtifactReceiver(
             7,
             new WorkerArtifactRequest(ArtifactId, allBytes.Length));

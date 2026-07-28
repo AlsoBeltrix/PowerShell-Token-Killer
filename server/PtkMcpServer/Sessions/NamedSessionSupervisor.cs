@@ -61,6 +61,7 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
     private readonly Func<ISessionWorkerFactory> _createWorkerFactory;
     private readonly TimeSpan _startupTimeout;
     private readonly TimeSpan _containmentGrace;
+    private readonly TimeSpan _outputStorageWait;
     private readonly CancellationTokenSource _shutdown = new();
     private readonly TaskCompletionSource _shutdownComplete = new(
         TaskCreationOptions.RunContinuationsAsynchronously);
@@ -70,7 +71,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
     internal NamedSessionSupervisor(
         Func<ISessionWorkerFactory> createWorkerFactory,
         TimeSpan startupTimeout,
-        TimeSpan containmentGrace)
+        TimeSpan containmentGrace,
+        TimeSpan? outputStorageWait = null)
     {
         _createWorkerFactory = createWorkerFactory ??
             throw new ArgumentNullException(nameof(createWorkerFactory));
@@ -78,8 +80,12 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             throw new ArgumentOutOfRangeException(nameof(startupTimeout));
         if (containmentGrace <= TimeSpan.Zero)
             throw new ArgumentOutOfRangeException(nameof(containmentGrace));
+        var resolvedOutputStorageWait = outputStorageWait ?? OutputStorageWait;
+        if (resolvedOutputStorageWait <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(outputStorageWait));
         _startupTimeout = startupTimeout;
         _containmentGrace = containmentGrace;
+        _outputStorageWait = resolvedOutputStorageWait;
         _slots.Add(DefaultName, CreateSlot(DefaultName));
     }
 
@@ -117,46 +123,50 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
 
         var lease = await AcquireOperationAsync(name, cancellationToken)
             .ConfigureAwait(false);
-        var artifact = outputStore is null
-            ? null
-            : new WorkerArtifactRequest(
-                Guid.NewGuid(),
-                Math.Min(
-                    outputStore.MaximumArtifactBytes,
-                    WorkerOperationProtocol.MaximumArtifactBytes));
+        ForegroundOutputCapture? outputPreparation = null;
+        IWorkerArtifactCapture? artifactCapture = null;
+        OutputRecoverySummary? outputUnavailable = null;
         var beginRecovery = false;
         var recoveryReason = WorkerContainmentReason.LaunchFailure;
         try
         {
+            if (outputStore is not null)
+            {
+                outputPreparation = new ForegroundOutputCapture(
+                    outputStore,
+                    sessionAlias: lease.Slot.Identity.ToString("N"),
+                    waitForHealthyLane: true);
+                await outputPreparation.PrepareAsync(
+                    _outputStorageWait,
+                    cancellationToken).ConfigureAwait(false);
+                if (outputPreparation.TryDetachReservation(
+                        out var reservation,
+                        out outputUnavailable))
+                {
+                    var maximumArtifactBytes = Math.Min(
+                        outputStore.MaximumArtifactBytes,
+                        WorkerOperationProtocol.MaximumArtifactBytes);
+                    artifactCapture = new SupervisorWorkerArtifactCapture(
+                        outputStore,
+                        reservation!,
+                        maximumArtifactBytes,
+                        checked((int)Math.Min(
+                            maximumArtifactBytes,
+                            WorkerOperationProtocol.MaximumArtifactChunkBytes)),
+                        _outputStorageWait);
+                }
+            }
+
             var invocation = await lease.Worker.InvokeAsync(
                 script,
                 raw,
                 route,
                 timeoutSeconds,
-                artifact,
+                artifactCapture,
                 cancellationToken).ConfigureAwait(false);
-            OutputRecoverySummary? outputRecovery = null;
-            if (artifact is not null &&
-                invocation.ArtifactId == artifact.ArtifactId &&
-                invocation.ArtifactContent is { } content)
-            {
-                using var capture = new ForegroundOutputCapture(
-                    outputStore!,
-                    sessionAlias: lease.Slot.Identity.ToString("N"));
-                await capture.PrepareAsync(
-                    OutputStorageWait,
-                    CancellationToken.None).ConfigureAwait(false);
-                outputRecovery = await capture.SealAsync(
-                    content,
-                    OutputStorageWait).ConfigureAwait(false);
-            }
-            else if (invocation.ArtifactId is not null ||
-                     invocation.ArtifactContent is not null)
-            {
-                throw new WorkerProtocolException(
-                    "artifact_identity_mismatch",
-                    "Worker output does not match the reserved artifact.");
-            }
+            var outputRecovery = invocation.OutputRecoveryCompletion is null
+                ? invocation.OutputRecovery ?? outputUnavailable
+                : await invocation.OutputRecoveryCompletion.ConfigureAwait(false);
 
             if (invocation.Result.Status == WorkerResultStatus.TimedOut)
             {
@@ -192,6 +202,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
         }
         finally
         {
+            artifactCapture?.Dispose();
+            outputPreparation?.Dispose();
             lease.Dispose();
             if (beginRecovery)
             {

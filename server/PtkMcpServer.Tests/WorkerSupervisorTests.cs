@@ -121,7 +121,7 @@ public sealed class WorkerSupervisorTests
             bool raw,
             WorkerInvokeRoute route,
             int timeoutSeconds,
-            WorkerArtifactRequest? artifact,
+            IWorkerArtifactCapture? artifactCapture,
             CancellationToken cancellationToken) =>
             Task.FromException<SessionWorkerInvocation>(
                 new WorkerInvocationException(

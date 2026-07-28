@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
+using PtkMcpServer;
 using PtkMcpServer.Worker;
 
 namespace PtkContainmentTestFixture;
@@ -43,6 +44,8 @@ internal static partial class Program
                 ["contained-escape-descendant", var gatePath] =>
                     RunContainedDescendant(escape: true, gatePath),
                 ["contained-leaf"] => RunContainedLeaf(),
+                ["output-root-owner", var parentPath] =>
+                    RunOutputRootOwner(parentPath),
                 ["contained-supervisor", var brokerPath] =>
                     await RunContainedSupervisorAsync(
                             brokerPath,
@@ -160,6 +163,26 @@ internal static partial class Program
             return 65;
         }
 
+        Thread.Sleep(Timeout.Infinite);
+        return 0;
+    }
+
+    private static int RunOutputRootOwner(string parentPath)
+    {
+        if (!Path.IsPathFullyQualified(parentPath))
+            return 64;
+        var ownership = OutputRootOwnership.CreateCurrent();
+        var root = Path.Combine(parentPath, ownership.DirectoryName);
+        using var store = new OutputStore(new OutputStoreOptions(
+            root,
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 1024,
+            MaximumSessionBytes: 2048,
+            MaximumAggregateBytes: 4096,
+            RootOwnership: ownership));
+        Console.Out.WriteLine(store.RootPathForTests);
+        Console.Out.Flush();
         Thread.Sleep(Timeout.Infinite);
         return 0;
     }

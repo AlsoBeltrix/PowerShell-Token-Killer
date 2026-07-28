@@ -198,8 +198,14 @@ function Assert-LiveOutputRoot {
             throw "$Label output server root mode was $actualMode instead of $expectedMode"
         }
     }
-    if (@(Get-ChildItem -LiteralPath $serverRoot.FullName -Recurse -Force -File).Count -ne 0) {
-        throw "$Label output server root retained a named artifact while live"
+    $rootFiles = @(
+        Get-ChildItem -LiteralPath $serverRoot.FullName -Recurse -Force -File)
+    $ownerMarkers = @($rootFiles | Where-Object Name -CEQ 'owner.v1.json')
+    $namedArtifacts = @($rootFiles | Where-Object Name -Like 'artifact-*.out')
+    if ($rootFiles.Count -ne 1 -or
+        $ownerMarkers.Count -ne 1 -or
+        $namedArtifacts.Count -ne 0) {
+        throw "$Label output server root did not contain exactly its live owner marker and no named artifacts"
     }
 }
 

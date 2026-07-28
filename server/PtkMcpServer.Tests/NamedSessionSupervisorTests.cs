@@ -770,6 +770,216 @@ public sealed class NamedSessionSupervisorTests
     }
 
     [Fact]
+    public async Task Quota_refusal_disables_capture_before_dispatch_without_consuming_a_sibling_quota()
+    {
+        var fleet = new FakeFleet();
+        await using var sessions = CreateSupervisor(fleet);
+        using var outputStore = CreateOutputStore(
+            maximumArtifactBytes: 1024,
+            maximumSessionBytes: 1024,
+            maximumAggregateBytes: 2048);
+        var alpha = await sessions.OpenAsync("alpha");
+        await sessions.OpenAsync("beta");
+        Assert.True(
+            outputStore.TryReserve(
+                alpha.Identity.ToString("N"),
+                out var heldAlphaQuota,
+                out var reserveFailure),
+            reserveFailure);
+        using var held = heldAlphaQuota;
+        var alphaWorker = fleet.Workers[0];
+        var betaWorker = fleet.Workers[1];
+        var alphaDispatched = 0;
+        alphaWorker.InvokeHandler = (request, _) =>
+        {
+            Interlocked.Increment(ref alphaDispatched);
+            Assert.Null(request.Artifact);
+            return Task.FromResult(Completed(request));
+        };
+        betaWorker.InvokeHandler = (request, _) =>
+            Task.FromResult(CompletedWithArtifact(request, "beta-output"));
+
+        var alphaResult = await sessions.InvokeAsync(
+            "alpha",
+            "'alpha'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            outputStore);
+        var betaResult = await sessions.InvokeAsync(
+            "beta",
+            "'beta'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            outputStore);
+
+        Assert.Equal(1, alphaDispatched);
+        Assert.Equal(WorkerResultStatus.Completed, alphaResult.Result.Status);
+        Assert.Null(alphaResult.OutputRecovery?.Handle);
+        Assert.Equal(
+            "output_store_capacity",
+            alphaResult.OutputRecovery?.DetailCode);
+        var betaHandle = Assert.IsType<string>(
+            betaResult.OutputRecovery?.Handle);
+        Assert.Contains(
+            "beta-output",
+            outputStore.Read(
+                betaHandle,
+                offset: 0,
+                maximumBytes: OutputStore.MaximumReadBytes).Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Healthy_concurrent_sessions_wait_for_one_lane_and_both_publish()
+    {
+        using var firstWriteEntered = new ManualResetEventSlim();
+        using var releaseFirstWrite = new ManualResetEventSlim();
+        var writeStarts = 0;
+        using var outputStore = CreateOutputStore(
+            maximumArtifactBytes: 1024,
+            maximumSessionBytes: 1024,
+            maximumAggregateBytes: 2048,
+            artifactWriteStartingForTests: _ =>
+            {
+                if (Interlocked.Increment(ref writeStarts) != 1)
+                    return;
+                firstWriteEntered.Set();
+                Assert.True(releaseFirstWrite.Wait(CheckpointTimeout));
+            });
+        var fleet = new FakeFleet();
+        await using var sessions = CreateSupervisor(fleet);
+        await sessions.OpenAsync("alpha");
+        await sessions.OpenAsync("beta");
+        var betaInvoked = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fleet.Workers[0].InvokeHandler = (request, _) =>
+            Task.FromResult(CompletedWithArtifact(request, "alpha-output"));
+        fleet.Workers[1].InvokeHandler = (request, _) =>
+        {
+            betaInvoked.TrySetResult();
+            return Task.FromResult(CompletedWithArtifact(request, "beta-output"));
+        };
+
+        var alphaCall = sessions.InvokeAsync(
+            "alpha",
+            "'alpha'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            outputStore);
+        Assert.True(firstWriteEntered.Wait(CheckpointTimeout));
+
+        var stateStopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var betaState = await sessions.StateAsync(
+            "beta",
+            listAvailable: false).WaitAsync(TimeSpan.FromSeconds(1));
+        stateStopwatch.Stop();
+        Assert.True(betaState.Available);
+        Assert.True(
+            stateStopwatch.Elapsed < TimeSpan.FromSeconds(1),
+            stateStopwatch.Elapsed.ToString());
+
+        var betaCall = sessions.InvokeAsync(
+            "beta",
+            "'beta'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            outputStore);
+        await Task.Delay(50);
+        Assert.False(betaInvoked.Task.IsCompleted);
+
+        releaseFirstWrite.Set();
+        var results = await Task.WhenAll(alphaCall, betaCall)
+            .WaitAsync(CheckpointTimeout);
+
+        Assert.Equal(2, writeStarts);
+        Assert.True(betaInvoked.Task.IsCompletedSuccessfully);
+        var alphaHandle = Assert.IsType<string>(
+            results[0].OutputRecovery?.Handle);
+        var betaHandle = Assert.IsType<string>(
+            results[1].OutputRecovery?.Handle);
+        Assert.Contains(
+            "alpha-output",
+            outputStore.Read(
+                alphaHandle,
+                offset: 0,
+                maximumBytes: OutputStore.MaximumReadBytes).Text,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "beta-output",
+            outputStore.Read(
+                betaHandle,
+                offset: 0,
+                maximumBytes: OutputStore.MaximumReadBytes).Text,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Wedged_storage_lane_starts_no_contender_then_runs_the_command()
+    {
+        using var outputStore = CreateOutputStore();
+        using var wedgeEntered = new ManualResetEventSlim();
+        using var releaseWedge = new ManualResetEventSlim();
+        var storageStarts = 0;
+        var wedged = await outputStore.WaitToStartForegroundOperationAsync(
+            () =>
+            {
+                Interlocked.Increment(ref storageStarts);
+                wedgeEntered.Set();
+                releaseWedge.Wait();
+                return 1;
+            },
+            TimeSpan.FromSeconds(1),
+            CancellationToken.None);
+        Assert.NotNull(wedged);
+        Assert.True(wedgeEntered.Wait(CheckpointTimeout));
+
+        var fleet = new FakeFleet();
+        await using var sessions = new NamedSessionSupervisor(
+            fleet.CreateFactory,
+            startupTimeout: TimeSpan.FromMilliseconds(250),
+            containmentGrace: TimeSpan.FromMilliseconds(250),
+            outputStorageWait: TimeSpan.FromMilliseconds(75));
+        await sessions.OpenAsync("alpha");
+        await sessions.OpenAsync("beta");
+        var commandDispatched = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        fleet.Workers[1].InvokeHandler = (request, _) =>
+        {
+            Assert.Null(request.Artifact);
+            commandDispatched.TrySetResult();
+            return Task.FromResult(Completed(request));
+        };
+
+        var betaCall = sessions.InvokeAsync(
+            "beta",
+            "'still runs'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            outputStore);
+        var alphaState = await sessions.StateAsync(
+            "alpha",
+            listAvailable: false).WaitAsync(TimeSpan.FromSeconds(1));
+        var result = await betaCall.WaitAsync(TimeSpan.FromSeconds(1));
+
+        Assert.True(alphaState.Available);
+        Assert.True(commandDispatched.Task.IsCompletedSuccessfully);
+        Assert.Equal(WorkerResultStatus.Completed, result.Result.Status);
+        Assert.Null(result.OutputRecovery?.Handle);
+        Assert.Equal(
+            "output_store_prepare_timed_out",
+            result.OutputRecovery?.DetailCode);
+        Assert.Equal(1, storageStarts);
+
+        releaseWedge.Set();
+        Assert.Equal(1, await wedged!.WaitAsync(CheckpointTimeout));
+    }
+
+    [Fact]
     public async Task Sealed_output_survives_close_but_unsealed_capture_never_attaches_to_reopen()
     {
         var fleet = new FakeFleet();
@@ -904,6 +1114,48 @@ public sealed class NamedSessionSupervisorTests
             ArtifactId: null,
             ArtifactContent: null);
 
+    private static SessionWorkerInvocation CompletedWithArtifact(
+        FakeInvokeRequest request,
+        string text) =>
+        new(
+            new WorkerResult(
+                request.RequestId,
+                WorkerResultStatus.Completed,
+                "ok",
+                DetailCode: null),
+            request.Artifact?.ArtifactId,
+            request.Artifact is null
+                ? null
+                : new OutputArtifactContent(
+                    text,
+                    StandardError: [],
+                    Errors: [],
+                    Warnings: [],
+                    ExitCode: null,
+                    OutputProvenance.DirectText));
+
+    private static OutputStore CreateOutputStore(
+        long maximumArtifactBytes = 1024,
+        long maximumSessionBytes = 2048,
+        long maximumAggregateBytes = 4096,
+        Action<string>? artifactWriteStartingForTests = null)
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "named-session-output-tests",
+            Guid.NewGuid().ToString("N"));
+        return new OutputStore(new OutputStoreOptions(
+            root,
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            maximumArtifactBytes,
+            maximumSessionBytes,
+            maximumAggregateBytes,
+            ArtifactWriteStartingForTests:
+                artifactWriteStartingForTests));
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTimeOffset.UtcNow + CheckpointTimeout;
@@ -1025,19 +1277,53 @@ public sealed class NamedSessionSupervisorTests
         { get; set; }
         private int _transportUsable = 1;
 
-        public Task<SessionWorkerInvocation> InvokeAsync(
+        public async Task<SessionWorkerInvocation> InvokeAsync(
             string script,
             bool raw,
             WorkerInvokeRoute route,
             int timeoutSeconds,
-            WorkerArtifactRequest? artifact,
+            IWorkerArtifactCapture? artifactCapture,
             CancellationToken cancellationToken)
         {
+            var requestId = Interlocked.Increment(ref _requestId);
+            artifactCapture?.BindRequest(requestId);
             var request = new FakeInvokeRequest(
-                Interlocked.Increment(ref _requestId),
+                requestId,
                 script,
-                artifact);
-            return InvokeHandler(request, cancellationToken);
+                artifactCapture?.Request);
+            var invocation = await InvokeHandler(
+                request,
+                cancellationToken).ConfigureAwait(false);
+            if (artifactCapture is null)
+                return invocation;
+
+            if (invocation.ArtifactId == artifactCapture.Request.ArtifactId &&
+                invocation.ArtifactContent is { } content)
+            {
+                var bytes = WorkerOutputArtifactCodec.Encode(
+                    content,
+                    artifactCapture.Request.MaximumBytes);
+                artifactCapture.Accept(
+                    new WorkerArtifactChunk(
+                        requestId,
+                        artifactCapture.Request.ArtifactId,
+                        Offset: 0,
+                        bytes));
+                artifactCapture.Accept(
+                    new WorkerArtifactSeal(
+                        requestId,
+                        artifactCapture.Request.ArtifactId,
+                        bytes.Length,
+                        Convert.ToHexString(
+                                System.Security.Cryptography.SHA256.HashData(bytes))
+                            .ToLowerInvariant()));
+            }
+
+            return invocation with
+            {
+                OutputRecoveryCompletion =
+                    artifactCapture.CompleteAtResultAsync(),
+            };
         }
 
         public Task<WorkerStateSnapshot> StateAsync(

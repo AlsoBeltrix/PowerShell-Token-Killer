@@ -203,6 +203,69 @@ public sealed class NamedSessionProcessIntegrationTests
     }
 
     [Fact]
+    public async Task Real_worker_tiny_output_publishes_a_readable_recovery_handle()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"ptk-worker-output-{Guid.NewGuid():N}");
+        var outputRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "named-session-process-output-tests",
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var brokerPath = await BuildBrokerAsync(root);
+        var command = SessionWorkerLaunchCommand.Create();
+        await using var sessions = new NamedSessionSupervisor(
+            () => new ProcessSessionWorkerFactory(
+                WorkerProcessLauncher.Create(brokerPath),
+                command,
+                Limits),
+            startupTimeout: TimeSpan.FromSeconds(30),
+            containmentGrace: TimeSpan.FromSeconds(3));
+        using var outputStore = new OutputStore(new OutputStoreOptions(
+            outputRoot,
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 1024,
+            MaximumSessionBytes: 1024,
+            MaximumAggregateBytes: 1024));
+
+        try
+        {
+            await sessions.OpenAsync("output").WaitAsync(CheckpointTimeout);
+            var token = $"tiny-{Guid.NewGuid():N}";
+            var response = await sessions.InvokeAsync(
+                    "output",
+                    $"'{token}'",
+                    raw: false,
+                    WorkerInvokeRoute.Pwsh,
+                    timeoutSeconds: 30,
+                    outputStore)
+                .WaitAsync(CheckpointTimeout);
+
+            Assert.Equal(WorkerResultStatus.Completed, response.Result.Status);
+            Assert.Contains(token, response.Result.Text, StringComparison.Ordinal);
+            var handle = Assert.IsType<string>(response.OutputRecovery?.Handle);
+            var recovered = outputStore.Read(
+                handle,
+                offset: 0,
+                maximumBytes: OutputStore.MaximumReadBytes);
+            Assert.Equal(OutputArtifactState.Available, recovered.State);
+            Assert.Contains(token, recovered.Text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await sessions.ShutdownAsync();
+            outputStore.Dispose();
+            try { Directory.Delete(root, recursive: true); }
+            catch { }
+            try { Directory.Delete(outputRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
     public async Task Real_worker_crash_after_effect_is_not_replayed_and_preserves_its_sibling()
     {
         var root = Path.Combine(

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Pipelines;
 using System.Security.Cryptography;
 using PtkMcpServer.Worker;
@@ -28,7 +29,7 @@ public sealed class SessionWorkerClientTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            artifact: null,
+            artifactCapture: null,
             CancellationToken.None);
         var firstRequest = WorkerOperationProtocol.ParseInvoke(
             await process.ReadRequestAsync(),
@@ -54,7 +55,7 @@ public sealed class SessionWorkerClientTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            artifact: null,
+            artifactCapture: null,
             CancellationToken.None);
         _ = await process.ReadRequestAsync();
         var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
@@ -80,13 +81,14 @@ public sealed class SessionWorkerClientTests
             Limits);
         await InitializeAsync(client, process);
         var artifact = new WorkerArtifactRequest(Guid.NewGuid(), 1024);
+        using var artifactCapture = new ValidatingArtifactCapture(artifact);
 
         var call = client.InvokeAsync(
             "'artifact'",
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            artifact,
+            artifactCapture,
             CancellationToken.None);
         var request = WorkerOperationProtocol.ParseInvoke(
             await process.ReadRequestAsync(),
@@ -138,6 +140,255 @@ public sealed class SessionWorkerClientTests
     }
 
     [Fact]
+    public async Task Stalled_artifact_sink_does_not_delay_a_complete_terminal()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 8,
+            Limits);
+        await InitializeAsync(client, process);
+        using var store = CreateOutputStore();
+        Assert.True(
+            store.TryReserve("alpha", out var reservation, out var failure),
+            failure);
+        var releaseSink = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var capture = new SupervisorWorkerArtifactCapture(
+            store,
+            reservation!,
+            maximumBytes: 1024,
+            maximumChunkBytes: 1024,
+            storageWait: TimeSpan.FromMilliseconds(75),
+            sinkGateForTests: _ => releaseSink.Task);
+
+        var call = client.InvokeAsync(
+            "'artifact'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            capture,
+            CancellationToken.None);
+        var request = WorkerOperationProtocol.ParseInvoke(
+            await process.ReadRequestAsync(),
+            client.SessionId,
+            client.Incarnation,
+            Limits);
+        var bytes = WorkerOutputArtifactCodec.Encode(
+            new OutputArtifactContent(
+                "ordinary result survives",
+                StandardError: [],
+                Errors: [],
+                Warnings: [],
+                ExitCode: null,
+                OutputProvenance.DirectText),
+            maximumBytes: 1024);
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateArtifactChunkEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerArtifactChunk(
+                    request.RequestId,
+                    capture.Request.ArtifactId,
+                    Offset: 0,
+                    bytes),
+                Limits));
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateArtifactSealEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerArtifactSeal(
+                    request.RequestId,
+                    capture.Request.ArtifactId,
+                    bytes.Length,
+                    Convert.ToHexString(SHA256.HashData(bytes))
+                        .ToLowerInvariant())));
+
+        var stopwatch = Stopwatch.StartNew();
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateResultEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerResult(
+                    request.RequestId,
+                    WorkerResultStatus.Completed,
+                    "ordinary terminal",
+                    DetailCode: null)));
+        var invocation = await call.WaitAsync(TimeSpan.FromSeconds(1));
+        stopwatch.Stop();
+
+        Assert.Equal("ordinary terminal", invocation.Result.Text);
+        Assert.Null(invocation.OutputRecovery);
+        var completion = invocation.OutputRecoveryCompletion;
+        Assert.NotNull(completion);
+        var recovery = await completion
+            .WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.Null(recovery.Handle);
+        Assert.Equal(
+            "artifact_sink_incomplete",
+            recovery.DetailCode);
+        Assert.True(
+            stopwatch.Elapsed < TimeSpan.FromSeconds(1),
+            stopwatch.Elapsed.ToString());
+
+        releaseSink.TrySetResult();
+        await capture.SinkCompletionForTests.WaitAsync(CheckpointTimeout);
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => store.TryReserve(
+                    "alpha",
+                    out var replacement,
+                    out _) && Dispose(replacement),
+                CheckpointTimeout));
+    }
+
+    [Fact]
+    public async Task Invalid_digest_valid_artifact_content_faults_after_terminal()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 9,
+            Limits);
+        await InitializeAsync(client, process);
+        using var store = CreateOutputStore();
+        Assert.True(
+            store.TryReserve("alpha", out var reservation, out var failure),
+            failure);
+        using var capture = new SupervisorWorkerArtifactCapture(
+            store,
+            reservation!,
+            maximumBytes: 1024,
+            maximumChunkBytes: 1024,
+            storageWait: TimeSpan.FromSeconds(2));
+
+        var call = client.InvokeAsync(
+            "'invalid artifact content'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            capture,
+            CancellationToken.None);
+        var request = WorkerOperationProtocol.ParseInvoke(
+            await process.ReadRequestAsync(),
+            client.SessionId,
+            client.Incarnation,
+            Limits);
+        var bytes = "{}"u8.ToArray();
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateArtifactChunkEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerArtifactChunk(
+                    request.RequestId,
+                    capture.Request.ArtifactId,
+                    Offset: 0,
+                    bytes),
+                Limits));
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateArtifactSealEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerArtifactSeal(
+                    request.RequestId,
+                    capture.Request.ArtifactId,
+                    bytes.Length,
+                    Convert.ToHexString(SHA256.HashData(bytes))
+                        .ToLowerInvariant())));
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateResultEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerResult(
+                    request.RequestId,
+                    WorkerResultStatus.Completed,
+                    "ordinary terminal",
+                    DetailCode: null)));
+
+        var invocation = await call.WaitAsync(CheckpointTimeout);
+        var completion = invocation.OutputRecoveryCompletion;
+        Assert.NotNull(completion);
+        var protocolFailure =
+            await Assert.ThrowsAsync<WorkerInvocationException>(
+                () => completion);
+
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            protocolFailure.Disposition);
+        Assert.Equal(
+            "artifact_content_invalid",
+            protocolFailure.CauseDetailCode);
+        Assert.False(client.IsTransportUsable);
+        _ = await Assert.ThrowsAsync<WorkerProtocolException>(
+            () => client.Fatal);
+    }
+
+    [Fact]
+    public async Task Worker_loss_during_artifact_transfer_releases_capture_without_a_handle()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 9,
+            Limits);
+        await InitializeAsync(client, process);
+        using var store = CreateOutputStore();
+        Assert.True(
+            store.TryReserve("alpha", out var reservation, out var failure),
+            failure);
+        using var capture = new SupervisorWorkerArtifactCapture(
+            store,
+            reservation!,
+            maximumBytes: 1024,
+            maximumChunkBytes: 1024,
+            storageWait: TimeSpan.FromSeconds(2));
+
+        var call = client.InvokeAsync(
+            "'partial artifact'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            capture,
+            CancellationToken.None);
+        var request = WorkerOperationProtocol.ParseInvoke(
+            await process.ReadRequestAsync(),
+            client.SessionId,
+            client.Incarnation,
+            Limits);
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateArtifactChunkEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerArtifactChunk(
+                    request.RequestId,
+                    capture.Request.ArtifactId,
+                    Offset: 0,
+                    "partial"u8.ToArray()),
+                Limits));
+        process.ExitUnexpectedly();
+
+        var invocationFailure =
+            await Assert.ThrowsAsync<WorkerInvocationException>(() => call);
+
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            invocationFailure.Disposition);
+        Assert.False(capture.IsSealed);
+        capture.Dispose();
+        Assert.True(
+            SpinWait.SpinUntil(
+                () => store.TryReserve(
+                    "alpha",
+                    out var replacement,
+                    out _) && Dispose(replacement),
+                CheckpointTimeout));
+        Assert.Empty(Directory.GetFiles(store.RootPathForTests));
+    }
+
+    [Fact]
     public async Task Worker_loss_before_the_invoke_pipe_write_is_proved_not_started()
     {
         var process = new ScriptedProcess();
@@ -157,7 +408,7 @@ public sealed class SessionWorkerClientTests
                 raw: false,
                 WorkerInvokeRoute.Pwsh,
                 timeoutSeconds: 30,
-                artifact: null,
+                artifactCapture: null,
                 CancellationToken.None));
 
         Assert.Equal(
@@ -188,7 +439,7 @@ public sealed class SessionWorkerClientTests
                 raw: false,
                 WorkerInvokeRoute.Pwsh,
                 timeoutSeconds: 30,
-                artifact: null,
+                artifactCapture: null,
                 CancellationToken.None));
 
         Assert.Equal(
@@ -215,7 +466,7 @@ public sealed class SessionWorkerClientTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            artifact: null,
+            artifactCapture: null,
             CancellationToken.None);
         _ = WorkerOperationProtocol.ParseInvoke(
             await process.ReadRequestAsync(),
@@ -249,7 +500,7 @@ public sealed class SessionWorkerClientTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            artifact: null,
+            artifactCapture: null,
             CancellationToken.None);
         var request = WorkerOperationProtocol.ParseInvoke(
             await process.ReadRequestAsync(),
@@ -294,7 +545,7 @@ public sealed class SessionWorkerClientTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 30,
-            artifact: null,
+            artifactCapture: null,
             CancellationToken.None);
         var request = WorkerOperationProtocol.ParseInvoke(
             await process.ReadRequestAsync(),
@@ -336,7 +587,7 @@ public sealed class SessionWorkerClientTests
             raw: false,
             WorkerInvokeRoute.Pwsh,
             timeoutSeconds: 300,
-            artifact: null,
+            artifactCapture: null,
             cancellation.Token);
         var request = WorkerOperationProtocol.ParseInvoke(
             await process.ReadRequestAsync(),
@@ -405,6 +656,28 @@ public sealed class SessionWorkerClientTests
     {
         _ = await Assert.ThrowsAnyAsync<Exception>(
             () => client.Fatal.WaitAsync(CheckpointTimeout));
+    }
+
+    private static OutputStore CreateOutputStore()
+    {
+        var root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "session-worker-output-tests",
+            Guid.NewGuid().ToString("N"));
+        return new OutputStore(new OutputStoreOptions(
+            root,
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 1024,
+            MaximumSessionBytes: 1024,
+            MaximumAggregateBytes: 1024));
+    }
+
+    private static bool Dispose(IDisposable? disposable)
+    {
+        disposable?.Dispose();
+        return true;
     }
 
     private enum WriteFailureMode
@@ -587,5 +860,30 @@ public sealed class SessionWorkerClientTests
             WorkerLaunchCommand command,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(process);
+    }
+
+    private sealed class ValidatingArtifactCapture(
+        WorkerArtifactRequest request) : IWorkerArtifactCapture
+    {
+        private WorkerArtifactReceiver? _receiver;
+
+        public WorkerArtifactRequest Request { get; } = request;
+        public bool IsSealed => _receiver?.IsSealed == true;
+        public Task SinkCompletionForTests => Task.CompletedTask;
+
+        public void BindRequest(long requestId) =>
+            _receiver = new WorkerArtifactReceiver(requestId, Request);
+
+        public void Accept(WorkerArtifactChunk chunk) =>
+            (_receiver ?? throw new InvalidOperationException()).Accept(chunk);
+
+        public void Accept(WorkerArtifactSeal seal) =>
+            (_receiver ?? throw new InvalidOperationException()).Accept(seal);
+
+        public Task<OutputRecoverySummary> CompleteAtResultAsync() =>
+            Task.FromResult(
+                OutputRecoverySummary.Unavailable("test_capture"));
+
+        public void Dispose() => _receiver?.Dispose();
     }
 }

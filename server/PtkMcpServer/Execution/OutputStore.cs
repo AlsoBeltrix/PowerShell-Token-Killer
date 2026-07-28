@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
@@ -63,7 +64,8 @@ internal sealed record OutputStoreOptions(
     Action<string>? ArtifactUnlinkIdentityVerifiedForTests = null,
     Action? ArtifactPublishingClaimedForTests = null,
     Action? RetainedReadStartingForTests = null,
-    Action? ReservationSettlingForTests = null)
+    Action? ReservationSettlingForTests = null,
+    OutputRootOwnership? RootOwnership = null)
 {
     internal static OutputStoreOptions Production()
     {
@@ -74,16 +76,18 @@ internal sealed record OutputStoreOptions(
                 ".ptk",
                 "output")
             : Path.GetFullPath(configuredParent);
+        var ownership = OutputRootOwnership.CreateCurrent();
         var root = Path.Combine(
             parent,
-            $"server-{Environment.ProcessId}-{Guid.NewGuid():N}");
+            ownership.DirectoryName);
         return new OutputStoreOptions(
             root,
             TimeSpan.FromMinutes(15),
             TimeSpan.FromMinutes(1),
             MaximumArtifactBytes: 8 * 1024 * 1024,
             MaximumSessionBytes: 32 * 1024 * 1024,
-            MaximumAggregateBytes: 64 * 1024 * 1024);
+            MaximumAggregateBytes: 64 * 1024 * 1024,
+            RootOwnership: ownership);
     }
 }
 
@@ -150,6 +154,7 @@ internal sealed class OutputCaptureReservation : IDisposable
     /// <summary>Internal artifact identity suitable for a future worker frame.
     /// It is not the public handle and grants no read capability.</summary>
     internal string ArtifactId => _artifactId.ToString("N", CultureInfo.InvariantCulture);
+    internal Guid ArtifactGuid => _artifactId;
 
     internal OutputSealResult Seal(OutputArtifactContent content)
     {
@@ -255,6 +260,7 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
     private readonly Action? _sealCancellationRejectedForTests;
     private readonly Func<TimeSpan, Task>? _sealDelayForTests;
     private readonly string _sessionAlias;
+    private readonly bool _waitForHealthyLane;
     private string? _failure;
     private bool _prepared;
 
@@ -262,7 +268,8 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
         OutputStore store,
         Action? sealCancellationRejectedForTests = null,
         Func<TimeSpan, Task>? sealDelayForTests = null,
-        string sessionAlias = "default")
+        string sessionAlias = "default",
+        bool waitForHealthyLane = false)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _sealCancellationRejectedForTests = sealCancellationRejectedForTests;
@@ -272,10 +279,30 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
                 "Output session attribution is required.",
                 nameof(sessionAlias))
             : sessionAlias;
+        _waitForHealthyLane = waitForHealthyLane;
     }
 
     public long MaximumArtifactBytes =>
         _store?.MaximumArtifactBytes ?? OutputStore.DefaultReadBytes;
+
+    internal bool TryDetachReservation(
+        out OutputCaptureReservation? reservation,
+        out OutputRecoverySummary? unavailable)
+    {
+        reservation = Interlocked.Exchange(ref _reservation, null);
+        if (reservation is not null)
+        {
+            unavailable = null;
+            return true;
+        }
+
+        var detailCode = _failure ??
+            (_prepared ? "output_store_unavailable" : "capture_not_prepared");
+        unavailable = OutputRecoverySummary.Unavailable(
+            detailCode,
+            advertise: true);
+        return false;
+    }
 
     public async Task PrepareAsync(
         TimeSpan maximumWait,
@@ -293,47 +320,85 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
         }
 
         var attempt = new ReservationAttempt();
-        if (!store.TryStartForegroundOperation(
-                () =>
+        ReservationWorkResult Reserve()
+        {
+            try
+            {
+                if (!store.TryReserve(
+                        _sessionAlias,
+                        out var reservation,
+                        out var failure))
                 {
-                    try
-                    {
-                        if (!store.TryReserve(
-                                _sessionAlias,
-                                out var reservation,
-                                out var failure))
-                        {
-                            return new ReservationWorkResult(
-                                null,
-                                failure is null
-                                    ? "output_store_unavailable"
-                                    : $"output_store_{failure}");
-                        }
+                    return new ReservationWorkResult(
+                        null,
+                        failure is null
+                            ? "output_store_unavailable"
+                            : $"output_store_{failure}");
+                }
 
-                        if (attempt.TryPublish())
-                            return new ReservationWorkResult(reservation, null);
+                if (attempt.TryPublish())
+                    return new ReservationWorkResult(reservation, null);
 
-                        reservation!.Dispose();
-                        return new ReservationWorkResult(
-                            null,
-                            "output_store_prepare_timed_out");
-                    }
-                    catch
-                    {
-                        return new ReservationWorkResult(
-                            null,
-                            "output_store_unavailable");
-                    }
-                },
-                out var prepareTask))
+                reservation!.Dispose();
+                return new ReservationWorkResult(
+                    null,
+                    "output_store_prepare_timed_out");
+            }
+            catch
+            {
+                return new ReservationWorkResult(
+                    null,
+                    "output_store_unavailable");
+            }
+        }
+
+        Task<ReservationWorkResult>? prepareTask;
+        var remaining = maximumWait;
+        if (_waitForHealthyLane)
+        {
+            var started = Stopwatch.GetTimestamp();
+            try
+            {
+                prepareTask = await store.WaitToStartForegroundOperationAsync(
+                    Reserve,
+                    maximumWait,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                _failure = "output_store_prepare_canceled";
+                return;
+            }
+            if (prepareTask is null)
+            {
+                _failure = cancellationToken.IsCancellationRequested
+                    ? "output_store_prepare_canceled"
+                    : "output_store_prepare_timed_out";
+                return;
+            }
+            remaining -= Stopwatch.GetElapsedTime(started);
+            if (remaining <= TimeSpan.Zero)
+            {
+                if (attempt.TryCancel())
+                {
+                    _failure = "output_store_prepare_timed_out";
+                    ObserveFault(prepareTask);
+                    return;
+                }
+                remaining = TimeSpan.FromMilliseconds(1);
+            }
+        }
+        else if (!store.TryStartForegroundOperation(
+                     Reserve,
+                     out prepareTask))
         {
             _failure = "output_store_busy";
             return;
         }
 
         var delayTask = cancellationToken.CanBeCanceled
-            ? Task.Delay(maximumWait, cancellationToken)
-            : Task.Delay(maximumWait);
+            ? Task.Delay(remaining, cancellationToken)
+            : Task.Delay(remaining);
         if (await Task.WhenAny(prepareTask!, delayTask).ConfigureAwait(false) != prepareTask)
         {
             if (attempt.TryCancel())
@@ -394,7 +459,8 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
                 "output_store_busy",
                 advertise: true);
         }
-        var delayTask = _sealDelayForTests?.Invoke(maximumWait) ?? Task.Delay(maximumWait);
+        var delayTask = _sealDelayForTests?.Invoke(maximumWait) ??
+            Task.Delay(maximumWait);
         if (await Task.WhenAny(sealTask!, delayTask).ConfigureAwait(false) != sealTask)
         {
             if (reservation.TryCancel())
@@ -466,6 +532,7 @@ public sealed class OutputStore : IDisposable
     private readonly OutputStoreOptions _options;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly string _root;
+    private readonly OutputRootLease? _rootLease;
     private readonly Timer _retentionTimer;
     private readonly Dictionary<Guid, ArtifactEntry> _entries = [];
     private readonly Dictionary<string, Guid> _handles = new(StringComparer.Ordinal);
@@ -474,7 +541,7 @@ public sealed class OutputStore : IDisposable
     private long _aggregateBytes;
     private long _reservedBytes;
     private long _nextSequence;
-    private int _foregroundOperationActive;
+    private readonly SemaphoreSlim _foregroundOperationLane = new(1, 1);
     private int _cancelReaperActive;
     private int _retentionRunning;
     private bool _disposed;
@@ -497,12 +564,31 @@ public sealed class OutputStore : IDisposable
         ValidateOptions(options);
         _options = options;
         _utcNow = options.UtcNow ?? (() => DateTimeOffset.UtcNow);
-        _root = SecureAuditStorage.PrepareRoot(options.RootDirectory);
-        _retentionTimer = new Timer(
-            static state => ((OutputStore)state!).RunRetentionSafely(),
-            this,
-            options.RetentionInterval,
-            options.RetentionInterval);
+        _rootLease = options.RootOwnership is null
+            ? null
+            : OutputRootLease.Acquire(
+                options.RootDirectory,
+                options.RootOwnership);
+        _root = _rootLease?.RootPath ??
+            SecureAuditStorage.PrepareRoot(options.RootDirectory);
+        try
+        {
+            _retentionTimer = new Timer(
+                static state => ((OutputStore)state!).RunRetentionSafely(),
+                this,
+                options.RetentionInterval,
+                options.RetentionInterval);
+        }
+        catch
+        {
+            _rootLease?.Dispose();
+            if (_rootLease is null)
+            {
+                try { Directory.Delete(_root, recursive: false); }
+                catch { }
+            }
+            throw;
+        }
     }
 
     internal string RootPathForTests => _root;
@@ -520,38 +606,68 @@ public sealed class OutputStore : IDisposable
         }
     }
 
-    /// <summary>Starts at most one potentially uninterruptible foreground
-    /// storage operation. A wedged filesystem call therefore consumes one
-    /// worker, while later invocations fail capture immediately and still run
-    /// their user operation exactly once.</summary>
+    /// <summary>Starts one storage task only when the connection-wide lane is
+    /// immediately available. Retained for the legacy in-process capture path.</summary>
     internal bool TryStartForegroundOperation<T>(
         Func<T> operation,
         out Task<T>? task)
     {
         ArgumentNullException.ThrowIfNull(operation);
         task = null;
-        if (Interlocked.CompareExchange(
-                ref _foregroundOperationActive,
-                1,
-                0) != 0)
-        {
-            return false;
-        }
+        if (!_foregroundOperationLane.Wait(0)) return false;
+        task = StartForegroundOperation(operation);
+        return true;
+    }
 
+    /// <summary>Waits within the caller's capture budget, then starts at most
+    /// one potentially uninterruptible foreground storage operation. A wedged
+    /// filesystem call retains the lane; later callers time out without
+    /// starting another storage task.</summary>
+    internal Task<Task<T>?> WaitToStartForegroundOperationAsync<T>(
+        Func<T> operation,
+        TimeSpan maximumWait,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        if (maximumWait <= TimeSpan.Zero)
+            throw new ArgumentOutOfRangeException(nameof(maximumWait));
+        if (_foregroundOperationLane.Wait(0))
+            return Task.FromResult<Task<T>?>(StartForegroundOperation(operation));
+        return WaitAndStartForegroundOperationAsync(
+            operation,
+            maximumWait,
+            cancellationToken);
+    }
+
+    private Task<T> StartForegroundOperation<T>(Func<T> operation)
+    {
         try
         {
-            task = Task.Run(() =>
+            return Task.Run(() =>
             {
                 try { return operation(); }
-                finally { Volatile.Write(ref _foregroundOperationActive, 0); }
+                finally { _foregroundOperationLane.Release(); }
             });
-            return true;
         }
         catch
         {
-            Volatile.Write(ref _foregroundOperationActive, 0);
+            _foregroundOperationLane.Release();
             throw;
         }
+    }
+
+    private async Task<Task<T>?> WaitAndStartForegroundOperationAsync<T>(
+        Func<T> operation,
+        TimeSpan maximumWait,
+        CancellationToken cancellationToken)
+    {
+        if (!await _foregroundOperationLane
+                .WaitAsync(maximumWait, cancellationToken)
+                .ConfigureAwait(false))
+        {
+            return null;
+        }
+        return StartForegroundOperation(operation);
     }
 
     internal bool TryReserve(
@@ -1317,6 +1433,11 @@ public sealed class OutputStore : IDisposable
         {
             if (path is not null) TryDeleteRetainedProtectedFile(path, stream);
             stream.Dispose();
+        }
+        if (_rootLease is not null)
+        {
+            _rootLease.Dispose();
+            return;
         }
         try
         {

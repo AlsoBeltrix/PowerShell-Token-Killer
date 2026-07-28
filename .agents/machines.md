@@ -1635,6 +1635,52 @@ was used._
   replaced. Only the installed PTK root ACL changed; repository code containing
   the durable repair remains uninstalled and unpushed.
 
+### Exact-head Windows x64 production acceptance — 2026-07-28
+
+- Ordinary non-elevated `ANALOG\mcoelho` on Windows Server build
+  `10.0.20348.0` x64, PowerShell `7.6.4`, and .NET SDK `10.0.302` validated
+  exact head `7eaf8a0cbe391abda7185e23e621fe7b01028886`, tree
+  `2c0ae924f5eaf6a4e317ecf06788e9fa05a7abaf`.
+- The first 100-cycle checkout acceptance completed all replacements, then
+  failed waiting for the timeout child/grandchild witness. A one-cycle run
+  reproduced it. Windows cold worker plus two nested PowerShell starts could
+  not reliably publish within the hard-coded one-second invoke deadline.
+  `6ccdaa7` applies the existing bounded 4–12 second process-tree startup
+  allowance and makes the recovery-line assertion CRLF-safe. The old path
+  failed twice; the repaired one-cycle and complete 100-cycle runs passed.
+- That slice's complete server verification exposed a separate classification
+  race: 1,211/1,212 passed while
+  `Factory_reports_a_real_initialization_deadline_as_postlaunch_timeout`
+  received `worker_start_canceled` instead of `worker_start_timed_out`.
+  `7eaf8a0` translates cancellation from the internal linked deadline source
+  to `TimeoutException` whenever the caller token was not canceled, instead
+  of classifying from a post-cancellation wall-clock comparison. The focused
+  guard passed 20/20 and the complete server suite passed 1,212/1,212.
+- Final-head Pester passed 144 with one platform skip. The direct public
+  handshake passed. The server dependency audit reported no vulnerable direct
+  or transitive package in all five projects.
+- `scripts/dev-install.ps1 -LayoutOnly -Validate` produced a disposable
+  `win-x64` layout version `0.2.0-dev.g7eaf8a0`: 579 files,
+  139,203,538 bytes. `PtkMcpServer.exe` was 162,304 bytes with SHA-256
+  `1dd7c4b34290b15cd5ef2b64e2ed38fa1c6a4808d64af2606bb70e1643eefb25`.
+  The layout handshake, disposable staged and activated install handshakes,
+  and install transaction passed.
+- The exact packaged executable passed 100-cycle production acceptance:
+  baseline/final processes 5/5, handles 1,715/1,712, private bytes
+  191.5/181.3 MiB; timed-out worker `3868` was replaced by `17112` after both
+  descendants exited; directly killed worker `8768` was replaced by `15960`
+  after both descendants exited while sibling `18176` stayed warm; hard-killed
+  supervisor `8032` and all six owned descendants exited.
+- The SIEM suite passed 226/247. All 21 failures occurred while test setup
+  attempted to create symlinks and Windows returned "A required privilege is
+  not held by the client", before product assertions. No `.ptk-siem-*` root
+  remained.
+- Acceptance and staged-install roots returned to zero, no checkout or
+  packaged PTK process remained, and the explicitly verified disposable
+  layout under the user's local temp directory was removed. No candidate
+  payload was installed, no harness registration changed, and the existing
+  installed PTK processes were not stopped.
+
 ## Cross-host self-contained Linux package acceptance (2026-07-28)
 
 _Built one immutable package on `magneto`, then validated those exact package

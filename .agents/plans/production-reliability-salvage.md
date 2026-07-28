@@ -3,7 +3,9 @@
 **Status:** SLICE 11 LOCAL DOCUMENTATION/INTEGRATION COMPLETE ON LOCAL MASTER;
 SLICE 10 PRODUCTION ACCEPTANCE REMAINS IN PROGRESS; TIMEOUT-CONTAINMENT,
 UNIX-ESCAPE, AND DIRECT-WORKER-DEATH SUB-SLICES COMMITTED AND MACOS
-ARM64/LINUX X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-10 —
+ARM64/LINUX X86_64 VERIFIED; WINDOWS X64 PTK RUNTIME/PACKAGE VERIFIED AT
+`7eaf8a0`, WITH SIEM SYMLINK, ENTERPRISE, ARM64 LINUX, AND INTENDED-HARNESS
+GATES PENDING —
 topology
 decision 1, R0 contract-retirement decision 2, test-runner Slice 1a, and
 delegated decisions 3-4 are settled as recorded in `.agents/decisions.md`. No
@@ -19,8 +21,9 @@ recovery; test-only descendant
 `4779cb2f7000306cc11f24fe017a4671b5b16cbf` directly guards against a late,
 unreachable publication after sink cancellation. The exact product commits
 pass their full macOS ARM64 and Linux x86_64 batteries, and the test-hardened
-Slice 8 descendant passes the complete macOS server suite. `NETWATCH-01`
-remains offline, so Slices 6-10 are not yet recorded cross-platform complete.
+Slice 8 descendant passes the complete macOS server suite. `ASHBIAMWEB1`
+subsequently passed exact-head Windows x64 runtime/package and Job Object
+acceptance; its ordinary token cannot close the SIEM symlink-protection cases.
 Exact Slice 9 commit `46710afd2e90911f2402019ff9ab4ddc10695845`
 packages the single supervisor runtime, validates before and after activation,
 changes registrations last, and restores exact prior payload/registration
@@ -49,9 +52,9 @@ deterministic transport-death guards cover before write, write-call entry,
 during result, and after terminal decode; real worker/process guards cover
 during execution and after an observable effect. A focused nine-case run makes
 that mapping explicit. Remaining Slice 10 gates require unavailable or
-separately authorized environments: a clean ARM64 Linux build, current Windows
-and Exchange/EXO runs, the real shaping check, and an installed intended-harness
-restart. Exact Slice 11 commit
+separately authorized environments: SIEM symlink protection under a permitted
+Windows identity, a clean ARM64 Linux build, Exchange/EXO runs, the real
+shaping check, and an installed intended-harness restart. Exact Slice 11 commit
 `2c96e842618d73ac59fa37d5492a5ae92a0d163d` aligns the public/server/audit
 documentation and active plan pointers to the implemented topology, marks the
 discarded guardian plan as historical evidence, and keeps direct-checkout MCP

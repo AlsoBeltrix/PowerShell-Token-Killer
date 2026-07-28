@@ -202,6 +202,90 @@ public sealed class NamedSessionProcessIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task Real_worker_crash_after_effect_is_not_replayed_and_preserves_its_sibling()
+    {
+        var root = Path.Combine(
+            Path.GetTempPath(),
+            $"ptk-named-session-recovery-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var marker = Path.Combine(root, "effect.txt");
+        var brokerPath = await BuildBrokerAsync(root);
+        var command = SessionWorkerLaunchCommand.Create();
+        await using var sessions = new NamedSessionSupervisor(
+            () => new ProcessSessionWorkerFactory(
+                WorkerProcessLauncher.Create(brokerPath),
+                command,
+                Limits),
+            startupTimeout: TimeSpan.FromSeconds(30),
+            containmentGrace: TimeSpan.FromSeconds(3));
+
+        Process? victimWitness = null;
+        Process? siblingWitness = null;
+        try
+        {
+            var victim = await sessions.OpenAsync("victim")
+                .WaitAsync(CheckpointTimeout);
+            var sibling = await sessions.OpenAsync("sibling")
+                .WaitAsync(CheckpointTimeout);
+            victimWitness = OpenWitness(victim.WorkerProcessId!.Value);
+            siblingWitness = OpenWitness(sibling.WorkerProcessId!.Value);
+            _ = await InvokeAsync(
+                sessions,
+                "sibling",
+                "$global:SiblingMarker = 'still-warm'; 'configured'");
+
+            var call = sessions.InvokeAsync(
+                "victim",
+                $"[IO.File]::AppendAllText('{PsLiteral(marker)}', 'once'); " +
+                "while ($true) { Start-Sleep -Milliseconds 50 }",
+                raw: false,
+                WorkerInvokeRoute.Pwsh,
+                timeoutSeconds: 600,
+                outputStore: null);
+            await WaitForFileAsync(marker);
+            victimWitness.Kill();
+            await WaitForExitAsync(victimWitness);
+
+            var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+                () => call);
+            Assert.Equal(
+                WorkerInvocationDisposition.OutcomeUnknown,
+                failure.Disposition);
+
+            var replacement = await WaitForReplacementAsync(
+                sessions,
+                "victim",
+                victim.WorkerProcessId.Value);
+            Assert.True(replacement.WarmStateLost);
+            Assert.NotEqual(victim.WorkerProcessId, replacement.WorkerProcessId);
+            Assert.Equal("once", await File.ReadAllTextAsync(marker));
+            Assert.False(siblingWitness.HasExited);
+            Assert.Equal(
+                sibling.WorkerProcessId,
+                sessions.List().Single(item => item.Name == "sibling").WorkerProcessId);
+            Assert.Equal(
+                "still-warm",
+                await InvokeAsync(
+                    sessions,
+                    "sibling",
+                    "$global:SiblingMarker"));
+        }
+        finally
+        {
+            await sessions.ShutdownAsync();
+            victimWitness?.Dispose();
+            siblingWitness?.Dispose();
+            try
+            {
+                Directory.Delete(root, recursive: true);
+            }
+            catch
+            {
+            }
+        }
+    }
+
     private static async Task<string> InvokeAsync(
         NamedSessionSupervisor sessions,
         string name,
@@ -216,6 +300,28 @@ public sealed class NamedSessionProcessIntegrationTests
             outputStore: null).WaitAsync(CheckpointTimeout);
         Assert.Equal(WorkerResultStatus.Completed, response.Result.Status);
         return response.Result.Text;
+    }
+
+    private static async Task<NamedSessionSnapshot> WaitForReplacementAsync(
+        NamedSessionSupervisor sessions,
+        string name,
+        int previousProcessId)
+    {
+        var deadline = DateTimeOffset.UtcNow + CheckpointTimeout;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var snapshot = sessions.List().Single(item => item.Name == name);
+            if (snapshot.State == NamedSessionState.Ready &&
+                snapshot.WorkerProcessId is { } processId &&
+                processId != previousProcessId)
+            {
+                return snapshot;
+            }
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException(
+            $"Timed out waiting for replacement of session '{name}'.");
     }
 
     private static string SetupScript(

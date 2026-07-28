@@ -57,10 +57,13 @@ public sealed class SessionWorkerClientTests
             artifact: null,
             CancellationToken.None);
         _ = await process.ReadRequestAsync();
-        var failure = await Assert.ThrowsAsync<WorkerProtocolException>(
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
             () => secondCall);
 
-        Assert.Equal("request_id_mismatch", failure.DetailCode);
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            failure.Disposition);
+        Assert.Equal("request_id_mismatch", failure.CauseDetailCode);
         Assert.False(client.IsTransportUsable);
         _ = await Assert.ThrowsAsync<WorkerProtocolException>(
             () => client.Fatal);
@@ -122,13 +125,198 @@ public sealed class SessionWorkerClientTests
                     "late"u8.ToArray()),
                 Limits));
 
-        var failure = await Assert.ThrowsAsync<WorkerProtocolException>(
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
             () => call);
 
-        Assert.Equal("artifact_sequence_invalid", failure.DetailCode);
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            failure.Disposition);
+        Assert.Equal("artifact_sequence_invalid", failure.CauseDetailCode);
         Assert.False(client.IsTransportUsable);
         _ = await Assert.ThrowsAsync<WorkerProtocolException>(
             () => client.Fatal);
+    }
+
+    [Fact]
+    public async Task Worker_loss_before_the_invoke_pipe_write_is_proved_not_started()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 9,
+            Limits);
+        await InitializeAsync(client, process);
+        process.ExitUnexpectedly();
+        await WaitForFatalAsync(client);
+        var writesBeforeInvoke = process.RequestWriteCalls;
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => client.InvokeAsync(
+                "'never dispatched'",
+                raw: false,
+                WorkerInvokeRoute.Pwsh,
+                timeoutSeconds: 30,
+                artifact: null,
+                CancellationToken.None));
+
+        Assert.Equal(
+            WorkerInvocationDisposition.NotStarted,
+            failure.Disposition);
+        Assert.Equal("worker_transport_unavailable", failure.CauseDetailCode);
+        Assert.Equal(writesBeforeInvoke, process.RequestWriteCalls);
+    }
+
+    [Theory]
+    [InlineData((int)WriteFailureMode.SynchronousAtEntry)]
+    [InlineData((int)WriteFailureMode.AsynchronousReturn)]
+    [InlineData((int)WriteFailureMode.PartialWrite)]
+    public async Task Failure_at_or_after_the_first_invoke_pipe_write_is_outcome_unknown(
+        int modeValue)
+    {
+        var process = new ScriptedProcess((WriteFailureMode)modeValue);
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 10,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => client.InvokeAsync(
+                "'possibly dispatched'",
+                raw: false,
+                WorkerInvokeRoute.Pwsh,
+                timeoutSeconds: 30,
+                artifact: null,
+                CancellationToken.None));
+
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            failure.Disposition);
+        Assert.Equal("worker_transport_failure", failure.CauseDetailCode);
+        Assert.Equal(2, process.RequestWriteCalls);
+        Assert.False(client.IsTransportUsable);
+    }
+
+    [Fact]
+    public async Task Worker_loss_after_a_complete_invoke_write_is_outcome_unknown_and_never_replayed()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 12,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'execute once'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifact: null,
+            CancellationToken.None);
+        _ = WorkerOperationProtocol.ParseInvoke(
+            await process.ReadRequestAsync(),
+            client.SessionId,
+            client.Incarnation,
+            Limits);
+        process.ExitUnexpectedly();
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            failure.Disposition);
+        Assert.Equal(2, process.RequestWriteCalls);
+    }
+
+    [Fact]
+    public async Task Worker_loss_during_result_frame_is_outcome_unknown_and_never_replayed()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 14,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'partial result'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifact: null,
+            CancellationToken.None);
+        var request = WorkerOperationProtocol.ParseInvoke(
+            await process.ReadRequestAsync(),
+            client.SessionId,
+            client.Incarnation,
+            Limits);
+        var encoded = WorkerProtocol.Encode(
+            WorkerOperationProtocol.CreateResultEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerResult(
+                    request.RequestId,
+                    WorkerResultStatus.Completed,
+                    "never complete",
+                    DetailCode: null)));
+        await process.WritePartialEventAndExitAsync(
+            encoded.AsMemory(0, encoded.Length / 2));
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            failure.Disposition);
+        Assert.Equal("truncated_frame", failure.CauseDetailCode);
+        Assert.Equal(2, process.RequestWriteCalls);
+    }
+
+    [Fact]
+    public async Task Complete_valid_terminal_wins_even_when_the_worker_exits_immediately_afterward()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 13,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'completed once'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifact: null,
+            CancellationToken.None);
+        var request = WorkerOperationProtocol.ParseInvoke(
+            await process.ReadRequestAsync(),
+            client.SessionId,
+            client.Incarnation,
+            Limits);
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateResultEnvelope(
+                client.SessionId,
+                client.Incarnation,
+                new WorkerResult(
+                    request.RequestId,
+                    WorkerResultStatus.Completed,
+                    "completed once",
+                    DetailCode: null)));
+        process.ExitUnexpectedly();
+
+        var result = await call.WaitAsync(CheckpointTimeout);
+
+        Assert.Equal(WorkerResultStatus.Completed, result.Result.Status);
+        Assert.Equal("completed once", result.Result.Text);
+        Assert.Equal(2, process.RequestWriteCalls);
     }
 
     [Fact]
@@ -213,6 +401,19 @@ public sealed class SessionWorkerClientTests
         await initialize.WaitAsync(CheckpointTimeout);
     }
 
+    private static async Task WaitForFatalAsync(ProcessSessionWorker client)
+    {
+        _ = await Assert.ThrowsAnyAsync<Exception>(
+            () => client.Fatal.WaitAsync(CheckpointTimeout));
+    }
+
+    private enum WriteFailureMode
+    {
+        SynchronousAtEntry,
+        AsynchronousReturn,
+        PartialWrite,
+    }
+
     private sealed class ScriptedProcess : IWorkerContainedProcess
     {
         private static int _nextProcessId = 50000;
@@ -228,11 +429,16 @@ public sealed class SessionWorkerClientTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         private int _disposed;
 
-        internal ScriptedProcess()
+        private readonly RequestWriteStream _requestWriterMonitor;
+
+        internal ScriptedProcess(WriteFailureMode? writeFailureMode = null)
         {
             var requests = new Pipe();
             var events = new Pipe();
-            _requestWriter = requests.Writer.AsStream();
+            _requestWriterMonitor = new RequestWriteStream(
+                requests.Writer.AsStream(),
+                writeFailureMode);
+            _requestWriter = _requestWriterMonitor;
             _requestReader = requests.Reader.AsStream();
             _eventWriter = events.Writer.AsStream();
             _eventReader = events.Reader.AsStream();
@@ -248,6 +454,7 @@ public sealed class SessionWorkerClientTests
         public Stream StandardOutputReader => Stream.Null;
         public Stream StandardErrorReader => Stream.Null;
         public Task ContainmentEmpty => _containmentEmpty.Task;
+        internal int RequestWriteCalls => _requestWriterMonitor.WriteCalls;
 
         internal async Task<WorkerEnvelope> ReadRequestAsync() =>
             await _requests.ReadAsync()
@@ -259,6 +466,20 @@ public sealed class SessionWorkerClientTests
             _events.WriteAsync(envelope)
                 .AsTask()
                 .WaitAsync(CheckpointTimeout);
+
+        internal async Task WritePartialEventAndExitAsync(
+            ReadOnlyMemory<byte> bytes)
+        {
+            await _eventWriter.WriteAsync(bytes);
+            await _eventWriter.FlushAsync();
+            ExitUnexpectedly();
+        }
+
+        internal void ExitUnexpectedly()
+        {
+            _eventWriter.Dispose();
+            _exit.TrySetResult();
+        }
 
         public Task WaitForExitAsync(
             CancellationToken cancellationToken = default) =>
@@ -282,6 +503,80 @@ public sealed class SessionWorkerClientTests
             _requestReader.Dispose();
             _eventWriter.Dispose();
             _eventReader.Dispose();
+        }
+    }
+
+    private sealed class RequestWriteStream(
+        Stream inner,
+        WriteFailureMode? failureMode) : Stream
+    {
+        internal int WriteCalls { get; private set; }
+
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            WriteCalls++;
+            if (WriteCalls != 2 || failureMode is null)
+                return inner.WriteAsync(buffer, cancellationToken);
+
+            return failureMode.Value switch
+            {
+                WriteFailureMode.SynchronousAtEntry =>
+                    throw new IOException("injected synchronous write failure"),
+                WriteFailureMode.AsynchronousReturn =>
+                    ValueTask.FromException(
+                        new IOException("injected asynchronous write failure")),
+                WriteFailureMode.PartialWrite =>
+                    WritePartialThenFailAsync(buffer, cancellationToken),
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(failureMode)),
+            };
+        }
+
+        private async ValueTask WritePartialThenFailAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken)
+        {
+            await inner.WriteAsync(
+                buffer[..Math.Min(17, buffer.Length)],
+                cancellationToken);
+            throw new IOException("injected partial write failure");
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken) =>
+            inner.FlushAsync(cancellationToken);
+
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+        public override void SetLength(long value) =>
+            throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) =>
+            throw new NotSupportedException();
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) inner.Dispose();
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync();
+            GC.SuppressFinalize(this);
         }
     }
 

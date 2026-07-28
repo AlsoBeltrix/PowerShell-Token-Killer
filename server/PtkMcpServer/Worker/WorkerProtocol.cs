@@ -544,7 +544,8 @@ internal sealed class WorkerProtocolWriter
 
     internal async ValueTask WriteAsync(
         WorkerEnvelope envelope,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action? onWriteAttempt = null)
     {
         var gateAcquired = false;
         byte[]? encoded = null;
@@ -574,6 +575,7 @@ internal sealed class WorkerProtocolWriter
                 // even when it later throws or observes cancellation. Latch
                 // the writer terminal so no later frame can be concatenated
                 // onto ambiguous transport state.
+                onWriteAttempt?.Invoke();
                 await _stream.WriteAsync(frame, cancellationToken).ConfigureAwait(false);
                 await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
             }

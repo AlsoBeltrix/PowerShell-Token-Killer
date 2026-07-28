@@ -64,6 +64,10 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         {
             return Failed("invoke", session, exception.DetailCode);
         }
+        catch (WorkerInvocationException exception)
+        {
+            return FormatInvocationFailure(session, exception);
+        }
         catch (WorkerProcessException exception)
         {
             return Failed("invoke", session, exception.DetailCode);
@@ -283,6 +287,22 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         return sb.ToString().TrimEnd();
     }
 
+    internal static string FormatInvocationFailure(
+        string session,
+        WorkerInvocationException exception) =>
+        exception.Disposition switch
+        {
+            WorkerInvocationDisposition.NotStarted =>
+                $"[ptk invoke] status=not_started session={session} " +
+                $"detail={exception.CauseDetailCode}; the command was not started " +
+                "and PTK did not retry it; correct the stated cause before retrying.",
+            WorkerInvocationDisposition.OutcomeUnknown =>
+                $"[ptk invoke] status=outcome_unknown session={session} " +
+                $"detail={exception.CauseDetailCode}; do not resubmit automatically; " +
+                "PTK did not retry the command.",
+            _ => throw new ArgumentOutOfRangeException(nameof(exception)),
+        };
+
     private static void AppendTerminal(
         StringBuilder sb,
         string status,
@@ -299,7 +319,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             .Append('.');
     }
 
-    private static string FormatList(NamedSessionSnapshot[] sessions)
+    internal static string FormatList(NamedSessionSnapshot[] sessions)
     {
         var sb = new StringBuilder("[ptk sessions]");
         foreach (var session in sessions)
@@ -336,7 +356,9 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             .Append(" warm_state_lost=")
             .Append(snapshot.WarmStateLost ? "true" : "false")
             .Append(" last_failure=")
-            .Append(snapshot.LastFailure ?? "none");
+            .Append(snapshot.LastFailure ?? "none")
+            .Append(" reset_required=")
+            .Append(snapshot.ResetRequired ? "true" : "false");
     }
 
     private static string MissingName(string action) =>

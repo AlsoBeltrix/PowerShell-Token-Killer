@@ -21,7 +21,8 @@ internal sealed record NamedSessionSnapshot(
     int? WorkerProcessId,
     bool Active,
     bool WarmStateLost,
-    string? LastFailure);
+    string? LastFailure,
+    bool ResetRequired);
 
 internal sealed record NamedSessionInvokeResult(
     WorkerResult Result,
@@ -1072,7 +1073,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             slot.WorkerProcessId,
             slot.ActiveOperations != 0,
             slot.WarmStateLost,
-            slot.LastFailure);
+            slot.LastFailure,
+            slot.State == NamedSessionState.Faulted);
 
     private static string ValidateName(string name)
     {

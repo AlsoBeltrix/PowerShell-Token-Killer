@@ -484,6 +484,80 @@ public sealed class NamedSessionSupervisorTests
     }
 
     [Fact]
+    public async Task Failed_automatic_replacement_faults_only_that_session_until_explicit_reset()
+    {
+        var fleet = new FakeFleet();
+        await using var sessions = CreateSupervisor(fleet);
+        var failed = await sessions.OpenAsync("failed");
+        var sibling = await sessions.OpenAsync("sibling");
+        var failedWorker = fleet.Workers.Single(
+            worker => worker.ProcessId == failed.WorkerProcessId);
+        var siblingWorker = fleet.Workers.Single(
+            worker => worker.ProcessId == sibling.WorkerProcessId);
+        fleet.EnqueueStart((_, _) =>
+            Task.FromException<ISessionWorker>(
+                new SessionWorkerStartException(
+                    "replacement_start_failed",
+                    processLaunched: false,
+                    containment: null,
+                    containmentEmpty: null)));
+
+        failedWorker.Fail(new IOException("injected worker crash"));
+
+        await WaitUntilAsync(() =>
+            sessions.List().Single(item => item.Name == "failed").State ==
+            NamedSessionState.Faulted);
+        Assert.True(
+            sessions.List().Single(item => item.Name == "failed").ResetRequired);
+        Assert.Equal(3, fleet.StartCount);
+        await Task.Delay(100);
+        Assert.Equal(3, fleet.StartCount);
+        Assert.Equal(
+            siblingWorker.ProcessId,
+            sessions.List().Single(item => item.Name == "sibling").WorkerProcessId);
+        Assert.Equal(0, siblingWorker.StopCount);
+
+        var reset = await sessions.ResetAsync("failed");
+
+        Assert.Equal(NamedSessionState.Ready, reset.State);
+        Assert.False(reset.ResetRequired);
+        Assert.Equal(4, fleet.StartCount);
+        Assert.Equal(
+            siblingWorker.ProcessId,
+            sessions.List().Single(item => item.Name == "sibling").WorkerProcessId);
+    }
+
+    [Fact]
+    public async Task Worker_loss_cannot_mutate_another_supervisors_session()
+    {
+        var failedFleet = new FakeFleet();
+        var otherFleet = new FakeFleet();
+        await using var failedSupervisor = CreateSupervisor(failedFleet);
+        await using var otherSupervisor = CreateSupervisor(otherFleet);
+        var failed = await failedSupervisor.OpenAsync("exchange");
+        var other = await otherSupervisor.OpenAsync("exchange");
+        var failedWorker = failedFleet.Workers.Single(
+            worker => worker.ProcessId == failed.WorkerProcessId);
+        var otherWorker = otherFleet.Workers.Single(
+            worker => worker.ProcessId == other.WorkerProcessId);
+
+        failedWorker.Fail(new IOException("injected worker crash"));
+
+        await WaitUntilAsync(() =>
+            failedSupervisor.List().Single(item => item.Name == "exchange").State ==
+                NamedSessionState.Ready &&
+            failedSupervisor.List().Single(item => item.Name == "exchange")
+                .WorkerProcessId != failedWorker.ProcessId);
+        var unchanged = otherSupervisor.List()
+            .Single(item => item.Name == "exchange");
+        Assert.Equal(other, unchanged);
+        Assert.Equal(0, otherWorker.StopCount);
+        Assert.Equal(
+            WorkerResultStatus.Completed,
+            (await Invoke(otherSupervisor, "exchange")).Result.Status);
+    }
+
+    [Fact]
     public async Task Timeout_replaces_only_its_worker_and_late_old_failure_cannot_mutate_replacement()
     {
         var fleet = new FakeFleet();

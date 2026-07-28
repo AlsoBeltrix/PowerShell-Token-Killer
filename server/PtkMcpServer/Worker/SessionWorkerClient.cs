@@ -8,6 +8,32 @@ internal sealed record SessionWorkerInvocation(
     Guid? ArtifactId,
     OutputArtifactContent? ArtifactContent);
 
+internal enum WorkerInvocationDisposition
+{
+    NotStarted,
+    OutcomeUnknown,
+}
+
+internal sealed class WorkerInvocationException : IOException
+{
+    internal WorkerInvocationException(
+        WorkerInvocationDisposition disposition,
+        string causeDetailCode,
+        Exception innerException)
+        : base(
+            disposition == WorkerInvocationDisposition.NotStarted
+                ? "Worker invocation was not started."
+                : "Worker invocation outcome is unknown.",
+            innerException)
+    {
+        Disposition = disposition;
+        CauseDetailCode = causeDetailCode;
+    }
+
+    internal WorkerInvocationDisposition Disposition { get; }
+    internal string CauseDetailCode { get; }
+}
+
 internal interface ISessionWorker : IAsyncDisposable
 {
     int ProcessId { get; }
@@ -350,7 +376,7 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         CancellationToken cancellationToken)
     {
         await _operation.WaitAsync(cancellationToken).ConfigureAwait(false);
-        var writeAttempted = false;
+        var writeStarted = false;
         WorkerArtifactReceiver? receiver = null;
         using var artifactBytes = new MemoryStream();
         try
@@ -369,8 +395,10 @@ internal sealed class ProcessSessionWorker : ISessionWorker
             if (artifact is not null)
                 receiver = new WorkerArtifactReceiver(requestId, artifact);
 
-            writeAttempted = true;
-            await WriteRequiredAsync(request, cancellationToken)
+            await WriteRequiredAsync(
+                    request,
+                    cancellationToken,
+                    () => writeStarted = true)
                 .ConfigureAwait(false);
             var artifactStarted = false;
             while (true)
@@ -432,14 +460,25 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
-            if (writeAttempted)
-                Poison(exception);
             if (exception is OperationCanceledException &&
                 cancellationToken.IsCancellationRequested)
             {
-                await CancelBestEffortAsync().ConfigureAwait(false);
+                if (writeStarted)
+                {
+                    Poison(exception);
+                    await CancelBestEffortAsync().ConfigureAwait(false);
+                }
+                throw;
             }
-            throw;
+
+            if (writeStarted)
+                Poison(exception);
+            throw new WorkerInvocationException(
+                writeStarted
+                    ? WorkerInvocationDisposition.OutcomeUnknown
+                    : WorkerInvocationDisposition.NotStarted,
+                InvocationFailureCode(exception, writeStarted),
+                exception);
         }
         finally
         {
@@ -636,14 +675,33 @@ internal sealed class ProcessSessionWorker : ISessionWorker
 
     private async Task WriteRequiredAsync(
         WorkerEnvelope envelope,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action? onWriteAttempt = null)
     {
-        var write = _writer.WriteAsync(envelope, cancellationToken).AsTask();
+        var write = _writer
+            .WriteAsync(envelope, cancellationToken, onWriteAttempt)
+            .AsTask();
         _ = IgnoreFailureAsync(write);
         await write
             .WaitAsync(cancellationToken)
             .ConfigureAwait(false);
     }
+
+    private static string InvocationFailureCode(
+        Exception exception,
+        bool writeStarted) =>
+        exception switch
+        {
+            WorkerProtocolException protocol => protocol.DetailCode,
+            WorkerProcessException process => process.DetailCode,
+            EndOfStreamException => "worker_transport_closed",
+            ObjectDisposedException => "worker_transport_closed",
+            IOException => writeStarted
+                ? "worker_transport_failure"
+                : "worker_transport_unavailable",
+            InvalidOperationException => "worker_transport_unavailable",
+            _ => "worker_invoke_failed",
+        };
 
     private async Task CancelBestEffortAsync()
     {

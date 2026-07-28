@@ -1067,6 +1067,54 @@ command = "/Users/nobody/.ptk/bin/PtkMcpServer"
     }
 }
 
+Describe 'development package layout' {
+    It 'refuses a cross-RID native package before creating the output directory' {
+        $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'dev-install.ps1'
+        $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+        $arch = switch ($architecture) {
+            'X64' { 'x64' }
+            'Arm64' { 'arm64' }
+            default { throw "Unsupported test architecture: $architecture" }
+        }
+        $localRid = if ($IsWindows) {
+            "win-$arch"
+        }
+        elseif ($IsLinux) {
+            "linux-$arch"
+        }
+        elseif ($IsMacOS) {
+            "osx-$arch"
+        }
+        else {
+            throw 'Unsupported test operating system.'
+        }
+        $foreignRid = switch -Wildcard ($localRid) {
+            'win-*' { "linux-$arch" }
+            'linux-*' { "osx-$arch" }
+            'osx-*' { "linux-$arch" }
+        }
+        $output = Join-Path ([IO.Path]::GetTempPath()) (
+            'ptk-cross-rid-refusal-' + [guid]::NewGuid().ToString('N'))
+
+        try {
+            $text = & pwsh -NoProfile -File $installScript `
+                -LayoutOnly `
+                -OutputDir $output `
+                -Rid $foreignRid 2>&1 |
+                Out-String
+
+            $LASTEXITCODE | Should -Not -Be 0
+            $text | Should -Match 'Cross-RID layout publishing is refused'
+            $text | Should -Match ([regex]::Escape($localRid))
+            $text | Should -Match ([regex]::Escape($foreignRid))
+            Test-Path -LiteralPath $output | Should -BeFalse
+        }
+        finally {
+            Remove-Item -LiteralPath $output -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 Describe 'Compress-PtcOutput' {
     AfterEach {
         Remove-Item env:PTK_RTK_PATH -ErrorAction SilentlyContinue

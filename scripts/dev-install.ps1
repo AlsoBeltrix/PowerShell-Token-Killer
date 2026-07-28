@@ -43,8 +43,9 @@ param(
     [switch]$LayoutOnly,
     [Parameter(ParameterSetName = 'LayoutOnly', Mandatory)]
     [string]$OutputDir,
-    # Target RID for -LayoutOnly (defaults to this machine's). Cross-RID
-    # publish needs no target runtime installed.
+    # Target RID for -LayoutOnly (defaults to this machine's). PTK has no
+    # supported cross-target native package build; Unix layouts include a
+    # platform-native worker broker.
     [Parameter(ParameterSetName = 'LayoutOnly')]
     [string]$Rid,
 
@@ -55,8 +56,7 @@ param(
     [Parameter(ParameterSetName = 'LayoutOnly')]
     [string]$Version,
 
-    # Run the full public handshake against a local-RID layout without
-    # activating it. Cross-RID layouts cannot execute on this host.
+    # Run the full public handshake against the layout without activating it.
     [Parameter(ParameterSetName = 'LayoutOnly')]
     [switch]$Validate
 )
@@ -80,6 +80,18 @@ function Get-PtkRid {
     $os = if ($IsWindows) { 'win' } elseif ($IsLinux) { 'linux' } elseif ($IsMacOS) { 'osx' }
     else { throw 'Unsupported OS.' }
     "$os-$arch"
+}
+
+function Assert-PtkNativeBuildRid {
+    param([Parameter(Mandatory)][string]$TargetRid)
+
+    $localRid = Get-PtkRid
+    if ($TargetRid -cne $localRid) {
+        throw (
+            "Cross-RID layout publishing is refused: target '$TargetRid' does not " +
+            "match build host '$localRid'. PTK packages have no supported " +
+            'cross-target native build; run this layout build on a matching host.')
+    }
 }
 
 function Assert-NotElevated {
@@ -418,6 +430,7 @@ switch ($mode) {
     'LayoutOnly' {
         $targetRid = if ($Rid) { $Rid } else { Get-PtkRid }
         $payloadVersion = Get-PtkVersion
+        Assert-PtkNativeBuildRid -TargetRid $targetRid
         if ((Test-Path -LiteralPath $OutputDir) -and
             (Get-ChildItem -LiteralPath $OutputDir -Force | Select-Object -First 1)) {
             throw "OutputDir '$OutputDir' is not empty - refusing to clobber."

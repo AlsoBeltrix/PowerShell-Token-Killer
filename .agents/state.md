@@ -611,15 +611,25 @@ short and update it when important repo facts change.
   the new guard fail; byte-exact restoration passed reduced and full
   acceptance. Full host evidence and cleanup hashes are in
   `.agents/machines.md`.
+- **Slice 10 direct-worker-death containment is committed at
+  `8b9644ae8937b33c9bd9de1498dbef6ee7cd88d2` and verified on macOS ARM64 and
+  exact-archive Linux x86_64.** The Unix broker now treats reaping the worker as
+  the immediate trigger to contain any remaining process-group members;
+  descendants can no longer keep the broker waiting indefinitely by retaining
+  inherited pipes. The new low-level guard failed against the old broker with
+  both descendants still live and passed after the fix. Public acceptance
+  directly kills a worker during an in-flight command, proves both descendants
+  exit, reports `outcome_unknown` without replay, replaces only that worker,
+  and preserves the sibling PID and warm variable. Complete macOS and Linux
+  batteries passed; exact counts, log hashes, host split, and cleanup are in
+  `.agents/machines.md`.
 
 ## Next
 
 1. Continue Slice 10 with the remaining missing uncredentialed acceptance
-   guards, beginning with the worker hard-kill matrix. First diagnose the
-   reproduced during-execution case: directly killing the worker left its
-   same-group grandchild alive past 30 seconds in two macOS diagnostics even
-   though the escape topology was valid. Fix the production containment path
-   before adding the remaining first-write/effect/result boundary cases.
+   guards. Map the remaining first-write/effect/result hard-kill boundaries to
+   the existing deterministic guards, add the next missing real-process
+   boundary one case at a time, and preserve exact no-replay/outcome wording.
    Package and rerun each completed guard at an exact committed head on macOS
    and an available Linux x86_64 host. When `NETWATCH-01` returns, validate the
    retained exact Slice 6-10 archives and run the Windows/Exchange acceptance
@@ -731,13 +741,6 @@ short and update it when important repo facts change.
   Job Object evidence does not substitute for an exact-current-head Windows
   run. Resume the Windows/Exchange matrix when that host returns. Exact host
   evidence is in `.agents/machines.md`.
-- **Direct worker hard-kill during execution does not yet contain the old Unix
-  process group.** Two macOS diagnostics proved the worker and grandchild
-  shared the broker-owned group and only the child had escaped, then killed the
-  worker directly. The same-group grandchild remained live beyond 30 seconds
-  both times; bounded harness cleanup removed it. This is the next Slice 10
-  production blocker, not a tolerated fixture failure. Exact PIDs and log
-  hashes are in `.agents/machines.md`.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in

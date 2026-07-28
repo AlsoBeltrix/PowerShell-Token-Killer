@@ -1,7 +1,8 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 10 PRODUCTION ACCEPTANCE IN PROGRESS; TIMEOUT-CONTAINMENT AND
-UNIX-ESCAPE SUB-SLICES COMMITTED AND MACOS ARM64/LINUX X86_64 VERIFIED;
+**Status:** SLICE 10 PRODUCTION ACCEPTANCE IN PROGRESS; TIMEOUT-CONTAINMENT,
+UNIX-ESCAPE, AND DIRECT-WORKER-DEATH SUB-SLICES COMMITTED AND MACOS
+ARM64/LINUX X86_64 VERIFIED;
 WINDOWS X64 VALIDATION PENDING FOR SLICES 6-10 — topology
 decision 1, R0 contract-retirement decision 2, test-runner Slice 1a, and
 delegated decisions 3-4 are settled as recorded in `.agents/decisions.md`. No
@@ -34,10 +35,15 @@ x86_64; the rest of the Slice 10 acceptance matrix remains in progress.
 Exact Slice 10 Unix-escape acceptance commit
 `a626c3b8e993575ad916058bc33959c02b4daae3` proves an observed `setsid`
 escape reports `descendants_unknown`, blocks reuse until the escaped PID dies,
-and never replays the timed-out command on macOS ARM64 or Linux x86_64. The
-still-open worker hard-kill matrix is next; direct worker death during execution
-has already reproduced one old-group descendant surviving the containment
-bound and is not accepted as production-ready behavior.
+and never replays the timed-out command on macOS ARM64 or Linux x86_64. Exact
+Slice 10 direct-worker-death commit
+`8b9644ae8937b33c9bd9de1498dbef6ee7cd88d2` makes the native Unix broker
+contain the remaining process group immediately when it reaps the worker,
+instead of waiting indefinitely on pipes descendants can inherit. A regression
+proved the old broker left the descendants live; the fixed exact commit passes
+the complete macOS ARM64 and Linux x86_64 batteries, including the public
+during-execution hard-kill guard with no replay and a preserved warm sibling.
+The remaining first-write/effect/result hard-kill boundary cases are next.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

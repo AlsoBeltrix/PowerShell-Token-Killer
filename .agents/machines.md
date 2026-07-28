@@ -1364,5 +1364,67 @@ deployment._
   `c019a9c3431645b5f63dc9276a8c7ae7aa5e14bd35d07f510f1119f360403a34`
   and
   `e03408e688944a0737b83748c483071812aa8794716a301cb15949c820bffe91`.
-  This did not affect the isolated timeout-driven escape acceptance; it must be
-  diagnosed under Slice 10's still-open worker hard-kill matrix.
+  This did not affect the isolated timeout-driven escape acceptance. It was
+  diagnosed and closed by the direct-worker-death work recorded next.
+
+## Production-reliability Slice 10 direct-worker-death validation (2026-07-28)
+
+_Validated exact product/test commit
+`8b9644ae8937b33c9bd9de1498dbef6ee7cd88d2`, tree
+`66fa36fa870880788cd8c6f5979feba3908f309b`; this was disposable
+checkout/archive validation, not installation or deployment._
+
+- The load-bearing regression first ran against the old native broker and
+  failed after 30 seconds with both the contained descendant and grandchild
+  still live. Its log SHA-256 is
+  `bb04a898906d27f8ad5893a9f9da4e2edf1bb237da43d36b20bde25fc9aa72be`.
+  Root cause was in `monitor_worker`: after reaping the worker, the broker kept
+  polling liveness and control pipes that descendants could retain. The fixed
+  broker immediately contains the remaining process group when the worker is
+  reaped. The focused guard then passed, and all nine Unix launcher tests
+  passed; their log SHA-256 values are
+  `10cca9f06aa5ed1db09c860d191547a101117318c1b087a9b989ffd700d5ba75`
+  and
+  `983c2818412e1b55766c61247f6ca62b93ea777d840432564239153db8471ca2`.
+- On `nagatha.local`, the complete server suite passed 1,212/1,212 in 2m24s;
+  Pester passed 141 tests with two platform skips; SIEM passed 247/247; the
+  complete public handshake passed; scoped formatting, PSScriptAnalyzer, and
+  `git diff --check` were clean. The full production acceptance passed 100
+  replacements with process count 5/5, handles/fds 543/545, and private
+  footprint 327.1/343.8 MiB. Directly killing an executing worker reported
+  `outcome_unknown` without replay, killed both descendants, replaced victim
+  `83726` with `83744`, and preserved warm sibling `83736`; the escape and
+  supervisor hard-kill guards also passed. The server/Pester/SIEM/handshake/
+  acceptance log SHA-256 values are respectively
+  `14dcca1cd530ebebc621085d7daef9a29fc0c82abe6dc1068ef23e8f5715f32b`,
+  `05336aa6382f5cb60311c6d81122ba2c60ccb9f59b98e178490a05ac0d000f09`,
+  `392d6cd198117ca30a33c93939a2bac89eef591214bda48fb53bfab273306fbf`,
+  `fee4813f527272ec29e319773c85b24806d9caeb779b6aab98f914b5990d0a26`,
+  and
+  `35dbc29db56b57b4061fa3fa64e754275b3a527b1b97f5723090f2fbbd5d507a`.
+- The exact source archive SHA-256 was
+  `fb07dcdd096623b014ebea5838c422b1d171aba3caf489273221afb2d29dbb20`
+  and matched after every transfer. On `magneto` (Arch Linux
+  7.1.4-arch1-1 x86_64, .NET SDK 10.0.110, PowerShell 7.6.3), the complete
+  server suite passed 1,212/1,212 in 3m02s. The wrapper then stopped because
+  that host has no Pester module; the server-pass-plus-environment-stop log
+  SHA-256 is
+  `7b55448cafe1ef51781be1d09119d894036f26a9aab7ba6e5e2d76618b5d821d`.
+  No package was installed to bypass that host precondition.
+- The same verified archive ran Pester 6.0.1 on `gabrielle` (Arch Linux
+  7.1.5-arch1-1 x86_64, PowerShell 7.6.3): 141 passed with two platform skips.
+  Its log SHA-256 is
+  `7877af984bbaa00acc053ea8ccd6321fad6ad1f9f39f8bc3ba18608cb60cc274`.
+  Back on `magneto`, SIEM passed 247/247, the public handshake passed, and the
+  full production acceptance passed 100 replacements with process count 5/5,
+  handles/fds 530/530, and private footprint 245.7/242.4 MiB. Direct worker
+  death killed both descendants, replaced victim `245163` with `245262`, and
+  preserved warm sibling `245188`; escape and supervisor hard-kill also
+  passed. The combined remaining-checks log SHA-256 is
+  `c0754c157b244307620a3a82dc5ae55f5de1e7b2566994042c7d97822d417f4c`.
+- The three remote validation roots and the local transfer root were
+  prefix-checked and removed after hashing. No candidate server, worker,
+  broker, fixture, or test process survived. Nothing was installed, registered,
+  deployed, or pushed. The five already-recorded transitive
+  `System.Security.Cryptography.Xml` 10.0.6 advisories were the only dependency
+  warnings.

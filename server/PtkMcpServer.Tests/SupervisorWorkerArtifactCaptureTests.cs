@@ -45,10 +45,13 @@ public sealed class SupervisorWorkerArtifactCaptureTests : IDisposable
     {
         var release = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        var publicationClaims = 0;
         using var store = CreateStore(
             maximumArtifactBytes: 1024,
             maximumSessionBytes: 1024,
-            maximumAggregateBytes: 1024);
+            maximumAggregateBytes: 1024,
+            artifactPublishingClaimedForTests: () =>
+                Interlocked.Increment(ref publicationClaims));
         Assert.True(
             store.TryReserve("alpha", out var reservation, out var failure),
             failure);
@@ -74,6 +77,7 @@ public sealed class SupervisorWorkerArtifactCaptureTests : IDisposable
         Assert.Equal("artifact_sink_incomplete", recovery.DetailCode);
         release.TrySetResult();
         await capture.SinkCompletionForTests.WaitAsync(CheckpointTimeout);
+        Assert.Equal(0, Volatile.Read(ref publicationClaims));
         Assert.True(
             SpinWait.SpinUntil(
                 () => store.TryReserve(

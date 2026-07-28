@@ -30,6 +30,16 @@ short and update it when important repo facts change.
   timeout, direct worker death, process-group escape, and supervisor hard-kill
   containment all passed. No process remained, the disposable root was
   removed, and nothing was installed or registered.
+- **One immutable Linux x86_64 package now passes on all three available Linux
+  hosts, including both hosts without a .NET SDK.** `magneto` built and
+  validated the exact `d243c82d135b390b69fd93b25d01135f4d791a58`
+  package; `gabrielle` and `altiera` independently verified the same source
+  and layout hashes, confirmed the SDK was absent, and passed both the complete
+  public handshake and 100-cycle production acceptance from those package
+  bytes. Each host contained timeout and direct-kill descendants, refused the
+  process-group escape, preserved the sibling, and removed all descendants
+  after supervisor hard-kill. No package process remained, all disposable
+  roots were removed, and nothing was installed or registered.
 - **Production-reliability Slice 11 is complete and integrated on local
   `master`.** Exact documentation/integration commit
   `2c96e842618d73ac59fa37d5492a5ae92a0d163d` publishes the implemented

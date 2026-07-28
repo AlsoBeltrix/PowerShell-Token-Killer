@@ -73,8 +73,12 @@ Linux x86_64 battery on real matching hosts, including genuine ELF package
 artifacts and the 100-cycle staged-package production acceptance. Exact
 committed head `920944ef3a4491edbf1d2c6a3915a5e39106a8fb` subsequently
 passed the same staged-package production acceptance on matching macOS ARM64
-with genuine Mach-O ARM64 server and broker executables. The remaining
-production gates stay open.
+with genuine Mach-O ARM64 server and broker executables. One immutable Linux
+x86_64 layout built from exact head
+`d243c82d135b390b69fd93b25d01135f4d791a58` then passed the full
+handshake and 100-cycle production acceptance on both `gabrielle` and
+`altiera` without a .NET SDK, in addition to its build-host validation on
+`magneto`. The remaining production gates stay open.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

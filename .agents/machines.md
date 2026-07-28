@@ -1603,3 +1603,43 @@ was used._
   `b936074023cf3f6ba268a9085a4da984961f7feb6aa90341106c305a28580c01`.
   A process scan found no executable from the validation root, and the
   prefix-checked disposable root was removed after evidence hashing.
+
+## Cross-host self-contained Linux package acceptance (2026-07-28)
+
+_Built one immutable package on `magneto`, then validated those exact package
+bytes on `gabrielle` and `altiera`, both of which had PowerShell 7.6.3 but no
+.NET SDK. No installation, registration, deployment, or push was used._
+
+- Exact committed head was
+  `d243c82d135b390b69fd93b25d01135f4d791a58`, tree
+  `14ac333b80d0120f6f3af54a135fe231cb330510`. The 1,235,575-byte source
+  archive SHA-256 was
+  `8cde0267adc55b7c0060184278539f251e61b6934e6e7d93617f637bc42c142d`.
+- `magneto` built and validated the `linux-x64` layout. The resulting
+  53,459,626-byte layout archive SHA-256 was
+  `d02880e038a2d76ba86b48a7f7b3f3ac8ea0010fc5bae577368184c3800611a5`.
+  The complete 2,135-byte build/handshake log is
+  `/Users/michael/.ptk/jobs/job-7145-2.log`, SHA-256
+  `15725156975d6e943959fafa2c5c3ae64f571c174c1285f2060ce3f1ec1c8501`.
+- `gabrielle` ran kernel `7.1.5-arch1-1`; `altiera` ran
+  `7.1.3-arch2-1`. Each independently verified both archive hashes, confirmed
+  `dotnet` was absent, identified the server and broker as Linux x86-64 ELF
+  executables, and passed the complete five-tool package handshake.
+- Both hosts then passed the 100-cycle packaged production acceptance.
+  `gabrielle` retained 5/5 processes and finished at 532 file descriptors
+  versus a 530 baseline; private footprint moved from 219.5 to 209.3 MiB.
+  `altiera` retained 5/5 processes and likewise finished at 532 descriptors
+  versus 530; private footprint moved from 210.6 to 215.8 MiB. Both changes
+  remained within the acceptance bounds.
+- On each host timeout and direct worker-death paths contained two native
+  descendants, the sibling stayed warm, the observed process-group escape
+  faulted `descendants_unknown` and blocked replacement, and supervisor
+  hard-kill removed four owned descendants.
+- The complete `gabrielle` 3,841-byte log is
+  `/Users/michael/.ptk/jobs/job-7145-3.log`, SHA-256
+  `c4b2a0431814cb53d802fe7d386d21d5bffedfdb832d1a685be45bdae70843cb`.
+  The complete `altiera` 3,833-byte log is
+  `/Users/michael/.ptk/jobs/job-7145-4.log`, SHA-256
+  `3ec96bb9fd4f6a007930c92e633501d8d99a7fb02604e26faffa1b2aa355acbd`.
+  Process scans found no executable from any validation root; all three remote
+  roots and the prefix-checked local transfer root were removed after hashing.

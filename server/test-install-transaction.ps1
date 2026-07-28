@@ -237,9 +237,8 @@ function Invoke-FailingCase {
     }
 }
 
-$root = Join-Path (
-    [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)
-) ('.ptk/install-transaction-tests/' + [guid]::NewGuid().ToString('N'))
+$root = Join-Path ([IO.Path]::GetTempPath()) (
+    'ptk-install-transaction-tests-' + [guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root -Force | Out-Null
 try {
     Invoke-FailingCase -Name 'staged-validation' -FailStagedValidation

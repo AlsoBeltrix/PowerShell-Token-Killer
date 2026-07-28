@@ -83,6 +83,37 @@ function Remove-PtkInstallPath {
     }
 }
 
+function Set-PtkInstallRootAccess {
+    param([Parameter(Mandatory)][string]$PayloadRoot)
+
+    if (-not $IsWindows) {
+        return
+    }
+    if (Test-Path -LiteralPath $PayloadRoot -PathType Leaf) {
+        throw "$PayloadRoot exists as a file; the payload root must be a directory."
+    }
+
+    $directory = [IO.Directory]::CreateDirectory($PayloadRoot)
+    $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+    $ownerSecurity = [IO.FileSystemAclExtensions]::GetAccessControl(
+        $directory,
+        [Security.AccessControl.AccessControlSections]::Owner)
+    $ownerSid = $ownerSecurity.GetOwner([Security.Principal.SecurityIdentifier])
+    if (-not $ownerSid.Equals($userSid)) {
+        throw "The PTK payload root must be owned by the current Windows user."
+    }
+
+    $security = [Security.AccessControl.DirectorySecurity]::new()
+    $security.SetAccessRuleProtection($true, $false)
+    $security.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            $userSid,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
+            [Security.AccessControl.PropagationFlags]::None,
+            [Security.AccessControl.AccessControlType]::Allow))
+    [IO.FileSystemAclExtensions]::SetAccessControl($directory, $security)
+}
+
 function New-PtkInstallSnapshot {
     [CmdletBinding()]
     param(
@@ -284,6 +315,10 @@ function Invoke-PtkInstallTransaction {
             'AssertExternalStateRestored must be supplied together.')
     }
 
+    # Package smoke creates roots beneath ~/.ptk. Repair a sandbox-created
+    # non-inheriting home ACL before that validation can strand its children.
+    Set-PtkInstallRootAccess -PayloadRoot $PayloadRoot
+
     & $StagedValidation $StagingRoot | Out-Null
 
     $externalState = if ($CaptureExternalState) {
@@ -292,6 +327,7 @@ function Invoke-PtkInstallTransaction {
     else {
         $null
     }
+
     try {
         $snapshot = New-PtkInstallSnapshot `
             -PayloadRoot $PayloadRoot `

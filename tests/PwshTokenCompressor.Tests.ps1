@@ -1068,6 +1068,82 @@ command = "/Users/nobody/.ptk/bin/PtkMcpServer"
 }
 
 Describe 'development package layout' {
+    It 'repairs a non-inheriting Windows install-root ACL before activation' -Skip:(-not $IsWindows) {
+        $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
+        Import-Module $transactionModule -Force
+
+        $caseRoot = Join-Path $TestDrive 'install-acl'
+        $payload = Join-Path $caseRoot 'home'
+        $staging = Join-Path $caseRoot 'staging'
+        $snapshot = Join-Path $caseRoot 'snapshot'
+        New-Item -ItemType Directory -Path (Join-Path $payload 'bin'), (Join-Path $staging 'bin') -Force |
+            Out-Null
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'old.txt') -Value 'old' -NoNewline
+        Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
+
+        $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
+        $rootOnly = [Security.AccessControl.DirectorySecurity]::new()
+        $rootOnly.SetAccessRuleProtection($true, $false)
+        $rootOnly.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $userSid,
+                [Security.AccessControl.FileSystemRights]::FullControl,
+                [Security.AccessControl.InheritanceFlags]::None,
+                [Security.AccessControl.PropagationFlags]::None,
+                [Security.AccessControl.AccessControlType]::Allow))
+        [IO.FileSystemAclExtensions]::SetAccessControl(
+            [IO.DirectoryInfo]::new($payload),
+            $rootOnly)
+
+        try {
+            Invoke-PtkInstallTransaction `
+                -StagingRoot $staging `
+                -PayloadRoot $payload `
+                -PayloadEntries @('bin') `
+                -RegistrationPaths @() `
+                -SnapshotRoot $snapshot `
+                -StagedValidation { param($root) } `
+                -InstalledValidation { param($root) } `
+                -RegistrationCutover {}
+
+            Get-Content -LiteralPath (Join-Path $payload 'bin' 'new.txt') -Raw |
+                Should -BeExactly 'new'
+            $installedAcl = [IO.FileSystemAclExtensions]::GetAccessControl(
+                [IO.DirectoryInfo]::new($payload),
+                [Security.AccessControl.AccessControlSections]::Access)
+            $installedAcl.AreAccessRulesProtected | Should -BeTrue
+            $installedRules = @($installedAcl.GetAccessRules(
+                    $true,
+                    $false,
+                    [Security.Principal.SecurityIdentifier]))
+            $installedRules | Should -HaveCount 1
+            $installedRules[0].IdentityReference | Should -Be $userSid
+            $installedRules[0].FileSystemRights |
+                Should -Be ([Security.AccessControl.FileSystemRights]::FullControl)
+            $installedRules[0].InheritanceFlags |
+                Should -Be ([Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit')
+            $installedRules[0].PropagationFlags |
+                Should -Be ([Security.AccessControl.PropagationFlags]::None)
+            $installedRules[0].AccessControlType |
+                Should -Be ([Security.AccessControl.AccessControlType]::Allow)
+        }
+        finally {
+            $inheriting = [Security.AccessControl.DirectorySecurity]::new()
+            $inheriting.SetAccessRuleProtection($true, $false)
+            $inheriting.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                    $userSid,
+                    [Security.AccessControl.FileSystemRights]::FullControl,
+                    [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit',
+                    [Security.AccessControl.PropagationFlags]::None,
+                    [Security.AccessControl.AccessControlType]::Allow))
+            [IO.FileSystemAclExtensions]::SetAccessControl(
+                [IO.DirectoryInfo]::new((Join-Path $payload 'bin')),
+                $inheriting)
+            [IO.FileSystemAclExtensions]::SetAccessControl(
+                [IO.DirectoryInfo]::new($payload),
+                $inheriting)
+        }
+    }
+
     It 'refuses a cross-RID native package before creating the output directory' {
         $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'dev-install.ps1'
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture

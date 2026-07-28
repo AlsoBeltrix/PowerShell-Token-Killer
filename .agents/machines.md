@@ -1102,5 +1102,6 @@ checkout validation, not an install or deployment._
   installed payload were touched. Slice 7 remains held until this exact commit
   passes the disposable Windows battery.
 - The five known `System.Security.Cryptography.Xml` 10.0.6 advisories were the
-  only dependency warnings. The local transfer directory and disposable Linux
-  checkout remain only until Windows evidence and final cleanup are complete.
+  only dependency warnings. After its log was copied and hashed, the disposable
+  Linux checkout was removed. The local transfer directory remains only until
+  Windows evidence and final cleanup are complete.

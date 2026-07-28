@@ -572,14 +572,31 @@ short and update it when important repo facts change.
   worker cutover, adding a Windows guard that a background descendant dies on
   hard supervisor termination; the owner approved this deferral on 2026-07-19
   (recorded in `.agents/review/index.md`).
+- **Slice 10 production acceptance is in progress on
+  `impl/production-reliability-salvage`.** `c2f67d3` added the unshipped
+  production-acceptance stress harness and package-boundary guards; `9151e57`
+  made selected-session state and the supervisor-local session list prove
+  prompt, truthful behavior while three real calls remain active across two
+  servers. Linux acceptance then reproduced an intermittent
+  `descendants_unknown` reset refusal even though broker and registry
+  containment were confirmed. Root cause was an asynchronous forwarding race:
+  the Unix registry's exact empty-domain proof was complete, but the public
+  worker proof task could still be pending when the supervisor checked it.
+  `156aac2` publishes that already-completed exact proof before returning
+  `ConfirmedEmpty`; the supervisor's fail-closed rule is unchanged. The guard
+  failed with the synchronization removed and passed after restoration.
+  Verification at `156aac2`: 1,204 server tests, 141 Pester tests (2 skipped),
+  247 SIEM tests, handshake, macOS 100 replacement cycles, and the Linux
+  diagnostic reproducer's 100 replacement cycles all passed.
 
 ## Next
 
-1. Begin Slice 10 acceptance from exact Slice 9 head: inventory existing guards
-   against the acceptance matrix, then run the still-missing uncredentialed
-   macOS and Linux checks. When `NETWATCH-01` returns, validate the retained
-   exact Slice 6-9 archives and run the Windows/Exchange acceptance work before
-   claiming any slice cross-platform complete.
+1. Continue Slice 10 with the remaining missing uncredentialed acceptance
+   guards, beginning with real timeout containment of a child and grandchild;
+   then package and rerun the exact committed head on macOS and available Linux
+   hosts. When `NETWATCH-01` returns, validate the retained exact Slice 6-9
+   archives and run the Windows/Exchange acceptance work before claiming any
+   slice cross-platform complete.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

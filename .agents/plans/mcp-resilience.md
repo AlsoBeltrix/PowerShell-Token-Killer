@@ -1,17 +1,22 @@
 # Plan: resilient MCP guardian and automatic backend recovery
 
-**Status:** PLANNING BOUNDARY OWNER-APPROVED 2026-07-15; R0 IMPLEMENTATION
-OWNER-AUTHORIZED 2026-07-15; R0 CODE, TESTS, PLATFORM EVIDENCE, AND REQUIRED
-FIXED-SHA FABLE IMPLEMENTATION REVIEW COMPLETE AT `c1d809f`; R0 AWAITS LOCAL
-MERGE; R1-R7 NOT AUTHORIZED. The approved boundary is:
-add two recovery
-layers so the MCP host automatically replaces failed session workers and a
-minimal public-pipe guardian automatically restarts the host; neither layer
-replays uncertain calls, every recovery changes generation, only declared
-bootstrap state is recreated, and health reporting remains usable. This file
-records the implementation contract. The R0 authorization covers only its
-frozen contracts and disposable feasibility fixtures; it does not authorize
-live guardian/host recovery wiring.
+**Status:** SUPERSEDED 2026-07-28 BY
+`.agents/plans/production-reliability-salvage.md`. Preserve this file as
+historical design and review evidence only. Do not implement, merge, install,
+or restore its guardian/private-host architecture, cold-job surface, mandatory
+audit producer, bootstrap profiles, or R1-R7 slices.
+
+Historical status at supersession: planning boundary owner-approved
+2026-07-15; R0 implementation owner-authorized 2026-07-15; R0 code, tests,
+platform evidence, and required fixed-SHA Fable implementation review complete
+at `c1d809f`; R0 awaited local merge; R1-R7 were not authorized. The historical
+boundary was to add two recovery layers so the MCP host automatically replaced
+failed session workers and a minimal public-pipe guardian automatically
+restarted the host; neither layer replayed uncertain calls, every recovery
+changed generation, only declared bootstrap state was recreated, and health
+reporting remained usable. The R0 authorization covered only its frozen
+contracts and disposable feasibility fixtures; it did not authorize live
+guardian/host recovery wiring.
 
 The owner additionally accepted on 2026-07-15 that the guardian is a small
 session-lifetime control-plane binary, not a general pipe relay. It owns audit

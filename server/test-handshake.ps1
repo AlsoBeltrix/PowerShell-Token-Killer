@@ -6,7 +6,9 @@ Smoke-tests the PtkMcpServer stdio transport end to end: starts the server as
 a child process and performs an MCP initialize / tools/list /
 tools/call(ptk_state) handshake over real stdin/stdout. Three launch modes:
 default builds this checkout and drives the built dll; -UseRegistrationCommand
-drives the exact `dotnet run` command the .mcp.json registration spawns;
+builds first, then drives the exact stdout-clean
+`dotnet run --no-build --no-launch-profile` command used by a direct checkout
+registration;
 -ServerCommand drives an arbitrary server binary (e.g. a published
 self-contained build, for release-artifact smoke tests) — multi-element
 commands use array syntax: -ServerCommand dotnet,exec,PtkMcpServer.dll.
@@ -17,9 +19,11 @@ Exits 0 on success, 1 on failure. Used as part of slice verification alongside
 [CmdletBinding(DefaultParameterSetName = 'BuiltDll')]
 param(
     [int]$TimeoutSec = 30,
-    # Drive the server with `dotnet run` — the exact command the .mcp.json
-    # registration spawns (build-on-launch, quiet stdout) — instead of
-    # dotnet exec against a prebuilt dll.
+    # Build first, then drive the server with the exact stdout-clean
+    # `dotnet run --no-build --no-launch-profile` command used by a direct
+    # checkout registration, instead of dotnet exec against a prebuilt dll. A
+    # build-on-launch command is not MCP-safe: restore/build warnings are
+    # written to protocol stdout.
     [Parameter(ParameterSetName = 'Registration', Mandatory)]
     [switch]$UseRegistrationCommand,
     # Drive an arbitrary server binary instead of building this checkout:
@@ -63,9 +67,21 @@ switch ($mode) {
         }
     }
     'Registration' {
-        Write-Host 'Starting via dotnet run (registration command; builds on launch)...'
+        $proj = Join-Path $serverDir 'PtkMcpServer'
+        Write-Host 'Building server before stdout-clean registration launch...'
+        dotnet build $proj -v q --nologo | Out-Host
+        if ($LASTEXITCODE -ne 0) { Write-Error 'Build failed.'; exit 1 }
+
+        Write-Host 'Starting via dotnet run --no-build --no-launch-profile (registration command)...'
         $psi.FileName = 'dotnet'
-        foreach ($a in @('run', '-v', 'q', '--project', (Join-Path $serverDir 'PtkMcpServer'))) {
+        foreach ($a in @(
+                'run',
+                '--no-build',
+                '--no-launch-profile',
+                '-v',
+                'q',
+                '--project',
+                $proj)) {
             $psi.ArgumentList.Add($a)
         }
     }

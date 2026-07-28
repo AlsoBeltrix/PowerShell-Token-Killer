@@ -1,20 +1,25 @@
 # PtkMcpServer
 
-`PtkMcpServer` is a stdio MCP server that owns one long-lived PowerShell
-runspace plus a serialized foreground routing gate. PowerShell and mixed
-dataflow calls use that runspace, so variables, imported modules, and
-established connections survive across those calls. Independently proven
-parse-fatal Bash syntax uses bounded startup-pinned Bash/RTK child processes;
-its shell state is process-local and does not enter the PowerShell session.
+`PtkMcpServer` is a stdio MCP supervisor for isolated warm PowerShell sessions.
+One MCP connection may own up to eight sessions, including the lazy `default`
+session. Each session runs in its own contained worker process with one
+serialized PowerShell runspace, so variables, imported modules, functions,
+working directory, environment drift, and established connections persist
+inside that session without leaking into another.
 
-During runspace priming the server freezes the compressor source in memory,
-captures its shaping command, and detaches the module from the user-visible
-session. Routing and dialect preflight execute as C# parser logic over
-data-only command facts captured through CLR APIs; no PowerShell command or
-scriptblock runs before dispatch authorization. User scripts therefore cannot
-replace preflight through shadowing, debugger hooks, type data, or later module
-file edits. If the module cannot be found or loaded, calls fall back to plain
-`Out-String` output and the server writes the problem to stderr.
+The supervisor owns the public MCP pipe, session registry, output store,
+admission, and worker replacement. On Unix, `PtkWorkerBroker` creates each
+worker as a process-group leader and proves cleanup before replacement. On
+Windows, each worker is created inside a Job Object before user code can run.
+
+During each worker's runspace priming, PTK freezes the compressor source in
+memory, captures its shaping command, and detaches the module from the
+user-visible session. Routing and dialect preflight execute as C# parser logic
+over data-only command facts captured through CLR APIs; no PowerShell command
+or scriptblock runs before dispatch authorization. User scripts therefore
+cannot replace preflight through shadowing, debugger hooks, type data, or later
+module file edits. If the module cannot be found or loaded, calls fall back to
+plain `Out-String` output and the worker reports the problem.
 
 ## Prerequisites
 
@@ -35,9 +40,12 @@ dotnet test server/PtkMcpServer.slnx
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
 ```
 
-The handshake starts the server through the same `dotnet run` command used by
-the MCP registration and must end with `HANDSHAKE PASSED`. The explicit
-`-TimeoutSec 90` gives cold build/startup work room to finish.
+The handshake builds first, then starts the server through the same
+`dotnet run --no-build --no-launch-profile` command used by the MCP
+registration, and must end with `HANDSHAKE PASSED`. Building outside the MCP
+child keeps restore/build warnings off protocol stdout, and bypassing launch
+profiles prevents later development settings from changing that launch. The
+explicit `-TimeoutSec 90` gives cold build/startup work room to finish.
 
 A checkout has no project-scope registration (the committed `.mcp.json` is
 deliberately empty). Install and register user-wide with
@@ -45,8 +53,13 @@ deliberately empty). Install and register user-wide with
 `~/.ptk` and registers it), or register the checkout directly:
 
 ```powershell
-claude mcp add ptk --scope user -- dotnet run -v q --project <path-to-repo>/server/PtkMcpServer
+dotnet build <path-to-repo>/server/PtkMcpServer -v q --nologo
+claude mcp add ptk --scope user -- dotnet run --no-build --no-launch-profile -v q --project <path-to-repo>/server/PtkMcpServer
 ```
+
+Repeat the build after changing source. Do not remove `--no-build` or
+`--no-launch-profile`; build warnings on stdout corrupt the JSON-RPC transport,
+and a later launch profile could introduce another unsafe startup side effect.
 
 Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 
@@ -54,88 +67,23 @@ Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 
 | Tool | Arguments | Purpose |
 | --- | --- | --- |
-| `ptk_invoke` | `script`, optional `raw`, `route`, `background`, `timeoutSeconds` | Run shell work through PTK: persistent PowerShell execution, eligible terminal-native RTK routing, or bounded validated Bash delegation; `background: true` starts a separate cold child whose plan selects direct PowerShell or eligible RTK routing, and `timeoutSeconds` overrides the capped per-call timeout. The legacy `raw` flag is deprecated and inert except for compatibility telemetry. |
-| `ptk_job` | `action` (`status`/`output`/`kill`/`list`), `id`, `offset` | Manage background jobs: `output` returns new output since `offset`, shaped and bounded, ending with the next offset to pass. After a direct job finalizes, status/output report a stable opaque `ptk_output` handle only when its immutable recovery artifact sealed successfully. Capture/storage failure and seam-absent RTK jobs report recovery unavailable; this does not guarantee that the distinct internal polling spool remains readable. Internal spool paths are never exposed. |
-| `ptk_output` | `handle`, `action` (`read`/`search`/`status`), `offset`, `maxBytes`, optional `pattern` | Read, search, or inspect an immutable same-invocation artifact named by `ptk_invoke` or `ptk_job`. It never starts a session or worker and never executes or reruns a command; handles may be incomplete, expired, evicted, or unavailable. |
-| `ptk_state` | optional `listAvailable` | Session introspection and health check: engine, server PID/uptime, cwd, loaded modules, and drift — env vars changed since server start, PATH as an entry diff, variable count. With `listAvailable: true`, also enumerate installed modules once and cache the result. Never queues: while another call holds the runspace it answers promptly with host-level facts plus a busy line (active-call age, waiter count), marking runspace-dependent details unavailable. |
-| `ptk_reset` | none | Recycle the runspace to factory state: discards variables, loaded modules, current directory, default parameters, and connections, and restores environment variables to their server-start values. |
+| `ptk_invoke` | `script`; optional `raw`, `route`, `timeoutSeconds`, `session` | Execute the original command once in the selected warm session. Same-session queue wait and execution share one timeout budget. The legacy `raw` flag is deprecated compatibility telemetry and does not change routing or shaping. |
+| `ptk_output` | `handle`; `action` (`read`/`search`/`status`); optional `offset`, `maxBytes`, `pattern` | Read, search, or inspect an immutable same-invocation artifact named by `ptk_invoke`. It accepts no script, starts no worker, and never reruns a command. |
+| `ptk_state` | optional `listAvailable`, `session` | Report supervisor health and selected-session state, worker PID, engine, cwd, modules, and drift. It never starts a cold session and never queues behind a busy selected session. |
+| `ptk_reset` | optional `session` | Replace one idle session worker with a fresh contained worker and factory runspace. It refuses while that session is busy or old containment is unconfirmed. |
+| `ptk_session` | `action` (`list`/`open`/`close`); optional `name` | List the connection-local registry, open one named session, or close one idle named session. `default` is lazy and cannot be closed; at most eight sessions may be open. |
 
-## Mandatory local audit
+## Audit compatibility status
 
-Audit is owned by the MCP supervisor and cannot be disabled by a tool argument
-or user script. The default is local-only protected storage under
-`~/.ptk/audit`; no SIEM, collector, endpoint, or credentials are required.
-Core JSONL events live under `spool/`. Exact submitted script bytes live as
-separate owner-only evidence files under `evidence/`; core events contain only
-their opaque ID and SHA-256 digest, not script text.
-The current writer emits strict `ptk.audit/2` records. Recovery and export also
-accept retained byte-exact `ptk.audit/1` records; a chain may contain both
-versions. Exact scripts can contain credentials, tokens, or other secrets, so
-treat the audit root and every backup or copied evidence file as sensitive.
+The production supervisor does not open audit storage, require a local journal,
+or enable the retired OTLP producer. `ptk_state` reports audit disabled, and
+`PTK_AUDIT_ROOT` or `PTK_AUDIT_EXPORT_CONFIG` does not enable producer behavior
+in the ordinary runtime.
 
-Admission is fail-closed. PTK durably stores script evidence, reserves the
-worst-case terminal capacity, and flushes the accepted/dispatch records before
-user work, reset, or job control can begin. Foreground calls and spawned jobs
-retain terminal obligations, and graceful shutdown drains them before writing
-`server.stopped`. If protected audit storage is unavailable, ordinary tools do
-not run. `ptk_state` alone may return the minimal supervisor-only
-`audit=unavailable, unrecorded=true` diagnostic; it does not inspect the
-runspace or jobs in that mode.
-
-The same ordering covers internal RTK helpers. A foreground
-`execution.dispatched` record or a job `job.output_accessed` record identifies
-and authorizes the startup-pinned RTK digest with `rtk_log_authorized` before
-`rtk log` may start. `output.shaped` or `output.shaping_failed` then records the
-typed result; a physical post-start journal failure still leaves the durable
-authorization and degraded audit chain rather than an invisible helper call.
-
-The executable currently freezes these storage bounds at startup; there are no
-environment-variable overrides for them:
-
-| Store | Default age threshold | Default aggregate limit | Per-item limit |
-| --- | --- | --- | --- |
-| Core journal | 30 days | 256 MiB, including a 4 MiB terminal-event reserve | 64 KiB per JSONL record; 16 MiB segments |
-| Exact-script evidence | 30 days | 256 MiB | 128 KiB per script |
-
-Local-only evidence becomes ordinarily retention-eligible only after its
-referencing audit append is durable. In anchored mode, each referenced
-evidence object becomes eligible only after its exact core event acknowledgment
-is durably checkpointed; acknowledged closed spool prefixes separately become
-eligible for chain retirement. Unacknowledged segments and evidence remain
-pinned. Completed chains retire through a crash-recoverable durable deletion
-intent instead of leaving checkpoint controls forever.
-
-Every automatic evidence deletion is itself journal-bound: PTK flushes an
-`evidence.retention_intent` containing the exact subject ID, digest, byte count,
-state, and reason before unlink, then records `evidence.retention_completed` or
-`evidence.retention_failed`. If terminal truth cannot be proved, the failure is
-`outcome_unknown`. PTK fails new script-bearing admission rather than deleting
-evidence without the complete audit reservation or when retention status is
-ambiguous.
-
-`PTK_AUDIT_ROOT` may select a different absolute operator-controlled root at
-process startup. With `PTK_AUDIT_EXPORT_CONFIG` absent, the executable remains
-local-only and needs no SIEM. Supplying that variable opts into strict anchored
-mode: the protected configuration, HTTPS endpoint, authentication material,
-and export runtime must all initialize before PTK serves tools. An empty,
-malformed, incomplete, or unprotected configuration fails startup instead of
-falling back to local-only.
-
-Anchored mode sends core audit events as
-[OTLP/HTTP protobuf logs](https://opentelemetry.io/docs/specs/otel/protocol/exporter/)
-with at-least-once delivery. Retries preserve `ptk.audit.event_id` and
-`ptk.audit.event_hash`, so a receiver must tolerate or deduplicate identical
-duplicates. Exact submitted script bytes remain only in the protected local
-evidence store; they are not sent in OTLP records. Configuration, receiver
-durability requirements, and SIEM adapter patterns are in
-[Anchored audit export](AUDIT-EXPORT.md).
-
-The separate `PtkAuditAdmin` executable provides audited evidence read/export
-and exact permanent-block disposition without adding a model-facing MCP tool.
-It is still callable by any process that the OS permits to execute it; use an
-external operator/OS boundary when the model-controlled account must not have
-that capability. Commands and proof semantics are documented in
-[Anchored audit export](AUDIT-EXPORT.md#out-of-band-audit-administration).
+The repository retains legacy local journal/evidence administration,
+checkpoint disposition, and the standalone SIEM receiver's wire/ack contract.
+`PtkAuditAdmin` is retained for those legacy stores but is excluded from the
+runtime package. See [retained audit and receiver contracts](AUDIT-EXPORT.md).
 
 `ptk_invoke` returns command output, then labeled sections when present, in
 this order: `[exit] N`, `[stderr]`, `[errors]`, and `[warnings]`. Empty
@@ -169,7 +117,7 @@ Routing rules:
 - PTK freezes RTK's canonical path, bounded SHA-256 identity, and Unix mode at
   server startup. Warm-session `PATH`/`PTK_RTK_PATH` changes cannot substitute
   a different binary. Identity or availability loss before a routed process
-  starts takes the already-audited exact-original fallback once; PTK never
+  starts takes the exact-original fallback once; PTK never
   asks the model to reconstruct the command and never retries after start.
 - Automatic Bash delegation requires all three independent facts: PowerShell
   parse-fatal input, detector evidence for a specific Bash construct outside
@@ -178,11 +126,10 @@ Routing rules:
   PTK execute the exact bytes once via startup-pinned RTK and
   `bash --noprofile --norc -c`. Both direct process environments remove Bash
   startup/function/option injection and platform loader-injection variables.
-- Missing/drifted Bash or RTK, invalid syntax, validator timeout, audit loss,
-  or exhausted call budget returns a labeled not-started result without
-  running the submitted script or requesting a retry. Validator start/outcome
-  and root-termination certainty are typed audit facts; descendant coverage
-  remains explicitly unknown.
+- Missing/drifted Bash or RTK, invalid syntax, validator timeout, or an
+  exhausted call budget returns a labeled not-started result without running
+  the submitted script or requesting a retry. Start and termination certainty
+  remain explicit in the returned outcome.
 - A clean-parsing detector finding retains the fast `[ptk:dialect]` refusal.
   `route=pwsh` bypasses the detector/delegation path as explicit PowerShell
   consent; normal capture and shaping still apply. The deprecated `raw=true`
@@ -215,8 +162,7 @@ Output shaping:
 - The host passes the exact startup-frozen identity into shaping, bounds the
   rehash to a regular nonsymlink file of at most 128 MiB, checks Unix mode
   drift, and validates the returned routing envelope against the authorized
-  digest. Foreground and job-output RTK use is auditable even on exceptional
-  or timed-out shaping paths.
+  digest.
 - Delegated Bash/RTK stdout and stderr are each captured to a 4 MiB response
   bound while the pipes continue draining. Truncation is labeled and never
   causes re-execution.
@@ -235,33 +181,19 @@ Overrides:
 - When a response supplies a `ptk_output` handle, use it to read the immutable
   same-invocation artifact. `ptk_output` never executes or reruns the command.
 
-Long-running work (two paths, by workload):
+Long-running work:
 
-- `background=true` starts the script as a **separate cold child process** and
-  returns a job id immediately. The cold plan selects direct PowerShell or
-  eligible RTK routing. The job does not see warm session state; it
-  starts in the session's current directory and writes output to an internal
-  supervisor spool. Poll with `ptk_job action=output` (pass the returned next
-  offset each time); output polls are shaped and bounded like foreground
-  output. Once a direct job terminates and capture succeeds, `ptk_job` reports
-  a stable `ptk_output` handle for the immutable same-invocation snapshot;
-  otherwise it reports recovery unavailable without rerunning. Recovery
-  sealing and live polling use distinct storage, so seal failure does not
-  guarantee that the polling spool remains readable. The internal spool path
-  is never model-facing. Use this for builds, watchers, deploys — stateless
-  work that could exceed the call timeout.
-- `timeoutSeconds` raises the per-call timeout (capped by
-  `PTK_MAX_CALL_TIMEOUT_SECONDS`) for long work that **needs** the warm
-  session — live connections, imported modules. A background job would
-  forfeit exactly that state.
-- A timed-out PowerShell pipeline recycles the runspace and loses its warm
-  state. A timed-out delegated Bash/RTK call instead attempts bounded tracked
-  root/process-tree termination, preserves the warm runspace, reports
-  descendants and remote effects as unknown where PTK cannot prove them, and
-  never retries the script.
-- Background jobs are killed by `ptk_reset` and at graceful server shutdown.
-  A hard-killed server can leave a running job orphaned (it finishes on its
-  own); job logs older than seven days are swept at server start.
+- `timeoutSeconds` raises the per-call timeout, capped by
+  `PTK_MAX_CALL_TIMEOUT_SECONDS`, for work that needs the selected warm
+  session. Same-session queue wait counts against the same budget.
+- A call that expires while still queued is proved not started and leaves warm
+  state intact.
+- A call that times out after execution starts is not replayed. PTK contains the
+  old worker process tree and replaces only that session worker, so that
+  session's warm state is lost while sibling sessions remain unchanged.
+- PTK has no public background-job tool. Use the harness's ordinary process
+  facilities for cold stateless watchers or deploys, or give a dedicated PTK
+  session a sufficient foreground timeout.
 
 ## Claude Code Hook
 
@@ -316,7 +248,9 @@ proceed normally. A down server does not fail open: shell calls are still
 denied — but the hook checks for a running server process, and when none
 exists the deny guidance says so and points at `PTK_DIRECT` up front
 (liveness shapes the wording only, never the decision). `PTK_DIRECT` is the
-way through until the server is back (`/mcp` reconnect respawns it).
+way through until the harness has replaced the dead MCP transport. The hook
+cannot restart that transport itself; production deployment must verify the
+intended harness's reconnect behavior.
 
 The missing-script fail-open is exactly what a **stale registration**
 produces: an entry written from a checkout that later moved fails open
@@ -338,28 +272,27 @@ Set these in the MCP registration `env` block when defaults do not fit:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `PTK_CALL_TIMEOUT_SECONDS` | `300` | Default per-call limit: a total wall-clock budget covering queue wait plus execution. A call whose budget expires while still queued behind another call fails fast without executing (warm state intact); a call that overruns while executing fails with the runspace recycled. |
+| `PTK_CALL_TIMEOUT_SECONDS` | `300` | Default per-call limit: a total wall-clock budget covering same-session queue wait plus execution. Queue expiry is proved not started; execution overrun replaces only that session worker. |
 | `PTK_MAX_CALL_TIMEOUT_SECONDS` | `3600` | Cap on the per-call `timeoutSeconds` override. |
-| `PTK_IDLE_EXIT_SECONDS` | `14400` | Idle self-exit backstop for orphaned servers, in seconds. |
-| `PTK_AUDIT_ROOT` | `~/.ptk/audit` | Absolute protected root for mandatory local audit JSONL and exact-script evidence. Local logging requires no SIEM configuration. |
-| `PTK_AUDIT_EXPORT_CONFIG` | unset | Absolute path to a protected `ptk.export-config/2` JSON file. Unset selects local-only mode; presence, including an empty value, requests strict anchored mode and makes incomplete or invalid configuration a startup failure. |
+| `PTK_OUTPUT_ROOT` | `~/.ptk/output` | Parent for supervisor-owned immutable output-artifact roots. |
 | `PTK_MODULE_PATH` | auto-discovered `src/PwshTokenCompressor.psd1` | Explicit module manifest to import into the runspace. If set to a missing file, shaping is disabled. |
 | `PTK_RTK_PATH` | `rtk` on `PATH` | Explicit `rtk` binary for native routing and log shaping. If set to a missing file, `rtk` is treated as absent. |
 
 ## Operational Notes
 
-- Calls are serialized; one runspace runs one pipeline at a time. The
-  per-call timeout is a wall-clock budget over the whole request — queue
-  wait included — and deadlines are re-checked when timers fire, so a
-  machine that sleeps mid-call times the call out promptly on wake instead
+- Calls serialize within one session; different sessions can run concurrently.
+  The per-call timeout is a wall-clock budget over the whole request — same-
+  session queue wait included — and deadlines are re-checked when timers fire,
+  so a machine that sleeps mid-call times the call out promptly on wake instead
   of silently extending it.
 - `useLocalScope: false` is intentional, so assignments and imported modules
   persist into later calls.
-- `ptk_reset` and execution/preflight timeouts create a fresh primed
-  runspace: warm state is lost, but later calls continue working. A queue
-  expiry is neither — the call never ran and warm state survives.
-- Caller cancellation tries to stop the pipeline and preserve the runspace. If
-  the pipeline does not stop within the grace period, the runspace is recycled.
+- `ptk_reset` and an execution timeout create a fresh contained worker and
+  primed runspace for only the selected session. A queue expiry is different:
+  the call never ran and warm state survives.
+- Cancellation before dispatch leaves the worker usable. Once request bytes may
+  have reached the worker, PTK never replays the command and may replace that
+  worker to recover a trustworthy transport.
 - Child native processes inherit EOF for stdin instead of the MCP JSON-RPC pipe,
   so stdin-reading commands do not hang forever waiting on the transport.
 - No interactive prompts can be answered inside the server. Use unattended auth
@@ -371,13 +304,10 @@ Set these in the MCP registration `env` block when defaults do not fit:
 The server is not a security boundary. `ptk_invoke` runs arbitrary PowerShell
 with the same authority as the MCP client process. A destructive-cmdlet policy
 gate is intentionally not implemented in the current code; review scripts at
-the client permission prompt instead of blanket-allowing the tool. Mandatory
-audit adds durable attribution, ordering, capacity guarantees, and tamper
-evidence; it does not grant or remove PowerShell/OS permissions. Run the
+the client permission prompt instead of blanket-allowing the tool. Run the
 harness under the restricted identity whose upstream RBAC is meant to govern
-the work. Local-only files are protected from other identities but are not
-claimed immutable against the same account, and their hash chain does not make
-them immutable to that account. Anchored export improves that boundary only
-after a separately administered receiver has durably acknowledged the event;
-an in-memory proxy or a receiver controlled by the harness identity does not.
-See [Anchored audit export](AUDIT-EXPORT.md) for the required trust boundary.
+the work. Worker processes and platform containment reduce state leakage and
+cleanup failures; they do not make hostile commands safe. Ordinary runtime
+execution has audit disabled. Retained legacy evidence stores and the SIEM
+receiver contract are documented in [AUDIT-EXPORT.md](AUDIT-EXPORT.md), but
+they are not an authorization boundary or an enabled runtime producer.

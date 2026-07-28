@@ -13,9 +13,13 @@ deliberately open: the hook default in the public installer (owner: "decision
 for later" — must close before slice 4 finalizes installer UX).
 The owner confirmed on 2026-07-15 that nothing has shipped and this development
 environment is the only current use, then delegated the resilience packaging
-cutover. Slices 0-2 remain valid development evidence; slice 3 is now ordered
-after resilience R7 and packages/registers only its matched guardian layout,
-with no legacy migration or side-by-side public server path.
+cutover. Slices 0-2 remain valid development evidence. The later guardian
+cutover was discarded by the owner on 2026-07-26 and is superseded by
+`.agents/plans/production-reliability-salvage.md`. Slice 3 remains blocked until
+that replacement runtime passes its production gates; when release work
+resumes, it must package/register the single `PtkMcpServer` supervisor with its
+contained per-named-session workers. It must not build or restore the discarded
+guardian/private-host layout.
 **Decision basis:** owner direction 2026-07-04 (recorded as an amendment to the
 continuation decision in `.agents/decisions.md`): the current
 run-from-the-repo-checkout install story (`dotnet run --project ...`) is not
@@ -23,6 +27,12 @@ acceptable for a release. The first public release has no current target date;
 when authorized, it must ship as prebuilt per-platform binaries with a one-line
 installer (tier 3). The publish-and-register script (tier 1) and .NET tool
 packaging (tier 2) are **dev-only** paths, never the public install story.
+
+Everything below that names a guardian, private host, profile-generation
+handshake, or resilience R7 is retained historical plan text, not current
+implementation authority. Its release outcomes and already-landed Slices 0-2
+remain evidence; topology and package-cutover mechanics must be reconciled to
+the production-reliability plan before Slice 3 is implemented.
 
 ## Goal
 

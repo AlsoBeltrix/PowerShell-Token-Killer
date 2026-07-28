@@ -2,26 +2,23 @@
 
 [![CI](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/workflows/ci.yml/badge.svg)](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/workflows/ci.yml)
 
-PTK is an audited, token-efficient PowerShell execution service for AI agent
-harnesses. In the approved architecture, each harness owns one public-pipe
-guardian, one replaceable private host, and one or more isolated warm
-PowerShell worker sessions. Modules, variables, working directory, and
-authenticated connections persist inside the selected session—and disappear
-with the harness.
+PTK is a token-efficient PowerShell execution service for AI agent harnesses.
+Each MCP connection owns one supervisor process. That supervisor can manage up
+to eight explicitly named sessions, including the lazy `default` session. Each
+session runs in its own contained worker process with one warm PowerShell
+runspace, so modules, variables, functions, working directory, environment
+changes, and authenticated connections persist only inside that session.
 
-The agent submits the original command once. PTK owns PowerShell state,
-internal RTK/Bash routing, output shaping and recovery, worker lifecycle, and a
-mandatory pre-effect audit trail.
+The agent submits the original command once. PTK owns routing, output shaping
+and recovery, worker lifecycle, and truthful failure reporting. It never
+replays a command whose execution may have started.
 
 > [!IMPORTANT]
-> **This README describes the approved end-state contract.** The current
-> development tree already implements mandatory audit, single-execution
-> routing, cold background jobs, same-invocation `ptk_output` recovery, and one
-> in-process default `SessionRuntime`. The guardian/private-host split,
-> worker-process sessions, automatic recovery, named sessions, hardened
-> containment, and public release installers are approved work still being
-> built. See [`.agents/state.md`](.agents/state.md) for the exact implementation
-> boundary. PTK has not had a public release.
+> The current development branch implements the supervisor, named worker
+> sessions, automatic worker replacement, five-tool MCP surface, output
+> recovery, and production containment described here. PTK has not had a public
+> release. See [`.agents/state.md`](.agents/state.md) for current validation and
+> remaining platform gates.
 
 ## Why PTK
 
@@ -36,59 +33,51 @@ mandatory pre-effect audit trail.
   reconstruct the command.
 - **Recoverable context.** When PTK captures a same-invocation artifact,
   `ptk_output` can retrieve an elided middle without rerunning the operation.
-- **Mandatory audit.** PTK reserves capacity and persists acceptance, intent,
-  and dispatch evidence before effects. It then records job lifecycle facts;
-  if the required local evidence cannot be persisted, new effectful work does
-  not start.
-- **Contained sessions.** In the target architecture, each warm session is a
-  separate worker process. Reset, timeout, or loss of one session does not
-  silently replace or corrupt another.
+- **Truthful outcomes.** A request is completed, proved not started, refused,
+  canceled, timed out, or reported outcome-unknown. PTK does not turn a lost
+  transport into a false success.
+- **Contained sessions.** Each warm session is a separate worker process.
+  Reset, timeout, or loss of one session does not silently replace or corrupt
+  another.
 
 PTK is not a sandbox or authorization boundary. Commands inherit the identity,
 privileges, network access, and upstream RBAC of the harness that launched PTK.
 
-## Target Architecture
+## Architecture
 
 ```mermaid
 flowchart LR
-    H[Agent harness] --> G[PTK MCP guardian]
-    G --> S[replaceable private host]
-    S --> D[default worker]
+    H[Agent harness] --> S[PTK MCP supervisor]
+    S --> D[default worker process]
     S --> N[named worker processes]
     D --> E[PowerShell / RTK / validated Bash]
     N --> E
-    G --> A[protected audit journal<br/>optional anchored export]
-    G --> O[bounded output store<br/>ptk_output]
+    S --> O[bounded output store<br/>ptk_output]
 ```
 
-One harness owns one guardian and one replaceable private host. Each session
-owns one serial PowerShell runspace inside its own worker process; different
-sessions can progress independently. The guardian owns audit, public IDs,
-output artifacts, frozen bootstrap metadata, and recovery generations. The
-host coordinates workers without owning the public MCP pipe.
+One harness connection owns one public supervisor. Each session owns one serial
+PowerShell runspace inside its own worker process; different sessions can
+progress independently. The supervisor owns the MCP pipe, session registry,
+output artifacts, admission, and replacement decisions.
 
-While that pipe remains open, inactivity never recycles the guardian, host, or
-warm workers. A failed worker or host is replaced automatically with a new
-generation and only its declared frozen baseline; uncertain work is never
-replayed. Guardian failure still ends the MCP connection and requires the
-client to start a new session.
+On Unix, a native broker creates and contains each worker process group. On
+Windows, workers start inside Job Objects before user code can run. A worker is
+replaced only after its old containment domain is proved empty. If an escaped
+descendant makes that proof impossible, the session faults
+`descendants_unknown` and refuses reuse.
 
-While recovery is active, PTK refuses dependent work instead of queueing it.
-A safe refusal tells the agent the recovery phase and attempt, then says to
-check `ptk_state` in a specific number of milliseconds. That delay is for the
-state check, not permission to rerun the command: the agent submits a fresh
-request only after the named host/session readiness gate reports ready. PTK
-checks the gate and generation again immediately before private dispatch. If
-they changed before dispatch, PTK returns another no-effect refusal. Once
-request bytes may have been written, PTK reports the outcome as unknown and
-never retries it; the readiness check does not pretend that boundary is safe.
+While the MCP connection remains open, inactivity does not recycle warm
+workers. A timed-out or lost worker is replaced from a fresh baseline; its
+uncertain command is never replayed. Supervisor failure ends the MCP connection
+and requires the harness to start a new one.
 
 Sessions are deliberately harness-scoped. There is no daemon, reattachment,
 cross-harness session, shared runspace, or durable session key in this design.
 
 ## Sessions
 
-The reserved `default` session preserves today's unqualified tool calls:
+The reserved `default` session preserves unqualified tool calls and starts
+lazily:
 
 ```text
 ptk_invoke(script="Import-Module ActiveDirectory")
@@ -108,81 +97,62 @@ ptk_state(session="ad")
 ptk_reset(session="exo")
 ```
 
-Target session rules:
+Session rules:
 
-- Names are harness-local semantic aliases such as `ad`, `exo`, or `build`.
+- Names are connection-local semantic aliases such as `ad`, `exo`, or `build`.
   Every non-default operation names its session; there is no mutable `select`.
 - Unknown or closed named sessions never fall back to `default` and never
   auto-create after a typo.
-- `reset` and `restart` replace the entire target worker and increment its
-  generation. They do not affect another session.
+- `ptk_reset` replaces the entire selected worker. It does not affect another
+  session and refuses while the selected session is busy or old containment is
+  unconfirmed.
 - After an execution timeout returns its terminal and the old worker tree is
   confirmed dead, an otherwise eligible session automatically starts its next
-  generation from the fresh declared baseline. The timed-out call is never
-  replayed.
-- An optional `expectedGeneration` prevents a stale caller from acting on a
-  replacement worker.
-- Optional templates loaded from `~/.ptk/profiles.json` can freeze a bootstrap
-  script, startup limit, labels, and cold-background policy for the harness
-  lifetime. Templates are operational configuration, not authorization, and
-  must not contain inline secrets.
-- Closing `default` leaves its reserved slot cold; the next unqualified
-  effectful call starts a new generation. Closed named sessions require an
-  explicit `open`.
+  worker from the factory baseline. The timed-out call is never replayed.
+- `ptk_session` supports `list`, `open`, and `close`. The lazy `default`
+  session cannot be closed. Closed named sessions require an explicit `open`.
+- At most eight sessions, including `default`, may be open on one connection.
 
 ### Long-running work
 
-Long work has two distinct paths:
-
-- Raise `timeoutSeconds` when work needs the selected warm foreground session.
-- Use `background=true`, then poll `ptk_job`, for cold stateless work such as
-  builds and watchers.
-
-Cold background jobs do not borrow a session's modules, variables, or
-authenticated connections. `default` permits cold jobs for compatibility;
-named sessions deny them unless their first binding or template explicitly
-allows them. Warm asynchronous session jobs are outside this design.
+Raise `timeoutSeconds` when work needs the selected warm session. The budget
+includes same-session queue wait and execution. PTK has no public background-job
+surface: long stateless work should run through the harness's ordinary process
+facilities, or run in a dedicated PTK session with a sufficient foreground
+timeout.
 
 ## MCP Tools
 
-The target public surface keeps the current tools and adds session lifecycle:
+The public surface is exactly five tools:
 
 | Tool | Purpose |
 | --- | --- |
-| `ptk_invoke` | Execute the original script once in the selected warm session, or start an explicitly allowed cold background job. |
-| `ptk_job` | Read status/output or kill a cold job using a guardian-owned, non-reused public job ID. |
+| `ptk_invoke` | Execute the original script once in the selected warm session. |
 | `ptk_output` | Read, search, or inspect an immutable same-invocation artifact. It accepts no script and never executes work. |
-| `ptk_state` | Report guardian, host, and session health plus lifecycle, engine, jobs, cwd, and environment/PATH/variable drift where available. |
-| `ptk_reset` | Replace one session worker, terminate its managed jobs, and restore its frozen baseline. |
-| `ptk_session` | List sessions, open named sessions, and close or restart named/default sessions. |
+| `ptk_state` | Report supervisor and selected-session health, worker PID, engine, cwd, modules, and drift without queueing behind that session. |
+| `ptk_reset` | Replace one idle session worker and restore its factory baseline. |
+| `ptk_session` | List sessions, open a named session, or close an idle named session. |
 
-Target signatures, shown compactly:
+Signatures, shown compactly:
 
 ```text
-ptk_invoke(script, route="auto", background=false, timeoutSeconds=0,
-           raw=false, session="default")
-ptk_job(action, id, offset=0, session="default")
-ptk_state(listAvailable=false, session="default")
-ptk_reset(session="default", expectedGeneration=0, force=false,
-          timeoutSeconds=0)
-ptk_session(action, name=null, template=null, allowColdBackground=null,
-            expectedGeneration=0, force=false, timeoutSeconds=0)
+ptk_invoke(script, route="auto", timeoutSeconds=0, raw=false,
+           session="default")
 ptk_output(handle, action="read", offset=0, maxBytes=<bounded>, pattern=null)
+ptk_state(listAvailable=false, session="default")
+ptk_reset(session="default")
+ptk_session(action, name=null)
 ```
-
-`ptk_session` and the `session` arguments arrive with the worker/named-session
-slices; they are not yet present on current `master`.
 
 ## Routing and Output
 
 The dialect is PowerShell 7. With `route="auto"`, PTK plans from the exact
-submitted text. Foreground calls resolve against the selected session's
-already-loaded command state; cold background jobs resolve against a pristine
-cold command table:
+submitted text and resolves against the selected session's already-loaded
+command state:
 
 1. Cmdlets, aliases, functions, scripts, variables, PowerShell object
-   pipelines, and mixed dataflow execute unchanged in PowerShell: the selected
-   warm runspace for foreground work or the cold child for background work.
+   pipelines, and mixed dataflow execute unchanged in the selected warm
+   PowerShell runspace.
 2. A semantically eligible terminal native application is offered to RTK.
    RTK chooses a specialized filter or passthrough.
 3. A narrow parse-fatal Bash shape may run through startup-suppressed Bash only
@@ -214,8 +184,8 @@ Output is shaped by provenance:
   labeled head/tail window.
 
 When PTK owns a capture, the result may include a `ptk_output` handle for the
-immutable artifact. Handles remain readable across reset/restart/close until
-ordinary TTL or quota eviction, but never outlive the harness guardian.
+immutable artifact. Handles remain readable across reset and session close
+until ordinary TTL or quota eviction, but never outlive the supervisor.
 Expired, evicted, unavailable, and incomplete artifacts are reported
 explicitly.
 
@@ -227,46 +197,31 @@ seam-absent contract, RTK-routed work remains single-execution but reports
 command. A future negotiated seam can add a truthful handle without changing
 execution routing.
 
-## Mandatory Audit
+## Audit status
 
-The guardian records every accepted PTK operation and spawned-job lifecycle
-in a protected journal. The default local-only mode writes under
-`~/.ptk/audit` and requires no collector, credentials, or network service.
-Anchored mode adds authenticated OTLP/HTTP export with durable local spooling.
+Ordinary PTK execution does not open audit storage, require a journal, or
+enable an OTLP producer. `ptk_state` reports audit disabled. This keeps warm
+PowerShell execution independent of optional operational evidence systems.
 
-Important boundaries:
+The repository retains legacy local evidence administration and the standalone
+SIEM receiver's wire/ack contract for compatibility and future migration work.
+Those retained components do not make the current runtime an anchored audit
+producer. See [retained audit and receiver contracts](server/AUDIT-EXPORT.md).
 
-- Exact submitted script evidence is protected separately and flushed before
-  dispatch. If required evidence or journal persistence fails, effectful work
-  does not start.
-- A SIEM outage does not immediately block while the durable spool remains
-  healthy. Capacity exhaustion stops new calls rather than silently deleting
-  unacknowledged evidence.
-- A narrow unrecorded `ptk_state` health diagnostic remains available when the
-  audit boundary itself is unavailable.
-- Local hash chaining exposes gaps and corruption; it is not same-user tamper
-  resistance. External anchoring supplies the independent trust boundary.
-- Scripts and output artifacts can contain passwords, tokens, customer data,
-  or other secrets. Restrict and retain `~/.ptk` accordingly.
-- PTK audits operations PTK accepts. It cannot claim complete-host coverage
-  for alternate shells, detached processes, services, schedulers, SSH/WMI, or
-  effects inside remote systems.
-
-See [mandatory local audit](server/README.md#mandatory-local-audit) and
-[anchored export](server/AUDIT-EXPORT.md) for schemas, retention, failure
-behavior, evidence administration, and SIEM routing.
+Scripts and output artifacts can contain passwords, tokens, customer data, or
+other secrets. Protect the PTK output root and any separately operated legacy
+evidence stores accordingly.
 
 ## Security and Containment
 
 Worker processes isolate warm state and reduce reset/crash blast radius. They
 do not make hostile code safe and do not replace OS identity or upstream RBAC.
 
-The guardian and private host own their respective containment layers and treat
-confirmed process-tree termination as a prerequisite for replacement. If
-containment cannot be confirmed, the affected scope becomes visibly
-quarantined and refuses replacement rather than running overlapping
-generations. Harness EOF tears down the host, every worker, and every managed
-job.
+The supervisor and each worker's platform containment authority treat confirmed
+process-tree termination as a prerequisite for replacement. If containment
+cannot be confirmed, that session becomes visibly faulted and refuses
+replacement rather than running overlapping workers. Harness EOF tears down the
+supervisor and every worker it owns.
 
 Install and run PTK as the ordinary user who runs the agent harness. The public
 installer refuses root/Administrator installation; launching the harness
@@ -328,15 +283,20 @@ pwsh -NoProfile -File scripts/dev-install.ps1
 ```
 
 This is a developer path and requires PowerShell 7 plus the .NET SDK. For
-source debugging, you can instead register the checkout directly:
+source debugging, you can instead build the checkout and register the
+stdout-clean no-build launch directly:
 
 ```powershell
-claude mcp add ptk --scope user -- dotnet run -v q --project <repo>/server/PtkMcpServer
+dotnet build <repo>/server/PtkMcpServer -v q --nologo
+claude mcp add ptk --scope user -- dotnet run --no-build --no-launch-profile -v q --project <repo>/server/PtkMcpServer
 ```
 
-That direct command launches a build-tree process and bypasses the packaged
-stage/activate/rollback transaction. Use the development installer when testing
-the production package boundary.
+Repeat the build after changing source. Do not omit `--no-build`: `dotnet`
+restore/build warnings use stdout and can corrupt the MCP JSON-RPC stream. The
+launch-profile bypass likewise prevents later development profiles from
+injecting launch behavior. The direct command launches a build-tree process
+and bypasses the packaged stage/activate/rollback transaction. Use the
+development installer when testing the production package boundary.
 
 The committed `.mcp.json` is intentionally empty; a checkout does not install
 itself into project scope.
@@ -367,8 +327,8 @@ startup and resolves it from `PTK_RTK_PATH` or `PATH`.
 The current approved release contract recommends RTK but does not bundle or
 silently download it. Without RTK, PTK still provides warm PowerShell state,
 object compression, terminal cleanup, bounded text, same-invocation recovery
-where PTK captured the bytes, and mandatory audit. Eligible native commands
-fall back visibly to exact execution.
+where PTK captured the bytes, and contained worker replacement. Eligible native
+commands fall back visibly to exact execution.
 
 ## Harness Integration and Hook
 
@@ -399,13 +359,14 @@ Run the complete local verification battery:
 ```powershell
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 dotnet test server/PtkMcpServer.slnx
+dotnet test siem/PtkSiem.slnx
 pwsh -NoProfile -File server/test-handshake.ps1
 ```
 
 ## More Documentation
 
 - [MCP server setup, configuration, and operations](server/README.md)
-- [Local audit and optional anchored/SIEM export](server/AUDIT-EXPORT.md)
+- [Retained audit administration and SIEM receiver contract](server/AUDIT-EXPORT.md)
 - [Harness capability matrix](docs/harness-support.md)
 - [Current implementation state](.agents/state.md)
 
@@ -414,4 +375,4 @@ pwsh -NoProfile -File server/test-handshake.ps1
 PowerShell Token Killer is named after, and heavily inspired by,
 [RTK](https://github.com/rtk-ai/rtk). RTK proved that agent shell output should
 be compressed at the source; PTK extends that idea to PowerShell objects, warm
-session state, supervised execution, recoverable output, and mandatory audit.
+session state, isolated workers, supervised execution, and recoverable output.

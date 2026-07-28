@@ -1,192 +1,72 @@
-# Anchored audit export
+# Retained audit administration and receiver contract
 
-PTK always keeps its mandatory local audit. Local-only mode is the default and
-requires no SIEM, collector, endpoint, or export credentials. Anchored mode is
-an explicit startup choice that copies core audit records to a remote durable
-boundary; it does not replace the local journal.
+## Current runtime boundary
 
-## Local-only operation
+The production `PtkMcpServer` does not initialize local audit storage and does
+not run an OTLP audit producer. Ordinary execution has no journal or collector
+dependency, and `ptk_state` reports audit disabled.
 
-Leave `PTK_AUDIT_EXPORT_CONFIG` unset. PTK writes the same mandatory core JSONL
-and exact-script evidence under `PTK_AUDIT_ROOT` (default `~/.ptk/audit`) but
-makes no collector request and needs no network service. The current writer
-emits strict `ptk.audit/2`; recovery and export retain byte-exact
-`ptk.audit/1` compatibility. Local-only records remain bounded same-user
-telemetry: age/capacity retention applies, and the local hash chain is not
-immutable against arbitrary code running as the PTK account.
+`PTK_AUDIT_ROOT` and `PTK_AUDIT_EXPORT_CONFIG` do not enable producer behavior
+in the ordinary runtime. The former anchored-startup instructions and
+`ptk.export-config/2` example are intentionally not reproduced here.
 
-`PtkAuditAdmin evidence read` and `evidence export` work in local-only mode.
-They use and audit against the local journal without requiring an endpoint or
-credentials. Operator disposition applies only to a permanent blocked record
-from anchored export.
+This repository still contains:
 
-## Enable anchored mode
+- legacy local journal and exact-script evidence types needed to read and
+  disposition existing stores;
+- the separate `PtkAuditAdmin` executable for that legacy administration; and
+- the standalone `PtkSiemReceiver` OTLP/HTTP wire and acknowledgment contract.
 
-Set `PTK_AUDIT_EXPORT_CONFIG` to an absolute path. The variable being absent
-means local-only. Its presence means anchored mode, even when its value is
-empty: PTK will not serve tools unless the complete configuration validates and
-the anchored audit runtime opens successfully. It never silently falls back to
-local-only after anchored intent has been expressed.
+`PtkAuditAdmin` is excluded from the runtime package. `PtkSiemReceiver` is a
+separate application, not a service enabled by `PtkMcpServer`.
 
-The configuration is strict JSON. It has exactly these eight properties, with
-no comments, trailing commas, duplicate properties, or unknown properties:
+## Legacy local evidence administration
 
-```json
-{
-  "schema_version": "ptk.export-config/2",
-  "protection_mode": "anchored",
-  "endpoint": "https://audit-gateway.example.net:4318/v1/logs",
-  "headers": {
-    "Authorization": "Bearer REPLACE_WITH_A_REAL_SECRET"
-  },
-  "revocation_check_mode": "Online",
-  "ca_file": null,
-  "client_certificate_file": null,
-  "client_private_key_file": null
-}
-```
+Legacy stores contain strict `ptk.audit/1` or `ptk.audit/2` core JSONL records
+plus owner-only exact-script evidence. Core records reference script evidence
+by opaque ID and SHA-256 digest; the exact script bytes are held separately and
+may contain credentials, tokens, or customer data.
 
-`revocation_check_mode` is required and exact-case, mirroring the SIEM
-receiver's contract: `Online` verifies the gateway certificate chain against
-live CRL/OCSP revocation data, `Offline` uses only cached revocation data, and
-`NoCheck` disables revocation checking entirely. There is no default — an
-absent or unrecognized value is a startup failure. Use `Online` unless the
-export gateway is reachable only from a network where revocation endpoints are
-unavailable; choose `NoCheck` only as a deliberate, recorded decision, since it
-keeps trusting certificates the issuer has revoked.
-
-This is a template, not a usable configuration. Put the real file outside the
-repository. The configuration file, every referenced PEM file, and each file's
-immediate parent directory must already be protected for only the PTK process
-owner. PTK verifies external configuration without relaxing its permissions:
-on POSIX, directories must be mode `0700` and files `0600`; on Windows, each
-path must be owned by the current user and have a protected DACL containing
-only one full-control ACE for that user. Symlinks and reparse points are
-refused. All paths must be absolute.
-
-For mTLS, `client_certificate_file` and `client_private_key_file` must be a
-pair. `ca_file` is an optional PEM bundle that replaces system trust with the
-specified custom roots for this endpoint. A certificate-only example is:
-
-```json
-{
-  "schema_version": "ptk.export-config/2",
-  "protection_mode": "anchored",
-  "endpoint": "https://audit-gateway.example.net:4318/v1/logs",
-  "headers": {},
-  "revocation_check_mode": "Online",
-  "ca_file": "/secure/ptk-export/gateway-ca.pem",
-  "client_certificate_file": "/secure/ptk-export/ptk-client.pem",
-  "client_private_key_file": "/secure/ptk-export/ptk-client-key.pem"
-}
-```
-
-At least one authentication mechanism is required: one or more request headers,
-a client certificate, or both. Header names and values are transmitted
-verbatim, so `Authorization`, API-key, and other receiver-specific header
-schemes work without PTK knowing their meaning. Keep those values secret. The
-endpoint must be HTTPS, contain no credentials, query, or fragment, and is used
-verbatim. PTK does not append `/v1/logs` and does not follow redirects.
-
-PTK sends one OTLP/HTTP protobuf log record per request. The OpenTelemetry
-[OTLP exporter specification](https://opentelemetry.io/docs/specs/otel/protocol/exporter/)
-defines the signal endpoint convention; use the receiver's exact logs URL in
-`endpoint`.
-
-## What counts as the anchor
-
-PTK advances its durable local checkpoint only after the configured endpoint
-returns HTTP 200 with a valid OTLP protobuf response that does not reject the
-record. That receiving endpoint is the anchor boundary. A downstream SIEM that
-the receiver might contact later is not the boundary PTK can observe.
-
-Configure the endpoint to return success only after the record has been
-durably committed under a principal the harness cannot alter or erase. The
-recommended shape is a separately administered collector, gateway, queue, or
-index with persistent storage and a service identity distinct from the account
-running PTK. A same-user sidecar or an in-memory proxy adds transport but not a
-meaningful security boundary.
-
-An OpenTelemetry Collector can expose the `otlp` receiver with its `http`
-protocol, as shown in the official
-[Collector configuration documentation](https://opentelemetry.io/docs/collector/configuration/).
-Its default in-memory pipeline is not a durable anchor. If a Collector is used
-as the endpoint, validate the acknowledgment behavior of the exact version and
-distribution, configure persistent storage or a durable queue, and test crash,
-disk-full, and restart behavior. The Collector's
-[resiliency guidance](https://opentelemetry.io/docs/collector/resiliency/)
-distinguishes in-memory sending queues from WAL-backed persistent storage and
-documents their remaining loss cases.
-
-## Delivery and downstream correlation
-
-Delivery is at least once. A receiver can durably commit a record and lose its
-response, or PTK can stop after the response but before its checkpoint update;
-the same event is then sent again. The retry preserves the record identity and
-content.
-
-Use `ptk.audit.event_id` as the deduplication key and retain
-`ptk.audit.event_hash`, `ptk.audit.previous_event_hash`,
-`ptk.audit.sequence`, and `ptk.supervisor.boot_id` for chain validation.
-Identical repeats of one event ID and hash are expected. The same event ID with
-different content or a different hash is a high-severity integrity signal.
-
-The OTLP body contains the core audit JSON record and useful fields are also
-projected into OTLP attributes. Exact submitted script bytes are deliberately
-excluded: the exported event carries only its opaque local evidence ID and
-SHA-256 digest. Evidence files are sensitive and remain in the owner-only local
-store. They are never included in the automatic OTLP export.
-
-For `ptk.audit/2` evidence-retention events, query attributes project
-`ptk.evidence.subject.id`, `ptk.evidence.subject.digest`,
-`ptk.evidence.subject.bytes`, `ptk.evidence.subject.state`, and
-`ptk.evidence.retention.reason`. PTK flushes `evidence.retention_intent` before
-the exact unlink and follows it with `evidence.retention_completed` or
-`evidence.retention_failed`; an unprovable deletion result is
-`outcome_unknown`. These events remain in the local journal in local-only mode
-and flow through the same OTLP path in anchored mode.
-
-## Out-of-band audit administration
-
-`PtkAuditAdmin` is installed beside the server under `~/.ptk/bin/` as a
-separate executable, not an MCP tool. It uses the same
-`PTK_AUDIT_ROOT` and optional `PTK_AUDIT_EXPORT_CONFIG` startup environment as
-the server. Every evidence access durably records an intent before opening the
-payload and records success or failure afterward. Core events contain the
-opaque evidence ID, digest, byte count, destination kind, and protected export
-path when one is used, never the script bytes themselves.
+Point `PtkAuditAdmin` at an existing legacy root with `PTK_AUDIT_ROOT`. Keep the
+target producer stopped while administering its store.
 
 ```text
 PtkAuditAdmin evidence read --id <evidence-uuid>
 PtkAuditAdmin evidence export --id <evidence-uuid> --output <absolute-path>
 ```
 
-`read` writes the exact sensitive script bytes to stdout. `export` exclusively
-creates a new file in an already owner-only protected directory and refuses an
-existing path, symlink, or reparse point. Protect stdout, shell history, and
-redirections as incident evidence too.
+`read` writes the exact sensitive bytes to stdout. `export` exclusively creates
+a new file in an already owner-only protected directory and refuses an existing
+path, symlink, or reparse point. Protect stdout, shell history, redirections,
+backups, and exported files as sensitive evidence.
 
-Evidence-access failure records use closed `outcome.detail_code` values so an
-investigator can distinguish storage failure from disclosure or publication:
+Evidence-access failures use closed detail codes:
 
 | Detail code | Meaning |
 | --- | --- |
 | `evidence.id_invalid` | The requested evidence ID was not canonical UUIDv4. |
-| `evidence.path_invalid` | The protected export destination was not a valid absolute path. |
+| `evidence.path_invalid` | The export destination was not a valid absolute path. |
 | `evidence.absent` | The exact protected evidence object was absent. |
-| `evidence.storage_failed` | Protected evidence or destination storage failed without a narrower classification. |
+| `evidence.storage_failed` | Evidence or destination storage failed without a narrower classification. |
 | `evidence.control_invalid` | Evidence control metadata or protected identity was invalid. |
 | `evidence.destination_refused` | OS protection or access control refused the destination. |
 | `evidence.destination_exists` | The exclusive export destination already existed. |
-| `operation.failed_before_disclosure` | A read failed before its destination write began. |
-| `operation.disclosure_unknown` | A destination write began but did not return, so partial disclosure is unknown. |
-| `operation.flush_failed_after_disclosure` | The complete write returned, but destination flush failed. |
-| `audit.outcome_failed_after_disclosure` | The read bytes were written and flushed before terminal audit failed. |
-| `audit.outcome_failed_after_publish` | A protected export was published before terminal audit failed; retained-identity cleanup is attempted. |
+| `operation.failed_before_disclosure` | A read failed before destination writing began. |
+| `operation.disclosure_unknown` | A destination write began but did not return. |
+| `operation.flush_failed_after_disclosure` | The complete write returned but destination flush failed. |
+| `audit.outcome_failed_after_disclosure` | Bytes were written and flushed before the legacy terminal record failed. |
+| `audit.outcome_failed_after_publish` | A protected export was published before the legacy terminal record failed. |
 
-A permanent partial/data/protocol export block never clears automatically.
-With the target supervisor stopped, an operator can either attest a separately
-verified durable receipt or explicitly acknowledge an evidence gap:
+These stores provide legacy evidence, not hostile same-user isolation. Any
+process allowed to execute arbitrary commands as the store owner can also
+invoke an accessible administration binary. Use a separate operator identity
+or OS application-control boundary when stronger separation is required.
+
+## Legacy checkpoint disposition
+
+A retained legacy exporter can leave one permanent partial/data/protocol block.
+With its producer stopped, an operator can either attest a separately verified
+durable receipt or explicitly acknowledge an evidence gap:
 
 ```text
 PtkAuditAdmin disposition --boot-id <uuid> --event-id <uuid> \
@@ -197,69 +77,40 @@ PtkAuditAdmin disposition --boot-id <uuid> --event-id <uuid> \
 ```
 
 The command takes the target boot's exclusive checkpoint lease, resolves the
-exact blocked record, durably persists an idempotent proof-bound disposition
-intent, and only then advances that one checkpoint. The receipt digest is an
-operator attestation; this executable does not query or independently verify a
-SIEM. Configuration/authentication blocks still require corrected startup
-configuration rather than operator disposition.
+exact blocked record, persists an idempotent proof-bound disposition intent,
+and only then advances that checkpoint. The receipt digest is an operator
+attestation; `PtkAuditAdmin` does not query or independently verify a SIEM.
+Configuration or authentication failures require correction rather than
+disposition.
 
-Disposition audit is a correlated sequence: `export.disposition_intent`
-records the requested target boot/event and exact proof;
-`export.disposition_authorized` records the durable disposition ID and frozen
-blocked-record tuple before the checkpoint changes; and the completed or failed
-terminal event repeats the fullest known facts. These values live in the
-dedicated `operator_disposition` object in the OTLP body. Query attributes under
-`ptk.disposition.*` project the disposition ID, target boot/event, proof kind,
-failure class, target export-configuration identity, and the selected proof
-value without replacing the complete body.
+The decision-log producer evidence at `.agents/decisions.md:312` is known stale
+under the existing owner hold. Do not use it to restore the retired producer,
+and do not edit that held record as part of runtime documentation maintenance.
 
-This separation is an interface boundary, not hostile same-user isolation.
-An agent allowed to run arbitrary native commands under the PTK account can
-invoke any installed executable that OS policy makes reachable, including
-`PtkAuditAdmin`. Keep administrative invocation outside the model-controlled
-session and enforce any stronger restriction with a separate operator login,
-application control, elevation boundary, or equivalent OS policy. PTK cannot
-manufacture that boundary while the harness and administrator share one
-unrestricted identity.
+## Standalone receiver wire and acknowledgment contract
 
-## SIEM and log-routing patterns
+`siem/PtkSiemReceiver` retains the binary-compatible OTLP logs subset in
+`siem/PtkSiemReceiver/Protos/audit_otlp.proto`. Its ingest endpoint is
+`POST /v1/logs` over TLS 1.2 or 1.3 with a required client certificate. Request
+and response media type is `application/x-protobuf`.
 
-PTK intentionally speaks only authenticated OTLP/HTTP over HTTPS. Vendor and
-legacy integrations belong after the durable OTLP boundary:
+The response contract is:
 
-| Destination | Recommended route | Boundary note |
-| --- | --- | --- |
-| Backend with native OTLP logs | PTK directly to its exact HTTPS logs endpoint, or through a durable OTLP gateway | Use direct delivery only when the backend's valid 200 response means durable acceptance. |
-| Splunk HEC, Microsoft Sentinel ingestion, Elastic, QRadar, or another vendor API | PTK to a durable OTLP gateway, then a vendor-supported exporter or separately maintained adapter | PTK does not ship or impersonate a vendor SDK. Preserve the PTK identity and chain attributes during mapping. |
-| Windows Event Log and WEF | PTK to a durable OTLP gateway, then a Windows service/adapter that writes a dedicated event channel; WEF can forward that channel | Windows Event Forwarding reads events already written to a Windows log. The Event Log write or later WEF hop is not PTK's anchor unless the OTLP endpoint durably commits before acknowledging. See Microsoft's [WEF architecture](https://learn.microsoft.com/en-us/windows/win32/wec/windows-event-collector). |
-| RFC 5424 syslog | PTK to a durable OTLP gateway, then an adapter that maps fields to RFC 5424 structured data and sends over TLS | Do not reduce this audit route to unauthenticated UDP. Use [RFC 5424](https://www.rfc-editor.org/info/rfc5424/) with the [RFC 5425 TLS transport](https://www.rfc-editor.org/info/rfc5425/) and preserve stable IDs and hashes. |
+| Result | HTTP response |
+| --- | --- |
+| Durable acceptance or an identical already-committed duplicate | `200` with a serialized empty `ExportLogsServiceResponse`; `partial_success` is unset. |
+| Permanent validation or protocol refusal | `400` with protobuf `google.rpc.Status`. |
+| Transient storage failure, backpressure, or saturated admission | `503` with protobuf `google.rpc.Status` and `Retry-After: 1`. |
 
-For every adapter, test duplicate handling, field truncation, timestamp
-precision, Unicode, maximum message size, backpressure, and loss across process
-and host restarts. A format conversion that drops the event ID or chain fields
-weakens incident reconstruction even when transport succeeds.
+Success is written only after the receiver's commit operation reports
+acceptance. Delivery is therefore at least once: a client may retry after a
+lost response, and the receiver must accept an identical duplicate while
+rejecting the same event identity with different content.
 
-## Monitoring and alerts
-
-At minimum, alert on:
-
-- `ptk_state` reporting an anchored exporter that is stalled or faulted, a
-  blocked event, or a last acknowledgment that stops advancing;
-- sustained retry delay, rising local spool use, or exhausted effective free
-  capacity;
-- a sequence gap, previous-hash mismatch, or conflicting content for one
-  `ptk.audit.event_id` at the receiver;
-- an unexpected export-configuration identity or supervisor boot transition;
-- `server.started` without a corresponding `server.stopped`, while allowing for
-  a known hard kill or host failure; and
-- audit-storage unavailability or protection failures on the PTK host.
-
-Also alert on `export.disposition_intent`, especially an acknowledged gap; on
-an evidence-access intent without its matching completed/failed outcome; on an
-`evidence.retention_intent` without its terminal event; and on
-`evidence.retention_failed` with `outcome_unknown`.
-
-Keep receiver-side retention, access control, and alert administration outside
-the PTK/harness identity. Local files are protected from other identities but
-are not immutable against the same account that runs PTK; their hash chain
-detects inconsistency only when a trustworthy copy or remote anchor survives.
+The receiver strictly validates the retained audit envelope and projected
+attributes, bounds request bodies and concurrent admission, and persists raw
+request bytes, event/quarantine state, and receiver custody records in SQLite.
+Its deployment status and storage warning remain in
+[`siem/PtkSiemReceiver/README.md`](../siem/PtkSiemReceiver/README.md). This
+receiver contract is retained for compatibility and future migration work; it
+does not imply that the current PTK runtime emits these requests.

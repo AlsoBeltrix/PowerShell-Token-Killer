@@ -12,7 +12,11 @@ Starts real PTK MCP server processes and proves:
 - two independent servers and multiple named sessions remain isolated while
   calls run concurrently;
 - 100 sequential resets return the process fleet and native resources to a
-  stable baseline while a sibling session stays warm; and
+  stable baseline while a sibling session stays warm;
+- an uncooperative timeout contains its native child/grandchild and replaces
+  only its worker;
+- an observed Unix process-group escape reports `descendants_unknown`, blocks
+  worker reuse, and is never replayed; and
 - killing only the public supervisor leaves no worker, child, or grandchild.
 
 The default launch mode builds this checkout. -ServerCommand accepts a
@@ -636,6 +640,16 @@ function Test-ProcessAlive {
     }
 }
 
+function Get-UnixProcessGroup {
+    param([Parameter(Mandatory)][int]$ProcessId)
+
+    $value = (& ps -o pgid= -p $ProcessId 2>$null | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0 -or $value -notmatch '^\d+$') {
+        throw "Could not read Unix process group for PID $ProcessId."
+    }
+    [int]$value
+}
+
 function Wait-ForProcessExit {
     param([Parameter(Mandatory)][int[]]$ProcessIds)
     $deadline = [DateTimeOffset]::UtcNow + $checkpoint
@@ -713,6 +727,66 @@ __BLOCK__
         Replace('__BLOCK__', $BlockingStatement)
 }
 
+function New-EscapingProcessTreeScript {
+    param(
+        [Parameter(Mandatory)][string]$Marker,
+        [Parameter(Mandatory)][string]$Effect
+    )
+
+    $pwshPath = (Get-Command pwsh -ErrorAction Stop).Source
+    $ready = "$Marker.ready"
+    $gate = "$Marker.gate"
+    $escaped = "$Marker.escaped"
+    $failed = "$Marker.failed"
+    $grandchildEncoded = ConvertTo-EncodedCommand 'Start-Sleep -Seconds 300'
+    $childTemplate = @'
+Add-Type -TypeDefinition @"
+using System.Runtime.InteropServices;
+public static class PtkAcceptanceEscapeNative
+{
+    [DllImport("libc", SetLastError = true)]
+    public static extern int setsid();
+}
+"@
+$grandchild = Start-Process -FilePath __PWSH__ -ArgumentList @('-NoProfile', '-EncodedCommand', '__GRANDCHILD__') -PassThru
+[IO.File]::WriteAllText(__READY__, "$PID`n$($grandchild.Id)")
+while (-not [IO.File]::Exists(__GATE__)) { Start-Sleep -Milliseconds 10 }
+$sessionId = [PtkAcceptanceEscapeNative]::setsid()
+if ($sessionId -le 0) {
+    [IO.File]::WriteAllText(__FAILED__, "setsid=$sessionId error=$([Runtime.InteropServices.Marshal]::GetLastPInvokeError())")
+    exit 69
+}
+[IO.File]::WriteAllText(__ESCAPED__, "$PID`n$sessionId")
+Start-Sleep -Seconds 300
+'@
+    $childEncoded = ConvertTo-EncodedCommand (
+        $childTemplate.
+            Replace('__PWSH__', (ConvertTo-PsLiteral $pwshPath)).
+            Replace('__GRANDCHILD__', $grandchildEncoded).
+            Replace('__READY__', (ConvertTo-PsLiteral $ready)).
+            Replace('__GATE__', (ConvertTo-PsLiteral $gate)).
+            Replace('__ESCAPED__', (ConvertTo-PsLiteral $escaped)).
+            Replace('__FAILED__', (ConvertTo-PsLiteral $failed))
+    )
+    $invokeTemplate = @'
+[IO.File]::AppendAllText(__EFFECT__, 'once')
+$child = Start-Process -FilePath __PWSH__ -ArgumentList @('-NoProfile', '-EncodedCommand', '__CHILD__') -PassThru
+while (-not [IO.File]::Exists(__READY__)) { Start-Sleep -Milliseconds 10 }
+Start-Sleep -Seconds 300
+'@
+    [pscustomobject]@{
+        Script = $invokeTemplate.
+            Replace('__EFFECT__', (ConvertTo-PsLiteral $Effect)).
+            Replace('__PWSH__', (ConvertTo-PsLiteral $pwshPath)).
+            Replace('__CHILD__', $childEncoded).
+            Replace('__READY__', (ConvertTo-PsLiteral $ready))
+        Ready = $ready
+        Gate = $gate
+        Escaped = $escaped
+        Failed = $failed
+    }
+}
+
 function Assert-Probe {
     param(
         [Parameter(Mandatory)][string]$Text,
@@ -737,6 +811,7 @@ $serverA = $null
 $serverB = $null
 $hardKillServer = $null
 $timeoutKnownIds = @()
+$escapeKnownIds = @()
 $hardKillKnownIds = @()
 try {
     # Phase 1: public multi-session and multi-server isolation.
@@ -1121,7 +1196,182 @@ try {
     )
     Stop-PtkServer $serverA
 
-    # Phase 4: kill only the public supervisor and let production containment
+    # Phase 4: an observed Unix process-group escape must fail closed, block
+    # worker reuse, and never replay a timed-out invocation.
+    if (-not $IsWindows) {
+        $escapeWork = Join-Path $testRoot 'work-escape'
+        $escapeServer = Start-PtkServer -Label 'escape' -WorkingDirectory $escapeWork
+        Initialize-PtkServer $escapeServer
+        $escapeWorkerPid = Open-PtkSession $escapeServer 'escape-target'
+        $escapeMarker = Join-Path $testRoot 'escape-tree'
+        $escapeEffect = Join-Path $testRoot 'escape-effect.txt'
+        $escapeTree = New-EscapingProcessTreeScript `
+            -Marker $escapeMarker `
+            -Effect $escapeEffect
+        $escapeInvokeTimeout = [Math]::Max(
+            4,
+            [Math]::Min(12, $TimeoutSec - 1)
+        )
+        $escapeRequest = Send-PtkTool $escapeServer 'ptk_invoke' @{
+            script = $escapeTree.Script
+            route = 'pwsh'
+            session = 'escape-target'
+            timeoutSeconds = $escapeInvokeTimeout
+        }
+        Wait-ForFiles @($escapeTree.Ready, $escapeEffect)
+        $escapeMarkerIds = @(
+            Get-Content -LiteralPath $escapeTree.Ready |
+                Where-Object { $_ -match '^\d+$' } |
+                ForEach-Object { [int]$_ }
+        )
+        if ($escapeMarkerIds.Count -ne 2) {
+            throw "Escape child marker was invalid: '$(
+                Get-Content -LiteralPath $escapeTree.Ready -Raw
+            )'"
+        }
+        $escapeChildPid = $escapeMarkerIds[0]
+        $escapeGrandchildPid = $escapeMarkerIds[1]
+        $escapeKnownIds = @(
+            $escapeWorkerPid,
+            $escapeChildPid,
+            $escapeGrandchildPid
+        )
+        $escapeFleet = @(Get-ProcessFleet -SupervisorId $escapeServer.Process.Id)
+        foreach ($expectedId in $escapeKnownIds) {
+            if ($escapeFleet -notcontains $expectedId -or
+                -not (Test-ProcessAlive $expectedId)) {
+                throw "Escape process $expectedId was not a live PTK descendant."
+            }
+        }
+
+        Start-Sleep -Milliseconds 750
+        [IO.File]::WriteAllText($escapeTree.Gate, 'escape')
+        $escapeDeadline = [DateTimeOffset]::UtcNow + $checkpoint
+        while (-not (Test-Path -LiteralPath $escapeTree.Escaped)) {
+            if (Test-Path -LiteralPath $escapeTree.Failed) {
+                throw "Escape child failed: '$(
+                    Get-Content -LiteralPath $escapeTree.Failed -Raw
+                )'"
+            }
+            if ([DateTimeOffset]::UtcNow -ge $escapeDeadline) {
+                throw 'Escape child did not leave the worker process group.'
+            }
+            Start-Sleep -Milliseconds 25
+        }
+        $escapedMarkerIds = @(
+            Get-Content -LiteralPath $escapeTree.Escaped |
+                Where-Object { $_ -match '^\d+$' } |
+                ForEach-Object { [int]$_ }
+        )
+        if ($escapedMarkerIds.Count -ne 2 -or
+            $escapedMarkerIds[0] -ne $escapeChildPid -or
+            $escapedMarkerIds[1] -ne $escapeChildPid) {
+            throw "Escape completion marker was invalid: '$(
+                Get-Content -LiteralPath $escapeTree.Escaped -Raw
+            )'"
+        }
+
+        $escapeWorkerPgid = Get-UnixProcessGroup $escapeWorkerPid
+        $escapeChildPgid = Get-UnixProcessGroup $escapeChildPid
+        $escapeGrandchildPgid = Get-UnixProcessGroup $escapeGrandchildPid
+        if ($escapeChildPgid -eq $escapeWorkerPgid -or
+            $escapeGrandchildPgid -ne $escapeWorkerPgid) {
+            throw (
+                "Escape topology was invalid: worker=$escapeWorkerPid/" +
+                "$escapeWorkerPgid child=$escapeChildPid/$escapeChildPgid " +
+                "grandchild=$escapeGrandchildPid/$escapeGrandchildPgid."
+            )
+        }
+        Write-Host (
+            "escape topology: worker=$escapeWorkerPid/$escapeWorkerPgid " +
+            "child=$escapeChildPid/$escapeChildPgid " +
+            "grandchild=$escapeGrandchildPid/$escapeGrandchildPgid"
+        )
+
+        Start-Sleep -Milliseconds 750
+        $escapeResult = Receive-PtkToolResult $escapeServer $escapeRequest
+        $escapeText = Get-PtkToolText $escapeResult
+        if ($escapeText -notmatch (
+                '(?m)^\[ptk worker\] status=timed_out ' +
+                'detail=execution_timed_out; this session worker is being replaced; ' +
+                'the command was not retried\.$'
+            )) {
+            throw "Escaped-worker timeout returned the wrong invoke result: '$escapeText'"
+        }
+        if ((Get-Content -LiteralPath $escapeEffect -Raw) -cne 'once') {
+            throw 'Timed-out escape invocation was replayed.'
+        }
+
+        $escapeList = ''
+        $faultDeadline = [DateTimeOffset]::UtcNow + $checkpoint
+        do {
+            $escapeList = Get-PtkToolText (
+                Invoke-PtkTool $escapeServer 'ptk_session' @{ action = 'list' }
+            )
+            if ($escapeList -match (
+                    '(?m)^session=escape-target state=faulted worker_pid=none ' +
+                    'active=false warm_state_lost=true ' +
+                    'last_failure=descendants_unknown reset_required=true\r?$'
+                )) {
+                break
+            }
+            Start-Sleep -Milliseconds 25
+        } while ([DateTimeOffset]::UtcNow -lt $faultDeadline)
+        if ($escapeList -notmatch 'last_failure=descendants_unknown') {
+            throw "Process-group escape made a false containment claim: '$escapeList'"
+        }
+        Wait-ForProcessExit @($escapeWorkerPid)
+        Wait-ForProcessExit @($escapeGrandchildPid)
+        if (-not (Test-ProcessAlive $escapeChildPid)) {
+            throw "Escaped child $escapeChildPid did not survive worker-group cleanup."
+        }
+
+        $blockedReset = Invoke-PtkTool $escapeServer 'ptk_reset' @{
+            session = 'escape-target'
+        }
+        $blockedResetText = Get-PtkToolText $blockedReset
+        if ($blockedResetText -notmatch (
+                '(?m)^\[ptk reset\] refused session=escape-target ' +
+                'detail=descendants_unknown; '
+            )) {
+            throw "Escaped descendant did not block worker reuse: '$blockedResetText'"
+        }
+
+        Stop-Process -Id $escapeChildPid -Force -ErrorAction Stop
+        Wait-ForProcessExit @($escapeChildPid)
+        $replacementReset = $null
+        $replacementResetText = ''
+        $replacementDeadline = [DateTimeOffset]::UtcNow + $checkpoint
+        do {
+            $replacementReset = Invoke-PtkTool $escapeServer 'ptk_reset' @{
+                session = 'escape-target'
+            }
+            $replacementResetText = Get-PtkToolText $replacementReset
+            if ($replacementResetText -match (
+                    '(?m)^\[ptk reset\] completed\r?$'
+                )) {
+                break
+            }
+            Start-Sleep -Milliseconds 25
+        } while ([DateTimeOffset]::UtcNow -lt $replacementDeadline)
+        if ($null -eq $replacementReset -or
+            $replacementResetText -notmatch '(?m)^\[ptk reset\] completed\r?$') {
+            throw "Session remained blocked after escaped descendant exit: '$replacementResetText'"
+        }
+        $escapeReplacementPid = Get-SessionPid $replacementResetText 'escape-target'
+        if ($escapeReplacementPid -eq $escapeWorkerPid -or
+            (Get-Content -LiteralPath $escapeEffect -Raw) -cne 'once') {
+            throw 'Escape recovery reused the old worker or replayed the command.'
+        }
+        Write-Host (
+            "process-group escape passed: worker $escapeWorkerPid faulted " +
+            "descendants_unknown; escaped child $escapeChildPid blocked replacement"
+        )
+        Stop-PtkServer $escapeServer
+        $escapeKnownIds = @()
+    }
+
+    # Phase 5: kill only the public supervisor and let production containment
     # own its worker tree. Never use Process.Kill(entireProcessTree: true) here.
     $hardKillWork = Join-Path $testRoot 'work-hard-kill'
     $hardKillServer = Start-PtkServer -Label 'hard-kill' -WorkingDirectory $hardKillWork
@@ -1186,7 +1436,7 @@ finally {
         }
     }
     foreach ($processId in @(
-            @($timeoutKnownIds) + @($hardKillKnownIds) |
+            @($timeoutKnownIds) + @($escapeKnownIds) + @($hardKillKnownIds) |
                 Sort-Object -Unique
         )) {
         if (Test-ProcessAlive $processId) {

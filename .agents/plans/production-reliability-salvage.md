@@ -1,18 +1,17 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 5 LOCALLY IMPLEMENTED, COMMITTED, AND CROSS-PLATFORM
-VERIFIED — topology decision 1, R0 contract-retirement decision 2, test-runner
-Slice 1a, and delegated decisions 3-4 are settled as recorded in
-`.agents/decisions.md`. No further Claude Opus review is available or required.
-Exact Slice 5 commit `001c4ebe23d48e1804f2bb169f09a8f0e0c0dd2a`
-adds the connection-owned fixed eight-slot named-session lifecycle behind the
-internal fixture. One long-lived contained worker process/runspace belongs to
-each session; startup, foreground calls, recovery, reset, close, output, and
-shutdown obey the isolation and no-overlap rules below. Exact-commit batteries
-pass on macOS ARM64, Linux x86_64 `magneto`, and Windows x64 `NETWATCH-01`.
-The public MCP tool surface and in-process invoke path remain unchanged through
-this slice. Slice 6 is next. No push, PR, installation, or deployment is
-authorized by this status.
+**Status:** SLICE 6 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
+X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING — topology decision 1, R0
+contract-retirement decision 2, test-runner Slice 1a, and delegated decisions
+3-4 are settled as recorded in `.agents/decisions.md`. No further Claude Opus
+review is available or required. Exact Slice 6 commit
+`6c9bdacc84685af54055b22627666bfb8231c2d1` exposes only the five named-session
+tools and routes every production invocation through the selected session's
+long-lived contained worker process/runspace. The exact commit passes the full
+macOS ARM64 and Linux x86_64 batteries. `NETWATCH-01` was offline on the final
+validation attempt, so Slice 6 is not yet recorded cross-platform complete and
+Slice 7 has not started. No push, PR, installation, or deployment is authorized
+by this status.
 
 ## Goal
 

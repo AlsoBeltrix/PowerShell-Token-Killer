@@ -1071,3 +1071,36 @@ validation, not an install or deployment._
   `/Users/michael/.Trash/ptk-slice5-001c4eb-lZWhDsQHms`, so it remains
   recoverable until Trash is emptied. No installed payload or persistent host
   configuration changed.
+
+## Production-reliability salvage Slice 6 validation in progress (2026-07-28)
+
+_Validating exact commit `6c9bdacc84685af54055b22627666bfb8231c2d1`,
+tree `788eabcc341be9ad9a726f169b886de66857b289`; this is disposable
+checkout validation, not an install or deployment._
+
+- The exact source archive SHA-256 is
+  `496c0fc9da2a061f9bd3bad4221c17645cf7d7daeb9e978265de2821c0f61ead`.
+  The disposable Pester 6.0.1 archive SHA-256 is
+  `87fb1475455d2b895d7ccc031465998e28ea12b8b557d50c5b41ee88f4623969`.
+- On macOS ARM64, twelve deliberate guard mutations each failed, were restored
+  byte-for-byte, and then passed together 12/12. The complete server suite
+  passed 1,167/1,167 in 5m14s; Pester passed 141 tests with two platform skips;
+  SIEM passed 247/247; formatting, `git diff --check`, and the complete public
+  stdio handshake passed. Publish smoke included an executable ARM64 Mach-O
+  `PtkWorkerBroker`.
+- On Linux x86_64 `magneto`, the transferred archives matched the local hashes.
+  The host reported .NET SDK 10.0.110 and PowerShell 7.6.3. The logged evidence
+  run passed the complete server suite 1,167/1,167 in 2m39s, Pester 141 with two
+  platform skips, SIEM 247/247, and the complete public stdio handshake. The
+  combined log SHA-256 is
+  `e6333cb5ac63a2f4b6a4e20039ac6daba9eb2894fc0af436b7dddc5f59e98008`;
+  its recorded exit was zero. No candidate server, worker, broker, fixture, or
+  test process survived.
+- Windows x64 validation remains pending. On 2026-07-28,
+  `netwatch-01.internal` resolved to `10.1.10.173` but was down/unroutable, and
+  SSH to the previously used `10.1.10.177` timed out. No Windows files or
+  installed payload were touched. Slice 7 remains held until this exact commit
+  passes the disposable Windows battery.
+- The five known `System.Security.Cryptography.Xml` 10.0.6 advisories were the
+  only dependency warnings. The local transfer directory and disposable Linux
+  checkout remain only until Windows evidence and final cleanup are complete.

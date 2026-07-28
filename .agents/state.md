@@ -173,6 +173,22 @@ short and update it when important repo facts change.
   remote checkout survived. The public MCP surface remains unchanged; the
   slice is not pushed or installed. Exact evidence is in
   `.agents/machines.md`.
+- **Production-reliability salvage Slice 6 is locally implemented and committed
+  at code head `6c9bdacc84685af54055b22627666bfb8231c2d1`; final platform
+  validation is in progress.** Production now exposes exactly `ptk_invoke`,
+  `ptk_output`, `ptk_reset`, `ptk_session`, and `ptk_state`. Cold jobs and the
+  in-process runspace path are gone; every command executes only in the
+  explicitly resolved named session's contained worker, while reset, state,
+  lifecycle, and sealed output remain supervisor-owned. Twelve deliberate
+  guard mutations failed independently and were restored byte-for-byte. The
+  exact commit passed 1,167/1,167 server tests, Pester 141 with two platform
+  skips, SIEM 247/247, the public handshake, formatting, and package smoke on
+  macOS ARM64; the same server/Pester/SIEM/handshake battery passed from the
+  verified archive on Linux x86_64 `magneto`. `NETWATCH-01` was unreachable at
+  both its current DNS address and its previously used address, so Windows x64
+  remains pending and Slice 7 has not started. No candidate Linux process
+  survived. The slice is not pushed or installed; exact evidence is in
+  `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2

@@ -1,4 +1,5 @@
 using PtkMcpServer.Audit;
+using PtkMcpServer.Worker;
 
 namespace PtkMcpServer.Sessions;
 
@@ -10,6 +11,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
 {
     private readonly ISessionOperations _operations;
     private readonly ISessionLifetime _lifetime;
+    private readonly NamedSessionSupervisor? _namedSessions;
     private int _disposed;
 
     internal WorkerSupervisor(Func<SessionRuntime> createRuntime)
@@ -18,6 +20,13 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         var runtime = createRuntime();
         _operations = runtime;
         _lifetime = runtime;
+        var limits = WorkerOperationProtocol.CreateLimits(
+            DefaultSessionRuntimeFactory.ReadCallTimeout(),
+            DefaultSessionRuntimeFactory.ReadMaxCallTimeout());
+        _namedSessions = new NamedSessionSupervisor(
+            () => ProcessSessionWorkerFactory.CreateDefault(limits),
+            startupTimeout: TimeSpan.FromSeconds(30),
+            containmentGrace: TimeSpan.FromSeconds(10));
     }
 
     internal WorkerSupervisor(
@@ -29,6 +38,20 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         _operations = operations;
         _lifetime = lifetime;
     }
+
+    internal WorkerSupervisor(
+        ISessionOperations operations,
+        ISessionLifetime lifetime,
+        NamedSessionSupervisor namedSessions)
+        : this(operations, lifetime)
+    {
+        _namedSessions = namedSessions ??
+            throw new ArgumentNullException(nameof(namedSessions));
+    }
+
+    internal NamedSessionSupervisor NamedSessions =>
+        _namedSessions ?? throw new InvalidOperationException(
+            "This supervisor has no named-session registry.");
 
     Task<string> ISessionOperations.InvokeAsync(
         string script,
@@ -62,12 +85,31 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
     Task<string> ISessionOperations.ResetAsync(CancellationToken cancellationToken) =>
         _operations.ResetAsync(cancellationToken);
 
-    public Task ShutdownAsync() => _lifetime.ShutdownAsync();
+    public async Task ShutdownAsync()
+    {
+        try
+        {
+            if (_namedSessions is not null)
+                await _namedSessions.ShutdownAsync().ConfigureAwait(false);
+        }
+        finally
+        {
+            await _lifetime.ShutdownAsync().ConfigureAwait(false);
+        }
+    }
 
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _lifetime.Dispose();
+        try
+        {
+            if (_namedSessions is not null)
+                _namedSessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+        finally
+        {
+            _lifetime.Dispose();
+        }
     }
 }

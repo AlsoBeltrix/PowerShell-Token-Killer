@@ -5,6 +5,22 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Production-reliability Slice 11 is complete and integrated on local
+  `master`.** Exact documentation/integration commit
+  `2c96e842618d73ac59fa37d5492a5ae92a0d163d` publishes the implemented
+  one-supervisor/many-session-workers contract, reduces audit documentation to
+  retained administration/receiver boundaries, marks the discarded guardian
+  plan as historical, and reconciles the release-plan pointer. Verification
+  found that build-on-launch `dotnet run` wrote NuGet warnings onto MCP stdout;
+  the checkout path now builds first and launches with
+  `--no-build --no-launch-profile`. The original registration handshake failed
+  on that non-JSON stdout and the corrected exact command passed the complete
+  five-tool/named-session handshake. Pester passed 141 with two platform skips,
+  the server suite passed 1,212/1,212, and the retained SIEM receiver passed
+  247/247. Current `origin/master`
+  `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` was the exact merge base; local
+  `master` was fast-forwarded and its content diff against the verified salvage
+  branch was empty. Nothing was pushed, installed, registered, or deployed.
 - **Owner direction changed on 2026-07-26: pause the three-process resilience
   delivery line and use the reviewed production-reliability salvage instead.**
   PTK's product is reliable token-compressed PowerShell execution with warm
@@ -499,9 +515,12 @@ short and update it when important repo facts change.
   open receiver question on 2026-07-14 and its S0 Option 1 implementation
   decision on 2026-07-15. Neither releases the broader hold.
 - **Release distribution remains approved work.** Slices 0-2 are landed;
-  slice 3 is blocked behind resilience R7 and `.github/workflows/release.yml`
-  is still absent. The old 2026-07-25 calendar is superseded with no replacement
-  date approved. The deliberately open hook-default choice also blocks slice 4.
+  slice 3 is blocked behind the replacement runtime's production gates and
+  `.github/workflows/release.yml` is still absent. The guardian/R7 package
+  mechanics are explicitly superseded at the top of
+  `.agents/plans/release-distribution.md`; do not restore them. The old
+  2026-07-25 calendar is superseded with no replacement date approved. The
+  deliberately open hook-default choice also blocks slice 4.
 - **Standing GitHub authority:** the owner granted persistent permission on
   2026-07-10 to comment, close, and triage issues in this repository as
   appropriate without per-action asks.
@@ -629,16 +648,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Begin Slice 11's local documentation/integration work: align `README.md`,
-   `server/README.md`, `server/AUDIT-EXPORT.md`, current-state pointers, and the
-   superseded resilience-plan marker with the implemented one-supervisor/
-   many-session-workers runtime. Preserve the owner hold on
-   `.agents/decisions.md` and do not edit toolkit-owned `AGENTS.md`.
-   Separately, when `NETWATCH-01` and a clean ARM64 Linux build path are
-   available, finish the retained Slice 6-10 platform/Exchange gates. Candidate
-   installation, the real shaping workflow, and intended-harness restart remain
-   separately authorized deployment work; do not claim Slice 10 cross-platform
-   complete before they pass.
+1. Continue Slice 10 production acceptance. First inspect the five
+   `System.Security.Cryptography.Xml` advisories for a compatible patched
+   dependency path; do not suppress them. When `NETWATCH-01` and a clean ARM64
+   Linux build path are available, finish the retained Slice 6-10
+   platform/Exchange gates. Candidate installation, the real shaping workflow,
+   and intended-harness restart remain separately authorized deployment work;
+   do not claim Slice 10 cross-platform complete before they pass.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.
@@ -692,11 +708,12 @@ short and update it when important repo facts change.
   same wedge from a cold boot — `failure_class=journal.startup` every start
   on this machine, with fail-closed `ptk_reset` leaving no in-band recovery.
   #9/#10's root cause is undiagnosed and will not be diagnosed: the owner
-  disabled the affected installed server and expects the post-R7 guardian
-  reinstall to supersede it (owner, 2026-07-24).
+  disabled the affected installed server. The replacement named-session runtime
+  removes that audit startup gate, but the issue is not closed until an
+  authorized installed-harness validation proves the replacement path.
 - GitHub #11 (Codex keeps a stale ptk transport after the direct-server
-  cutover) is open; its explicit product/client boundary is already carried
-  into the resilience R7 real-Codex cutover validation.
+  cutover) is open; its explicit product/client boundary is carried into the
+  intended-harness restart gate for the replacement runtime.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean
@@ -780,19 +797,21 @@ short and update it when important repo facts change.
 
 - `AGENTS.md`
 - `.agents/repo-guidance.md`
-- `.agents/decisions.md`
-- `.agents/plans/security-layer.md`
-- `.agents/plans/rtk-rewrite-routing.md`
-- `.agents/plans/audited-harness-sessions.md`
-- `.agents/plans/mcp-resilience.md`
 - `.agents/plans/production-reliability-salvage.md`
-- `.agents/plans/release-distribution.md`
-- `.agents/plans/warm-runspace-mcp-server.md`
-- `.agents/plans/shared-persistent-runspace.md`
+- `.agents/plans/release-distribution.md` (release outcomes remain active; its
+  guardian/R7 mechanics are superseded at the top of the file)
+- `.agents/plans/defender-fp-submission.md`
 - `.agents/plans/mini-siem-discovery.md`
 - `.agents/plans/mini-siem-implementation.md`
 - `.agents/review/index.md`
 - `.agents/machines.md`
+- `.agents/decisions.md` (under owner hold; named stale entries are evidence,
+  not current implementation authority)
+
+The security-layer, broad RTK-rewrite, audited-harness, guardian-resilience,
+warm-runspace, and shared-persistent plans are retained prior-art/history, not
+active implementation pointers. The production-reliability plan controls where
+their text conflicts with the implemented replacement.
 
 ## Unrecorded Repo Memory
 

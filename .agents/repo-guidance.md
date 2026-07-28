@@ -35,27 +35,34 @@ rather than any blanket gate.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-07-03, all passing):
+Confirmed automated verification commands (re-run 2026-07-28, all passing):
 
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 43/43 passed (PowerShell module suite; requires the Pester module, 5.8.0
-confirmed present in this environment).
+— 141 passed, 2 platform-skipped (PowerShell module/setup suite; requires
+Pester 5 or later).
 
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 29/29 passed (C# warm-runspace MCP server suite).
+— 1,212/1,212 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite).
 
 ```
-pwsh -NoProfile -File server/test-handshake.ps1
+dotnet test siem/PtkSiem.slnx
 ```
-— stdio handshake check for the MCP server; run manually when server-facing
-code changes (not re-run by this governance refresh).
+— 247/247 passed (standalone retained SIEM receiver suite).
+
+```
+pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
+```
+— passed the stdout-clean direct-checkout launch and complete five-tool,
+multi-session stdio handshake. Run manually when server-facing setup or code
+changes.
 
 CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
-runs the same battery (Pester, dotnet test, handshake) on an
+runs the same battery (Pester, server/SIEM tests, handshake) on an
 ubuntu/windows/macos matrix for pushes to `master`/`ci/**` and PRs to
 `master`. Local verification before claiming completion still applies. See
 `.agents/repo-map.json` for the machine-readable record.

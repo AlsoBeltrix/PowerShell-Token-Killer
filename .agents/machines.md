@@ -1438,3 +1438,27 @@ checkout/archive validation, not installation or deployment._
   deployed, or pushed. The five already-recorded transitive
   `System.Security.Cryptography.Xml` 10.0.6 advisories were the only dependency
   warnings.
+
+## Production-reliability Slice 11 documentation/integration (2026-07-28)
+
+_Validated and locally integrated exact documentation commit
+`2c96e842618d73ac59fa37d5492a5ae92a0d163d` on `nagatha.local`; this was
+checkout verification and a local fast-forward, not installation, registration,
+deployment, or push._
+
+- Pester passed 141 tests with two platform skips; the complete server suite
+  passed 1,212/1,212 in 2m25s; the standalone retained SIEM receiver passed
+  247/247.
+- The first direct-checkout registration handshake failed before MCP
+  initialization because build-on-launch `dotnet run -v q` wrote NuGet
+  `NU1903` warnings to protocol stdout. A direct process probe confirmed the
+  first stdout line was the project-path advisory, not JSON-RPC. The corrected
+  path builds outside the MCP child and then launches
+  `dotnet run --no-build --no-launch-profile`; the same complete handshake
+  passed with exactly the five intended tools, two isolated named workers,
+  exactly-once dispatch, per-session reset, retained output through reset/close,
+  audit-disabled startup, and clean output-root shutdown.
+- Current `origin/master`
+  `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` was the exact merge base. Local
+  `master` fast-forwarded to the verified commit, and
+  `git diff impl/production-reliability-salvage master` was empty.

@@ -1,9 +1,10 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 10 PRODUCTION ACCEPTANCE IN PROGRESS; TIMEOUT-CONTAINMENT,
+**Status:** SLICE 11 LOCAL DOCUMENTATION/INTEGRATION COMPLETE ON LOCAL MASTER;
+SLICE 10 PRODUCTION ACCEPTANCE REMAINS IN PROGRESS; TIMEOUT-CONTAINMENT,
 UNIX-ESCAPE, AND DIRECT-WORKER-DEATH SUB-SLICES COMMITTED AND MACOS
-ARM64/LINUX X86_64 VERIFIED;
-WINDOWS X64 VALIDATION PENDING FOR SLICES 6-10 — topology
+ARM64/LINUX X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-10 —
+topology
 decision 1, R0 contract-retirement decision 2, test-runner Slice 1a, and
 delegated decisions 3-4 are settled as recorded in `.agents/decisions.md`. No
 further Claude Opus review is available or required. Exact Slice 6 commit
@@ -50,8 +51,15 @@ during execution and after an observable effect. A focused nine-case run makes
 that mapping explicit. Remaining Slice 10 gates require unavailable or
 separately authorized environments: a clean ARM64 Linux build, current Windows
 and Exchange/EXO runs, the real shaping check, and an installed intended-harness
-restart. Slice 11's local documentation/integration work is next while those
-gates remain pending.
+restart. Exact Slice 11 commit
+`2c96e842618d73ac59fa37d5492a5ae92a0d163d` aligns the public/server/audit
+documentation and active plan pointers to the implemented topology, marks the
+discarded guardian plan as historical evidence, and keeps direct-checkout MCP
+build warnings off protocol stdout. It passed the complete local battery and a
+red-to-green registration-command handshake, then fast-forwarded from current
+`origin/master` base `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` to local
+`master` with an empty content diff against the verified salvage branch. The
+remaining production gates stay open.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

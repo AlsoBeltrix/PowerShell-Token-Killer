@@ -1310,3 +1310,59 @@ checkout/archive validation, not installation or deployment._
   installed payload or harness registration changed. The five already-recorded
   transitive `System.Security.Cryptography.Xml` 10.0.6 advisories were the only
   dependency warnings.
+
+## Production-reliability Slice 10 Unix-escape validation (2026-07-28)
+
+_Validated exact acceptance commit
+`a626c3b8e993575ad916058bc33959c02b4daae3`, tree
+`63f066f30bcf41b861fee73b3d5a9edfe0953f0a`; its product tree is unchanged
+from timeout-containment commit `ef1657b22b9847f24dc991e6a9c0a58aa8624281`.
+This was disposable checkout/archive validation, not installation or
+deployment._
+
+- The public production-acceptance harness starts a child and grandchild in the
+  worker's broker-owned process group, has only the child call `setsid`, and
+  verifies the resulting process groups before fault injection. A timed-out
+  invocation then must be reported without replay, the old worker and
+  same-group grandchild must die, the escaped child must remain live, session
+  state must say `last_failure=descendants_unknown`, and reset must remain
+  refused until exact cleanup of that escaped PID. Only then may reset create a
+  different worker.
+- A deliberate regression made
+  `UnixWorkerContainmentRegistry` ignore both observed process-group changes.
+  The real acceptance then failed because PTK falsely reported the session
+  `ready` with a replacement worker instead of `descendants_unknown`. Restoring
+  source blob `bc6f9499839f43c05034141580313d2aac917a7f` made the reduced and
+  full acceptance runs pass. The regression log SHA-256 is
+  `d1899378a512ee2552c72a53d389e86f952e92f49c533f742903ce9eb5fa08ad`.
+- On `nagatha.local`, the full 100-cycle acceptance passed with process count
+  5/5, handles/fds 543/545, and private footprint 338.3/348.1 MiB. Timeout
+  containment killed both native descendants; the verified escape faulted
+  `descendants_unknown`, blocked replacement while its escaped child lived,
+  then recovered after cleanup; and supervisor hard-kill removed all four
+  owned descendants. The full log SHA-256 is
+  `2d332cc96a68332a41636becf7cbee9befdac16316b0280bf0a2974b51a5a985`.
+- The exact source archive SHA-256 was
+  `4f99eddf4c51e683b18f2351250d39f54fe999aa596978fe429a961d98dbf36c`
+  and matched after transfer to `magneto`. From that archive, Linux x86_64
+  passed the same 100-cycle acceptance with process count 5/5, handles/fds
+  530/530, and private footprint 230/231.5 MiB, including timeout, real
+  `setsid` escape, reset blocking/recovery, and supervisor hard-kill. The Linux
+  log SHA-256 is
+  `f735b8ff17386b20d15e943d16eede650fe227dd59ce0388ea81c740df8edf64`;
+  its exit was zero.
+- No candidate process survived either successful run. The 83 MiB remote
+  checkout and local transfer directory were removed after hashing; they are
+  disposable and not recoverable. Nothing was installed, registered, deployed,
+  or pushed.
+- A separate direct-worker-kill diagnostic exposed the next Slice 10 blocker.
+  In two macOS reduced runs, the escape topology was valid (the worker and
+  grandchild shared the old group and only the child had escaped), but directly
+  killing the worker did not reap the same-group grandchild within 30 seconds.
+  The surviving PIDs were `68630` and `70174`; the harness `finally` cleanup
+  removed them. The failed log SHA-256 values are
+  `c019a9c3431645b5f63dc9276a8c7ae7aa5e14bd35d07f510f1119f360403a34`
+  and
+  `e03408e688944a0737b83748c483071812aa8794716a301cb15949c820bffe91`.
+  This did not affect the isolated timeout-driven escape acceptance; it must be
+  diagnosed under Slice 10's still-open worker hard-kill matrix.

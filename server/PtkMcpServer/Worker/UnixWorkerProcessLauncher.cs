@@ -160,6 +160,7 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         private UnixWorkerContainmentIdentity? _identity;
+        private Task? _registryContainmentEmpty;
         private Task _workerOrBrokerExit = Task.CompletedTask;
         private Task<WorkerContainmentResult>? _containment;
         private bool _ready;
@@ -245,8 +246,10 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
             await _registry.RegisterPendingAsync(identity, token)
                 .ConfigureAwait(false);
             _registered = true;
-            _ = ForwardContainmentEmptyAsync(
-                _registry.WaitForEmptyAsync(identity));
+            var registryContainmentEmpty =
+                _registry.WaitForEmptyAsync(identity);
+            _registryContainmentEmpty = registryContainmentEmpty;
+            _ = ForwardContainmentEmptyAsync(registryContainmentEmpty);
             await SendCommandAsync(
                 UnixWorkerBrokerCommand.ArmGroup,
                 token).ConfigureAwait(false);
@@ -365,10 +368,20 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
 
             try
             {
-                return await _registry.CompleteAsync(
+                var result = await _registry.CompleteAsync(
                     identity,
                     brokerConfirmed,
                     CancellationToken.None).ConfigureAwait(false);
+                // The exact registry proof is complete here, but its forwarding
+                // continuation may still be queued behind this return path.
+                if (result.Outcome ==
+                        WorkerContainmentOutcome.ConfirmedEmpty &&
+                    _registryContainmentEmpty is
+                        { IsCompletedSuccessfully: true })
+                {
+                    _containmentEmpty.TrySetResult();
+                }
+                return result;
             }
             catch (Exception exception) when (!IsFatal(exception))
             {

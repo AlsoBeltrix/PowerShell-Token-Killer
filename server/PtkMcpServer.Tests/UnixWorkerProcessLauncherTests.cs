@@ -89,6 +89,32 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
     }
 
     [Fact]
+    public void Confirmed_registry_proof_is_published_before_containment_returns()
+    {
+        var launcher = File.ReadAllText(LauncherSourcePath());
+
+        Assert.Matches(
+            new Regex(
+                @"var\s+registryContainmentEmpty\s*=\s*" +
+                    @"_registry\.WaitForEmptyAsync\(identity\);\s*" +
+                    @"_registryContainmentEmpty\s*=\s*registryContainmentEmpty;\s*" +
+                    @"_\s*=\s*ForwardContainmentEmptyAsync\(" +
+                    @"registryContainmentEmpty\);",
+                RegexOptions.CultureInvariant),
+            launcher);
+        Assert.Matches(
+            new Regex(
+                @"result\.Outcome\s*==\s*" +
+                    @"WorkerContainmentOutcome\.ConfirmedEmpty\s*&&\s*" +
+                    @"_registryContainmentEmpty\s+is\s*" +
+                    @"\{\s*IsCompletedSuccessfully:\s*true\s*\}" +
+                    @"[\s\S]*?_containmentEmpty\.TrySetResult\(\);" +
+                    @"[\s\S]*?return result;",
+                RegexOptions.CultureInvariant),
+            launcher);
+    }
+
+    [Fact]
     public async Task Production_broker_runs_real_worker_entry_and_warm_runtime()
     {
         if (OperatingSystem.IsWindows())
@@ -160,6 +186,7 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
         Assert.Equal(
             WorkerContainmentOutcome.ConfirmedEmpty,
             result.Outcome);
+        Assert.True(contained.ContainmentEmpty.IsCompletedSuccessfully);
         await contained.ContainmentEmpty.WaitAsync(CheckpointTimeout);
         Assert.Empty(await standardOutput.WaitAsync(CheckpointTimeout));
         Assert.Empty(await standardError.WaitAsync(CheckpointTimeout));
@@ -208,6 +235,7 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
             Assert.Equal(
                 WorkerContainmentOutcome.ConfirmedEmpty,
                 firstResult.Outcome);
+            Assert.True(first.ContainmentEmpty.IsCompletedSuccessfully);
             await first.ContainmentEmpty.WaitAsync(CheckpointTimeout);
             await AssertProcessGoneAsync(firstTree.WorkerPid);
             await AssertProcessGoneAsync(firstTree.DescendantPid);
@@ -220,6 +248,7 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
             Assert.Equal(
                 WorkerContainmentOutcome.ConfirmedEmpty,
                 secondResult.Outcome);
+            Assert.True(second.ContainmentEmpty.IsCompletedSuccessfully);
             await second.ContainmentEmpty.WaitAsync(CheckpointTimeout);
             await AssertProcessGoneAsync(secondTree.WorkerPid);
             await AssertProcessGoneAsync(secondTree.DescendantPid);
@@ -294,6 +323,7 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
             Assert.Equal(
                 WorkerContainmentOutcome.ConfirmedEmpty,
                 replacementResult.Outcome);
+            Assert.True(replacement.ContainmentEmpty.IsCompletedSuccessfully);
             await AssertProcessGoneAsync(replacementTree.DescendantPid);
             await AssertProcessGoneAsync(replacementTree.GrandchildPid);
         }

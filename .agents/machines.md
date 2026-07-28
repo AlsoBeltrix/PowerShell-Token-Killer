@@ -1518,3 +1518,44 @@ installation, registration, deployment, or push was used._
   server passed 1,212/1,212, SIEM passed 247/247, and the stdout-clean
   direct-checkout handshake passed with zero warnings. A same-RID `osx-arm64`
   self-contained layout then passed the complete public handshake.
+
+## Exact-head Linux x86_64 package validation (2026-07-28)
+
+_Validated exact committed head
+`37b7d94dacdfd7fb03b52ce95d4409031e6e6699`, tree
+`45f7c8a5a9bdbcc907cc3aea2bb47e0bea346301`, from one immutable archive on
+real Linux x86_64 hosts; no VM, emulation, installation, registration,
+deployment, or push was used._
+
+- The archive was 1,232,753 bytes with SHA-256
+  `c3e55114792d53f8edb478351a0b24a93a3890cb94b8e81c55c0be844147fc92`;
+  both remote hosts verified that hash before extraction.
+- On `gabrielle` with PowerShell 7.6.3 and Pester 6.0.1, the complete Pester
+  suite passed 142 tests with two platform skips. The complete 540-byte job
+  log SHA-256 is
+  `1bbff1e460e463a545e6478801fdec3f79801a77ad8a55266bd53041b0927b6e`.
+- On `magneto` with .NET SDK 10.0.110 and PowerShell 7.6.3, the server suite
+  passed 1,212/1,212 in 3m03s and SIEM passed 247/247. All five server projects
+  reported no vulnerable direct or transitive packages. The direct-checkout
+  registration handshake passed with exactly the five public tools and two
+  isolated named workers.
+- `dev-install.ps1 -LayoutOnly -Validate -Rid linux-x64` built and validated
+  the exact staged package on `magneto`. `/usr/bin/file` identified both
+  `PtkMcpServer` and `PtkWorkerBroker` as Linux x86-64 ELF executables. Their
+  SHA-256 values were respectively
+  `9cbd0d1e7625321c4f8af30f8e22a2bd863a366c2ec68d766a81325c2a2be372`
+  and
+  `f8516a39e68cca1a5ebccc1b43eeb36c1a26aeb0fc735046de73c3a0f8203d47`.
+- The staged package passed production acceptance: 100 worker replacements
+  retained 5/5 processes and 532/532 file descriptors; timeout and direct
+  worker-death paths each contained two native descendants; the observed
+  process-group escape faulted `descendants_unknown` and blocked replacement;
+  the sibling remained warm; supervisor hard-kill removed four owned
+  descendants. The complete 7,984-byte job log SHA-256 is
+  `70c9311eecfd30391405f147a21f94b975b96d77d5369d21faadc5f89959d824`.
+- Both disposable remote roots and the local transfer root were
+  prefix-checked and removed after evidence hashing. A process scan found no
+  executable from the validation root before cleanup. The current Windows
+  host still timed out at both recorded addresses, and all three available
+  Linux hosts are x86_64, so the Windows/Exchange and real ARM64 Linux gates
+  remain open.

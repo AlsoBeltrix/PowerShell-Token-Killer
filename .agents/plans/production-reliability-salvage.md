@@ -67,8 +67,11 @@ self-contained package all pass without dependency warnings. Exact packaging
 fix `e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0` then prevents a cross-RID build
 from labeling a host-compiled native worker broker as another platform: the
 guard has a red-to-green mutation proof, and the full repository battery plus a
-same-RID self-contained package pass. The remaining production gates stay
-open.
+same-RID self-contained package pass. Exact committed head
+`37b7d94dacdfd7fb03b52ce95d4409031e6e6699` then passed the complete
+Linux x86_64 battery on real matching hosts, including genuine ELF package
+artifacts and the 100-cycle staged-package production acceptance. The
+remaining production gates stay open.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

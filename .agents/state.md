@@ -43,8 +43,15 @@ short and update it when important repo facts change.
   new guard failed when the check was removed and passed when restored; Pester
   passed 142 with two platform skips, server 1,212/1,212, SIEM 247/247, the
   direct-checkout handshake, and a same-RID self-contained package handshake.
-  This prevents a mislabeled release artifact; it does not replace the pending
-  build and execution on a real ARM64 Linux host. UTM is not used.
+  Exact committed head `37b7d94dacdfd7fb03b52ce95d4409031e6e6699`
+  subsequently passed the complete Linux x86_64 battery on real hosts: Pester
+  passed 142 with two platform skips, server passed 1,212/1,212, SIEM passed
+  247/247, the transitive vulnerability audit was clean, direct and
+  staged-package handshakes passed, both public executables were genuine x86-64
+  ELF binaries, and the 100-cycle production-acceptance matrix passed. This
+  prevents a mislabeled release artifact and proves the matching-host
+  `linux-x64` path; it does not replace the pending build and execution on a
+  real ARM64 Linux host. UTM is not used.
 - **Owner direction changed on 2026-07-26: pause the three-process resilience
   delivery line and use the reviewed production-reliability salvage instead.**
   PTK's product is reliable token-compressed PowerShell execution with warm

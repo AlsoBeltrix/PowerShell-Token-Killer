@@ -1675,6 +1675,13 @@ was used._
   attempted to create symlinks and Windows returned "A required privilege is
   not held by the client", before product assertions. No `.ptk-siem-*` root
   remained.
+- A read-only follow-up confirmed the token exposes only
+  `SeChangeNotifyPrivilege` and `SeIncreaseWorkingSetPrivilege`, not
+  `SeCreateSymbolicLinkPrivilege`. The host is joined to `ad.analog.com`,
+  has ExchangeOnlineManagement `3.10.1`, Microsoft.Graph `2.38.1`, and Outlook
+  Office16 installed, but has no `ExchangeInstallPath`, `RemoteExchange.ps1`,
+  or available `Get-Queue`. No connection, authentication, mailbox read, or
+  on-prem Exchange operation was attempted.
 - Acceptance and staged-install roots returned to zero, no checkout or
   packaged PTK process remained, and the explicitly verified disposable
   layout under the user's local temp directory was removed. No candidate

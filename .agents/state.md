@@ -739,12 +739,14 @@ short and update it when important repo facts change.
    available; do not conflate them. Generic Windows x64 PTK packaging,
    worker-process, Job Object, timeout, crash, and cleanup acceptance is now
    complete at `7eaf8a0`; rerun the remaining SIEM symlink-protection cases
-   only under a Windows identity allowed to create test symlinks. Run
-   AD/on-prem Exchange and EXO/Graph/Outlook shaping only on a separate
-   company-connected supported Windows admin host with the required modules,
-   network access, and authentication. Run the ARM64 gate only on a matching
-   real Linux host. Candidate installation and intended-harness restart remain
-   separately authorized deployment work. When authorized, install `7eaf8a0`
+   only under a Windows identity allowed to create test symlinks.
+   `ASHBIAMWEB1` is domain-joined and has EXO, Graph, and Outlook available,
+   but has no on-prem Exchange management tools; credentialed EXO/Graph/Outlook
+   shaping awaits an explicit authentication/data-access go, while on-prem
+   Exchange needs a different EMS-capable host. Run the ARM64 gate only on a
+   matching real Linux host. Candidate installation and intended-harness
+   restart remain separately authorized deployment work. When authorized,
+   install `7eaf8a0`
    or later and start a fresh Claude session so its cached removed-tool
    references cannot survive the five-tool schema change. No further ungated
    code change is queued.

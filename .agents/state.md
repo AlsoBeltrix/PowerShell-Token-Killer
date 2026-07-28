@@ -5,6 +5,22 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Handoff checkpoint (2026-07-28): all currently available Linux x86_64
+  acceptance is complete; the remaining Windows and enterprise gates are
+  separate.** Exact committed head
+  `37b7d94dacdfd7fb03b52ce95d4409031e6e6699` passed Pester on `gabrielle`
+  and the full server, SIEM, dependency-audit, native-package, handshake, and
+  100-cycle staged-package production-acceptance battery on `magneto`.
+  Evidence is committed at `14daad6`; the read-only installed-payload rollback
+  baseline is committed at `3f5dc11`. All disposable validation roots were
+  removed, and nothing was installed, registered, deployed, or pushed. The
+  current Codex installation remains the old `0.2.0-dev.g6db333c` job-API
+  build, not the validated five-tool named-session candidate. `NETWATCH-01`
+  can close only generic Windows packaging/process/Job Object acceptance; it
+  is a personal gaming machine with no company AD, on-prem Exchange, Exchange
+  Online, or Outlook administration access. Those real workflow gates require
+  a separate company-connected supported Windows admin host with the required
+  modules, network access, and authentication.
 - **Production-reliability Slice 11 is complete and integrated on local
   `master`.** Exact documentation/integration commit
   `2c96e842618d73ac59fa37d5492a5ae92a0d163d` publishes the implemented
@@ -679,13 +695,15 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Continue Slice 10 production acceptance. When `NETWATCH-01` and a clean
-   ARM64 Linux build path are available, finish the retained Slice 6-10
-   platform/Exchange gates. The replacement server's synthetic EXO-style
-   projection is useful but does not close the real EXO/Outlook shaping gate.
-   Candidate installation, the real shaping workflow, and intended-harness
-   restart remain separately authorized deployment work; do not claim Slice 10
-   cross-platform complete before they pass.
+1. Continue only the acceptance gate whose actual environment becomes
+   available; do not conflate them. When `NETWATCH-01` is reachable, use it
+   only for exact-current-head Windows packaging, worker-process, Job Object,
+   timeout, crash, and cleanup validation. Run AD/on-prem Exchange and
+   EXO/Graph/Outlook shaping only on a separate company-connected supported
+   Windows admin host with the required modules, network access, and
+   authentication. Run the ARM64 gate only on a matching real Linux host.
+   Candidate installation and intended-harness restart remain separately
+   authorized deployment work. No further ungated code change is queued.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.
@@ -783,12 +801,20 @@ short and update it when important repo facts change.
   `Grpc.Tools` evidence remains in `.agents/machines.md`, not as the current
   execution path.
 
-- **Current Slice 10 Windows validation is pending while `NETWATCH-01` is
-  unavailable.** Unix production containment and timeout replacement now pass
-  direct macOS ARM64 and Linux x86_64 acceptance; prior retained Windows
-  Job Object evidence does not substitute for an exact-current-head Windows
-  run. Resume the Windows/Exchange matrix when that host returns. Exact host
-  evidence is in `.agents/machines.md`.
+- **Current Slice 10 generic Windows validation is pending while
+  `NETWATCH-01` is unavailable.** Unix production containment and timeout
+  replacement now pass direct macOS ARM64 and Linux x86_64 acceptance; prior
+  retained Windows Job Object evidence does not substitute for an
+  exact-current-head Windows run. When the host returns, run only Windows
+  packaging/process/Job Object/timeout/crash/cleanup acceptance there. Exact
+  host evidence is in `.agents/machines.md`.
+- **The real AD/Exchange/EXO/Outlook workflow gate needs a company-connected
+  supported Windows admin host.** `NETWATCH-01` is a personal gaming machine
+  without company AD, on-prem Exchange, Exchange Online, or Outlook
+  administration access and cannot close this gate. The replacement server's
+  synthetic EXO-style projection remains useful evidence but is not a
+  substitute for the required modules, network access, authentication, and
+  real enterprise objects.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in

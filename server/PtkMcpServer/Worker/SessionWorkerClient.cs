@@ -655,7 +655,17 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken);
         deadline.CancelAfter(remaining);
-        return await ReadRequiredAsync(deadline.Token).ConfigureAwait(false);
+        try
+        {
+            return await ReadRequiredAsync(deadline.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException exception)
+            when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException(
+                "Worker initialization deadline expired.",
+                exception);
+        }
     }
 
     private async Task<WorkerEnvelope> ReadRequiredAsync(

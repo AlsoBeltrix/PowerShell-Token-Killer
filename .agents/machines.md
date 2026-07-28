@@ -1255,3 +1255,58 @@ checkout/package validation, not installation or deployment._
   previously used `10.1.10.177`, so Windows x64 validation remains pending for
   Slices 6-9. The five known transitive `System.Security.Cryptography.Xml`
   10.0.6 advisories were the only dependency warnings.
+
+## Production-reliability Slice 10 timeout-containment validation (2026-07-28)
+
+_Validated exact code commit `ef1657b22b9847f24dc991e6a9c0a58aa8624281`,
+tree `c10274576bca11c42124f1257f459113420df8e7`; this was disposable
+checkout/archive validation, not installation or deployment._
+
+- Five deliberate regressions independently proved the new guards
+  load-bearing: recomputing the runspace deadline instead of forwarding the
+  admission deadline, blocking the watchdog inside a cancellation callback,
+  marking a request terminal before its terminal frame was written, rejecting
+  an incomplete timeout artifact, and advertising worker-local recovery while
+  the supervisor owned capture. Each targeted test failed for that exact
+  reason. Restoration returned
+  `WorkerOperationScheduler.cs` to blob
+  `d384de596440753c7afe772d1c6e228d532dc709` and
+  `SessionRuntime.cs` to blob
+  `3e2eef6ad57ebbf0ff648aec0a9a1ab6a2c56f1e`; each targeted test then passed.
+- On `nagatha.local` (macOS 26.5.2 ARM64, .NET SDK 10.0.302, PowerShell
+  7.6.3), the complete server suite passed 1,211/1,211 in 2m27s; Pester passed
+  141 tests with two platform skips; SIEM passed 247/247; the complete public
+  handshake passed; scoped formatting and `git diff --check` were clean.
+  The full production acceptance passed 100 replacements, with process count
+  5/5, handles/fds 543/545, and private footprint 354.1/366 MiB. It replaced
+  the unresponsive timed-out worker, killed its two native descendants,
+  preserved the warm sibling, and later proved supervisor hard-kill removed
+  all four owned descendants. The server/Pester/SIEM/handshake/acceptance log
+  SHA-256 values are respectively
+  `161ece5b00a1724ea16a7e01a9e28f2b7ed1de5ffa0604082c7f45392f0b7707`,
+  `7a3b517052464301858715d8d99fc1abd5c87f09960b2bb42ade85223fb19309`,
+  `87fd9cd48f0193a83f841bb05051ab7330308b1a6b002d73f67abd6f518e818e`,
+  `9ed9fceff6ad1eeee2bb4cd015e5fd8a5d183dbe13032fec6a459d37996a1b02`,
+  and
+  `7fa4f4ac5a88f68a9acddf6257365504c03217b503dbd4b56f6c52911304508c`.
+- The exact source archive SHA-256 was
+  `b9eb69780b226789c3e3adbc40b8c3b91dee94cbbe1b6e647286fb6f83ff60db`;
+  the disposable Pester 6.0.1 archive SHA-256 was
+  `fe7313dffbc461c82d71c5cef31c0f013e1d8f685876f81100e4d84f77d49f48`.
+  Both matched after transfer to `magneto` (Arch Linux 7.1.4-arch1-1 x86_64,
+  .NET SDK 10.0.110, PowerShell 7.6.3).
+- From that exact archive on `magneto`, the complete server suite passed
+  1,211/1,211 in 3m02s; Pester passed 141 tests with two platform skips; SIEM
+  passed 247/247; and the complete public handshake passed. The full production
+  acceptance passed 100 replacements, with process count 5/5, handles/fds
+  530/530, and private footprint 235.2/240.5 MiB. It replaced the timed-out
+  worker, killed both native descendants, and proved supervisor hard-kill
+  removed all four owned descendants. The combined Linux log SHA-256 is
+  `43f3a2716a79b73d6fd0efa4a2a5e8020e116d6c72473f734e0c4ff9376f5146`;
+  its exit was zero.
+- No candidate server, worker, broker, fixture, or test process survived on
+  either host. The 316 MiB remote checkout and the local transfer directory
+  were removed after hashing; they are disposable and not recoverable. No
+  installed payload or harness registration changed. The five already-recorded
+  transitive `System.Security.Cryptography.Xml` 10.0.6 advisories were the only
+  dependency warnings.

@@ -588,15 +588,29 @@ short and update it when important repo facts change.
   Verification at `156aac2`: 1,204 server tests, 141 Pester tests (2 skipped),
   247 SIEM tests, handshake, macOS 100 replacement cycles, and the Linux
   diagnostic reproducer's 100 replacement cycles all passed.
+- **Slice 10 timeout containment is committed and directly verified at
+  `ef1657b22b9847f24dc991e6a9c0a58aa8624281`.** One absolute admission
+  deadline now reaches the runspace; a dedicated watchdog stays live while
+  PowerShell cancellation or terminal transport is blocked; timed-out
+  incomplete output remains recoverable under the supervisor's single recovery
+  handle; and production fail-fast replaces only the unresponsive worker. Five
+  targeted regressions failed for their intended reason and passed after
+  byte-exact restoration. Complete macOS ARM64 and exact-archive Linux x86_64
+  batteries passed, including 100 replacements, timeout child/grandchild death,
+  sibling survival, resource return, and supervisor hard-kill containment.
+  Exact host identities, commands, counts, archive/log hashes, and cleanup are
+  recorded in `.agents/machines.md`. Nothing was installed, deployed, or
+  pushed.
 
 ## Next
 
 1. Continue Slice 10 with the remaining missing uncredentialed acceptance
-   guards, beginning with real timeout containment of a child and grandchild;
-   then package and rerun the exact committed head on macOS and available Linux
-   hosts. When `NETWATCH-01` returns, validate the retained exact Slice 6-9
-   archives and run the Windows/Exchange acceptance work before claiming any
-   slice cross-platform complete.
+   guards, beginning with a real Unix process-group escape that must report
+   `descendants_unknown` without replay or a false complete-containment claim.
+   Package and rerun each completed guard at an exact committed head on macOS
+   and an available Linux x86_64 host. When `NETWATCH-01` returns, validate the
+   retained exact Slice 6-10 archives and run the Windows/Exchange acceptance
+   work before claiming any slice cross-platform complete.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.
@@ -698,12 +712,12 @@ short and update it when important repo facts change.
   ARM64 build must not be claimed until the launch failure is resolved or
   independently disproved; see `.agents/machines.md`.
 
-- **R5 Unix production containment cannot be implemented or directly validated
-  on the current Windows host.** Production composition deliberately fails
-  closed on non-Windows until the approved native outer broker exists. Resume
-  on direct Linux and macOS hosts with native toolchains; no enterprise network
-  access or identity-system credentials are required. Exact host evidence is
-  in the active workspace's `.agents/machines.md`.
+- **Current Slice 10 Windows validation is pending while `NETWATCH-01` is
+  unavailable.** Unix production containment and timeout replacement now pass
+  direct macOS ARM64 and Linux x86_64 acceptance; prior retained Windows
+  Job Object evidence does not substitute for an exact-current-head Windows
+  run. Resume the Windows/Exchange matrix when that host returns. Exact host
+  evidence is in `.agents/machines.md`.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in

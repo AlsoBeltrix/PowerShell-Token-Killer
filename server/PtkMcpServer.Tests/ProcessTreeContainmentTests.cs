@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 namespace PtkMcpServer.Tests;
 
@@ -18,6 +19,25 @@ public sealed class ProcessTreeContainmentTests : IDisposable
         var self = snapshot.Single(row => row.Pid == Environment.ProcessId);
         Assert.True(self.Ppid > 0);
         Assert.True(self.Pgid > 0);
+    }
+
+    [Fact]
+    public void Mac_process_table_snapshots_release_redirected_output_immediately()
+    {
+        if (!OperatingSystem.IsMacOS()) return;
+
+        _ = ProcessTableSnapshot.TryTake();
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        var before = CountOpenFileDescriptors();
+
+        for (var index = 0; index < 32; index++)
+            Assert.NotNull(ProcessTableSnapshot.TryTake());
+
+        var after = CountOpenFileDescriptors();
+        Assert.True(
+            after <= before + 1,
+            $"Process-table snapshots retained {after - before} descriptors.");
     }
 
     [Fact]
@@ -144,4 +164,18 @@ public sealed class ProcessTreeContainmentTests : IDisposable
             return false;
         }
     }
+
+    private static int CountOpenFileDescriptors()
+    {
+        var count = 0;
+        for (var descriptor = 0; descriptor < 4096; descriptor++)
+        {
+            if (GetDescriptorFlags(descriptor, 1) != -1)
+                count++;
+        }
+        return count;
+    }
+
+    [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+    private static extern int GetDescriptorFlags(int descriptor, int command);
 }

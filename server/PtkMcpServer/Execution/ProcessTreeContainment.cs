@@ -332,7 +332,8 @@ internal static class ProcessTableSnapshot
         };
         using var ps = Process.Start(startInfo);
         if (ps is null) return null;
-        var text = ps.StandardOutput.ReadToEnd();
+        using var standardOutput = ps.StandardOutput;
+        var text = standardOutput.ReadToEnd();
         ps.WaitForExit();
         if (ps.ExitCode != 0) return null;
 

@@ -296,13 +296,16 @@ The target installer:
 
 - selects a smoke-tested `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
   or `osx-arm64` asset and verifies it against `SHA256SUMS`;
-- installs one exact matched guardian, private host, contracts, and containment
-  helper set; partial or mixed-version payloads fail before initialization;
+- installs one self-contained public supervisor whose internal worker mode owns
+  the named session processes, plus `PtkWorkerBroker` on Unix;
+- runs the complete public handshake against the staged package and again after
+  activation, before changing any harness registration;
 - installs per-user under `~/.ptk` and preserves user-owned configuration on
   upgrade/uninstall;
-- registers only the public guardian with Claude Code when the `claude` CLI is
-  available, otherwise prints its registration command, and prints Codex
-  registration guidance;
+- snapshots the prior installer-owned payload and known registration files, and
+  restores and verifies them after any activation or registration failure;
+- registers the public `PtkMcpServer` with detected harnesses only after the
+  activated package passes its handshake;
 - can install the redirect hook, whose public-installer default remains an
   explicit release decision; and
 - supports uninstall, with destructive purge kept explicit.
@@ -324,17 +327,16 @@ register detected harnesses:
 pwsh -NoProfile -File scripts/dev-install.ps1
 ```
 
-This is a developer path and requires PowerShell 7 plus the .NET SDK. Before
-the guardian cutover lands, you can also register the checkout directly:
+This is a developer path and requires PowerShell 7 plus the .NET SDK. For
+source debugging, you can instead register the checkout directly:
 
 ```powershell
 claude mcp add ptk --scope user -- dotnet run -v q --project <repo>/server/PtkMcpServer
 ```
 
-That direct no-argument server command is temporary development state, not a
-released compatibility surface. Resilience R7 changes the development
-installer and every future release registration to launch only the guardian,
-then removes direct public server mode without a migration layer.
+That direct command launches a build-tree process and bypasses the packaged
+stage/activate/rollback transaction. Use the development installer when testing
+the production package boundary.
 
 The committed `.mcp.json` is intentionally empty; a checkout does not install
 itself into project scope.
@@ -384,7 +386,7 @@ successful install.
 
 ## Repository Layout and Verification
 
-- `server/PtkMcpServer/` — current pre-guardian MCP server/runtime.
+- `server/PtkMcpServer/` — public MCP supervisor and internal worker runtime.
 - `server/PtkMcpServer.Tests/` — server, audit, routing, and lifecycle tests.
 - `src/PwshTokenCompressor.psd1` — PowerShell object/text shaping library.
 - `scripts/` — development install and harness integration tooling.

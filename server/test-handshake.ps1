@@ -215,8 +215,12 @@ $escapedOnlineToken = [regex]::Escape($onlineToken)
 $escapedOnPremToken = [regex]::Escape($onPremToken)
 $quotedOnlineToken = "'" + $onlineToken.Replace("'", "''") + "'"
 $quotedOnPremToken = "'" + $onPremToken.Replace("'", "''") + "'"
-$onlineSeedScript = '$shared = ' + $quotedOnlineToken + '; $shared'
-$onPremSeedScript = '$shared = ' + $quotedOnPremToken + '; $shared'
+$onlineSeedScript = (
+    '$shared = ' + $quotedOnlineToken +
+    '; function Get-PtkOverlap { ' + $quotedOnlineToken + ' }; $shared')
+$onPremSeedScript = (
+    '$shared = ' + $quotedOnPremToken +
+    '; function Get-PtkOverlap { ' + $quotedOnPremToken + ' }; $shared')
 $executionScript = 'if (-not (Test-Path Variable:executionCount)) { $executionCount = 0 }; $executionCount++; $executionCount'
 $mainExitedGracefully = $false
 $failed = $false
@@ -421,28 +425,38 @@ try {
         jsonrpc = '2.0'; id = 10; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = '$shared'; session = 'exchange-online' }
+            arguments = @{
+                script = '$shared; Get-PtkOverlap'
+                session = 'exchange-online'
+            }
         }
     }
     $onlineRead = (Read-RpcResponse -Id 10).result.content[0].text
-    if ($onlineRead -notmatch "(?m)^$escapedOnlineToken\r?$" -or
+    if ([regex]::Matches(
+            $onlineRead,
+            "(?m)^$escapedOnlineToken\r?$").Count -ne 2 -or
         $onlineRead -match $escapedOnPremToken) {
-        throw "exchange-online warm state was not isolated: '$onlineRead'"
+        throw "exchange-online variable/function state was not isolated: '$onlineRead'"
     }
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 11; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = '$shared'; session = 'exchange-onprem' }
+            arguments = @{
+                script = '$shared; Get-PtkOverlap'
+                session = 'exchange-onprem'
+            }
         }
     }
     $onPremRead = (Read-RpcResponse -Id 11).result.content[0].text
-    if ($onPremRead -notmatch "(?m)^$escapedOnPremToken\r?$" -or
+    if ([regex]::Matches(
+            $onPremRead,
+            "(?m)^$escapedOnPremToken\r?$").Count -ne 2 -or
         $onPremRead -match $escapedOnlineToken) {
-        throw "exchange-onprem warm state was not isolated: '$onPremRead'"
+        throw "exchange-onprem variable/function state was not isolated: '$onPremRead'"
     }
-    Write-Host 'warm-state isolation ok: identical variable names retained different values'
+    Write-Host 'warm-state isolation ok: identical variable/function names retained different behavior'
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 12; method = 'tools/call'
@@ -501,11 +515,16 @@ try {
         jsonrpc = '2.0'; id = 16; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = '$shared'; session = 'exchange-onprem' }
+            arguments = @{
+                script = '$shared; Get-PtkOverlap'
+                session = 'exchange-onprem'
+            }
         }
     }
     $onPremAfterReset = (Read-RpcResponse -Id 16).result.content[0].text
-    if ($onPremAfterReset -notmatch "(?m)^$escapedOnPremToken\r?$") {
+    if ([regex]::Matches(
+            $onPremAfterReset,
+            "(?m)^$escapedOnPremToken\r?$").Count -ne 2) {
         throw "reset of exchange-online damaged exchange-onprem: '$onPremAfterReset'"
     }
     Write-Host 'selected reset ok: one worker lost warm state and the other did not'

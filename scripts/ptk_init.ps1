@@ -120,17 +120,18 @@ $nudgeEnd = '<!-- /ptk-guidance -->'
 $nudgeBlock = @"
 $nudgeBegin
 When the ptk MCP server is available, use ptk_invoke for shell commands
-instead of the built-in shell tools: one warm PowerShell session (imports,
-connections, variables persist across calls), compressed output. The
-dialect is PowerShell 7, not bash: translate bash-only syntax, or wrap a
-bash script whole as bash -lc '...' where bash exists. Long
-stateless work: background=true, then poll ptk_job; long work that needs
-the warm session: raise timeoutSeconds. ptk_state diagnoses session drift;
-ptk_reset restores factory state. Compressed output preserves errors, exit
-codes, and structure - raw=true is deprecated compatibility telemetry and
-does not change execution or shaping. route=pwsh is exact PowerShell consent
-independent of raw, with normal capture and shaping. If a response returns a
-ptk_output handle, use it to read the immutable same-invocation artifact
+instead of the built-in shell tools. One MCP connection can own several named
+warm PowerShell sessions; each session has its own long-lived worker/runspace,
+so modules, connections, variables, and working directory stay isolated.
+Unqualified calls use default; use ptk_session to list/open/close sessions and
+session=... to select one. The dialect is PowerShell 7, not bash: translate bash-only syntax.
+Wrap a bash script whole as bash -lc '...' where bash exists. For long work
+that needs warm state, raise timeoutSeconds. ptk_state
+diagnoses the selected session; ptk_reset restores that session to factory
+state. Compressed output preserves errors, exit codes, and structure.
+raw=true is deprecated compatibility telemetry and does not change execution or shaping.
+route=pwsh is exact PowerShell consent independent of raw, with normal capture and shaping.
+If a response returns a ptk_output handle, use it to read the immutable same-invocation artifact
 without rerunning the command. When the ptk tools are not available in this
 session, use the normal shell tools.
 $nudgeEnd

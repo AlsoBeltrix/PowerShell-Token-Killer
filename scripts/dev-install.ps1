@@ -24,7 +24,7 @@ verb can host it in-process (the binary embeds the PowerShell engine).
 pwsh -File scripts/dev-install.ps1                # install current HEAD
 pwsh -File scripts/dev-install.ps1 -Hook          # ... and install the hook
 pwsh -File scripts/dev-install.ps1 -Uninstall
-pwsh -File scripts/dev-install.ps1 -LayoutOnly -OutputDir out/ptk-layout
+pwsh -File scripts/dev-install.ps1 -LayoutOnly -Validate -OutputDir out/ptk-layout
 #>
 [CmdletBinding(DefaultParameterSetName = 'Install')]
 param(
@@ -53,7 +53,12 @@ param(
     # 0.2.0-dev.g<shortsha>.
     [Parameter(ParameterSetName = 'Install')]
     [Parameter(ParameterSetName = 'LayoutOnly')]
-    [string]$Version
+    [string]$Version,
+
+    # Run the full public handshake against a local-RID layout without
+    # activating it. Cross-RID layouts cannot execute on this host.
+    [Parameter(ParameterSetName = 'LayoutOnly')]
+    [switch]$Validate
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,6 +68,8 @@ $ptkHome = Join-Path $HOME '.ptk'
 # else under ~/.ptk is user-owned and never touched here.
 $payloadEntries = @('bin', 'src', 'scripts', 'VERSION')
 $arpKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ptk'
+$installTransactionModule = Join-Path $PSScriptRoot 'ptk_install_transaction.psm1'
+Import-Module $installTransactionModule -Force
 
 function Get-PtkRid {
     $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
@@ -139,6 +146,9 @@ function Assert-PtkPayloadIntact {
         (Join-Path $Root 'bin' (Get-PtkServerBinaryName -TargetRid $TargetRid))
         (Join-Path $Root 'bin' 'PtkMcpServer.dll')
     )
+    if ($TargetRid -notlike 'win-*') {
+        $required += Join-Path $Root 'bin' 'PtkWorkerBroker'
+    }
     $missing = @($required | Where-Object { -not (Test-Path -LiteralPath $_ -PathType Leaf) })
     if ($missing.Count -eq 0) { return }
     Write-Warning ((@(
@@ -177,27 +187,11 @@ function New-PtkLayout {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'src' $f) -Destination $src.FullName
     }
     $scripts = New-Item -ItemType Directory -Path (Join-Path $Destination 'scripts') -Force
-    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'dev-install.ps1') {
+    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'dev-install.ps1',
+        'ptk_install_transaction.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
     Set-Content -LiteralPath (Join-Path $Destination 'VERSION') -Value $PayloadVersion -NoNewline
-}
-
-# Replaces the installer-owned payload in ~/.ptk with the staged layout.
-# User-owned files (anything not in $payloadEntries) are never touched.
-function Install-PtkPayload {
-    param([Parameter(Mandatory)][string]$Staging)
-    if (Test-Path -LiteralPath $ptkHome -PathType Leaf) {
-        throw "$ptkHome exists as a file; move it aside - ptk needs it as its home directory."
-    }
-    New-Item -ItemType Directory -Path $ptkHome -Force | Out-Null
-    foreach ($entry in $payloadEntries) {
-        $target = Join-Path $ptkHome $entry
-        if (Test-Path -LiteralPath $target) {
-            Remove-Item -LiteralPath $target -Recurse -Force
-        }
-        Move-Item -LiteralPath (Join-Path $Staging $entry) -Destination $target
-    }
 }
 
 function Remove-PtkPayload {
@@ -272,6 +266,112 @@ function Remove-PtkArpEntry {
     }
 }
 
+function Get-PtkArpState {
+    if (-not $IsWindows) {
+        return [pscustomobject]@{ Exists = $false; Values = @() }
+    }
+    if (-not (Test-Path -Path $arpKeyPath)) {
+        return [pscustomobject]@{ Exists = $false; Values = @() }
+    }
+
+    $key = Get-Item -Path $arpKeyPath
+    $values = @($key.GetValueNames() | Sort-Object | ForEach-Object {
+            [pscustomobject]@{
+                Name = $_
+                Kind = $key.GetValueKind($_).ToString()
+                Value = $key.GetValue(
+                    $_,
+                    $null,
+                    [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+            }
+        })
+    [pscustomobject]@{ Exists = $true; Values = $values }
+}
+
+function Restore-PtkArpState {
+    param([Parameter(Mandatory)]$State)
+    if (-not $IsWindows) { return }
+
+    Remove-PtkArpEntry
+    if (-not $State.Exists) { return }
+
+    New-Item -Path $arpKeyPath -Force | Out-Null
+    foreach ($value in @($State.Values)) {
+        $propertyType = switch ($value.Kind) {
+            'String' { 'String' }
+            'ExpandString' { 'ExpandString' }
+            'Binary' { 'Binary' }
+            'DWord' { 'DWord' }
+            'MultiString' { 'MultiString' }
+            'QWord' { 'QWord' }
+            default { throw "Unsupported prior ARP registry value kind: $($value.Kind)" }
+        }
+        New-ItemProperty `
+            -Path $arpKeyPath `
+            -Name $value.Name `
+            -Value $value.Value `
+            -PropertyType $propertyType `
+            -Force |
+            Out-Null
+    }
+}
+
+function Assert-PtkArpStateRestored {
+    param([Parameter(Mandatory)]$Expected)
+    if (-not $IsWindows) { return }
+
+    $actualJson = Get-PtkArpState | ConvertTo-Json -Depth 6 -Compress
+    $expectedJson = $Expected | ConvertTo-Json -Depth 6 -Compress
+    if ($actualJson -cne $expectedJson) {
+        throw 'The Add/Remove Programs entry was not restored exactly.'
+    }
+}
+
+function Get-PtkRegistrationPaths {
+    @(
+        (Join-Path $HOME '.claude.json')
+        (Join-Path $HOME '.claude' 'settings.json')
+        (Join-Path $HOME '.claude' 'CLAUDE.md')
+        (Join-Path $HOME '.codex' 'config.toml')
+        (Join-Path $HOME '.codex' 'AGENTS.md')
+        (Join-Path $HOME '.grok' 'config.toml')
+        (Join-Path $HOME '.gemini' 'config' 'mcp_config.json')
+        (Join-Path $HOME '.gemini' 'config' 'plugins' 'ptk')
+    )
+}
+
+function Invoke-PtkPackageSmoke {
+    param([Parameter(Mandatory)][string]$BinaryPath)
+
+    $handshake = Join-Path $repoRoot 'server' 'test-handshake.ps1'
+    if (-not (Test-Path -LiteralPath $handshake -PathType Leaf)) {
+        throw "Package smoke script is unavailable: $handshake"
+    }
+    Write-Host "Validating staged PTK package: $BinaryPath"
+    & ([Environment]::ProcessPath) -NoProfile -File $handshake `
+        -ServerCommand $BinaryPath `
+        -TimeoutSec 90 |
+        Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Package handshake failed for $BinaryPath"
+    }
+}
+
+function Invoke-PtkHarnessInitialization {
+    param(
+        [Parameter(Mandatory)][string]$InitScript,
+        [string[]]$Arguments = @()
+    )
+
+    # ptk_init.ps1 deliberately exits nonzero when any harness leg fails. Run
+    # it as a child so that exit cannot terminate this installer before the
+    # transaction restores the previous payload and registrations.
+    & ([Environment]::ProcessPath) -NoProfile -File $InitScript @Arguments | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "Per-harness initialization failed with exit code $LASTEXITCODE."
+    }
+}
+
 # True only when a REAL ptk hook entry exists: a marker-matched command
 # inside hooks.PreToolUse. A raw text match on the whole settings file would
 # treat 'ptk-hook.ps1' anywhere (permissions lists, other hook events) as
@@ -325,6 +425,15 @@ switch ($mode) {
         New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
         New-PtkLayout -Destination $OutputDir -TargetRid $targetRid -PayloadVersion $payloadVersion
         Assert-PtkPayloadIntact -Root $OutputDir -TargetRid $targetRid
+        if ($Validate) {
+            $localRid = Get-PtkRid
+            if ($targetRid -cne $localRid) {
+                throw "Cannot execute $targetRid layout validation on $localRid."
+            }
+            Invoke-PtkPackageSmoke -BinaryPath (
+                Join-Path $OutputDir 'bin' (
+                    Get-PtkServerBinaryName -TargetRid $targetRid))
+        }
         Write-Host "Layout ready: $OutputDir ($targetRid, $payloadVersion)"
     }
     'Uninstall' {
@@ -338,7 +447,11 @@ switch ($mode) {
         $init = Join-Path $ptkHome 'scripts' 'ptk_init.ps1'
         if (-not (Test-Path -LiteralPath $init)) { $init = Join-Path $PSScriptRoot 'ptk_init.ps1' }
         if (Test-Path -LiteralPath $init) {
-            try { & $init -Uninstall | Out-Host }
+            try {
+                Invoke-PtkHarnessInitialization `
+                    -InitScript $init `
+                    -Arguments '-Uninstall'
+            }
             catch { Write-Warning "Per-agent uninstall failed (continuing): $_" }
         }
         elseif (Test-PtkHookEntryPresent -SettingsPath (Join-Path $HOME '.claude' 'settings.json')) {
@@ -356,35 +469,61 @@ switch ($mode) {
         $targetRid = Get-PtkRid
         $payloadVersion = Get-PtkVersion
         $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-stage-{0}" -f ([guid]::NewGuid()))
+        $snapshot = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-rollback-{0}" -f ([guid]::NewGuid()))
         New-Item -ItemType Directory -Path $staging | Out-Null
         try {
             New-PtkLayout -Destination $staging -TargetRid $targetRid -PayloadVersion $payloadVersion
-            Install-PtkPayload -Staging $staging
+            Assert-PtkPayloadIntact -Root $staging -TargetRid $targetRid
+            Invoke-PtkInstallTransaction `
+                -StagingRoot $staging `
+                -PayloadRoot $ptkHome `
+                -PayloadEntries $payloadEntries `
+                -RegistrationPaths (Get-PtkRegistrationPaths) `
+                -SnapshotRoot $snapshot `
+                -CaptureExternalState { Get-PtkArpState } `
+                -RestoreExternalState {
+                    param($state)
+                    Restore-PtkArpState -State $state
+                } `
+                -AssertExternalStateRestored {
+                    param($state)
+                    Assert-PtkArpStateRestored -Expected $state
+                } `
+                -StagedValidation {
+                    param($stagedRoot)
+                    Invoke-PtkPackageSmoke -BinaryPath (
+                        Join-Path $stagedRoot 'bin' (
+                            Get-PtkServerBinaryName -TargetRid $targetRid))
+                } `
+                -InstalledValidation {
+                    param($installedRoot)
+                    $installedBinary = Join-Path $installedRoot 'bin' (
+                        Get-PtkServerBinaryName -TargetRid $targetRid)
+                    Assert-PtkPayloadIntact -Root $installedRoot -TargetRid $targetRid
+                    Invoke-PtkPackageSmoke -BinaryPath $installedBinary
+                } `
+                -RegistrationCutover {
+                    $installedBinary = Join-Path $ptkHome 'bin' (
+                        Get-PtkServerBinaryName -TargetRid $targetRid)
+                    $registeredNow = Register-PtkServer -BinaryPath $installedBinary
+                    if ($Hook) {
+                        Write-Host 'NOTE: -Hook is deprecated - the full per-agent init runs by default.'
+                    }
+                    if (-not $registeredNow) {
+                        Write-Warning (('ptk is not registered with Claude Code (claude CLI not found); ' +
+                            'the claude leg installs guidance only, no blocking hook. Register manually, ' +
+                            'then re-run: pwsh -File "{0}"') -f (
+                            Join-Path $ptkHome 'scripts' 'ptk_init.ps1'))
+                    }
+                    Invoke-PtkHarnessInitialization -InitScript (
+                        Join-Path $ptkHome 'scripts' 'ptk_init.ps1')
+                    Write-PtkArpEntry -PayloadVersion $payloadVersion
+                }
         }
         finally {
             Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
         }
         $binaryPath = Join-Path $ptkHome 'bin' (Get-PtkServerBinaryName -TargetRid $targetRid)
-        Assert-PtkPayloadIntact -Root $ptkHome -TargetRid $targetRid
-        $registered = Register-PtkServer -BinaryPath $binaryPath
-        Write-PtkArpEntry -PayloadVersion $payloadVersion
-        if ($Hook) {
-            Write-Host 'NOTE: -Hook is deprecated - the full per-agent init runs by default.'
-        }
-        if (-not $registered) {
-            # The claude leg guards itself now: with the claude CLI absent it
-            # skips the blocking hook (mhi-6) and installs guidance only. The
-            # codex/grok/agy legs never depended on Claude state, so the init
-            # must still run for them (mhi-9).
-            Write-Warning (('ptk is not registered with Claude Code (claude CLI not found); ' +
-                'the claude leg installs guidance only, no blocking hook. Register manually, ' +
-                'then re-run: pwsh -File "{0}"') -f (Join-Path $ptkHome 'scripts' 'ptk_init.ps1'))
-        }
-        # The end-state process: one command produces the complete
-        # per-harness state (hooks, registrations, guidance) for every
-        # detected harness, and re-targets any stale registration at the
-        # fresh payload (issue #2).
-        & (Join-Path $ptkHome 'scripts' 'ptk_init.ps1') | Out-Host
         Show-PtkCodexSnippet -BinaryPath $binaryPath
         Write-Host ''
         Write-Host "Installed ptk $payloadVersion to $ptkHome ($targetRid)."

@@ -1096,11 +1096,15 @@ try {
     $timeoutScript = New-BlockingProcessTreeScript `
         -Marker $timeoutMarker `
         -BlockingStatement '[Threading.Thread]::Sleep(300000)'
+    $timeoutInvokeTimeout = [Math]::Max(
+        4,
+        [Math]::Min(12, $TimeoutSec - 1)
+    )
     $timeoutRequest = Send-PtkTool $serverA 'ptk_invoke' @{
         script = $timeoutScript
         route = 'pwsh'
         session = 'exchange-online'
-        timeoutSeconds = 1
+        timeoutSeconds = $timeoutInvokeTimeout
     }
     Wait-ForFiles @($timeoutMarker)
     $timeoutMarkerIds = @(
@@ -1133,7 +1137,7 @@ try {
     }
     $timeoutRecovery = [regex]::Matches(
         $timeoutText,
-        '(?m)^recovery=(.+)$'
+        '(?m)^recovery=([^\r\n]+)\r?$'
     )
     if ($timeoutRecovery.Count -ne 1 -or
         $timeoutRecovery[0].Groups[1].Value -notmatch (

@@ -1604,6 +1604,37 @@ was used._
   A process scan found no executable from the validation root, and the
   prefix-checked disposable root was removed after evidence hashing.
 
+## `ASHBIAMWEB1` — Codex Windows workspace
+
+### Installed payload ACL repair — 2026-07-28
+
+- Before `bb2349a`, `C:\Users\mcoelho\.ptk` had a protected DACL whose
+  current-user full-control ACE did not inherit; the only inheritable ACE
+  belonged to the Codex sandbox group. `bin/` was unreadable to the ordinary
+  user token. The existing supervisor answered `ptk_session list` and
+  `ptk_state`, but the first `ptk_invoke` failed with MCP `-32603`, left the
+  default session cold, and started no worker. Claude independently reported
+  reconnect `-32000`.
+- Applying the committed transaction helper to exactly the installed PTK root
+  produced one protected explicit current-user full-control ACE with container
+  and object inheritance. All 296 installed `bin/` files became readable. The
+  already-running supervisor PID 1732 then started worker PID 9384 and completed
+  `Get-Location`; `ptk_state` reported the default session ready with no
+  failure or reset requirement.
+- Guard proof: with only the product repair temporarily removed, the new Pester
+  test failed in `Copy-PtkInstallPath` with access denied on `home\bin`; after
+  restoration it passed and verified the exact one-ACE DACL. The install
+  transaction fault/rollback script passed.
+- Pester, the complete server suite, dependency vulnerability audit, and the
+  registered-command handshake passed after the ACL repair. The SIEM suite
+  passed 226/247; all 21 remaining cases stopped while creating their test
+  symlink with Windows error "A required privilege is not held by the client",
+  before product assertions. This token cannot close the symlink-specific
+  SIEM gate.
+- No installed payload byte, registration, or client configuration was
+  replaced. Only the installed PTK root ACL changed; repository code containing
+  the durable repair remains uninstalled and unpushed.
+
 ## Cross-host self-contained Linux package acceptance (2026-07-28)
 
 _Built one immutable package on `magneto`, then validated those exact package

@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Windows installer ACL repair landed locally at `bb2349a` (2026-07-28).**
+  The install transaction now normalizes its Windows payload root before staged
+  validation to a protected, current-user-only, inheritable full-control ACL.
+  This prevents a sandbox-created non-inheriting `~/.ptk` DACL from making
+  installed `bin/` unreadable after activation. The regression failed with the
+  exact access denial when the fix was removed and passed after restoration;
+  the live ACL-only repair restored `ptk_invoke`. Installed payload bytes were
+  not replaced and nothing was pushed. Host evidence is in
+  `.agents/machines.md`.
 - **Handoff checkpoint (2026-07-28): all currently available Linux x86_64
   acceptance is complete; the remaining Windows and enterprise gates are
   separate.** Exact committed head
@@ -722,7 +731,10 @@ short and update it when important repo facts change.
    Windows admin host with the required modules, network access, and
    authentication. Run the ARM64 gate only on a matching real Linux host.
    Candidate installation and intended-harness restart remain separately
-   authorized deployment work. No further ungated code change is queued.
+   authorized deployment work. When authorized, install `bb2349a` or later and
+   start a fresh Claude session so its cached removed-tool references cannot
+   survive the five-tool schema change. No further ungated code change is
+   queued.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

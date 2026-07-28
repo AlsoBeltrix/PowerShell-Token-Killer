@@ -15,6 +15,8 @@ Starts real PTK MCP server processes and proves:
   stable baseline while a sibling session stays warm;
 - an uncooperative timeout contains its native child/grandchild and replaces
   only its worker;
+- directly killing an executing worker contains its child/grandchild, reports
+  the outcome as unknown, and preserves a warm sibling;
 - an observed Unix process-group escape reports `descendants_unknown`, blocks
   worker reuse, and is never replayed; and
 - killing only the public supervisor leaves no worker, child, or grandchild.
@@ -809,8 +811,10 @@ function Assert-Probe {
 New-Item -ItemType Directory -Path $testRoot -Force | Out-Null
 $serverA = $null
 $serverB = $null
+$workerKillServer = $null
 $hardKillServer = $null
 $timeoutKnownIds = @()
+$workerKillKnownIds = @()
 $escapeKnownIds = @()
 $hardKillKnownIds = @()
 try {
@@ -1196,7 +1200,129 @@ try {
     )
     Stop-PtkServer $serverA
 
-    # Phase 4: an observed Unix process-group escape must fail closed, block
+    # Phase 4: killing only an executing worker must contain its old process
+    # group, report the in-flight outcome as unknown, replace only that worker,
+    # and preserve a warm sibling.
+    $workerKillWork = Join-Path $testRoot 'work-worker-kill'
+    $workerKillServer = Start-PtkServer `
+        -Label 'worker-kill' `
+        -WorkingDirectory $workerKillWork
+    Initialize-PtkServer $workerKillServer
+    $workerKillVictimPid = Open-PtkSession $workerKillServer 'kill-target'
+    $workerKillSiblingPid = Open-PtkSession $workerKillServer 'kill-sibling'
+    $workerKillSentinel = 'worker-kill-sibling-' + [guid]::NewGuid().ToString('N')
+    $workerKillSetup = Invoke-PtkScript `
+        $workerKillServer `
+        'kill-sibling' `
+        ("`$global:PtkWorkerKillSentinel = $(ConvertTo-PsLiteral $workerKillSentinel); " +
+            '$global:PtkWorkerKillSentinel; $PID')
+    if ($workerKillSetup -notmatch (
+            "(?m)^$([regex]::Escape($workerKillSentinel))`r?$"
+        ) -or
+        $workerKillSetup -notmatch "(?m)^$workerKillSiblingPid`r?$") {
+        throw "Worker-kill sibling did not initialize: '$workerKillSetup'"
+    }
+
+    $workerKillMarker = Join-Path $testRoot 'worker-kill-tree.txt'
+    $workerKillEffect = Join-Path $testRoot 'worker-kill-effect.txt'
+    $workerKillScript = (
+        "[IO.File]::AppendAllText($(ConvertTo-PsLiteral $workerKillEffect), 'once'); " +
+        (New-BlockingProcessTreeScript `
+            -Marker $workerKillMarker `
+            -BlockingStatement 'Start-Sleep -Seconds 300')
+    )
+    $workerKillRequest = Send-PtkTool $workerKillServer 'ptk_invoke' @{
+        script = $workerKillScript
+        route = 'pwsh'
+        session = 'kill-target'
+        timeoutSeconds = $TimeoutSec
+    }
+    Wait-ForFiles @($workerKillMarker, $workerKillEffect)
+    $workerKillMarkerIds = @(
+        Get-Content -LiteralPath $workerKillMarker |
+            Where-Object { $_ -match '^\d+$' } |
+            ForEach-Object { [int]$_ }
+    )
+    if ($workerKillMarkerIds.Count -ne 2) {
+        throw "Worker-kill process marker was invalid: '$(
+            Get-Content -LiteralPath $workerKillMarker -Raw
+        )'"
+    }
+    $workerKillKnownIds = @($workerKillVictimPid) + $workerKillMarkerIds
+    $workerKillFleet = @(
+        Get-ProcessFleet -SupervisorId $workerKillServer.Process.Id
+    )
+    foreach ($expectedId in $workerKillKnownIds) {
+        if ($workerKillFleet -notcontains $expectedId -or
+            -not (Test-ProcessAlive $expectedId)) {
+            throw "Worker-kill process $expectedId was not a live PTK descendant."
+        }
+    }
+
+    Stop-Process -Id $workerKillVictimPid -Force -ErrorAction Stop
+    Wait-ForProcessExit $workerKillKnownIds
+    $workerKillResult = Receive-PtkToolResult `
+        $workerKillServer `
+        $workerKillRequest
+    $workerKillText = Get-PtkToolText $workerKillResult
+    if ($workerKillText -cne (
+            '[ptk invoke] status=outcome_unknown session=kill-target ' +
+            'detail=worker_transport_closed; do not resubmit automatically; ' +
+            'PTK did not retry the command.'
+        )) {
+        throw "Worker hard-kill returned the wrong invoke result: '$workerKillText'"
+    }
+    if ((Get-Content -LiteralPath $workerKillEffect -Raw) -cne 'once') {
+        throw 'Worker hard-kill replayed the in-flight command.'
+    }
+
+    $workerKillList = ''
+    $workerKillReplacementPid = 0
+    $workerKillRecoveryDeadline = [DateTimeOffset]::UtcNow + $checkpoint
+    do {
+        $workerKillList = Get-PtkToolText (
+            Invoke-PtkTool $workerKillServer 'ptk_session' @{ action = 'list' }
+        )
+        if ($workerKillList -match (
+                '(?m)^session=kill-target state=ready worker_pid=(\d+) ' +
+                'active=false warm_state_lost=true last_failure=worker_lost ' +
+                'reset_required=false\r?$'
+            )) {
+            $workerKillReplacementPid = [int]$Matches[1]
+            break
+        }
+        Start-Sleep -Milliseconds 25
+    } while ([DateTimeOffset]::UtcNow -lt $workerKillRecoveryDeadline)
+    if ($workerKillReplacementPid -le 0 -or
+        $workerKillReplacementPid -eq $workerKillVictimPid) {
+        throw "Worker hard-kill did not create a fresh worker: '$workerKillList'"
+    }
+    if ($workerKillList -notmatch (
+            "(?m)^session=kill-sibling state=ready " +
+            "worker_pid=$workerKillSiblingPid active=false warm_state_lost=false " +
+            "last_failure=none reset_required=false`r?$"
+        )) {
+        throw "Worker hard-kill disturbed its sibling: '$workerKillList'"
+    }
+    $workerKillSiblingProbe = Invoke-PtkScript `
+        $workerKillServer `
+        'kill-sibling' `
+        '$global:PtkWorkerKillSentinel; $PID'
+    if ($workerKillSiblingProbe -notmatch (
+            "(?m)^$([regex]::Escape($workerKillSentinel))`r?$"
+        ) -or
+        $workerKillSiblingProbe -notmatch "(?m)^$workerKillSiblingPid`r?$") {
+        throw "Worker hard-kill lost sibling warm state: '$workerKillSiblingProbe'"
+    }
+    Write-Host (
+        "worker hard-kill passed: victim $workerKillVictimPid replaced by " +
+        "$workerKillReplacementPid; $($workerKillMarkerIds.Count) descendants " +
+        "exited; sibling $workerKillSiblingPid stayed warm"
+    )
+    Stop-PtkServer $workerKillServer
+    $workerKillKnownIds = @()
+
+    # Phase 5: an observed Unix process-group escape must fail closed, block
     # worker reuse, and never replay a timed-out invocation.
     if (-not $IsWindows) {
         $escapeWork = Join-Path $testRoot 'work-escape'
@@ -1371,7 +1497,7 @@ try {
         $escapeKnownIds = @()
     }
 
-    # Phase 5: kill only the public supervisor and let production containment
+    # Phase 6: kill only the public supervisor and let production containment
     # own its worker tree. Never use Process.Kill(entireProcessTree: true) here.
     $hardKillWork = Join-Path $testRoot 'work-hard-kill'
     $hardKillServer = Start-PtkServer -Label 'hard-kill' -WorkingDirectory $hardKillWork
@@ -1436,7 +1562,10 @@ finally {
         }
     }
     foreach ($processId in @(
-            @($timeoutKnownIds) + @($escapeKnownIds) + @($hardKillKnownIds) |
+            @($timeoutKnownIds) +
+                @($workerKillKnownIds) +
+                @($escapeKnownIds) +
+                @($hardKillKnownIds) |
                 Sort-Object -Unique
         )) {
         if (Test-ProcessAlive $processId) {

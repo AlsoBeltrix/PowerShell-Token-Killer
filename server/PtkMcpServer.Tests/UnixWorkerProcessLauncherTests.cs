@@ -264,6 +264,58 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
     }
 
     [Fact]
+    public async Task Direct_worker_death_triggers_broker_containment()
+    {
+        if (OperatingSystem.IsWindows())
+            return;
+
+        var brokerPath = await CompileBrokerAsync();
+        var registry = new UnixWorkerContainmentRegistry();
+        IWorkerContainedProcess? contained = null;
+        TreeSnapshot? tree = null;
+        try
+        {
+            contained = await new UnixWorkerProcessLauncher(
+                brokerPath,
+                registry).LaunchAsync(
+                    CreateFixtureCommand("contained-worker"));
+            tree = await ReadTreeAsync(contained.StandardOutputReader);
+            Assert.Equal(tree.WorkerPid, tree.WorkerPgid);
+            Assert.Equal(tree.WorkerPgid, tree.DescendantPgid);
+            Assert.Equal(tree.WorkerPgid, tree.GrandchildPgid);
+
+            using (var worker = Process.GetProcessById(tree.WorkerPid))
+            {
+                worker.Kill();
+                await worker.WaitForExitAsync().WaitAsync(CheckpointTimeout);
+            }
+
+            await contained.WaitForExitAsync().WaitAsync(CheckpointTimeout);
+            await AssertProcessGoneAsync(tree.DescendantPid);
+            await AssertProcessGoneAsync(tree.GrandchildPid);
+            await AssertProcessGoneAsync(contained.ContainmentProcessId);
+
+            var result = await contained.ContainAsync(
+                WorkerContainmentReason.LaunchFailure);
+            Assert.Equal(
+                WorkerContainmentOutcome.ConfirmedEmpty,
+                result.Outcome);
+            await contained.ContainmentEmpty.WaitAsync(CheckpointTimeout);
+        }
+        finally
+        {
+            if (tree is not null)
+            {
+                KillProcessBestEffort(tree.DescendantPid);
+                KillProcessBestEffort(tree.GrandchildPid);
+            }
+            await ContainBestEffortAsync(contained);
+            contained?.Dispose();
+            registry.Dispose();
+        }
+    }
+
+    [Fact]
     public async Task Process_group_escape_is_truthfully_unknown_and_blocks_reuse()
     {
         if (OperatingSystem.IsWindows())

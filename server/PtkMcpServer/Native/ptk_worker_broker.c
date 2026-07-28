@@ -777,6 +777,19 @@ static int monitor_worker(
                 ? 71
                 : 74;
         }
+        if (worker_reaped) {
+            /*
+             * Descendants can keep inherited worker pipes open after the
+             * worker dies. Contain the remaining group immediately instead
+             * of waiting indefinitely for liveness or control-pipe activity.
+             */
+            return contain_worker(
+                worker_pid,
+                worker_identity,
+                true)
+                ? 64
+                : 74;
+        }
 
         struct pollfd descriptors[2];
         descriptors[0].fd = PTK_LIVENESS_READ;

@@ -1,7 +1,7 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 7 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
-X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-7 — topology
+**Status:** SLICE 8 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
+X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-8 — topology
 decision 1, R0 contract-retirement decision 2, test-runner Slice 1a, and
 delegated decisions 3-4 are settled as recorded in `.agents/decisions.md`. No
 further Claude Opus review is available or required. Exact Slice 6 commit
@@ -10,12 +10,17 @@ tools and routes every production invocation through the selected session's
 long-lived contained worker process/runspace. Exact Slice 7 code commit
 `51594735e40c6d50a2aaf94c84a9e55a70f63b50` adds the first-pipe-write outcome
 boundary, one automatic replacement attempt, explicit reset-required fault
-projection, and no-replay/sibling-isolation coverage. Both exact commits pass
-their full macOS ARM64 and Linux x86_64 batteries. `NETWATCH-01` remains
-offline, so neither slice is yet recorded cross-platform complete. The owner's
-direction to continue authorizes later local slices without waiving the pending
-exact-commit Windows gates. No push, PR, installation, or deployment is
-authorized by this status.
+projection, and no-replay/sibling-isolation coverage. Exact Slice 8 product
+commit `4270487c891d3c2cb0976f25eb3082f90c7ac630` adds bounded optional output
+recovery; test-only descendant
+`4779cb2f7000306cc11f24fe017a4671b5b16cbf` directly guards against a late,
+unreachable publication after sink cancellation. The exact product commits
+pass their full macOS ARM64 and Linux x86_64 batteries, and the test-hardened
+Slice 8 descendant passes the complete macOS server suite. `NETWATCH-01`
+remains offline, so Slices 6-8 are not yet recorded cross-platform complete.
+The owner's direction to continue authorizes later local slices without
+waiving the pending exact-commit Windows gates. No push, PR, installation, or
+deployment is authorized by this status.
 
 ## Goal
 
@@ -468,23 +473,27 @@ a seal with the total length and digest.
 The supervisor publishes an immutable public handle only after a valid seal.
 One dedicated protocol reader per session worker always drains that worker's
 pipe and never awaits artifact storage. For an enabled artifact, quota
-reservation also reserves a fixed in-memory queue large enough for that
-invocation's maximum artifact.
-The reader copies chunks into that queue with a nonblocking `TryWrite` and
-continues parsing state, cancellation, and result frames. A separate sink owns
-disk writes and digest/length verification.
+reservation also preallocates one fixed byte buffer large enough for that
+invocation's maximum artifact. The reader validates every chunk and seal in
+order and copies only in-bound chunks into that buffer; once capture switches
+to discard, it keeps validating the remaining artifact protocol without
+copying more bytes. A separate sink owns decoding, filesystem work, and
+publication.
 
-If the queue unexpectedly refuses a chunk, the sink stalls or fails, or the
-sink has not completed the valid seal when the ordinary result terminal
-arrives, the supervisor atomically switches that artifact to
-discard-and-drain, cancels/cleans its sink, and reports
-`recovery=unavailable`; it never delays the ordinary result waiting for
-storage. Only a sink already complete at result delivery publishes the public
-handle. Gaps, duplicates, over-reservation bytes, unsolicited chunks, or a
-wrong seal remain worker protocol violations and use the ordinary
-`outcome_unknown` worker-loss path; they never cause resubmission. A worker
-lost mid-transfer leaves an explicitly incomplete artifact. Every queued
-buffer is cleared before release.
+If the buffer unexpectedly fills, the sink stalls or fails, or local storage
+fails, the supervisor switches that artifact to discard-and-drain, cancels and
+observes its sink, releases quota, and reports `recovery=unavailable`. At the
+ordinary result terminal, a healthy sink may complete within the configured
+bounded storage interval. If that interval expires and cancellation wins,
+publication is permanently disabled; if cancellation loses because the store
+already crossed its irreversible publication claim, the coordinator observes
+and returns that exact imminent result so it cannot strand an unreachable
+handle. The post-claim production path contains only nonthrowing in-memory
+assignments. Gaps, duplicates, over-reservation bytes, unsolicited chunks, or
+a wrong seal remain worker protocol violations and use the ordinary
+`outcome_unknown` worker-loss path; they never cause resubmission. Worker loss
+mid-transfer publishes no handle and releases the reservation. Every fixed
+capture buffer is cleared before release.
 
 ### `ptk_job`
 
@@ -975,12 +984,12 @@ Exit: real apphost fault matrix green on every supported platform.
    discarded guardian capabilities.
 2. Implement full-quota reservation before execution, artifact-disabled invoke,
    session attribution, reserved artifact ID, the nonblocking protocol reader,
-   fixed preallocated queue, independent sink, chunk/seal validation,
+   fixed preallocated capture buffer, independent sink, chunk/seal validation,
    discard-and-drain fallback, and immutable-publication paths described above.
 3. Prove wrong order, duplicate/gapped chunks, digest mismatch, quota overflow,
-   worker loss mid-transfer, a deliberately stalled sink, a full queue, and
-   local write failure never block the ordinary result, replace the worker,
-   cause replay, or publish a false complete handle.
+   worker loss mid-transfer, a deliberately stalled sink, a full capture
+   buffer, and local write failure never block the ordinary result, replace the
+   worker, cause replay, or publish a false complete handle.
 4. Prove connection teardown removes its own output root, hard supervisor death
    leaves bounded residue, and the next startup reclaims that stale root without
    touching a simultaneously live supervisor's root.

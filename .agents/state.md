@@ -206,6 +206,25 @@ short and update it when important repo facts change.
   Windows validation. The owner directed continued local implementation
   without waiving either Windows gate. The slice is not pushed or installed;
   exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 8 is locally implemented and committed
+  at product code head `4270487c891d3c2cb0976f25eb3082f90c7ac630`;
+  test-only guard descendant `4779cb2f7000306cc11f24fe017a4671b5b16cbf`
+  closes a mutation-discovered late-publication test gap. macOS ARM64 and Linux
+  x86_64 are verified; Windows x64 remains pending.** Optional recovery now
+  reserves full per-invocation quota against immutable session identity before
+  dispatch, uses one fixed capture buffer and one bounded connection-wide
+  storage lane, validates the complete worker artifact protocol while
+  discarding, publishes only immutable complete handles, and safely reclaims
+  abandoned owned output roots without touching live roots. Fifteen deliberate
+  production regressions failed for their intended reasons and were restored;
+  the restored focused battery passed 82/82 and the complete server suite
+  passed 1,197/1,197 on the test-hardened macOS head. The product commit also
+  passed Pester 141 with two platform skips, SIEM 247/247, formatting, public
+  built and published handshakes, and ARM64 self-contained publish smoke on
+  macOS; its verified archive passed the full server/Pester/SIEM/handshake
+  battery on Linux x86_64 `magneto`. No candidate process or disposable Linux
+  checkout survived. The slice is not pushed or installed; exact evidence is
+  in `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -534,11 +553,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Implement Slice 8 locally: keep output recovery optional, add the bounded
-   per-invocation queue/sink path and session quotas from the approved plan,
-   and prove a stalled or failed output path cannot delay, replay, or replace
-   ordinary execution. When `NETWATCH-01` returns, first validate the exact
-   Slice 6 and Slice 7 archives before claiming either cross-platform complete.
+1. Implement Slice 9 locally: stage the single-supervisor package and exercise
+   its initialize/tools, default and two-session isolation, persistence,
+   single-session reset/close, EOF cleanup, and rollback fault matrix without
+   changing the installed payload or registrations. When `NETWATCH-01` returns,
+   validate the exact Slice 6, Slice 7, and current Slice 8 archives before
+   claiming any of them cross-platform complete.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

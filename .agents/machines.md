@@ -1152,3 +1152,58 @@ validation, not an install or deployment._
   `NETWATCH-01` probe after the Linux run timed out without touching the host.
   The five known transitive `System.Security.Cryptography.Xml` 10.0.6
   advisories were the only dependency warnings.
+
+## Production-reliability salvage Slice 8 cross-platform validation (2026-07-28)
+
+_Product behavior was verified at exact commit
+`4270487c891d3c2cb0976f25eb3082f90c7ac630`, tree
+`ebd281d36b1612c50f2cf0d731d4ca7658cc3ee3`. Test-only descendant
+`4779cb2f7000306cc11f24fe017a4671b5b16cbf`, tree
+`3897d550ceaece1dceac88e86e14b72fa72092f2`, adds direct observation of
+the late-publication boundary. This was checkout validation, not an install or
+deployment._
+
+- The exact product source archive SHA-256 is
+  `71f3e73641bf2b507b28907ba9b48ff9dc290e17a95b73c638d0d36cbd5308b1`;
+  the test-hardened descendant archive SHA-256 is
+  `a25a4d9eababdddd9a2e1c55e74a48ccd9459973788c046fcf692bd855b8b554`;
+  the disposable Pester 6.0.1 archive SHA-256 remains
+  `87fb1475455d2b895d7ccc031465998e28ea12b8b557d50c5b41ee88f4623969`.
+- On macOS ARM64, fifteen deliberate production regressions independently
+  proved session quota attribution and capture refusal, healthy and wedged
+  storage-lane behavior, terminal cancellation and late-publication
+  arbitration, full-buffer discard with continued protocol validation,
+  worker-loss quota release, normal root cleanup, stale and hard-death
+  reclamation, live-root protection, duplicate and over-reservation rejection,
+  malformed artifact poisoning, and local storage failure without a false
+  handle. One cancellation bypass initially survived because quota eviction
+  hid a late unreachable publication. The test was strengthened to observe the
+  irreversible publication claim directly; the same bypass then failed and the
+  restored code passed. The final focused
+  reliability battery passed 82/82, and the complete server suite passed
+  1,197/1,197 in 8m02s on the test-hardened descendant.
+- At the exact product commit, the complete macOS server suite passed
+  1,197/1,197; Pester passed 141 tests with two platform skips; SIEM passed
+  247/247; scoped formatting, `git diff --check`, and the public stdio
+  handshake passed. The handshake covered output recovery and hard-kill output
+  root cleanup. A self-contained `osx-arm64` publish succeeded after the
+  required RID restore and its published-executable handshake passed; the
+  server and `PtkWorkerBroker` were executable ARM64 Mach-O files. The earlier
+  `--no-restore` publish refusal was the expected `NETSDK1047`, not a product
+  failure.
+- On Linux x86_64 `magneto`, the product and Pester archives matched the local
+  hashes. The host reported .NET SDK 10.0.110 and PowerShell 7.6.3. The
+  complete server suite passed 1,197/1,197, Pester passed 141 tests with two
+  platform skips, SIEM passed 247/247, and the complete public stdio handshake
+  passed. The combined log SHA-256 is
+  `305726c1f25861140a4bc309182a70e451a79b6803f09d263e581e74a041b074`;
+  its recorded exit was zero. No candidate process or output-root residue
+  survived, and the disposable remote checkout was removed.
+- Windows x64 remains pending for Slices 6-8. No Windows host or installed
+  payload was touched. The local Slice 8 archives and Linux evidence remain at
+  `/tmp/ptk-slice8-4270487-transfer.4VAS9N` for that validation. The macOS
+  publish directory was moved to
+  `/Users/michael/.Trash/ptk-slice8-publish.PyQkk1`, so it remains recoverable
+  until Trash is emptied. The five known transitive
+  `System.Security.Cryptography.Xml` 10.0.6 advisories were the only dependency
+  warnings.

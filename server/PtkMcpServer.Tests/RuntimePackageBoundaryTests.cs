@@ -50,6 +50,70 @@ public sealed class RuntimePackageBoundaryTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Production_composition_registers_no_idle_lifecycle_service()
+    {
+        var program = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "PtkMcpServer",
+            "Program.cs"));
+
+        Assert.Equal(
+            1,
+            program.Split(
+                "AddSingleton<IHostedService>",
+                StringSplitOptions.None).Length - 1);
+        Assert.Contains(
+            "sp => sp.GetRequiredService<SupervisorLifecycle>()",
+            program,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AddHostedService",
+            program,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "IdleWatchdog",
+            program,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Production_acceptance_kills_only_the_public_supervisor()
+    {
+        var acceptance = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "test-production-acceptance.ps1"));
+
+        Assert.Contains(
+            "$hardKillServer.Process.Kill()",
+            acceptance,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "$hardKillServer.Process.Kill($true)",
+            acceptance,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Wait-ForProcessExit ($hardKillKnownIds",
+            acceptance,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Production_acceptance_excludes_upstream_PowerShell_telemetry()
+    {
+        var acceptance = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "test-production-acceptance.ps1"));
+
+        Assert.Contains(
+            "$start.Environment['POWERSHELL_TELEMETRY_OPTOUT'] = '1'",
+            acceptance,
+            StringComparison.Ordinal);
+    }
+
     private static string FindRepositoryRoot()
     {
         for (var directory = new DirectoryInfo(AppContext.BaseDirectory);

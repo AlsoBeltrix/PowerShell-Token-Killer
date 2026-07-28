@@ -590,7 +590,6 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
                     (failures ??= []).Add(exception);
                 }
             }
-
             if (failures is { Count: 1 })
                 throw failures[0];
             if (failures is { Count: > 1 })
@@ -938,27 +937,31 @@ internal sealed class UnixWorkerNative : IUnixWorkerNative
             ProcessTableCacheLifetime);
 
     public Task<int> WaitForExitCodeAsync(int processId) =>
-        Task.Run(() =>
-        {
-            for (; ; )
+        Task.Factory.StartNew(
+            () =>
             {
-                var result = WaitPid(processId, out var status, 0);
-                if (result == processId)
+                for (; ; )
                 {
-                    if ((status & 0x7f) == 0)
-                        return (status >> 8) & 0xff;
-                    return 128 + (status & 0x7f);
-                }
+                    var result = WaitPid(processId, out var status, 0);
+                    if (result == processId)
+                    {
+                        if ((status & 0x7f) == 0)
+                            return (status >> 8) & 0xff;
+                        return 128 + (status & 0x7f);
+                    }
 
-                if (result < 0 &&
-                    Marshal.GetLastPInvokeError() != Interrupted)
-                {
-                    throw new Win32Exception(
-                        Marshal.GetLastPInvokeError(),
-                        "Unix worker broker waitpid failed.");
+                    if (result < 0 &&
+                        Marshal.GetLastPInvokeError() != Interrupted)
+                    {
+                        throw new Win32Exception(
+                            Marshal.GetLastPInvokeError(),
+                            "Unix worker broker waitpid failed.");
+                    }
                 }
-            }
-        });
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
     private static UnixProcessIdentity QueryLinuxIdentity(int processId)
     {

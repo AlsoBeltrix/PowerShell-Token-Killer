@@ -78,6 +78,14 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
             "_containmentEmpty = Task.CompletedTask",
             launcher,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "TaskCreationOptions.LongRunning",
+            launcher,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Task.Run(",
+            launcher,
+            StringComparison.Ordinal);
     }
 
     [Fact]

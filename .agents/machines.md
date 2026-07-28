@@ -1207,3 +1207,51 @@ deployment._
   until Trash is emptied. The five known transitive
   `System.Security.Cryptography.Xml` 10.0.6 advisories were the only dependency
   warnings.
+
+## Production-reliability salvage Slice 9 package validation (2026-07-28)
+
+_Validated exact commit `46710afd2e90911f2402019ff9ab4ddc10695845`,
+tree `f8b5ec704d7676d7b942eb9859ea6bc986d9e472`; this was disposable
+checkout/package validation, not installation or deployment._
+
+- The exact source archive SHA-256 is
+  `f4b669dc3501990b2ab448b346bbe0ed70a197707c819715c102af45d63605f5`.
+  The disposable Pester 6.0.1 archive SHA-256 is
+  `87fb1475455d2b895d7ccc031465998e28ea12b8b557d50c5b41ee88f4623969`.
+- On macOS ARM64, the transaction fault matrix, scoped package guards,
+  Pester 141 with two platform skips, SIEM 247/247, formatting,
+  `git diff --check`, and the complete built public handshake passed. A
+  self-contained `osx-arm64` layout then passed the same handshake before
+  activation and again from its disposable activated path; user-owned content
+  and the disposable registration remained correct, and the sensitive snapshot
+  was removed. One complete server run passed 1,199/1,199. The exact-final
+  repeat passed 1,198/1,199 and hit only the unchanged, already-recorded
+  500 ms
+  `BashProcessRunnerTests.Execution_pipe_drains_cannot_outlive_the_call_deadline`
+  fixture while host load was approximately 29-36; that test passed immediately
+  in isolation. Slice 9 changes neither the fixture nor the Bash runner.
+- Six deliberate regressions independently made their intended guards fail:
+  skipped file restoration; deletion of an unconfirmed recovery snapshot;
+  omission of its readable manifest; direct in-process invocation of
+  `ptk_init.ps1` whose `exit 1` bypasses PowerShell `catch`; stale
+  `background=true` guidance; and crossing the same-named function body between
+  two named sessions. Every source was restored before the final batteries.
+- On Linux x86_64 `magneto`, the transferred archives matched the local hashes.
+  The host reported .NET SDK 10.0.110, PowerShell 7.6.3, and disposable Pester
+  6.0.1. The complete server suite passed 1,199/1,199 in 2m56s; Pester passed
+  141 tests with two platform skips; SIEM passed 247/247; and the complete
+  built handshake, transaction fault matrix, self-contained `linux-x64` layout
+  handshake, staged-package handshake, and activated-package handshake all
+  passed. The combined log SHA-256 is
+  `15eac5e6a02a1eb17001382eef5b702985d8806616c7ecb1810d0ba0735c33d0`;
+  its recorded exit was zero.
+- No candidate server, worker, broker, fixture, or test process survived. The
+  disposable Linux checkout was removed. No installed payload, real harness
+  registration, or Windows ARP state changed. The local exact-commit archive
+  and Linux evidence remain at
+  `/tmp/ptk-slice9-46710af-transfer.OT8x4y`; the final macOS layout remains at
+  `/tmp/ptk-slice9-final-layout.H1IwNl`.
+- `NETWATCH-01` remained unreachable at both `netwatch-01.internal` and the
+  previously used `10.1.10.177`, so Windows x64 validation remains pending for
+  Slices 6-9. The five known transitive `System.Security.Cryptography.Xml`
+  10.0.6 advisories were the only dependency warnings.

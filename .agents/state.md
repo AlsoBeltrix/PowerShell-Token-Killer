@@ -225,6 +225,28 @@ short and update it when important repo facts change.
   battery on Linux x86_64 `magneto`. No candidate process or disposable Linux
   checkout survived. The slice is not pushed or installed; exact evidence is
   in `.agents/machines.md`.
+- **Production-reliability salvage Slice 9 is locally implemented and committed
+  at code head `46710afd2e90911f2402019ff9ab4ddc10695845`; macOS ARM64 and
+  Linux x86_64 are verified, and Windows x64 remains pending.** The development
+  installer now publishes only the single public supervisor/internal-worker
+  package and required Unix broker, runs the complete public handshake before
+  and after activation, snapshots the installer-owned payload and known harness
+  registrations, changes registrations last, and restores and verifies exact
+  bytes plus Unix modes after activation or registration failure. Registration
+  initialization runs as a checked child, so its deliberate `exit 1` cannot
+  bypass rollback. Unconfirmed rollback retains a readable recovery manifest.
+  Six deliberate regressions proved file restoration, recovery-snapshot
+  retention and manifest, checked child registration, current named-session
+  guidance, and same-named function isolation. The exact commit passed the
+  complete Linux x86_64 battery on `magneto`: server 1,199/1,199, Pester 141
+  with two platform skips, SIEM 247/247, built handshake, transaction matrix,
+  local-RID layout publish/validation, and staged plus activated package
+  handshakes. The matching macOS package smokes and behavior batteries passed;
+  one exact-final full-suite repeat hit the already-recorded unchanged 500 ms
+  Bash pipe-drain fixture under host load and passed immediately in isolation.
+  No installed payload or real registration changed, and no candidate process
+  or disposable Linux checkout survived. Exact evidence is in
+  `.agents/machines.md`.
 - **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
   store head is `eb51f2e` and its producer-conformance compatibility head is
   `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
@@ -553,12 +575,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-1. Implement Slice 9 locally: stage the single-supervisor package and exercise
-   its initialize/tools, default and two-session isolation, persistence,
-   single-session reset/close, EOF cleanup, and rollback fault matrix without
-   changing the installed payload or registrations. When `NETWATCH-01` returns,
-   validate the exact Slice 6, Slice 7, and current Slice 8 archives before
-   claiming any of them cross-platform complete.
+1. Begin Slice 10 acceptance from exact Slice 9 head: inventory existing guards
+   against the acceptance matrix, then run the still-missing uncredentialed
+   macOS and Linux checks. When `NETWATCH-01` returns, validate the retained
+   exact Slice 6-9 archives and run the Windows/Exchange acceptance work before
+   claiming any slice cross-platform complete.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

@@ -1,7 +1,7 @@
 # Plan: production reliability salvage
 
-**Status:** SLICE 8 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
-X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-8 — topology
+**Status:** SLICE 9 LOCALLY IMPLEMENTED AND COMMITTED; MACOS ARM64 AND LINUX
+X86_64 VERIFIED; WINDOWS X64 VALIDATION PENDING FOR SLICES 6-9 — topology
 decision 1, R0 contract-retirement decision 2, test-runner Slice 1a, and
 delegated decisions 3-4 are settled as recorded in `.agents/decisions.md`. No
 further Claude Opus review is available or required. Exact Slice 6 commit
@@ -17,7 +17,12 @@ recovery; test-only descendant
 unreachable publication after sink cancellation. The exact product commits
 pass their full macOS ARM64 and Linux x86_64 batteries, and the test-hardened
 Slice 8 descendant passes the complete macOS server suite. `NETWATCH-01`
-remains offline, so Slices 6-8 are not yet recorded cross-platform complete.
+remains offline, so Slices 6-9 are not yet recorded cross-platform complete.
+Exact Slice 9 commit `46710afd2e90911f2402019ff9ab4ddc10695845`
+packages the single supervisor runtime, validates before and after activation,
+changes registrations last, and restores exact prior payload/registration
+state on failure. Its package transaction and complete public smoke pass on
+macOS ARM64 and Linux x86_64.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

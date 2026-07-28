@@ -21,6 +21,15 @@ short and update it when important repo facts change.
   Online, or Outlook administration access. Those real workflow gates require
   a separate company-connected supported Windows admin host with the required
   modules, network access, and authentication.
+- **Exact-head staged-package acceptance now also passes on macOS ARM64.**
+  Committed head `920944ef3a4491edbf1d2c6a3915a5e39106a8fb`
+  produced genuine Mach-O ARM64 `PtkMcpServer` and `PtkWorkerBroker`
+  executables, passed the five-tool staged handshake, and passed the complete
+  100-cycle production-acceptance matrix from the packaged executable. Process
+  and file-descriptor counts remained 5/5 and 531/531 across all replacements;
+  timeout, direct worker death, process-group escape, and supervisor hard-kill
+  containment all passed. No process remained, the disposable root was
+  removed, and nothing was installed or registered.
 - **Production-reliability Slice 11 is complete and integrated on local
   `master`.** Exact documentation/integration commit
   `2c96e842618d73ac59fa37d5492a5ae92a0d163d` publishes the implemented

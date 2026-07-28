@@ -70,8 +70,11 @@ guard has a red-to-green mutation proof, and the full repository battery plus a
 same-RID self-contained package pass. Exact committed head
 `37b7d94dacdfd7fb03b52ce95d4409031e6e6699` then passed the complete
 Linux x86_64 battery on real matching hosts, including genuine ELF package
-artifacts and the 100-cycle staged-package production acceptance. The
-remaining production gates stay open.
+artifacts and the 100-cycle staged-package production acceptance. Exact
+committed head `920944ef3a4491edbf1d2c6a3915a5e39106a8fb` subsequently
+passed the same staged-package production acceptance on matching macOS ARM64
+with genuine Mach-O ARM64 server and broker executables. The remaining
+production gates stay open.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

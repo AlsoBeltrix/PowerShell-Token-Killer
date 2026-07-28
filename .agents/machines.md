@@ -1574,3 +1574,32 @@ deployment, or push was used._
   host still timed out at both recorded addresses, and all three available
   Linux hosts are x86_64, so the Windows/Exchange and real ARM64 Linux gates
   remain open.
+
+## Exact-head macOS ARM64 staged-package acceptance (2026-07-28)
+
+_Validated exact committed head
+`920944ef3a4491edbf1d2c6a3915a5e39106a8fb`, tree
+`aa33b61c70baf2ec2cc6a60e75a606eb5327615c`, in a disposable same-host
+package; no installation, registration, client restart, deployment, or push
+was used._
+
+- The 1,234,720-byte source archive SHA-256 was
+  `b1ffa86f328dfbbb7185a5b2805660947f4c009dfa1b5aa4867c1acb1b9a4ee6`.
+  `dev-install.ps1 -LayoutOnly -Validate -Rid osx-arm64` built the staged
+  package and its complete five-tool public handshake passed.
+- `/usr/bin/file` identified both staged public executables as Mach-O 64-bit
+  ARM64. `PtkMcpServer` SHA-256 was
+  `633dfbef35d950ca2411421ce25269de1cbe652014a8d1dc67cd7b1a18cd8ed7`;
+  `PtkWorkerBroker` SHA-256 was
+  `6595946d6e48162c7439e60bb77cddb288ce4c9e13311082fbb91c3754e2e980`.
+- The packaged executable passed production acceptance. One hundred worker
+  replacements retained 5/5 processes and 531/531 file descriptors. Timeout
+  and direct worker-death paths each contained two native descendants; the
+  sibling stayed warm; the observed process-group escape faulted
+  `descendants_unknown` and blocked replacement; supervisor hard-kill removed
+  four owned descendants.
+- The complete 3,658-byte job log is
+  `/Users/michael/.ptk/jobs/job-7145-1.log`, SHA-256
+  `b936074023cf3f6ba268a9085a4da984961f7feb6aa90341106c305a28580c01`.
+  A process scan found no executable from the validation root, and the
+  prefix-checked disposable root was removed after evidence hashing.

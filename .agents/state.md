@@ -622,18 +622,23 @@ short and update it when important repo facts change.
   exit, reports `outcome_unknown` without replay, replaces only that worker,
   and preserves the sibling PID and warm variable. Complete macOS and Linux
   batteries passed; exact counts, log hashes, host split, and cleanup are in
-  `.agents/machines.md`.
+  `.agents/machines.md`. A focused nine-case pass makes the full hard-kill
+  boundary mapping explicit: deterministic transport-death guards cover before
+  write, write-call entry, during result, and after terminal decode; real
+  worker/process guards cover during execution and after an observable effect.
 
 ## Next
 
-1. Continue Slice 10 with the remaining missing uncredentialed acceptance
-   guards. Map the remaining first-write/effect/result hard-kill boundaries to
-   the existing deterministic guards, add the next missing real-process
-   boundary one case at a time, and preserve exact no-replay/outcome wording.
-   Package and rerun each completed guard at an exact committed head on macOS
-   and an available Linux x86_64 host. When `NETWATCH-01` returns, validate the
-   retained exact Slice 6-10 archives and run the Windows/Exchange acceptance
-   work before claiming any slice cross-platform complete.
+1. Begin Slice 11's local documentation/integration work: align `README.md`,
+   `server/README.md`, `server/AUDIT-EXPORT.md`, current-state pointers, and the
+   superseded resilience-plan marker with the implemented one-supervisor/
+   many-session-workers runtime. Preserve the owner hold on
+   `.agents/decisions.md` and do not edit toolkit-owned `AGENTS.md`.
+   Separately, when `NETWATCH-01` and a clean ARM64 Linux build path are
+   available, finish the retained Slice 6-10 platform/Exchange gates. Candidate
+   installation, the real shaping workflow, and intended-harness restart remain
+   separately authorized deployment work; do not claim Slice 10 cross-platform
+   complete before they pass.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

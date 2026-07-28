@@ -43,7 +43,15 @@ instead of waiting indefinitely on pipes descendants can inherit. A regression
 proved the old broker left the descendants live; the fixed exact commit passes
 the complete macOS ARM64 and Linux x86_64 batteries, including the public
 during-execution hard-kill guard with no replay and a preserved warm sibling.
-The remaining first-write/effect/result hard-kill boundary cases are next.
+The composed hard-kill matrix is complete on those Unix hosts: exact
+deterministic transport-death guards cover before write, write-call entry,
+during result, and after terminal decode; real worker/process guards cover
+during execution and after an observable effect. A focused nine-case run makes
+that mapping explicit. Remaining Slice 10 gates require unavailable or
+separately authorized environments: a clean ARM64 Linux build, current Windows
+and Exchange/EXO runs, the real shaping check, and an installed intended-harness
+restart. Slice 11's local documentation/integration work is next while those
+gates remain pending.
 The owner's direction to continue authorizes later local slices without
 waiving the pending exact-commit Windows gates. No push, PR, installation, or
 deployment is authorized by this status.

@@ -1422,6 +1422,16 @@ checkout/archive validation, not installation or deployment._
   preserved warm sibling `245188`; escape and supervisor hard-kill also
   passed. The combined remaining-checks log SHA-256 is
   `c0754c157b244307620a3a82dc5ae55f5de1e7b2566994042c7d97822d417f4c`.
+- A focused hard-kill boundary run passed nine cases: worker loss before the
+  invoke write; synchronous, asynchronous, and partial failure at or after
+  write-call entry; loss after a complete invoke write; loss during a result
+  frame; worker exit after a complete valid terminal; a real worker kill after
+  an observable effect; and direct broker-owned process-group containment.
+  Together with the public during-execution kill above, this covers every
+  hard-kill boundary listed in Slice 10 without adding product test hooks. The
+  focused log SHA-256 is
+  `37cdf80a21df788d3ae235f845669591b73358570fca3b44d427aad13a598934`;
+  all nine passed.
 - The three remote validation roots and the local transfer root were
   prefix-checked and removed after hashing. No candidate server, worker,
   broker, fixture, or test process survived. Nothing was installed, registered,

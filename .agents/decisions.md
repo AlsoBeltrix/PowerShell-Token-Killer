@@ -34,6 +34,27 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-07-29): Side-by-side registration uses a native stable launcher
+
+**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+`ssu-1` plan disposition.
+
+Every PTK-managed harness registration must point to a stable, per-RID native
+launcher below `~/.ptk/launcher/`, not to `pwsh`, `dotnet`, or a versioned
+runtime path. The packaged launcher must require no separately installed
+PowerShell or .NET runtime, preserving the existing self-contained distribution
+contract. On Unix it replaces itself with the selected immutable runtime. On
+Windows it must inherit the client stdio handles and prove kill-on-close
+containment for the selected runtime before that child is resumed. Slice 0 must
+prove stdout transparency, teardown, exit-code propagation, path handling, and
+a complete registered-command handshake with `pwsh` unavailable; failure stops
+the architecture.
+
+Canonical implementation detail and guard scope live in
+`.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles only `ssu-1`
+plan design. It does not authorize implementation, installation, push, or any
+other outward action.
+
 ### ACTIVE (2026-07-09): shell-dialect plan approved — `.agents/plans/shell-dialect.md`
 
 **Status:** Active — approved by owner in-session 2026-07-09. The plan's

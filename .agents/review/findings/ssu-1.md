@@ -2,9 +2,10 @@
 
 **Severity**: HIGH — a supported installation without `pwsh` on `PATH` cannot
 start PTK through any managed registration.
-**Status**: Open
-**Branch**: Not started
-**Commit**: Not started
+**Status**: Plan decision resolved 2026-07-29; implementation and guard not
+started
+**Branch**: `master`
+**Commit**: Plan decision recorded in `.agents/decisions.md`; product not started
 
 ## Evidence
 
@@ -30,14 +31,19 @@ PowerShell startup to every MCP connection.
 
 ## Approach
 
-Pending owner-approved plan revision. Prefer a stable self-contained native
-launcher that resolves `active.json` and starts or replaces itself with the
-selected runtime. If the PowerShell launcher remains, the plan must explicitly
-accept the prerequisite and update the release contract in the same decision.
+Owner approved the native boundary on 2026-07-29. The revised plan uses a
+packaged per-RID native launcher below `~/.ptk/launcher/`. It requires no
+separately installed PowerShell or .NET runtime, replaces itself with the
+selected runtime on Unix, and uses pre-resume kill-on-close Job Object
+containment on Windows.
 
 ## Files changed
 
-- Review records only; no plan or product change.
+- `.agents/decisions.md` — durable owner-approved native-launcher boundary.
+- `.agents/plans/mcp-side-by-side-upgrade.md` — native command, layout, Slice 0
+  implementation inventory, and mandatory no-`pwsh` guard.
+- Review/state records — finding progression only.
+- No product file changed.
 
 ## Guard proof
 
@@ -50,8 +56,8 @@ None.
 
 ## Known gaps
 
-The native launcher mechanism and its containment semantics remain a separate
-plan decision.
+The native implementation and its Windows/Unix feasibility proof remain Slice 0
+work. Any orphan, protocol mutation, or unbounded teardown still stops the plan.
 
 ## Reviewer comments
 

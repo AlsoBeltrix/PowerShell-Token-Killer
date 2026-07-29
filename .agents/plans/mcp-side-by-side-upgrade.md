@@ -2,10 +2,11 @@
 
 **Status:** DRAFT — implementation is not authorized. The owner-approved Claude
 Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
-and two declined candidates. Six plan/product findings and one citation
-correction remain open; one admitted metadata finding was already resolved.
-The next owner gate is `ssu-1`. Codereview remains deferred until Slice 0 has
-implementation and deterministic guard proof.
+and two declined candidates. The `ssu-1` native-launcher decision is settled;
+five other plan/product findings and one citation correction remain open. One
+admitted metadata finding was already resolved. The next owner gate is `ssu-3`.
+Codereview remains deferred until Slice 0 has implementation and deterministic
+guard proof.
 
 ## Goal
 
@@ -50,15 +51,20 @@ selection and every managed harness registration usable.
 Every PTK-managed harness registration points to:
 
 ```text
-pwsh -NoLogo -NoProfile -NonInteractive -File ~/.ptk/scripts/ptk-launch.ps1
+~/.ptk/launcher/ptk-launch(.exe)
 ```
 
-`ptk-launch.ps1` is a per-client process launcher, not a shared service. It:
+`ptk-launch` is a packaged, per-RID native executable and a per-client process
+launcher, not a shared service. It requires no separately installed PowerShell
+or .NET runtime. It:
 
 1. reads one bounded installer-owned activation record;
 2. resolves one fixed-layout runtime below `~/.ptk`;
-3. starts that runtime with inherited stdin, stdout, and stderr;
-4. waits for it and returns its exit code;
+3. on Unix, replaces itself with that runtime while preserving stdin, stdout,
+   stderr, arguments, and frozen runtime-attribution environment values;
+4. on Windows, creates the runtime with inherited stdin, stdout, and stderr,
+   assigns it before resume to a launcher-owned non-inherited kill-on-close Job
+   Object, waits for it, and returns its exit code;
 5. emits no stdout of its own; and
 6. on any launcher failure, writes one bounded sanitized diagnostic to stderr
    and exits nonzero.
@@ -76,8 +82,9 @@ not authorize a symlink/junction or multi-registration fallback.
 ```text
 ~/.ptk/
   active.json                         installer-owned
+  launcher/                           installer-owned stable native control
+    ptk-launch(.exe)
   scripts/                            installer-owned stable control files
-    ptk-launch.ps1
     ptk-hook.ps1
     ptk_init.ps1
     dev-install.ps1
@@ -270,7 +277,8 @@ previous slice has its guard proof and passes the scoped verification.
 
 Files:
 
-- new `scripts/ptk-launch.ps1`
+- new `server/PtkMcpServer/Native/ptk_launcher.c`
+- `server/PtkMcpServer/PtkMcpServer.csproj` native build/publish wiring
 - new disposable launcher lifecycle/stdio test script under `server/`
 - `server/PtkMcpServer.Tests/InstallerTransactionTests.cs` or a dedicated
   launcher integration test wrapper
@@ -278,12 +286,14 @@ Files:
 Prove on Windows first, then macOS and Linux:
 
 1. exact five-tool handshake works through the launcher with no launcher stdout;
-2. binary stdout bytes are not decoded, reformatted, or buffered by PowerShell;
+2. binary stdout bytes are forwarded unchanged and unbuffered;
 3. client EOF terminates runtime and all workers;
 4. hard launcher termination cannot orphan runtime or workers;
 5. child exit status is propagated;
 6. activation is read once per launch; and
-7. paths with spaces and non-ASCII characters work.
+7. paths with spaces and non-ASCII characters work; and
+8. the packaged registered command completes the handshake with `pwsh` absent
+   from `PATH` and no separately installed .NET runtime.
 
 Any orphan, protocol mutation, or unbounded teardown fails the architecture.
 
@@ -441,8 +451,10 @@ Linux x64 must pass before a cross-platform completion claim.
 - Killing a process during ordinary install or prune.
 - Reusing a semantic version directory with different bytes.
 
-## Owner decision required after openreview
+## Openreview decision status
 
-Approve or reject the stable PowerShell launcher as the permanent registration
-boundary. Approval authorizes only plan finalization; implementation still
-requires a separate explicit go after all admitted review findings are closed.
+The owner settled `ssu-1` on 2026-07-29: the permanent registration boundary is
+the native self-contained launcher defined above, not a PowerShell launcher.
+This authorizes plan finalization only. Implementation still requires a separate
+explicit go after all admitted review findings are closed. The next plan
+decision is `ssu-3`.

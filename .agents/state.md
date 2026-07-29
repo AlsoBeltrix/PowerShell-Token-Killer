@@ -9,13 +9,13 @@ short and update it when important repo facts change.
   Opus 5 openreview intake is complete.** `.agents/plans/mcp-side-by-side-upgrade.md`
   records the captured retry over `c4bd2af..caf467e`: ten candidates, eight
   admitted and two declined, with one admitted metadata finding already
-  resolved. Six plan/product findings and one citation correction remain open at
-  `.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. The next owner gate is
-  `ssu-1`: preserve the no-`pwsh` distribution contract with a native stable
-  launcher, or explicitly accept PowerShell as a new runtime prerequisite.
-  Implementation is not authorized. Codereview remains deferred until Slice 0
-  has an implemented fix and deterministic revert-fails/restore-passes guard
-  proof.
+  resolved. The owner settled `ssu-1` on 2026-07-29: managed registrations use a
+  native self-contained stable launcher and retain the no-`pwsh` distribution
+  contract. Five other plan/product findings and one citation correction remain
+  open at `.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. The next owner
+  gate is `ssu-3`. Implementation is not authorized. Codereview remains deferred
+  until Slice 0 has an implemented fix and deterministic
+  revert-fails/restore-passes guard proof.
 
 - **MCP upgrade-continuity openreview completed on 2026-07-29; owner ruling
   pending.** Claude Opus 5 at max effort reviewed

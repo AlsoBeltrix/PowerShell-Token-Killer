@@ -8,7 +8,7 @@ review has not been dispatched. No architecture implementation is authorized.
 
 **Branch**: `master` (docs-only state maintenance).
 
-**Commit**: Not started.
+**Commit**: `0f8e793` (state pointer; independent finding-fix review pending).
 
 ## Evidence
 

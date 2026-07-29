@@ -1,7 +1,8 @@
 # Plan: Non-disruptive side-by-side MCP runtime upgrades
 
-**Status:** DRAFT — implementation is not authorized. Claude Opus 5 codereview
-is required before the first owner decision.
+**Status:** DRAFT — implementation is not authorized. Owner approved Claude
+Opus 5 openreview on 2026-07-29; codereview remains deferred until Slice 0 has
+implementation and deterministic guard proof.
 
 ## Goal
 
@@ -437,8 +438,8 @@ Linux x64 must pass before a cross-platform completion claim.
 - Killing a process during ordinary install or prune.
 - Reusing a semantic version directory with different bytes.
 
-## Owner decision required after codereview
+## Owner decision required after openreview
 
 Approve or reject the stable PowerShell launcher as the permanent registration
 boundary. Approval authorizes only plan finalization; implementation still
-requires a separate explicit go after all codereview findings are closed.
+requires a separate explicit go after all admitted review findings are closed.

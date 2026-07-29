@@ -2735,4 +2735,4 @@ frontier owner-selected inline for this session. Scope:
 | muc-4 | LOW | Claimed version-root conflict does not follow when versions remain under `~/.ptk` | `[-]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-5 | LOW | Client reconnect is presented as unknown despite recorded Codex dead-transport failures | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-6 | LOW | Review input is absent from the current-state discovery path | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| muc-7 | MEDIUM | Ordinary installed upgrade strands active MCP conversations | `[~]` | | not dispatched — codereview T3 guard-proof blocker |
+| muc-7 | MEDIUM | Ordinary installed upgrade strands active MCP conversations | `[~]` | | plan openreview approved; codereview deferred |

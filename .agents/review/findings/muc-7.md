@@ -4,9 +4,9 @@
 client transport, permanently removing PTK from that conversation until the
 whole client session restarts.
 
-**Status**: Review-mode ruling required — plan drafted; implementation has not
-started. Codereview pre-dispatch T3 blocks because no product fix or
-revert-fails/restore-passes guard exists yet.
+**Status**: Plan openreview approved for dispatch; implementation has not
+started. Codereview remains deferred until Slice 0 has a product fix and
+deterministic revert-fails/restore-passes guard proof.
 
 **Branch**: Not started.
 
@@ -66,6 +66,7 @@ architecture gate.
 
 ## Reviewer comments
 
-Claude Opus 5 was not dispatched. `.agents/playbooks/codereview.md` T3 is a
-pre-dispatch blocker when guard proof is missing; a documentation plan cannot
-truthfully satisfy the required `guard_confirmed=true` verdict contract.
+Owner approved Claude Opus 5 plan openreview on 2026-07-29. Codereview was not
+dispatched: `.agents/playbooks/codereview.md` T3 is a pre-dispatch blocker when
+guard proof is missing, and a documentation plan cannot truthfully satisfy the
+required `guard_confirmed=true` verdict contract.

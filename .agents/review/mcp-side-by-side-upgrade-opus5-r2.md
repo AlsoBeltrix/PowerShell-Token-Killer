@@ -32,7 +32,7 @@ non-empty candidate findings.
 | ssu-1 | HIGH | Stable launcher makes `pwsh` a hard prerequisite | ADMITTED |
 | ssu-2 | HIGH | Launcher interposition lacks a designed containment edge | DECLINED |
 | ssu-3 | HIGH | Codex/Grok registration rewrite crosses known unsafe surfaces | ADMITTED |
-| ssu-4 | MEDIUM | Current transaction can remove the stable launcher path | Pending |
+| ssu-4 | MEDIUM | Current transaction can remove the stable launcher path | ADMITTED |
 | ssu-5 | MEDIUM | `active.json` replacement lacks a named Windows-atomic primitive | Pending |
 | ssu-6 | MEDIUM | Launch-time manifest verification is unbounded | Pending |
 | ssu-7 | MEDIUM | Prune repeats the broad no-running-server disruption | Pending |

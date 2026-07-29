@@ -20,9 +20,12 @@ short and update it when important repo facts change.
   remain continuously present. The owner settled `ssu-5`: Windows uses
   handle-based `FileRenameInfoEx` replacement with delete-sharing readers and no
   delete-first fallback; Unix uses `rename(2)` plus a parent-directory flush.
-  Two other plan/product findings and one citation correction remain open at
+  The owner settled `ssu-6`: install/reuse performs full runtime hashing, while
+  normal launch reads at most 266240 control-file bytes and never enumerates or
+  hashes the payload tree. One other plan/product finding and one citation
+  correction remain open at
   `.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. The next owner gate is
-  `ssu-6`. Implementation is not authorized. Codereview remains deferred until
+  `ssu-7`. Implementation is not authorized. Codereview remains deferred until
   Slice 0 has an implemented fix and deterministic revert-fails/restore-passes
   guard proof.
 

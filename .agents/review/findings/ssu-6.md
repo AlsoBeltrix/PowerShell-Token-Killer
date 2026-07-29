@@ -3,20 +3,23 @@
 **Severity**: MEDIUM — the literal launch contract can add a full runtime hash
 walk to every MCP connection and push startup beyond client timeouts.
 
-**Status**: Open
+**Status**: Plan decision resolved 2026-07-29; implementation and guard not
+started
 
-**Branch**: Not started
+**Branch**: `master`
 
-**Commit**: Not started
+**Commit**: Plan decision recorded in `.agents/decisions.md`; product not started
 
 ## Evidence
 
-- `.agents/plans/mcp-side-by-side-upgrade.md:94-100` defines runtime identity
-  from a canonical manifest over every installer-owned runtime file and requires
+- At reviewed head `caf467e423105a621b1431302575b242f77791ac`,
+  `.agents/plans/mcp-side-by-side-upgrade.md:94-100` defined runtime identity
+  from a canonical manifest over every installer-owned runtime file and required
   every file to match before reusing a directory.
-- `.agents/plans/mcp-side-by-side-upgrade.md:127` separately requires the
-  versioned record to match the runtime manifest before launch, without bounding
-  that check or distinguishing it from full install-time verification.
+- At that head, `.agents/plans/mcp-side-by-side-upgrade.md:127` separately
+  required the versioned record to match the runtime manifest before launch,
+  without bounding that check or distinguishing it from full install-time
+  verification.
 - `.agents/plans/release-distribution.md:313` records a representative runtime
   as 558 files and 129 MB.
 - `.agents/plans/release-distribution.md:330-335` already records a 2.5–2.8
@@ -36,15 +39,19 @@ constant-bounded activation-to-runtime coherence check needed on every launch.
 
 ## Approach
 
-Pending owner-approved plan revision. Keep full per-file verification at install
-and reuse time. At launch, validate only the bounded activation record, the
-recorded manifest digest/identity, containment, and selected executable
-existence. If full launch-time tamper detection is required, make that an
-explicit measured feature rather than an ambiguous default.
+Owner approved the fast-start boundary on 2026-07-29. Full inventory and
+per-file hashing occurs only during install/reuse. Launch reads the bounded
+activation and canonical manifest files, checks manifest identity, containment,
+and selected-executable attributes, and never enumerates or hashes the payload
+tree.
 
 ## Files changed
 
-- Review records only; no plan or product change.
+- `.agents/decisions.md` — durable install-time versus launch-time boundary.
+- `.agents/plans/mcp-side-by-side-upgrade.md` — manifest bounds, separate
+  verifiers, explicit tradeoff, I/O ceiling, and guard requirements.
+- Review/state records — finding progression only.
+- No product file changed.
 
 ## Guard proof
 
@@ -58,8 +65,8 @@ None.
 
 ## Known gaps
 
-The exact bounded trust relationship between `active.json` and the immutable
-manifest remains a plan decision.
+Implementation and exact-host launch-cost evidence remain pending. Per-launch
+full payload tamper detection is explicitly outside this plan.
 
 ## Reviewer comments
 

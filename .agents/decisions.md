@@ -123,6 +123,27 @@ plan already claims. Canonical mechanics and guards live in
 `.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles only `ssu-5`
 plan design and authorizes no implementation or outward action.
 
+### ACTIVE (2026-07-29): Runtime launch verification is constant-bounded
+
+**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+`ssu-6` plan disposition.
+
+The installer performs the complete manifest inventory and per-file hash check
+when publishing or reusing an immutable runtime. A normal client launch does not
+enumerate or hash that runtime tree. It reads the bounded `active.json`, reads
+and hashes one bounded canonical `manifest.json` to match the selected digest,
+validates containment and no-link/reparse-point rules, and checks that the
+selected server executable is a regular file. This keeps launch I/O bounded
+independently of runtime size.
+
+The explicit tradeoff is that post-install runtime-file contents, including the
+selected server executable bytes, are not rehashed on every connection. The
+protected per-user install directory is the primary boundary; complete
+verification remains mandatory at install/reuse time. Canonical bounds and
+guards live in
+`.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles only `ssu-6`
+plan design and authorizes no implementation or outward action.
+
 ### ACTIVE (2026-07-09): shell-dialect plan approved — `.agents/plans/shell-dialect.md`
 
 **Status:** Active — approved by owner in-session 2026-07-09. The plan's

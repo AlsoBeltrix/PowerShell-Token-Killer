@@ -5,8 +5,9 @@ Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
 and two declined candidates. The `ssu-1` native-launcher decision is settled;
 the `ssu-3` per-harness migration decision and `ssu-4` stable-path decision are
 also settled. The `ssu-5` OS-specific atomic-replacement decision is settled.
-Two other plan/product findings and one citation correction remain open. One
-admitted metadata finding was already resolved. The next owner gate is `ssu-6`.
+The `ssu-6` bounded launch-verification decision is settled. One other
+plan/product finding and one citation correction remain open. One admitted
+metadata finding was already resolved. The next owner gate is `ssu-7`.
 Codereview remains deferred until Slice 0 has implementation and deterministic
 guard proof.
 
@@ -120,14 +121,33 @@ entry. After any managed registration names it:
 No transaction payload inventory may include `launcher/` as a recursively
 replaceable entry.
 
-The semantic version is display metadata, not directory identity. The runtime
-directory identity is its RID plus the lowercase SHA-256 digest of a canonical
-manifest over every installer-owned runtime file. Rebuilding the same version
-with different bytes cannot collide.
+The semantic version is display metadata, not directory identity. The canonical
+`manifest.json` is UTF-8 without BOM, at most 262144 bytes, and contains one
+sorted path/length/SHA-256 entry for every installer-owned runtime file except
+the manifest itself. The runtime directory identity is its RID plus the
+lowercase SHA-256 digest of those canonical manifest bytes. Rebuilding the same
+version with different bytes cannot collide.
 
-An existing runtime directory is reusable only when its manifest and every file
-match exactly. Any mismatch fails closed; the installer never merges or repairs
+At install and reuse time, the installer parses the manifest, enumerates the
+exact runtime tree, rejects any missing or extra entry, and verifies every file
+length and hash. An existing runtime directory is reusable only when that full
+check passes. Any mismatch fails closed; the installer never merges or repairs
 individual files in an immutable runtime.
+
+At launch time, verification is deliberately constant-bounded:
+
+1. read and strictly validate the at-most-4096-byte `active.json`;
+2. resolve only the selected digest directory below the canonical PTK home;
+3. read and validate its direct-child `manifest.json`, reject links/reparse
+   points or a file larger than 262144 bytes, and require SHA-256 of its
+   canonical bytes to equal `payload_digest` and the directory name; and
+4. require the selected server executable to be a contained regular file and
+   not a link or reparse point.
+
+The launcher does not enumerate the runtime tree or hash any payload file during
+normal connection startup. Post-install content mutation, including selected
+server executable bytes, is not detected per launch; the complete check remains
+an install/reuse responsibility.
 
 ### Activation record
 
@@ -154,7 +174,8 @@ Rules:
 - no record field is treated as a path;
 - every resolved component must remain under the canonical PTK home and must
   not be a link or reparse point; and
-- a versioned record must match the runtime manifest before launch.
+- a versioned record must pass the bounded manifest-identity check above before
+  launch.
 
 ### Atomic control-file replacement
 
@@ -382,7 +403,9 @@ Prove on Windows first, then macOS and Linux:
 6. activation is read once per launch; and
 7. paths with spaces and non-ASCII characters work; and
 8. the packaged registered command completes the handshake with `pwsh` absent
-   from `PATH` and no separately installed .NET runtime.
+   from `PATH` and no separately installed .NET runtime; and
+9. launch verification reads at most `4096 + 262144` control-file bytes, never
+   enumerates the runtime tree, and never hashes a payload file.
 
 Any orphan, protocol mutation, or unbounded teardown fails the architecture.
 
@@ -398,7 +421,8 @@ Files:
 Add strict manifest generation/validation, runtime identity, activation
 read/write/replace, installer locking, stable launcher sibling-file
 publish/replace/rollback, the named Windows and Unix interop above, and failure
-injection immediately before and after each atomic replace. The launcher
+injection immediately before and after each atomic replace. Separate the full
+install/reuse verifier from the bounded launcher verifier. The launcher
 directory is never a payload entry.
 
 ### Slice 2 — runtime attribution
@@ -498,6 +522,21 @@ new activation.
 - On Unix, prove the parent-directory flush occurs only after successful rename
   and that a post-rename flush failure never deletes the new destination.
 
+### Launch verification acceptance
+
+- Instrument filesystem access and prove one launch reads only `active.json`,
+  `manifest.json`, and selected-executable attributes; it performs no runtime
+  enumeration or payload-file hash.
+- Reject oversized, malformed, noncanonical, digest-mismatched, escaping,
+  linked, and reparse-point activation/manifest inputs before process creation.
+- Prove launch I/O remains bounded at `4096 + 262144` file-content bytes for a
+  runtime with 558 files and for a synthetic larger runtime.
+- Modify a non-executable payload file after installation and prove the bounded
+  launcher does not scan it, while the full installer reuse check rejects the
+  same runtime.
+- Rebuild the same display version with different payload bytes and prove the
+  manifest digest selects a different immutable directory.
+
 ### Stable launcher path acceptance
 
 With a managed registration continuously starting disposable clients while an
@@ -578,6 +617,7 @@ Linux x64 must pass before a cross-platform completion claim.
 - Automatic background update or automatic pruning.
 - Killing a process during ordinary install or prune.
 - Reusing a semantic version directory with different bytes.
+- Full runtime-tree tamper scanning on every client launch.
 
 ## Openreview decision status
 
@@ -587,7 +627,8 @@ The owner also settled `ssu-3`: registration migration uses the cautious
 harness-specific transaction above, not a uniform remove/add sequence. These
 decisions are joined by `ssu-4`: the launcher directory persists and only the
 launcher file may be atomically replaced. The owner settled `ssu-5` with the
-named Windows and Unix replacement contract above. These decisions authorize
-plan finalization only. Implementation still requires a separate explicit go
-after all admitted review findings are closed. The next plan decision is
-`ssu-6`.
+named Windows and Unix replacement contract above. The owner settled `ssu-6`
+with full install/reuse verification and bounded launch verification. These
+decisions authorize plan finalization only. Implementation still requires a
+separate explicit go after all admitted review findings are closed. The next
+plan decision is `ssu-7`.

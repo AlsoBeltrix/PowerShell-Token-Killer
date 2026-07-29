@@ -4,12 +4,11 @@
 admitted and two declined; one admitted metadata finding was already resolved.
 No implementation is authorized.
 
-The `ssu-1`, `ssu-3`, `ssu-4`, and `ssu-5` plan decisions are settled; open
-plan/product findings are `ssu-6` and `ssu-7`; the open record correction is
-`ssu-9`; `ssu-10` was already resolved by `36a1682`; `ssu-2` and `ssu-8` were
-declined. The next owner gate is `ssu-6`. Codereview remains deferred until an
-implemented Slice 0 fix has deterministic revert-fails/restore-passes guard
-proof.
+The `ssu-1`, `ssu-3`, `ssu-4`, `ssu-5`, and `ssu-6` plan decisions are settled;
+the open plan/product finding is `ssu-7`; the open record correction is `ssu-9`;
+`ssu-10` was already resolved by `36a1682`; `ssu-2` and `ssu-8` were declined.
+The next owner gate is `ssu-7`. Codereview remains deferred until an implemented
+Slice 0 fix has deterministic revert-fails/restore-passes guard proof.
 
 ## Review identity
 

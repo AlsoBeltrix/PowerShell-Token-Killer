@@ -2718,3 +2718,15 @@ Contested items (rbc-8, rbc-13) went to codex MCP under the 3-turn cap;
 consensus AGREE on both at turn 1 (thread
 `019f7cb9-c587-79c1-994b-a28e8d7b1ba1`). Fix order: rbc-14 first (own
 branch + external fixed-SHA review), then rbc-9, rbc-10, rbc-12.
+
+---
+
+Openreview 2026-07-29 (MCP upgrade continuity options) — source review:
+Claude Code `2.1.220`,
+`@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`, effort `max`,
+frontier owner-selected inline for this session. Scope:
+`d32f2a06e451df02cfa9b63d5c0dda570d1262ec..a308bdadbbda954340f48d63772e72787e9f6990`.
+
+| ID | Severity | Impact (one line) | Status | Branch | Reviewer |
+|----|----------|-------------------|--------|--------|----------|
+| muc-1 | MEDIUM | Guardian candidate silently reopens an expressly superseded architecture | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

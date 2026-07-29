@@ -465,6 +465,14 @@ public sealed class RunspaceHost : IDisposable
             if (startBlocked?.Invoke() is { } beforeConstruction)
                 throw new PrivateOutputStartupBlockedException(beforeConstruction);
             var iss = InitialSessionState.CreateDefault();
+            var externalModulePath = ResolvePowerShellModulePath();
+            if (!string.IsNullOrWhiteSpace(externalModulePath))
+            {
+                iss.EnvironmentVariables.Add(new SessionStateVariableEntry(
+                    "PSModulePath",
+                    externalModulePath,
+                    "PTK PowerShell module discovery path."));
+            }
             if (OperatingSystem.IsWindows())
             {
                 // A hosted runspace resolves Windows execution policy like pwsh does,
@@ -500,6 +508,76 @@ public sealed class RunspaceHost : IDisposable
     /// can stall in the wild (a hung mount under Runspace.Open); tests inject a
     /// delay here to prove the timeout response does not wait for it.</summary>
     internal TimeSpan CreationDelayForTests { get; set; }
+
+    private static string? ResolvePowerShellModulePath()
+    {
+        var inherited = Environment.GetEnvironmentVariable("PSModulePath");
+        var searchPath = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrWhiteSpace(searchPath))
+            return inherited;
+
+        var executableName = OperatingSystem.IsWindows() ? "pwsh.exe" : "pwsh";
+        foreach (var rawDirectory in searchPath.Split(
+            Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var directory = rawDirectory.Trim('"');
+            string executable;
+            try
+            {
+                executable = Path.Combine(directory, executableName);
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (!File.Exists(executable))
+                continue;
+
+            var shellHome = directory;
+            try
+            {
+                var target = new FileInfo(executable)
+                    .ResolveLinkTarget(returnFinalTarget: true);
+                shellHome = target is null
+                    ? shellHome
+                    : Path.GetDirectoryName(target.FullName) ?? shellHome;
+            }
+            catch
+            {
+            }
+            var modules = Path.Combine(shellHome, "Modules");
+            if (!Directory.Exists(modules))
+                continue;
+
+            var entries = string.IsNullOrWhiteSpace(inherited)
+                ? []
+                : inherited.Split(
+                    Path.PathSeparator,
+                    StringSplitOptions.RemoveEmptyEntries |
+                    StringSplitOptions.TrimEntries).ToList();
+            var comparer = OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal;
+            if (entries.Contains(modules, comparer))
+                return string.Join(Path.PathSeparator, entries);
+
+            var insertion = OperatingSystem.IsWindows()
+                ? entries.FindIndex(entry => entry.Contains(
+                    $"{Path.DirectorySeparatorChar}WindowsPowerShell" +
+                    $"{Path.DirectorySeparatorChar}",
+                    StringComparison.OrdinalIgnoreCase))
+                : -1;
+            if (insertion < 0)
+                entries.Add(modules);
+            else
+                entries.Insert(insertion, modules);
+            return string.Join(Path.PathSeparator, entries);
+        }
+
+        return inherited;
+    }
 
     private volatile bool _moduleImportDisabledForTests;
 

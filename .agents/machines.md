@@ -1688,6 +1688,46 @@ was used._
   payload was installed, no harness registration changed, and the existing
   installed PTK processes were not stopped.
 
+### Enterprise field validation — 2026-07-29
+
+- The installed worker payload did not include the external PowerShell 7 module
+  directory in `PSModulePath`; it found only the legacy inbox module set and
+  could not import ExchangeOnlineManagement. Commit `36146a1` discovers the
+  module directory beside installed `pwsh`, preserves inherited entries, and
+  handles resolved Unix/macOS launcher symlinks. Its guard failed when only the
+  product wiring was removed and passed after restoration; the complete server
+  suite passed 1,213/1,213.
+- With the equivalent session-local module-path workaround on the older
+  installed payload, the existing app-only EXO helper authenticated and an
+  identity-bound `Get-EXOMailbox` minimum-property read matched only the
+  owner-authorized mailbox. Initial completion took 5,438 ms; warm connection
+  check took 921 ms and the repeated exact-identity read took 551 ms in the same
+  worker. The selected SMTP/type projection retained both requested note
+  properties. Its `active_member_not_evaluated` marker is the designed
+  conservative signal for uninspected selected-object type data, not evidence
+  that either selected value was dropped.
+- The host-local Graph helper could not run because its expected credential
+  file was absent; the older worker also lacked `COMPUTERNAME`. WAM interactive
+  authentication failed because the hosted worker has no parent window handle.
+  Two device-code attempts expired after 120 seconds without an authenticated
+  account. No Graph API request ran and no directory object was read.
+- The older installed worker ran PowerShell in MTA and the Outlook COM probe
+  exceeded 120 seconds before producing any account or item record. Its one
+  headless `OUTLOOK.EXE -Embedding` residue was identified by PID and creation
+  time and removed. Commit `56b562c` makes Windows runspaces STA. The committed
+  guard failed as MTA before the product change and passed as STA after it.
+  Exact-head COM initialization then returned in one to two seconds and left no
+  Outlook process, but this machine's Outlook namespace exposed no current user;
+  therefore no Inbox or item metadata was read.
+- Verification at `56b562c`: server 1,214/1,214, Pester 144 passed with one
+  platform skip, public registered-command handshake passed, no vulnerable
+  server packages, changed-file formatting and diff hygiene passed. Independent
+  SIEM verification remained 226/247 because all 21 redirect tests failed during
+  symlink setup under the ordinary token lacking symlink privilege, before
+  product assertions. Repository-temp helpers, redacted status/prompt files,
+  Graph helpers, and Outlook processes were removed. Nothing was installed,
+  registered, pushed, or changed outside the authorized account-scoped reads.
+
 ## Cross-host self-contained Linux package acceptance (2026-07-28)
 
 _Built one immutable package on `magneto`, then validated those exact package

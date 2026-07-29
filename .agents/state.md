@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Windows enterprise validation landed local fixes `36146a1` and `56b562c`
+  on `ASHBIAMWEB1` (2026-07-29).** Hosted workers now discover modules beside
+  installed `pwsh`, and Windows runspaces now use STA for COM automation. The
+  real exact-account EXO metadata read and warm-session reuse passed; its
+  explicitly selected values were retained and the remaining incomplete marker
+  truthfully denotes uninspected type data. Graph never authenticated or read
+  API data. STA removed the Outlook COM hang, but the local Outlook profile has
+  no current user, so no Inbox item was read. Nothing was installed, registered,
+  pushed, or left running; detailed host evidence is in `.agents/machines.md`.
 - **Exact-head Windows x64 PTK runtime/package acceptance passed at
   `7eaf8a0cbe391abda7185e23e621fe7b01028886` on `ASHBIAMWEB1`
   (2026-07-28).** Direct Windows execution found and separately committed
@@ -736,20 +745,16 @@ short and update it when important repo facts change.
 ## Next
 
 1. Continue only an acceptance gate when its actual environment becomes
-   available; do not conflate them. Generic Windows x64 PTK packaging,
-   worker-process, Job Object, timeout, crash, and cleanup acceptance is now
-   complete at `7eaf8a0`; rerun the remaining SIEM symlink-protection cases
-   only under a Windows identity allowed to create test symlinks.
-   `ASHBIAMWEB1` is domain-joined and has EXO, Graph, and Outlook available,
-   but has no on-prem Exchange management tools; credentialed EXO/Graph/Outlook
-   shaping awaits an explicit authentication/data-access go, while on-prem
-   Exchange needs a different EMS-capable host. Run the ARM64 gate only on a
-   matching real Linux host. Candidate installation and intended-harness
-   restart remain separately authorized deployment work. When authorized,
-   install `7eaf8a0`
-   or later and start a fresh Claude session so its cached removed-tool
-   references cannot survive the five-tool schema change. No further ungated
-   code change is queued.
+   available; do not conflate them. Rerun the remaining SIEM symlink-protection
+   cases only under a Windows identity allowed to create test symlinks. Retry
+   the exact-account Graph `/me` read only when the owner is ready to complete
+   device authentication inside its 120-second window; retry Outlook metadata
+   only after that exact account is configured as the profile's current user.
+   On-prem Exchange still needs a different EMS-capable host. Run the ARM64 gate
+   only on matching real Linux. Candidate installation and intended-harness
+   restart remain separately authorized deployment work; use `56b562c` or later
+   and start a fresh Claude session so cached removed-tool references cannot
+   survive the five-tool schema change. No further ungated code change is queued.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.
@@ -811,6 +816,11 @@ short and update it when important repo facts change.
 - GitHub #11 (Codex keeps a stale ptk transport after the direct-server
   cutover) is open; its explicit product/client boundary is carried into the
   intended-harness restart gate for the replacement runtime.
+- GitHub #12 (a ptk-hosted command launches a separately ptk-configured agent
+  whose nested invoke wedges) is open, verified on GitHub 2026-07-29. Its filed
+  semaphore root-cause theory predates the current per-connection worker
+  topology and is unproved. Do not close or rewrite it until the current
+  packaged runtime gets a bounded nested-client reproduction.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

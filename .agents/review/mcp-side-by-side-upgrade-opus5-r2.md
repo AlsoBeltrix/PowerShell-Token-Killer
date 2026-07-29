@@ -38,7 +38,7 @@ non-empty candidate findings.
 | ssu-7 | MEDIUM | Prune repeats the broad no-running-server disruption | ADMITTED |
 | ssu-8 | MEDIUM | Retained versions have no operator activation command | DECLINED |
 | ssu-9 | LOW | `muc-7` carries a stale state-file line citation | ADMITTED |
-| ssu-10 | LOW | `muc-7` index row lacks reviewer-column identity | Pending |
+| ssu-10 | LOW | `muc-7` index row lacks reviewer-column identity | ADMITTED — resolved at current head |
 
 Candidate findings do not authorize fixes. Every row must pass the codereview
 intake gate before work begins.

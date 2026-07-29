@@ -5,6 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **MCP upgrade-continuity openreview completed on 2026-07-29; owner ruling
+  pending.** Claude Opus 5 at max effort reviewed
+  `d32f2a06e451df02cfa9b63d5c0dda570d1262ec..a308bdadbbda954340f48d63772e72787e9f6990`.
+  Intake admitted five findings and declined one overstatement; see
+  `.agents/review/mcp-upgrade-continuity-opus5-r1.md` and `muc-1` through
+  `muc-6` in `.agents/review/index.md`. Current recommendation is
+  side-by-side immutable versions below the single `~/.ptk` home, with active
+  connections left on their pinned old version until natural exit. Same-client
+  transparent adoption remains unsolved and would require an explicit owner
+  reversal before reopening the discarded guardian or daemon architectures.
+
 - **Exact head `12e1ff5` is installed user-scoped on `ASHBIAMWEB1` as
   `0.2.0-dev.g12e1ff5` (2026-07-29).** The owner authorized installation and
   targeted process termination. The old installed supervisor/worker at

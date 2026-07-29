@@ -3,10 +3,10 @@
 **Severity**: LOW — a cold session can miss the open architecture question and
 re-derive it without the review evidence.
 
-**Status**: Open — review input only; no architecture implementation is
-authorized.
+**Status**: In progress — current-state pointer added; independent finding-fix
+review has not been dispatched. No architecture implementation is authorized.
 
-**Branch**: Not started.
+**Branch**: `master` (docs-only state maintenance).
 
 **Commit**: Not started.
 
@@ -37,8 +37,8 @@ the canonical design into `.agents/plans/`.
 
 ## Files changed
 
-The review index now registers the intake. The state pointer remains pending
-until the review outcome is finalized.
+The review index registers the intake and `.agents/state.md` now exposes the
+review to a cold session.
 
 ## Guard proof
 

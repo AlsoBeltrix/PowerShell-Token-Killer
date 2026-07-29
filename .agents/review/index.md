@@ -2748,3 +2748,4 @@ frontier owner-selected inline. Scope:
 |----|----------|-------------------|--------|--------|----------|
 | ssu-1 | HIGH | Supported no-`pwsh` installs cannot start any managed PTK registration | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-2 | HIGH | Slice 0 already fails closed if launcher containment or no-orphan proof fails | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-3 | HIGH | Mandatory registration migration can brick Codex or remove unproven Grok entries | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

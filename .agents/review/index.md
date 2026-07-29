@@ -2754,3 +2754,4 @@ frontier owner-selected inline. Scope:
 | ssu-6 | MEDIUM | Ambiguous launch verification can hash the full 129 MB runtime per connection | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-7 | MEDIUM | Pruning unused versions still requires stopping every PTK-backed client | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-8 | MEDIUM | Retention does not promise an operator-selectable activation or rollback feature | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-9 | LOW | `muc-7` cites the wrong state-file line for GitHub issue 11 | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

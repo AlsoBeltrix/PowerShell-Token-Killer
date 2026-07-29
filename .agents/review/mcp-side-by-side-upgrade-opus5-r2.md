@@ -37,7 +37,7 @@ non-empty candidate findings.
 | ssu-6 | MEDIUM | Launch-time manifest verification is unbounded | ADMITTED |
 | ssu-7 | MEDIUM | Prune repeats the broad no-running-server disruption | ADMITTED |
 | ssu-8 | MEDIUM | Retained versions have no operator activation command | DECLINED |
-| ssu-9 | LOW | `muc-7` carries a stale state-file line citation | Pending |
+| ssu-9 | LOW | `muc-7` carries a stale state-file line citation | ADMITTED |
 | ssu-10 | LOW | `muc-7` index row lacks reviewer-column identity | Pending |
 
 Candidate findings do not authorize fixes. Every row must pass the codereview

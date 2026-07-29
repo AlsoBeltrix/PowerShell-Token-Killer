@@ -1,10 +1,11 @@
 # Plan: Non-disruptive side-by-side MCP runtime upgrades
 
 **Status:** DRAFT — implementation is not authorized. The owner-approved Claude
-Opus 5 openreview over `c4bd2af..caf467e` returned a valid findings verdict;
-intake is in progress at
-`.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. Codereview remains
-deferred until Slice 0 has implementation and deterministic guard proof.
+Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
+and two declined candidates. Six plan/product findings and one citation
+correction remain open; one admitted metadata finding was already resolved.
+The next owner gate is `ssu-1`. Codereview remains deferred until Slice 0 has
+implementation and deterministic guard proof.
 
 ## Goal
 

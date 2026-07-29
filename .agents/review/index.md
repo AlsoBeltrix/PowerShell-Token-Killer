@@ -2747,3 +2747,4 @@ frontier owner-selected inline. Scope:
 | ID | Severity | Impact (one line) | Status | Branch | Reviewer |
 |----|----------|-------------------|--------|--------|----------|
 | ssu-1 | HIGH | Supported no-`pwsh` installs cannot start any managed PTK registration | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-2 | HIGH | Slice 0 already fails closed if launcher containment or no-orphan proof fails | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

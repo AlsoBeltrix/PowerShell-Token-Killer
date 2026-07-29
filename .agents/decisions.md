@@ -55,6 +55,28 @@ Canonical implementation detail and guard scope live in
 plan design. It does not authorize implementation, installation, push, or any
 other outward action.
 
+### ACTIVE (2026-07-29): Registration migration is transactional per harness
+
+**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+`ssu-3` plan disposition.
+
+PTK must not use one blind remove/add sequence for every harness. Before changing
+a recognized managed registration, the installer snapshots the exact
+registration files and proves the native launcher independently. Codex is
+updated in place without `codex mcp remove ptk`, preserving its PTK
+tool-approval subtables and unrelated TOML. Grok's installed CLI must first pass
+add/remove behavior against a disposable user-scoped configuration; failure
+preserves the live registration and aborts before activation. Claude CLI
+replacement and Agy's PTK-owned/global JSON forms each use their own
+fixture-backed transaction. Every changed registration must complete a
+registered-command five-tool handshake or the installer restores all changed
+harness files byte-for-byte. A custom registration is preserved.
+
+Canonical mechanics and guards live in
+`.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles only `ssu-3`
+plan design. It does not authorize implementation, installation, push, or any
+other outward action.
+
 ### ACTIVE (2026-07-09): shell-dialect plan approved — `.agents/plans/shell-dialect.md`
 
 **Status:** Active — approved by owner in-session 2026-07-09. The plan's

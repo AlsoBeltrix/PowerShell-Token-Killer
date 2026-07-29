@@ -3,8 +3,9 @@
 **Status:** DRAFT — implementation is not authorized. The owner-approved Claude
 Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
 and two declined candidates. The `ssu-1` native-launcher decision is settled;
-five other plan/product findings and one citation correction remain open. One
-admitted metadata finding was already resolved. The next owner gate is `ssu-3`.
+the `ssu-3` per-harness migration decision is also settled. Four other
+plan/product findings and one citation correction remain open. One admitted
+metadata finding was already resolved. The next owner gate is `ssu-4`.
 Codereview remains deferred until Slice 0 has implementation and deterministic
 guard proof.
 
@@ -184,13 +185,13 @@ later step may leave the immutable inactive runtime for reuse.
 On a legacy installation:
 
 1. write an activation record with `layout=legacy`;
-2. replace only missing or recognized PTK-managed registrations with the
-   stable launcher command;
+2. migrate missing or recognized PTK-managed registrations one harness at a
+   time using the harness-specific transaction below;
 3. preserve and report custom `ptk` registrations;
-4. run the full registered-command handshake through each registration that
-   was changed; this still launches the legacy runtime; and
+4. immediately run the full registered-command handshake through each changed
+   registration; this still launches the legacy runtime; and
 5. on any handled failure, restore control files, activation record,
-   registration files, and ARP state byte-for-byte.
+   every changed harness registration file, and ARP state byte-for-byte.
 
 Recognized managed targets are limited to:
 
@@ -231,17 +232,52 @@ only `active.json`. No running-process check occurs on this path.
 Refactor `scripts/ptk_init.ps1` so registration is represented as command plus
 argument vector rather than one binary path.
 
-Add an installer-only refresh mode with explicit test seams. For each harness:
+Add an installer-only refresh mode with explicit test seams. Its common
+protocol is:
 
-- missing registration: create the stable launcher registration;
-- recognized managed registration: replace it with the exact launcher command;
-- exact launcher registration: leave it unchanged;
-- custom registration: preserve it and return `custom-preserved`;
-- CLI/config failure: fail the transaction before version activation.
+1. read and classify the current registration before any mutation;
+2. snapshot every harness file that can change, including absence;
+3. prove the installed native launcher directly;
+4. leave an exact launcher registration unchanged;
+5. preserve a custom registration and return `custom-preserved`;
+6. create a missing registration or migrate a recognized managed registration
+   with the harness-specific method below;
+7. run the registered-command five-tool handshake immediately; and
+8. on mutation or handshake failure, restore every harness snapshot
+   byte-for-byte and, when a working registration existed, prove its command
+   still works.
 
-Claude, Codex, Grok, and Agy registration tests must cover quoting and spaces on
-Windows and Unix. `scripts/dev-install.ps1` must no longer maintain a separate
-Claude-only remove/add path.
+Harness-specific mutation:
+
+- **Claude Code:** after `claude mcp get ptk` identifies a recognized managed
+  target and the user registration files are snapshotted, the CLI's user-scope
+  remove/add sequence may replace it. Any remove, add, or handshake failure
+  restores the exact snapshot directly; rollback never depends on another CLI
+  call. `scripts/dev-install.ps1` no longer owns a separate unprotected
+  Claude-only remove/add path.
+- **Codex:** never call `codex mcp remove ptk` during migration. Replace only
+  `command` and `args` in the recognized `[mcp_servers.ptk]` base table using a
+  deterministic, header-scoped TOML mutation. Preserve all other base keys,
+  every `[mcp_servers.ptk.tools.*]` approval subtable, and unrelated
+  configuration. Duplicate, inline, or unknown registration shapes fail closed
+  without writing.
+- **Grok:** before any live mutation, run the installed `grok` CLI's user-scope
+  add and remove forms against a disposable home/config containing unrelated
+  sentinels. Require the expected `[mcp_servers.ptk]` shape, successful removal,
+  and preservation of unrelated values. If that proof fails, preserve the live
+  registration and fail the install before activation. After proof, the
+  snapshotted live entry may use the verified remove/add sequence; any failure
+  restores the exact live snapshot.
+- **Agy:** stage and replace the PTK-owned plugin registration file when the
+  plugin owns registration. For a recognized managed global
+  `mcpServers.ptk` object, update only that JSON object and prove every unrelated
+  value is unchanged. Preserve a custom global object. Any failure restores the
+  plugin directory and global config snapshots.
+
+Claude, Codex, Grok, and Agy tests cover missing, exact, recognized managed, and
+custom registrations; quoting and spaces on Windows and Unix; failure after
+mutation but before handshake; byte-identical rollback; and isolation so one
+harness failure changes no other harness.
 
 ## Retention, pruning, and uninstall
 
@@ -455,6 +491,8 @@ Linux x64 must pass before a cross-platform completion claim.
 
 The owner settled `ssu-1` on 2026-07-29: the permanent registration boundary is
 the native self-contained launcher defined above, not a PowerShell launcher.
-This authorizes plan finalization only. Implementation still requires a separate
-explicit go after all admitted review findings are closed. The next plan
-decision is `ssu-3`.
+The owner also settled `ssu-3`: registration migration uses the cautious
+harness-specific transaction above, not a uniform remove/add sequence. These
+decisions authorize plan finalization only. Implementation still requires a
+separate explicit go after all admitted review findings are closed. The next
+plan decision is `ssu-4`.

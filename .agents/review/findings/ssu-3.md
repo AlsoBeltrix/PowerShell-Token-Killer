@@ -3,11 +3,12 @@
 **Severity**: HIGH — the planned Codex and Grok remove/add migration can damage
 or lose a working registration before the replacement is proven.
 
-**Status**: Open
+**Status**: Plan decision resolved 2026-07-29; implementation and guard not
+started
 
-**Branch**: Not started
+**Branch**: `master`
 
-**Commit**: Not started
+**Commit**: Plan decision recorded in `.agents/decisions.md`; product not started
 
 ## Evidence
 
@@ -37,14 +38,20 @@ rollback protocol.
 
 ## Approach
 
-Pending owner-approved plan revision. Require harness-specific, fixture-backed
-registration mutation that preserves unrelated configuration and the old working
-entry until the stable target completes a five-tool handshake. Failure in one
-harness must not alter another harness registration.
+Owner approved the cautious migration on 2026-07-29. The revised plan snapshots
+all affected harness files, uses fixture-backed mutation specific to Claude,
+Codex, Grok, and Agy, and requires an immediate registered-command handshake.
+Codex is updated without its unsafe remove command. Grok live state is untouched
+unless the installed CLI first passes a disposable-config add/remove proof. Any
+failure restores every changed harness snapshot byte-for-byte.
 
 ## Files changed
 
-- Review records only; no plan or product change.
+- `.agents/decisions.md` — durable owner-approved per-harness transaction.
+- `.agents/plans/mcp-side-by-side-upgrade.md` — common protocol, exact
+  harness-specific mutation, rollback, and guard requirements.
+- Review/state records — finding progression only.
+- No product file changed.
 
 ## Guard proof
 
@@ -58,7 +65,8 @@ None.
 
 ## Known gaps
 
-The safe mutation primitive and exact rollback boundary remain plan decisions.
+Implementation must still prove each installed CLI/config shape and rollback
+seam. An unrecognized shape fails closed before activation.
 
 ## Reviewer comments
 

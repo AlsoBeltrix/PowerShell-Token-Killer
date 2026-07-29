@@ -34,7 +34,7 @@ non-empty candidate findings.
 | ssu-3 | HIGH | Codex/Grok registration rewrite crosses known unsafe surfaces | ADMITTED |
 | ssu-4 | MEDIUM | Current transaction can remove the stable launcher path | ADMITTED |
 | ssu-5 | MEDIUM | `active.json` replacement lacks a named Windows-atomic primitive | ADMITTED |
-| ssu-6 | MEDIUM | Launch-time manifest verification is unbounded | Pending |
+| ssu-6 | MEDIUM | Launch-time manifest verification is unbounded | ADMITTED |
 | ssu-7 | MEDIUM | Prune repeats the broad no-running-server disruption | Pending |
 | ssu-8 | MEDIUM | Retained versions have no operator activation command | Pending |
 | ssu-9 | LOW | `muc-7` carries a stale state-file line citation | Pending |

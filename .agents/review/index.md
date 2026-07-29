@@ -2751,3 +2751,4 @@ frontier owner-selected inline. Scope:
 | ssu-3 | HIGH | Mandatory registration migration can brick Codex or remove unproven Grok entries | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-4 | MEDIUM | Existing wholesale `scripts` replacement can remove the registered launcher path | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-5 | MEDIUM | Activation record replacement has no defined Windows-atomic primitive | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-6 | MEDIUM | Ambiguous launch verification can hash the full 129 MB runtime per connection | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

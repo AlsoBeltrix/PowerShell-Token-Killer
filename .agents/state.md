@@ -5,6 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Non-disruptive side-by-side upgrade plan drafted at `5f5d00d`; reviewer-mode
+  ruling pending.** `.agents/plans/mcp-side-by-side-upgrade.md` proposes a
+  stable per-client PowerShell launcher, immutable versioned runtimes, and one
+  atomic activation record, with launcher byte/teardown feasibility as Slice 0.
+  Finding `muc-7` records the live-upgrade failure. Claude Opus 5 codereview was
+  not dispatched: the codereview playbook's T3 gate requires an implemented fix
+  and deterministic revert-fails/restore-passes guard, which a draft plan
+  cannot provide. Owner must choose unprimed plan openreview now or separately
+  authorize Slice 0 implementation before codereview.
+
 - **MCP upgrade-continuity openreview completed on 2026-07-29; owner ruling
   pending.** Claude Opus 5 at max effort reviewed
   `d32f2a06e451df02cfa9b63d5c0dda570d1262ec..a308bdadbbda954340f48d63772e72787e9f6990`.

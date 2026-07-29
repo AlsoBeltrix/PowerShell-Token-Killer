@@ -4,7 +4,9 @@
 client transport, permanently removing PTK from that conversation until the
 whole client session restarts.
 
-**Status**: In progress — plan drafted; implementation has not started.
+**Status**: Review-mode ruling required — plan drafted; implementation has not
+started. Codereview pre-dispatch T3 blocks because no product fix or
+revert-fails/restore-passes guard exists yet.
 
 **Branch**: Not started.
 
@@ -64,4 +66,6 @@ architecture gate.
 
 ## Reviewer comments
 
-Pending Claude Opus 5 codereview of plan `5f5d00d`.
+Claude Opus 5 was not dispatched. `.agents/playbooks/codereview.md` T3 is a
+pre-dispatch blocker when guard proof is missing; a documentation plan cannot
+truthfully satisfy the required `guard_confirmed=true` verdict contract.

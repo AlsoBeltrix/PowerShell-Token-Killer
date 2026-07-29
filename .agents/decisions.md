@@ -99,6 +99,30 @@ fail closed; it must not fall back to remove-then-move. Canonical mechanics and
 guards live in `.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles
 only `ssu-4` plan design and authorizes no implementation or outward action.
 
+### ACTIVE (2026-07-29): Control-file replacement uses named OS primitives
+
+**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+`ssu-5` plan disposition.
+
+`active.json` and stable-launcher updates use one canonical same-directory
+replacement helper. On Windows it mirrors the repository's existing protected
+file publication: flush the sibling temporary file, then call
+`SetFileInformationByHandle(FileRenameInfoEx)` with
+`FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS`.
+Activation readers open with read/write/delete sharing and consume one bounded
+file handle, so concurrent readers see complete old or new bytes. A sharing or
+replacement error gets no delete-first fallback and no retry: the old
+destination remains selected and the transaction fails before activation. On
+Unix the helper flushes the sibling temporary file, calls same-directory
+`rename(2)`, then flushes the parent directory.
+
+Kernel replacement success is the commit point. A later failure never rolls
+back by deleting the destination; startup/recovery validates whichever complete
+record is present. This adds no stronger arbitrary-power-loss guarantee than the
+plan already claims. Canonical mechanics and guards live in
+`.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles only `ssu-5`
+plan design and authorizes no implementation or outward action.
+
 ### ACTIVE (2026-07-09): shell-dialect plan approved — `.agents/plans/shell-dialect.md`
 
 **Status:** Active — approved by owner in-session 2026-07-09. The plan's

@@ -4,21 +4,23 @@
 an absent record if the unspecified replacement is not atomic under Windows file
 sharing and retry behavior.
 
-**Status**: Open
+**Status**: Plan decision resolved 2026-07-29; implementation and guard not
+started
 
-**Branch**: Not started
+**Branch**: `master`
 
-**Commit**: Not started
+**Commit**: Plan decision recorded in `.agents/decisions.md`; product not started
 
 ## Evidence
 
-- `.agents/plans/mcp-side-by-side-upgrade.md:129-132` requires a flushed
-  temporary file and "same-directory atomic rename" but names no Windows API,
+- At reviewed head `caf467e423105a621b1431302575b242f77791ac`,
+  `.agents/plans/mcp-side-by-side-upgrade.md:129-132` required a flushed
+  temporary file and "same-directory atomic rename" but named no Windows API,
   replacement flags, sharing contract, retry policy, or failure semantics.
-- `server/PtkMcpServer/Audit/SecureAuditStorage.cs:212,286` already distinguishes
-  Windows `MoveFileEx` and atomic replacement behavior, demonstrating that the
-  repository treats this as a platform-specific primitive rather than a generic
-  file move.
+- `server/PtkMcpServer/Audit/SecureAuditStorage.cs:286,1310` already uses
+  `SetFileInformationByHandle(FileRenameInfoEx)` for protected Windows
+  replacement, demonstrating that the repository treats this as a
+  platform-specific primitive rather than a generic file move.
 
 ## Predicted observable failure
 
@@ -34,13 +36,19 @@ observable failure contract needed to implement and verify it on Windows.
 
 ## Approach
 
-Pending owner-approved plan revision. Name the supported per-platform replacement
-primitive, file-sharing expectations, bounded retry behavior, directory flush
-limits, and the invariant that failure leaves the old complete record active.
+Owner approved the named OS replacement contract on 2026-07-29. Windows mirrors
+the existing handle-based `FileRenameInfoEx` implementation with replace and
+POSIX-semantics flags, delete-sharing readers, and no retry or delete-first
+fallback. Unix uses same-directory `rename(2)` followed by parent-directory
+flush. Kernel replacement success is the commit point.
 
 ## Files changed
 
-- Review records only; no plan or product change.
+- `.agents/decisions.md` — durable OS primitive and failure contract.
+- `.agents/plans/mcp-side-by-side-upgrade.md` — canonical helper, reader sharing,
+  commit point, failure behavior, and concurrency/fault guards.
+- Review/state records — finding progression only.
+- No product file changed.
 
 ## Guard proof
 
@@ -54,7 +62,8 @@ None.
 
 ## Known gaps
 
-The exact Windows API and acceptable durability boundary remain plan decisions.
+Implementation must still prove Windows running-image contention and cross-host
+Unix behavior. Arbitrary power-loss durability remains explicitly unclaimed.
 
 ## Reviewer comments
 

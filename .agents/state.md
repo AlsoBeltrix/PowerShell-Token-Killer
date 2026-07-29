@@ -17,10 +17,12 @@ short and update it when important repo facts change.
   byte-for-byte on failure. The owner settled `ssu-4`: `launcher/` is never a
   wholesale payload entry or removed after registration; launcher changes use
   validated sibling-file replacement and fail closed if the stable path cannot
-  remain continuously present. Three other plan/product findings and one
-  citation correction remain open at
+  remain continuously present. The owner settled `ssu-5`: Windows uses
+  handle-based `FileRenameInfoEx` replacement with delete-sharing readers and no
+  delete-first fallback; Unix uses `rename(2)` plus a parent-directory flush.
+  Two other plan/product findings and one citation correction remain open at
   `.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. The next owner gate is
-  `ssu-5`. Implementation is not authorized. Codereview remains deferred until
+  `ssu-6`. Implementation is not authorized. Codereview remains deferred until
   Slice 0 has an implemented fix and deterministic revert-fails/restore-passes
   guard proof.
 

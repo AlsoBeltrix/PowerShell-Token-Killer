@@ -4,10 +4,11 @@
 Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
 and two declined candidates. The `ssu-1` native-launcher decision is settled;
 the `ssu-3` per-harness migration decision and `ssu-4` stable-path decision are
-also settled. Three other plan/product findings and one citation correction
-remain open. One admitted metadata finding was already resolved. The next owner
-gate is `ssu-5`. Codereview remains deferred until Slice 0 has implementation
-and deterministic guard proof.
+also settled. The `ssu-5` OS-specific atomic-replacement decision is settled.
+Two other plan/product findings and one citation correction remain open. One
+admitted metadata finding was already resolved. The next owner gate is `ssu-6`.
+Codereview remains deferred until Slice 0 has implementation and deterministic
+guard proof.
 
 ## Goal
 
@@ -109,7 +110,7 @@ entry. After any managed registration names it:
 - ordinary runtime upgrades leave unchanged launcher bytes untouched;
 - a launcher update writes and validates a sibling temporary file, flushes it,
   and replaces only `ptk-launch[.exe]` with the platform-specific atomic
-  primitive to be settled under `ssu-5`;
+  primitive defined below;
 - failure before replacement leaves the old launcher byte-identical;
 - handled rollback after replacement restores the snapshotted launcher through
   the same file-level protocol, never remove-then-move; and
@@ -155,9 +156,38 @@ Rules:
   not be a link or reparse point; and
 - a versioned record must match the runtime manifest before launch.
 
-Activation uses a temp file in `~/.ptk`, flushes it, and replaces `active.json`
-by same-directory atomic rename. The old complete record or the new complete
-record is visible; a partial record is not.
+### Atomic control-file replacement
+
+One helper in `scripts/ptk_install_transaction.psm1` publishes `active.json` and
+launcher-file updates. Source and destination must be distinct, direct children
+of the same canonical protected directory; neither may be a link or reparse
+point. The source is fully written, validated, and flushed before replacement.
+There is no remove-then-move fallback.
+
+On Windows, a small `Add-Type` interop helper mirrors
+`WindowsNative.ReplaceFileAtomically` in
+`server/PtkMcpServer/Audit/SecureAuditStorage.cs`:
+
+1. open the sibling temporary file with `CreateFileW`, delete/synchronize/write
+   access, `FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE`, and
+   `FILE_FLAG_OPEN_REPARSE_POINT`;
+2. validate the opened file identity and flush it with `FlushFileBuffers`; and
+3. call `SetFileInformationByHandle(FileRenameInfoEx)` with
+   `FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS`.
+
+The native launcher opens `active.json` with read/write/delete sharing, reads at
+most 4096 bytes from one handle, and never reopens between validation and use.
+The replacement call is not retried. Sharing violation, unsupported flags, or
+any other kernel error leaves the old destination selected and fails the
+transaction. A running mapped launcher that cannot be replaced follows the same
+rule.
+
+On macOS and Linux, the helper flushes the sibling temporary file, invokes
+same-directory `rename(2)`, then flushes the parent directory. Rename success is
+the control-file commit point on every platform. Any failure before that point
+leaves the old destination selected. A failure after kernel replacement does not
+delete or roll back the new destination; recovery reloads and validates the
+complete old-or-new file. This does not add an arbitrary-power-loss guarantee.
 
 ### Runtime attribution
 
@@ -367,8 +397,9 @@ Files:
 
 Add strict manifest generation/validation, runtime identity, activation
 read/write/replace, installer locking, stable launcher sibling-file
-publish/replace/rollback, and failure injection immediately before and during
-each atomic replace. The launcher directory is never a payload entry.
+publish/replace/rollback, the named Windows and Unix interop above, and failure
+injection immediately before and after each atomic replace. The launcher
+directory is never a payload entry.
 
 ### Slice 2 — runtime attribution
 
@@ -442,12 +473,30 @@ Inject failure at each boundary:
 - registered-command legacy smoke;
 - ARP update;
 - activation temp write;
-- activation replace before commit; and
+- Windows/Unix activation replacement return before commit;
+- failure immediately after successful kernel replacement; and
 - post-commit reporting/cleanup.
 
 Before commit, every failure restores the prior activation, registration, ARP,
 and stable control state. After commit, reporting failure must not roll back the
 new activation.
+
+### Atomic replacement acceptance
+
+- Race bounded activation readers against repeated old/new `active.json`
+  replacement and prove every read is one complete valid record.
+- Hold `active.json` open with the required Windows sharing flags during
+  replacement and prove it reads old complete bytes while a new open reads new
+  complete bytes.
+- Hold the destination without delete sharing and prove replacement fails,
+  performs no retry or destination deletion, and leaves old bytes selected.
+- Inject failure before the kernel call and after a successful kernel call;
+  prove the former leaves old bytes and the latter leaves new bytes without
+  rollback.
+- Reject cross-directory, link/reparse-point, duplicate-path, oversized, and
+  malformed inputs before replacement.
+- On Unix, prove the parent-directory flush occurs only after successful rename
+  and that a post-rename flush failure never deletes the new destination.
 
 ### Stable launcher path acceptance
 
@@ -537,6 +586,8 @@ the native self-contained launcher defined above, not a PowerShell launcher.
 The owner also settled `ssu-3`: registration migration uses the cautious
 harness-specific transaction above, not a uniform remove/add sequence. These
 decisions are joined by `ssu-4`: the launcher directory persists and only the
-launcher file may be atomically replaced. These decisions authorize plan
-finalization only. Implementation still requires a separate explicit go after
-all admitted review findings are closed. The next plan decision is `ssu-5`.
+launcher file may be atomically replaced. The owner settled `ssu-5` with the
+named Windows and Unix replacement contract above. These decisions authorize
+plan finalization only. Implementation still requires a separate explicit go
+after all admitted review findings are closed. The next plan decision is
+`ssu-6`.

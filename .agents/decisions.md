@@ -77,6 +77,28 @@ Canonical mechanics and guards live in
 plan design. It does not authorize implementation, installation, push, or any
 other outward action.
 
+### ACTIVE (2026-07-29): The registered launcher path is never removed
+
+**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+`ssu-4` plan disposition.
+
+The stable native launcher has its own persistent `~/.ptk/launcher/` directory,
+which is excluded from wholesale payload-directory replacement. After a managed
+registration names the launcher, install, upgrade, and rollback must never
+delete or rename that containing directory and must never expose an absent
+launcher path. A launcher update is staged and validated as a sibling file, then
+replaces only the launcher file in one platform-specific operation. A failed
+pre-replacement update leaves the old launcher untouched; rollback uses the same
+file-level protocol. Ordinary runtime upgrades do not touch unchanged launcher
+bytes and commit only by replacing `active.json`.
+
+The exact Windows replacement primitive and contention semantics remain the
+separate `ssu-5` decision. If a running mapped launcher cannot be replaced while
+preserving the stable-path invariant, the installer must leave it unchanged and
+fail closed; it must not fall back to remove-then-move. Canonical mechanics and
+guards live in `.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles
+only `ssu-4` plan design and authorizes no implementation or outward action.
+
 ### ACTIVE (2026-07-09): shell-dialect plan approved — `.agents/plans/shell-dialect.md`
 
 **Status:** Active — approved by owner in-session 2026-07-09. The plan's

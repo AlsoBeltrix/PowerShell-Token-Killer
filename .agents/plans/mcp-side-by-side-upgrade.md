@@ -3,11 +3,11 @@
 **Status:** DRAFT — implementation is not authorized. The owner-approved Claude
 Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
 and two declined candidates. The `ssu-1` native-launcher decision is settled;
-the `ssu-3` per-harness migration decision is also settled. Four other
-plan/product findings and one citation correction remain open. One admitted
-metadata finding was already resolved. The next owner gate is `ssu-4`.
-Codereview remains deferred until Slice 0 has implementation and deterministic
-guard proof.
+the `ssu-3` per-harness migration decision and `ssu-4` stable-path decision are
+also settled. Three other plan/product findings and one citation correction
+remain open. One admitted metadata finding was already resolved. The next owner
+gate is `ssu-5`. Codereview remains deferred until Slice 0 has implementation
+and deterministic guard proof.
 
 ## Goal
 
@@ -101,6 +101,24 @@ not authorize a symlink/junction or multi-registration fallback.
   policy.psd1 and other unknown files user-owned, untouched
 ```
 
+The `launcher/` directory is a persistent control directory, not a payload
+entry. After any managed registration names it:
+
+- install, upgrade, rollback, prune, and uninstall preparation never remove or
+  rename the directory;
+- ordinary runtime upgrades leave unchanged launcher bytes untouched;
+- a launcher update writes and validates a sibling temporary file, flushes it,
+  and replaces only `ptk-launch[.exe]` with the platform-specific atomic
+  primitive to be settled under `ssu-5`;
+- failure before replacement leaves the old launcher byte-identical;
+- handled rollback after replacement restores the snapshotted launcher through
+  the same file-level protocol, never remove-then-move; and
+- if the running launcher image cannot be replaced without an absent-path
+  window, the update fails closed and leaves the old launcher selected.
+
+No transaction payload inventory may include `launcher/` as a recursively
+replaceable entry.
+
 The semantic version is display metadata, not directory identity. The runtime
 directory identity is its RID plus the lowercase SHA-256 digest of a canonical
 manifest over every installer-owned runtime file. Rebuilding the same version
@@ -173,9 +191,11 @@ running supervisors to cooperate.
 4. create and validate the canonical runtime manifest;
 5. run the complete five-tool handshake directly against the staged binary;
 6. move the complete runtime directory to its immutable digest identity;
-7. snapshot installer-owned control files, `active.json`, managed registration
-   files, and Windows ARP state using the existing transaction machinery; and
-8. install the launcher and other stable control scripts.
+7. snapshot the launcher file separately from payload entries, plus other
+   installer-owned control files, `active.json`, managed registration files,
+   and Windows ARP state; and
+8. install or update the launcher with the stable file-level protocol above,
+   then install the other stable control scripts.
 
 Moving an already verified runtime into `versions/` is not activation. A failed
 later step may leave the immutable inactive runtime for reuse.
@@ -224,8 +244,11 @@ external state. The candidate runtime may remain inactive and immutable.
 ### Subsequent upgrades
 
 Managed registrations and the launcher command remain unchanged. Upgrade stages
-and validates a new immutable runtime, updates control/ARP state, then replaces
-only `active.json`. No running-process check occurs on this path.
+and validates a new immutable runtime. It leaves identical launcher bytes
+untouched; a required launcher change must complete the stable file-level
+protocol before activation. It then updates other control/ARP state and replaces
+only `active.json`. No running-process check occurs on the ordinary
+runtime-only path.
 
 ## Registration behavior
 
@@ -343,8 +366,9 @@ Files:
 - `server/test-staged-install.ps1`
 
 Add strict manifest generation/validation, runtime identity, activation
-read/write/replace, installer locking, and failure injection immediately before
-and during the atomic replace.
+read/write/replace, installer locking, stable launcher sibling-file
+publish/replace/rollback, and failure injection immediately before and during
+each atomic replace. The launcher directory is never a payload entry.
 
 ### Slice 2 — runtime attribution
 
@@ -411,7 +435,9 @@ Inject failure at each boundary:
 
 - staging validation;
 - immutable directory publication;
-- launcher/control-file installation;
+- launcher sibling-temp write and validation;
+- launcher file replacement without removing its directory;
+- other control-file installation;
 - each managed harness registration;
 - registered-command legacy smoke;
 - ARP update;
@@ -422,6 +448,23 @@ Inject failure at each boundary:
 Before commit, every failure restores the prior activation, registration, ARP,
 and stable control state. After commit, reporting failure must not roll back the
 new activation.
+
+### Stable launcher path acceptance
+
+With a managed registration continuously starting disposable clients while an
+upgrade runs:
+
+1. sample the registered launcher path throughout the update and prove it is
+   always a regular executable file;
+2. prove every completed client observes a complete old or new launcher file
+   and a complete old or new activation selection, never a partial file;
+3. inject failure before and during launcher replacement and prove the old
+   registered command still completes the five-tool handshake;
+4. on Windows, keep an old launcher process and its selected runtime alive while
+   attempting replacement, and prove either atomic replacement succeeds without
+   affecting that process or the update fails closed with the old file intact;
+   and
+5. prove no transaction operation recursively removes or renames `launcher/`.
 
 ### Live-upgrade acceptance
 
@@ -493,6 +536,7 @@ The owner settled `ssu-1` on 2026-07-29: the permanent registration boundary is
 the native self-contained launcher defined above, not a PowerShell launcher.
 The owner also settled `ssu-3`: registration migration uses the cautious
 harness-specific transaction above, not a uniform remove/add sequence. These
-decisions authorize plan finalization only. Implementation still requires a
-separate explicit go after all admitted review findings are closed. The next
-plan decision is `ssu-4`.
+decisions are joined by `ssu-4`: the launcher directory persists and only the
+launcher file may be atomically replaced. These decisions authorize plan
+finalization only. Implementation still requires a separate explicit go after
+all admitted review findings are closed. The next plan decision is `ssu-5`.

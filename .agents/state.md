@@ -14,10 +14,13 @@ short and update it when important repo facts change.
   contract. The owner also settled `ssu-3`: migration is transactional and
   harness-specific; Codex avoids its unsafe remove command, Grok requires a
   disposable-config CLI proof, and every changed harness rolls back
-  byte-for-byte on failure. Four other plan/product findings and one citation
-  correction remain open at
+  byte-for-byte on failure. The owner settled `ssu-4`: `launcher/` is never a
+  wholesale payload entry or removed after registration; launcher changes use
+  validated sibling-file replacement and fail closed if the stable path cannot
+  remain continuously present. Three other plan/product findings and one
+  citation correction remain open at
   `.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. The next owner gate is
-  `ssu-4`. Implementation is not authorized. Codereview remains deferred until
+  `ssu-5`. Implementation is not authorized. Codereview remains deferred until
   Slice 0 has an implemented fix and deterministic revert-fails/restore-passes
   guard proof.
 

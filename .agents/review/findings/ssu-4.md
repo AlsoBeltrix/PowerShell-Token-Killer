@@ -3,16 +3,19 @@
 **Severity**: MEDIUM — a connection started during an upgrade can observe the
 supposedly stable launcher path as missing.
 
-**Status**: Open
+**Status**: Plan decision resolved 2026-07-29; implementation and guard not
+started
 
-**Branch**: Not started
+**Branch**: `master`
 
-**Commit**: Not started
+**Commit**: Plan decision recorded in `.agents/decisions.md`; product not started
 
 ## Evidence
 
-- `.agents/plans/mcp-side-by-side-upgrade.md:75-88` places the stable launcher
-  below the install-root `scripts` directory.
+- At reviewed head `caf467e423105a621b1431302575b242f77791ac`,
+  `.agents/plans/mcp-side-by-side-upgrade.md:75-88` placed the stable launcher
+  below the install-root `scripts` directory. The later `ssu-1` decision moved
+  it to `launcher/` but did not itself define a non-removing update protocol.
 - `.agents/plans/mcp-side-by-side-upgrade.md:165-167` says to install the
   launcher and control files with existing transaction machinery.
 - `scripts/dev-install.ps1:69` includes `scripts` as one wholesale payload
@@ -36,14 +39,19 @@ transaction replaces wholesale.
 
 ## Approach
 
-Pending owner-approved plan revision. Separate immutable version payload entries
-from stable control files. Define an explicit one-time launcher installation and
-same-file replacement protocol that never removes the registered path, and make
-ordinary version activation mutate only the activation record.
+Owner approved the stable-path approach on 2026-07-29. The revised plan excludes
+`launcher/` from wholesale payload replacement, leaves unchanged launcher bytes
+untouched during ordinary runtime upgrades, and permits launcher changes only by
+validated sibling-file replacement. No install, upgrade, or rollback may remove
+or rename the registered directory.
 
 ## Files changed
 
-- Review records only; no plan or product change.
+- `.agents/decisions.md` — durable stable-path invariant.
+- `.agents/plans/mcp-side-by-side-upgrade.md` — launcher inventory, file-level
+  publication/rollback protocol, fault points, and concurrent-start acceptance.
+- Review/state records — finding progression only.
+- No product file changed.
 
 ## Guard proof
 
@@ -57,7 +65,8 @@ None.
 
 ## Known gaps
 
-The stable-control transaction primitive remains a plan decision.
+The exact Windows atomic replacement primitive and running-image contention
+behavior remain the `ssu-5` decision and Slice 1 proof.
 
 ## Reviewer comments
 

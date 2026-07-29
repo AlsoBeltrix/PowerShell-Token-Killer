@@ -2733,3 +2733,4 @@ frontier owner-selected inline for this session. Scope:
 | muc-2 | MEDIUM | Guardian replacement still cannot transparently replace the guardian or public contract | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-3 | MEDIUM | Daemon candidate conflicts with the settled stdio, no-reattachment topology | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-4 | LOW | Claimed version-root conflict does not follow when versions remain under `~/.ptk` | `[-]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-5 | LOW | Client reconnect is presented as unknown despite recorded Codex dead-transport failures | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

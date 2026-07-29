@@ -29,7 +29,7 @@ non-empty candidate findings.
 
 | ID | Reviewer severity | Candidate | Intake |
 |----|-------------------|-----------|--------|
-| ssu-1 | HIGH | Stable launcher makes `pwsh` a hard prerequisite | Pending |
+| ssu-1 | HIGH | Stable launcher makes `pwsh` a hard prerequisite | ADMITTED |
 | ssu-2 | HIGH | Launcher interposition lacks a designed containment edge | Pending |
 | ssu-3 | HIGH | Codex/Grok registration rewrite crosses known unsafe surfaces | Pending |
 | ssu-4 | MEDIUM | Current transaction can remove the stable launcher path | Pending |

@@ -2736,3 +2736,14 @@ frontier owner-selected inline for this session. Scope:
 | muc-5 | LOW | Client reconnect is presented as unknown despite recorded Codex dead-transport failures | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-6 | LOW | Review input is absent from the current-state discovery path | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-7 | MEDIUM | Ordinary installed upgrade strands active MCP conversations | `[~]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+
+---
+
+Openreview 2026-07-29 (side-by-side upgrade plan) — Claude Code `2.1.220`,
+`@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`, effort `max`,
+frontier owner-selected inline. Scope:
+`c4bd2af884faecda81af6eeb9bb3b698d5141bb7..caf467e423105a621b1431302575b242f77791ac`.
+
+| ID | Severity | Impact (one line) | Status | Branch | Reviewer |
+|----|----------|-------------------|--------|--------|----------|
+| ssu-1 | HIGH | Supported no-`pwsh` installs cannot start any managed PTK registration | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

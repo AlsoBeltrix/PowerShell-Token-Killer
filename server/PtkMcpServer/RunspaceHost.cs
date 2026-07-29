@@ -486,6 +486,11 @@ public sealed class RunspaceHost : IDisposable
                 iss.ExecutionPolicy = Microsoft.PowerShell.ExecutionPolicy.Bypass;
             }
             var runspace = RunspaceFactory.CreateRunspace(iss);
+            if (OperatingSystem.IsWindows())
+            {
+                runspace.ApartmentState = System.Threading.ApartmentState.STA;
+            }
+
             try
             {
                 // A private opener may have waited behind another host in

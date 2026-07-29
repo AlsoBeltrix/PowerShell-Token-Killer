@@ -9,6 +9,21 @@ public sealed class RunspaceHostTests : IDisposable
     public void Dispose() => _host.Dispose();
 
     [Fact]
+    public async Task Windows_runspace_uses_STA_for_COM_automation()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var result = await _host.InvokeAsync(
+            "[Threading.Thread]::CurrentThread.GetApartmentState().ToString()");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Equal("STA", result.Output.Trim());
+    }
+
+    [Fact]
     public async Task State_persists_across_calls()
     {
         await _host.InvokeAsync("$x = 41");

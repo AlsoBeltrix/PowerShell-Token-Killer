@@ -6,12 +6,15 @@ short and update it when important repo facts change.
 ## Now
 
 - **Non-disruptive side-by-side upgrade plan drafted at `5f5d00d`; Claude Opus
-  5 openreview approved.** `.agents/plans/mcp-side-by-side-upgrade.md` proposes a
+  5 openreview contested.** `.agents/plans/mcp-side-by-side-upgrade.md` proposes a
   stable per-client PowerShell launcher, immutable versioned runtimes, and one
   atomic activation record, with launcher byte/teardown feasibility as Slice 0.
-  Finding `muc-7` records the live-upgrade failure. Owner approved unprimed
-  Claude Opus 5 plan openreview on 2026-07-29. Codereview remains deferred:
-  its T3 gate requires an implemented fix and deterministic
+  Finding `muc-7` records the live-upgrade failure. The owner-approved
+  openreview over `c4bd2af..caf467e` completed its model run, but the verdict
+  envelope was not recoverable and its nonpersistent session could not re-emit;
+  no verdict or finding was accepted. See
+  `.agents/review/mcp-side-by-side-upgrade-opus5-r1.md`. Codereview remains
+  deferred: its T3 gate requires an implemented fix and deterministic
   revert-fails/restore-passes guard, which a draft plan cannot provide.
 
 - **MCP upgrade-continuity openreview completed on 2026-07-29; owner ruling

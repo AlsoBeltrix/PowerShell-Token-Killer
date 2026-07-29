@@ -1,8 +1,10 @@
 # Plan: Non-disruptive side-by-side MCP runtime upgrades
 
-**Status:** DRAFT — implementation is not authorized. Owner approved Claude
-Opus 5 openreview on 2026-07-29; codereview remains deferred until Slice 0 has
-implementation and deterministic guard proof.
+**Status:** DRAFT — implementation is not authorized. The owner-approved Claude
+Opus 5 openreview over `c4bd2af..caf467e` is contested because its final verdict
+envelope was not recoverable; no verdict or finding was accepted. See
+`.agents/review/mcp-side-by-side-upgrade-opus5-r1.md`. Codereview remains
+deferred until Slice 0 has implementation and deterministic guard proof.
 
 ## Goal
 

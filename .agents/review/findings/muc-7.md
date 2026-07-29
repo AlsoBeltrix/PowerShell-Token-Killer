@@ -4,9 +4,9 @@
 client transport, permanently removing PTK from that conversation until the
 whole client session restarts.
 
-**Status**: Plan openreview approved for dispatch; implementation has not
-started. Codereview remains deferred until Slice 0 has a product fix and
-deterministic revert-fails/restore-passes guard proof.
+**Status**: Plan openreview contested after an unrecoverable verdict envelope;
+implementation has not started. Codereview remains deferred until Slice 0 has
+a product fix and deterministic revert-fails/restore-passes guard proof.
 
 **Branch**: Not started.
 
@@ -70,3 +70,12 @@ Owner approved Claude Opus 5 plan openreview on 2026-07-29. Codereview was not
 dispatched: `.agents/playbooks/codereview.md` T3 is a pre-dispatch blocker when
 guard proof is missing, and a documentation plan cannot truthfully satisfy the
 required `guard_confirmed=true` verdict contract.
+
+The owner-approved openreview ran over `c4bd2af..caf467e` with Claude Code
+`2.1.220`,
+`@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`, effort `max`,
+frontier owner-selected inline for the session. Its final verdict envelope was
+not recoverable from the bounded capture, and the nonpersistent session could
+not perform the one allowed schema-only re-emission. The attempt is fail-closed
+and contested; see
+`.agents/review/mcp-side-by-side-upgrade-opus5-r1.md`.

@@ -2750,3 +2750,4 @@ frontier owner-selected inline. Scope:
 | ssu-2 | HIGH | Slice 0 already fails closed if launcher containment or no-orphan proof fails | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-3 | HIGH | Mandatory registration migration can brick Codex or remove unproven Grok entries | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-4 | MEDIUM | Existing wholesale `scripts` replacement can remove the registered launcher path | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-5 | MEDIUM | Activation record replacement has no defined Windows-atomic primitive | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

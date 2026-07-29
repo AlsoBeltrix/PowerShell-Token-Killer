@@ -1,6 +1,8 @@
 # MCP side-by-side upgrade plan — Claude Opus 5 openreview round 1
 
-**Status:** Contested — no verdict accepted and no finding admitted.
+**Status:** Superseded failed attempt — no verdict was accepted from this
+capture. The valid owner-authorized retry is recorded in
+`.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`.
 
 ## Dispatch
 

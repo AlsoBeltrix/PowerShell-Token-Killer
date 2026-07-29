@@ -2732,3 +2732,4 @@ frontier owner-selected inline for this session. Scope:
 | muc-1 | MEDIUM | Guardian candidate silently reopens an expressly superseded architecture | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-2 | MEDIUM | Guardian replacement still cannot transparently replace the guardian or public contract | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-3 | MEDIUM | Daemon candidate conflicts with the settled stdio, no-reattachment topology | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-4 | LOW | Claimed version-root conflict does not follow when versions remain under `~/.ptk` | `[-]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

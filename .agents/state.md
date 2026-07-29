@@ -5,6 +5,18 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Exact head `12e1ff5` is installed user-scoped on `ASHBIAMWEB1` as
+  `0.2.0-dev.g12e1ff5` (2026-07-29).** The owner authorized installation and
+  targeted process termination. The old installed supervisor/worker at
+  `0.2.0-dev.g7d66273` were path-verified and stopped; the transactional
+  installer refreshed Claude/Codex registrations, installed detected-harness
+  guidance/hooks, and wrote the user Add/Remove Programs entry. Staged,
+  activated, independent registered-command, and installed-property smokes
+  passed: exactly five tools, STA on Windows, external PowerShell 7 module path,
+  and ExchangeOnlineManagement discovery. New Claude-owned supervisors launched
+  from the installed path. This Codex session's deliberately severed old MCP
+  transport remains closed and requires a fresh client session; nothing was
+  pushed. Detailed hashes and process evidence are in `.agents/machines.md`.
 - **Windows enterprise validation landed local fixes `36146a1` and `56b562c`
   on `ASHBIAMWEB1` (2026-07-29).** Hosted workers now discover modules beside
   installed `pwsh`, and Windows runspaces now use STA for COM automation. The
@@ -12,8 +24,9 @@ short and update it when important repo facts change.
   explicitly selected values were retained and the remaining incomplete marker
   truthfully denotes uninspected type data. Graph never authenticated or read
   API data. STA removed the Outlook COM hang, but the local Outlook profile has
-  no current user, so no Inbox item was read. Nothing was installed, registered,
-  pushed, or left running; detailed host evidence is in `.agents/machines.md`.
+  no current user, so no Inbox item was read. No candidate was installed during
+  those field probes and no probe process was left running; detailed host
+  evidence is in `.agents/machines.md`.
 - **Exact-head Windows x64 PTK runtime/package acceptance passed at
   `7eaf8a0cbe391abda7185e23e621fe7b01028886` on `ASHBIAMWEB1`
   (2026-07-28).** Direct Windows execution found and separately committed
@@ -751,10 +764,11 @@ short and update it when important repo facts change.
    device authentication inside its 120-second window; retry Outlook metadata
    only after that exact account is configured as the profile's current user.
    On-prem Exchange still needs a different EMS-capable host. Run the ARM64 gate
-   only on matching real Linux. Candidate installation and intended-harness
-   restart remain separately authorized deployment work; use `56b562c` or later
-   and start a fresh Claude session so cached removed-tool references cannot
-   survive the five-tool schema change. No further ungated code change is queued.
+   only on matching real Linux. The candidate is installed; the next
+   intended-harness gate is a fresh Claude or Codex session proving the new
+   five-tool schema and one ordinary invoke without cached removed-tool
+   references. Do not reinstall merely to recover this deliberately severed
+   client connection. No further ungated code change is queued.
 2. Preserve `feature/mcp-resilience-r1` and every other work-carrying branch.
    Do not merge, install, delete, or continue the guardian/private-host line;
    the production-reliability salvage plan supersedes it.

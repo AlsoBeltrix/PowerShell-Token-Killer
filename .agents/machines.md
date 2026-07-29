@@ -1728,6 +1728,37 @@ was used._
   Graph helpers, and Outlook processes were removed. Nothing was installed,
   registered, pushed, or changed outside the authorized account-scoped reads.
 
+### Installed activation — 2026-07-29
+
+- The owner explicitly authorized installing the current candidate and killing
+  the running installed PTK process if needed. The prior payload was
+  `0.2.0-dev.g7d66273`. Supervisor PID 1732 and worker PID 9384 were re-resolved
+  immediately before termination as `PtkMcpServer.exe` under the exact
+  user-scoped installed `bin` path; both were stopped and no process from that
+  payload root remained before activation.
+- Default `scripts/dev-install.ps1` installed exact repository head `12e1ff5` as
+  `0.2.0-dev.g12e1ff5`. Staged and activated package validation each passed the
+  complete five-tool named-session handshake. The installed executable SHA-256
+  is `65d2c4ef7eb62384240c1ab0ca151d00b018f4f03571d0d4edaf9815125484de`;
+  the installed server DLL SHA-256 is
+  `1cc209704d8330ccc1a3b814b8269fc7c863fc10d1a619bf22b00554dd49b570`.
+  The user Add/Remove Programs entry reports the same version.
+- Claude and Codex registrations both resolve the exact installed executable.
+  Default detected-harness initialization installed Claude's hook/guidance,
+  Codex guidance, and the detected Gemini/agy PTK plugin. An independent
+  registered-command handshake passed after installation. A separate bounded
+  stdio smoke against the installed executable proved Windows apartment state
+  `STA`, the PowerShell 7 module directory present in `PSModulePath`, and
+  ExchangeOnlineManagement discoverable; its named session and process tree
+  exited cleanly.
+- The Codex connection whose old supervisor was deliberately killed returns
+  `Transport closed` and cannot bind the new process inside the same client
+  session. Two live Claude parents subsequently launched fresh supervisors from
+  the new installed path, proving activation is usable from new connections;
+  they were left running. A fresh Claude/Codex session remains required to prove
+  stale removed-tool references are gone in the intended harness. The installer
+  stage and temporary installed-runtime probe were removed. Nothing was pushed.
+
 ## Cross-host self-contained Linux package acceptance (2026-07-28)
 
 _Built one immutable package on `magneto`, then validated those exact package

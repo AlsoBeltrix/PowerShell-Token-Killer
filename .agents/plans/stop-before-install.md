@@ -1,6 +1,6 @@
 # Plan: Stop all PTK runtime processes before install
 
-**Status:** APPROVED 2026-07-30 — the owner directed PTK to require a complete
+**Status:** COMPLETE 2026-07-30 — the owner directed PTK to require a complete
 runtime stop before installing a new version and then said to continue.
 
 ## Goal
@@ -37,3 +37,10 @@ Run the focused guard, then the repository Pester suite. Prove the new guard is
 non-vacuous by temporarily removing `PtkWorkerBroker` from the checked names:
 the focused guard must fail; restore it and require the focused and full Pester
 suites to pass.
+
+Completed evidence:
+
+- focused runtime-process guard passed;
+- removing `PtkWorkerBroker` made that guard fail; byte restoration passed it;
+- Pester: 144 passed, 1 platform-skipped;
+- server: 1,215 passed.

@@ -21,6 +21,29 @@ public sealed class RuntimePackageBoundaryTests
     }
 
     [Fact]
+    public void Dev_installer_blocks_every_packaged_runtime_process()
+    {
+        var installer = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "dev-install.ps1"));
+
+        Assert.Contains(
+            "$ptkRuntimeProcessNames = @('PtkMcpServer', 'PtkWorkerBroker')",
+            installer,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Get-Process -Name $ptkRuntimeProcessNames",
+            installer,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            3,
+            installer.Split(
+                "Assert-PtkRuntimeNotRunning",
+                StringSplitOptions.None).Length - 1);
+    }
+
+    [Fact]
     public void Dev_installer_contains_registration_failures_inside_the_transaction()
     {
         var installer = File.ReadAllText(Path.Combine(

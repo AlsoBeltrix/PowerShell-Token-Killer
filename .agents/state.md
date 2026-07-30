@@ -8,7 +8,10 @@ short and update it when important repo facts change.
 - **Upgrade policy settled 2026-07-30: stop every PTK process before installing
   a new version.** Session disruption and client restart are accepted. The
   side-by-side launcher/version-retention plan is abandoned; no continuity,
-  activation-record, rollback, or prune implementation is queued.
+  activation-record, rollback, or prune implementation is queued. The installer
+  guard now covers installed `PtkMcpServer` and Unix `PtkWorkerBroker` processes
+  before both install and uninstall. Its focused mutation guard, 144-test Pester
+  suite (1 platform skip), and 1,215-test server suite passed.
 - **HISTORICAL — superseded 2026-07-30: Non-disruptive side-by-side upgrade plan
   drafted at `5f5d00d`; valid Claude
   Opus 5 openreview intake is complete.** `.agents/plans/mcp-side-by-side-upgrade.md`

@@ -125,17 +125,20 @@ function Get-PtkVersion {
     "0.2.0-dev.g$sha"
 }
 
-function Assert-PtkServerNotRunning {
+function Assert-PtkRuntimeNotRunning {
     # Replacing or removing bin/ under a live server half-fails on Windows
     # file locks and leaves a stale server running old code elsewhere;
     # recorded precedent: every rebuild needed Stop-Process first
     # (.agents/state.md).
-    $running = @(Get-Process -Name PtkMcpServer -ErrorAction SilentlyContinue |
+    $ptkRuntimeProcessNames = @('PtkMcpServer', 'PtkWorkerBroker')
+    $running = @(Get-Process -Name $ptkRuntimeProcessNames -ErrorAction SilentlyContinue |
             Where-Object { $_.Path -and $_.Path.StartsWith($ptkHome, [StringComparison]::OrdinalIgnoreCase) })
     if ($running.Count -gt 0) {
-        throw ("A ptk server from {0} is running (PID {1}). Stop it first " +
-            "(Stop-Process -Name PtkMcpServer) or restart the harness session, then re-run.") -f
-            $ptkHome, ($running.Id -join ', ')
+        throw ("PTK process(es) from {0} are running (PID {1}; name(s) {2}). " +
+            "Stop all PTK processes or restart the harness session, then re-run.") -f
+            $ptkHome,
+            ($running.Id -join ', '),
+            (($running.ProcessName | Sort-Object -Unique) -join ', ')
     }
 }
 
@@ -451,7 +454,7 @@ switch ($mode) {
     }
     'Uninstall' {
         Assert-NotElevated
-        Assert-PtkServerNotRunning
+    Assert-PtkRuntimeNotRunning
         # Per-agent init reversal first (needs a ptk_init.ps1), then Claude
         # registration, ARP, payload. ptk_init -Uninstall reverses every
         # SUPPORTED leg - not just detected ones (mhi-10) - (hook + guidance
@@ -478,7 +481,7 @@ switch ($mode) {
     }
     default {
         Assert-NotElevated
-        Assert-PtkServerNotRunning
+Assert-PtkRuntimeNotRunning
         $targetRid = Get-PtkRid
         $payloadVersion = Get-PtkVersion
         $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-stage-{0}" -f ([guid]::NewGuid()))

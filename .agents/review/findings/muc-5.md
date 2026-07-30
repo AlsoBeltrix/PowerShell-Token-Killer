@@ -3,7 +3,8 @@
 **Severity**: LOW — treating reconnect as merely unmeasured can distort the
 option ranking despite observed failures in a target client.
 
-**Status**: Open — review input only; no fix or implementation is authorized.
+**Status**: Closed 2026-07-30 — continuity architecture abandoned by owner;
+no fix or implementation remains.
 
 **Branch**: Not started.
 

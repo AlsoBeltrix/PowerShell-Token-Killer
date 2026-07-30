@@ -34,9 +34,32 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
-### ACTIVE (2026-07-29): Side-by-side registration uses a native stable launcher
+### ACTIVE (2026-07-30): Installed upgrades require a full PTK stop
 
-**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+**Status:** Active — directed by the owner on 2026-07-30.
+
+Before installing a new PTK version, all PTK processes must be stopped. The
+installer must refuse to replace the installed payload while PTK is running;
+the operator then restarts affected MCP client sessions after installation.
+That disruption is accepted product behavior.
+
+Do not retain old runtimes, add a stable native launcher, introduce
+`active.json`, or build transparent live-session cutover, rollback, or prune
+machinery. `.agents/plans/mcp-side-by-side-upgrade.md` is abandoned and retained
+only as historical review evidence.
+
+Prefer the smallest design that solves a demonstrated recurring problem.
+Continuity, resilience, compatibility, or migration architecture beyond the
+current need requires concrete evidence and explicit owner approval; speculative
+"keep it running at all costs" mechanisms are not product goals.
+
+This decision supersedes the five 2026-07-29 side-by-side decisions below
+(`ssu-1`, `ssu-3`, `ssu-4`, `ssu-5`, and `ssu-6`).
+
+### SUPERSEDED (2026-07-29): Side-by-side registration uses a native stable launcher
+
+**Status:** Superseded by the 2026-07-30 full-stop install decision. Originally
+approved by the owner in-session on 2026-07-29 as the
 `ssu-1` plan disposition.
 
 Every PTK-managed harness registration must point to a stable, per-RID native
@@ -55,9 +78,10 @@ Canonical implementation detail and guard scope live in
 plan design. It does not authorize implementation, installation, push, or any
 other outward action.
 
-### ACTIVE (2026-07-29): Registration migration is transactional per harness
+### SUPERSEDED (2026-07-29): Registration migration is transactional per harness
 
-**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+**Status:** Superseded by the 2026-07-30 full-stop install decision. Originally
+approved by the owner in-session on 2026-07-29 as the
 `ssu-3` plan disposition.
 
 PTK must not use one blind remove/add sequence for every harness. Before changing
@@ -77,9 +101,10 @@ Canonical mechanics and guards live in
 plan design. It does not authorize implementation, installation, push, or any
 other outward action.
 
-### ACTIVE (2026-07-29): The registered launcher path is never removed
+### SUPERSEDED (2026-07-29): The registered launcher path is never removed
 
-**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+**Status:** Superseded by the 2026-07-30 full-stop install decision. Originally
+approved by the owner in-session on 2026-07-29 as the
 `ssu-4` plan disposition.
 
 The stable native launcher has its own persistent `~/.ptk/launcher/` directory,
@@ -99,9 +124,10 @@ fail closed; it must not fall back to remove-then-move. Canonical mechanics and
 guards live in `.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles
 only `ssu-4` plan design and authorizes no implementation or outward action.
 
-### ACTIVE (2026-07-29): Control-file replacement uses named OS primitives
+### SUPERSEDED (2026-07-29): Control-file replacement uses named OS primitives
 
-**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+**Status:** Superseded by the 2026-07-30 full-stop install decision. Originally
+approved by the owner in-session on 2026-07-29 as the
 `ssu-5` plan disposition.
 
 `active.json` and stable-launcher updates use one canonical same-directory
@@ -123,9 +149,10 @@ plan already claims. Canonical mechanics and guards live in
 `.agents/plans/mcp-side-by-side-upgrade.md`. This decision settles only `ssu-5`
 plan design and authorizes no implementation or outward action.
 
-### ACTIVE (2026-07-29): Runtime launch verification is constant-bounded
+### SUPERSEDED (2026-07-29): Runtime launch verification is constant-bounded
 
-**Status:** Active — approved by the owner in-session on 2026-07-29 as the
+**Status:** Superseded by the 2026-07-30 full-stop install decision. Originally
+approved by the owner in-session on 2026-07-29 as the
 `ssu-6` plan disposition.
 
 The installer performs the complete manifest inventory and per-file hash check

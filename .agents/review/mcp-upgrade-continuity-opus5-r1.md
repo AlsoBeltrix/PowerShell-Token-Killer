@@ -1,7 +1,7 @@
 # MCP upgrade continuity — Claude Opus 5 openreview round 1
 
-**Status:** Complete with findings; intake triaged. Recommendation awaits owner
-ruling and grants no implementation authority.
+**Status:** Complete with findings; continuity architecture declined by owner
+direction on 2026-07-30. Retained as historical review evidence only.
 
 ## Review identity
 

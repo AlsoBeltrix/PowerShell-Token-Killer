@@ -3,7 +3,8 @@
 **Severity**: MEDIUM — selecting it without a decision reversal would authorize
 work that contradicts the current product and active-plan boundary.
 
-**Status**: Open — review input only; no fix or implementation is authorized.
+**Status**: Closed 2026-07-30 — continuity architecture abandoned by owner;
+no fix or implementation remains.
 
 **Branch**: Not started.
 

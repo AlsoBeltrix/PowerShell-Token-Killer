@@ -3,8 +3,7 @@
 **Severity**: MEDIUM — the literal launch contract can add a full runtime hash
 walk to every MCP connection and push startup beyond client timeouts.
 
-**Status**: Plan decision resolved 2026-07-29; implementation and guard not
-started
+**Status**: Closed 2026-07-30 — plan abandoned; no implementation remains
 
 **Branch**: `master`
 

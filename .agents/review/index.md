@@ -2729,13 +2729,13 @@ frontier owner-selected inline for this session. Scope:
 
 | ID | Severity | Impact (one line) | Status | Branch | Reviewer |
 |----|----------|-------------------|--------|--------|----------|
-| muc-1 | MEDIUM | Guardian candidate silently reopens an expressly superseded architecture | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| muc-2 | MEDIUM | Guardian replacement still cannot transparently replace the guardian or public contract | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| muc-3 | MEDIUM | Daemon candidate conflicts with the settled stdio, no-reattachment topology | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-1 | MEDIUM | Guardian candidate silently reopens an expressly superseded architecture | `[-]` | n/a — continuity work closed by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-2 | MEDIUM | Guardian replacement still cannot transparently replace the guardian or public contract | `[-]` | n/a — continuity work closed by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-3 | MEDIUM | Daemon candidate conflicts with the settled stdio, no-reattachment topology | `[-]` | n/a — continuity work closed by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | muc-4 | LOW | Claimed version-root conflict does not follow when versions remain under `~/.ptk` | `[-]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| muc-5 | LOW | Client reconnect is presented as unknown despite recorded Codex dead-transport failures | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| muc-6 | LOW | Review input is absent from the current-state discovery path | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| muc-7 | MEDIUM | Ordinary installed upgrade strands active MCP conversations | `[~]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-5 | LOW | Client reconnect is presented as unknown despite recorded Codex dead-transport failures | `[-]` | n/a — continuity work closed by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-6 | LOW | Review input is absent from the current-state discovery path | `[-]` | n/a — continuity work closed by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| muc-7 | MEDIUM | Ordinary installed upgrade strands active MCP conversations | `[-]` | n/a — disruption accepted by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 
 ---
 
@@ -2746,13 +2746,13 @@ frontier owner-selected inline. Scope:
 
 | ID | Severity | Impact (one line) | Status | Branch | Reviewer |
 |----|----------|-------------------|--------|--------|----------|
-| ssu-1 | HIGH | Supported no-`pwsh` installs cannot start any managed PTK registration | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-1 | HIGH | Supported no-`pwsh` installs cannot start any managed PTK registration | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-2 | HIGH | Slice 0 already fails closed if launcher containment or no-orphan proof fails | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| ssu-3 | HIGH | Mandatory registration migration can brick Codex or remove unproven Grok entries | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| ssu-4 | MEDIUM | Existing wholesale `scripts` replacement can remove the registered launcher path | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| ssu-5 | MEDIUM | Activation record replacement has no defined Windows-atomic primitive | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| ssu-6 | MEDIUM | Ambiguous launch verification can hash the full 129 MB runtime per connection | `[~]` | `master` | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| ssu-7 | MEDIUM | Pruning unused versions still requires stopping every PTK-backed client | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-3 | HIGH | Mandatory registration migration can brick Codex or remove unproven Grok entries | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-4 | MEDIUM | Existing wholesale `scripts` replacement can remove the registered launcher path | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-5 | MEDIUM | Activation record replacement has no defined Windows-atomic primitive | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-6 | MEDIUM | Ambiguous launch verification can hash the full 129 MB runtime per connection | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-7 | MEDIUM | Pruning unused versions still requires stopping every PTK-backed client | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-8 | MEDIUM | Retention does not promise an operator-selectable activation or rollback feature | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
-| ssu-9 | LOW | `muc-7` cites the wrong state-file line for GitHub issue 11 | `[ ]` | | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+| ssu-9 | LOW | `muc-7` cites the wrong state-file line for GitHub issue 11 | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-10 | LOW | `muc-7` index row omitted reviewer identity at the reviewed head | `[x]` | `master` (`36a1682`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

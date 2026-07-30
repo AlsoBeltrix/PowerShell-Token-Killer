@@ -4,7 +4,8 @@
 PTK server below the install root, recreating the session disruption the upgrade
 plan is intended to remove.
 
-**Status**: Open
+**Status**: Closed 2026-07-30 — plan abandoned; broad stop-before-install
+behavior was explicitly accepted
 
 **Branch**: Not started
 

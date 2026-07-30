@@ -1,15 +1,12 @@
 # Plan: Non-disruptive side-by-side MCP runtime upgrades
 
-**Status:** DRAFT — implementation is not authorized. The owner-approved Claude
-Opus 5 openreview over `c4bd2af..caf467e` completed intake with eight admitted
-and two declined candidates. The `ssu-1` native-launcher decision is settled;
-the `ssu-3` per-harness migration decision and `ssu-4` stable-path decision are
-also settled. The `ssu-5` OS-specific atomic-replacement decision is settled.
-The `ssu-6` bounded launch-verification decision is settled. One other
-plan/product finding and one citation correction remain open. One admitted
-metadata finding was already resolved. The next owner gate is `ssu-7`.
-Codereview remains deferred until Slice 0 has implementation and deterministic
-guard proof.
+**Status:** ABANDONED — superseded by the owner's 2026-07-30 direction.
+
+Do not implement this plan. Installed upgrades instead require all PTK processes
+to stop before payload replacement; affected MCP client sessions restart after
+installation. No old-version retention, stable launcher, activation record,
+live-session cutover, rollback, or prune machinery is authorized. This document
+is retained only as historical review evidence.
 
 ## Goal
 

@@ -3,7 +3,8 @@
 **Severity**: MEDIUM — an implementer could revive an expressly superseded
 architecture without the owner first reopening that decision.
 
-**Status**: Open — review input only; no fix or implementation is authorized.
+**Status**: Closed 2026-07-30 — continuity architecture abandoned by owner;
+no fix or implementation remains.
 
 **Branch**: Not started.
 

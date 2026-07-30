@@ -3,7 +3,8 @@
 **Severity**: MEDIUM — the highest-cost option can still break the public MCP
 connection when its stable component or tool contract changes.
 
-**Status**: Open — review input only; no fix or implementation is authorized.
+**Status**: Closed 2026-07-30 — continuity architecture abandoned by owner;
+no fix or implementation remains.
 
 **Branch**: Not started.
 

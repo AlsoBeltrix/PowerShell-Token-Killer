@@ -5,7 +5,12 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Non-disruptive side-by-side upgrade plan drafted at `5f5d00d`; valid Claude
+- **Upgrade policy settled 2026-07-30: stop every PTK process before installing
+  a new version.** Session disruption and client restart are accepted. The
+  side-by-side launcher/version-retention plan is abandoned; no continuity,
+  activation-record, rollback, or prune implementation is queued.
+- **HISTORICAL — superseded 2026-07-30: Non-disruptive side-by-side upgrade plan
+  drafted at `5f5d00d`; valid Claude
   Opus 5 openreview intake is complete.** `.agents/plans/mcp-side-by-side-upgrade.md`
   records the captured retry over `c4bd2af..caf467e`: ten candidates, eight
   admitted and two declined, with one admitted metadata finding already
@@ -29,7 +34,8 @@ short and update it when important repo facts change.
   Slice 0 has an implemented fix and deterministic revert-fails/restore-passes
   guard proof.
 
-- **MCP upgrade-continuity openreview completed on 2026-07-29; owner ruling
+- **HISTORICAL — superseded 2026-07-30: MCP upgrade-continuity openreview
+  completed on 2026-07-29; owner ruling
   pending.** Claude Opus 5 at max effort reviewed
   `d32f2a06e451df02cfa9b63d5c0dda570d1262ec..a308bdadbbda954340f48d63772e72787e9f6990`.
   Intake admitted five findings and declined one overstatement; see

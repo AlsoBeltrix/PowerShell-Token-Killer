@@ -3,7 +3,8 @@
 **Severity**: LOW — a reader following the evidence citation lands on unrelated
 state text instead of the GitHub issue that supports the stale-transport claim.
 
-**Status**: Open
+**Status**: Closed 2026-07-30 — citation correction is moot with the abandoned
+plan and accepted operational behavior
 
 **Branch**: Not started
 

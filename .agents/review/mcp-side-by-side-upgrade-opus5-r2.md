@@ -1,14 +1,11 @@
 # MCP side-by-side upgrade plan — Claude Opus 5 openreview round 2
 
-**Status:** Valid findings verdict; intake complete. Eight candidates were
-admitted and two declined; one admitted metadata finding was already resolved.
-No implementation is authorized.
+**Status:** Review complete; the reviewed plan was abandoned by owner direction
+on 2026-07-30. No implementation or further plan gate remains.
 
-The `ssu-1`, `ssu-3`, `ssu-4`, `ssu-5`, and `ssu-6` plan decisions are settled;
-the open plan/product finding is `ssu-7`; the open record correction is `ssu-9`;
-`ssu-10` was already resolved by `36a1682`; `ssu-2` and `ssu-8` were declined.
-The next owner gate is `ssu-7`. Codereview remains deferred until an implemented
-Slice 0 fix has deterministic revert-fails/restore-passes guard proof.
+The `ssu-1`, `ssu-3`, `ssu-4`, `ssu-5`, and `ssu-6` plan decisions were
+superseded. `ssu-7` and `ssu-9` closed with the plan's abandonment; `ssu-10`
+was already resolved by `36a1682`; `ssu-2` and `ssu-8` were declined.
 
 ## Review identity
 

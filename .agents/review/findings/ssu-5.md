@@ -4,8 +4,7 @@
 an absent record if the unspecified replacement is not atomic under Windows file
 sharing and retry behavior.
 
-**Status**: Plan decision resolved 2026-07-29; implementation and guard not
-started
+**Status**: Closed 2026-07-30 — plan abandoned; no implementation remains
 
 **Branch**: `master`
 

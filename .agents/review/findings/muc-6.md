@@ -3,8 +3,8 @@
 **Severity**: LOW — a cold session can miss the open architecture question and
 re-derive it without the review evidence.
 
-**Status**: In progress — current-state pointer added; independent finding-fix
-review has not been dispatched. No architecture implementation is authorized.
+**Status**: Closed 2026-07-30 — the continuity review is historical and no
+independent finding-fix review remains.
 
 **Branch**: `master` (docs-only state maintenance).
 

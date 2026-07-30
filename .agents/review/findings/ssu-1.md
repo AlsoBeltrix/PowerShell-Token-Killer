@@ -2,8 +2,7 @@
 
 **Severity**: HIGH — a supported installation without `pwsh` on `PATH` cannot
 start PTK through any managed registration.
-**Status**: Plan decision resolved 2026-07-29; implementation and guard not
-started
+**Status**: Closed 2026-07-30 — plan abandoned; no implementation remains
 **Branch**: `master`
 **Commit**: Plan decision recorded in `.agents/decisions.md`; product not started
 

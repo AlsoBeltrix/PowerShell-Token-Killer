@@ -4,9 +4,9 @@
 client transport, permanently removing PTK from that conversation until the
 whole client session restarts.
 
-**Status**: Plan openreview contested after an unrecoverable verdict envelope;
-implementation has not started. Codereview remains deferred until Slice 0 has
-a product fix and deterministic revert-fails/restore-passes guard proof.
+**Status**: Closed 2026-07-30 — accepted operational behavior. All PTK processes
+must stop before installation, and affected MCP client sessions restart
+afterward. No continuity fix remains.
 
 **Branch**: Not started.
 

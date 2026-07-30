@@ -3,8 +3,7 @@
 **Severity**: HIGH — the planned Codex and Grok remove/add migration can damage
 or lose a working registration before the replacement is proven.
 
-**Status**: Plan decision resolved 2026-07-29; implementation and guard not
-started
+**Status**: Closed 2026-07-30 — plan abandoned; no implementation remains
 
 **Branch**: `master`
 

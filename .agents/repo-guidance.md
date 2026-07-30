@@ -22,6 +22,14 @@ a tool's self-reported savings metric. The product go/no-go gate was decided
 behind their own criteria in the Open Decisions of `.agents/decisions.md`
 rather than any blanket gate.
 
+## Simplicity
+
+Prefer the smallest design that solves an observed, recurring problem. An
+accepted operational interruption is not itself a requirement to engineer it
+away. Do not add speculative continuity, resilience, compatibility, migration,
+or retained-version machinery without concrete evidence and explicit owner
+approval.
+
 ## Reading Order
 
 1. `AGENTS.md`

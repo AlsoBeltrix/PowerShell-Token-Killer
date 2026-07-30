@@ -1,6 +1,8 @@
 # MCP Upgrade Continuity Options
 
-**Status:** Review input only. No option is approved and this document grants no implementation authority.
+**Status:** CLOSED — all continuity options were declined by owner direction on
+2026-07-30. Installed upgrades require all PTK processes to stop; this document
+is historical review evidence only and grants no implementation authority.
 
 ## Goal
 

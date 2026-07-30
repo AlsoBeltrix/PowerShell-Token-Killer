@@ -3,8 +3,7 @@
 **Severity**: MEDIUM — a connection started during an upgrade can observe the
 supposedly stable launcher path as missing.
 
-**Status**: Plan decision resolved 2026-07-29; implementation and guard not
-started
+**Status**: Closed 2026-07-30 — plan abandoned; no implementation remains
 
 **Branch**: `master`
 

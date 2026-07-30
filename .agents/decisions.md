@@ -34,6 +34,20 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-07-30): PTK targets a global public release
+
+**Status:** Active — directed by the owner on 2026-07-30.
+
+PTK is a public product intended for global release, not a personal/team-only
+tool. Product, documentation, packaging, security, compatibility, and support
+decisions must be evaluated for unaffiliated users installing it on supported
+platforms.
+
+This target supersedes every current-file statement that limits PTK to personal,
+team, or owner-only use. Historical archives retain their original wording as
+provenance. The global target does not itself authorize a tag, public release,
+push, or other outward action; those remain separately gated.
+
 ### ACTIVE (2026-07-30): Installed upgrades require a full PTK stop
 
 **Status:** Active — directed by the owner on 2026-07-30.
@@ -415,10 +429,11 @@ work on both entries). The universal wrapper is the *surface* (`ptk <cmdlet>`); 
 "the agent happens to live in a warm EMS host." If both are built, `ptk_invoke` runs the
 cmdlet inside the owned runspace.
 
-**Why deferred (owner's framing):** unchanged from the universal-wrapper entry - ptk is
-a personal/team tool complementing `headroom`; the build trigger is measured benefit on
-real daily Windows work, not faith. This is a *larger* build than the universal wrapper
-(a whole MCP server + .NET hosting + app-reg/cert setup), so the bar is at least as high.
+**Historical deferral rationale (superseded 2026-07-30):** this originally
+treated PTK as a personal/team complement to `headroom` and required measured
+benefit on the owner's daily Windows work. The current global-public-release
+decision replaces that audience constraint. The historical evidence threshold
+does not limit work required for a safe, supportable public product.
 
 **Standing recommendation (for whoever picks this up):** Do not build the server first.
 (Superseded in practice 2026-07-02: the owner chose to build the server without the

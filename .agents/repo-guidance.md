@@ -11,16 +11,14 @@ formatted to text, summarizes them by type and selected properties, and
 renders compact output for LLM tool use. It is a structured-output compressor,
 not a Unix-command wrapper (see `README.md`).
 
-The owner treats this as a personal/team tool, not an org-wide product. (An
-earlier framing said it complements the owner's `headroom` PoC; headroom was
-stopped in 2026 as net negative — see the corrections in `.agents/decisions.md`.)
-The build trigger for larger architectural changes is measured benefit on real
-daily usage, not anticipated need — and specifically *experienced* benefit, not
-a tool's self-reported savings metric. The product go/no-go gate was decided
-**GO 2026-07-08** (unqualified; archived in `docs/history/decisions-archive.md`)
-— ptk continues as an active product; individual larger features still sit
-behind their own criteria in the Open Decisions of `.agents/decisions.md`
-rather than any blanket gate.
+PTK targets a global public release for unaffiliated users on its supported
+platforms. It is not confined to personal or team use. Product, documentation,
+packaging, security, compatibility, and support decisions must therefore be
+safe and understandable without access to the owner's environment. The product
+go/no-go gate was decided **GO 2026-07-08** (unqualified; archived in
+`docs/history/decisions-archive.md`). Individual larger features still require
+their own evidence and approval; the global audience is not blanket authority
+for speculative architecture.
 
 ## Simplicity
 

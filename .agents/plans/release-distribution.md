@@ -11,6 +11,9 @@ version v0.2.0, install root `~/.ptk` everywhere, winget as the eventual
 primary Windows path with readiness built into v0.2.0. One question remains
 deliberately open: the hook default in the public installer (owner: "decision
 for later" — must close before slice 4 finalizes installer UX).
+The owner confirmed on 2026-07-30 that PTK targets a global public release and
+is not confined to personal/team use. This plan's public distribution outcomes
+are required product work, subject to its remaining release gates.
 The owner confirmed on 2026-07-15 that nothing has shipped and this development
 environment is the only current use, then delegated the resilience packaging
 cutover. Slices 0-2 remain valid development evidence. The later guardian
@@ -23,7 +26,7 @@ guardian/private-host layout.
 **Decision basis:** owner direction 2026-07-04 (recorded as an amendment to the
 continuation decision in `.agents/decisions.md`): the current
 run-from-the-repo-checkout install story (`dotnet run --project ...`) is not
-acceptable for a release. The first public release has no current target date;
+acceptable for a release. The first global public release has no current target date;
 when authorized, it must ship as prebuilt per-platform binaries with a one-line
 installer (tier 3). The publish-and-register script (tier 1) and .NET tool
 packaging (tier 2) are **dev-only** paths, never the public install story.

@@ -5,6 +5,10 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Product scope changed 2026-07-30: PTK targets a global public release.**
+  Personal/team-only framing is superseded. Release work must serve unaffiliated
+  users on supported platforms; no tag, push, or public release is implicitly
+  authorized by this target.
 - **Upgrade policy settled 2026-07-30: stop every PTK process before installing
   a new version.** Session disruption and client restart are accepted. The
   side-by-side launcher/version-retention plan is abandoned; no continuity,

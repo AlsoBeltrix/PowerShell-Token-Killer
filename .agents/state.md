@@ -11,10 +11,13 @@ short and update it when important repo facts change.
   `b723080`, passed all six hosted jobs, and issue #14 is closed. GitHub issue
   #16 is active on `fix/issue-16-output-discovery`; its approved two-slice plan
   is `.agents/plans/issue-16-output-discovery.md`.
-- **Issue #16 current slice:** implement the internal bounded `OutputStore`
-  discovery model, retain the public named-session label separately from the
-  private quota/generation alias, prove the new guards non-vacuously, and obtain
-  exact-SHA Claude Opus 5 acceptance before integration.
+- **Issue #16 Slice 1 merged through PR 22 as `0b37f3a`:** internal discovery
+  is bounded, newest-first, retention-aware, and preserves public session names
+  separately from private quota identities. Opus accepted reviewed head
+  `8779454` with `guard_confirmed=true`; final hosted CI passed all six jobs.
+- **Issue #16 current slice:** expose fixed-maximum-10 `ptk_output action=list`
+  with optional public-session filtering, strict audit validation, public
+  contract/docs, a no-rerun integration guard, and exact-SHA Opus review.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -821,14 +824,13 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** execute Slice 1 of
-`.agents/plans/issue-16-output-discovery.md`, including non-vacuous guard proof,
-full relevant verification, an exact-SHA Claude Opus 5 review, and immediate
-push/integration if accepted.
+**Immediate next:** execute Slice 2 of
+`.agents/plans/issue-16-output-discovery.md`, including public tool/audit/schema
+guards, non-vacuous proof, exact-SHA Claude Opus 5 review, and hosted CI.
 
-**Then:** execute the public-tool/audit Slice 2, close issue #16 only after
-exact-head hosted CI is green, and rescan the live GitHub issue queue. Build
-identity and release readiness remain parked while product defects are active.
+**Then:** close issue #16 only after the accepted slice is merged and exact-head
+hosted CI is green, then rescan the live GitHub issue queue. Build identity and
+release readiness remain parked while product defects are active.
 
 1. Continue only an acceptance gate when its actual environment becomes
    available; do not conflate them. Rerun the remaining SIEM symlink-protection

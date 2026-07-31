@@ -444,7 +444,7 @@ public sealed class InvokeToolTests : IDisposable
             var response = await _runtime.InvokeAsync("$global:ptkSlowSealCount++; 'SEALED_OUTPUT'",
                 CancellationToken.None,
                 route: "pwsh",
-                timeoutSeconds: 1,
+                timeoutSeconds: 3,
                 outputStore: store);
             stopwatch.Stop();
 

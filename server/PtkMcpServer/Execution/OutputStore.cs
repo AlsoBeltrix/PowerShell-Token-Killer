@@ -106,6 +106,18 @@ internal sealed record OutputArtifactStatus(
     DateTimeOffset? ExpiresUtc,
     string? DetailCode);
 
+internal sealed record OutputArtifactListing(
+    string Handle,
+    string Session,
+    OutputArtifactState State,
+    long Bytes,
+    bool Complete,
+    OutputProvenance? Provenance,
+    DateTimeOffset CreatedUtc,
+    DateTimeOffset? SealedUtc,
+    DateTimeOffset? ExpiresUtc,
+    string? DetailCode);
+
 internal sealed record OutputReadResult(
     OutputArtifactState State,
     string Text,
@@ -260,6 +272,7 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
     private readonly Action? _sealCancellationRejectedForTests;
     private readonly Func<TimeSpan, Task>? _sealDelayForTests;
     private readonly string _sessionAlias;
+    private readonly string _sessionName;
     private readonly bool _waitForHealthyLane;
     private string? _failure;
     private bool _prepared;
@@ -269,6 +282,7 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
         Action? sealCancellationRejectedForTests = null,
         Func<TimeSpan, Task>? sealDelayForTests = null,
         string sessionAlias = "default",
+        string? sessionName = null,
         bool waitForHealthyLane = false)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
@@ -279,6 +293,11 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
                 "Output session attribution is required.",
                 nameof(sessionAlias))
             : sessionAlias;
+        _sessionName = string.IsNullOrWhiteSpace(sessionName ?? sessionAlias)
+            ? throw new ArgumentException(
+                "Output public session name is required.",
+                nameof(sessionName))
+            : sessionName ?? sessionAlias;
         _waitForHealthyLane = waitForHealthyLane;
     }
 
@@ -326,6 +345,7 @@ internal sealed class ForegroundOutputCapture : IForegroundOutputCapture
             {
                 if (!store.TryReserve(
                         _sessionAlias,
+                        _sessionName,
                         out var reservation,
                         out var failure))
                 {
@@ -523,6 +543,8 @@ public sealed class OutputStore : IDisposable
 {
     internal const int DefaultReadBytes = 16 * 1024;
     internal const int MaximumReadBytes = 64 * 1024;
+    internal const int DefaultListItems = 10;
+    internal const int MaximumListItems = 50;
     internal const int MaximumSearchMatches = 20;
     internal const int MaximumPatternBytes = 1024;
 
@@ -674,10 +696,21 @@ public sealed class OutputStore : IDisposable
         string sessionAlias,
         out OutputCaptureReservation? reservation,
         out string? failure)
+        => TryReserve(sessionAlias, sessionAlias, out reservation, out failure);
+
+    internal bool TryReserve(
+        string sessionAlias,
+        string sessionName,
+        out OutputCaptureReservation? reservation,
+        out string? failure)
     {
         try
         {
-            return TryReserveCore(sessionAlias, out reservation, out failure);
+            return TryReserveCore(
+                sessionAlias,
+                sessionName,
+                out reservation,
+                out failure);
         }
         finally
         {
@@ -689,12 +722,13 @@ public sealed class OutputStore : IDisposable
 
     private bool TryReserveCore(
         string sessionAlias,
+        string sessionName,
         out OutputCaptureReservation? reservation,
         out string? failure)
     {
         reservation = null;
         failure = null;
-        if (!IsSessionAlias(sessionAlias))
+        if (!IsSessionAlias(sessionAlias) || !IsSessionAlias(sessionName))
         {
             failure = "invalid_session";
             return false;
@@ -760,11 +794,12 @@ public sealed class OutputStore : IDisposable
                     string handle;
                     do { handle = CreateHandle(); }
                     while (_handles.ContainsKey(handle));
-                    var entry = new ArtifactEntry(
-                        id,
-                        handle,
-                        sessionAlias,
-                        now,
+                var entry = new ArtifactEntry(
+                    id,
+                    handle,
+                    sessionAlias,
+                    sessionName,
+                    now,
                         checked(++_nextSequence),
                         OutputArtifactState.Incomplete)
                     {
@@ -824,6 +859,50 @@ public sealed class OutputStore : IDisposable
                     }
                 }
             }
+        }
+    }
+
+    internal OutputArtifactListing[] List(string? sessionName, int limit)
+    {
+        try
+        {
+            if (sessionName is not null && !IsSessionAlias(sessionName))
+            {
+                throw new ArgumentException(
+                    "Output session name is invalid.",
+                    nameof(sessionName));
+            }
+
+            if (limit is < 1 or > MaximumListItems)
+            {
+                throw new ArgumentOutOfRangeException(nameof(limit));
+            }
+
+            lock (_gate)
+            {
+                ThrowIfDisposed();
+                RetainLocked(UtcNow());
+                return
+                [
+                    .. _entries.Values
+                        .Where(entry =>
+                            IsReadableArtifact(entry) &&
+                            (sessionName is null ||
+                             string.Equals(
+                                 entry.SessionName,
+                                 sessionName,
+                                 StringComparison.Ordinal)))
+                        .OrderByDescending(entry => entry.Sequence)
+                        .Take(limit)
+                        .Select(ToListing),
+                ];
+            }
+        }
+        finally
+        {
+            // Unlink I/O for tombstones claimed by this call's retention
+            // pass runs after the store lock is released (rbc-14).
+            DrainPendingArtifactDeletes();
         }
     }
 
@@ -1712,6 +1791,19 @@ public sealed class OutputStore : IDisposable
         entry.ExpiresUtc,
         entry.DetailCode);
 
+    private static OutputArtifactListing ToListing(ArtifactEntry entry) =>
+        new(
+            entry.Handle,
+            entry.SessionName,
+            entry.State,
+            entry.Bytes,
+            entry.Complete,
+            entry.Provenance,
+            entry.CreatedUtc,
+            entry.SealedUtc,
+            entry.ExpiresUtc,
+            entry.DetailCode);
+
     private static OutputArtifactStatus MissingStatus() => new(
         OutputArtifactState.NotFound,
         0,
@@ -2074,6 +2166,7 @@ public sealed class OutputStore : IDisposable
         Guid id,
         string handle,
         string sessionAlias,
+        string sessionName,
         DateTimeOffset createdUtc,
         long sequence,
         OutputArtifactState state)
@@ -2081,6 +2174,7 @@ public sealed class OutputStore : IDisposable
         internal Guid Id { get; } = id;
         internal string Handle { get; } = handle;
         internal string SessionAlias { get; } = sessionAlias;
+        internal string SessionName { get; } = sessionName;
         internal DateTimeOffset CreatedUtc { get; } = createdUtc;
         internal long Sequence { get; } = sequence;
         internal OutputArtifactState State { get; set; } = state;

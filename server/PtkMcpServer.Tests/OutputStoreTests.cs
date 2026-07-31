@@ -17,6 +17,74 @@ public sealed class OutputStoreTests : IDisposable
     }
 
     [Fact]
+    public void List_returns_newest_readable_artifacts_with_public_session_filter()
+    {
+        var now = new DateTimeOffset(2026, 7, 31, 18, 0, 0, TimeSpan.Zero);
+        using var store = CreateStore(
+            () => now,
+            maximumRetainedArtifacts: 3);
+
+        var alphaOld = Seal(
+            store,
+            "alpha-old",
+            sessionAlias: "alpha-generation-1",
+            sessionName: "alpha");
+        now = now.AddSeconds(1);
+        var beta = Seal(
+            store,
+            "beta",
+            sessionAlias: "beta-generation-1",
+            sessionName: "beta");
+        now = now.AddSeconds(1);
+        var alphaNew = Seal(
+            store,
+            "alpha-new",
+            sessionAlias: "alpha-generation-2",
+            sessionName: "alpha");
+
+        var alphaAcrossGenerations = store.List(
+            "alpha",
+            OutputStore.DefaultListItems);
+        Assert.Equal(
+            [alphaNew.Handle, alphaOld.Handle],
+            alphaAcrossGenerations.Select(item => item.Handle));
+        Assert.All(
+            alphaAcrossGenerations,
+            item => Assert.Equal("alpha", item.Session));
+
+        var newestTwo = store.List(sessionName: null, limit: 2);
+        Assert.Equal(
+            [alphaNew.Handle, beta.Handle],
+            newestTwo.Select(item => item.Handle));
+        Assert.All(newestTwo, item => Assert.NotNull(item.SealedUtc));
+        Assert.All(newestTwo, item => Assert.NotNull(item.ExpiresUtc));
+
+        Assert.True(
+            store.TryReserve(
+                "alpha-generation-3",
+                "alpha",
+                out var pending,
+                out var failure),
+            failure);
+        using (pending)
+        {
+            var afterPendingEviction = Assert.Single(
+                store.List("alpha", OutputStore.DefaultListItems));
+            Assert.Equal(alphaNew.Handle, afterPendingEviction.Handle);
+            Assert.Equal(
+                OutputArtifactState.Evicted,
+                store.Status(alphaOld.Handle!).State);
+        }
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => store.List(null, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => store.List(null, OutputStore.MaximumListItems + 1));
+        Assert.Throws<ArgumentException>(
+            () => store.List("Invalid Session", 1));
+    }
+
+    [Fact]
     public void Sealed_snapshot_has_repeatable_byte_chunks_and_bounded_literal_search()
     {
         var now = new DateTimeOffset(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
@@ -977,9 +1045,19 @@ public sealed class OutputStoreTests : IDisposable
             ReservationSettlingForTests: reservationSettlingForTests));
     }
 
-    private static OutputSealResult Seal(OutputStore store, string text, string sessionAlias = "default")
+    private static OutputSealResult Seal(
+        OutputStore store,
+        string text,
+        string sessionAlias = "default",
+        string? sessionName = null)
     {
-        Assert.True(store.TryReserve(sessionAlias, out var reservation, out var failure), failure);
+        Assert.True(
+            store.TryReserve(
+                sessionAlias,
+                sessionName ?? sessionAlias,
+                out var reservation,
+                out var failure),
+            failure);
         using (reservation)
         {
             var result = reservation!.Seal(new OutputArtifactContent(

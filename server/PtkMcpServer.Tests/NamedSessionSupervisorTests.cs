@@ -770,6 +770,48 @@ public sealed class NamedSessionSupervisorTests
     }
 
     [Fact]
+    public async Task Completed_output_is_discoverable_by_public_session_without_response_handle()
+    {
+        var fleet = new FakeFleet();
+        await using var sessions = CreateSupervisor(fleet);
+        using var outputStore = CreateOutputStore();
+        await sessions.OpenAsync("paid-review");
+
+        var invokeCount = 0;
+        fleet.Workers[0].InvokeHandler = (request, _) =>
+        {
+            Interlocked.Increment(ref invokeCount);
+            return Task.FromResult(
+                CompletedWithArtifact(request, "accepted-review-result"));
+        };
+
+        var completed = await sessions.InvokeAsync(
+            "paid-review",
+            "Invoke-PaidReview",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 900,
+            outputStore);
+
+        Assert.Equal(WorkerResultStatus.Completed, completed.Result.Status);
+        Assert.NotNull(completed.OutputRecovery?.Handle);
+
+        var discovered = Assert.Single(
+            outputStore.List(
+                "paid-review",
+                OutputStore.DefaultListItems));
+        Assert.Equal("paid-review", discovered.Session);
+        Assert.Contains(
+            "accepted-review-result",
+            outputStore.Read(
+                discovered.Handle,
+                offset: 0,
+                maximumBytes: OutputStore.MaximumReadBytes).Text,
+            StringComparison.Ordinal);
+        Assert.Equal(1, invokeCount);
+    }
+
+    [Fact]
     public async Task Quota_refusal_disables_capture_before_dispatch_without_consuming_a_sibling_quota()
     {
         var fleet = new FakeFleet();

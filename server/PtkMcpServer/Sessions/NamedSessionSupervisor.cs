@@ -135,6 +135,7 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
                 outputPreparation = new ForegroundOutputCapture(
                     outputStore,
                     sessionAlias: lease.Slot.Identity.ToString("N"),
+                    sessionName: name,
                     waitForHealthyLane: true);
                 await outputPreparation.PrepareAsync(
                     _outputStorageWait,

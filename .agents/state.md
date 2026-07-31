@@ -5,22 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended CI/GitHub review loop (2026-07-31):** see
-  `.agents/review/index.md`. `ci-rollback-2` is isolated on
-  `fix/ci-rollback-owner-fixture`; draft PR 17 proved the Windows rollback test
-  Windows owner-fixture fix merged through PR 18 as `c633877` after all six
-  jobs passed and Opus returned `guard_confirmed=true`. `ci-slow-seal-1` is
-  CI stabilization slices merged through PR 20 (`ebe6737`) with Opus
-  `guard_confirmed=true`. `gh-14-1` now isolates GitHub issue #14 on
-  `fix/issue-14-json-log-shaping`; draft PR 21 run `30668859211` passes all six
-  jobs after a non-vacuous revert proof. Opus accepted reviewed head `dcbb985`
-  with `guard_confirmed=true`; integrate after final CI, then close issue #14.
-
-- **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
-  readiness is parked, not current work. The next scoped product task is build
-  identity: every build must advance the visible version even when the source
-  commit is unchanged. No implementation plan exists yet, so code is not
-  authorized. After that slice, return to the live GitHub product-issue backlog.
+- **Active unattended GitHub remediation (2026-07-31):** CI stabilization
+  through PR 20 is merged and green. GitHub issue #14's mixed log/JSON integrity
+  fix was accepted by Opus with `guard_confirmed=true`, merged through PR 21 as
+  `b723080`, passed all six hosted jobs, and issue #14 is closed. GitHub issue
+  #16 is active on `fix/issue-16-output-discovery`; its approved two-slice plan
+  is `.agents/plans/issue-16-output-discovery.md`.
+- **Issue #16 current slice:** implement the internal bounded `OutputStore`
+  discovery model, retain the public named-session label separately from the
+  private quota/generation alias, prove the new guards non-vacuously, and obtain
+  exact-SHA Claude Opus 5 acceptance before integration.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -827,14 +821,14 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** draft a small, cold-agent build-identity implementation plan
-covering the allocator, repeated same-commit builds, dirty builds, runtime state,
-manifests, installed metadata, and non-vacuous verification. Keep it separate
-from the parked release-readiness plan and make no code change before approval.
+**Immediate next:** execute Slice 1 of
+`.agents/plans/issue-16-output-discovery.md`, including non-vacuous guard proof,
+full relevant verification, an exact-SHA Claude Opus 5 review, and immediate
+push/integration if accepted.
 
-**Then:** select the next live GitHub product issue from current evidence. Do not
-resume release policy, packaging, or publication work merely because the future
-global-release target remains recorded.
+**Then:** execute the public-tool/audit Slice 2, close issue #16 only after
+exact-head hosted CI is green, and rescan the live GitHub issue queue. Build
+identity and release readiness remain parked while product defects are active.
 
 1. Continue only an acceptance gate when its actual environment becomes
    available; do not conflate them. Rerun the remaining SIEM symlink-protection

@@ -26,6 +26,16 @@ function Set-CaseState {
     $staging = Join-Path $CaseRoot 'staging'
     New-Item -ItemType Directory -Path $payload, $registration, $staging -Force |
         Out-Null
+    if ($IsWindows) {
+        $payloadDirectory = [IO.DirectoryInfo]::new($payload)
+        $payloadSecurity = [IO.FileSystemAclExtensions]::GetAccessControl(
+            $payloadDirectory)
+        $payloadSecurity.SetOwner(
+            [Security.Principal.WindowsIdentity]::GetCurrent().User)
+        [IO.FileSystemAclExtensions]::SetAccessControl(
+            $payloadDirectory,
+            $payloadSecurity)
+    }
 
     foreach ($entry in 'bin', 'src', 'scripts') {
         New-Item -ItemType Directory -Path (Join-Path $payload $entry) -Force |

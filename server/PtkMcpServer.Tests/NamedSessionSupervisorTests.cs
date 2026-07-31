@@ -964,7 +964,7 @@ public sealed class NamedSessionSupervisorTests
         var alphaState = await sessions.StateAsync(
             "alpha",
             listAvailable: false).WaitAsync(TimeSpan.FromSeconds(1));
-        var result = await betaCall.WaitAsync(TimeSpan.FromSeconds(1));
+        var result = await betaCall.WaitAsync(CheckpointTimeout);
 
         Assert.True(alphaState.Available);
         Assert.True(commandDispatched.Task.IsCompletedSuccessfully);

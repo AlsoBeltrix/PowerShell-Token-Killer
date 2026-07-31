@@ -5,6 +5,11 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
+  readiness is parked, not current work. The next scoped product task is build
+  identity: every build must advance the visible version even when the source
+  commit is unchanged. No implementation plan exists yet, so code is not
+  authorized. After that slice, return to the live GitHub product-issue backlog.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -810,6 +815,15 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+**Immediate next:** draft a small, cold-agent build-identity implementation plan
+covering the allocator, repeated same-commit builds, dirty builds, runtime state,
+manifests, installed metadata, and non-vacuous verification. Keep it separate
+from the parked release-readiness plan and make no code change before approval.
+
+**Then:** select the next live GitHub product issue from current evidence. Do not
+resume release policy, packaging, or publication work merely because the future
+global-release target remains recorded.
 
 1. Continue only an acceptance gate when its actual environment becomes
    available; do not conflate them. Rerun the remaining SIEM symlink-protection

@@ -12,8 +12,9 @@ short and update it when important repo facts change.
   jobs passed and Opus returned `guard_confirmed=true`. `ci-slow-seal-1` is
   macOS slow-seal budget fix merged through PR 19 as `d07563c` after Opus
   returned `guard_confirmed=true`. Its final Windows run exposed
-  `ci-worker-cancel-1`: isolate the five-second dedicated-thread checkpoint,
-  verify hosted CI, and require Opus acceptance before integration.
+  `ci-worker-cancel-1`; draft PR 20 run `30666271214` passes all six jobs after
+  the checkpoint fix. Require Opus acceptance of reviewed head `82c89a1`
+  before integration.
 
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build

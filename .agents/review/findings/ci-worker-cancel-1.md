@@ -4,7 +4,7 @@
 deliberately separate cancellation thread after the expected fatal state.
 **Status**: In progress
 **Branch**: `fix/ci-worker-cancel-checkpoint`
-**Commit**: pending
+**Commit**: `82c89a1`
 
 ## Evidence
 
@@ -42,8 +42,9 @@ Keep the scheduler implementation and every behavioral assertion unchanged.
 - Red: hosted Windows run `30664616413`, attempt 1, timed out at the exact
   five-second callback checkpoint after observing the expected fatal error.
 - Green: the same head passed on attempt 2; the focused test passed 1/1 and the
-  full local server suite passed 1,215/1,215. Replacement hosted CI remains
-  pending.
+  full local server suite passed 1,215/1,215. Draft PR 20 run `30666271214`
+  then passed all six hosted jobs, including the Windows server suite and
+  handshake.
 
 ## Known gaps
 

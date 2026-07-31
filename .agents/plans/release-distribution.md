@@ -1,6 +1,11 @@
 # Plan: Release distribution — prebuilt binaries + one-line installer
 
-**Status:** APPROVED by owner 2026-07-04 (in-session go after resolving the
+**Status:** PAUSED 2026-07-31 — do not execute further release slices or ask
+release decisions until the owner explicitly activates
+`.agents/plans/release-readiness.md`. The product is not close to release;
+current work belongs to product defects and the GitHub issue backlog.
+
+**Historical approval:** approved by owner 2026-07-04 (in-session go after resolving the
 open questions and a codex review loop on the plan text — 3 LOW
 doc-consistency findings, all fixed and accepted; see
 `.agents/review/index.md`). Slices execute in order, codex review loop per

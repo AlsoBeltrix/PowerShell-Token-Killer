@@ -5,23 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
+  to release. Do not ask for release licensing, hook-default, signing, tagging,
+  or publication decisions now. Work the product and GitHub issue backlog.
+  `.agents/plans/release-readiness.md` is the future reactivation plan. Before
+  release readiness can activate, every build must receive a new visible build
+  identity; rebuilding one commit may not report the same version.
 - **Product scope changed 2026-07-30: PTK targets a global public release.**
   Personal/team-only framing is superseded. Release work must serve unaffiliated
   users on supported platforms; no tag, push, or public release is implicitly
   authorized by this target.
-- **Global-release backlog triage started 2026-07-30.** GitHub currently has
-  open product reports #3 and #7-#14. Confirmed release work includes the
-  Windows Defender/quarantine path (#7), high-volume worker transport failure
-  (#13), public installers/release automation, and a root license/security
-  posture. #14's first current-installed-runtime probe did not reproduce:
-  PTK source contains none of the reported `items compressed` marker, and a
-  synthetic 6,942-byte single-line JSON document plus its complete
-  `ptk_output` snapshot preserved all distinct field sentinels. Keep #14 open
-  until the exact sanitized fixture or client-layer transform is isolated.
-  Current `ptk_state` reports `audit: disabled`, so #9/#10 require
-  supersession/closure triage rather than renewed audit-journal architecture.
-  #11 still names the discarded guardian and must be reconciled to the accepted
-  stop/install/restart boundary; #12 needs a bounded current-topology repro.
 - **Upgrade policy settled 2026-07-30: stop every PTK process before installing
   a new version.** Session disruption and client restart are accepted. The
   side-by-side launcher/version-retention plan is abandoned; no continuity,

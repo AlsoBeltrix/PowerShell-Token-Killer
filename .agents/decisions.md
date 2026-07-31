@@ -34,6 +34,25 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-07-31): Release readiness is parked; every build gets a new identity
+
+**Status:** Active — directed by the owner on 2026-07-31.
+
+The global public release remains a future product target, not current work.
+Do not ask for or settle release licensing, hook defaults, signing, publication,
+or similar release decisions until the owner explicitly reactivates release
+readiness. Current work returns to product defects and the GitHub issue backlog.
+
+Every build must report a new user-visible build identity. Rebuilding the same
+commit must not produce the same reported version, because operators must be
+able to distinguish what is running on each host. The identity must be visible
+from runtime state and installed/build metadata. Exact allocation mechanics are
+deferred to implementation planning; this requirement is not optional.
+
+The parked activation gates and later work are canonical in
+`.agents/plans/release-readiness.md`. This decision narrows, but does not cancel,
+the 2026-07-30 global-public-release target.
+
 ### ACTIVE (2026-07-30): PTK targets a global public release
 
 **Status:** Active — directed by the owner on 2026-07-30.

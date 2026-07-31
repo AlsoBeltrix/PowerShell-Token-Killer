@@ -13,8 +13,8 @@ short and update it when important repo facts change.
   macOS slow-seal budget fix merged through PR 19 as `d07563c` after Opus
   returned `guard_confirmed=true`. Its final Windows run exposed
   `ci-worker-cancel-1`; draft PR 20 run `30666271214` passes all six jobs after
-  the checkpoint fix. Require Opus acceptance of reviewed head `82c89a1`
-  before integration.
+  the checkpoint fix. Opus accepted reviewed head `659a279` with
+  `guard_confirmed=true`; integrate after the final documentation-only CI run.
 
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build

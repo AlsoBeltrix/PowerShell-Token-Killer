@@ -2,7 +2,7 @@
 
 **Severity**: LOW — hosted Windows CI can time out while waiting for a
 deliberately separate cancellation thread after the expected fatal state.
-**Status**: In progress
+**Status**: Accepted; pending integration
 **Branch**: `fix/ci-worker-cancel-checkpoint`
 **Commit**: `82c89a1`
 
@@ -54,4 +54,17 @@ and the subsequent drain to complete.
 
 ## Reviewer comments
 
-Pending Claude Opus 5 review.
+Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
+/ max / frontier — escalated: owner (inline, session-only)
+
+- Reviewed head `659a279`, base `d07563c`; `guard_confirmed=true`;
+  verdict `accepted`; UTC `2026-07-31T21:38:07Z`.
+- `LatchFatal` fans out through `ActiveRequest.RequestCancellation`, which
+  starts a `LongRunning` thread. The wait measures host thread-start latency,
+  not a product contract, so the one-line checkpoint change is correctly
+  scoped.
+- Hosted red reached line 671 only after fatal latched; unchanged retry and
+  PR 20 green run supply the accepted manual guard. No commands were run in
+  the review transport.
+- Non-blocking follow-up: if adjacent five-second scheduler checkpoints recur,
+  align the suite on ten seconds rather than repeating isolated bumps.

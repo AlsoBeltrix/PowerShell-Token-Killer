@@ -10,9 +10,10 @@ short and update it when important repo facts change.
   `fix/ci-rollback-owner-fixture`; draft PR 17 proved the Windows rollback test
   Windows owner-fixture fix merged through PR 18 as `c633877` after all six
   jobs passed and Opus returned `guard_confirmed=true`. `ci-slow-seal-1` is
-  now isolated on `fix/ci-slow-seal-budget`; draft PR 19 run `30662384648`
-  passes all six jobs. Opus accepted reviewed head `aeb8b11` with
-  `guard_confirmed=true`; integrate after the final documentation-only CI run.
+  macOS slow-seal budget fix merged through PR 19 as `d07563c` after Opus
+  returned `guard_confirmed=true`. Its final Windows run exposed
+  `ci-worker-cancel-1`: isolate the five-second dedicated-thread checkpoint,
+  verify hosted CI, and require Opus acceptance before integration.
 
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build

@@ -2767,3 +2767,4 @@ finding is draft PR 17, run `30658534883`.
 |----|----------|-------------------|--------|--------|----------|
 | ci-rollback-2 | LOW | Windows CI exercises an inherited-owner failure instead of rollback | `[x]` | `fix/ci-rollback-owner-fixture` (`02f5a0c`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | ci-slow-seal-1 | LOW | macOS CI can exhaust the caller budget before the slow-seal assertion path | `[x]` | `fix/ci-slow-seal-budget` (`aeb8b11`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
+| ci-worker-cancel-1 | LOW | Windows CI can delay the scheduler's dedicated cancellation thread beyond a test checkpoint | `[~]` | `fix/ci-worker-cancel-checkpoint` (pending) | pending Opus review |

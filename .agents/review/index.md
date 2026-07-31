@@ -2765,4 +2765,4 @@ finding is draft PR 17, run `30658534883`.
 
 | ID | Severity | Impact (one line) | Status | Branch | Reviewer |
 |----|----------|-------------------|--------|--------|----------|
-| ci-rollback-2 | LOW | Windows CI exercises an inherited-owner failure instead of rollback | `[~]` | `fix/ci-rollback-owner-fixture` (`79c0fd8`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=false` |
+| ci-rollback-2 | LOW | Windows CI exercises an inherited-owner failure instead of rollback | `[x]` | `fix/ci-rollback-owner-fixture` (`02f5a0c`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |

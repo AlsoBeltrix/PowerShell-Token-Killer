@@ -9,9 +9,9 @@ short and update it when important repo facts change.
   `.agents/review/index.md`. `ci-rollback-2` is isolated on
   `fix/ci-rollback-owner-fixture`; draft PR 17 proved the Windows rollback test
   fixture can inherit a non-user owner, and draft PR 18 run `30660093533`
-  passes all six jobs after the fixture fix. Opus accepted the code but returned
-  `guard_confirmed=false` because Bash is denied, so the branch remains
-  unintegrated pending a guard-valid reviewer transcript.
+  passes all six jobs after the fixture fix. Opus accepted reviewed head
+  `02f5a0c` with `guard_confirmed=true`; integrate PR 18, then address the
+  separately scoped macOS slow-seal test boundary.
 
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build

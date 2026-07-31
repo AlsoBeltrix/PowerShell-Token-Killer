@@ -2,7 +2,7 @@
 
 **Severity**: LOW — the hosted Windows server suite fails before exercising
 the installer transaction assertions.
-**Status**: In progress
+**Status**: Accepted; pending integration
 **Branch**: `fix/ci-rollback-owner-fixture`
 **Commit**: `79c0fd8`
 
@@ -46,6 +46,13 @@ unchanged.
   server suite and handshake. The focused test and full local 1,215-test
   server suite also pass.
 
+## Guard attribution
+
+Runs `30658534883` and `30660093533` are sibling-branch runs rather than an
+isolated one-commit pair. The guard therefore rests on the failure text's
+unique origin in `Set-PtkInstallRootAccess` and the fixture fix being the only
+change that satisfies that precondition.
+
 ## Coder dispute (if any)
 
 None.
@@ -56,7 +63,18 @@ The local host already creates a current-user-owned fixture, so the revert side
 of the guard is supplied by the exact hosted run rather than a local failure.
 The unrelated macOS slow-seal failure remains separately scoped.
 
+Production's mismatched-owner refusal lacks a direct negative test.
+`server/test-staged-install.ps1` independently creates an owner-sensitive
+payload fixture and is not exercised by CI; both are separate follow-ups.
+
 ## Reviewer comments
+
+- Redispatch: Claude Code `2.1.220`; reviewed head `02f5a0c`, base `a261a94`;
+  `guard_confirmed=true`; verdict `accepted`; UTC
+  `2026-07-31T19:59:22Z`.
+- Reviewer accepted the hosted evidence as the manual guard because the exact
+  failure text has one repository origin and the fixture fix alone satisfies
+  that precondition. Final orchestrator outcome: accepted.
 
 Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
 / max / frontier — escalated: owner (inline, session-only)
@@ -70,6 +88,6 @@ Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
   field update.
 - Separate follow-up: production's mismatched-owner refusal lacks its own
   negative test; do not widen this finding.
-- Orchestrator outcome remains not accepted because the reviewer could not run
+- First dispatch was not accepted because the reviewer could not run
   Bash and therefore returned `guard_confirmed=false`. Hosted CI supplies the
   manual red/green guard but does not rewrite the transcript field.

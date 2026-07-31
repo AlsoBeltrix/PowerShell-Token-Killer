@@ -10,11 +10,11 @@ short and update it when important repo facts change.
   `fix/ci-rollback-owner-fixture`; draft PR 17 proved the Windows rollback test
   Windows owner-fixture fix merged through PR 18 as `c633877` after all six
   jobs passed and Opus returned `guard_confirmed=true`. `ci-slow-seal-1` is
-  macOS slow-seal budget fix merged through PR 19 as `d07563c` after Opus
-  returned `guard_confirmed=true`. Its final Windows run exposed
-  `ci-worker-cancel-1`; draft PR 20 run `30666271214` passes all six jobs after
-  the checkpoint fix. Opus accepted reviewed head `659a279` with
-  `guard_confirmed=true`; integrate after the final documentation-only CI run.
+  CI stabilization slices merged through PR 20 (`ebe6737`) with Opus
+  `guard_confirmed=true`. `gh-14-1` now isolates GitHub issue #14 on
+  `fix/issue-14-json-log-shaping`; draft PR 21 run `30668859211` passes all six
+  jobs after a non-vacuous revert proof. Opus accepted reviewed head `dcbb985`
+  with `guard_confirmed=true`; integrate after final CI, then close issue #14.
 
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build

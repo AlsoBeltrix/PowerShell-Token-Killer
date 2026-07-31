@@ -1351,6 +1351,17 @@ Describe 'Compress-PtcOutput' {
             })
         }
 
+        It 'keeps JSON-bearing mixed output out of lossy rtk log shaping' {
+            $env:PTK_RTK_PATH = Join-Path ([System.IO.Path]::GetTempPath()) 'no-such-rtk-binary.exe'
+            $json = '{"findings":[{"title":"ONE","evidence":"FIRST"},{"title":"TWO","evidence":"SECOND"}]}'
+            $mixed = @($script:logText) + $json
+
+            $result = $mixed | Compress-PtcOutput
+
+            $result | Should -BeExactly ($mixed -join [Environment]::NewLine)
+            $result | Should -Not -Match '^\[ptk:log'
+        }
+
         It 'falls back to labeled raw text when rtk is absent' {
             $env:PTK_RTK_PATH = Join-Path ([System.IO.Path]::GetTempPath()) 'no-such-rtk-binary.exe'
             $result = $script:logText | Compress-PtcOutput

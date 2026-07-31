@@ -12,8 +12,9 @@ short and update it when important repo facts change.
   jobs passed and Opus returned `guard_confirmed=true`. `ci-slow-seal-1` is
   CI stabilization slices merged through PR 20 (`ebe6737`) with Opus
   `guard_confirmed=true`. `gh-14-1` now isolates GitHub issue #14 on
-  `fix/issue-14-json-log-shaping`: keep single-line JSON records out of lossy
-  whole-stream log shaping, prove the new guard, then require Opus acceptance.
+  `fix/issue-14-json-log-shaping`; draft PR 21 run `30668859211` passes all six
+  jobs after a non-vacuous revert proof. Require Opus acceptance of reviewed
+  head `a3a89f8` before integration and closing issue #14.
 
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build

@@ -2766,4 +2766,4 @@ finding is draft PR 17, run `30658534883`.
 | ID | Severity | Impact (one line) | Status | Branch | Reviewer |
 |----|----------|-------------------|--------|--------|----------|
 | ci-rollback-2 | LOW | Windows CI exercises an inherited-owner failure instead of rollback | `[x]` | `fix/ci-rollback-owner-fixture` (`02f5a0c`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
-| ci-slow-seal-1 | LOW | macOS CI can exhaust the caller budget before the slow-seal assertion path | `[~]` | `fix/ci-slow-seal-budget` (pending) | pending Opus review |
+| ci-slow-seal-1 | LOW | macOS CI can exhaust the caller budget before the slow-seal assertion path | `[~]` | `fix/ci-slow-seal-budget` (`44b31ed`) | pending Opus review; hosted guard green |

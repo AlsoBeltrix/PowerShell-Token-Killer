@@ -4,7 +4,7 @@
 failure instead of exercising the slow output-store seal path.
 **Status**: In progress
 **Branch**: `fix/ci-slow-seal-budget`
-**Commit**: pending
+**Commit**: `44b31ed`
 
 ## Evidence
 
@@ -37,7 +37,8 @@ containment. Production timeout behavior and the assertions remain unchanged.
 - Red: hosted macOS run `30658534883` reached the unique budget-expired
   assertion failure with the one-second budget.
 - Green: focused test passed 1/1 and the full local server suite passed
-  1,215/1,215. Replacement hosted CI remains pending.
+  1,215/1,215. Draft PR 19 run `30662384648` then passed all six hosted
+  jobs, including macOS server tests and handshake.
 
 ## Known gaps
 

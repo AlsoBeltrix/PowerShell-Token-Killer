@@ -1083,6 +1083,7 @@ Describe 'development package layout' {
 
         $userSid = [Security.Principal.WindowsIdentity]::GetCurrent().User
         $rootOnly = [Security.AccessControl.DirectorySecurity]::new()
+        $rootOnly.SetOwner($userSid)
         $rootOnly.SetAccessRuleProtection($true, $false)
         $rootOnly.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
                 $userSid,

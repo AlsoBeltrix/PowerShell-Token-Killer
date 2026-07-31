@@ -456,7 +456,15 @@ function Compress-PtcObject {
 # across most of the first 40 lines). Ported from the experiment/ptk-router spike.
 function Test-PtcLogShaped {
     param([string]$Text)
-    $lines = @($Text -split "`r?`n" | Microsoft.PowerShell.Core\Where-Object { $_.Trim() }) | Microsoft.PowerShell.Utility\Select-Object -First 40
+    $allLines = @($Text -split "`r?`n" | Microsoft.PowerShell.Core\Where-Object { $_.Trim() })
+    $hasStructuredRecord = @($allLines | Microsoft.PowerShell.Core\Where-Object {
+        $trimmed = $_.Trim()
+        ($trimmed.StartsWith('{') -and $trimmed.EndsWith('}')) -or
+        ($trimmed.StartsWith('[') -and $trimmed.EndsWith(']'))
+    }).Count -gt 0
+    if ($hasStructuredRecord) { return $false }
+
+    $lines = @($allLines | Microsoft.PowerShell.Utility\Select-Object -First 40)
     if (@($lines).Count -lt 5) { return $false }
     $levelHits = @($lines | Microsoft.PowerShell.Core\Where-Object {
         $_ -match '\[(INFO|WARN|WARNING|ERROR|FATAL|DEBUG|TRACE)\]' -or

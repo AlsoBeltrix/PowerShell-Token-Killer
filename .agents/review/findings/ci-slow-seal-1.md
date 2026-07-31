@@ -2,7 +2,7 @@
 
 **Severity**: LOW — hosted macOS CI intermittently reports a call-budget
 failure instead of exercising the slow output-store seal path.
-**Status**: In progress
+**Status**: Accepted; pending integration
 **Branch**: `fix/ci-slow-seal-budget`
 **Commit**: `44b31ed`
 
@@ -47,4 +47,20 @@ reproduce it deterministically. Hosted macOS supplies the revert-side guard.
 
 ## Reviewer comments
 
-Pending Claude Opus 5 review.
+Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
+/ max / frontier — escalated: owner (inline, session-only)
+
+- Claude Code `2.1.220`; reviewed head `aeb8b11`, base `c633877`;
+  `guard_confirmed=true`; verdict `accepted`; UTC
+  `2026-07-31T20:53:05Z`.
+- The three-second budget leaves at most roughly one second for the blocked
+  seal before the unchanged two-second shaping reserve. The sub-two-second
+  assertion is now tighter than the caller budget and therefore proves seal
+  containment instead of caller expiry.
+- The hosted red failure text has one production origin, so run `30658534883`
+  plus green run `30662384648` is an accepted manual guard.
+- Non-blocking residual: a runner taking more than roughly one second to stand
+  up isolated shaping could still fail the elapsed bound; if observed, adjust
+  elapsed headroom with the caller budget rather than weakening the reserve.
+- Bash was unavailable; reviewer read the relevant head files directly and
+  claimed no command execution.

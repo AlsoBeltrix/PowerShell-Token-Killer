@@ -2756,3 +2756,13 @@ frontier owner-selected inline. Scope:
 | ssu-8 | MEDIUM | Retention does not promise an operator-selectable activation or rollback feature | `[-]` | n/a — declined intake | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-9 | LOW | `muc-7` cites the wrong state-file line for GitHub issue 11 | `[-]` | n/a — plan abandoned by owner | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
 | ssu-10 | LOW | `muc-7` index row omitted reviewer identity at the reviewed head | `[x]` | `master` (`36a1682`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+
+---
+
+Codereview 2026-07-31 (unattended CI stabilization) — Claude Opus 5 review is
+required before integration. The hosted guard for the current Windows fixture
+finding is draft PR 17, run `30658534883`.
+
+| ID | Severity | Impact (one line) | Status | Branch | Reviewer |
+|----|----------|-------------------|--------|--------|----------|
+| ci-rollback-2 | LOW | Windows CI exercises an inherited-owner failure instead of rollback | `[~]` | `fix/ci-rollback-owner-fixture` | pending Opus review |

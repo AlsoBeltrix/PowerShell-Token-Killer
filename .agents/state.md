@@ -5,6 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Active unattended CI/GitHub review loop (2026-07-31):** see
+  `.agents/review/index.md`. `ci-rollback-2` is isolated on
+  `fix/ci-rollback-owner-fixture`; draft PR 17 proved the Windows rollback test
+  fixture can inherit a non-user owner. Every slice requires Claude Opus 5
+  review before integration; branches stay unintegrated without a valid
+  reviewer transcript.
+
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build
   identity: every build must advance the visible version even when the source

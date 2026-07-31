@@ -5,6 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Active unattended CI/GitHub review loop (2026-07-31):** see
+  `.agents/review/index.md`. Each atomic slice requires Claude Opus 5 review
+  before integration. `ci-rollback-1` is isolated on
+  `fix/ci-rollback-diagnostic`; the established Opus model is reachable, but
+  its required Bash guard command is denied on this machine, so the branch
+  remains unintegrated while hosted CI gathers the missing failure detail.
+
 - **Handoff 2026-07-31 at `5ddc18b`: no product issue is in flight.** Release
   readiness is parked, not current work. The next scoped product task is build
   identity: every build must advance the visible version even when the source

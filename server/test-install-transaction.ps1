@@ -202,7 +202,7 @@ function Invoke-FailingCase {
     if ($ExpectUnconfirmedRollback) {
         Assert-True `
             -Condition ($failure.Exception.Message -match 'rollback could not be confirmed') `
-            -Message "Fault case '$Name' did not report unconfirmed rollback."
+            -Message "Fault case '$Name' did not report unconfirmed rollback. Actual: $($failure.Exception.Message)"
         Assert-True `
             -Condition (Test-Path -LiteralPath $snapshot -PathType Container) `
             -Message "Fault case '$Name' discarded the recovery snapshot."

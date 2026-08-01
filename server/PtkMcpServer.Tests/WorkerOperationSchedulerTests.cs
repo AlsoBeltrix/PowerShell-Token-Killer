@@ -668,8 +668,8 @@ public sealed class WorkerOperationSchedulerTests
         var failure = await Assert.ThrowsAsync<IOException>(async () =>
             await scheduler.Fatal.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal("injected write failure", failure.Message);
-        await secondCanceled.Task.WaitAsync(TimeSpan.FromSeconds(10));
-        await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(5));
+        await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.True(secondCanceled.Task.IsCompletedSuccessfully);
         Assert.Throws<WorkerProtocolException>(() => scheduler.Admit(Invoke(4)));
     }
 

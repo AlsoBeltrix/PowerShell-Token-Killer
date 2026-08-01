@@ -2784,3 +2784,5 @@ Claude Opus 5 separately reviewed `server/PtkMcpServer/Tools/InvokeTool.cs` at `
 The `server/PtkMcpServer/Tools/OutputTool.cs` pass at `a1b39249f5b34f45ce57c1c3cc909c30b6efe689` proposed one LOW empty-search-pattern finding. Source tracing showed `OutputStore.SearchCore` rejects a zero-byte pattern and `OutputTool` converts that exception to an invalid-request response; focused Opus adjudication returned `invalid`, `guard_confirmed=true`. No product change.
 
 Claude Opus 5 reviewed `server/PtkMcpServer/SupervisorLifecycle.cs` at `2ac1cd4168621f1e6b34b41d2fa62fdcf6ddea4c`, limited to admission, active-call draining, stop/dispose, cancellation ownership, and in-file concurrency. Verdict: `no_findings`; no product change or guard claim.
+
+Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerLaunchCommand.cs` at `d847df279fc3facce1ff157dd167eda623dadaf2`, limited to constructor validation, immutable snapshots, environment rules, reserved handles, and exposed values. Verdict: `no_findings`; no product change or guard claim.

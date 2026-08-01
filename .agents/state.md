@@ -869,8 +869,8 @@ short and update it when important repo facts change.
 ## Next
 
 **Immediate next:** continue bounded read-only Claude Opus 5 review in another
-production boundary. Current passes found no accepted defect; the latest
-`SupervisorLifecycle.cs` admission/stop/dispose review returned `no_findings`.
+production boundary. Current passes found no accepted defect; the latest worker
+launch-command validation and immutable-snapshot review returned `no_findings`.
 Keep periodic GitHub scans active for the three gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release

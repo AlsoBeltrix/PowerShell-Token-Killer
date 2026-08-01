@@ -869,9 +869,9 @@ short and update it when important repo facts change.
 ## Next
 
 **Immediate next:** continue bounded read-only Claude Opus 5 review in another
-production boundary. The `WorkerSupervisor.cs` and `InvokeTool.cs` passes found
-nothing; the `OutputTool.cs` empty-pattern candidate was adjudicated invalid by
-the existing store guard. Keep periodic scans active for three gated issues.
+production boundary. Current passes found no accepted defect; the latest
+`SupervisorLifecycle.cs` admission/stop/dispose review returned `no_findings`.
+Keep periodic GitHub scans active for the three gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-24` LOW accepted and plan-gated: confirmed-empty Unix launch cleanup drops the containment task, so a created broker/worker domain is reported as never launched.
+
 **Review intake:** `opr-23` MEDIUM accepted and plan gated: after Windows process creation, fast containment proof can erase launch provenance, causing cancellation to remove/cool the slot while slower proof leaves the same postlaunch failure `Faulted`.
 
 **Review intake:** `opr-22` LOW accepted and plan gated: startup cancellation begins before first-use factory construction, while the worker factory receives a later deadline and uses wall-clock comparison to distinguish timeout from shutdown, so a real timeout can be mislabeled `worker_start_canceled`.

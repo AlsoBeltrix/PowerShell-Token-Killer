@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/RawUsageCounter.cs` at `469959c622d4ea2c6b6a150d570b05b6869f337c`, limited to raw-usage counter overflow, atomicity, concurrency, and contract truthfulness using the complete source and bounded caller/test evidence in a no-tool transport. Verdict: `no_findings`; no product-change guard claim.
+
 **Closed repair — ci-worker-cancel-1:** LOW — the merged 10-second standalone cancellation-callback checkpoint recurred on Windows run `30692685449`; repair at `8588374f8d19b97a9c38d9606a6e331ba38b8452` synchronizes through scheduler drain, which already owns cancellation-task completion. Opus 5 exact-SHA verdict: `accepted`, `guard_confirmed=true`, no actionable findings. PR 29 run `30694440416` passed all six jobs and merged as `d7eefc5f7159469570135646a2667ca94b52d553`. Detail: `.agents/review/findings/ci-worker-cancel-1.md`.
 
 **Current intake — opr-7:** MEDIUM — quota-control creation exposes the final filename before its one-byte format marker is durable, so interrupted first initialization can permanently brick the spool. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-7.md`.

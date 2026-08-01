@@ -2770,3 +2770,4 @@ finding is draft PR 17, run `30658534883`.
 | ci-worker-cancel-1 | LOW | Windows CI can delay the scheduler's dedicated cancellation thread beyond a test checkpoint | `[x]` | `fix/ci-worker-cancel-checkpoint` (`659a279`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | gh-14-1 | HIGH | Mixed log output can hand trailing JSON to a lossy whole-stream shaper | `[x]` | `fix/issue-14-json-log-shaping` (`dcbb985`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | gh-16-1 | HIGH | Caller disconnect can strand a sealed successful invocation artifact | `[x]` | `fix/issue-16-output-discovery` (`8779454`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
+| gh-16-2 | HIGH | Public tool cannot discover retained output after caller disconnect | `[~]` | `fix/issue-16-output-list-tool` (`3833003`) | pending Claude Opus 5 max |

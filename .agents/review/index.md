@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Execution/BashExecutableIdentity.cs` at `385db4ce55de5abc2f6488166c72786a985f2ab2`, limited to executable identity capture, path handling, fail-closed behavior, and cross-platform semantics. Verdict: `no_findings`; no product change or guard claim.
+
 **Current intake — opr-4:** MEDIUM — cleanup-time caller cancellation can overwrite an already-elapsed RTK/Bash process timeout and suppress timeout/remote-effects reporting. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-4.md`.
 
 Workflow: see `.agents/playbooks/reviewloop.md`.

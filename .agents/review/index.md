@@ -1,5 +1,18 @@
 # Review status
 
+**Review record 2026-08-01 — WorkerOperationScheduler (no findings):** Claude
+Opus 5
+(`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
+reviewed `server/PtkMcpServer/Worker/WorkerOperationScheduler.cs` at
+`a46e065cc5e7d10798fef684022c3f082e555a59` in three exact-source passes,
+covering admission and replay, capacity, scheduler hops, cancellation and
+deadline grace, terminal result/artifact ordering, fatal latching, drain,
+active-request ownership, and disposal. Focused server, protocol-limit,
+production-callback, and test adjudication rejected post-drain admission,
+idempotence, deadline-overflow, terminal-write, fail-stop, observer-lifetime,
+and terminal-race candidates. Outcome: `no_findings`; no detail file, product
+change, or guard claim.
+
 **Review record 2026-08-01 — WorkerOutputArtifact (no findings):** Claude Opus 5
 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
 reviewed `server/PtkMcpServer/Worker/WorkerOutputArtifact.cs` at

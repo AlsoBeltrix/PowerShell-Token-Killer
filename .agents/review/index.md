@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-10:** MEDIUM — timeout environment parsing accepts positive infinity and out-of-range values, allowing `TimeSpan.FromSeconds` to crash supervisor or worker startup instead of applying the fallback. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-10.md`.
+
 **Current intake — opr-9:** MEDIUM — timeout environment variables use current-culture floating-point parsing, so the same text can silently resolve to a different duration across hosts. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-9.md`.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Tools/SessionTool.cs` at `dab8abbdb7a506bfb077d1a11d5bc94985dcdc20`, limited to the action/name validation matrix, audit alignment, nullable defaults, cancellation forwarding, routing, async exception behavior, and schema/description alignment using the complete adapter and bounded evidence in a no-tool transport. Verdict: `no_findings`; no product-change guard claim.

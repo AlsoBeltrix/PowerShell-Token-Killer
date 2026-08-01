@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-6:** MEDIUM — evidence-store faults clear the only state distinguishing a previously used root from a never-opened provider, so an absent root can make reconciliation report false success. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-6.md`.
+
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditEvidenceRetentionAudit.cs` at `735000e2cfabb88c3a82b8d1b13fa9f984bc6c07`, limited to retention-event construction, ordering and bounds, count and byte truthfulness, exception handling, sensitive data, and fail-closed behavior. Verdict: `no_findings`; no product change or guard claim.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditEvidenceOrphanReconciler.cs` at `77a324ec78a816afb8672e7b93438342ec84293a`, limited to evidence ownership recognition, orphan detection, concurrent publication and retention races, path and link safety, deletion ordering, exception handling, and fail-closed filesystem behavior. Verdict: `no_findings`; no product change or guard claim.

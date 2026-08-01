@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-12:** LOW — `ptk_invoke` accepts negative `timeoutSeconds` and silently selects the operator default even though the approved contract reserves that meaning for zero. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-12.md`.
+
 **Current intake — opr-11:** MEDIUM — `ptk_invoke` silently maps every unknown route to `auto`, so a typo in the documented `pwsh` consent token changes routing policy without refusal or warning. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-11.md`.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Program.cs` at `18760119e98e6a1ff36e9443ebb8548acc9ae01b`, limited to worker/supervisor separation, stdout purity, DI alias lifetimes, startup and shutdown ordering, transport stream custody, and request filter/scoping setup using the complete startup sequence and bounded test evidence in a no-tool transport. Existing `opr-8`, `opr-9`, and `opr-10` were excluded. Verdict: `no_findings`; no product-change guard claim.

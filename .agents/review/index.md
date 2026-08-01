@@ -1,5 +1,7 @@
 # Review status
 
+**Review record 2026-08-01 — WorkerOperationProtocol (no findings):** Claude Opus 5 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`) reviewed `server/PtkMcpServer/Worker/WorkerOperationProtocol.cs` at `76e2b4a4d701c992a30d3f20bf56a8a14563b7d0` in five exact-source passes, covering envelope identity, initialization and limits, invoke/state/cancel/result unions, artifact chunk/seal encoding, closed-object parsing, strict text/code validation, timeout semantics, and receiver order/bounds/digest ownership. Focused production-caller and protocol-layer adjudication rejected request dereference, deadline symmetry, state timeout projection, result/snapshot validation symmetry, empty-frame correlation, artifact-bound placement, and payload-kind candidates. It also rejected post-digest-failure receiver reuse because production treats that protocol failure as terminal and poisons/replaces the worker; re-review that candidate if a caller ever recovers and continues on the same receiver. Outcome: `no_findings`; no detail file, product change, or guard claim.
+
 **Review record 2026-08-01 — WorkerOperationScheduler (no findings):** Claude
 Opus 5
 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)

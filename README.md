@@ -117,9 +117,17 @@ Session rules:
 
 Raise `timeoutSeconds` when work needs the selected warm session. The budget
 includes same-session queue wait and execution. PTK has no public background-job
-surface: long stateless work should run through the harness's ordinary process
-facilities, or run in a dedicated PTK session with a sufficient foreground
-timeout.
+surface. Every process started by `ptk_invoke` belongs to that session worker's
+containment tree and is terminated when an executing call times out or the
+worker is reset, closed, replaced, or shut down. `Start-Process` inside PTK is
+not a supported detach path and must not be used for work that needs to survive
+those events.
+
+Start long stateless work outside PTK through the harness's ordinary process
+facilities, redirect its results to caller-chosen files, and poll it there. If
+the work needs warm-session state, use a dedicated PTK session with a sufficient
+foreground timeout; PTK intentionally provides no way to both inherit that
+state and outlive its worker.
 
 ## MCP Tools
 

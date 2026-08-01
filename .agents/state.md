@@ -870,8 +870,9 @@ short and update it when important repo facts change.
 
 **Immediate next:** continue bounded read-only Claude Opus 5 review in another
 production boundary. `opr-1` and `opr-2` are accepted new findings and both are
-plan gated; `opr-2` is a MEDIUM case-sensitive Unix cold-PATH resolution bug.
-Keep periodic GitHub scans active for the three gated issues.
+plan gated; the process-tree post-kill-sweep candidate was adjudicated invalid
+with the existing orphan guard confirmed. Keep periodic scans active for three
+gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

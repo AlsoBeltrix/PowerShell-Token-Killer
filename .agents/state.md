@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+**Review intake:** `opr-21` LOW accepted and plan gated: if worker initialization and its containment cleanup both fail, the cleanup wrapper overwrites the primary timeout/cancellation detail with generic `worker_initialize_failed`.
+
 **Review intake:** `opr-20` HIGH accepted and plan gated: cancellation of `StateAsync` in the proved pre-write window can poison and replace a healthy worker, losing warm named-session state even though no request reached the worker.
 
 **Review intake:** `opr-19` HIGH accepted and plan gated: every client stop self-rejects its graceful shutdown request after completing `_fatal`, so `shutdown` / `stopped` is unreachable and all stops fall through to forced containment.

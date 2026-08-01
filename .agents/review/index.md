@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-21:** LOW — a containment failure during failed worker initialization wraps the primary exception before classification, replacing timeout/cancellation detail with generic `worker_initialize_failed`. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-21.md`.
+
 **Open — opr-20:** HIGH — `ProcessSessionWorker.StateAsync` marks its write attempted before the writer's first pipe-write boundary, so proved pre-write cancellation can poison and replace a healthy worker and lose warm session state. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-20.md`.
 
 **Open — opr-19:** HIGH — every `ProcessSessionWorker.StopAsync` self-rejects its shutdown request after completing `_fatal`, so normal worker shutdown is unreachable and every stop uses forced containment. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-19.md`.

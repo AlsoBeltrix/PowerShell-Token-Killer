@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+**Review intake:** `opr-19` HIGH accepted and plan gated: every client stop self-rejects its graceful shutdown request after completing `_fatal`, so `shutdown` / `stopped` is unreachable and all stops fall through to forced containment.
+
 **CI remediation complete:** `.agents/plans/ci-macos-process-snapshot-guard.md`
 closed at test-only head `f466319`. The repaired equal-batch accumulation guard
 passed 1,221/1,221 local server tests, all six jobs in run `30712151152`, and two

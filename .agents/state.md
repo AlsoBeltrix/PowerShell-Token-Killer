@@ -882,11 +882,13 @@ short and update it when important repo facts change.
 
 **Immediate next:** resume bounded read-only Claude Opus 5 review on merged
 master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
-`opr-4` through `opr-15` are accepted and plan gated. `opr-14` is HIGH:
+`opr-4` through `opr-17` are accepted and plan gated. `opr-14` is HIGH:
 fixed-signature `fcntl` P/Invokes mispass variadic arguments on Apple arm64;
 `opr-15` is HIGH: Unix identity-probe errors can falsely clear a live observed
 escape. `opr-16` is LOW: a deadline-cancellation test uses the same losable
-callback witness as the repaired Windows CI recurrence. All three remediations
+callback witness as the repaired Windows CI recurrence. `opr-17` is HIGH:
+valid alias-definition parameter orderings are hard-refused as bash before
+execution. All four remediations
 await approved plans. The latest review queue also added
 Windows stdin partial-publication, timeout parsing, invoke validation, and
 Unix worker-environment identity findings; lifecycle callback candidates

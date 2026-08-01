@@ -5,15 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #12,
-  #14, #15, and #16 are closed. Issue #16's two-slice retained-output discovery
+- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #11,
+  #12, #14, #15, and #16 are closed. Issue #16's two-slice retained-output
+  discovery
   landed through
   PRs #22 and #23; public recovery is `ptk_output action=list`, optionally by
   named session, with a fixed ten-item bound. Both Opus reviews accepted with
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
   as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
   as `d140f13`; its active-member report remains tracked in issue #8. The live
-  queue has no open PR and seven open issues. PR #25 (`e522923`) removed the
+  queue has no open PR and six open issues. PR #25 (`e522923`) removed the
   issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
   and all six hosted jobs passed without that warning.
 - **GitHub issue #13 remains open after current-master triage:** two real-server
@@ -32,6 +33,13 @@ short and update it when important repo facts change.
   `42`, and the outer session remained ready. Opus accepted closure; no code
   change or regression guard was warranted. Reopen only with exact current
   build identity and server/worker exit diagnostics from a recurrence.
+- **GitHub issue #11 is closed after real-Codex transport-boundary validation:**
+  installed `0.2.0-dev.g12e1ff5` recovered a path-verified killed worker on the
+  same MCP connection, reported `warm_state_lost`, and invoked through a new
+  worker. Killing the path-verified public supervisor made the old client fail
+  immediately with `Transport closed`; a fresh Codex session launched a new
+  supervisor and invoked successfully. Opus accepted the qualified worker/public
+  boundary docs; PR #26 passed all six hosted jobs and merged as `3b570ff`.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -838,8 +846,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #11's stale-client transport report
-against the current packaged runtime and documented client/server boundary.
+**Immediate next:** triage GitHub issue #10's persistent audit-startup refusal
+against the current packaged runtime and retired producer topology.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.
@@ -914,9 +922,6 @@ readiness remain parked while product defects are active.
   disabled the affected installed server. The replacement named-session runtime
   removes that audit startup gate, but the issue is not closed until an
   authorized installed-harness validation proves the replacement path.
-- GitHub #11 (Codex keeps a stale ptk transport after the direct-server
-  cutover) is open; its explicit product/client boundary is carried into the
-  intended-harness restart gate for the replacement runtime.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

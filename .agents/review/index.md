@@ -1,6 +1,12 @@
 # Review status
 
-**Current intake — opr-17:** HIGH — valid alias-definition parameter orderings are missed by local-definition collection, so trusted preflight hard-refuses parse-clean PowerShell before execution. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-17.md`.
+**Current intake — opr-18:** LOW — `ptk_state listAvailable=true` silently
+reuses the first available-module inventory after the warm session changes its
+module search path or module files. Status: accepted; plan required. Reviewer:
+`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`.
+Detail: `.agents/review/findings/opr-18.md`.
+
+**Open — opr-17:** HIGH — valid alias-definition parameter orderings are missed by local-definition collection, so trusted preflight hard-refuses parse-clean PowerShell before execution. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-17.md`.
 
 **Review record 2026-08-01 — AuditExportCheckpoint (no findings):** Claude Opus 5
 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)

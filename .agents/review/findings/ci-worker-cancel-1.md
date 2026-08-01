@@ -2,9 +2,9 @@
 
 **Severity**: LOW — hosted Windows CI can time out while waiting for a
 deliberately separate cancellation thread after the expected fatal state.
-**Status**: Reopened; second recurrence repaired locally, Opus and hosted closure pending
-**Branch**: `fix/ci-worker-cancel-drain-checkpoint` (deleted after verified merge)
-**Commit**: `8588374f8d19b97a9c38d9606a6e331ba38b8452`; merge `d7eefc5f7159469570135646a2667ca94b52d553`
+**Status**: Closed; second recurrence repair merged and hosted verification passed
+**Branch**: `fix/ci-worker-cancel-witness` (deleted after verified merge)
+**Commit**: `9e66a350828e9bcd6d6995063437ff67685c599a`; merge `c9e5a44837ce2d5b87d3af23d694708d175bd637`
 
 ## Evidence
 
@@ -108,9 +108,25 @@ reliable witness.
 
 Diagnostic adjudication: `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
 (`max`, session-only) accepted the callback-disposal race and the catch-based,
-pre-drain witness. Exact-slice review and hosted closure remain pending.
+pre-drain witness.
+
+- Exact repair commit `9e66a350828e9bcd6d6995063437ff67685c599a`
+  against base `e41537eb1f1130e8c6cb951c994a76dede343947`: verdict
+  `accepted`; `guard_confirmed=true`; no blocking findings.
+- Exact whitespace-only follow-up
+  `d9493f82b4cf398844c8b8147e4cc3953afc052f`: verdict `accepted`;
+  prior indentation observation resolved with no semantic change.
+
+Hosted closure: PR 31 run `30703723050` passed all six jobs, including
+`test (windows-latest)`. PR 31 was marked ready and merged as
+`c9e5a44837ce2d5b87d3af23d694708d175bd637`; the full review-branch-to-
+`origin/master` tree diff was empty before branch deletion.
 
 ## First recurrence 2026-08-01
+
+Earlier repair branch: `fix/ci-worker-cancel-drain-checkpoint` (deleted after
+verified merge); commit `8588374f8d19b97a9c38d9606a6e331ba38b8452`;
+merge `d7eefc5f7159469570135646a2667ca94b52d553`.
 
 Repair verification:
 

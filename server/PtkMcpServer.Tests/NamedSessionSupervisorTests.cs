@@ -806,8 +806,8 @@ public sealed class NamedSessionSupervisorTests
         Assert.Contains("limit=10", listing, StringComparison.Ordinal);
         Assert.Contains("session=paid-review", listing, StringComparison.Ordinal);
         var handleLine = Assert.Single(
-            listing.Split(Environment.NewLine)
-                .Where(line => line.StartsWith("handle=", StringComparison.Ordinal)));
+            listing.Split(Environment.NewLine),
+            line => line.StartsWith("handle=", StringComparison.Ordinal));
         var discoveredHandle = handleLine["handle=".Length..]
             .Split(' ', 2, StringSplitOptions.None)[0];
 

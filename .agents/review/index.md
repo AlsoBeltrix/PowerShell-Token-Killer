@@ -1,5 +1,7 @@
 # Review status
 
+**Current repair — ci-worker-cancel-1 reopened:** LOW — the merged 10-second standalone cancellation-callback checkpoint recurred on Windows run `30692685449`; repair will synchronize through scheduler drain, which already owns cancellation-task completion. Status: in progress. Reviewer required before integration. Detail: `.agents/review/findings/ci-worker-cancel-1.md`.
+
 **Current intake — opr-7:** MEDIUM — quota-control creation exposes the final filename before its one-byte format marker is durable, so interrupted first initialization can permanently brick the spool. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-7.md`.
 
 **Current intake — opr-6:** MEDIUM — evidence-store faults clear the only state distinguishing a previously used root from a never-opened provider, so an absent root can make reconciliation report false success. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-6.md`.

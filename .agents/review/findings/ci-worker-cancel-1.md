@@ -2,9 +2,9 @@
 
 **Severity**: LOW — hosted Windows CI can time out while waiting for a
 deliberately separate cancellation thread after the expected fatal state.
-**Status**: Accepted; pending integration
-**Branch**: `fix/ci-worker-cancel-checkpoint`
-**Commit**: `82c89a1`
+**Status**: Reopened after recurrence on current `master`; repair in progress
+**Branch**: `fix/ci-worker-cancel-drain-checkpoint`
+**Commit**: pending
 
 ## Evidence
 
@@ -68,3 +68,9 @@ Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
   the review transport.
 - Non-blocking follow-up: if adjacent five-second scheduler checkpoints recur,
   align the suite on ten seconds rather than repeating isolated bumps.
+
+## Recurrence 2026-08-01
+
+The merged 5→10-second checkpoint repair was insufficient. GitHub Actions run `30692685449` at exact head `bf6abcfeb6520f2b2d8f09bbe415f16014967142` failed `test (windows-latest)` at `WorkerOperationSchedulerTests.cs:671` after `scheduler.Fatal` had already produced the expected injected writer failure; all other five jobs passed. The preceding Ubuntu run `30692302468` failed an independent quota-control publication race and its Windows job passed, so the recurrence remains host-scheduling-sensitive rather than a production semantic failure.
+
+The dedicated `secondCanceled` wait is redundant: `WorkerOperationScheduler.DrainAsync` awaits each active request owner, and the request owner awaits `ActiveRequest.ObserveCancellationAsync` before terminal completion. The repair must await `CancelAndDrainAsync` under one bounded test watchdog and assert `secondCanceled` completed afterward. This preserves proof that fatal writer failure canceled peer work while eliminating the separate pre-drain scheduling deadline.

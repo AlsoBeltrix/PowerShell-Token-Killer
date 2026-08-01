@@ -2,9 +2,9 @@
 
 **Severity**: LOW — hosted Windows CI can time out while waiting for a
 deliberately separate cancellation thread after the expected fatal state.
-**Status**: Recurrence repair accepted; hosted verification pending
-**Branch**: `fix/ci-worker-cancel-drain-checkpoint`
-**Commit**: `8588374f8d19b97a9c38d9606a6e331ba38b8452`
+**Status**: Closed; recurrence repair merged and hosted verification passed
+**Branch**: `fix/ci-worker-cancel-drain-checkpoint` (deleted after verified merge)
+**Commit**: `8588374f8d19b97a9c38d9606a6e331ba38b8452`; merge `d7eefc5f7159469570135646a2667ca94b52d553`
 
 ## Evidence
 
@@ -83,6 +83,8 @@ Recurrence reviewer: `@gcp-vertexai-us-global-integration/anthropic.claude-opus-
 - Confirmed drain snapshots and awaits active owner tasks, and owner completion awaits cancellation observation before removal.
 - Non-blocking observation: a narrow ordering window allows drain to label cancellation as shutdown after fatal publication but before fatal fan-out; the assertion still proves cancellation completion, while this test does not distinguish that internal reason.
 - No commands or file changes were permitted in the review transport.
+
+Hosted closure: PR 29 run `30694440416` passed all six jobs, including `test (windows-latest)`. PR 29 merged as `d7eefc5f7159469570135646a2667ca94b52d553`; a full branch-to-`origin/master` tree diff was empty before branch deletion.
 
 The merged 5→10-second checkpoint repair was insufficient. GitHub Actions run `30692685449` at exact head `bf6abcfeb6520f2b2d8f09bbe415f16014967142` failed `test (windows-latest)` at `WorkerOperationSchedulerTests.cs:671` after `scheduler.Fatal` had already produced the expected injected writer failure; all other five jobs passed. The preceding Ubuntu run `30692302468` failed an independent quota-control publication race and its Windows job passed, so the recurrence remains host-scheduling-sensitive rather than a production semantic failure.
 

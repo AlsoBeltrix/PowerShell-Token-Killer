@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Tools/StateTool.cs` at `b9d862ef39a8c3b25518c5737f15535aaf1a3323`, limited to adapter validation/default alignment, session routing, cancellation and boolean forwarding, async exception behavior, and schema/description alignment using the complete adapter and bounded audit/seam evidence in a no-tool transport. Verdict: `no_findings`; no product-change guard claim.
+
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Sessions/ISessionOperations.cs` at `79d9d128c30e612daa6b62cd753ca7ee85d15cba`, limited to the trusted tool-facing boundary, protocol exposure, output-store custody, argument routing, session defaults, and ordered lifetime ownership. A declaration-only pass raised five candidates; an evidence-bound contested pass rejected all five against actual DI, adapters, worker-surface tests, and lifecycle ordering. Final verdict: `no_findings`; no product-change guard claim.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Tools/ResetTool.cs` at `dfe0da7b4fc59ed90dc4f97cf3fa007a8d650240`, limited to validation, default-session selection, cancellation forwarding, session routing, async exception behavior, and schema/description alignment using the complete adapter and bounded caller/test evidence in a no-tool transport. Verdict: `no_findings`; no product-change guard claim.

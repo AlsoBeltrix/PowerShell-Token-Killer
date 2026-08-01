@@ -1,5 +1,18 @@
 # Review status
 
+**Review record 2026-08-01 — WorkerOutputArtifact (no findings):** Claude Opus 5
+(`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
+reviewed `server/PtkMcpServer/Worker/WorkerOutputArtifact.cs` at
+`f46631961c651cfc888bb9c8b22923862b9d857a` in three exact-source passes,
+covering supervisor capture binding, chunk/seal validation, reservation discard,
+sink publication and timeout ownership, disposal and secret clearing, foreground
+capture bounds and cloning, and strict artifact codec validation. Focused caller,
+store, protocol-receiver, runspace-bound, and test adjudication rejected
+reservation, buffer/CTS race, maximum-bound, detail-publication, seal/dispose,
+codec-invariant, and decode-classification candidates. The serial-caller
+invariant is the re-adjudication trigger if capture ownership later changes.
+Outcome: `no_findings`; no detail file, product change, or guard claim.
+
 **Review record 2026-08-01 — WorkerServer (no findings):** Claude Opus 5
 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
 reviewed `server/PtkMcpServer/Worker/WorkerServer.cs` at

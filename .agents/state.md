@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-26` MEDIUM accepted and plan-gated: a cached pre-arm Unix process snapshot can satisfy the registry's healthy-observation gate and falsely confirm an escaped domain empty.
+
 - **Review intake:** `opr-25` MEDIUM accepted and plan-gated: Unix exit observation converts identity-query exceptions or a faulted broker wait into worker death, poisoning a healthy warm session.
 
 - **Review intake:** `opr-24` LOW accepted and plan-gated: confirmed-empty Unix launch cleanup drops the containment task, so a created broker/worker domain is reported as never launched.

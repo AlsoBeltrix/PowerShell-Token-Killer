@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-26:** MEDIUM — a shared Unix process-table snapshot captured before registration arming can count as healthy post-arm evidence and falsely confirm an escaped domain empty. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-26.md`.
+
 **Open — opr-25:** MEDIUM — Unix worker-exit observation treats identity-query exceptions and a faulted broker wait as successful exit signals, poisoning a healthy warm session. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-25.md`.
 
 **Open — opr-24:** LOW — confirmed-empty Unix launch cleanup bare-rethrows the handshake failure without a containment task, so a created worker domain is reported as never launched. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-24.md`.

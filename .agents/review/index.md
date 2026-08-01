@@ -1,6 +1,6 @@
 # Review status
 
-**Current repair — ci-worker-cancel-1 reopened:** LOW — the merged 10-second standalone cancellation-callback checkpoint recurred on Windows run `30692685449`; repair at `8588374f8d19b97a9c38d9606a6e331ba38b8452` synchronizes through scheduler drain, which already owns cancellation-task completion. Status: reviewer pending. Detail: `.agents/review/findings/ci-worker-cancel-1.md`.
+**Current repair — ci-worker-cancel-1 reopened:** LOW — the merged 10-second standalone cancellation-callback checkpoint recurred on Windows run `30692685449`; repair at `8588374f8d19b97a9c38d9606a6e331ba38b8452` synchronizes through scheduler drain, which already owns cancellation-task completion. Opus 5 exact-SHA verdict: `accepted`, `guard_confirmed=true`, no actionable findings. Status: hosted verification pending. Detail: `.agents/review/findings/ci-worker-cancel-1.md`.
 
 **Current intake — opr-7:** MEDIUM — quota-control creation exposes the final filename before its one-byte format marker is durable, so interrupted first initialization can permanently brick the spool. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-7.md`.
 

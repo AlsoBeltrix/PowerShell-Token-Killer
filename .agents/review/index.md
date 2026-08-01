@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-13:** MEDIUM — worker launch freezes environment names with unconditional case-insensitive identity, so valid case-differing Unix variables are rejected as duplicates and can block all workers. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-13.md`.
+
 **Current intake — opr-12:** LOW — `ptk_invoke` accepts negative `timeoutSeconds` and silently selects the operator default even though the approved contract reserves that meaning for zero. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-12.md`.
 
 **Current intake — opr-11:** MEDIUM — `ptk_invoke` silently maps every unknown route to `auto`, so a typo in the documented `pwsh` consent token changes routing policy without refusal or warning. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-11.md`.

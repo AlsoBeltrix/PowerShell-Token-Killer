@@ -1,6 +1,8 @@
 # Review status
 
-**Current intake — opr-16:** LOW — the responsive deadline-cancellation test's disposable callback can unregister during delay unwind, causing a false timeout after correct product cancellation. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-16.md`.
+**Current intake — opr-17:** HIGH — valid alias-definition parameter orderings are missed by local-definition collection, so trusted preflight hard-refuses parse-clean PowerShell before execution. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-17.md`.
+
+**Open — opr-16:** LOW — the responsive deadline-cancellation test's disposable callback can unregister during delay unwind, causing a false timeout after correct product cancellation. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-16.md`.
 
 **Open — opr-15:** HIGH — Unix containment treats every nonfatal identity-query exception as process death, so a transient probe failure can clear a live observed escape and release its session alias. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-15.md`.
 

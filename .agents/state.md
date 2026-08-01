@@ -870,8 +870,8 @@ short and update it when important repo facts change.
 
 **Immediate next:** continue bounded read-only Claude Opus 5 review in another
 production boundary. `opr-1` remains the only accepted new finding and is plan
-gated; the latest worker exit-code and bounded-diagnostic pass returned
-`no_findings`. Keep periodic GitHub scans active for the three gated issues.
+gated; the latest worker-session dispatch, capture, and result-mapping pass
+returned `no_findings`. Keep periodic scans active for the three gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

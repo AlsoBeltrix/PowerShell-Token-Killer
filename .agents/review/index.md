@@ -2,6 +2,20 @@
 
 **Current intake — opr-17:** HIGH — valid alias-definition parameter orderings are missed by local-definition collection, so trusted preflight hard-refuses parse-clean PowerShell before execution. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-17.md`.
 
+**Review record 2026-08-01 — AuditExportCheckpoint (no findings):** Claude Opus 5
+(`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
+reviewed `server/PtkMcpServer/Audit/AuditExportCheckpoint.cs` at
+`497e0b2abee0522b26b976e65fb0c4d74df05157`, limited to immutable checkpoint
+and blocked-record invariants, strict canonical JSON, byte/newline/BOM bounds,
+UUID and timestamp canonicality, cursor adjacency, overflow, and exception
+projection. The invariant pass proposed that acknowledged and next-blocked
+event IDs must differ; the reviewer rejected the sole candidate on evidence from the
+reader and store consumers because both records are independently bound to
+distinct spool positions and sequences, so equality cannot rewind or replay the
+cursor. No owner ruling was sought or required. The codec/helper pass returned
+`no_findings`. Outcome: no findings recorded, no detail file or open item, and
+no product or test change.
+
 **Open — opr-16:** LOW — the responsive deadline-cancellation test's disposable callback can unregister during delay unwind, causing a false timeout after correct product cancellation. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-16.md`.
 
 **Open — opr-15:** HIGH — Unix containment treats every nonfatal identity-query exception as process death, so a transient probe failure can clear a live observed escape and release its session alias. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-15.md`.

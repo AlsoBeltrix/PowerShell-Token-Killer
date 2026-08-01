@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview adjudication 2026-08-01:** Claude Opus 5 re-reviewed unchanged `server/PtkMcpServer/SupervisorLifecycle.cs` at `98608018450cb5b2021930405862d4ffdbb48482`. An initial no-tool pass proposed cancel-under-lock candidates conflicting with the prior clean review at `2ac1cd4168621f1e6b34b41d2fa62fdcf6ddea4c`; call-graph-bound adjudication rejected all three because current registrations are fixed, non-blocking/non-throwing BCL or asynchronous-TCS callbacks and the drain TCS already uses `RunContinuationsAsynchronously`. Final verdict: `no_findings`; no product-change guard claim.
+
 **Current intake — opr-13:** MEDIUM — worker launch freezes environment names with unconditional case-insensitive identity, so valid case-differing Unix variables are rejected as duplicates and can block all workers. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-13.md`.
 
 **Current intake — opr-12:** LOW — `ptk_invoke` accepts negative `timeoutSeconds` and silently selects the operator default even though the approved contract reserves that meaning for zero. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-12.md`.

@@ -648,24 +648,24 @@ public sealed class WorkerOperationSchedulerTests
             initialRequestIdHighWater: 1,
             new DelegateExecutor(async (request, cancellationToken) =>
             {
-            if (request.RequestId == 2)
-                return new WorkerInvokeExecutionResult(
-                    WorkerResultStatus.Completed,
-                    "first");
-            secondEntered.TrySetResult();
-            try
-            {
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-            }
-            catch (OperationCanceledException) when (
-                cancellationToken.IsCancellationRequested)
-            {
-                // Witness cancellation on the operation's unwind path. A separate
-                // token registration can be disposed before its callback runs.
-                secondCanceled.TrySetResult();
-                throw;
-            }
-            throw new InvalidOperationException("unreachable");
+                if (request.RequestId == 2)
+                    return new WorkerInvokeExecutionResult(
+                        WorkerResultStatus.Completed,
+                        "first");
+                secondEntered.TrySetResult();
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested)
+                {
+                    // Witness cancellation on the operation's unwind path. A separate
+                    // token registration can be disposed before its callback runs.
+                    secondCanceled.TrySetResult();
+                    throw;
+                }
+                throw new InvalidOperationException("unreachable");
             }),
             (_, _) => Task.FromException(new IOException("injected write failure")),
             _ => { },

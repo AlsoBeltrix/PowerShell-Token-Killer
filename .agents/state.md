@@ -868,10 +868,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** repair accepted `opr-3` under the approved production
-reliability teardown/reclamation invariant, prove a residual-artifact guard
-red then green, run full verification, and obtain exact-SHA Opus review.
-`opr-1` and `opr-2` remain plan gated; keep periodic GitHub scans active.
+**Immediate next:** push the accepted `opr-3` review record, mark PR #27 ready,
+and integrate only after every hosted job passes. Exact head `e72f2b6` was
+accepted by Claude Opus 5 with `guard_confirmed=true`; `opr-1` and `opr-2`
+remain plan gated, and periodic GitHub scans stay active.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

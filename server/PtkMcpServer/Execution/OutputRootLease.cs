@@ -38,19 +38,16 @@ internal sealed class OutputRootLease : IDisposable
 
     private readonly string _root;
     private readonly string _parent;
-    private readonly string _markerPath;
     private FileStream? _marker;
     private int _disposed;
 
     private OutputRootLease(
         string root,
         string parent,
-        string markerPath,
         FileStream marker)
     {
         _root = root;
         _parent = parent;
-        _markerPath = markerPath;
         _marker = marker;
         if (!LiveRoots.TryAdd(root, 0))
             throw new IOException("The output root already has a live owner.");
@@ -116,7 +113,6 @@ internal sealed class OutputRootLease : IDisposable
             var lease = new OutputRootLease(
                 root,
                 parent,
-                markerPath,
                 marker);
             marker = null;
             lease.ReclaimAbandonedSiblings();
@@ -151,9 +147,8 @@ internal sealed class OutputRootLease : IDisposable
         var marker = Interlocked.Exchange(ref _marker, null);
         SafeUnlock(marker);
         marker?.Dispose();
-        TryDelete(_markerPath);
         LiveRoots.TryRemove(_root, out _);
-        TryDeleteDirectory(_root);
+        TryReclaim(new DirectoryInfo(_root));
     }
 
     private void ReclaimAbandonedSiblings()

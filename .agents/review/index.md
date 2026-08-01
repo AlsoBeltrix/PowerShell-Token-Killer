@@ -1,5 +1,17 @@
 # Review status
 
+**Review record 2026-08-01 — WorkerServer (no findings):** Claude Opus 5
+(`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
+reviewed `server/PtkMcpServer/Worker/WorkerServer.cs` at
+`f46631961c651cfc888bb9c8b22923862b9d857a` in four exact-source passes,
+covering run-once admission, initialization and deadline races, pending reads,
+operation scheduling, cancellation/shutdown, protocol correlation, exception
+mapping, factory/session/scheduler ownership, detached-task observation, and
+cleanup. Focused caller, scheduler, runtime-delay, and test adjudication rejected
+pre-ready loss, queued cancellation, fatal-task completion, deadline spin,
+synchronous drain, cancellation cleanup, and late-factory masking candidates.
+Outcome: `no_findings`; no detail file, product change, or guard claim.
+
 **Review record 2026-08-01 — WorkerProtocol (no findings):** Claude Opus 5
 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
 reviewed `server/PtkMcpServer/Worker/WorkerProtocol.cs` at

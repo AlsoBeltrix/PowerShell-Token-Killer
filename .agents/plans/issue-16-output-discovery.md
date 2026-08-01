@@ -1,6 +1,6 @@
 # Plan: Recover output after caller disconnect
 
-**Status:** APPROVED 2026-07-31 — execute under the owner's unattended GitHub-issue remediation GO. GitHub issue #16 is the governing defect report.
+**Status:** APPROVED 2026-07-31 — execute under the owner's unattended GitHub-issue remediation GO. Amended 2026-07-31 before Slice 2 to keep the public list at a fixed maximum of 10 rather than version the strict audit schema for a caller-selectable limit. GitHub issue #16 is the governing defect report.
 
 ## Problem
 
@@ -23,7 +23,10 @@ Extend the existing non-executing `ptk_output` tool with `action=list`.
   pending captures, expired entries, eviction tombstones, or filesystem paths.
 - Return newest first by the store's monotonic sequence. Wall-clock ties and
   clock changes must not alter ordering.
-- Bound every call by `limit`, default 10 and maximum 50.
+- Return at most the 10 newest matching artifacts. This issue adds no caller-
+  selectable limit or pagination; calls in one named session serialize, so the
+  lost completed invocation is newest when the disconnected caller regains
+  control.
 - Accept an optional public `session` filter. Omission lists across this MCP
   connection only; the server process already owns exactly one connection and
   its output store and named-session supervisor are connection-wide singletons.
@@ -37,17 +40,17 @@ Extend the existing non-executing `ptk_output` tool with `action=list`.
 - `handle` becomes optional in the generated schema only because `list` does not
   consume one. It remains mandatory for `read`, `search`, and `status` at both
   the audit boundary and direct tool boundary.
-- `session` and `limit` are valid only for `list`; handle, offset, maxBytes, and
-  pattern are invalid for `list`. Existing action-specific validation remains
-  fail closed.
+- `session` is valid only for `list`; handle, offset, maxBytes, and pattern are
+  invalid for `list`. Existing action-specific validation remains fail closed.
 - Listing is read-only, accepts no script, starts no session or worker, performs
   no invocation, and does not extend artifact retention.
 
 The list exposes bearer handles that were previously unenumerable. This is an
 intentional capability change bounded to the same MCP connection that can create
-and reset the named sessions. Audit records must capture the requested session
-and limit, but tool-result handles must remain outside request metadata and
-existing handle/pattern protection rules must remain unchanged.
+and reset the named sessions. Audit records must capture the requested session;
+the list action itself fixes the effective bound. Tool-result handles must remain
+outside request metadata and existing handle/pattern protection rules must remain
+unchanged.
 
 ## Slice 1 — retained discovery model
 
@@ -71,13 +74,13 @@ only an accepted review with `guard_confirmed=true`.
 
 ## Slice 2 — public tool and audit boundary
 
-1. Add `list`, `session`, and `limit` to `OutputTool`; format a bounded,
+1. Add `list` and `session` to `OutputTool`; format a fixed-maximum-10,
    line-oriented response whose handles can be passed verbatim to existing
    actions.
 2. Extend audit metadata capture with action-specific validation: list accepts
-   no handle and records only normalized session/limit; other actions still
-   require and protect the handle. Add a dedicated audit request limit field if
-   necessary rather than overloading byte limits.
+   no handle and records only the normalized optional session; other actions
+   still require and protect the handle. Do not overload byte-count audit fields
+   or change the strict `ptk.audit/2` schema for the fixed list bound.
 3. Update generated-schema conformance, raw-usage/description assertions, public
    tool contract fixtures and hashes, README, and server README.
 4. Add an integration-style regression that seals a completed invocation,

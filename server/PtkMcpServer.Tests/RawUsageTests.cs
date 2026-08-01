@@ -161,6 +161,8 @@ public sealed class RawUsageTests : IDisposable
         Assert.Single(
             output.GetParameters(),
             parameter => parameter.ParameterType == typeof(OutputStore));
+        Assert.Null(Parameter(output, "handle").DefaultValue);
+        Assert.Null(Parameter(output, "session").DefaultValue);
     }
 
     [Fact]
@@ -170,6 +172,7 @@ public sealed class RawUsageTests : IDisposable
             typeof(OutputTool).GetMethod(nameof(OutputTool.Output))!);
         Assert.Contains("immutable output snapshot", output);
         Assert.Contains("without executing or rerunning anything", output);
+        Assert.Contains("action=list discovers up to ten", output);
         Assert.Contains("never starts a session or worker", output);
     }
 

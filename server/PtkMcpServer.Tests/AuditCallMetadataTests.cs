@@ -204,6 +204,34 @@ public sealed class AuditCallMetadataTests
     }
 
     [Fact]
+    public void Output_list_capture_needs_no_handle_protector_and_records_session_filter()
+    {
+        Assert.True(Capture(
+            Call(
+                "ptk_output",
+                ("session", "paid-review"),
+                ("action", "LIST")),
+            new(),
+            out var metadata,
+            out var script,
+            out var failure));
+
+        Assert.Null(script);
+        Assert.Null(failure);
+        Assert.Equal("ptk_output", metadata!.Request.Tool);
+        Assert.Equal("list", metadata.Request.Action);
+        Assert.Equal("paid-review", metadata.Request.SessionRequested);
+        Assert.Equal(["action", "session"], metadata.Request.ProvidedFields);
+        Assert.Null(metadata.Request.Offset);
+        Assert.Null(metadata.Request.MaxBytes);
+        Assert.Null(metadata.Request.PatternFingerprint);
+        Assert.Null(metadata.Request.OutputHandleDigest);
+        Assert.Equal(3, metadata.OperationProfile.MaximumRecordSlots);
+        Assert.False(metadata.OperationProfile.MayHaveSideEffects);
+        Assert.False(metadata.OperationProfile.RequiresScriptEvidence);
+    }
+
+    [Fact]
     public void Output_capture_rejects_inapplicable_or_unbounded_fields_without_echoing_them()
     {
         using var protector = new AuditOutputRequestProtector(new byte[32]);
@@ -243,6 +271,32 @@ public sealed class AuditCallMetadataTests
         AssertOutputRejected(
             Call("ptk_output", ("handle", "h"), ("action", "status"), ("offset", 0L)),
             "inapplicable argument",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("action", "list"), ("handle", "secret-handle")),
+            "inapplicable argument",
+            protector,
+            "secret-handle");
+        AssertOutputRejected(
+            Call("ptk_output", ("action", "list"), ("offset", 0L)),
+            "inapplicable argument",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("action", "list"), ("maxBytes", 1)),
+            "inapplicable argument",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("action", "list"), ("pattern", "secret-pattern")),
+            "inapplicable argument",
+            protector,
+            "secret-pattern");
+        AssertOutputRejected(
+            Call("ptk_output", ("action", "list"), ("session", "Invalid Session")),
+            "session is invalid",
+            protector);
+        AssertOutputRejected(
+            Call("ptk_output", ("handle", "h"), ("session", "default")),
+            "inapplicable session",
             protector);
         AssertOutputRejected(
             Call("ptk_output", ("handle", "h"), ("script", "Remove-Item secret")),

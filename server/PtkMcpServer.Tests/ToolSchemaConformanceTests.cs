@@ -213,6 +213,29 @@ public sealed class ToolSchemaConformanceTests
         Assert.Equal(MaxSafeInteger, offset.GetProperty("maximum").GetDouble());
     }
 
+    [Fact]
+    public void Generated_output_list_keeps_handle_optional_and_session_filter_bounded()
+    {
+        var method = typeof(OutputTool).GetMethod(nameof(OutputTool.Output))!;
+        using var document = ParseStrict(GenerateInputSchemaJson(method));
+        var root = document.RootElement;
+        Assert.False(
+            root.TryGetProperty("required", out var required) &&
+            required.EnumerateArray().Any(
+                item => item.GetString() == "handle"));
+
+        var properties = root.GetProperty("properties");
+        Assert.Contains(
+            properties.GetProperty("action").GetProperty("enum").EnumerateArray(),
+            item => item.GetString() == "list");
+
+        var session = properties.GetProperty("session");
+        Assert.Equal(64, session.GetProperty("maxLength").GetInt32());
+        Assert.Equal(
+            "^[a-z0-9][a-z0-9._-]{0,63}$",
+            session.GetProperty("pattern").GetString());
+    }
+
     // Proves the validator is not tautological: the legacy string-operand
     // attribute, run through the same SDK factory, must produce a schema the
     // walker rejects. If this test ever fails because the SDK begins coercing

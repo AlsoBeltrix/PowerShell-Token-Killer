@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-7:** MEDIUM — quota-control creation exposes the final filename before its one-byte format marker is durable, so interrupted first initialization can permanently brick the spool. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-7.md`.
+
 **Current intake — opr-6:** MEDIUM — evidence-store faults clear the only state distinguishing a previously used root from a never-opened provider, so an absent root can make reconciliation report false success. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-6.md`.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditEvidenceRetentionAudit.cs` at `735000e2cfabb88c3a82b8d1b13fa9f984bc6c07`, limited to retention-event construction, ordering and bounds, count and byte truthfulness, exception handling, sensitive data, and fail-closed behavior. Verdict: `no_findings`; no product change or guard claim.

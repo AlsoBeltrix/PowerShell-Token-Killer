@@ -869,9 +869,9 @@ short and update it when important repo facts change.
 ## Next
 
 **Immediate next:** continue bounded read-only Claude Opus 5 review in another
-production boundary. `opr-1` is an accepted LOW POSIX `/dev/null` descriptor
-custody finding, but code is blocked until an approved plan covers it. Keep
-periodic GitHub scans active for the three gated issues.
+production boundary. `opr-1` remains the only accepted new finding and is plan
+gated; the executable-identity atomic-replacement candidate was adjudicated the
+documented residual and invalid. Keep periodic scans active for three issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

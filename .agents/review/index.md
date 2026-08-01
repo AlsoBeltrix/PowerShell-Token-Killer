@@ -2790,3 +2790,5 @@ Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerLaunchCommand.cs` at `d
 | ID | Severity | Impact (one line) | Status | Branch | Reviewer |
 |----|----------|-------------------|--------|--------|----------|
 | opr-1 | LOW | POSIX child-stdin detachment retains and propagates its source `/dev/null` descriptor | `[ ]` accepted; plan required | n/a | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |
+
+The `server/PtkMcpServer/Execution/ExecutableFileIdentity.cs` pass at `bee0743ce111aa025b5729842d5cefd43e5b6349` proposed a MEDIUM Unix mid-hash atomic-replacement finding. The helper and immediate runner call site explicitly classify same-path replacement as a residual requiring protected installation or OS-bound launch; focused Opus adjudication returned `invalid`, `guard_confirmed=false`. No product change.

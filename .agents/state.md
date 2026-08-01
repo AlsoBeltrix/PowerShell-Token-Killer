@@ -790,6 +790,8 @@ short and update it when important repo facts change.
   On verdict: update security intelligence, rescan the artifact, remove any
   incident-specific exclusions, retire the quarantine detection if superseded,
   and close #7 per `.agents/plans/defender-fp-submission.md`.
+  GitHub was rechecked on 2026-08-01: the issue remains open with no comments,
+  Microsoft verdict, or newer detection evidence. Do not repeat the submission.
 - **rbc-5/rbc-6 containment WIP remains uncommitted and preserved on
   `fix/rbc-6-unix-sigkill-escalation` at `2b3ce1a`; do not discard it without
   owner direction.** rbc-6's filed premise was false: .NET 10 Unix
@@ -860,8 +862,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** scan GitHub issue #7 for a Microsoft Defender verdict or
-new current-build detection evidence, then apply its recorded on-verdict path.
+**Immediate next:** triage GitHub issue #3's remaining POSIX ergonomics and
+permission-boundary items against current code and settled security direction.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

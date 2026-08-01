@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+**Review intake:** `opr-20` HIGH accepted and plan gated: cancellation of `StateAsync` in the proved pre-write window can poison and replace a healthy worker, losing warm named-session state even though no request reached the worker.
+
 **Review intake:** `opr-19` HIGH accepted and plan gated: every client stop self-rejects its graceful shutdown request after completing `_fatal`, so `shutdown` / `stopped` is unreachable and all stops fall through to forced containment.
 
 **CI remediation complete:** `.agents/plans/ci-macos-process-snapshot-guard.md`

@@ -2,9 +2,9 @@
 
 **Severity**: LOW — hosted Windows CI can time out while waiting for a
 deliberately separate cancellation thread after the expected fatal state.
-**Status**: Reopened after recurrence on current `master`; repair in progress
+**Status**: Reopened recurrence; repair implemented, reviewer pending
 **Branch**: `fix/ci-worker-cancel-drain-checkpoint`
-**Commit**: pending
+**Commit**: `8588374f8d19b97a9c38d9606a6e331ba38b8452`
 
 ## Evidence
 
@@ -70,6 +70,12 @@ Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
   align the suite on ten seconds rather than repeating isolated bumps.
 
 ## Recurrence 2026-08-01
+
+Repair verification:
+
+- Hosted red: Windows run `30692685449` timed out at the redundant standalone cancellation checkpoint after fatal state was already latched.
+- Local green: repaired focused test passed 20/20 fresh test processes; full `server/PtkMcpServer.slnx` passed 1,221/1,221.
+- Scope: only `server/PtkMcpServer.Tests/WorkerOperationSchedulerTests.cs` changed; production code is unchanged.
 
 The merged 5→10-second checkpoint repair was insufficient. GitHub Actions run `30692685449` at exact head `bf6abcfeb6520f2b2d8f09bbe415f16014967142` failed `test (windows-latest)` at `WorkerOperationSchedulerTests.cs:671` after `scheduler.Fatal` had already produced the expected injected writer failure; all other five jobs passed. The preceding Ubuntu run `30692302468` failed an independent quota-control publication race and its Windows job passed, so the recurrence remains host-scheduling-sensitive rather than a production semantic failure.
 

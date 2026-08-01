@@ -13,7 +13,9 @@ short and update it when important repo facts change.
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
   as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
   as `d140f13`; its active-member report remains tracked in issue #8. The live
-  queue has no open PR and eight open issues.
+  queue has no open PR and eight open issues. PR #25 (`e522923`) removed the
+  issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
+  and all six hosted jobs passed without that warning.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -820,11 +822,11 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** repair the xUnit2031 analyzer warning surfaced by PR #24 in
-the issue #16 no-rerun regression, under that approved plan's test-guard scope;
-review the atomic repair with Opus and hosted CI.
+**Immediate next:** triage GitHub issue #13's high-volume
+`worker_transport_closed` report against current transport and retained-output
+behavior, then execute only an approved atomic slice.
 
-**Then:** rescan the live queue and triage issue #13. Build identity and release
+**Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.
 
 1. Continue only an acceptance gate when its actual environment becomes

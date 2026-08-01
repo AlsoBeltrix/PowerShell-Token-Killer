@@ -880,9 +880,11 @@ short and update it when important repo facts change.
 
 **Immediate next:** resume bounded read-only Claude Opus 5 review on merged
 master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
-`opr-4` through `opr-13` are accepted and plan gated. The latest review queue
-added Windows stdin partial-publication, timeout parsing, invoke validation,
-and Unix worker-environment identity findings; lifecycle callback candidates
+`opr-4` through `opr-14` are accepted and plan gated. `opr-14` is HIGH:
+fixed-signature `fcntl` P/Invokes mispass variadic arguments on Apple arm64;
+remediation awaits an approved plan. The latest review queue also added
+Windows stdin partial-publication, timeout parsing, invoke validation, and
+Unix worker-environment identity findings; lifecycle callback candidates
 were adjudicated invalid. Keep periodic GitHub scans active for the four open,
 externally gated issues.
 

@@ -2780,3 +2780,5 @@ finding is draft PR 17, run `30658534883`.
 **Openreview 2026-08-01 (current production, bounded):** Claude Opus 5 reviewed `server/PtkMcpServer/Sessions/WorkerSupervisor.cs` at `3cd2482fdaed41349f327fe9ac22bd551218a5bb`, limited to public result formatting and exception-to-tool responses. Verdict: `no_findings`; no product change or guard claim.
 
 Claude Opus 5 separately reviewed `server/PtkMcpServer/Tools/InvokeTool.cs` at `f0418b075dd4356f98098f093004a63119d03198`, limited to public MCP schema, defaults, validation, cancellation, and exact runtime forwarding. Verdict: `no_findings`; no product change or guard claim.
+
+The `server/PtkMcpServer/Tools/OutputTool.cs` pass at `a1b39249f5b34f45ce57c1c3cc909c30b6efe689` proposed one LOW empty-search-pattern finding. Source tracing showed `OutputStore.SearchCore` rejects a zero-byte pattern and `OutputTool` converts that exception to an invalid-request response; focused Opus adjudication returned `invalid`, `guard_confirmed=true`. No product change.

@@ -196,9 +196,15 @@ Long-running work:
 - A call that times out after execution starts is not replayed. PTK contains the
   old worker process tree and replaces only that session worker, so that
   session's warm state is lost while sibling sessions remain unchanged.
-- PTK has no public background-job tool. Use the harness's ordinary process
-  facilities for cold stateless watchers or deploys, or give a dedicated PTK
-  session a sufficient foreground timeout.
+- Every process started by `ptk_invoke`, including one launched through
+  `Start-Process`, belongs to the selected worker's containment tree. It is not
+  a supported detach path and is terminated on executing-call timeout, reset,
+  close, worker replacement, or server shutdown.
+- PTK has no public background-job tool. Start cold stateless watchers and
+  deploys outside PTK through the harness's ordinary process facilities,
+  redirect results to caller-chosen files, and poll them there. Work that needs
+  warm-session state must use a dedicated PTK session and a sufficient
+  foreground timeout; it cannot also outlive that worker.
 
 ## Claude Code Hook
 

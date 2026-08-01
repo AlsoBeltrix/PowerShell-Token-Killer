@@ -2778,3 +2778,5 @@ finding is draft PR 17, run `30658534883`.
 ---
 
 **Openreview 2026-08-01 (current production, bounded):** Claude Opus 5 reviewed `server/PtkMcpServer/Sessions/WorkerSupervisor.cs` at `3cd2482fdaed41349f327fe9ac22bd551218a5bb`, limited to public result formatting and exception-to-tool responses. Verdict: `no_findings`; no product change or guard claim.
+
+Claude Opus 5 separately reviewed `server/PtkMcpServer/Tools/InvokeTool.cs` at `f0418b075dd4356f98098f093004a63119d03198`, limited to public MCP schema, defaults, validation, cancellation, and exact runtime forwarding. Verdict: `no_findings`; no product change or guard claim.

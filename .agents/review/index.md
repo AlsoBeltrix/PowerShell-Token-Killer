@@ -2786,3 +2786,7 @@ The `server/PtkMcpServer/Tools/OutputTool.cs` pass at `a1b39249f5b34f45ce57c1c3c
 Claude Opus 5 reviewed `server/PtkMcpServer/SupervisorLifecycle.cs` at `2ac1cd4168621f1e6b34b41d2fa62fdcf6ddea4c`, limited to admission, active-call draining, stop/dispose, cancellation ownership, and in-file concurrency. Verdict: `no_findings`; no product change or guard claim.
 
 Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerLaunchCommand.cs` at `d847df279fc3facce1ff157dd167eda623dadaf2`, limited to constructor validation, immutable snapshots, environment rules, reserved handles, and exposed values. Verdict: `no_findings`; no product change or guard claim.
+
+| ID | Severity | Impact (one line) | Status | Branch | Reviewer |
+|----|----------|-------------------|--------|--------|----------|
+| opr-1 | LOW | POSIX child-stdin detachment retains and propagates its source `/dev/null` descriptor | `[ ]` accepted; plan required | n/a | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` |

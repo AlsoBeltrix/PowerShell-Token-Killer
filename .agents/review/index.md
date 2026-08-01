@@ -2794,3 +2794,5 @@ Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerLaunchCommand.cs` at `d
 The `server/PtkMcpServer/Execution/ExecutableFileIdentity.cs` pass at `bee0743ce111aa025b5729842d5cefd43e5b6349` proposed a MEDIUM Unix mid-hash atomic-replacement finding. The helper and immediate runner call site explicitly classify same-path replacement as a residual requiring protected installation or OS-bound launch; focused Opus adjudication returned `invalid`, `guard_confirmed=false`. No product change.
 
 The `server/PtkMcpServer/Worker/WorkerProcessAuthority.cs` pass at `7071941a6622b3a6df51e76d79ead8dd1c904a6d` proposed a LOW concurrent-launch diagnostic mismatch. Production creates one launcher per slot and coalesces concurrent starts on the slot transition; focused Opus adjudication returned `invalid`, `guard_confirmed=true`. No product change.
+
+Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerProcessExit.cs` at `a930e279edcbe5b2ce2e2aa5061f7914448e62bb`, limited to exit-code mapping, detail normalization, diagnostic bounds, and best-effort stderr writes. Verdict: `no_findings`; no product change or guard claim.

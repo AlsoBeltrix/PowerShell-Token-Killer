@@ -1,7 +1,7 @@
 # ci-xunit2031-1: Output-list regression emits xUnit2031
 
 **Severity**: LOW — hosted CI passes but emits an avoidable analyzer warning in the no-rerun recovery guard.
-**Status**: In progress; pending review
+**Status**: Accepted; pending integration
 **Branch**: `fix/xunit2031-output-list-guard`
 **Commit**: `771522f`
 **Source**: PR #24 hosted CI annotation
@@ -42,4 +42,9 @@ None. This is test-only and changes no product behavior.
 
 ## Reviewer comments
 
-Pending Claude Opus 5 maximum-effort exact-head review.
+Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5` / max / frontier — escalated: owner (inline, session-only)
+
+- Claude Code 2.1.220 reviewed head `33d007c7eacb9cb836b5aad5c6f0456bc8b7fa6d` against base `968451373278e35d15d5b26c124c084c9b8ba799`; `guard_confirmed=true`; verdict `accepted`; UTC `2026-08-01T02:38:29.8524951Z`.
+- Reviewer confirmed the predicate overload preserves exactly-one-match semantics and still returns the matched handle line.
+- Reviewer confirmed the analyzer-red/warning-free rebuild and focused/full green tests are appropriate guard evidence for this test-only fix.
+- No product behavior is touched.

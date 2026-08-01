@@ -2,7 +2,7 @@
 
 **Severity**: LOW — hosted Windows CI can time out while waiting for a
 deliberately separate cancellation thread after the expected fatal state.
-**Status**: Closed; recurrence repair merged and hosted verification passed
+**Status**: Reopened; second recurrence repaired locally, Opus and hosted closure pending
 **Branch**: `fix/ci-worker-cancel-drain-checkpoint` (deleted after verified merge)
 **Commit**: `8588374f8d19b97a9c38d9606a6e331ba38b8452`; merge `d7eefc5f7159469570135646a2667ca94b52d553`
 
@@ -69,7 +69,48 @@ Reviewer: claude / `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
 - Non-blocking follow-up: if adjacent five-second scheduler checkpoints recur,
   align the suite on ten seconds rather than repeating isolated bumps.
 
-## Recurrence 2026-08-01
+## Second recurrence 2026-08-01
+
+GitHub Actions run `30701276509`, exact head
+`5187eba3e36a68496056a19d0cbe5f819396d662`, failed
+`Writer_failure_latches_fatal_and_cancels_other_work` on
+`test (windows-latest)`: `CancelAndDrainAsync` completed, but the subsequent
+`secondCanceled.Task.IsCompletedSuccessfully` assertion was false. All other
+five jobs passed. The next exact-head run, `30702067881`, passed all six jobs,
+confirming a recurrent scheduling-sensitive test defect rather than a product
+regression.
+
+The earlier drain-based repair relied on a `CancellationToken.Register`
+callback installed before `Task.Delay` registered its own callback. Cancellation
+may complete the delay first; the executor then unwinds and disposes the still
+pending test registration before its callback runs. Drain correctly observes
+the operation and cancellation task, but the auxiliary callback is not a
+reliable witness.
+
+### Approach
+
+- Witness cancellation in the operation's own `OperationCanceledException`
+  unwind path and rethrow with `throw;`.
+- Await that witness before `CancelAndDrainAsync`, proving scheduler-failure
+  fan-out rather than allowing cleanup cancellation to satisfy the test.
+- Keep the 30-second bound as a failing harness watchdog, not as the
+  synchronization mechanism.
+
+### Guard proof
+
+- Red: with only `LatchFatal` request-cancellation fan-out temporarily
+  suppressed, the repaired focused test failed at the new witness wait after
+  30 seconds. The production mutation was restored immediately.
+- Green: restored focused test passed; then passed 100/100 fresh test
+  processes. Full `server/PtkMcpServer.slnx` passed 1,221/1,221.
+
+### Reviewer
+
+Diagnostic adjudication: `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`
+(`max`, session-only) accepted the callback-disposal race and the catch-based,
+pre-drain witness. Exact-slice review and hosted closure remain pending.
+
+## First recurrence 2026-08-01
 
 Repair verification:
 

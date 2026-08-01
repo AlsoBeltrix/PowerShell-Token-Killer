@@ -653,9 +653,18 @@ public sealed class WorkerOperationSchedulerTests
                         WorkerResultStatus.Completed,
                         "first");
                 secondEntered.TrySetResult();
-                using var registration = cancellationToken.Register(
-                    () => secondCanceled.TrySetResult());
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                try
+                {
+                    await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                }
+                catch (OperationCanceledException) when (
+                    cancellationToken.IsCancellationRequested)
+                {
+                    // Witness cancellation on the operation's unwind path. A separate
+                    // token registration can be disposed before its callback runs.
+                    secondCanceled.TrySetResult();
+                    throw;
+                }
                 throw new InvalidOperationException("unreachable");
             }),
             (_, _) => Task.FromException(new IOException("injected write failure")),
@@ -668,8 +677,8 @@ public sealed class WorkerOperationSchedulerTests
         var failure = await Assert.ThrowsAsync<IOException>(async () =>
             await scheduler.Fatal.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.Equal("injected write failure", failure.Message);
+        await secondCanceled.Task.WaitAsync(TimeSpan.FromSeconds(30));
         await scheduler.CancelAndDrainAsync().WaitAsync(TimeSpan.FromSeconds(30));
-        Assert.True(secondCanceled.Task.IsCompletedSuccessfully);
         Assert.Throws<WorkerProtocolException>(() => scheduler.Admit(Invoke(4)));
     }
 

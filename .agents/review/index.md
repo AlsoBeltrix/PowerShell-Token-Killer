@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Execution/ExecutionPlanner.cs` at `0a0fcbb17c283c2dac8a7cc2b600233de0f31d83`, limited to classification, route eligibility and enforcement, executable identity binding, fallback provenance, validation ordering, working-directory handling, and fail-closed behavior. Verdict: `no_findings`; no product change or guard claim.
+
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Execution/ExecutionPlan.cs` at `cb992e9f466de45720fba7fe9782c7e6f68b7f6b`, limited to construction invariants, immutable state, dispatch conversion, provenance metadata, fail-closed validation, and result contracts defined in that file. Verdict: `no_findings`; no product change or guard claim.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Execution/BashExecutableIdentity.cs` at `385db4ce55de5abc2f6488166c72786a985f2ab2`, limited to executable identity capture, path handling, fail-closed behavior, and cross-platform semantics. Verdict: `no_findings`; no product change or guard claim.

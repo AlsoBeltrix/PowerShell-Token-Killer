@@ -24,10 +24,12 @@ short and update it when important repo facts change.
   Exchange Online modern auth, and preserves no-replay/remote-containment and
   secret-custody boundaries. Issue #30 carries the separately authorized-host
   acceptance run; its creation does not authorize connecting to a host.
-- **Windows scheduler cancellation recurrence is closed:** test-only repair
-  `8588374` synchronizes peer-cancellation observation through scheduler drain.
-  Opus accepted the exact SHA with `guard_confirmed=true`; PR #29 run
-  `30694440416` passed all six jobs and merged as `d7eefc5`.
+- **Windows scheduler cancellation recurrence is closed:** the earlier
+  drain-based repair `8588374` remained vulnerable because the test's disposable
+  token callback could be removed during cancellation unwind. Test-only repair
+  `9e66a35` witnesses cancellation in the operation's own unwind path before
+  drain; Opus accepted the exact SHA with `guard_confirmed=true`. PR #31 run
+  `30703723050` passed all six jobs and merged as `c9e5a44`.
 - **GitHub issue #13 remains open after current-master triage:** two real-server
   MCP stress runs produced up to 100,002 interleaved stdout/stderr ANSI/CR-heavy
   objects without transport loss. Capture bounded itself, returned a recovery

@@ -6,7 +6,7 @@ short and update it when important repo facts change.
 ## Now
 
 - **Active unattended GitHub remediation (2026-08-01):** GitHub issues #3,
-  #9, #10, #11, #12, #14, #15, and #16 are closed. Issue #16's two-slice
+  #9, #10, #11, #12, #14, #15, #16, and #28 are closed. Issue #16's two-slice
   retained-output
   discovery
   landed through
@@ -15,9 +15,19 @@ short and update it when important repo facts change.
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
   as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
   as `d140f13`; its active-member report remains tracked in issue #8. The live
-  queue has no open PR and three open issues. PR #25 (`e522923`) removed the
+  queue has no open PR and four open issues: #7, #8, #13, and #30. PR #25 (`e522923`) removed the
   issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
   and all six hosted jobs passed without that warning.
+- **GitHub issue #28 design evaluation is closed; E1 is tracked in #30:** the
+  accepted Opus-reviewed report recommends the existing five-tool surface
+  provisionally, distinguishes on-prem Exchange WSMan/implicit remoting from
+  Exchange Online modern auth, and preserves no-replay/remote-containment and
+  secret-custody boundaries. Issue #30 carries the separately authorized-host
+  acceptance run; its creation does not authorize connecting to a host.
+- **Windows scheduler cancellation recurrence is closed:** test-only repair
+  `8588374` synchronizes peer-cancellation observation through scheduler drain.
+  Opus accepted the exact SHA with `guard_confirmed=true`; PR #29 run
+  `30694440416` passed all six jobs and merged as `d7eefc5`.
 - **GitHub issue #13 remains open after current-master triage:** two real-server
   MCP stress runs produced up to 100,002 interleaved stdout/stderr ANSI/CR-heavy
   objects without transport loss. Capture bounded itself, returned a recovery
@@ -869,9 +879,12 @@ short and update it when important repo facts change.
 ## Next
 
 **Immediate next:** resume bounded read-only Claude Opus 5 review on merged
-master. `opr-3` closed through PR #27 as `f5da911` after exact-SHA acceptance
-and six green hosted jobs; `opr-1` and `opr-2` remain plan gated. Keep periodic
-GitHub scans active for the three externally gated issues.
+master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
+`opr-4` through `opr-13` are accepted and plan gated. The latest review queue
+added Windows stdin partial-publication, timeout parsing, invoke validation,
+and Unix worker-environment identity findings; lifecycle callback candidates
+were adjudicated invalid. Keep periodic GitHub scans active for the four open,
+externally gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

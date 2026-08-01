@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`) reviewed `server/PtkMcpServer/Worker/WorkerProcessEntry.cs` at `c3225a0ccd649135f0e09624d224c5dde329b037`, limited to worker-invocation classification, bootstrap capture and cleanup, runtime construction, server-exit mapping, diagnostic fallback, and fatal-exception boundaries using the complete source, production entry caller, and focused-test inventory. Verdict: `no_findings`; no product change or guard claim.
+
 **Openreview adjudication 2026-08-01:** Claude Opus 5 re-reviewed unchanged `server/PtkMcpServer/SupervisorLifecycle.cs` at `98608018450cb5b2021930405862d4ffdbb48482`. An initial no-tool pass proposed cancel-under-lock candidates conflicting with the prior clean review at `2ac1cd4168621f1e6b34b41d2fa62fdcf6ddea4c`; call-graph-bound adjudication rejected all three because current registrations are fixed, non-blocking/non-throwing BCL or asynchronous-TCS callbacks and the drain TCS already uses `RunContinuationsAsynchronously`. Final verdict: `no_findings`; no product-change guard claim.
 
 **Current intake — opr-13:** MEDIUM — worker launch freezes environment names with unconditional case-insensitive identity, so valid case-differing Unix variables are rejected as duplicates and can block all workers. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-13.md`.

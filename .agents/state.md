@@ -5,8 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #11,
-  #12, #14, #15, and #16 are closed. Issue #16's two-slice retained-output
+- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #10,
+  #11, #12, #14, #15, and #16 are closed. Issue #16's two-slice retained-output
   discovery
   landed through
   PRs #22 and #23; public recovery is `ptk_output action=list`, optionally by
@@ -14,7 +14,7 @@ short and update it when important repo facts change.
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
   as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
   as `d140f13`; its active-member report remains tracked in issue #8. The live
-  queue has no open PR and six open issues. PR #25 (`e522923`) removed the
+  queue has no open PR and five open issues. PR #25 (`e522923`) removed the
   issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
   and all six hosted jobs passed without that warning.
 - **GitHub issue #13 remains open after current-master triage:** two real-server
@@ -40,6 +40,12 @@ short and update it when important repo facts change.
   immediately with `Transport closed`; a fresh Codex session launched a new
   supervisor and invoked successfully. Opus accepted the qualified worker/public
   boundary docs; PR #26 passed all six hosted jobs and merged as `3b570ff`.
+- **GitHub issue #10 is closed as resolved by retiring the audit startup gate:**
+  installed `0.2.0-dev.g12e1ff5` initialized with `PTK_AUDIT_ROOT` beneath a
+  regular file, reported audit disabled before and after reset, invoked, reset,
+  created no audit root, and exited gracefully. The current startup guard passed
+  1/1 and the hosted handshake diagnostic remains green. Opus accepted closure
+  with `guard_confirmed=true`; reopen only on current-build audit gating.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -846,8 +852,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #10's persistent audit-startup refusal
-against the current packaged runtime and retired producer topology.
+**Immediate next:** triage GitHub issue #9's dead-transport hang and audit-wedge
+report against current Codex fail-fast behavior and the retired audit gate.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.
@@ -907,21 +913,17 @@ readiness remain parked while product defects are active.
 - GitHub issue #3 remains open (verified 2026-07-11): item 1 landed; items
   2-4 are an unplanned follow-up candidate, while its permission-bypass
   concern belongs to the open security track.
-- GitHub #8, #9, and #10 are owner field reports from 2026-07-23. #8's older
+- GitHub #8 and #9 are owner field reports from 2026-07-23. #8's older
   installed runtime dropped script/lazy/COM values. The replacement server now
   preserves synthetic EXO-style selected/deserialized values, evaluates an
   explicitly selected script property exactly once in the user pipeline, and
   surfaces the tested terminating-error message; it still truthfully labels
   uninspected active type data as incomplete. Keep #8 open until the real
-  EXO/Outlook Windows workflow passes. #9: calls hung 120 s on a dead MCP transport
-  instead of failing fast, then the installed payload wedged on
-  "audit persistence unavailable" across a full session restart. #10: the
-  same wedge from a cold boot — `failure_class=journal.startup` every start
-  on this machine, with fail-closed `ptk_reset` leaving no in-band recovery.
-  #9/#10's root cause is undiagnosed and will not be diagnosed: the owner
-  disabled the affected installed server. The replacement named-session runtime
-  removes that audit startup gate, but the issue is not closed until an
-  authorized installed-harness validation proves the replacement path.
+  EXO/Outlook Windows workflow passes. #9's older client held a dead MCP
+  transport for 120 seconds before error, then the old payload hit the retired
+  audit gate. #10 is closed after installed validation proved the replacement
+  ignores unusable audit storage. Keep #9 open only until its transport half is
+  reconciled with current Codex fail-fast and fresh-client behavior.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

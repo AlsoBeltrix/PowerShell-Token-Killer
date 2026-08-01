@@ -304,6 +304,15 @@ Set these in the MCP registration `env` block when defaults do not fit:
 - Cancellation before dispatch leaves the worker usable. Once request bytes may
   have reached the worker, PTK never replays the command and may replace that
   worker to recover a trustworthy transport.
+- Losing a session worker does not close the public MCP connection. The
+  supervisor replaces only that session's worker, reports `warm_state_lost`,
+  and never replays ambiguous work; `ptk_state` and sibling sessions remain
+  available.
+- The public `PtkMcpServer` process owns the client stdio connection. If that
+  process exits or is killed, the connection is irreversibly closed; a new
+  server cannot attach to the old pipes. Start a fresh harness session if the
+  client retains the dead tool entry. PTK cannot restart its own public
+  transport.
 - Child native processes inherit EOF for stdin instead of the MCP JSON-RPC pipe,
   so stdin-reading commands do not hang forever waiting on the transport.
 - No interactive prompts can be answered inside the server. Use unattended auth

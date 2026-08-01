@@ -5,8 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #9,
-  #10, #11, #12, #14, #15, and #16 are closed. Issue #16's two-slice
+- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #3,
+  #9, #10, #11, #12, #14, #15, and #16 are closed. Issue #16's two-slice
   retained-output
   discovery
   landed through
@@ -15,7 +15,7 @@ short and update it when important repo facts change.
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
   as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
   as `d140f13`; its active-member report remains tracked in issue #8. The live
-  queue has no open PR and four open issues. PR #25 (`e522923`) removed the
+  queue has no open PR and three open issues. PR #25 (`e522923`) removed the
   issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
   and all six hosted jobs passed without that warning.
 - **GitHub issue #13 remains open after current-master triage:** two real-server
@@ -54,6 +54,12 @@ short and update it when important repo facts change.
   `Transport closed` and succeeded from a fresh session; neither client hung.
   The audit wedge is the retired gate closed under #10. Opus accepted closure;
   the original older-client observation remains valid history.
+- **GitHub issue #3 is closed after current-product reconciliation:** shell
+  dialect guidance, cross-platform warm-state isolation, 300-second default
+  timeout/recovery, and an actionable live missing-command diagnostic cover its
+  ergonomics items. The permission proposal is resolved by the documented
+  non-authorization-boundary/client-prompt posture and the owner's explicit
+  rejection of the bypassable policy-file gate. Opus accepted closure.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -862,8 +868,9 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #3's remaining POSIX ergonomics and
-permission-boundary items against current code and settled security direction.
+**Immediate next:** run a fresh read-only Claude Opus 5 review of current
+production runtime code, intake at most one concrete finding, and keep periodic
+GitHub scans active for the three gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.
@@ -920,9 +927,6 @@ readiness remain parked while product defects are active.
   scope by the owner's 2026-07-11 direction. Their older open-decision entry
   remains stale while `.agents/decisions.md` is under hold; the idea plan is
   retained as history/evidence, not current implementation direction.
-- GitHub issue #3 remains open (verified 2026-07-11): item 1 landed; items
-  2-4 are an unplanned follow-up candidate, while its permission-bypass
-  concern belongs to the open security track.
 - GitHub #8 is an owner field report from 2026-07-23. Its older
   installed runtime dropped script/lazy/COM values. The replacement server now
   preserves synthetic EXO-style selected/deserialized values, evaluates an

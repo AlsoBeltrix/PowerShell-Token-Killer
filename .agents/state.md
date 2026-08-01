@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-25` MEDIUM accepted and plan-gated: Unix exit observation converts identity-query exceptions or a faulted broker wait into worker death, poisoning a healthy warm session.
+
 - **Review intake:** `opr-24` LOW accepted and plan-gated: confirmed-empty Unix launch cleanup drops the containment task, so a created broker/worker domain is reported as never launched.
 
 **Review intake:** `opr-23` MEDIUM accepted and plan gated: after Windows process creation, fast containment proof can erase launch provenance, causing cancellation to remove/cool the slot while slower proof leaves the same postlaunch failure `Faulted`.

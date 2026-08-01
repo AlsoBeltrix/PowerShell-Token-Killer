@@ -268,14 +268,14 @@ try {
 
     $expectedInputFields = @{
         ptk_invoke  = @('script', 'raw', 'route', 'timeoutSeconds', 'session')
-        ptk_output  = @('handle', 'action', 'offset', 'maxBytes', 'pattern')
+        ptk_output  = @('handle', 'action', 'offset', 'maxBytes', 'pattern', 'session')
         ptk_reset   = @('session')
         ptk_session = @('action', 'name')
         ptk_state   = @('listAvailable', 'session')
     }
     $expectedRequiredFields = @{
         ptk_invoke  = @('script')
-        ptk_output  = @('handle')
+        ptk_output  = @()
         ptk_reset   = @()
         ptk_session = @('action')
         ptk_state   = @()
@@ -308,11 +308,11 @@ try {
     }
     $outputSchema = $outputTool[0].inputSchema
     $outputFields = @($outputSchema.properties.PSObject.Properties.Name | Sort-Object)
-    if (($outputFields -join ',') -ne 'action,handle,maxBytes,offset,pattern') {
+    if (($outputFields -join ',') -ne 'action,handle,maxBytes,offset,pattern,session') {
         throw "ptk_output input fields drifted: $($outputFields -join ', ')"
     }
     $outputActions = @($outputSchema.properties.action.enum)
-    if (($outputActions -join ',') -ne 'read,search,status') {
+    if (($outputActions -join ',') -ne 'read,search,status,list') {
         throw "ptk_output action enum drifted: $($outputActions -join ', ')"
     }
     if ($outputSchema.properties.offset.minimum -ne 0 -or

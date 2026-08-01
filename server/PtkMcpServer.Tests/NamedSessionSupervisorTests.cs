@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using PtkMcpServer.Sessions;
+using PtkMcpServer.Tools;
 using PtkMcpServer.Worker;
 
 namespace PtkMcpServer.Tests;
@@ -770,7 +771,7 @@ public sealed class NamedSessionSupervisorTests
     }
 
     [Fact]
-    public async Task Completed_output_is_discoverable_by_public_session_without_response_handle()
+    public async Task Completed_output_is_discoverable_through_public_list_without_response_handle()
     {
         var fleet = new FakeFleet();
         await using var sessions = CreateSupervisor(fleet);
@@ -796,17 +797,26 @@ public sealed class NamedSessionSupervisorTests
         Assert.Equal(WorkerResultStatus.Completed, completed.Result.Status);
         Assert.NotNull(completed.OutputRecovery?.Handle);
 
-        var discovered = Assert.Single(
-            outputStore.List(
-                "paid-review",
-                OutputStore.DefaultListItems));
-        Assert.Equal("paid-review", discovered.Session);
+        var listing = OutputTool.Output(
+            outputStore,
+            action: "list",
+            session: "paid-review");
+        Assert.Contains("action=list", listing, StringComparison.Ordinal);
+        Assert.Contains("count=1", listing, StringComparison.Ordinal);
+        Assert.Contains("limit=10", listing, StringComparison.Ordinal);
+        Assert.Contains("session=paid-review", listing, StringComparison.Ordinal);
+        var handleLine = Assert.Single(
+            listing.Split(Environment.NewLine)
+                .Where(line => line.StartsWith("handle=", StringComparison.Ordinal)));
+        var discoveredHandle = handleLine["handle=".Length..]
+            .Split(' ', 2, StringSplitOptions.None)[0];
+
         Assert.Contains(
             "accepted-review-result",
-            outputStore.Read(
-                discovered.Handle,
-                offset: 0,
-                maximumBytes: OutputStore.MaximumReadBytes).Text,
+            OutputTool.Output(
+                outputStore,
+                discoveredHandle,
+                maxBytes: OutputStore.MaximumReadBytes),
             StringComparison.Ordinal);
         Assert.Equal(1, invokeCount);
     }

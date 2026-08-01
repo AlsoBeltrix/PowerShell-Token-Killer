@@ -16,15 +16,17 @@ public static class OutputTool
         "action=read returns a bounded UTF-8 byte chunk and " +
         "next offset; action=search performs a bounded ordinal literal search; " +
         "action=status reports availability, completeness, provenance, size, and " +
-        "expiry. Handles are harness-local and may be expired, evicted, incomplete, " +
+        "expiry; action=list discovers up to ten newest retained snapshots, " +
+        "optionally filtered by connection-local named session. Handles are " +
+        "harness-local and may be expired, evicted, incomplete, " +
         "or unavailable. This tool accepts no script and never starts a session or worker.")]
     public static string Output(
         OutputStore store,
-        [Description("Opaque ptk_output handle returned by ptk_invoke.")]
-        [Required, MaxLength(256)]
-        string handle,
-        [Description("read | search | status")]
-        [AllowedValues("read", "search", "status")]
+        [Description("Opaque handle required for read, search, and status; omit for list.")]
+        [MaxLength(256)]
+        string? handle = null,
+        [Description("read | search | status | list")]
+        [AllowedValues("read", "search", "status", "list")]
         string action = "read",
         [Description(
             "UTF-8 byte offset for read/search. Start at 0 and reuse next_offset from the prior result.")]
@@ -43,6 +45,10 @@ public static class OutputTool
             "Bounded ordinal literal required only for action=search.")]
         [MaxLength(OutputStore.MaximumPatternBytes)]
         string? pattern = null,
+        [Description("Optional connection-local named-session filter only for action=list.")]
+        [RegularExpression("^[a-z0-9][a-z0-9._-]{0,63}$")]
+        [MaxLength(64)]
+        string? session = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(store);
@@ -51,42 +57,122 @@ public static class OutputTool
 
         switch (action)
         {
+            case "list":
+            {
+                if (handle is not null ||
+                    offset != 0 ||
+                    maxBytes != OutputStore.DefaultReadBytes ||
+                    pattern is not null)
+                {
+                    return "[ptk output] invalid request: action=list accepts only session.";
+                }
+
+                try
+                {
+                    return FormatList(
+                        store.List(session, OutputStore.DefaultListItems),
+                        session);
+                }
+                catch (ArgumentException)
+                {
+                    return "[ptk output] invalid request: session is outside the bounded contract.";
+                }
+            }
+
             case "status":
+            {
+                if (string.IsNullOrEmpty(handle) || session is not null)
                 {
-                    var status = store.Status(handle);
-                    return FormatStatus(status);
+                    return "[ptk output] invalid request: action=status requires handle and accepts no session.";
                 }
+
+                var status = store.Status(handle);
+                return FormatStatus(status);
+            }
             case "search":
+            {
+                if (string.IsNullOrEmpty(handle) || session is not null)
                 {
-                    if (pattern is null)
-                        return "[ptk output] invalid request: action=search requires pattern.";
-                    OutputSearchResult result;
-                    try
-                    {
-                        result = store.Search(handle, pattern, offset, maxBytes);
-                    }
-                    catch (ArgumentOutOfRangeException)
-                    {
-                        return "[ptk output] invalid request: offset, maxBytes, or pattern is outside the bounded contract.";
-                    }
-                    return FormatSearch(result);
+                    return "[ptk output] invalid request: action=search requires handle and accepts no session.";
                 }
+
+                if (pattern is null)
+                    return "[ptk output] invalid request: action=search requires pattern.";
+                OutputSearchResult result;
+                try
+                {
+                    result = store.Search(handle, pattern, offset, maxBytes);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return "[ptk output] invalid request: offset, maxBytes, or pattern is outside the bounded contract.";
+                }
+                return FormatSearch(result);
+            }
             case "read":
+            {
+                if (string.IsNullOrEmpty(handle) || session is not null)
                 {
-                    OutputReadResult result;
-                    try
-                    {
-                        result = store.Read(handle, offset, maxBytes);
-                    }
-                    catch (ArgumentOutOfRangeException)
-                    {
-                        return "[ptk output] invalid request: offset or maxBytes is outside the bounded contract.";
-                    }
-                    return FormatRead(result);
+                    return "[ptk output] invalid request: action=read requires handle and accepts no session.";
                 }
+
+                OutputReadResult result;
+                try
+                {
+                    result = store.Read(handle, offset, maxBytes);
+                }
+                catch (ArgumentOutOfRangeException)
+                {
+                    return "[ptk output] invalid request: offset or maxBytes is outside the bounded contract.";
+                }
+                return FormatRead(result);
+            }
             default:
-                return "[ptk output] unknown action - use read | search | status.";
+                return "[ptk output] unknown action - use read | search | status | list.";
         }
+    }
+
+    private static string FormatList(
+        IReadOnlyList<OutputArtifactListing> artifacts,
+        string? session)
+    {
+        var sb = new StringBuilder("[ptk output] action=list");
+        sb.Append(" count=")
+            .Append(artifacts.Count.ToString(CultureInfo.InvariantCulture));
+        sb.Append(" limit=")
+            .Append(OutputStore.DefaultListItems.ToString(CultureInfo.InvariantCulture));
+        if (session is not null)
+        {
+            sb.Append(" session=").Append(session);
+        }
+
+        foreach (var artifact in artifacts)
+        {
+            sb.AppendLine();
+            sb.Append("handle=").Append(artifact.Handle);
+            sb.Append(" session=").Append(artifact.Session);
+            AppendCommon(
+                sb,
+                artifact.State,
+                artifact.Complete,
+                artifact.Provenance,
+                artifact.Bytes,
+                artifact.DetailCode);
+            sb.Append(" created_utc=")
+                .Append(artifact.CreatedUtc.ToString("O", CultureInfo.InvariantCulture));
+            if (artifact.SealedUtc is { } sealedUtc)
+            {
+                sb.Append(" sealed_utc=")
+                    .Append(sealedUtc.ToString("O", CultureInfo.InvariantCulture));
+            }
+            if (artifact.ExpiresUtc is { } expiresUtc)
+            {
+                sb.Append(" expires_utc=")
+                    .Append(expiresUtc.ToString("O", CultureInfo.InvariantCulture));
+            }
+        }
+
+        return sb.ToString();
     }
 
     private static string FormatStatus(OutputArtifactStatus status)

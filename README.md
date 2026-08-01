@@ -128,7 +128,7 @@ The public surface is exactly five tools:
 | Tool | Purpose |
 | --- | --- |
 | `ptk_invoke` | Execute the original script once in the selected warm session. |
-| `ptk_output` | Read, search, or inspect an immutable same-invocation artifact. It accepts no script and never executes work. |
+| `ptk_output` | Discover, read, search, or inspect an immutable same-invocation artifact. It accepts no script and never executes work. |
 | `ptk_state` | Report supervisor and selected-session health, worker PID, engine, cwd, modules, and drift without queueing behind that session. |
 | `ptk_reset` | Replace one idle session worker and restore its factory baseline. |
 | `ptk_session` | List sessions, open a named session, or close an idle named session. |
@@ -138,7 +138,8 @@ Signatures, shown compactly:
 ```text
 ptk_invoke(script, route="auto", timeoutSeconds=0, raw=false,
            session="default")
-ptk_output(handle, action="read", offset=0, maxBytes=<bounded>, pattern=null)
+ptk_output(handle=null, action="read", offset=0, maxBytes=<bounded>,
+           pattern=null, session=null)
 ptk_state(listAvailable=false, session="default")
 ptk_reset(session="default")
 ptk_session(action, name=null)
@@ -188,6 +189,12 @@ immutable artifact. Handles remain readable across reset and session close
 until ordinary TTL or quota eviction, but never outlive the supervisor.
 Expired, evicted, unavailable, and incomplete artifacts are reported
 explicitly.
+
+If a caller disconnects before receiving a completed response, use
+`ptk_output(action="list", session="<name>")` on the same MCP connection to
+discover up to the ten newest retained snapshots, then pass a listed handle to
+`read`, `search`, or `status`. Omit `session` to list across that connection.
+Listing never reruns work, starts no worker, and does not extend retention.
 
 The end-state design was frozen against adjacent RTK commit `5d32d07` and an
 independent RTK 0.43.0 runtime probe; neither exposed the trustworthy

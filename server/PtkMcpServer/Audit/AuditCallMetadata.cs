@@ -42,7 +42,7 @@ internal static class AuditCallMetadataCapture
     private static readonly HashSet<string> InvokeFields =
         new(["script", "raw", "route", "timeoutSeconds", "session"], StringComparer.Ordinal);
     private static readonly HashSet<string> OutputFields =
-        new(["handle", "action", "offset", "maxBytes", "pattern"], StringComparer.Ordinal);
+        new(["handle", "action", "offset", "maxBytes", "pattern", "session"], StringComparer.Ordinal);
     private static readonly HashSet<string> StateFields =
         new(["listAvailable", "session"], StringComparer.Ordinal);
     private static readonly HashSet<string> ResetFields =
@@ -298,16 +298,8 @@ internal static class AuditCallMetadataCapture
     {
         metadata = null;
         failure = null;
-        if (protector is null)
-            return Fail("audit_boundary_invalid: output request protection is unavailable", out failure);
-        if (!TryRejectUnknownFields(arguments, OutputFields, "ptk_output", out failure) ||
-            !TryRequiredString(arguments, "handle", out var handle, out failure) ||
-            !TryStrictUtf8Length(handle, 256))
-        {
-            return failure is not null
-                ? false
-                : Fail("audit_boundary_invalid: ptk_output.arguments.handle is not representable", out failure);
-        }
+        if (!TryRejectUnknownFields(arguments, OutputFields, "ptk_output", out failure))
+            return false;
 
         var action = "read";
         if (arguments.TryGetValue("action", out var actionElement))
@@ -317,8 +309,59 @@ internal static class AuditCallMetadataCapture
             else if (actionElement.ValueKind != JsonValueKind.Null)
                 return Fail("audit_boundary_invalid: ptk_output.arguments.action has the wrong JSON kind", out failure);
         }
-        if (action is not ("read" or "search" or "status"))
+        if (action is not ("read" or "search" or "status" or "list"))
             return Fail("audit_boundary_invalid: ptk_output.arguments.action is unsupported", out failure);
+
+        if (action == "list")
+        {
+            if (arguments.ContainsKey("handle") ||
+                arguments.ContainsKey("offset") ||
+                arguments.ContainsKey("maxBytes") ||
+                arguments.ContainsKey("pattern"))
+            {
+                return Fail("audit_boundary_invalid: ptk_output list contains an inapplicable argument", out failure);
+            }
+
+            string? session = null;
+            if (arguments.TryGetValue("session", out var sessionElement) &&
+                sessionElement.ValueKind != JsonValueKind.Null)
+            {
+                if (sessionElement.ValueKind != JsonValueKind.String)
+                {
+                    return Fail("audit_boundary_invalid: ptk_output.arguments.session has the wrong JSON kind", out failure);
+                }
+
+                session = sessionElement.GetString();
+                if (session is null || !IsSessionName(session))
+                {
+                    return Fail("audit_boundary_invalid: ptk_output.arguments.session is invalid", out failure);
+                }
+            }
+
+            metadata = new AuditCallMetadata(
+                actor,
+                BaseRequest("ptk_output", action, providedFields) with
+                {
+                    SessionRequested = session,
+                },
+                new AuditOperationProfile(
+                    MaximumRecordSlots: 3,
+                    RequiresScriptEvidence: false,
+                    MayHaveSideEffects: false));
+            return true;
+        }
+
+        if (arguments.ContainsKey("session"))
+            return Fail("audit_boundary_invalid: ptk_output action contains an inapplicable session", out failure);
+        if (protector is null)
+            return Fail("audit_boundary_invalid: output request protection is unavailable", out failure);
+        if (!TryRequiredString(arguments, "handle", out var handle, out failure) ||
+            !TryStrictUtf8Length(handle, 256))
+        {
+            return failure is not null
+                ? false
+                : Fail("audit_boundary_invalid: ptk_output.arguments.handle is not representable", out failure);
+        }
 
         long offset = 0;
         if (arguments.TryGetValue("offset", out var offsetElement))

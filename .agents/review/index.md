@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditSpoolSegmentIdentity.cs` at `b4ffe87d5b2364885dbf92ee00a4e23df0a1d786`, limited to segment filename construction and parsing, canonical identity, numeric range and overflow behavior, ordering, path safety, and fail-closed rejection. Verdict: `no_findings`; no product change or guard claim.
+
 **Current intake — opr-5:** MEDIUM — `AuditStartupConfiguration` canonicalizes `PTK_AUDIT_ROOT` before `AuditOptions` can reject relative roots, silently binding legacy administration to a launcher-dependent directory. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-5.md`.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditOutputRequestProtector.cs` at `a2c343f4f0a143ee017d93e794269b532e8d4f6c`, limited to authorization binding, request validation, sensitive-output protection, fail-closed behavior, exception handling, and cross-platform semantics. Verdict: `no_findings`; no product change or guard claim.

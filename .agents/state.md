@@ -868,11 +868,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** continue bounded read-only Claude Opus 5 review in another
-production boundary. `opr-1` and `opr-2` are accepted new findings and both are
-plan gated; the process-tree post-kill-sweep candidate was adjudicated invalid
-with the existing orphan guard confirmed. Keep periodic scans active for three
-gated issues.
+**Immediate next:** repair accepted `opr-3` under the approved production
+reliability teardown/reclamation invariant, prove a residual-artifact guard
+red then green, run full verification, and obtain exact-SHA Opus review.
+`opr-1` and `opr-2` remain plan gated; keep periodic GitHub scans active.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

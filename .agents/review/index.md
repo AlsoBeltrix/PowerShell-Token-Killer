@@ -2774,3 +2774,7 @@ finding is draft PR 17, run `30658534883`.
 | gh-15-1 | MEDIUM | In-worker long process can be mistaken for detached work | `[x]` | `docs/issue-15-long-work-lifetime` (`a1e18fb`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | ci-xunit2031-1 | LOW | Output-list regression emits xUnit2031 on every hosted server job | `[x]` | `fix/xunit2031-output-list-guard` (`33d007c`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | gh-11-1 | MEDIUM | Public stdio death boundary was undocumented and unvalidated in real Codex | `[x]` | `docs/issue-11-transport-boundary` (`924cc2e`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=false` |
+
+---
+
+**Openreview 2026-08-01 (current production, bounded):** Claude Opus 5 reviewed `server/PtkMcpServer/Sessions/WorkerSupervisor.cs` at `3cd2482fdaed41349f327fe9ac22bd551218a5bb`, limited to public result formatting and exception-to-tool responses. Verdict: `no_findings`; no product change or guard claim.

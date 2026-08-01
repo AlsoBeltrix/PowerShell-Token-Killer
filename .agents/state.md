@@ -868,9 +868,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** run a fresh read-only Claude Opus 5 review of current
-production runtime code, intake at most one concrete finding, and keep periodic
-GitHub scans active for the three gated issues.
+**Immediate next:** continue bounded read-only Claude Opus 5 review in a
+different production subsystem. The `WorkerSupervisor.cs` public-formatting
+pass at `3cd2482` returned `no_findings`; keep periodic GitHub scans active for
+the three gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

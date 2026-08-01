@@ -2798,3 +2798,5 @@ The `server/PtkMcpServer/Worker/WorkerProcessAuthority.cs` pass at `7071941a6622
 Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerProcessExit.cs` at `a930e279edcbe5b2ce2e2aa5061f7914448e62bb`, limited to exit-code mapping, detail normalization, diagnostic bounds, and best-effort stderr writes. Verdict: `no_findings`; no product change or guard claim.
 
 Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerSession.cs` at `5f2e1fbbe9ac35dd30b34f1ba11edab987f6108f`, limited to operation dispatch, deadline/cancellation forwarding, capture ownership, result mapping, artifact fallback, routes, and lifetime forwarding. Verdict: `no_findings`; no product change or guard claim.
+
+**opr-2 intake:** MEDIUM — Unix cold PATH resolution collapses distinct case-differing directories. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-2.md`.

@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-5:** MEDIUM — `AuditStartupConfiguration` canonicalizes `PTK_AUDIT_ROOT` before `AuditOptions` can reject relative roots, silently binding legacy administration to a launcher-dependent directory. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-5.md`.
+
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditOutputRequestProtector.cs` at `a2c343f4f0a143ee017d93e794269b532e8d4f6c`, limited to authorization binding, request validation, sensitive-output protection, fail-closed behavior, exception handling, and cross-platform semantics. Verdict: `no_findings`; no product change or guard claim.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditAdminFailure.cs` at `618f007b1c0f2cf8125f8635eb6174ad754d2101`, limited to failure classification and projection, sensitive-data handling, status truthfulness, exception behavior, and audit availability semantics. Verdict: `no_findings`; no product change or guard claim.

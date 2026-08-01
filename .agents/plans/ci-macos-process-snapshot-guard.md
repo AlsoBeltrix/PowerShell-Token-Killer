@@ -1,9 +1,13 @@
 # Plan: macOS process-snapshot descriptor guard
 
-**Status:** IMPLEMENTING — owner authorized autonomous remediation of observed
-CI failures on 2026-08-01. This plan narrows that standing approval to the
-recurring macOS test-harness failure below; it does not authorize production
-containment changes.
+**Status:** COMPLETE 2026-08-01 — test-only head `f466319` passed 1,221/1,221
+local server tests on Windows. GitHub Actions run `30712151152` passed all six
+jobs at that exact head; its macOS test job then passed two additional same-head
+attempts (`91402436186`, `91403654965`). Direct macOS mutation proof remained
+unavailable as recorded below. The owner authorized autonomous remediation of
+observed CI failures on 2026-08-01; this plan narrowed that standing approval to
+the recurring macOS test-harness failure and changed no production containment
+source.
 
 ## Evidence
 

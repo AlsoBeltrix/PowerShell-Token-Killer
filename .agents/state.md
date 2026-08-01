@@ -880,12 +880,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-**CI remediation in progress:** execute
-`.agents/plans/ci-macos-process-snapshot-guard.md`. The same process-global
-macOS descriptor guard failed run `30689168285` attempt 1 with delta 8 and run
-`30710404489` with delta 2, while unchanged reruns passed. The approved
-test-only repair measures accumulation across equal 32-call batches; production
-remains unchanged.
+**CI remediation complete:** `.agents/plans/ci-macos-process-snapshot-guard.md`
+closed at test-only head `f466319`. The repaired equal-batch accumulation guard
+passed 1,221/1,221 local server tests, all six jobs in run `30712151152`, and two
+additional exact-head macOS attempts (`91402436186`, `91403654965`). Production
+remained unchanged; direct macOS mutation proof was unavailable and is not
+claimed.
 
 **Immediate next:** resume bounded read-only Claude Opus 5 review on merged
 master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and

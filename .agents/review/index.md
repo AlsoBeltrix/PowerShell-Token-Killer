@@ -1,5 +1,7 @@
 # Review status
 
+**Current intake — opr-4:** MEDIUM — cleanup-time caller cancellation can overwrite an already-elapsed RTK/Bash process timeout and suppress timeout/remote-effects reporting. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-4.md`.
+
 Workflow: see `.agents/playbooks/reviewloop.md`.
 Per-finding detail: see `.agents/review/findings/<id>.md`.
 

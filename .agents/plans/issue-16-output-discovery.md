@@ -1,6 +1,6 @@
 # Plan: Recover output after caller disconnect
 
-**Status:** APPROVED 2026-07-31 — execute under the owner's unattended GitHub-issue remediation GO. Amended 2026-07-31 before Slice 2 to keep the public list at a fixed maximum of 10 rather than version the strict audit schema for a caller-selectable limit. GitHub issue #16 is the governing defect report.
+**Status:** COMPLETED 2026-08-01 — Slice 1 merged through PR #22 (`0b37f3a`), Slice 2 merged through PR #23 (`9ad7765`), both exact-head Opus reviews accepted with `guard_confirmed=true`, all hosted matrix jobs green, and GitHub issue #16 closed. Amended 2026-07-31 before Slice 2 to keep the public list at a fixed maximum of 10 rather than version the strict audit schema for a caller-selectable limit.
 
 ## Problem
 

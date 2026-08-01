@@ -5,19 +5,12 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended GitHub remediation (2026-07-31):** CI stabilization
-  through PR 20 is merged and green. GitHub issue #14's mixed log/JSON integrity
-  fix was accepted by Opus with `guard_confirmed=true`, merged through PR 21 as
-  `b723080`, passed all six hosted jobs, and issue #14 is closed. GitHub issue
-  #16 is active on `fix/issue-16-output-discovery`; its approved two-slice plan
-  is `.agents/plans/issue-16-output-discovery.md`.
-- **Issue #16 Slice 1 merged through PR 22 as `0b37f3a`:** internal discovery
-  is bounded, newest-first, retention-aware, and preserves public session names
-  separately from private quota identities. Opus accepted reviewed head
-  `8779454` with `guard_confirmed=true`; final hosted CI passed all six jobs.
-- **Issue #16 current slice:** expose fixed-maximum-10 `ptk_output action=list`
-  with optional public-session filtering, strict audit validation, public
-  contract/docs, a no-rerun integration guard, and exact-SHA Opus review.
+- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #14 and
+  #16 are closed. Issue #16's two-slice retained-output discovery landed through
+  PRs #22 and #23; public recovery is `ptk_output action=list`, optionally by
+  named session, with a fixed ten-item bound. Both Opus reviews accepted with
+  `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
+  as `9ad7765`. The live queue has no open PR and nine open issues.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -824,13 +817,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** execute Slice 2 of
-`.agents/plans/issue-16-output-discovery.md`, including public tool/audit/schema
-guards, non-vacuous proof, exact-SHA Claude Opus 5 review, and hosted CI.
+**Immediate next:** triage GitHub issue #15 against current repo evidence and
+existing approved plans, then execute only an already-approved atomic slice.
 
-**Then:** close issue #16 only after the accepted slice is merged and exact-head
-hosted CI is green, then rescan the live GitHub issue queue. Build identity and
-release readiness remain parked while product defects are active.
+**Then:** continue periodic live issue scans and remediate the next supported
+product defect. Build identity and release readiness remain parked while product
+defects are active.
 
 1. Continue only an acceptance gate when its actual environment becomes
    available; do not conflate them. Rerun the remaining SIEM symlink-protection

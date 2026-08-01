@@ -2,7 +2,7 @@
 
 **Severity**: MEDIUM — a failed or incomplete artifact unlink can leave retained output in a root that no later startup can authenticate and reclaim.
 
-**Status**: Accepted; implementation authorized by `.agents/plans/production-reliability-salvage.md` (`ptk_output` teardown and stale-root reclamation invariant).
+**Status**: Implemented on `agent/opr-3-output-root-marker-order`; awaiting exact-SHA Opus review and hosted CI.
 
 **Source**: Bounded Claude Opus 5 review of current production code.
 
@@ -21,6 +21,14 @@ A graceful teardown with recognized residue leaves a markerless output root. Eve
 After releasing the live marker and removing the in-process live-root registration, route disposal through the same fail-closed `TryReclaim` path used for stale siblings. It deletes only a validated marker plus recognized artifact names; any failure leaves the marker in place for a later retry.
 
 Add a cross-platform guard that creates a valid owned root plus one recognized artifact, disposes the lease, and requires the root to be removed. Prove the guard fails against the current marker-first disposal, restore the repair, then run full verification and hosted CI.
+
+## Implementation and guard proof
+
+- `OutputRootLease.Dispose` now releases the live lock and registry entry, then reuses the fail-closed stale-root reclaimer. Recognized residue is deleted only after marker and artifact identity validation; any failure preserves the marker for a later retry.
+- `OutputRootLeaseTests.Dispose_reclaims_recognized_residue_before_removing_ownership_marker` creates one valid retained artifact and requires lease disposal to remove the root.
+- Guard red: unchanged production left the root present (`Assert.False`, actual `true`), 0/1 passed.
+- Guard green: repaired production passed 1/1.
+- Full verification: server 1,221/1,221; Pester 145 passed and 1 platform skip; registered five-tool handshake passed; server dependency audit found no vulnerable packages. SIEM passed 226/247; the 21 failures are the recorded ordinary-Windows-token inability to create symlink fixtures before product assertions.
 
 ## Reviewer
 

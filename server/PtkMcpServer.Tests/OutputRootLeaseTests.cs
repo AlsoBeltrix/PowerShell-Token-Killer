@@ -29,6 +29,29 @@ public sealed class OutputRootLeaseTests : IDisposable
     }
 
     [Fact]
+    public void Dispose_reclaims_recognized_residue_before_removing_ownership_marker()
+    {
+        var parent = CreateParent();
+        var ownership = OutputRootOwnership.CreateCurrent();
+        var root = Path.Combine(parent, ownership.DirectoryName);
+        using var lease = OutputRootLease.Acquire(root, ownership);
+        var artifactPath = Path.Combine(
+            root,
+            $"artifact-{Guid.NewGuid():N}.out");
+        using (var artifact = SecureAuditStorage.CreateExclusiveFile(
+                   artifactPath,
+                   access: FileAccess.ReadWrite))
+        {
+            artifact.Write("retained residue"u8);
+            artifact.Flush(flushToDisk: true);
+        }
+
+        lease.Dispose();
+
+        Assert.False(Directory.Exists(root));
+    }
+
+    [Fact]
     public void Startup_reclaims_only_an_abandoned_valid_root()
     {
         var parent = CreateParent();

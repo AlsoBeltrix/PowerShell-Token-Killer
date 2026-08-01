@@ -5,8 +5,9 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #10,
-  #11, #12, #14, #15, and #16 are closed. Issue #16's two-slice retained-output
+- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #9,
+  #10, #11, #12, #14, #15, and #16 are closed. Issue #16's two-slice
+  retained-output
   discovery
   landed through
   PRs #22 and #23; public recovery is `ptk_output action=list`, optionally by
@@ -14,7 +15,7 @@ short and update it when important repo facts change.
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
   as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
   as `d140f13`; its active-member report remains tracked in issue #8. The live
-  queue has no open PR and five open issues. PR #25 (`e522923`) removed the
+  queue has no open PR and four open issues. PR #25 (`e522923`) removed the
   issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
   and all six hosted jobs passed without that warning.
 - **GitHub issue #13 remains open after current-master triage:** two real-server
@@ -46,6 +47,13 @@ short and update it when important repo facts change.
   created no audit root, and exited gracefully. The current startup guard passed
   1/1 and the hosted handshake diagnostic remains green. Opus accepted closure
   with `guard_confirmed=true`; reopen only on current-build audit gating.
+- **GitHub issue #9 is closed after exact-client validation of both reported
+  stages:** current Claude Code path-verified and killed its installed public
+  supervisor, then transparently restarted PTK and returned `ptk_state` promptly
+  on one post-kill call. Current Codex instead failed immediately with
+  `Transport closed` and succeeded from a fresh session; neither client hung.
+  The audit wedge is the retired gate closed under #10. Opus accepted closure;
+  the original older-client observation remains valid history.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -852,8 +860,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #9's dead-transport hang and audit-wedge
-report against current Codex fail-fast behavior and the retired audit gate.
+**Immediate next:** triage GitHub issue #8's active-member shaping report
+against the installed real EXO evidence and remaining Outlook gate.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.
@@ -913,17 +921,13 @@ readiness remain parked while product defects are active.
 - GitHub issue #3 remains open (verified 2026-07-11): item 1 landed; items
   2-4 are an unplanned follow-up candidate, while its permission-bypass
   concern belongs to the open security track.
-- GitHub #8 and #9 are owner field reports from 2026-07-23. #8's older
+- GitHub #8 is an owner field report from 2026-07-23. Its older
   installed runtime dropped script/lazy/COM values. The replacement server now
   preserves synthetic EXO-style selected/deserialized values, evaluates an
   explicitly selected script property exactly once in the user pipeline, and
   surfaces the tested terminating-error message; it still truthfully labels
   uninspected active type data as incomplete. Keep #8 open until the real
-  EXO/Outlook Windows workflow passes. #9's older client held a dead MCP
-  transport for 120 seconds before error, then the old payload hit the retired
-  audit gate. #10 is closed after installed validation proved the replacement
-  ignores unusable audit storage. Keep #9 open only until its transport half is
-  reconciled with current Codex fail-fast and fresh-client behavior.
+  EXO/Outlook Windows workflow passes.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

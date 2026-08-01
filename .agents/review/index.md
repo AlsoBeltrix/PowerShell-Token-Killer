@@ -1,5 +1,17 @@
 # Review status
 
+**Review record 2026-08-01 — WorkerProtocol (no findings):** Claude Opus 5
+(`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`)
+reviewed `server/PtkMcpServer/Worker/WorkerProtocol.cs` at
+`e72b67d9896934d18143259b9e60079d5aa8b711` in three exact-source passes,
+covering decode ownership, envelope validation, encoding bounds, JSON depth and
+duplicate rejection, wire-name mapping, pooled-buffer lifetime, incremental
+framing, cancellation, EOF, concurrent writes, failure latching, and clearing.
+Focused runtime, caller, and test adjudication rejected payload aliasing, frame
+limit/depth, post-dispose/overflow, retry desynchronization, callback, and
+diagnostic candidates on direct guards or terminal production ownership.
+Outcome: `no_findings`; no detail file, product change, or guard claim.
+
 **Current intake — opr-18:** LOW — `ptk_state listAvailable=true` silently
 reuses the first available-module inventory after the warm session changes its
 module search path or module files. Status: accepted; plan required. Reviewer:

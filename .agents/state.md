@@ -885,7 +885,9 @@ master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
 `opr-4` through `opr-15` are accepted and plan gated. `opr-14` is HIGH:
 fixed-signature `fcntl` P/Invokes mispass variadic arguments on Apple arm64;
 `opr-15` is HIGH: Unix identity-probe errors can falsely clear a live observed
-escape. Both remediations await approved plans. The latest review queue also added
+escape. `opr-16` is LOW: a deadline-cancellation test uses the same losable
+callback witness as the repaired Windows CI recurrence. All three remediations
+await approved plans. The latest review queue also added
 Windows stdin partial-publication, timeout parsing, invoke validation, and
 Unix worker-environment identity findings; lifecycle callback candidates
 were adjudicated invalid. Keep periodic GitHub scans active for the four open,

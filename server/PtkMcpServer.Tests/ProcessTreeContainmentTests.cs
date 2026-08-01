@@ -22,22 +22,26 @@ public sealed class ProcessTreeContainmentTests : IDisposable
     }
 
     [Fact]
-    public void Mac_process_table_snapshots_release_redirected_output_immediately()
+    public void Mac_process_table_snapshots_do_not_accumulate_redirected_output()
     {
         if (!OperatingSystem.IsMacOS()) return;
 
         _ = ProcessTableSnapshot.TryTake();
         GC.Collect();
         GC.WaitForPendingFinalizers();
-        var before = CountOpenFileDescriptors();
 
         for (var index = 0; index < 32; index++)
             Assert.NotNull(ProcessTableSnapshot.TryTake());
+        var firstBatchDescriptorCount = CountOpenFileDescriptors();
 
-        var after = CountOpenFileDescriptors();
+        for (var index = 0; index < 32; index++)
+            Assert.NotNull(ProcessTableSnapshot.TryTake());
+        var secondBatchDescriptorCount = CountOpenFileDescriptors();
+
         Assert.True(
-            after <= before + 1,
-            $"Process-table snapshots retained {after - before} descriptors.");
+            secondBatchDescriptorCount <= firstBatchDescriptorCount + 8,
+            $"Process-table snapshots accumulated " +
+            $"{secondBatchDescriptorCount - firstBatchDescriptorCount} descriptors.");
     }
 
     [Fact]

@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+**Review intake:** `opr-22` LOW accepted and plan gated: startup cancellation begins before first-use factory construction, while the worker factory receives a later deadline and uses wall-clock comparison to distinguish timeout from shutdown, so a real timeout can be mislabeled `worker_start_canceled`.
+
 **Review intake:** `opr-21` LOW accepted and plan gated: if worker initialization and its containment cleanup both fail, the cleanup wrapper overwrites the primary timeout/cancellation detail with generic `worker_initialize_failed`.
 
 **Review intake:** `opr-20` HIGH accepted and plan gated: cancellation of `StateAsync` in the proved pre-write window can poison and replace a healthy worker, losing warm named-session state even though no request reached the worker.

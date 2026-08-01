@@ -16,6 +16,14 @@ short and update it when important repo facts change.
   queue has no open PR and eight open issues. PR #25 (`e522923`) removed the
   issue #16 regression's xUnit2031 annotation; Opus accepted the exact repair
   and all six hosted jobs passed without that warning.
+- **GitHub issue #13 remains open after current-master triage:** two real-server
+  MCP stress runs produced up to 100,002 interleaved stdout/stderr ANSI/CR-heavy
+  objects without transport loss. Capture bounded itself, returned a recovery
+  handle, and left the same worker ready. The worker protocol emits bounded
+  artifact chunks only after execution, so the filed write-flood hypothesis is
+  not a demonstrated transport path. Do not make a speculative fix; a recurrence
+  needs exact build identity plus worker/server crash diagnostics or an OS exit
+  record. Evidence is posted on issue #13.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -822,9 +830,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #13's high-volume
-`worker_transport_closed` report against current transport and retained-output
-behavior, then execute only an approved atomic slice.
+**Immediate next:** triage GitHub issue #12's nested-client report against the
+current per-connection named-worker topology and obtain a bounded reproduction.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

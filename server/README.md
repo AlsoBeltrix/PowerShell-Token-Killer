@@ -304,10 +304,13 @@ Set these in the MCP registration `env` block when defaults do not fit:
 - Cancellation before dispatch leaves the worker usable. Once request bytes may
   have reached the worker, PTK never replays the command and may replace that
   worker to recover a trustworthy transport.
-- Losing a session worker does not close the public MCP connection. The
-  supervisor replaces only that session's worker, reports `warm_state_lost`,
-  and never replays ambiguous work; `ptk_state` and sibling sessions remain
-  available.
+- Losing a session worker does not close the public MCP connection. When
+  containment confirms no descendants survived, the supervisor replaces only
+  that session's worker, reports `warm_state_lost`, and never replays ambiguous
+  work. During replacement, `ptk_state` remains callable and may report
+  `session_recovering`; sibling sessions remain available. If descendant
+  cleanup cannot be confirmed, the affected session faults instead of being
+  replaced unsafely.
 - The public `PtkMcpServer` process owns the client stdio connection. If that
   process exits or is killed, the connection is irreversibly closed; a new
   server cannot attach to the old pipes. Start a fresh harness session if the

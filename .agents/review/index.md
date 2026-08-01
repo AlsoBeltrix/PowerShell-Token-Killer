@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-29:** MEDIUM — `WorkerLaunchCommand` uses case-insensitive environment identity on every platform, so valid case-distinct Unix host variables deterministically block all worker launches. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-29.md`.
+
 **Open — opr-28:** LOW — the Unix launcher's private five-second broker-handshake timeout is reported as `worker_start_canceled` whenever the overall startup deadline is later. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-28.md`.
 
 **Open — opr-27:** LOW — valid structured Unix broker `StartFailed` events are collapsed into `unix_worker_broker_protocol_invalid`, losing startup stage and native error diagnostics. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-27.md`.

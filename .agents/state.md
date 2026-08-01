@@ -860,8 +860,8 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #8's active-member shaping report
-against the installed real EXO evidence and remaining Outlook gate.
+**Immediate next:** scan GitHub issue #7 for a Microsoft Defender verdict or
+new current-build detection evidence, then apply its recorded on-verdict path.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.
@@ -926,8 +926,11 @@ readiness remain parked while product defects are active.
   preserves synthetic EXO-style selected/deserialized values, evaluates an
   explicitly selected script property exactly once in the user pipeline, and
   surfaces the tested terminating-error message; it still truthfully labels
-  uninspected active type data as incomplete. Keep #8 open until the real
-  EXO/Outlook Windows workflow passes.
+  uninspected active type data as incomplete. Real EXO selected values now pass.
+  Keep #8 open until a real Outlook item retains selected values without extra
+  shaping-time getter execution and a real non-core EXO/Outlook terminating
+  exception returns its exact message. The verified progress and gate are posted
+  on issue #8; Opus accepted holding without a speculative active-getter change.
 - A pre-existing `AuditAnchoredRuntimeTests` assertion can observe the short
   interval between the final evidence-file publication and removal of its
   `.anchoring.*.script` temporary. It passed an isolated 10/10 and a clean

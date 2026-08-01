@@ -868,10 +868,10 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** push the accepted `opr-3` review record, mark PR #27 ready,
-and integrate only after every hosted job passes. Exact head `e72f2b6` was
-accepted by Claude Opus 5 with `guard_confirmed=true`; `opr-1` and `opr-2`
-remain plan gated, and periodic GitHub scans stay active.
+**Immediate next:** resume bounded read-only Claude Opus 5 review on merged
+master. `opr-3` closed through PR #27 as `f5da911` after exact-SHA acceptance
+and six green hosted jobs; `opr-1` and `opr-2` remain plan gated. Keep periodic
+GitHub scans active for the three externally gated issues.
 
 **Then:** continue periodic live issue scans. Build identity and release
 readiness remain parked while product defects are active.

@@ -2,7 +2,7 @@
 
 **Severity**: MEDIUM — a failed or incomplete artifact unlink can leave retained output in a root that no later startup can authenticate and reclaim.
 
-**Status**: Exact-SHA Opus review accepted with `guard_confirmed=true`; awaiting hosted CI and integration through PR #27.
+**Status**: Closed; merged through PR #27 as `f5da9116463d2976c59757c57729c6a9eaa1f8c0`.
 
 **Source**: Bounded Claude Opus 5 review of current production code.
 
@@ -35,3 +35,5 @@ Add a cross-platform guard that creates a valid owned root plus one recognized a
 Claude Code 2.1.220 using owner-selected `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5`, max effort, frontier; reviewed `b424dc990f169bbdb3dc894bebbf97824860479e` read-only. Verdict: `finding`.
 
 Fixed-SHA repair review: head `e72f2b65665cb087a8c7c5b01576e9f943ba4158` against base `5d2eb8ccd13863c12ff246a7ce34757c10cc335c`; verdict `accepted`, `guard_confirmed=true`. The reviewer confirmed marker preservation on any validation/unlink failure, safe self-reclamation after live-registry removal, unchanged sibling lock protection, and a non-vacuous red/green guard.
+
+Hosted run `30689168285` passed all six jobs. The first macOS test attempt hit the unrelated process-table descriptor fixture; its single-job rerun passed, while Ubuntu, Windows, and all three SIEM jobs were already green. Branch content was verified identical to merged master.

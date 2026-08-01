@@ -2803,4 +2803,4 @@ Claude Opus 5 reviewed `server/PtkMcpServer/Worker/WorkerSession.cs` at `5f2e1fb
 
 The `server/PtkMcpServer/Execution/ProcessTreeContainment.cs` pass at `2479a48725e5c43fa518a8422248a081edaad5e2` proposed a MEDIUM orphan-during-tree-kill gap. Both production callers perform the tree kill before escalation, so any missed descendant is orphaned before the fresh group snapshot; focused Opus adjudication returned `invalid`, `guard_confirmed=true`. No product change.
 
-**opr-3:** MEDIUM — output-root disposal removed its ownership marker before residual artifacts. Repair head `e72f2b6` is accepted with `guard_confirmed=true`; PR #27 awaits hosted CI. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-3.md`.
+**opr-3 CLOSED:** MEDIUM — output-root disposal removed its ownership marker before residual artifacts. Repair head `e72f2b6` was accepted with `guard_confirmed=true`; all six hosted jobs passed and PR #27 merged as `f5da911`. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-3.md`.

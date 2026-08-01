@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-27:** LOW — valid structured Unix broker `StartFailed` events are collapsed into `unix_worker_broker_protocol_invalid`, losing startup stage and native error diagnostics. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-27.md`.
+
 **Open — opr-26:** MEDIUM — a shared Unix process-table snapshot captured before registration arming can count as healthy post-arm evidence and falsely confirm an escaped domain empty. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-26.md`.
 
 **Open — opr-25:** MEDIUM — Unix worker-exit observation treats identity-query exceptions and a faulted broker wait as successful exit signals, poisoning a healthy warm session. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-25.md`.

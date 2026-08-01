@@ -2771,3 +2771,4 @@ finding is draft PR 17, run `30658534883`.
 | gh-14-1 | HIGH | Mixed log output can hand trailing JSON to a lossy whole-stream shaper | `[x]` | `fix/issue-14-json-log-shaping` (`dcbb985`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | gh-16-1 | HIGH | Caller disconnect can strand a sealed successful invocation artifact | `[x]` | `fix/issue-16-output-discovery` (`8779454`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
 | gh-16-2 | HIGH | Public tool cannot discover retained output after caller disconnect | `[x]` | `fix/issue-16-output-list-tool` (`008578b`) | `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier; guard=true` |
+| gh-15-1 | MEDIUM | In-worker long process can be mistaken for detached work | `[~]` | `docs/issue-15-long-work-lifetime` (`aa0493d`) | pending Claude Opus 5 max |

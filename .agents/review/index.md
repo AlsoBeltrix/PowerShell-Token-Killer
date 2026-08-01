@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Audit/AuditEffectiveIdentity.cs` at `c1d83e10e1078a94b6b0d1559b1235163e5d8312`, limited to effective identity capture, platform semantics, normalization, unavailable-data behavior, and audit truthfulness. Verdict: `no_findings`; no product change or guard claim.
+
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/SupervisorCallFilter.cs` at `6675e37d2509d40c88149912e3bb23b15077d1a6`, limited to call admission, shutdown interaction, cancellation propagation, lifetime accounting, exception safety, and observable MCP behavior. Verdict: `no_findings`; no product change or guard claim.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Execution/ExecutionPlanner.cs` at `0a0fcbb17c283c2dac8a7cc2b600233de0f31d83`, limited to classification, route eligibility and enforcement, executable identity binding, fallback provenance, validation ordering, working-directory handling, and fail-closed behavior. Verdict: `no_findings`; no product change or guard claim.

@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-28` LOW accepted and plan-gated: the Unix launcher's own broker-handshake timeout is misclassified as caller cancellation when the overall startup deadline is later.
+
 - **Review intake:** `opr-27` LOW accepted and plan-gated: structured Unix broker startup failures are mislabeled protocol corruption and lose their stage/native-error diagnostic.
 
 - **Review intake:** `opr-26` MEDIUM accepted and plan-gated: a cached pre-arm Unix process snapshot can satisfy the registry's healthy-observation gate and falsely confirm an escaped domain empty.

@@ -5,12 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #14 and
-  #16 are closed. Issue #16's two-slice retained-output discovery landed through
+- **Active unattended GitHub remediation (2026-08-01):** GitHub issues #14,
+  #15, and #16 are closed. Issue #16's two-slice retained-output discovery
+  landed through
   PRs #22 and #23; public recovery is `ptk_output action=list`, optionally by
   named session, with a fixed ten-item bound. Both Opus reviews accepted with
   `guard_confirmed=true`; the final PR head passed all six hosted jobs and merged
-  as `9ad7765`. The live queue has no open PR and nine open issues.
+  as `9ad7765`. Issue #15's worker-lifetime clarification merged through PR #24
+  as `d140f13`; its active-member report remains tracked in issue #8. The live
+  queue has no open PR and eight open issues.
 - **Release readiness was parked by the owner on 2026-07-31.** PTK is not close
   to release. Do not ask for release licensing, hook-default, signing, tagging,
   or publication decisions now. Work the product and GitHub issue backlog.
@@ -817,12 +820,12 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Immediate next:** triage GitHub issue #15 against current repo evidence and
-existing approved plans, then execute only an already-approved atomic slice.
+**Immediate next:** repair the xUnit2031 analyzer warning surfaced by PR #24 in
+the issue #16 no-rerun regression, under that approved plan's test-guard scope;
+review the atomic repair with Opus and hosted CI.
 
-**Then:** continue periodic live issue scans and remediate the next supported
-product defect. Build identity and release readiness remain parked while product
-defects are active.
+**Then:** rescan the live queue and triage issue #13. Build identity and release
+readiness remain parked while product defects are active.
 
 1. Continue only an acceptance gate when its actual environment becomes
    available; do not conflate them. Rerun the remaining SIEM symlink-protection

@@ -1,5 +1,7 @@
 # Review status
 
+**Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/Tools/ResetTool.cs` at `dfe0da7b4fc59ed90dc4f97cf3fa007a8d650240`, limited to validation, default-session selection, cancellation forwarding, session routing, async exception behavior, and schema/description alignment using the complete adapter and bounded caller/test evidence in a no-tool transport. Verdict: `no_findings`; no product-change guard claim.
+
 **Current intake — opr-8:** MEDIUM — Windows child-stdin setup ignores inheritance-mark failure and can publish a non-inheritable `NUL` handle, making later native children fail stdin access with `ERROR_INVALID_HANDLE`. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-8.md`.
 
 **Openreview 2026-08-01:** Claude Opus 5 reviewed `server/PtkMcpServer/RawUsageCounter.cs` at `469959c622d4ea2c6b6a150d570b05b6869f337c`, limited to raw-usage counter overflow, atomicity, concurrency, and contract truthfulness using the complete source and bounded caller/test evidence in a no-tool transport. Verdict: `no_findings`; no product-change guard claim.

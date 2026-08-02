@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditOutputRequestProtector whole-file review closed (2026-08-01):** all 67 lines reviewed at `6b349b8` with metadata capture, output-handle generation, and focused-test integration; tests passed 14/14. Repo-wide C# inventory found no production construction or capture caller, correcting the queued active-caller wording. Prior limited `a2c343f` review expanded. Opus found no current defect; no product or test change.
+
 - **InvokeTool whole-file review closed (2026-08-01):** all 65 lines reviewed at `77aa9a9` with assembly registration, session seam, production adapter, schema, and runtime integration; focused tests passed 90/90. Prior limited `f0418b0` review expanded. Opus found no current defect; no product or test change.
 
 - **AuditAdminFailure whole-file review closed (2026-08-01):** all 58 lines reviewed at `11bad9d` with evidence-admin classification, failure publication, and fault-injection integration; focused tests passed 20/20. Prior limited `618f007` review expanded. Opus found no current defect; no product or test change.
@@ -1020,7 +1022,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 67-line `AuditOutputRequestProtector` current-head whole-file review; its prior record was limited to authorization binding, request validation, sensitive-output protection, fail-closed behavior, exception handling, and cross-platform semantics rather than explicitly integrated complete-source caller/test coverage. Include active audit-output callers and focused authorization/protection tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 68-line `WorkerLaunchCommand` current-head whole-file review; its prior record was limited to constructor validation, immutable snapshots, environment rules, reserved handles, and exposed values rather than explicitly integrated complete-source caller/test coverage. Include both platform launchers and focused worker-launch tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

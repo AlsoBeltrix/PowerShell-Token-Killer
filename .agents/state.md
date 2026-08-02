@@ -175,7 +175,7 @@ short and update it when important repo facts change.
   contract. The owner also settled `ssu-3`: migration is transactional and
   harness-specific; Codex avoids its unsafe remove command, Grok requires a
   disposable-config CLI proof, and every changed harness rolls back
-  byte-for-byte on failure. The owner settled `ssu-4`: `launcher/` is never a
+  byte-for-byte on failure. The owner settled `ssu-4`: install-home `~/.ptk/launcher/` is never a
   wholesale payload entry or removed after registration; launcher changes use
   validated sibling-file replacement and fail closed if the stable path cannot
   remain continuously present. The owner settled `ssu-5`: Windows uses
@@ -240,7 +240,7 @@ short and update it when important repo facts change.
   The install transaction now normalizes its Windows payload root before staged
   validation to a protected, current-user-only, inheritable full-control ACL.
   This prevents a sandbox-created non-inheriting `~/.ptk` DACL from making
-  installed `bin/` unreadable after activation. The regression failed with the
+  installed `~/.ptk/bin/` unreadable after activation. The regression failed with the
   exact access denial when the fix was removed and passed after restoration;
   the live ACL-only repair restored `ptk_invoke`. Installed payload bytes were
   not replaced and nothing was pushed. Host evidence is in
@@ -822,7 +822,7 @@ short and update it when important repo facts change.
   decision on 2026-07-15. Neither releases the broader hold.
 - **Release distribution remains approved work.** Slices 0-2 are landed;
   slice 3 is blocked behind the replacement runtime's production gates and
-  `.github/workflows/release.yml` is still absent. The guardian/R7 package
+  the GitHub release workflow file is still absent. The guardian/R7 package
   mechanics are explicitly superseded at the top of
   `.agents/plans/release-distribution.md`; do not restore them. The old
   2026-07-25 calendar is superseded with no replacement date approved. The
@@ -846,8 +846,8 @@ short and update it when important repo facts change.
   full acceptance row 7 still waits for the later slice that introduces and
   protects the currently absent custody checkpoint/anchor path.
 - **rbc review-loop batch is in progress on `master` (2026-07-18).** The
-  Hermes baseline review (`.agents/review/findings/rbc-1..13.md`,
-  `.agents/review/index.md`) is committed. Owner triaged all 11 open findings
+  Hermes baseline review (rbc-1 through rbc-13 under `.agents/review/findings/`,
+  plus `.agents/review/index.md`) is committed. Owner triaged all 11 open findings
   to FIX with **batch merge pre-approval** (commit `3d7f2c1`): any fix whose
   external fixed-SHA review is accepted with `guard_confirmed=true` and a green
   full suite may be merged to `master` without a per-item prompt. Merged so

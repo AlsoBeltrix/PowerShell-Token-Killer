@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
+
 - **Review intake:** `opr-35` HIGH accepted plan-gated: a poisoned journal can falsely complete an ambiguous retained-evidence scan and make evidence retention-eligible before its preserved audit record is recovered.
 
 - **Review intake:** `opr-34` LOW accepted plan-gated: recoverable canonical audit allocation temporary is scanned before its recovery owner runs, indefinitely blocking out-of-band audit administration and pinning awaiting evidence.

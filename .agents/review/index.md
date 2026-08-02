@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-36:** MEDIUM — 32-bit reserved-byte multiplication overflows at 32,768 maximum-sized slots under an allowed multi-gigabyte spool, throwing after admission state mutation and leaking capacity. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-36.md`.
+
 **Open — opr-35:** HIGH — poisoned journal can report a false-complete retained-evidence scan after an ambiguous append, making evidence retention-eligible before the preserved audit record is recovered. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-35.md`.
 
 **Open — opr-34:** LOW — a canonical crash-left audit allocation temporary is recoverable by writer preparation but is rejected by the earlier pre-writer evidence scan, indefinitely wedging out-of-band audit administration and pinning evidence. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-34.md`.

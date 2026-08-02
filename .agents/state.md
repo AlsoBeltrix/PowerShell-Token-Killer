@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditStartupConfiguration whole-file review closed (2026-08-01):** all 71 lines reviewed at `8648f37` with `PtkAuditAdmin`, options, checkpoint-reader, and test integration; focused tests passed 3/3. Existing MEDIUM `opr-5` remains the only finding. Post-record filename inventory has no missing production `.cs` basename, so coverage work now audits abbreviated records rather than trusting filename mentions. No product or test change.
+
 - **ColdCommandResolution whole-file review closed (2026-08-01):** all 268 lines reviewed at `ca5384f` in two bounded passes and whole-file integration against planner, plan invariants, executable identity, focused tests, upstream source, and platform probes; tests passed 95/95. Accepted MEDIUM `opr-48`, `opr-49`, `opr-50`, and LOW `opr-51`; existing `opr-2` and refuted-as-defect `rbc-13` remained excluded. No product or test change.
 
 - **ColdCommandResolution `opr-51` intake (2026-08-01):** LOW accepted and plan-gated: Windows target matching uses case-sensitive record equality despite platform-aware identity policy, so casing-only resolution changes spuriously no-start. No product or test change.
@@ -1006,7 +1008,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 71-line `AuditStartupConfiguration` current-head whole-file review, with no prior whole-file record, focused startup option parsing, path normalization, journal factory wiring, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 17-line `RawUsageCounter` current-head whole-file review, the smallest production source whose index mention does not explicitly establish complete-source coverage; include active callers and focused usage-accounting tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

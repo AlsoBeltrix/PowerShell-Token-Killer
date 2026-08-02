@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-51:** LOW — `ColdCommandTargetIdentity.Matches` uses case-sensitive record equality for Windows executable paths, so casing-only resolution changes spuriously produce no-start. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-51.md`.
+
 **Open — opr-50:** MEDIUM — Windows drive-relative command forms such as `C:tool` bypass the cold resolver's bare-name guard and bind server drive state instead of child location semantics. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-50.md`.
 
 **Open — opr-49:** MEDIUM — Windows rooted or drive-relative PATH entries are normalized against server process drive state instead of the audited child working directory, breaking cold resolver/child parity and weakening the target-identity contract. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-49.md`.

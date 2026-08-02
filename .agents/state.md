@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ColdCommandResolution `opr-51` intake (2026-08-01):** LOW accepted and plan-gated: Windows target matching uses case-sensitive record equality despite platform-aware identity policy, so casing-only resolution changes spuriously no-start. No product or test change.
+
 - **ColdCommandResolution `opr-50` intake (2026-08-01):** MEDIUM accepted and plan-gated: Windows drive-relative command names bypass the bare-name guard and resolve against server drive state instead of child location semantics. No product or test change.
 
 - **ColdCommandResolution `opr-49` intake (2026-08-01):** MEDIUM accepted and plan-gated: Windows rooted or drive-relative PATH entries bind server process drive state instead of the audited child working directory. No product or test change.
@@ -975,6 +977,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-51` LOW accepted and plan-gated: compare executable paths with Windows ordinal-ignore-case semantics while retaining digest and Unix-mode equality; add casing and changed-content guards. No product or test change.
 
 - **Review intake:** `opr-50` MEDIUM accepted and plan-gated: exclude Windows volume-qualified command forms from cold RTK routing and guard exact PowerShell fallback. No product or test change.
 

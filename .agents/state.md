@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ScriptEvidenceStore current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 1,613 lines in eight bounded passes plus three thematic integration passes; focused tests passed 89/89. Outcome `no_additional_current_findings`; verified `s2-admin-evidence-failures` and existing `opr-35` overlap were excluded, and nine pass candidates were independently rejected after current-call-path adjudication. No product or test change.
+
 - **ScriptEvidenceStoreProvider current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 243 lines in three bounded source/contract/test passes plus one current-production call-graph pass; focused tests passed 50/50. Outcome `no_additional_current_findings`; existing `opr-6` was excluded, and four pass candidates were independently rejected as current-inert or production-unreachable. No product or test change.
 
 - **AuditSpoolQuotaLease current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 254 lines in two bounded passes plus one active-caller integration pass; focused tests passed 10/10. Outcome `no_additional_current_findings`; existing `opr-7` was excluded. No product or test change.
@@ -916,7 +918,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Audit/ScriptEvidenceStore.cs`, including publication/quota lifetime, retention and deletion, anchoring transitions, reconciliation, protected identity, exact reads, active callers, and focused store/retention tests. Exclude verified `s2-admin-evidence-failures` and existing `opr-35` overlap; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/ChildStdinGuard.cs`, including Unix descriptor replacement/ownership, Windows standard-handle and inheritance transitions, native error handling, supervisor startup reachability, and focused guard/process tests. Exclude existing `opr-1`, `opr-8`, and verified `rbc-1` overlap; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

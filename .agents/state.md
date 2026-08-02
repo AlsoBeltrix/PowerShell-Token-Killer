@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **WindowsProcessTreeSupervisor whole-file review closed (2026-08-01):** all 621 lines reviewed at `32c5748` in three bounded passes plus whole-file integration against native implementation, authority, and production callers; focused tests passed 85/85. No additional distinct finding; existing `opr-23` and the separate `rbc-5` boundary remain unchanged. No product or test change.
+
 - **UnixWorkerProcessLauncher re-review closed (2026-08-01):** all 1,207 lines reviewed at `431183f` in four bounded passes plus whole-file integration against broker, registry, authority, and production callers; focused tests passed 20/20. No additional distinct finding; existing `opr-14`, `opr-24` through `opr-29`, and `opr-46` remain unchanged. No product or test change.
 
 - **UnixWorkerContainmentRegistry re-review closed (2026-08-01):** all 515 lines reviewed at `afbf64f` in two bounded passes plus whole-file integration; focused tests passed 12/12. One current LOW finding, `opr-46`, was accepted; lifecycle/API candidates were rejected as reference-safe or production-unreachable. No product or test change.
@@ -974,7 +976,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 621-line `WindowsProcessTreeSupervisor` current-head whole-file review, with no prior whole-file record, existing `opr-23` and the separate `rbc-5` background-job boundary excluded, focused supervisor/native/containment coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 897-line `AuditJournal` current-head whole-file review, with no prior whole-file record, existing `opr-34` through `opr-37`, `rbc-3`, and `s2-anchored-temp-recovery` excluded, focused audit journal/publication/recovery coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

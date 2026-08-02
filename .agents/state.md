@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ColdCommandResolution `opr-48` intake (2026-08-01):** MEDIUM accepted and plan-gated: Unix resolver tests the union of raw execute bits rather than real-identity `X_OK`, so cold prepare and commit can bind a PATH file PowerShell would skip. No product or test change.
+
 - **BashProcessRunner whole-file review closed (2026-08-01):** all 803 lines reviewed at `94ff698` in three bounded passes plus whole-file integration against containment, RTK parity, invoke models, dispatch, and production callers; focused tests passed 27/27. Accepted MEDIUM `opr-47`; extended existing `opr-4` and `opr-40`. No product or test change.
 
 - **BashProcessRunner `opr-40` extension (2026-08-01):** Bash execution uses the same two eager 4 MiB capture allocations as direct RTK, roughly 8 MiB of large-object-heap storage before output. Accepted scope of the existing LOW plan-gated allocation-shape defect. No product or test change.
@@ -969,6 +971,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-48` MEDIUM accepted and plan-gated: replace raw Unix execute-bit union with real-identity access semantics and add a two-directory PATH guard. No product or test change.
 
 - **Review intake:** `opr-47` MEDIUM accepted plan-gated: separate the validator process deadline from noncancelable audit-flush admission without erasing a determinate `bash -n` exit result; guard successful, syntax-invalid, and genuinely timed-out validators.
 

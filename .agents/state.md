@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditSpoolQuotaLease current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 254 lines in two bounded passes plus one active-caller integration pass; focused tests passed 10/10. Outcome `no_additional_current_findings`; existing `opr-7` was excluded. No product or test change.
+
 - **AuditEvidenceSpoolScanner current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 731 lines in four bounded passes plus one active-caller integration pass; focused tests passed 31/31. Outcome `no_additional_current_findings`; existing `opr-34` and `opr-35` overlap was excluded. No product or test change.
 
 - **AuditCallMetadata current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 710 lines in four bounded passes plus one production-reachability pass; focused tests passed 14/14. Outcome `no_additional_current_findings`; `AuditCallMetadataCapture.TryCapture` has no production caller after intentional runtime-audit removal — only tests and its own definition remain — and existing `opr-11`, `opr-12`, and verified `s2-job-id-audit-poison` were excluded. No product or test change from this review.
@@ -912,7 +914,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Audit/AuditSpoolQuotaLease.cs`, including canonical control creation/validation, exclusive acquisition and retry timing, protected identity retention, active spool callers, and focused quota tests. Exclude existing `opr-7`; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Audit/ScriptEvidenceStoreProvider.cs`, including lazy protected-store construction, absent-root proof, capture/reconcile/retention routing, disposal/concurrency, active callers, and focused provider tests. Exclude existing `opr-6`; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

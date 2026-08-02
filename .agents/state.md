@@ -904,7 +904,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditJournal.cs`, including reservation transfer/release, append sequencing and poison/recovery transitions, committed-spool/evidence-reference reads, health metrics, active factory/admin callers, prior journal findings, and focused journal tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Sessions/SessionRuntime.cs`, the only current server source basename with no durable review record. Include session lifecycle, worker invocation/result adaptation, audit-null routing, disposal/concurrency boundaries, active callers, and focused session-runtime tests. `AuditJournal.cs` is unchanged since its complete Opus review that produced `opr-35` and `opr-36`; do not duplicate that review without source or reachability change. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

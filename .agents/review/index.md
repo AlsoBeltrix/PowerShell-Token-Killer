@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-41:** MEDIUM — an RTK cancellation or deadline can win after `$LASTEXITCODE` reset but before process start, and the no-fallback `NotStarted` path returns with a fabricated zero; the reset pipeline can also replace prior `$?` with success. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `2debaf6`. Detail: `.agents/review/findings/opr-41.md`.
+
 **Scope extension 2026-08-01 — opr-4:** the current `RtkProcessRunner` pre-start budget guards snapshot cancellation but `BudgetFailure` re-reads the deadline, so one no-start result can combine a timeout outcome with a cancellation audit detail. Independently accepted at LOW as the same immutable-cause defect, not a new finding. The existing MEDIUM severity and plan gate remain. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `2debaf6`. Detail: `.agents/review/findings/opr-4.md`. No product or test change.
 
 **Open — opr-40:** LOW — every direct RTK execution eagerly allocates two 4 MiB capture buffers before reading stdout or stderr, causing avoidable 8 MiB large-object-heap churn for even tiny commands. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-40.md`.

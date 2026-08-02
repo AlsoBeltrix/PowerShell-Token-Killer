@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **RtkProcessRunner `opr-41` intake (2026-08-01):** MEDIUM accepted plan-gated: a canceled or expired RTK dispatch can start no process yet persist a fabricated zero `$LASTEXITCODE`; the reset pipeline can also replace prior `$?` with success. No product or test change.
+
 - **RtkProcessRunner `opr-4` extension (2026-08-01):** pre-start budget classification can combine `TimedOut=true` with a cancellation audit detail because the decision snapshots cancellation but re-reads the deadline. Accepted LOW as the existing immutable-cause defect; `opr-4` remains MEDIUM and plan-gated. No product or test change.
 
 - **RtkProcessRunner review intake (2026-08-01):** `opr-40` LOW accepted and plan-gated: every direct RTK execution eagerly allocates two 4 MiB capture buffers, roughly 8 MiB of large-object-heap storage before any output is read. No product or test change.
@@ -926,9 +928,11 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-41` MEDIUM accepted plan-gated: the no-fallback `NotStarted` RTK path omits `$LASTEXITCODE` restoration after pre-launch reset. No product or test change.
+
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** record the remaining accepted `RtkProcessRunner` pre-start warm-state finding as `opr-41`, then add the complete file-review closeout and route the next source target. The 442-line source review and 76/76 focused verification are complete; do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** add the complete `RtkProcessRunner` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **CI slow-seal elapsed guard recurrence accepted (2026-08-01):** macOS run `30746137942` failed only `Slow_output_store_seal_is_bounded_and_never_reruns` at `2.0012565s` against its structurally unsound strict two-second edge; unchanged-product run `30746744012` passed all six jobs and five focused local repetitions passed. `ci-slow-seal-2` is LOW; the exact test-only plan is approved under the owner's autonomous CI-remediation direction and accepted by Claude Opus 5. Production remains unchanged.
+
 - **SessionRuntime current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 491 lines in four bounded passes plus one production-call-graph pass; focused tests passed 109/109. Outcome `no_additional_current_findings`; existing `opr-18` was excluded and a factory-only `opr-10` rediscovery was rejected. No product or test change.
 
 - **FileAuditJournalSink full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,707 lines in eleven bounded passes plus four thematic cross-boundary passes; focused tests passed 50/50. Outcome `no_current_findings`; two same-user substitution candidates and one Linux raw-descriptor lifetime candidate were rejected against the quota call graph, threat boundary, and sole caller lifetime. No product or test change.
@@ -906,7 +908,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Audit/AuditCallMetadata.cs`, including per-tool argument admission, normalization, inapplicable-field rejection, session/output/job capture, active tool callers, and focused metadata tests. Exclude existing `opr-11`, `opr-12`, and verified `s2-job-id-audit-poison`; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
+- **Immediate unattended remediation:** execute `.agents/plans/ci-slow-seal-elapsed-headroom.md` as one test-only slice, prove its elapsed guard by mutation, run the full server suite, push, and require exact-head hosted evidence. Then resume `server/PtkMcpServer/Audit/AuditCallMetadata.cs`, excluding existing `opr-11`, `opr-12`, and verified `s2-job-id-audit-poison`.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

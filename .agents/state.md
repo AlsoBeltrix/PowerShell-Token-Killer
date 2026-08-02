@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **TrustedPreflightClassifier re-review closed (2026-08-01):** all 448 lines reviewed at `864cfe2` in two bounded passes plus whole-file integration; focused tests passed 88/88. Exact runtime probes admitted HIGH `opr-43`, MEDIUM `opr-44`, LOW `opr-45`; one invalid-dual-dialect candidate was rejected. No product or test change.
+
 - **TrustedPreflightClassifier `opr-45` intake (2026-08-01):** LOW accepted and plan-gated: nested local definitions are flattened across script-block scopes, suppressing valid top-level Bash builtin evidence that PowerShell cannot resolve. No product or test change.
 
 - **TrustedPreflightClassifier `opr-44` intake (2026-08-01):** MEDIUM accepted plan-gated: named Bash options after `set -o` are missed unless the literal is `pipefail`, causing valid Bash to fail under PowerShell `Set-Variable`. No product or test change.
@@ -958,7 +960,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** add complete `TrustedPreflightClassifier` closeout, route next unreviewed production source file, continue bounded Claude Opus 5 loop. Do not implement plan-gated findings without approved plan.
+- **Immediate unattended review:** begin the 888-line `SessionWorkerClient` current-head re-review with existing `opr-19` through `opr-22` as exclusions, focused client/protocol/server/supervisor coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

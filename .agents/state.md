@@ -1042,7 +1042,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-30` MEDIUM accepted and plan-gated: Unix containment healthy-observation evidence is not bound to the released, live worker interval, permitting false empty-domain proof.
 
-- **Review intake:** `opr-29` MEDIUM accepted and plan-gated: case-insensitive worker-environment validation rejects valid case-distinct Unix host variables before any worker launch.
+- **Review intake:** `opr-29` MEDIUM accepted and plan-gated: case-insensitive worker-environment validation and Unix launcher re-materialization reject case-distinct host variables or collide with case-distinct bootstrap-like names before spawn.
 
 - **Review intake:** `opr-28` LOW accepted and plan-gated: the Unix launcher's own broker-handshake timeout is misclassified as caller cancellation when the overall startup deadline is later.
 

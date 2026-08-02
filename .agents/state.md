@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **BashProcessRunner `opr-47` intake (2026-08-01):** MEDIUM accepted plan-gated: a slow successful validator-start audit flush can consume the fixed `bash -n` process budget and replace an already-determinate exit verdict with `TimedOut`. No product or test change.
+
 - **AuditJournal whole-file review closed (2026-08-01):** all 897 lines reviewed at `54822ee` in three bounded passes plus whole-file integration against serializer, health, factory, live-reader, and production caller evidence; focused tests passed 59/59. No additional distinct finding; direct `opr-35` and `opr-36` remain unchanged. No product or test change.
 
 - **WindowsProcessTreeSupervisor whole-file review closed (2026-08-01):** all 621 lines reviewed at `32c5748` in three bounded passes plus whole-file integration against native implementation, authority, and production callers; focused tests passed 85/85. No additional distinct finding; existing `opr-23` and the separate `rbc-5` boundary remain unchanged. No product or test change.
@@ -961,6 +963,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-47` MEDIUM accepted plan-gated: separate the validator process deadline from noncancelable audit-flush admission without erasing a determinate `bash -n` exit result; guard successful, syntax-invalid, and genuinely timed-out validators.
 
 - **Review intake:** `opr-46` LOW accepted and plan-gated: make identity/group observation incarnation-coherent while preserving opr-31 fail-closed tracking on indeterminate samples. No product or test change.
 

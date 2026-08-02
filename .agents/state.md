@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **RtkProcessRunner review intake (2026-08-01):** `opr-40` LOW accepted and plan-gated: every direct RTK execution eagerly allocates two 4 MiB capture buffers, roughly 8 MiB of large-object-heap storage before any output is read. No product or test change.
+
 - **OutputRootLease current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 433 lines in two bounded passes plus one whole-file active-caller integration pass; focused tests passed 27/27. One distinct LOW finding, `opr-39`, was accepted; verified `opr-3` was excluded and a closed-descriptor candidate was rejected. No product or test change.
 
 - **ChildStdinGuard current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 68 lines in one complete source/startup-caller/test pass; focused tests passed 22/22. Outcome `no_additional_current_findings`; existing `opr-1`, `opr-8`, and verified `rbc-1` overlap were excluded. No product or test change.
@@ -925,6 +927,8 @@ short and update it when important repo facts change.
 - **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Execution/RtkProcessRunner.cs`, including pinned executable launch, environment isolation, process-tree containment, stdin/stdout/stderr ownership, cancellation/timeout outcome classification, kill/drain cleanup, active callers, and focused runner tests. Exclude existing `opr-4` and prior verified/resolved `rbc-1`, `rbc-6`, `rbc-15`, and `s3-rtk-preference-isolation` overlap; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
+
+- **Review intake:** `opr-40` LOW accepted and plan-gated: direct RTK stdout/stderr capture uses the 4 MiB cap as each stream's eager initial allocation, producing avoidable 8 MiB large-object-heap churn per invocation.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

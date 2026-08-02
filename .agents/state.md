@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Review intake:** `opr-37` HIGH accepted plan-gated: crash-truncated canonical initial-checkpoint temporary is non-authoritative but rejected by exact-byte-only recovery, permanently denying anchored and administration startup.
+
 - **AuditAdminOperations full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,124 lines in five bounded passes plus cross-boundary integration at `bfd571e`; evidence-access tests passed 20/20 and disposition tests 22/22. Two candidates were rejected by exact ownership and mutation-tested publication semantics. Outcome `no_current_findings`; no product or test change.
 
 - **Active unattended GitHub remediation (2026-08-01):** GitHub issues #3,
@@ -882,7 +884,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditAnchoredWriterPreparation.cs`, including its active anchored-admin construction/recovery callers and focused tests; record each accepted finding separately or a no-findings completion record.
+- **Immediate unattended review:** finish whole-file cross-boundary adjudication of `AuditAnchoredWriterPreparation.cs`, including its active anchored-admin construction/recovery callers and focused tests, after recording `opr-37`; then continue to the next bounded audit source. Do not implement `opr-37` without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

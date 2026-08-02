@@ -430,7 +430,11 @@ public sealed class InvokeToolTests : IDisposable
             try { releaseSeal.Wait(); }
             finally { sealHookReturned.Set(); }
         });
-        _host.OutputSealLimitForTests = TimeSpan.FromSeconds(2);
+        var previousSealLimit = _host.OutputSealLimitForTests;
+        var sealLimit = TimeSpan.FromSeconds(2);
+        var elapsedBound = TimeSpan.FromSeconds(3);
+        const int callerTimeoutSeconds = 5;
+        _host.OutputSealLimitForTests = sealLimit;
         await _host.InvokeAsync(
             "$global:ptkSlowSealCount = 0",
             raw: true,
@@ -444,12 +448,14 @@ public sealed class InvokeToolTests : IDisposable
             var response = await _runtime.InvokeAsync("$global:ptkSlowSealCount++; 'SEALED_OUTPUT'",
                 CancellationToken.None,
                 route: "pwsh",
-                timeoutSeconds: 3,
+                timeoutSeconds: callerTimeoutSeconds,
                 outputStore: store);
             stopwatch.Stop();
 
             Assert.True(sealEntered.IsSet);
-            Assert.True(stopwatch.Elapsed < TimeSpan.FromSeconds(2), stopwatch.Elapsed.ToString());
+            Assert.True(
+                stopwatch.Elapsed < elapsedBound,
+                $"elapsed={stopwatch.Elapsed}; bound={elapsedBound}");
             Assert.Contains("SEALED_OUTPUT", response, StringComparison.Ordinal);
             Assert.Contains(
                 "recovery=unavailable: output capture unavailable; command was not rerun",
@@ -500,7 +506,7 @@ public sealed class InvokeToolTests : IDisposable
             releaseSeal.Set();
             firstReservation?.Dispose();
             secondReservation?.Dispose();
-            _host.OutputSealLimitForTests = TimeSpan.FromSeconds(5);
+            _host.OutputSealLimitForTests = previousSealLimit;
         }
     }
 

@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **DefaultSessionRuntimeFactory re-review closed (2026-08-01):** all 44 lines reviewed at `c5f9536` with active callers and protocol validation; focused tests passed 26/26. One candidate merged into existing MEDIUM `opr-10`; no distinct new finding and no product or test change.
+
 - **DefaultSessionRuntimeFactory `opr-10` extension (2026-08-01):** finite fractional or sub-millisecond positive timeout values violate the downstream whole-second protocol contract and abort startup. Merged into existing MEDIUM `opr-10`; no new finding ID and no product or test change.
 
 - **RtkProcessRunner re-review closed (2026-08-01):** all 442 lines reviewed at `2debaf6` in two bounded passes plus whole-file dispatch integration; focused tests passed 76/76. Outcomes: LOW `opr-40`, MEDIUM `opr-41`, LOW extension to existing MEDIUM `opr-4`, and Opus-clean comment correction `e83c209`. No runtime behavior or test change.
@@ -938,7 +940,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** add the complete `DefaultSessionRuntimeFactory` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop. Do not implement `opr-9` or `opr-10` without an approved plan.
+- **Immediate unattended review:** review all 1,231 lines of `server/PtkMcpServer/Sessions/NamedSessionSupervisor.cs` in bounded Claude Opus 5 source/caller/test passes plus whole-file lifecycle/concurrency integration. Trace slot start/replace/fault/cool states, invoke/state/reset/output operations, queueing/cancellation/deadlines, worker recovery, retained-output attribution, and shutdown/disposal. Exclude existing `opr-19` through `opr-23`, `gh-16-1`, `gh-16-2`, and verified/resolved overlap; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan. On completion, add the full `NamedSessionSupervisor` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

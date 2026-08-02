@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditAdminOperations full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,124 lines in five bounded passes plus cross-boundary integration at `bfd571e`; evidence-access tests passed 20/20 and disposition tests 22/22. Two candidates were rejected by exact ownership and mutation-tested publication semantics. Outcome `no_current_findings`; no product or test change.
+
 - **Active unattended GitHub remediation (2026-08-01):** GitHub issues #3,
   #9, #10, #11, #12, #14, #15, #16, and #28 are closed. Issue #16's two-slice
   retained-output
@@ -879,6 +881,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditAnchoredWriterPreparation.cs`, including its active anchored-admin construction/recovery callers and focused tests; record each accepted finding separately or a no-findings completion record.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

@@ -27,6 +27,9 @@ internal static partial class Program
     private const int StandardInputHandle = -10;
     private const int StandardOutputHandle = -11;
     private const int StandardErrorHandle = -12;
+    private const int FileDescriptorFlagsCommand = 1;
+    private const int ResourceLimitOpenFiles = 8;
+    private const int MaximumDescriptorScan = 65_536;
     private static readonly byte[] SpawnCommand = "spawn\n"u8.ToArray();
 
     private static async Task<int> Main(string[] args)
@@ -35,6 +38,8 @@ internal static partial class Program
         {
             return args switch
             {
+                ["process-snapshot-descriptor-probe"] =>
+                    RunProcessSnapshotDescriptorProbe(),
                 ["contained-worker"] =>
                     RunContainedWorker(escape: false, gatePath: null),
                 ["contained-escape-worker", var gatePath] =>
@@ -78,6 +83,81 @@ internal static partial class Program
             Console.Error.WriteLine($"fixture:error:{exception.GetType().Name}");
             return 70;
         }
+    }
+
+    private static int RunProcessSnapshotDescriptorProbe()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return FailDescriptorProbe(65, "macOS is required");
+
+        if (ProcessTableSnapshot.TryTake() is null)
+            return FailDescriptorProbe(66, "warm-up snapshot failed");
+
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        for (var index = 0; index < 32; index++)
+        {
+            if (ProcessTableSnapshot.TryTake() is null)
+            {
+                return FailDescriptorProbe(
+                    67,
+                    $"first batch snapshot {index + 1} failed");
+            }
+        }
+
+        if (GetResourceLimit(ResourceLimitOpenFiles, out var limits) != 0)
+        {
+            return FailDescriptorProbe(
+                68,
+                $"getrlimit failed with errno {Marshal.GetLastPInvokeError()}");
+        }
+
+        var softLimit = (ulong)limits.Current;
+        var hardLimit = (ulong)limits.Maximum;
+        var scanLimit = (int)Math.Min(softLimit, MaximumDescriptorScan);
+        if (scanLimit <= 0)
+            return FailDescriptorProbe(71, $"invalid open-file limit {softLimit}");
+        var firstCount = CountOpenFileDescriptors(scanLimit);
+
+        for (var index = 0; index < 32; index++)
+        {
+            if (ProcessTableSnapshot.TryTake() is null)
+            {
+                return FailDescriptorProbe(
+                    69,
+                    $"second batch snapshot {index + 1} failed");
+            }
+        }
+
+        var secondCount = CountOpenFileDescriptors(scanLimit);
+        Console.Out.WriteLine(JsonSerializer.Serialize(new
+        {
+            FirstCount = firstCount,
+            SecondCount = secondCount,
+            Delta = secondCount - firstCount,
+            SoftLimit = softLimit,
+            HardLimit = hardLimit,
+            ScanLimit = scanLimit,
+        }));
+        return 0;
+    }
+
+    private static int CountOpenFileDescriptors(int scanLimit)
+    {
+        var count = 0;
+        for (var descriptor = 0; descriptor < scanLimit; descriptor++)
+        {
+            if (GetDescriptorFlags(descriptor, FileDescriptorFlagsCommand) != -1)
+                count++;
+        }
+        return count;
+    }
+
+    private static int FailDescriptorProbe(int exitCode, string reason)
+    {
+        Console.Error.WriteLine($"snapshot-descriptor-probe:{reason}");
+        return exitCode;
     }
 
     private static int RunContainedWorker(bool escape, string? gatePath)
@@ -540,6 +620,13 @@ internal static partial class Program
         int GrandchildPid,
         int GrandchildPgid);
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ResourceLimit
+    {
+        internal nuint Current;
+        internal nuint Maximum;
+    }
+
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool SetHandleInformation(
@@ -558,4 +645,12 @@ internal static partial class Program
 
     [LibraryImport("libc", EntryPoint = "setsid", SetLastError = true)]
     private static partial int CreateSession();
+
+    [LibraryImport("libc", EntryPoint = "fcntl", SetLastError = true)]
+    private static partial int GetDescriptorFlags(int descriptor, int command);
+
+    [LibraryImport("libc", EntryPoint = "getrlimit", SetLastError = true)]
+    private static partial int GetResourceLimit(
+        int resource,
+        out ResourceLimit limit);
 }

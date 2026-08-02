@@ -1,5 +1,6 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.Text.Json;
+using PtkContainmentTestFixture;
 
 namespace PtkMcpServer.Tests;
 
@@ -22,26 +23,71 @@ public sealed class ProcessTreeContainmentTests : IDisposable
     }
 
     [Fact]
-    public void Mac_process_table_snapshots_do_not_accumulate_redirected_output()
+    public async Task Mac_process_table_snapshots_do_not_accumulate_redirected_output()
     {
         if (!OperatingSystem.IsMacOS()) return;
 
-        _ = ProcessTableSnapshot.TryTake();
-        GC.Collect();
-        GC.WaitForPendingFinalizers();
+        using var process = StartDescriptorProbe();
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync()
+                .WaitAsync(TimeSpan.FromSeconds(30));
+        }
+        catch (TimeoutException)
+        {
+            try { process.Kill(entireProcessTree: true); }
+            catch (InvalidOperationException) { }
+            try
+            {
+                await process.WaitForExitAsync()
+                    .WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException) { }
+            var timeoutOutput = await FinishDrainAsync(outputTask);
+            var timeoutError = await FinishDrainAsync(errorTask);
+            var timeoutExitCode = process.HasExited
+                ? process.ExitCode.ToString()
+                : "<still-running>";
+            Assert.Fail(
+                $"Descriptor probe timed out. exit={timeoutExitCode} " +
+                $"stdout='{timeoutOutput}' stderr='{timeoutError}'");
+        }
 
-        for (var index = 0; index < 32; index++)
-            Assert.NotNull(ProcessTableSnapshot.TryTake());
-        var firstBatchDescriptorCount = CountOpenFileDescriptors();
-
-        for (var index = 0; index < 32; index++)
-            Assert.NotNull(ProcessTableSnapshot.TryTake());
-        var secondBatchDescriptorCount = CountOpenFileDescriptors();
-
+        var output = await FinishDrainAsync(outputTask);
+        var error = await FinishDrainAsync(errorTask);
         Assert.True(
-            secondBatchDescriptorCount <= firstBatchDescriptorCount + 8,
-            $"Process-table snapshots accumulated " +
-            $"{secondBatchDescriptorCount - firstBatchDescriptorCount} descriptors.");
+            process.ExitCode == 0,
+            $"Descriptor probe failed with exit {process.ExitCode}. " +
+            $"stdout='{output}' stderr='{error}'");
+
+        DescriptorProbeResult? result;
+        try
+        {
+            result = JsonSerializer.Deserialize<DescriptorProbeResult>(output);
+        }
+        catch (JsonException exception)
+        {
+            Assert.Fail(
+                $"Descriptor probe returned invalid JSON: {exception.Message}. " +
+                $"stdout='{output}' stderr='{error}'");
+            return;
+        }
+        Assert.NotNull(result);
+
+        var diagnostics =
+            $"first={result.FirstCount} second={result.SecondCount} " +
+            $"delta={result.Delta} softLimit={result.SoftLimit} " +
+            $"hardLimit={result.HardLimit} scanLimit={result.ScanLimit} " +
+            $"stderr='{error}'";
+        Console.WriteLine($"macOS snapshot descriptor probe: {diagnostics}");
+        Assert.True(
+            result.Delta == result.SecondCount - result.FirstCount,
+            $"Descriptor probe returned an inconsistent delta. {diagnostics}");
+        Assert.True(
+            result.SecondCount <= result.FirstCount + 8,
+            $"Process-table snapshots accumulated descriptors. {diagnostics}");
     }
 
     [Fact]
@@ -169,17 +215,53 @@ public sealed class ProcessTreeContainmentTests : IDisposable
         }
     }
 
-    private static int CountOpenFileDescriptors()
+    private static Process StartDescriptorProbe()
     {
-        var count = 0;
-        for (var descriptor = 0; descriptor < 4096; descriptor++)
+        var fixtureAssembly = typeof(FixtureAssemblyMarker).Assembly.Location;
+        var fixtureDirectory = Path.GetDirectoryName(fixtureAssembly) ??
+            throw new InvalidOperationException(
+                "The containment fixture directory is unavailable.");
+        var appHost = Path.Combine(
+            fixtureDirectory,
+            "PtkContainmentTestFixture");
+        if (!File.Exists(appHost))
         {
-            if (GetDescriptorFlags(descriptor, 1) != -1)
-                count++;
+            throw new FileNotFoundException(
+                "The containment fixture apphost is unavailable.",
+                appHost);
         }
-        return count;
+
+        var start = new ProcessStartInfo
+        {
+            FileName = appHost,
+            WorkingDirectory = fixtureDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        start.ArgumentList.Add("process-snapshot-descriptor-probe");
+        return Process.Start(start) ??
+            throw new InvalidOperationException(
+                "The descriptor-probe fixture did not start.");
     }
 
-    [DllImport("libc", EntryPoint = "fcntl", SetLastError = true)]
-    private static extern int GetDescriptorFlags(int descriptor, int command);
+    private static async Task<string> FinishDrainAsync(Task<string> drain)
+    {
+        try
+        {
+            return await drain.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+        catch (TimeoutException)
+        {
+            return "<stream drain timed out>";
+        }
+    }
+
+    private sealed record DescriptorProbeResult(
+        int FirstCount,
+        int SecondCount,
+        int Delta,
+        ulong SoftLimit,
+        ulong HardLimit,
+        int ScanLimit);
 }

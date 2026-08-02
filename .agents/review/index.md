@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-50:** MEDIUM — Windows drive-relative command forms such as `C:tool` bypass the cold resolver's bare-name guard and bind server drive state instead of child location semantics. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-50.md`.
+
 **Open — opr-49:** MEDIUM — Windows rooted or drive-relative PATH entries are normalized against server process drive state instead of the audited child working directory, breaking cold resolver/child parity and weakening the target-identity contract. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-49.md`.
 
 **Open — opr-48:** MEDIUM — Unix cold command resolution accepts any execute bit instead of testing real-identity `X_OK`, so prepare and commit can bind the same PATH file PowerShell would skip. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-48.md`.

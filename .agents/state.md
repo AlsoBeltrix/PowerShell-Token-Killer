@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-34` LOW accepted plan-gated: recoverable canonical audit allocation temporary is scanned before its recovery owner runs, indefinitely blocking out-of-band audit administration and pinning awaiting evidence.
+
 - **Review intake:** `opr-33` HIGH accepted plan-gated: literal alias-cmdlet spelling checks miss module-qualified and proven stock-alias invocations, causing a hard false shell-dialect refusal.
 
 - **Review intake:** `opr-32` HIGH accepted plan-gated: explicit local/private function scope prefixes prevent a supported lexical definition from matching its collision-named use, causing a hard false shell-dialect refusal.

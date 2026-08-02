@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditOperatorDispositionIntent full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,057 lines in five bounded passes plus cross-boundary adjudication; focused tests passed 22/22. Outcome: one current finding, `opr-38` LOW, already recorded plan-gated; no product or test change.
+
 - **Review intake:** `opr-38` LOW accepted plan-gated: `AuditOperatorDispositionProof` accepts one trailing LF in an acknowledged-gap reason, durably creating an out-of-grammar proof whose clean spelling conflicts on retry.
 
 - **AuditOptions full review complete (2026-08-01):** Claude Opus 5 reviewed all 208 lines plus the complete production call graph; focused baselines passed 10/10 and 3/3. Outcome `no_current_findings` beyond existing `opr-5`; the newline-permissive options regex is unreachable behind the checkpoint codec's strict identity validation. No product or test change.
@@ -894,7 +896,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue `AuditOperatorDispositionIntent.cs` from line 221 through whole-file cross-boundary adjudication, including active `PtkAuditAdmin` callers, typed controls, prior disposition findings, and focused operator tests, after recording `opr-38`; then continue to the next bounded source. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditOperatorDispositionOutcome.cs`, including active administration, recovery, retirement, intent coupling, and focused operator tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

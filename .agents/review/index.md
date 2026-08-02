@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-33:** HIGH — alias-definition collection matches only literal `Set-Alias`/`New-Alias` spellings, so module-qualified or proven stock-alias invocations hard-refuse valid parse-clean PowerShell. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-33.md`.
+
 **Open — opr-32:** HIGH — explicit `local:` or `private:` function definitions retain their scope prefix in classifier identity, so valid parse-clean PowerShell is hard-refused as Bash before execution. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-32.md`.
 
 **Open — opr-31:** MEDIUM — one indeterminate Unix identity or group probe can permanently evict a live reparented descendant from tracking, allowing its later escape to survive false empty-domain proof. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-31.md`.

@@ -74,9 +74,9 @@ internal static class RtkProcessRunner
             return BudgetFailure(deadline, cancellationToken.IsCancellationRequested);
 
         using var process = new Process { StartInfo = startInfo };
-        // Pre-start: force the one-shot exclusive-group acquisition so this
-        // root inherits the exclusive group instead of degrading to
-        // fallback polling on a first launch (rbc-15 T2-1).
+        // Pre-start: verify the broker-established exclusive group so this
+        // root inherits it. Losing this invariant is fail-fatal before
+        // launch (rbc-15 T2-1).
         ProcessTreeContainment.EnsureExclusiveGroup();
         try
         {

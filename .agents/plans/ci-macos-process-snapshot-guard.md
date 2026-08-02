@@ -22,6 +22,11 @@ omitted the explicit stdout-stream disposal.
 - Run `30710404489` failed only the same macOS guard with a delta of 2. The
   immediately preceding run was green, and unchanged server descendant run
   `30711210700` passed all six jobs.
+- The first differential-batch repair at `f466319` passed its landing run and
+  many later runs, but run `30724838116` failed only the revised macOS guard
+  with a delta of 10. Unchanged run `30726873007` then passed the macOS job.
+  This crossed the plan's explicit ceiling and proves the shared testhost can
+  still add more than eight unrelated descriptors during the measured window.
 - `server/PtkMcpServer.Tests/xunit.runner.json` disables test-collection
   parallelism. The remaining count is still process-global and includes
   testhost/runtime child-process plumbing whose bounded lifetime is not owned
@@ -32,20 +37,37 @@ omitted the explicit stdout-stream disposal.
 ## Change
 
 1. Change only
-   `server/PtkMcpServer.Tests/ProcessTreeContainmentTests.cs`; production source
-   remains byte-identical.
-2. Rename the guard to
-   `Mac_process_table_snapshots_do_not_accumulate_redirected_output`.
-3. Retain one successful warm-up snapshot followed by forced GC/finalizers.
-4. Run 32 successful snapshots and record the process descriptor count, then
-   run another 32 successful snapshots without intervening or trailing GC and
-   record it again.
-5. Assert the second count is no more than the first count plus 8. Eight is the
-   largest observed non-accumulating hosted delta; it remains four times below
-   the minimum 32-descriptor signal from one retained descriptor per call in
-   the second batch.
-6. Do not add retries, sleeps, production disposal changes, or another
-   platform-specific skip.
+   `server/PtkMcpServer.Tests/ProcessTreeContainmentTests.cs` and
+   `server/PtkContainmentTestFixture/Program.cs`; production source remains
+   byte-identical.
+2. Add a macOS-only `process-snapshot-descriptor-probe` fixture command. A
+   non-macOS invocation returns a distinct nonzero exit code rather than
+   silently succeeding.
+3. Inside that fresh single-purpose process, perform exactly this sequence:
+   one successful warm-up snapshot; forced GC and finalizers; 32 sequential
+   successful snapshots; descriptor count one; 32 more sequential successful
+   snapshots; descriptor count two; first console or JSON use. Every snapshot
+   must be non-null without retries, and a failed snapshot exits distinctly
+   with a reason on stderr.
+4. Count descriptors with the existing `fcntl(F_GETFD)` technique. After the
+   second count, emit one JSON object containing both raw counts, their delta,
+   and `RLIMIT_NOFILE`. The child performs no logging, serialization, or console
+   write before the second count.
+5. The xUnit guard launches the existing fixture apphost through the same
+   deterministic resolution used by containment integration tests. It drains
+   redirected stdout and stderr concurrently to EOF, waits under a bounded
+   timeout, kills the child and descendants on timeout, and fails on a missing
+   apphost, nonzero exit, missing or malformed JSON, or unsuccessful probe.
+   Failure text includes exit code, stderr, both counts, delta, and limit.
+6. Keep the assertion at second count no more than first count plus 8. The
+   dedicated process removes unrelated testhost activity without widening the
+   prior ceiling. One descriptor retained per second-batch call would add 32
+   absent an intervening background collection; the guard is deliberately
+   one-directional because an unscheduled collection could mask finalizable
+   leaked handles.
+7. Do not add retries, sleeps, production disposal changes, or another
+   platform-specific skip. Any isolated-process failure above 8 again stops
+   tolerance changes and requires new evidence.
 
 No forced collection or finalizer pass occurs between the two measured batches,
 so the test itself cannot reclaim a first-batch retained-stream regression before
@@ -54,12 +76,11 @@ measuring second-batch growth.
 ## Verification
 
 1. Run the repository server verification entry point locally. The macOS-only
-   guard will skip on the current Windows host; report that limitation. Direct
-   mutation proof against the pre-`f7d8df6` stdout-disposal implementation is
-   unavailable because `nagatha.local` cannot be reached. Do not claim an
-   empirical red/green guard proof; the retained analytical proof is that one
-   leaked descriptor per call adds at least 32 in the second batch against the
-   evidence-backed ceiling of 8.
+   parent guard and child arm will not execute on the current Windows host;
+   report that limitation. Direct mutation proof against the pre-`f7d8df6`
+   stdout-disposal implementation is unavailable because `nagatha.local`
+   cannot be reached. Do not claim an empirical red/green guard proof; retain
+   only the one-directional analytical 32-call leak signal above.
 2. Have Claude Opus 5 review the exact staged test slice at max effort before
    commit.
 3. Commit and push the one-test slice under the repository always-push policy.

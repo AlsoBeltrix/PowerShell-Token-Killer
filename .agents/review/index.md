@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-30:** MEDIUM — Unix containment's healthy-observation gate accepts snapshots from before worker release or after worker death, so it need not cover the descendant-creation interval it is meant to prove. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-30.md`.
+
 **Open — opr-29:** MEDIUM — `WorkerLaunchCommand` uses case-insensitive environment identity on every platform, so valid case-distinct Unix host variables deterministically block all worker launches. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-29.md`.
 
 **Open — opr-28:** LOW — the Unix launcher's private five-second broker-handshake timeout is reported as `worker_start_canceled` whenever the overall startup deadline is later. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-28.md`.

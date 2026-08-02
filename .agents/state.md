@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **BashProcessRunner whole-file review closed (2026-08-01):** all 803 lines reviewed at `94ff698` in three bounded passes plus whole-file integration against containment, RTK parity, invoke models, dispatch, and production callers; focused tests passed 27/27. Accepted MEDIUM `opr-47`; extended existing `opr-4` and `opr-40`. No product or test change.
+
 - **BashProcessRunner `opr-40` extension (2026-08-01):** Bash execution uses the same two eager 4 MiB capture allocations as direct RTK, roughly 8 MiB of large-object-heap storage before output. Accepted scope of the existing LOW plan-gated allocation-shape defect. No product or test change.
 
 - **BashProcessRunner `opr-4` extension (2026-08-01):** Bash pre-start budget classification can combine `TimedOut=true` with cancellation audit detail because the guard snapshots cancellation but `BudgetFailure` re-reads the deadline. Accepted LOW scope of the existing MEDIUM plan-gated immutable-cause defect. No product or test change.
@@ -986,7 +988,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 803-line `BashProcessRunner` current-head whole-file review, with no prior whole-file record, existing `opr-4`, `rbc-1`, `rbc-6`, and `rbc-15` excluded, focused process/deadline/output/containment coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 268-line `ColdCommandResolution` current-head whole-file review, with no prior whole-file record, existing `opr-2` and resolved `rbc-13` excluded, focused command-resolution/execution-plan coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

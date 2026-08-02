@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **RtkProcessRunner re-review closed (2026-08-01):** all 442 lines reviewed at `2debaf6` in two bounded passes plus whole-file dispatch integration; focused tests passed 76/76. Outcomes: LOW `opr-40`, MEDIUM `opr-41`, LOW extension to existing MEDIUM `opr-4`, and Opus-clean comment correction `e83c209`. No runtime behavior or test change.
+
 - **RtkProcessRunner `opr-41` intake (2026-08-01):** MEDIUM accepted plan-gated: a canceled or expired RTK dispatch can start no process yet persist a fabricated zero `$LASTEXITCODE`; the reset pipeline can also replace prior `$?` with success. No product or test change.
 
 - **RtkProcessRunner `opr-4` extension (2026-08-01):** pre-start budget classification can combine `TimedOut=true` with a cancellation audit detail because the decision snapshots cancellation but re-reads the deadline. Accepted LOW as the existing immutable-cause defect; `opr-4` remains MEDIUM and plan-gated. No product or test change.
@@ -932,7 +934,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** add the complete `RtkProcessRunner` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** review all 44 lines of `server/PtkMcpServer/Sessions/DefaultSessionRuntimeFactory.cs` with current callers and timeout/configuration tests in one complete Claude Opus 5 pass plus production-call-graph adjudication. Exclude existing `opr-9` and `opr-10`; record any distinct accepted finding separately and do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

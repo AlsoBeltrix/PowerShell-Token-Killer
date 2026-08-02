@@ -52,8 +52,8 @@ Pester 5 or later).
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 1,212/1,212 passed (C# MCP supervisor, named workers, containment, output,
-and retained administration suite).
+— 1,221/1,221 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite; count re-confirmed 2026-08-01).
 
 ```
 dotnet test siem/PtkSiem.slnx

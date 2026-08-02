@@ -4,7 +4,7 @@
 output-seal path by measuring the asynchronous timeout continuation a fraction
 after its configured delay.
 
-**Status**: Accepted; remediation approved in
+**Status**: Verified and closed 2026-08-01 at `5180d0b`; plan:
 `.agents/plans/ci-slow-seal-elapsed-headroom.md`.
 
 ## Evidence
@@ -39,6 +39,19 @@ the three-second elapsed bound and five-second caller budget; the elapsed
 assertion must fail. Restore the two-second limit, pass the focused test and
 full server suite, then require all six exact-head CI jobs plus two additional
 macOS job attempts.
+
+## Resolution
+
+`server/PtkMcpServer.Tests/InvokeToolTests.cs` now keeps the two-second seal
+limit, uses an independent three-second elapsed bound below a five-second
+caller budget, and restores the exact prior host test-seam value. Production
+source and timeouts are unchanged.
+
+The mutation leg raised only the seal limit to four seconds and failed the
+focused test at `elapsed=00:00:03.1491933; bound=00:00:03`. Restoring two
+seconds passed the focused test and the full server suite 1,221/1,221. Exact
+head `5180d0b` passed all six jobs in run `30748054339`; macOS-only attempts 2
+and 3 also passed as jobs `91497781569` and `91498323805`.
 
 ## Reviewer
 

@@ -1,7 +1,11 @@
 # Plan: slow-seal elapsed headroom
 
-**Status:** APPROVED 2026-08-01 — the owner authorized autonomous remediation
-of observed CI failures; Claude Opus 5 accepted this exact test-only scope.
+**Status:** COMPLETE 2026-08-01 (approved 2026-08-01 — owner-authorized
+autonomous remediation of observed CI failures; exact test-only scope accepted
+by Claude Opus 5) — commit `5180d0b` passed mutation proof, 1,221/1,221 local
+server tests, all six jobs in run `30748054339`, and macOS-only rerun attempts
+2 and 3 of that run (jobs `91497781569`, `91498323805`). Production source and
+timeouts remained unchanged.
 
 ## Evidence
 

@@ -7,7 +7,7 @@ short and update it when important repo facts change.
 
 - **AuditCallMetadata current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 710 lines in four bounded passes plus one production-reachability pass; focused tests passed 14/14. Outcome `no_additional_current_findings`; `AuditCallMetadataCapture.TryCapture` has no production caller after intentional runtime-audit removal — only tests and its own definition remain — and existing `opr-11`, `opr-12`, and verified `s2-job-id-audit-poison` were excluded. No product or test change from this review.
 
-- **CI slow-seal elapsed guard recurrence accepted (2026-08-01):** macOS run `30746137942` failed only `Slow_output_store_seal_is_bounded_and_never_reruns` at `2.0012565s` against its structurally unsound strict two-second edge; unchanged-product run `30746744012` passed all six jobs and five focused local repetitions passed. `ci-slow-seal-2` is LOW; the exact test-only plan is approved under the owner's autonomous CI-remediation direction and accepted by Claude Opus 5. Production remains unchanged.
+- **CI slow-seal elapsed guard recurrence closed (2026-08-01):** test-only commit `5180d0b` retained the two-second seal limit with an independent three-second elapsed bound below a five-second caller budget. Mutation failed at `3.1491933s`; restored focused and 1,221/1,221 full server tests passed. Exact-head run `30748054339` passed all six jobs plus macOS-only rerun attempts 2 and 3 of that run (jobs `91497781569`, `91498323805`). `ci-slow-seal-2` and its plan are complete; production remained unchanged.
 
 - **SessionRuntime current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 491 lines in four bounded passes plus one production-call-graph pass; focused tests passed 109/109. Outcome `no_additional_current_findings`; existing `opr-18` was excluded and a factory-only `opr-10` rediscovery was rejected. No product or test change.
 
@@ -910,7 +910,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended remediation:** finish exact-head hosted verification for `.agents/plans/ci-slow-seal-elapsed-headroom.md`, close `ci-slow-seal-2`, and then continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Audit/AuditEvidenceSpoolScanner.cs`. Include protected inventory/bounds, committed-record scanning, reference aggregation/completeness, active orphan-reconciliation callers, and focused scanner tests; exclude existing `opr-34` and `opr-35` overlap.
+- **Immediate unattended review:** continue bounded current-head Claude Opus 5 re-review with `server/PtkMcpServer/Audit/AuditEvidenceSpoolScanner.cs`; focused scanner/orphan/retention tests passed 31/31 and bounded passes 1-2 are clean. Complete committed-record scanning, reference aggregation/completeness, exact envelope validation, retained identity/disposal, and whole-file active-caller adjudication; exclude existing `opr-34` and `opr-35` overlap.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

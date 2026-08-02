@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **NamedSessionSupervisor re-review closed (2026-08-01):** all 1,231 lines reviewed at `ca7fe85` in three bounded passes plus whole-file integration; focused tests passed 36/36. One current finding, MEDIUM `opr-42`, was accepted in the active `WorkerSupervisor` caller; all supervisor-local candidates were rejected. No product or test change.
+
 - **NamedSessionSupervisor integration intake `opr-42` (2026-08-01):** MEDIUM accepted plan-gated: `WorkerSupervisor.StateAsync` releases the session lease, then uses two registry snapshots; concurrent removal can fault, same-name replacement can mix incarnations, and registry change can tear the count. No product or test change.
 
 - **DefaultSessionRuntimeFactory re-review closed (2026-08-01):** all 44 lines reviewed at `c5f9536` with active callers and protocol validation; focused tests passed 26/26. One candidate merged into existing MEDIUM `opr-10`; no distinct new finding and no product or test change.
@@ -944,7 +946,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** add the complete `NamedSessionSupervisor` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop. Do not implement `opr-42` or other plan-gated findings without an approved plan.
+- **Immediate unattended review:** review all 448 lines of `server/PtkMcpServer/TrustedPreflightClassifier.cs` in bounded Claude Opus 5 source/caller/test passes plus whole-file AST/runtime integration. Trace parse and statement selection, command qualification, alias/local-definition handling, wrapper/context fidelity, trust decisions, fallback/refusal projection, and active callers. Exclude existing `opr-17`, `opr-32`, `opr-33`, and verified/resolved shell-routing overlap; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan. On completion, add the full `TrustedPreflightClassifier` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

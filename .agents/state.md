@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **TrustedPreflightClassifier `opr-43` intake (2026-08-01):** HIGH accepted plan-gated: fatal PowerShell parse handling returns before recovered trusted Bash command evidence is scanned, so valid Bash can fall through to PowerShell failure. No product or test change.
+
 - **NamedSessionSupervisor re-review closed (2026-08-01):** all 1,231 lines reviewed at `ca7fe85` in three bounded passes plus whole-file integration; focused tests passed 36/36. One current finding, MEDIUM `opr-42`, was accepted in the active `WorkerSupervisor` caller; all supervisor-local candidates were rejected. No product or test change.
 
 - **NamedSessionSupervisor integration intake `opr-42` (2026-08-01):** MEDIUM accepted plan-gated: `WorkerSupervisor.StateAsync` releases the session lease, then uses two registry snapshots; concurrent removal can fault, same-name replacement can mix incarnations, and registry change can tear the count. No product or test change.
@@ -938,6 +940,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-43` HIGH accepted plan-gated: fatal-parse handling must preserve existing trusted command evidence before returning no dialect finding. No product or test change.
+
 - **Review intake:** `opr-42` MEDIUM accepted plan-gated: state needs one compound pre-release result carrying worker state, named-session identity, and registry count; the wrapper must perform no post-lease registry lookup. No product or test change.
 
 - **Review intake:** `opr-10` now covers the full finite integral 1–86,400-second parser contract; the new candidate merged into the existing MEDIUM plan gate. No product or test change.
@@ -946,7 +950,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** review all 448 lines of `server/PtkMcpServer/TrustedPreflightClassifier.cs` in bounded Claude Opus 5 source/caller/test passes plus whole-file AST/runtime integration. Trace parse and statement selection, command qualification, alias/local-definition handling, wrapper/context fidelity, trust decisions, fallback/refusal projection, and active callers. Exclude existing `opr-17`, `opr-32`, `opr-33`, and verified/resolved shell-routing overlap; record each distinct accepted finding separately and do not implement plan-gated findings without an approved plan. On completion, add the full `TrustedPreflightClassifier` closeout record, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop.
+- **Immediate unattended review:** record the remaining accepted `TrustedPreflightClassifier` named-`set -o` and nested-definition-scope findings as `opr-44` and `opr-45`, then add the complete classifier closeout, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

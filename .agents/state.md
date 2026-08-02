@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **BashProcessRunner `opr-40` extension (2026-08-01):** Bash execution uses the same two eager 4 MiB capture allocations as direct RTK, roughly 8 MiB of large-object-heap storage before output. Accepted scope of the existing LOW plan-gated allocation-shape defect. No product or test change.
+
 - **BashProcessRunner `opr-4` extension (2026-08-01):** Bash pre-start budget classification can combine `TimedOut=true` with cancellation audit detail because the guard snapshots cancellation but `BudgetFailure` re-reads the deadline. Accepted LOW scope of the existing MEDIUM plan-gated immutable-cause defect. No product or test change.
 
 - **BashProcessRunner `opr-47` intake (2026-08-01):** MEDIUM accepted plan-gated: a slow successful validator-start audit flush can consume the fixed `bash -n` process budget and replace an already-determinate exit verdict with `TimedOut`. No product or test change.
@@ -988,7 +990,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 
-- **Review intake:** `opr-40` LOW accepted and plan-gated: direct RTK stdout/stderr capture uses the 4 MiB cap as each stream's eager initial allocation, producing avoidable 8 MiB large-object-heap churn per invocation.
+- **Review intake:** `opr-40` LOW accepted and plan-gated: direct RTK execution and Bash execution use the 4 MiB stdout/stderr cap as each stream's eager initial allocation, producing avoidable 8 MiB large-object-heap churn per invocation.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

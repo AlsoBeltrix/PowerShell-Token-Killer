@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **UnixWorkerContainmentRegistry re-review closed (2026-08-01):** all 515 lines reviewed at `afbf64f` in two bounded passes plus whole-file integration; focused tests passed 12/12. One current LOW finding, `opr-46`, was accepted; lifecycle/API candidates were rejected as reference-safe or production-unreachable. No product or test change.
+
 - **UnixWorkerContainmentRegistry `opr-46` intake (2026-08-01):** LOW accepted and plan-gated: PID reuse between identity and group probes can latch false escape and transiently report `descendants_unknown`; exact background proof still releases registry. No product or test change.
 
 - **SessionWorkerClient re-review closed (2026-08-01):** all 888 lines reviewed at `c8e6c4e` in three bounded passes plus whole-file integration; focused tests passed 80/80. No additional distinct finding; existing HIGH `opr-19` and LOW `opr-22` gained scoped repair/guard extensions. No product or test change.
@@ -970,7 +972,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** add the complete `UnixWorkerContainmentRegistry` closeout, route the next unreviewed production source, and continue bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 1,207-line `UnixWorkerProcessLauncher` current-head re-review with existing `opr-14`, `opr-24` through `opr-29`, and `opr-46` as exclusions, focused launcher/registry/native/broker coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

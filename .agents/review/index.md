@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-46:** LOW — a PID recycled between separate identity and group probes can latch a false containment escape and return `descendants_unknown`, although exact background proof still releases the registry. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `afbf64f`. Detail: `.agents/review/findings/opr-46.md`.
+
 **Open — opr-45:** LOW — `TrustedPreflightClassifier` flattens nested local definitions, so a child-scope `function export` can suppress later top-level Bash `export` evidence even though PowerShell cannot resolve that function. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `864cfe2`. Detail: `.agents/review/findings/opr-45.md`.
 
 **Open — opr-44:** MEDIUM — `TrustedPreflightClassifier` recognizes only the literal `pipefail` after Bash `set -o`; other named Bash options such as `errexit` produce `Finding=null`, then fail under PowerShell's stock `Set-Variable` alias. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `864cfe2`. Detail: `.agents/review/findings/opr-44.md`.

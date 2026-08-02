@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **UnixWorkerContainmentRegistry `opr-46` intake (2026-08-01):** LOW accepted and plan-gated: PID reuse between identity and group probes can latch false escape and transiently report `descendants_unknown`; exact background proof still releases registry. No product or test change.
+
 - **SessionWorkerClient re-review closed (2026-08-01):** all 888 lines reviewed at `c8e6c4e` in three bounded passes plus whole-file integration; focused tests passed 80/80. No additional distinct finding; existing HIGH `opr-19` and LOW `opr-22` gained scoped repair/guard extensions. No product or test change.
 
 - **SessionWorkerClient `opr-22` scope extension (2026-08-01):** existing LOW finding now covers both directions of late wall-clock classification: first-use delay can label timeout canceled, while successful cleanup crossing deadline can label caller cancellation timed out. No product or test change.
@@ -952,6 +954,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-46` LOW accepted and plan-gated: make identity/group observation incarnation-coherent while preserving opr-31 fail-closed tracking on indeterminate samples. No product or test change.
+
 - **Review intake:** `opr-45` LOW accepted and plan-gated: make local-definition exemptions scope-aware while preserving top-level prior-definition and containing-recursion behavior. No product or test change.
 
 - **Review intake:** `opr-44` MEDIUM accepted plan-gated: add a conservative named Bash `set -o` option allowlist without classifying valid PowerShell `set +e` or short `Set-Variable` forms. No product or test change.
@@ -966,7 +970,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 515-line `UnixWorkerContainmentRegistry` current-head re-review with existing `opr-15`, `opr-26`, `opr-30`, and `opr-31` as exclusions, focused registry/native/launcher coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** add the complete `UnixWorkerContainmentRegistry` closeout, route the next unreviewed production source, and continue bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

@@ -24,6 +24,14 @@ Keep new operation admission closed as soon as stopping begins, but preserve exa
 
 Add a deterministic `ProcessSessionWorker` test that initializes a scripted process, calls `StopAsync`, observes one correlated `shutdown` request, returns `stopped`, and proves the graceful exchange completes before containment. Add the failure-path counterpart proving a missing or invalid acknowledgement still reaches bounded containment. Temporarily revert only the repair and prove the graceful guard fails, restore it, then run the focused client tests and full server verification.
 
+## Current re-review extension
+
+A current-head review of all 888 lines at `c8e6c4e` found two stop-repair boundaries under the same control-flow defect. `ObserveExitAsync` at `server/PtkMcpServer/Worker/SessionWorkerClient.cs:764-780` ignores `_stopping`; once the repair stops pre-completing `_fatal`, a worker that sends `stopped` and exits before `_stopped` is assigned at `:567` can be poisoned as an unexpected exit. This is masked by the current opr-19 bug and is not a separate current failure.
+
+The repair must also preserve the existing `StopAsync` nonfatal graceful-handshake catch at `:574-576` before containment is invoked at `:579`. Cancellation, missing acknowledgement, invalid acknowledgement, and prompt exit must not return or throw before containment is attempted. Add a deterministic immediate-exit-after-`stopped` guard that proves no unexpected-exit poison wins, plus failure-path guards proving each failed exchange still reaches containment.
+
+Claude Opus 5 reviewed the 888-line file in three bounded exact-source passes plus one whole-file integration pass. Focused client, protocol, worker-server, and named-supervisor tests passed 80/80. Independent integration accepted this as an opr-19 scope extension, with no severity change and no distinct new finding from these two stop boundaries. Other current re-review outcomes are recorded separately.
+
 ## Reviewer
 
 Reviewer: `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5` (`frontier`, `max`, no-tool, session-only).

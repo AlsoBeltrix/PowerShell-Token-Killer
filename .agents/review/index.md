@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-45:** LOW — `TrustedPreflightClassifier` flattens nested local definitions, so a child-scope `function export` can suppress later top-level Bash `export` evidence even though PowerShell cannot resolve that function. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `864cfe2`. Detail: `.agents/review/findings/opr-45.md`.
+
 **Open — opr-44:** MEDIUM — `TrustedPreflightClassifier` recognizes only the literal `pipefail` after Bash `set -o`; other named Bash options such as `errexit` produce `Finding=null`, then fail under PowerShell's stock `Set-Variable` alias. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `864cfe2`. Detail: `.agents/review/findings/opr-44.md`.
 
 **Open — opr-43:** HIGH — the fatal-parse branch returns before the trusted command-evidence scan, so a valid Bash script with a recovered `set` command plus `case ... esac` gets `Finding=null` and falls through to PowerShell instead of available Bash delegation. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `864cfe2`. Detail: `.agents/review/findings/opr-43.md`.

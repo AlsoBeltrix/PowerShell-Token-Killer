@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **TrustedPreflightClassifier `opr-45` intake (2026-08-01):** LOW accepted and plan-gated: nested local definitions are flattened across script-block scopes, suppressing valid top-level Bash builtin evidence that PowerShell cannot resolve. No product or test change.
+
 - **TrustedPreflightClassifier `opr-44` intake (2026-08-01):** MEDIUM accepted plan-gated: named Bash options after `set -o` are missed unless the literal is `pipefail`, causing valid Bash to fail under PowerShell `Set-Variable`. No product or test change.
 
 - **TrustedPreflightClassifier `opr-43` intake (2026-08-01):** HIGH accepted plan-gated: fatal PowerShell parse handling returns before recovered trusted Bash command evidence is scanned, so valid Bash can fall through to PowerShell failure. No product or test change.
@@ -942,6 +944,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-45` LOW accepted and plan-gated: make local-definition exemptions scope-aware while preserving top-level prior-definition and containing-recursion behavior. No product or test change.
+
 - **Review intake:** `opr-44` MEDIUM accepted plan-gated: add a conservative named Bash `set -o` option allowlist without classifying valid PowerShell `set +e` or short `Set-Variable` forms. No product or test change.
 
 - **Review intake:** `opr-43` HIGH accepted plan-gated: fatal-parse handling must preserve existing trusted command evidence before returning no dialect finding. No product or test change.
@@ -954,7 +958,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** record the remaining accepted `TrustedPreflightClassifier` nested-definition-scope finding as `opr-45`, then add the complete classifier closeout, route the next unreviewed production source file, and continue the bounded Claude Opus 5 loop. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** add complete `TrustedPreflightClassifier` closeout, route next unreviewed production source file, continue bounded Claude Opus 5 loop. Do not implement plan-gated findings without approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditAdminFailure whole-file review closed (2026-08-01):** all 58 lines reviewed at `11bad9d` with evidence-admin classification, failure publication, and fault-injection integration; focused tests passed 20/20. Prior limited `618f007` review expanded. Opus found no current defect; no product or test change.
+
 - **SupervisorCallFilter whole-file review closed (2026-08-01):** all 55 lines reviewed at `f1cf11d` with server registration, lifecycle/lease, shutdown, and cross-platform integration; focused tests passed 21/21. Prior limited `6675e37` review expanded. Opus found no current defect; no product or test change.
 
 - **AuditEffectiveIdentity whole-file review closed (2026-08-01):** all 30 lines reviewed at `92a60aa` with audit-admin construction, event schema/serialization, and cross-platform integration; focused tests passed 55/55. Prior limited `c1d83e1` review expanded. Opus found no current defect; no product or test change.
@@ -1016,7 +1018,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 58-line `AuditAdminFailure` current-head whole-file review; its prior record was limited to failure projection, sensitive-data handling, status truthfulness, exception behavior, and audit availability semantics rather than explicitly integrated complete-source caller/test coverage. Include active audit-admin callers and focused failure-projection tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 65-line `InvokeTool` current-head whole-file review; its prior record was limited to public MCP schema, defaults, validation, cancellation, and runtime forwarding rather than explicitly integrated complete-source caller/test coverage. Include registration, runtime dispatch, and focused invoke/schema tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

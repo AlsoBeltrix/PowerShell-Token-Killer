@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-31:** MEDIUM — one indeterminate Unix identity or group probe can permanently evict a live reparented descendant from tracking, allowing its later escape to survive false empty-domain proof. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-31.md`.
+
 **Open — opr-30:** MEDIUM — Unix containment's healthy-observation gate accepts snapshots from before worker release or after worker death, so it need not cover the descendant-creation interval it is meant to prove. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-30.md`.
 
 **Open — opr-29:** MEDIUM — `WorkerLaunchCommand` uses case-insensitive environment identity on every platform, so valid case-distinct Unix host variables deterministically block all worker launches. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-29.md`.

@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **FileAuditJournalSink full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,707 lines in eleven bounded passes plus four thematic cross-boundary passes; focused tests passed 50/50. Outcome `no_current_findings`; two same-user substitution candidates and one Linux raw-descriptor lifetime candidate were rejected against the quota call graph, threat boundary, and sole caller lifetime. No product or test change.
+
 - **SecureAuditStorage full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,619 lines in seven bounded passes plus two split cross-boundary passes; focused tests passed 15/15. Outcome `no_current_findings`; Windows durability-seam and macOS ACL candidates were rejected on exact semantics, caller ordering, and threat boundary. No product or test change.
 
 - **AuditEvent full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,227 lines in five bounded passes plus two split cross-boundary passes; focused tests passed 13/13. Active admin and journal event validation/serialization is clean; dormant call-context paths were excluded. No product or test change.
@@ -902,7 +904,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/FileAuditJournalSink.cs`, including active anchored/local admin writers, spool rotation/quota/recovery, prior sink findings, and focused sink tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditJournal.cs`, including reservation transfer/release, append sequencing and poison/recovery transitions, committed-spool/evidence-reference reads, health metrics, active factory/admin callers, prior journal findings, and focused journal tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

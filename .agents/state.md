@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditOperatorDispositionOutcome full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,110 lines in five bounded passes plus two split cross-boundary passes; focused tests passed 22/22 and 13/13. Outcome `no_current_findings`; no product or test change.
+
 - **AuditOperatorDispositionIntent full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,057 lines in five bounded passes plus cross-boundary adjudication; focused tests passed 22/22. Outcome: one current finding, `opr-38` LOW, already recorded plan-gated; no product or test change.
 
 - **Review intake:** `opr-38` LOW accepted plan-gated: `AuditOperatorDispositionProof` accepts one trailing LF in an acknowledged-gap reason, durably creating an out-of-grammar proof whose clean spelling conflicts on retry.
@@ -896,7 +898,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditOperatorDispositionOutcome.cs`, including active administration, recovery, retirement, intent coupling, and focused operator tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditEvent.cs`, including active journal/admin producers, strict schema/codec consumers, prior event findings, and focused audit-event tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

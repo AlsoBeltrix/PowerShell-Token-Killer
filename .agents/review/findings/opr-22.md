@@ -24,6 +24,14 @@ Use one startup deadline origin across supervisor admission, factory creation, p
 
 Add a deterministic first-start test whose factory provider consumes the supervisor timeout budget and then returns a process factory that observes the already-canceled startup token. Assert public startup detail is `worker_start_timed_out`, not `worker_start_canceled`. Add the paired supervisor-shutdown case proving explicit shutdown remains cancellation-classified. Temporarily revert only the repair and prove the timeout assertion fails, restore it, then run focused startup tests and full server verification.
 
+## Current re-review extension
+
+A current-head review of all 888 lines at `c8e6c4e` found the inverse misclassification through the same predicate. In the client-present failure branch, `ProcessSessionWorkerFactory.StartAsync` awaits `StopAsync` at `server/PtkMcpServer/Worker/SessionWorkerClient.cs:162-166` and `DisposeAsync` at `:178` before calling `InitializationFailureCode` at `:182`. If caller cancellation occurs just before `deadlineUtc` and successful cleanup crosses that deadline, `LaunchFailureCode` samples the later `DateTimeOffset.UtcNow` at `:241-243` and reports `worker_start_timed_out` instead of `worker_start_canceled`.
+
+This is the same late-clock and missing-token-provenance root as opr-22, and the existing structural repair covers both directions. Add a deterministic client-present guard that triggers caller cancellation before the deadline, holds successful cleanup until after it, and requires `worker_start_canceled`. Preserve the existing real-timeout and supervisor-shutdown paired guards. No severity change is warranted because the effect remains limited to public startup diagnosis.
+
+Claude Opus 5 reviewed the 888-line file in three bounded exact-source passes plus one whole-file integration pass. Focused client, protocol, worker-server, and named-supervisor tests passed 80/80. Independent adjudication returned `MERGE_OPR22`; no distinct finding arose from this candidate.
+
 ## Reviewer
 
 Reviewer: `@gcp-vertexai-us-global-integration/anthropic.claude-opus-5` (`frontier`, `max`, no-tool, session-only).

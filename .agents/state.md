@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **SessionWorkerClient `opr-22` scope extension (2026-08-01):** existing LOW finding now covers both directions of late wall-clock classification: first-use delay can label timeout canceled, while successful cleanup crossing deadline can label caller cancellation timed out. No product or test change.
+
 - **SessionWorkerClient `opr-19` scope extension (2026-08-01):** existing HIGH finding now also requires stop repair to coordinate prompt worker exit with `_stopping` and preserve containment on every failed graceful exchange. No product or test change.
 
 - **TrustedPreflightClassifier re-review closed (2026-08-01):** all 448 lines reviewed at `864cfe2` in two bounded passes plus whole-file integration; focused tests passed 88/88. Exact runtime probes admitted HIGH `opr-43`, MEDIUM `opr-44`, LOW `opr-45`; one invalid-dual-dialect candidate was rejected. No product or test change.
@@ -962,7 +964,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** `opr-19` extension is recorded; next document the reviewed startup-classification candidate in a separate atomic slice, then close the `SessionWorkerClient` review and route the next production source. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** add the complete current-head `SessionWorkerClient` closeout, route the next unreviewed production source, and continue bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

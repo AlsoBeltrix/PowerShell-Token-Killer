@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ColdCommandResolution `opr-49` intake (2026-08-01):** MEDIUM accepted and plan-gated: Windows rooted or drive-relative PATH entries bind server process drive state instead of the audited child working directory. No product or test change.
+
 - **ColdCommandResolution `opr-48` intake (2026-08-01):** MEDIUM accepted and plan-gated: Unix resolver tests the union of raw execute bits rather than real-identity `X_OK`, so cold prepare and commit can bind a PATH file PowerShell would skip. No product or test change.
 
 - **BashProcessRunner whole-file review closed (2026-08-01):** all 803 lines reviewed at `94ff698` in three bounded passes plus whole-file integration against containment, RTK parity, invoke models, dispatch, and production callers; focused tests passed 27/27. Accepted MEDIUM `opr-47`; extended existing `opr-4` and `opr-40`. No product or test change.
@@ -971,6 +973,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-49` MEDIUM accepted and plan-gated: normalize Windows non-fully-qualified PATH entries with the audited working directory as the explicit base and add cross-drive parity guards. No product or test change.
 
 - **Review intake:** `opr-48` MEDIUM accepted and plan-gated: replace raw Unix execute-bit union with real-identity access semantics and add a two-directory PATH guard. No product or test change.
 

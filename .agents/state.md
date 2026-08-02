@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditOptions full review complete (2026-08-01):** Claude Opus 5 reviewed all 208 lines plus the complete production call graph; focused baselines passed 10/10 and 3/3. Outcome `no_current_findings` beyond existing `opr-5`; the newline-permissive options regex is unreachable behind the checkpoint codec's strict identity validation. No product or test change.
+
 - **AuditCompletedChainRetirement full review complete (2026-08-01):** Claude Opus 5 reviewed all 933 lines in five bounded passes plus cross-boundary adjudication; focused retirement tests passed 13/13 and preparation tests 22/22. Active `RecoverUnderQuota` is clean; removed exporter initiation remains dormant. No product or test change.
 
 - **AuditExportCheckpointStore full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,659 lines in seven bounded passes plus cross-boundary adjudication; focused tests passed 40/40. Outcome `no_current_findings`; removed exporter-only block/retry paths require re-review if reactivated. No product or test change.
@@ -890,7 +892,7 @@ short and update it when important repo facts change.
 
 ## Next
 
-- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditOptions.cs`, including startup configuration, all option consumers, prior `opr-5`, and focused health/options tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue bounded Claude Opus 5 review with `server/PtkMcpServer/Audit/AuditOperatorDispositionIntent.cs`, including active `PtkAuditAdmin` callers, typed controls, prior disposition findings, and focused operator tests. Record each accepted finding separately; do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-36` MEDIUM accepted plan-gated: reserved-byte accounting uses a 32-bit product, so a supported multi-gigabyte high-concurrency state throws after reservation mutation and leaks admission capacity.
 

@@ -880,6 +880,8 @@ short and update it when important repo facts change.
 
 ## Next
 
+- **Review intake:** `opr-32` HIGH accepted plan-gated: explicit local/private function scope prefixes prevent a supported lexical definition from matching its collision-named use, causing a hard false shell-dialect refusal.
+
 - **Review intake:** `opr-31` MEDIUM accepted and plan-gated: a transient Unix descendant probe failure can permanently discard a live reparented descendant before its later process-group escape.
 
 - **Review intake:** `opr-30` MEDIUM accepted and plan-gated: Unix containment healthy-observation evidence is not bound to the released, live worker interval, permitting false empty-domain proof.

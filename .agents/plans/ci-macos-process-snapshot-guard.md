@@ -1,13 +1,13 @@
 # Plan: macOS process-snapshot descriptor guard
 
-**Status:** COMPLETE 2026-08-01 — test-only head `f466319` passed 1,221/1,221
-local server tests on Windows. GitHub Actions run `30712151152` passed all six
-jobs at that exact head; its macOS test job then passed two additional same-head
-attempts (`91402436186`, `91403654965`). Direct macOS mutation proof remained
-unavailable as recorded below. The owner authorized autonomous remediation of
-observed CI failures on 2026-08-01; this plan narrowed that standing approval to
-the recurring macOS test-harness failure and changed no production containment
-source.
+**Status:** COMPLETE 2026-08-01 — isolated-probe head `0499aa7` passed
+1,221/1,221 local server tests on Windows. GitHub Actions run `30727607324`
+passed all six jobs at that exact head; its macOS test job then passed two
+additional same-head attempts (`91446210698`, `91446785138`). Direct macOS
+mutation proof remained unavailable as recorded below. The owner authorized
+autonomous remediation of observed CI failures on 2026-08-01; this plan narrowed
+that standing approval to the recurring macOS test-harness failure and changed
+no production containment source.
 
 ## Evidence
 

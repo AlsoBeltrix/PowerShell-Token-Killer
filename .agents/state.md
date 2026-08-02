@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **BashProcessRunner `opr-4` extension (2026-08-01):** Bash pre-start budget classification can combine `TimedOut=true` with cancellation audit detail because the guard snapshots cancellation but `BudgetFailure` re-reads the deadline. Accepted LOW scope of the existing MEDIUM plan-gated immutable-cause defect. No product or test change.
+
 - **BashProcessRunner `opr-47` intake (2026-08-01):** MEDIUM accepted plan-gated: a slow successful validator-start audit flush can consume the fixed `bash -n` process budget and replace an already-determinate exit verdict with `TimedOut`. No product or test change.
 
 - **AuditJournal whole-file review closed (2026-08-01):** all 897 lines reviewed at `54822ee` in three bounded passes plus whole-file integration against serializer, health, factory, live-reader, and production caller evidence; focused tests passed 59/59. No additional distinct finding; direct `opr-35` and `opr-36` remain unchanged. No product or test change.
@@ -980,7 +982,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-41` MEDIUM accepted plan-gated: the no-fallback `NotStarted` RTK path omits `$LASTEXITCODE` restoration after pre-launch reset. No product or test change.
 
-- **Review intake:** `opr-4` gained a LOW pre-start classification extension under the existing MEDIUM plan gate: a no-start RTK result can combine a timeout outcome with cancellation audit detail. No product or test change.
+- **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
 - **Immediate unattended review:** begin the 803-line `BashProcessRunner` current-head whole-file review, with no prior whole-file record, existing `opr-4`, `rbc-1`, `rbc-6`, and `rbc-15` excluded, focused process/deadline/output/containment coverage, and bounded Claude Opus 5 passes. Do not implement plan-gated findings without an approved plan.
 

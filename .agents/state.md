@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **WorkerSupervisor `opr-53` intake (2026-08-01):** MEDIUM accepted and plan-gated at `c9a7f51`: worker-controlled invocation and state text can forge PTK-authored retry, status, and recovery directives because both share one unframed response channel. A real stdio invoke preserved forged status and recovery lines beside the genuine recovery line. No product or test change.
+
 - **AuditEvidenceRetentionAudit whole-file review closed (2026-08-01):** all 188 lines reviewed at `2c6bb7a` with evidence-store deletion, exact content/identity proof, event validation, and focused-test integration; tests passed 15/15. Existing HIGH `opr-35` was excluded as pre-selection scope. Prior limited `735000e` review expanded; no additional distinct finding and no product or test change.
 
 - **WorkerProcessExit whole-file review closed (2026-08-01):** all 179 lines reviewed at `c82d804` with process entry, server exit producers, both bootstrap implementations, and focused-test integration; tests passed 78/78. Accepted LOW `opr-52`; prior limited `a930e27` review expanded. No product or test change.
@@ -1015,6 +1017,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-53` MEDIUM accepted and plan-gated: make supervisor status/retry/recovery directives unforgeable relative to worker text, preserving arbitrary output and bounding responses; guard invocation and state through the real public boundary. No product or test change.
 
 - **Review intake:** `opr-52` LOW accepted and plan-gated: add four exact bounded allowlist mappings and producer-code terminal guards while preserving generic fallback, exit classes, graceful silence, and the 256-byte ASCII limit. No product or test change.
 

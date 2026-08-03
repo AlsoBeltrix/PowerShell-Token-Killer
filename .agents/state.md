@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **WorkerSupervisor `opr-54` intake (2026-08-01):** LOW accepted and plan-gated at `c9a7f51`: generated session-name schema constraints are not enforced by the shipped server, and rejected raw names are echoed into PTK directive lines. A real stdio probe injected a forged status line and started no worker. No product or test change.
+
 - **WorkerSupervisor `opr-53` intake (2026-08-01):** MEDIUM accepted and plan-gated at `c9a7f51`: worker-controlled invocation and state text can forge PTK-authored retry, status, and recovery directives because both share one unframed response channel. A real stdio invoke preserved forged status and recovery lines beside the genuine recovery line. No product or test change.
 
 - **AuditEvidenceRetentionAudit whole-file review closed (2026-08-01):** all 188 lines reviewed at `2c6bb7a` with evidence-store deletion, exact content/identity proof, event validation, and focused-test integration; tests passed 15/15. Existing HIGH `opr-35` was excluded as pre-selection scope. Prior limited `735000e` review expanded; no additional distinct finding and no product or test change.
@@ -1017,6 +1019,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-54` LOW accepted and plan-gated: enforce canonical session/name values at the runtime operation boundary and never reflect rejected raw input into PTK control lines; guard real stdio calls across all session-bearing tools. No product or test change.
 
 - **Review intake:** `opr-53` MEDIUM accepted and plan-gated: make supervisor status/retry/recovery directives unforgeable relative to worker text, preserving arbitrary output and bounding responses; guard invocation and state through the real public boundary. No product or test change.
 

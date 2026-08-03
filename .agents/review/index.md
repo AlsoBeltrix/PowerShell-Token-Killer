@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-57:** LOW — `ExecutionPlanner.ClassifyDomain` returns `PowerShell` for a redirected `CommandExpressionAst` before inspecting its redirections, persisting an incorrect `powershell` audit domain for file-writing expression pipelines. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-57.md`.
+
 **Open — opr-56:** MEDIUM — `ExecutionPlanner` never checks `EndBlock.Traps`, so an otherwise eligible native script can route through RTK without its top-level trap handler and change warm-session error control flow. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-56.md`.
 
 **Open — opr-55:** MEDIUM — `ExecutionPlanner.TryCreateRtkArgumentVector` merges an attached native parameter prefix and constant argument into one RTK argv element although PowerShell sends two, so routing changes target-visible argument boundaries. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-55.md`.

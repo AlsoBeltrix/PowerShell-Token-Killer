@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ExecutionPlanner `opr-57` intake (2026-08-01):** LOW accepted plan-gated at `1de0286`: redirected `CommandExpressionAst` pipelines return `PowerShell` before redirections are checked, so audit routing metadata mislabels file-writing expression forms. Execution remains PowerShellDirect. No product or test change.
+
 - **ExecutionPlanner `opr-56` intake (2026-08-01):** MEDIUM accepted plan-gated at `3628487`: eligibility, domain classification, and guidance ignore `EndBlock.Traps`; RTK dispatch drops the handler. A warm native-error probe proved direct PowerShell enters the trap while the constructed RTK argv cannot. No product or test change.
 
 - **ExecutionPlanner `opr-55` intake (2026-08-01):** MEDIUM accepted plan-gated at `3548eb8`: attached `CommandParameterAst` arguments are merged into one RTK argv element while real PowerShell Standard and Windows native probes send separate prefix and operand elements. Existing test pins the wrong merged vector. No product or test change.

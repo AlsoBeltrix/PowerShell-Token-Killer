@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **OutputStore review in progress (2026-08-02):** lines 1–541 at blob `7ca10b70` are complete across exact-source Opus gates for 1–249, 250–438, and 439–541 after the initial oversized pass timed out; models/options, reservation state, prepare/deadline races, detach, sealing, fault observation, and disposal are clean. Independent focused tests passed 99/99. A contested supervisor-artifact dispose-after-publication candidate was rejected by focused Opus as intentional/duplicate of repaired `gh-16-1`/`gh-16-2`: the sink completes observation and the bounded store retains a publicly discoverable session artifact. No product or test change.
+
 - **Program complete-source review closed (2026-08-02):** all 49 lines reviewed at blob `ba01d79` in one complete Opus composition pass with worker entry, stdin guard, lifecycle/filter, DI aliases, disposal, and real stdio behavior; focused tests passed 68/68 and exact-head CI `30782965551` passed all six jobs including three-platform handshakes. Existing `opr-1`, `opr-8` through `opr-10`, and `opr-42` remained excluded. Opus found no current defect; no product or test change.
 
 - **ExecutionPlanner complete-source review closed (2026-08-02):** all 675 lines reviewed at blob `234c3833` in three bounded passes plus whole-file Opus integration; focused tests passed 103/103. Accepted HIGH `opr-58`, MEDIUM `opr-55`/`opr-56`, LOW `opr-57`; prior repaired and adjacent findings remained excluded. Exact target-visible probes resolved the sole integration dispute in favor of `opr-55`. Prior limited record expanded; no product or test change.
@@ -1074,7 +1076,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** review all 2,195 lines of `server/PtkMcpServer/Execution/OutputStore.cs` at blob `7ca10b70`; no complete-source record exists. Cover secure root/server ownership, artifact publication and handles, read/search semantics, quotas and bounded retention, off-gate deletion/settling, synchronization, disposal, recovery callers, worker/session/tool integration, and current focused tests in bounded exact-source passes plus whole-file Opus integration. Exclude repaired `rbc-7`/`rbc-14` and the prior limited `OutputTool` adjudication. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** continue `server/PtkMcpServer/Execution/OutputStore.cs` at blob `7ca10b70` with lines 542–864: store fields/constants, secure-root construction and ownership, timer/lane setup, retained-handle seam, foreground-operation serialization, reservation admission, capacity settling, artifact identity allocation, and disposal races. Use bounded exact-source Opus integration with focused store/root tests; exclude repaired `rbc-7`/`rbc-14`. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

@@ -117,14 +117,21 @@ the agent's session, not the machine owner's shell, and inherited user state
 must not reach it.
 
 Observed defect (this machine, 2026-08-03, installed `0.2.0-dev.g12e1ff5`):
-a fresh session is clean and `ls` is the shipped alias to `Get-ChildItem`.
-But `RunspaceHost.cs` sets `PSModulePath` to include the user module
-directory, so referencing any name exported by a module living there
-autoloads that whole module. One reference to a user module's command
-loaded 44 commands and **retroactively replaced `ls` with a user function**
-for the remainder of the session. The leak is lazy, so two sessions on the
-same machine differ by whatever was typed first — sessions are not
+`RunspaceHost.cs` sets `PSModulePath` to include the user module directory,
+so referencing any name exported by a module living there autoloads that
+whole module. One reference to a user module's command brought all 44 of
+its commands into the session. Autoload is lazy, so two sessions on the
+same machine diverge by whatever was invoked first and neither is
 reproducible.
+
+Scope correction (verified in `pwsh -NoProfile`, 2026-08-03): an autoloaded
+module function does **not** override a built-in alias — alias outranks
+function in PowerShell's precedence, so `ls` survives as
+`Alias -> Get-ChildItem`. An earlier claim that autoload rebinds `ls` was
+wrong; it was observed in a session where the user module was already
+imported by other means. The defect is unrequested user code entering the
+agent's session and non-reproducible sessions, not alias hijacking. Do not
+write guards asserting a rebind that does not occur.
 
 `InitialSessionState.CreateDefault()` (`RunspaceHost.cs:467`) already
 excludes `$PROFILE`; that part is correct and stays. The gap is module
@@ -146,19 +153,26 @@ Verification must exercise the real path, not a mid-session approximation:
 `$PSModuleAutoloadingPreference` set inside a running session is not proof
 that the `InitialSessionState` route behaves identically.
 
-Guards:
+Guards (`server/PtkMcpServer.Tests/RunspaceHostTests.cs`):
 
-1. In a fresh session, referencing a name exported only by a module in the
-   user module directory does not load that module, and `ls` remains
-   `Alias -> Get-ChildItem` afterward.
-2. `Import-Module` of a module in that directory succeeds, and its commands
-   remain available on the next invocation in the same session.
-3. Two fresh sessions expose identical command tables regardless of what was
-   invoked in either.
+1. `User_module_on_module_path_does_not_autoload_into_the_agent_session` —
+   referencing a name exported only by a module in the user module directory
+   neither resolves that name nor loads the module, and the module's other
+   commands stay absent.
+2. `Explicitly_imported_user_module_loads_and_stays_warm` — `Import-Module`
+   still works and the module's commands remain available on a later
+   invocation in the same session. This one passes before and after by
+   design: it guards the fix against over-reach, not the defect.
+3. `Two_fresh_sessions_stay_identical_after_different_work` — a session that
+   referenced a user-module name and one that did not expose the same
+   loaded-module set.
 
-**Complete when:** all three guards fail against the current build, pass
-after the change, and AD/Exchange discovery via explicit import still works
-on the Windows validation host.
+Mutation proof (2026-08-03): with the `InitialSessionState` entry removed,
+guards 1 and 3 fail and guard 2 passes; restoring makes all three pass.
+
+**Complete when:** guards 1 and 3 fail against the pre-fix build, all three
+pass after, and AD/Exchange discovery via explicit import still works on the
+Windows validation host.
 
 ## Slice 1 — delete post-success command advice
 

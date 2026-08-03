@@ -1337,5 +1337,175 @@ public sealed class RunspaceHostTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Builds a throwaway module directory holding one module that exports two
+    /// uniquely named functions, modelling a user module sitting on
+    /// PSModulePath. Referencing either name is enough to autoload the module
+    /// and bring the other one in with it.
+    /// </summary>
+    private static (DirectoryInfo Directory, string ModuleName) CreateAutoloadableUserModule()
+    {
+        var directory = Directory.CreateTempSubdirectory("ptk-userprofile-");
+        var moduleName = "PtkFakeUserProfile" + Guid.NewGuid().ToString("N")[..8];
+        var moduleDirectory = Directory.CreateDirectory(
+            Path.Combine(directory.FullName, moduleName));
+
+        // Autoloading resolves a command name to a module by reading manifests
+        // on PSModulePath, so FunctionsToExport must name the commands
+        // explicitly rather than relying on a wildcard.
+        File.WriteAllText(
+            Path.Combine(moduleDirectory.FullName, moduleName + ".psm1"),
+            "function Get-PtkFakeUserProfileMarker { 'user-module-loaded' }\n" +
+            "function Get-PtkFakeUserProfilePassenger { 'passenger' }\n");
+        File.WriteAllText(
+            Path.Combine(moduleDirectory.FullName, moduleName + ".psd1"),
+            "@{\n" +
+            $"  RootModule = '{moduleName}.psm1'\n" +
+            "  ModuleVersion = '1.0.0'\n" +
+            $"  GUID = '{Guid.NewGuid()}'\n" +
+            "  FunctionsToExport = @('Get-PtkFakeUserProfileMarker', " +
+            "'Get-PtkFakeUserProfilePassenger')\n" +
+            "  CmdletsToExport = @()\n" +
+            "  VariablesToExport = @()\n" +
+            "  AliasesToExport = @()\n" +
+            "}\n");
+
+        return (directory, moduleName);
+    }
+
+    /// <summary>
+    /// Slice 0 guard 1: the agent's session is a clean PowerShell 7. Naming a
+    /// command that only a module on PSModulePath exports must not autoload
+    /// that module. Reverting the InitialSessionState autoloading preference
+    /// makes this FAIL: the module resolves and loads.
+    /// </summary>
+    [Fact]
+    public async Task User_module_on_module_path_does_not_autoload_into_the_agent_session()
+    {
+        var (directory, moduleName) = CreateAutoloadableUserModule();
+        var savedModulePath = Environment.GetEnvironmentVariable("PSModulePath");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "PSModulePath",
+                directory.FullName + Path.PathSeparator + savedModulePath);
+
+            using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+
+            // Reference a name only the user module exports. Autoloading would
+            // resolve and import the whole module here.
+            var reference = await host.InvokeAsync(
+                "Get-Command Get-PtkFakeUserProfileMarker -ErrorAction SilentlyContinue | " +
+                "ForEach-Object { $_.Name }",
+                route: "pwsh");
+            Assert.True(reference.Success, string.Join(Environment.NewLine, reference.Errors));
+            Assert.DoesNotContain(
+                "Get-PtkFakeUserProfileMarker",
+                reference.Output,
+                StringComparison.Ordinal);
+
+            var loaded = await host.InvokeAsync(
+                $"(Get-Module {moduleName}).Count", route: "pwsh");
+            Assert.True(loaded.Success, string.Join(Environment.NewLine, loaded.Errors));
+            Assert.Equal("0", loaded.Output.Trim());
+
+            // The passenger is the point: autoload would have carried every
+            // other command the module defines into the agent's session
+            // alongside the one name that was referenced.
+            var passenger = await host.InvokeAsync(
+                "Get-Command Get-PtkFakeUserProfilePassenger -ErrorAction SilentlyContinue | " +
+                "ForEach-Object { $_.Name }",
+                route: "pwsh");
+            Assert.True(passenger.Success, string.Join(Environment.NewLine, passenger.Errors));
+            Assert.DoesNotContain(
+                "Get-PtkFakeUserProfilePassenger",
+                passenger.Output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PSModulePath", savedModulePath);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Slice 0 guard 2: blocking autoload must not break explicit imports.
+    /// A module the script imports itself loads and stays warm for the
+    /// session's life — the AD/Exchange usage pattern.
+    /// </summary>
+    [Fact]
+    public async Task Explicitly_imported_user_module_loads_and_stays_warm()
+    {
+        var (directory, moduleName) = CreateAutoloadableUserModule();
+        var savedModulePath = Environment.GetEnvironmentVariable("PSModulePath");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "PSModulePath",
+                directory.FullName + Path.PathSeparator + savedModulePath);
+
+            using var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+
+            var import = await host.InvokeAsync(
+                $"Import-Module {moduleName}", route: "pwsh");
+            Assert.True(import.Success, string.Join(Environment.NewLine, import.Errors));
+
+            // Warm across a separate invocation, not just within the import call.
+            var use = await host.InvokeAsync(
+                "Get-PtkFakeUserProfileMarker", route: "pwsh");
+            Assert.True(use.Success, string.Join(Environment.NewLine, use.Errors));
+            Assert.Equal("user-module-loaded", use.Output.Trim());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PSModulePath", savedModulePath);
+            directory.Delete(recursive: true);
+        }
+    }
+
+    /// <summary>
+    /// Slice 0 guard 3: sessions are reproducible. Autoload is lazy, so two
+    /// sessions on one machine used to diverge by whatever was invoked first —
+    /// one carrying a user module's commands, the other not. Both sessions
+    /// must expose the same loaded-module set after doing different work.
+    /// Reverting the fix makes this FAIL: the poked session loads the module.
+    /// </summary>
+    [Fact]
+    public async Task Two_fresh_sessions_stay_identical_after_different_work()
+    {
+        var (directory, moduleName) = CreateAutoloadableUserModule();
+        var savedModulePath = Environment.GetEnvironmentVariable("PSModulePath");
+        try
+        {
+            Environment.SetEnvironmentVariable(
+                "PSModulePath",
+                directory.FullName + Path.PathSeparator + savedModulePath);
+
+            var probe = $"(Get-Module {moduleName}).Count";
+
+            using var untouched = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+            var first = await untouched.InvokeAsync(probe, route: "pwsh");
+            Assert.True(first.Success, string.Join(Environment.NewLine, first.Errors));
+
+            using var poked = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+            var poke = await poked.InvokeAsync(
+                "Get-Command Get-PtkFakeUserProfileMarker -ErrorAction SilentlyContinue | " +
+                "ForEach-Object { $_.Name }",
+                route: "pwsh");
+            Assert.True(poke.Success, string.Join(Environment.NewLine, poke.Errors));
+            var second = await poked.InvokeAsync(probe, route: "pwsh");
+            Assert.True(second.Success, string.Join(Environment.NewLine, second.Errors));
+
+            Assert.Equal(first.Output.Trim(), second.Output.Trim());
+            Assert.Equal("0", second.Output.Trim());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PSModulePath", savedModulePath);
+            directory.Delete(recursive: true);
+        }
+    }
+
     private static string PowerShellLiteral(string value) => value.Replace("'", "''");
 }

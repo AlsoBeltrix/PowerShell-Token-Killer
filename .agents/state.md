@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **SupervisorLifecycle complete-source record revalidated (2026-08-01):** all 139 byte-unchanged lines rechecked at `4306716` as the named subject with filter, registration, shutdown, lifetime, and recent focused-test integration; tests passed 21/21. Prior limited `2ac1cd4` plus dependency-level filter coverage promoted to explicit complete-source coverage. Opus found no current defect; no product or test change.
+
 - **AuditSpoolRecordCodec whole-file review closed (2026-08-01):** all 127 lines reviewed at `9ac4960` with live/closed readers, sink recovery, scanner, envelope shape, and focused-test integration; tests passed 42/42. Prior limited `4c39b9f` review expanded; Opus found no current defect and no product or test change.
 
 - **WorkerSession whole-file review closed (2026-08-01):** all 125 lines reviewed at `6e2c1d4` with runtime, worker server, construction, artifact capture/codec, and focused-test integration; tests passed 38/38. Existing MEDIUM `opr-4` was excluded without extension. Prior limited `5f2e1fb` review expanded; no additional distinct finding and no product or test change.
@@ -1034,7 +1036,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** revalidate all 139 lines of `SupervisorLifecycle` as a named current-head whole-file subject; the recent `SupervisorCallFilter` integration pass supplied the complete source but recorded the lifecycle only as a dependency, while its own prior record remains limited. Include filter registration and focused lifecycle/entry tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 179-line `WorkerProcessExit` current-head whole-file review; its prior record was limited to exit-code mapping, detail normalization, diagnostic bounds, and best-effort stderr writes rather than explicitly integrated complete-source caller/test coverage. Include worker entry/server callers and focused process-exit tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

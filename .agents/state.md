@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **WorkerSupervisor whole-file review closed (2026-08-01):** all 381 lines reviewed at source-equivalent `c9a7f51` in two bounded passes plus whole-file Opus integration against named sessions, protocol, tools, and real stdio behavior; focused tests passed 29/29. Accepted MEDIUM `opr-53`, LOW `opr-54`, and extended existing MEDIUM `opr-11`; existing MEDIUM `opr-42` remained excluded. Prior limited `3cd2482` record expanded. No product or test change.
+
 - **`opr-11` runtime-boundary extension (2026-08-01):** real shipped-server stdio evidence proves generated DataAnnotations are advisory schema rather than enforced input validation. The existing MEDIUM route-fallback repair must validate in the active runtime path and make `WorkerSupervisor.ParseRoute` refuse explicit unknown values; schema-only repair is insufficient. No product or test change.
 
 - **WorkerSupervisor `opr-54` intake (2026-08-01):** LOW accepted and plan-gated at `c9a7f51`: generated session-name schema constraints are not enforced by the shipped server, and rejected raw names are echoed into PTK directive lines. A real stdio probe injected a forged status line and started no worker. No product or test change.
@@ -1056,7 +1058,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 381-line `WorkerSupervisor` current-head whole-file review; its prior record was limited to public result formatting and exception-to-tool responses rather than complete-source lifecycle, named-session, audit, validation, and state/reset/invoke integration. Review in bounded passes plus a whole-file Opus integration, with focused supervisor/session seam tests. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** expand the 527-line `AuditExportCheckpoint` current-head review; its prior record was limited to immutable checkpoint and blocked-record invariants rather than complete-source codec, all producers/consumers, and current production reachability. Review in bounded passes plus a whole-file Opus integration, with focused checkpoint tests. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

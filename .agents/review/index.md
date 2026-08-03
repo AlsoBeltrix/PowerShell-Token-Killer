@@ -1,5 +1,7 @@
 # Review status
 
+**Open — opr-58:** HIGH — post-success native-redirection guidance can recommend writing an application producer back into the same file it reads; following the PTK-authored suggestion truncates the input before launch. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-58.md`.
+
 **Open — opr-57:** LOW — `ExecutionPlanner.ClassifyDomain` returns `PowerShell` for a redirected `CommandExpressionAst` before inspecting its redirections, persisting an incorrect `powershell` audit domain for file-writing expression pipelines. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-57.md`.
 
 **Open — opr-56:** MEDIUM — `ExecutionPlanner` never checks `EndBlock.Traps`, so an otherwise eligible native script can route through RTK without its top-level trap handler and change warm-session error control flow. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-56.md`.

@@ -1,5 +1,18 @@
 # Review status
 
+> **Dispositioned 2026-08-03.** Every accepted `opr-*` finding now carries
+> exactly one disposition in `.agents/review/dispositions.md` — fixed,
+> closed-removed, closed-out-of-scope, deferred to platform selection, or
+> remaining-not-blocking. That file is the disposition of record.
+>
+> The "accepted and plan-gated" state is retired. It let a finding be recorded
+> without ever being resolved, and produced 59 of them with zero repairs. Per
+> `.agents/plans/rtk-router-delegation.md` §Process constraints, a defect found
+> during implementation is now either fixed in the slice that found it or given
+> a disposition — never a new gated entry.
+>
+> The narrative below is retained as the historical review record.
+
 **Open — opr-59:** LOW — a valid EOF read of a nonempty retained artifact reports nonzero `bytes` and zero `bytes_returned`, then falsely appends `(no captured bytes)`. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-59.md`.
 
 **Checkpoint 2026-08-03 — OutputStore lines 1–1214 (one current formatter finding):** Claude Opus 5 (`claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`) reviewed exact source blob `7ca10b70` in bounded passes through line 1214 (line 694 is blank), integrating root ownership, disposal, publication, retention, delete-settling, capacity helpers, production callers, public list/status/read/search behavior, immutable off-gate reads, offset and UTF-8 validation, and model-facing pagination/search formatting. Earlier focused store/artifact evidence remains 99/99. An `IsReadableArtifact` candidate was invalid because the predicate requires a retained stream. A mechanically possible failed-delete retry loop was re-adjudicated `TEST_SEAM_ONLY`: every shipped artifact unlinks before publication and stores `Path=null`, so production retention cannot report delete failure. The core 865–1214 pass closed without a current finding after production-state integration rejected candidates involving public session-name filtering, visible capturing artifacts, the guarded 32-bit read cast, disposed retained streams, and live-growing search streams. `OutputTool.FormatRead` integration admitted LOW `opr-59`: a correct zero-byte EOF page for a nonempty artifact falsely appends `(no captured bytes)`. Existing `rbc-7`, `rbc-14`, `gh-16-1`, and `gh-16-2` remained excluded. No product or test file changed. The file has 2,195 lines; lines 1215–1433 were consulted only to establish atomic publication visibility, not completely reviewed for source defects. Review continues with lines 1215–1450: artifact creation, rendering, unlink-before-publication, flush/publication ordering, reservation claim, and capacity arithmetic; accepted `opr-36` remains excluded.

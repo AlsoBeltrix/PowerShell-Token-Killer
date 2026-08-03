@@ -1610,14 +1610,14 @@ was used._
 
 - Before `bb2349a`, `C:\Users\mcoelho\.ptk` had a protected DACL whose
   current-user full-control ACE did not inherit; the only inheritable ACE
-  belonged to the Codex sandbox group. `bin/` was unreadable to the ordinary
+  belonged to the Codex sandbox group. Installed `~/.ptk/bin/` was unreadable to the ordinary
   user token. The existing supervisor answered `ptk_session list` and
   `ptk_state`, but the first `ptk_invoke` failed with MCP `-32603`, left the
   default session cold, and started no worker. Claude independently reported
   reconnect `-32000`.
 - Applying the committed transaction helper to exactly the installed PTK root
   produced one protected explicit current-user full-control ACE with container
-  and object inheritance. All 296 installed `bin/` files became readable. The
+  and object inheritance. All 296 installed `~/.ptk/bin/` files became readable. The
   already-running supervisor PID 1732 then started worker PID 9384 and completed
   `Get-Location`; `ptk_state` reported the default session ready with no
   failure or reset requirement.

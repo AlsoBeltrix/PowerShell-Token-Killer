@@ -388,12 +388,12 @@ depending on an ambient one.
   warm process.** It is launched once and runs as a single long-lived child process
   for the whole session; tool calls are JSON-RPC to that same process, so an in-memory
   .NET object / PowerShell `Runspace` it creates persists across calls. (claude-code-guide
-  agent, citing `code.claude.com/docs/en/mcp.md`.)
+  agent, citing Claude Code MCP docs at code.claude.com.)
 - **Per-tool-call timeout is generous.** `MCP_TOOL_TIMEOUT` default is ~28h; a per-server
   `timeout` (ms) in `.mcp.json` overrides it. There is a hard wall-clock cap per call
   and progress notifications do not extend it, but there is ample headroom for module
   load / connection setup. The 5-minute idle timeout applies to remote HTTP/SSE servers,
-  not stdio. (`mcp.md`.)
+  not stdio. (same Claude Code MCP docs.)
 - **The Bash-daemon alternative fights the harness.** The Bash tool is not a persistent
   shell - each call is a separate process, env vars do not persist, and background
   processes started via Bash are killed on session end or orphaned (open Claude Code

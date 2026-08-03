@@ -149,16 +149,11 @@ internal sealed record ExecutionPlan
         BashExecutableIdentity? bashExecutableIdentity = null,
         string? workingDirectory = null,
         RtkExecutableIdentity? outputShapingRtkIdentity = null,
-        ImmutableArray<string> rtkArgumentVector = default,
-        OutputProvenance? directFallbackProvenance = null,
-        ColdCommandTargetIdentity? coldCommandTargetIdentity = null)
+        OutputProvenance? directFallbackProvenance = null)
     {
         ArgumentNullException.ThrowIfNull(originalScript);
         var isBash = executionPath == ExecutionPath.BashViaRtk;
         var isRtk = executionPath == ExecutionPath.Rtk;
-        var normalizedRtkArguments = rtkArgumentVector.IsDefault
-            ? ImmutableArray<string>.Empty
-            : rtkArgumentVector;
         if (isBash)
         {
             if (executionScript is not null ||
@@ -169,8 +164,7 @@ internal sealed record ExecutionPlan
                 string.IsNullOrWhiteSpace(bashExecutableIdentity.ExecutablePath) ||
                 !Path.IsPathFullyQualified(bashExecutableIdentity.ExecutablePath) ||
                 string.IsNullOrWhiteSpace(workingDirectory) ||
-                !Path.IsPathFullyQualified(workingDirectory) ||
-                normalizedRtkArguments.Length != 0)
+                !Path.IsPathFullyQualified(workingDirectory))
             {
                 throw new ArgumentException(
                     "Bash delegation requires a typed pinned identity, filesystem cwd, and no constructed script.");
@@ -178,27 +172,27 @@ internal sealed record ExecutionPlan
         }
         else if (isRtk)
         {
-            if (executionScript is not null ||
+            // An RTK plan is RTK's own rewrite of the submitted text, executed
+            // in the warm runspace like any other script. It must therefore
+            // carry that rewritten script and must differ from the original;
+            // a plan identical to the input has no reason to claim the RTK
+            // path.
+            if (string.IsNullOrWhiteSpace(executionScript) ||
+                string.Equals(executionScript, originalScript, StringComparison.Ordinal) ||
                 bashExecutableIdentity is not null ||
-                preExecutionValidation != PreExecutionValidation.None ||
-                string.IsNullOrWhiteSpace(workingDirectory) ||
-                !Path.IsPathFullyQualified(workingDirectory) ||
-                normalizedRtkArguments.Length == 0 ||
-                string.IsNullOrWhiteSpace(normalizedRtkArguments[0]) ||
-                normalizedRtkArguments.Any(argument => argument is null))
+                preExecutionValidation != PreExecutionValidation.None)
             {
                 throw new ArgumentException(
-                    "RTK execution requires a typed argument vector, filesystem cwd, and no constructed script.");
+                    "RTK execution requires a rewritten script that differs from the original.");
             }
         }
         else if (executionScript is null ||
                  bashExecutableIdentity is not null ||
                  workingDirectory is not null ||
-                 normalizedRtkArguments.Length != 0 ||
                  preExecutionValidation != PreExecutionValidation.None)
         {
             throw new ArgumentException(
-                "Only typed external execution may carry validation, cwd, or argument-vector facts.",
+                "Only typed external execution may carry validation or cwd facts.",
                 nameof(bashExecutableIdentity));
         }
         if (permittedFallbacks.IsDefault)
@@ -265,38 +259,6 @@ internal sealed record ExecutionPlan
                 "Only RTK execution may carry RTK identity or provenance.",
                 nameof(rtkExecutableIdentity));
         }
-        if (isRtk && resolutionContext == ResolutionContext.Cold &&
-            coldCommandTargetIdentity is null)
-        {
-            throw new ArgumentException(
-                "Cold RTK execution requires a revalidatable target identity.",
-                nameof(coldCommandTargetIdentity));
-        }
-        if (coldCommandTargetIdentity is not null &&
-            (!isRtk || resolutionContext != ResolutionContext.Cold))
-        {
-            throw new ArgumentException(
-                "A cold target identity belongs only to cold RTK execution.",
-                nameof(coldCommandTargetIdentity));
-        }
-        if (coldCommandTargetIdentity is not null &&
-            (!string.Equals(
-                 coldCommandTargetIdentity.CommandName,
-                 normalizedRtkArguments[0],
-                 StringComparison.Ordinal) ||
-             !Path.IsPathFullyQualified(
-                 coldCommandTargetIdentity.Executable.ExecutablePath) ||
-             !string.Equals(
-                 coldCommandTargetIdentity.WorkingDirectory,
-                 Path.GetFullPath(workingDirectory!),
-                 OperatingSystem.IsWindows()
-                     ? StringComparison.OrdinalIgnoreCase
-                     : StringComparison.Ordinal)))
-        {
-            throw new ArgumentException(
-                "A cold target identity must bind the RTK command and cwd.",
-                nameof(coldCommandTargetIdentity));
-        }
         if (resolutionContext == ResolutionContext.Cold &&
             executionPath == ExecutionPath.PowerShellDirect &&
             outputProvenance != OutputProvenance.DirectText)
@@ -338,9 +300,7 @@ internal sealed record ExecutionPlan
         BashExecutableIdentity = bashExecutableIdentity;
         WorkingDirectory = workingDirectory;
         OutputShapingRtkIdentity = outputShapingRtkIdentity;
-        RtkArgumentVector = normalizedRtkArguments;
         DirectFallbackProvenance = directFallbackProvenance;
-        ColdCommandTargetIdentity = coldCommandTargetIdentity;
     }
 
     internal string OriginalScript { get; }
@@ -357,9 +317,7 @@ internal sealed record ExecutionPlan
     internal BashExecutableIdentity? BashExecutableIdentity { get; }
     internal string? WorkingDirectory { get; }
     internal RtkExecutableIdentity? OutputShapingRtkIdentity { get; }
-    internal ImmutableArray<string> RtkArgumentVector { get; }
     internal OutputProvenance? DirectFallbackProvenance { get; }
-    internal ColdCommandTargetIdentity? ColdCommandTargetIdentity { get; }
 
     internal string EffectiveRoute => ExecutionPath.ToMachineCode();
 }
@@ -425,14 +383,6 @@ internal sealed record ExecutionDispatch
     internal OutputProvenance OutputProvenance { get; }
     internal ExecutionFallbackReason? FallbackReason { get; }
     internal RtkExecutableIdentity? RtkExecutableIdentity { get; }
-    internal ImmutableArray<string> RtkArgumentVector =>
-        ExecutionPath == ExecutionPath.Rtk
-            ? Plan.RtkArgumentVector
-            : ImmutableArray<string>.Empty;
-    internal ColdCommandTargetIdentity? ColdCommandTargetIdentity =>
-        ExecutionPath == ExecutionPath.Rtk
-            ? Plan.ColdCommandTargetIdentity
-            : null;
     internal BashExecutableIdentity? BashExecutableIdentity => Plan.BashExecutableIdentity;
     internal string? WorkingDirectory => Plan.WorkingDirectory;
     internal RtkExecutableIdentity? OutputShapingRtkIdentity =>

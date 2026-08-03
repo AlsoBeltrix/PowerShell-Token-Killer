@@ -155,30 +155,29 @@ ptk_session(action, name=null)
 
 ## Routing and Output
 
-The dialect is PowerShell 7. With `route="auto"`, PTK plans from the exact
-submitted text and resolves against the selected session's already-loaded
-command state:
+The dialect is PowerShell 7. With `route="auto"`, PTK asks RTK whether the
+exact submitted text can be rewritten to route through its filters:
 
-1. Cmdlets, aliases, functions, scripts, variables, PowerShell object
-   pipelines, and mixed dataflow execute unchanged in the selected warm
-   PowerShell runspace.
-2. A semantically eligible terminal native application is offered to RTK.
-   RTK chooses a specialized filter or passthrough.
-3. A narrow parse-fatal Bash shape may run through startup-suppressed Bash only
-   after PTK's detector and an independently bounded validation both accept
-   the exact bytes. Clean-parsing Bash-like mistakes receive a labeled dialect
-   refusal instead.
-4. Missing RTK, an ineligible route assertion, or another optimization failure
-   may fall back to the exact original only while PTK can prove no user process
-   started. There is never a post-start retry.
+1. RTK returns a rewrite — PTK executes that rewrite in the selected warm
+   runspace. Compound commands (`git status && cargo test`) and env-prefixed
+   commands rewrite per segment; segments RTK does not recognize are preserved
+   untouched.
+2. RTK declines — PTK executes the exact original text as PowerShell. Cmdlets,
+   functions, object pipelines, and mixed dataflow always land here, as does
+   anything RTK will not touch (heredocs, multi-line blocks, unknown commands).
+3. A missing RTK is a startup failure, not a per-call fallback, so there is no
+   unfiltered-but-running mode to reason about.
+
+Rewriting happens before any user process starts, and there is never a
+post-start retry.
 
 Overrides are deliberately narrow:
 
 - `route="pwsh"` consents to interpret the exact original text as PowerShell
   and bypasses dialect/Bash/RTK execution routing. Normal capture and shaping
   still apply.
-- `route="rtk"` asserts RTK routing for an eligible terminal native command.
-  A safe pre-start failure is labeled and falls back exactly once.
+- `route="rtk"` asserts RTK routing. RTK still decides: if it declines to
+  rewrite the script, the labeled fallback executes the exact original once.
 - `raw=true` is deprecated compatibility telemetry. It does not change the
   interpreter, route, process, capture, bounds, or shaping, and it is not an
   output-recovery mechanism.
@@ -336,14 +335,20 @@ broad one — remove it once Microsoft ships corrected security intelligence.
 ## RTK Integration
 
 [RTK](https://github.com/rtk-ai/rtk), the Rust Token Killer, owns native-command
-filtering and log compression. PTK pins the selected executable identity at
-startup and resolves it from `PTK_RTK_PATH` or `PATH`.
+filtering and log compression. **RTK is required.** PTK is a compression
+router: it compresses PowerShell objects itself and routes everything else to
+RTK, so a PTK without RTK cannot do half its job. The server resolves RTK from
+`PTK_RTK_PATH` or `PATH` and pins its executable identity at startup; if it
+finds none, it refuses to start and says so rather than coming up as a
+silently-unfiltered passthrough.
 
-The current approved release contract recommends RTK but does not bundle or
-silently download it. Without RTK, PTK still provides warm PowerShell state,
-object compression, terminal cleanup, bounded text, same-invocation recovery
-where PTK captured the bytes, and contained worker replacement. Eligible native
-commands fall back visibly to exact execution.
+PTK does not bundle or download RTK. Install it separately.
+
+Routing is RTK's decision, not PTK's. PTK submits the exact submitted text to
+`rtk hook check`; when RTK returns a rewrite, PTK executes that, and when RTK
+declines, PTK executes the original text unchanged. RTK decomposes `&&`, `||`,
+and `;` and rewrites each segment it recognizes while preserving the rest, so
+compound commands route without PTK modelling any of it.
 
 ## Harness Integration and Hook
 

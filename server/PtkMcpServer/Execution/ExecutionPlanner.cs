@@ -22,7 +22,7 @@ internal static class ExecutionPlanner
         bool compressAvailable,
         ResolutionContext resolutionContext,
         string? workingDirectory = null,
-        string? nativeArgumentPassing = null)
+        string? rewrittenScript = null)
     {
         ArgumentNullException.ThrowIfNull(script);
         ArgumentNullException.ThrowIfNull(commands);
@@ -64,8 +64,24 @@ internal static class ExecutionPlanner
                 outputShapingRtkIdentity: null);
         }
 
-        var command = GetEligibleCommand(script);
-        if (command is null)
+        // RTK owns the routing decision; the caller obtained its answer from
+        // RtkCommandRewriter and passes it here as data, so this planner stays
+        // pure — it never starts a process or resolves an executable on disk.
+        // The rewrite is a shell command line PowerShell 7 executes natively,
+        // so compound and env-prefixed commands route without PTK modelling
+        // any of that.
+        string? rewritten = null;
+        if (!string.IsNullOrWhiteSpace(rewrittenScript) &&
+            !string.Equals(rewrittenScript, script, StringComparison.Ordinal))
+        {
+            TryBindRewrite(
+                script,
+                rewrittenScript,
+                commands,
+                effectiveRtkIdentity,
+                out rewritten);
+        }
+        if (rewritten is null)
         {
             return Direct(
                 script,
@@ -80,118 +96,12 @@ internal static class ExecutionPlanner
                 effectiveRtkIdentity);
         }
 
-        var name = ((StringConstantExpressionAst)command.CommandElements[0]).Value;
-        if (Path.GetFileNameWithoutExtension(name)
-            .Equals("rtk", StringComparison.OrdinalIgnoreCase))
-        {
-            return Direct(
-                script,
-                compressAvailable,
-                resolutionContext,
-                requestedRoute,
-                domain,
-                noFallbacks,
-                requestedRoute == RequestedExecutionRoute.Rtk
-                    ? ExecutionFallbackReason.RtkSelfInvocation
-                    : null,
-                effectiveRtkIdentity);
-        }
-
-        var resolved = commands.Resolve(name, CommandTypes.All);
-        if (resolved?.CommandType != CommandTypes.Application)
-        {
-            return Direct(
-                script,
-                compressAvailable,
-                resolutionContext,
-                requestedRoute,
-                domain,
-                noFallbacks,
-                requestedRoute == RequestedExecutionRoute.Rtk
-                    ? ExecutionFallbackReason.RtkResolutionNotApplication
-                    : null,
-                effectiveRtkIdentity);
-        }
-        var extension = Path.GetExtension(resolved.Source ?? string.Empty);
-        if (IsAlwaysExcludedLauncherExtension(extension))
-        {
-            return Direct(
-                script,
-                compressAvailable,
-                resolutionContext,
-                requestedRoute,
-                domain,
-                noFallbacks,
-                requestedRoute == RequestedExecutionRoute.Rtk
-                    ? ExecutionFallbackReason.RtkFidelityExclusion
-                    : null,
-                effectiveRtkIdentity);
-        }
-        if (IsContextChangingWrapper(command))
-        {
-            return Direct(
-                script,
-                compressAvailable,
-                resolutionContext,
-                requestedRoute,
-                domain,
-                noFallbacks,
-                requestedRoute == RequestedExecutionRoute.Rtk
-                    ? ExecutionFallbackReason.RtkFidelityExclusion
-                    : null,
-                effectiveRtkIdentity);
-        }
-
-        if (string.IsNullOrWhiteSpace(workingDirectory) ||
-            !Path.IsPathFullyQualified(workingDirectory) ||
-            !TryCreateRtkArgumentVector(command, out var rtkArgumentVector) ||
-            !SupportsDirectArgumentPassing(
-                nativeArgumentPassing,
-                resolved.Source,
-                rtkArgumentVector,
-                allowUnknownModeInvariant:
-                    resolutionContext == ResolutionContext.Cold))
-        {
-            return Direct(
-                script,
-                compressAvailable,
-                resolutionContext,
-                requestedRoute,
-                domain,
-                noFallbacks,
-                requestedRoute == RequestedExecutionRoute.Rtk
-                    ? ExecutionFallbackReason.RtkFidelityExclusion
-                    : null,
-                effectiveRtkIdentity);
-        }
-
-        // Hash only after every cheap eligibility check. Cold planning shares
-        // the call deadline, so an ineligible command must not spend it reading
-        // a large target that will never be dispatched through RTK.
-        var coldTargetIdentity = resolutionContext == ResolutionContext.Cold
-            ? ColdCommandTargetIdentity.TryCapture(
-                name,
-                resolved,
-                workingDirectory)
-            : null;
-        if (resolutionContext == ResolutionContext.Cold && coldTargetIdentity is null)
-        {
-            return Direct(
-                script,
-                compressAvailable,
-                resolutionContext,
-                requestedRoute,
-                domain,
-                noFallbacks,
-                requestedRoute == RequestedExecutionRoute.Rtk
-                    ? ExecutionFallbackReason.RtkFidelityExclusion
-                    : null,
-                effectiveRtkIdentity);
-        }
-
+        // The rewrite executes in the warm runspace like any other script, so
+        // the session keeps its variables, modules, and location. Output is
+        // RTK-produced and must not be sent through `rtk log` a second time.
         return new ExecutionPlan(
             script,
-            executionScript: null,
+            executionScript: rewritten,
             domain,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -202,12 +112,10 @@ internal static class ExecutionPlanner
             fallbackReason: null,
             effectiveRtkIdentity,
             workingDirectory: workingDirectory,
-            rtkArgumentVector: rtkArgumentVector,
             directFallbackProvenance:
                 resolutionContext == ResolutionContext.Cold || !compressAvailable
                     ? OutputProvenance.DirectText
-                    : OutputProvenance.PowerShellObjects,
-            coldCommandTargetIdentity: coldTargetIdentity);
+                    : OutputProvenance.PowerShellObjects);
     }
 
     internal static ExecutionPlan CreateDirect(
@@ -300,250 +208,111 @@ internal static class ExecutionPlanner
             _ => RequestedExecutionRoute.Auto,
         };
 
-    private static CommandAst? GetEligibleCommand(string script)
+    /// <summary>
+    /// RTK rewrites command <em>text</em> and holds no session state, so it
+    /// returns <c>rtk git status</c> even when the session defines
+    /// <c>function git</c>. Executing that rewrite would run a different
+    /// command than the one submitted. Slice 0 keeps inherited user state out
+    /// of the session, but a script can still define a name mid-session, so
+    /// every name RTK wrapped must still resolve to a native application here.
+    ///
+    /// Declines the whole rewrite rather than any segment of it: a partially
+    /// applied rewrite is a third execution shape nobody asked for.
+    /// </summary>
+    private static bool TryBindRewrite(
+        string script,
+        string rewritten,
+        TrustedCommandSnapshot commands,
+        RtkExecutableIdentity rtk,
+        out string? boundScript)
     {
-        var ast = Parser.ParseInput(script, out _, out var parseErrors);
-        if (parseErrors.Length > 0) return null;
-        if (ast.UsingStatements.Count > 0 ||
-            ast.ParamBlock is not null || ast.DynamicParamBlock is not null ||
-            ast.BeginBlock is not null || ast.ProcessBlock is not null ||
-            ast.CleanBlock is not null)
-            return null;
-        if (ast.EndBlock is null || ast.EndBlock.Statements.Count != 1) return null;
-        if (ast.EndBlock.Statements[0] is not PipelineAst pipeline) return null;
-        if (pipeline.Background) return null;
-        if (pipeline.PipelineElements.Count != 1) return null;
-        if (pipeline.PipelineElements[0] is not CommandAst command) return null;
-        if (command.InvocationOperator != TokenKind.Unknown || command.Redirections.Count > 0)
-            return null;
+        boundScript = null;
+        var ast = Parser.ParseInput(rewritten, out _, out var parseErrors);
+        if (parseErrors.Length > 0)
+            return false;
 
-        var elements = command.CommandElements;
-        if (elements.Count == 0 || elements[0] is not StringConstantExpressionAst)
-            return null;
+        var wrappedCount = 0;
+        var stripped = new System.Text.StringBuilder(rewritten);
+        var bound = new System.Text.StringBuilder(rewritten);
 
-        foreach (var element in elements.Skip(1))
+        // Walk in reverse so removing a head token cannot move an earlier one.
+        var commandAsts = ast
+            .FindAll(node => node is CommandAst, searchNestedScriptBlocks: true)
+            .Cast<CommandAst>()
+            .OrderByDescending(command => command.Extent.StartOffset)
+            .ToList();
+
+        foreach (var command in commandAsts)
         {
-            if (element is StringConstantExpressionAst stopParsing &&
-                stopParsing.Extent.Text.Equals("--%", StringComparison.Ordinal))
+            if (command.CommandElements.FirstOrDefault() is not
+                StringConstantExpressionAst head)
             {
-                return null;
+                // A command name PTK cannot read statically is not one it can
+                // prove safe to route.
+                return false;
             }
-            var isConstant = element is ConstantExpressionAst ||
-                element is CommandParameterAst parameter &&
-                (parameter.Argument is null || parameter.Argument is ConstantExpressionAst);
-            if (!isConstant) return null;
-        }
-
-        return command;
-    }
-
-    private static bool SupportsDirectArgumentPassing(
-        string? nativeArgumentPassing,
-        string? targetExecutablePath,
-        ImmutableArray<string> arguments,
-        bool allowUnknownModeInvariant)
-    {
-        if (string.Equals(
-                nativeArgumentPassing,
-                "Standard",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        if (string.Equals(
-                nativeArgumentPassing,
-                "Windows",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            return !UsesWindowsLegacyArgumentPassing(targetExecutablePath);
-        }
-
-        // The frozen cold pwsh may not be the hosted SMA version. When its
-        // mode was not actually captured, route only the small argv subset
-        // whose spelling is invariant between legacy and standard passing.
-        // An explicit Legacy or unrecognized mode remains direct.
-        return nativeArgumentPassing is null &&
-               allowUnknownModeInvariant &&
-               !UsesWindowsLegacyArgumentPassing(targetExecutablePath) &&
-               arguments.All(IsModeInvariantArgument);
-    }
-
-    private static bool UsesWindowsLegacyArgumentPassing(string? executablePath)
-    {
-        var fileName = Path.GetFileName(executablePath ?? string.Empty);
-        if (fileName.Equals("cmd.exe", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals("cscript.exe", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals("find.exe", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals("sqlcmd.exe", StringComparison.OrdinalIgnoreCase) ||
-            fileName.Equals("wscript.exe", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return Path.GetExtension(fileName).ToLowerInvariant() is
-            ".bat" or ".cmd" or ".js" or ".vbs" or ".wsf";
-    }
-
-    private static bool IsAlwaysExcludedLauncherExtension(string extension) =>
-        extension.ToLowerInvariant() is ".bat" or ".cmd";
-
-    internal static bool IsModeInvariantArgument(string argument)
-    {
-        if (argument.Length == 0) return false;
-        foreach (var character in argument)
-        {
-            if (character is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or
-                >= '0' and <= '9' ||
-                character is '_' or '-' or '.' or '/' or ':' or '=' or '+' or
-                    ',' or '%' or '@')
+            if (!Path.GetFileNameWithoutExtension(head.Value)
+                    .Equals("rtk", StringComparison.OrdinalIgnoreCase))
             {
+                // A segment RTK left alone; it executes exactly as submitted.
                 continue;
             }
-            return false;
-        }
-        return true;
-    }
 
-    private static bool TryCreateRtkArgumentVector(
-        CommandAst command,
-        out ImmutableArray<string> arguments)
-    {
-        var builder = ImmutableArray.CreateBuilder<string>(command.CommandElements.Count);
-        foreach (var element in command.CommandElements)
-        {
-            switch (element)
+            // `rtk <name> ...` — the wrapped name is the next element, and it
+            // must be a native application. RTK holds no session state, so it
+            // would happily wrap a name the session bound to a function.
+            if (command.CommandElements.Count < 2 ||
+                command.CommandElements[1] is not StringConstantExpressionAst wrapped)
             {
-                case StringConstantExpressionAst text:
-                    if (RequiresPowerShellArgumentExpansion(text))
-                    {
-                        arguments = ImmutableArray<string>.Empty;
-                        return false;
-                    }
-                    builder.Add(text.Value);
-                    break;
-                case ConstantExpressionAst:
-                    // Native invocation preserves the submitted spelling for
-                    // numeric constants (001, 0x10, 1kb), not Value.ToString().
-                    builder.Add(element.Extent.Text);
-                    break;
-                case CommandParameterAst { Argument: null } parameter:
-                    builder.Add(parameter.Extent.Text);
-                    break;
-                case CommandParameterAst { Argument: ConstantExpressionAst argument }
-                    parameter:
-                {
-                    if (argument is StringConstantExpressionAst stringValue &&
-                        RequiresPowerShellArgumentExpansion(stringValue))
-                    {
-                        arguments = ImmutableArray<string>.Empty;
-                        return false;
-                    }
-                    var prefixLength =
-                        argument.Extent.StartOffset - parameter.Extent.StartOffset;
-                    if (prefixLength < 0 || prefixLength > parameter.Extent.Text.Length)
-                    {
-                        arguments = ImmutableArray<string>.Empty;
-                        return false;
-                    }
-                    var value = argument is StringConstantExpressionAst stringArgument
-                        ? stringArgument.Value
-                        : argument.Extent.Text;
-                    builder.Add(parameter.Extent.Text[..prefixLength] + value);
-                    break;
-                }
-                default:
-                    arguments = ImmutableArray<string>.Empty;
-                    return false;
+                return false;
             }
+            if (commands.Resolve(wrapped.Value, CommandTypes.All)?.CommandType !=
+                CommandTypes.Application)
+            {
+                return false;
+            }
+
+            wrappedCount++;
+
+            // Remove this `rtk` head plus the whitespace after it.
+            var start = head.Extent.StartOffset;
+            var length = command.CommandElements[1].Extent.StartOffset - start;
+            stripped.Remove(start, length);
+
+            // Bind the bare name RTK emitted to the exact executable PTK
+            // pinned at startup. Left as `rtk`, the rewrite would resolve
+            // through PATH when the script runs and could execute a different
+            // binary than the one whose identity PTK verified.
+            bound.Remove(start, head.Extent.EndOffset - start);
+            bound.Insert(start, "& '" + rtk.ExecutablePath.Replace("'", "''") + "'");
         }
 
-        arguments = builder.MoveToImmutable();
-        return arguments.Length > 0 && !string.IsNullOrWhiteSpace(arguments[0]);
-    }
-
-    private static bool RequiresPowerShellArgumentExpansion(
-        StringConstantExpressionAst expression)
-    {
-        if (expression.StringConstantType != StringConstantType.BareWord)
+        // A rewrite that routes nothing through RTK buys nothing, and is the
+        // shape a non-RTK binary on PTK_RTK_PATH produces when it merely echoes
+        // its arguments.
+        if (wrappedCount == 0)
             return false;
-        var text = expression.Extent.Text;
-        return text.Equals("~", StringComparison.Ordinal) ||
-               text.StartsWith("~/", StringComparison.Ordinal) ||
-               text.StartsWith("~\\", StringComparison.Ordinal) ||
-               text.IndexOfAny(['*', '?', '[', ']']) >= 0;
-    }
 
-    private static bool IsContextChangingWrapper(CommandAst command)
-    {
-        if (command.CommandElements.FirstOrDefault() is not
-                StringConstantExpressionAst executable)
+        // The decisive check: RTK only ever *inserts* `rtk ` before segments it
+        // recognizes. Removing those prefixes must therefore reproduce exactly
+        // what was submitted. Anything else — reordered, edited, or invented
+        // text — is not a rewrite PTK will execute in the caller's name.
+        if (!string.Equals(
+                NormalizeWhitespace(stripped.ToString()),
+                NormalizeWhitespace(script),
+                StringComparison.Ordinal))
         {
             return false;
         }
 
-        var executableName = Path.GetFileNameWithoutExtension(executable.Value);
-        return ContextChangingContainerWrappers.Contains(executableName) &&
-               command.CommandElements.Skip(1)
-                   .OfType<StringConstantExpressionAst>()
-                   .Any(element => element.Value.Equals(
-                       "exec",
-                       StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool LooksProviderQualified(string path)
-    {
-        // PowerShell drive letters are dynamic PSDrives, so even C:\\ is not
-        // proof that Set-Content will target the filesystem provider.
-        return path.Contains(':');
-    }
-
-    private static bool HasOnlyConstantArguments(CommandAst command)
-    {
-        foreach (var element in command.CommandElements.Skip(1))
-        {
-            var isConstant = element is ConstantExpressionAst ||
-                element is CommandParameterAst parameter &&
-                (parameter.Argument is null ||
-                 parameter.Argument is ConstantExpressionAst);
-            if (!isConstant) return false;
-        }
+        boundScript = bound.ToString();
         return true;
     }
 
-    private static bool TryGetSimpleSetContentPath(
-        CommandAst sink,
-        out StringConstantExpressionAst path)
-    {
-        path = null!;
-        var elements = sink.CommandElements;
-        if (elements.Count == 2 &&
-            elements[1] is StringConstantExpressionAst positional)
-        {
-            path = positional;
-            return true;
-        }
-        if (elements.Count == 2 && elements[1] is CommandParameterAst
-            {
-                ParameterName: var parameterName,
-                Argument: StringConstantExpressionAst attached,
-            } && parameterName.Equals("Path", StringComparison.OrdinalIgnoreCase))
-        {
-            path = attached;
-            return true;
-        }
-        if (elements.Count == 3 && elements[1] is CommandParameterAst
-            {
-                ParameterName: var separatedName,
-                Argument: null,
-            } && separatedName.Equals("Path", StringComparison.OrdinalIgnoreCase) &&
-            elements[2] is StringConstantExpressionAst separated)
-        {
-            path = separated;
-            return true;
-        }
-        return false;
-    }
+    private static string NormalizeWhitespace(string value) =>
+        string.Join(' ', value.Split(
+            (char[]?)null,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
     private static ExecutionDomain? ClassifyDomain(
         string script,

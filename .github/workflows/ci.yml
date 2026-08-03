@@ -24,6 +24,36 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
+      # RTK is a required PTK dependency: the server refuses to start without
+      # it, so any job that launches the server needs a real rtk on PATH.
+      # Upstream's install.sh covers Linux/macOS only; Windows takes the
+      # published msvc zip asset.
+      - name: Install RTK (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/master/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install RTK (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $asset = 'rtk-x86_64-pc-windows-msvc.zip'
+          $url = "https://github.com/rtk-ai/rtk/releases/latest/download/$asset"
+          $dest = Join-Path $env:USERPROFILE '.local\bin'
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          $zip = Join-Path $env:RUNNER_TEMP $asset
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          Expand-Archive -Path $zip -DestinationPath $dest -Force
+          $dest | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Verify RTK
+        shell: bash
+        run: rtk --version
+
       # Pester 5 is preinstalled on all three runner images (slice-0 probe);
       # the install is a fallback for runner-image drift.
       - name: Ensure Pester 5

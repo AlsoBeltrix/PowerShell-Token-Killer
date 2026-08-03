@@ -8,38 +8,78 @@ public sealed class ExecutionPlannerTests
     private static readonly string RtkPath =
         Path.GetFullPath(Path.Combine(Path.GetTempPath(), "trusted", "rtk"));
 
+
+    /// <summary>
+    /// Slice 2: RTK returns a bare `rtk` head. Executing that text verbatim
+    /// would resolve `rtk` through PATH at run time and could run a different
+    /// binary than the one PTK pinned and hashed at startup. The plan must
+    /// bind the pinned absolute path instead.
+    /// </summary>
     [Fact]
-    public void Plans_one_application_through_pinned_rtk_with_typed_arguments()
+    public void Accepted_rewrite_binds_the_startup_pinned_executable_not_a_path_lookup()
     {
-        var commands = Application("git", "/usr/bin/git");
+        var plan = Plan(
+            "git status",
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: "rtk git status");
 
-        var plan = Plan("git commit -m \"hello world\"", "auto", RtkPath, commands);
-
-        Assert.Equal("git commit -m \"hello world\"", plan.OriginalScript);
-        Assert.Null(plan.ExecutionScript);
-        Assert.Equal(["git", "commit", "-m", "hello world"], plan.RtkArgumentVector.ToArray());
-        Assert.Equal(Path.GetFullPath(Path.GetTempPath()), plan.WorkingDirectory);
-        Assert.Equal(ExecutionDomain.NativeTerminal, plan.Domain);
         Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
-        Assert.Equal("rtk", plan.EffectiveRoute);
-        Assert.Equal(PreExecutionValidation.None, plan.PreExecutionValidation);
-        Assert.Equal(ResolutionContext.Warm, plan.ResolutionContext);
-        Assert.Equal(RequestedExecutionRoute.Auto, plan.RequestedRoute);
-        Assert.Equal(OutputProvenance.RtkUnknown, plan.OutputProvenance);
-        Assert.Collection(
-            plan.PermittedFallbacks,
-            path => Assert.Equal(ExecutionPath.PowerShellDirect, path));
-        Assert.Equal(OutputProvenance.PowerShellObjects, plan.DirectFallbackProvenance);
-        Assert.Null(plan.FallbackReason);
-        Assert.Equal(RtkPath, plan.RtkExecutableIdentity?.ExecutablePath);
-        Assert.Null(plan.RtkExecutableIdentity?.Verified);
+        Assert.NotNull(plan.ExecutionScript);
+        Assert.Contains(RtkPath, plan.ExecutionScript);
+        Assert.DoesNotMatch(@"^\s*rtk\s", plan.ExecutionScript);
+        Assert.EndsWith("git status", plan.ExecutionScript);
+    }
 
-        var apostrophePath =
-            Path.GetFullPath(Path.Combine(Path.GetTempPath(), "trusted", "o'brien", "rtk"));
-        var apostrophe = Plan("git status", "auto", apostrophePath, commands);
-        Assert.Null(apostrophe.ExecutionScript);
-        Assert.Equal(["git", "status"], apostrophe.RtkArgumentVector.ToArray());
-        Assert.Equal(apostrophePath, apostrophe.RtkExecutableIdentity?.ExecutablePath);
+    /// <summary>
+    /// Slice 2: RTK only ever inserts `rtk ` before segments it recognizes, so
+    /// stripping those prefixes must reproduce the submitted text exactly. A
+    /// binary on PTK_RTK_PATH that is not RTK — one that merely echoes its
+    /// arguments, or edits the command — must not have its answer executed in
+    /// the caller's name.
+    /// </summary>
+    [Theory]
+    [InlineData("hook check --agent ptk git status")]   // argument echo
+    [InlineData("rtk git push")]                        // edited command
+    [InlineData("rtk git status && rm -rf /")]          // appended command
+    [InlineData("git status")]                          // nothing wrapped
+    public void Rewrite_that_does_not_reduce_to_the_submitted_text_is_declined(
+        string rewritten)
+    {
+        var plan = Plan(
+            "git status",
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: rewritten);
+
+        AssertDirect(plan, "git status", RequestedExecutionRoute.Auto);
+    }
+
+    /// <summary>
+    /// Slice 2: RTK holds no session state, so it wraps a name the session may
+    /// have bound to something other than a native executable. Executing that
+    /// rewrite would run a different command than the caller submitted.
+    /// </summary>
+    [Theory]
+    [InlineData(CommandTypes.Function)]
+    [InlineData(CommandTypes.Alias)]
+    [InlineData(CommandTypes.Cmdlet)]
+    [InlineData(CommandTypes.ExternalScript)]
+    public void Rewrite_wrapping_a_non_native_binding_is_declined(CommandTypes type)
+    {
+        var commands = new TrustedCommandSnapshot();
+        commands.Set("git", CommandTypes.All, new ResolvedCommand(type));
+
+        var plan = Plan(
+            "git status",
+            "auto",
+            RtkPath,
+            commands,
+            rewrittenScript: "rtk git status");
+
+        AssertDirect(plan, "git status", RequestedExecutionRoute.Auto);
     }
 
     [Fact]
@@ -53,7 +93,7 @@ public sealed class ExecutionPlannerTests
             compressAvailable: false,
             ResolutionContext.Warm,
             workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Standard");
+            rewrittenScript: "rtk git status");
 
         Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
         Assert.Equal(OutputProvenance.DirectText, plan.DirectFallbackProvenance);
@@ -62,47 +102,7 @@ public sealed class ExecutionPlannerTests
         Assert.Equal(OutputProvenance.DirectText, fallback.OutputProvenance);
     }
 
-    [Fact]
-    public void Cold_plans_freeze_direct_text_even_when_warm_shaping_is_available()
-    {
-        var direct = ExecutionPlanner.CreateDirect(
-            "'cold direct'",
-            "pwsh",
-            compressAvailable: true,
-            ResolutionContext.Cold,
-            outputShapingRtkIdentity: new RtkExecutableIdentity(RtkPath));
-        var rtk = ExecutionPlanner.Create(
-            "git status",
-            "auto",
-            new RtkExecutableIdentity(RtkPath),
-            Application("git", typeof(ExecutionPlannerTests).Assembly.Location),
-            compressAvailable: true,
-            ResolutionContext.Cold,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Standard");
 
-        Assert.Equal(OutputProvenance.DirectText, direct.OutputProvenance);
-        Assert.Null(direct.OutputShapingRtkIdentity);
-        Assert.NotNull(rtk.ColdCommandTargetIdentity);
-        Assert.Equal(OutputProvenance.DirectText, rtk.DirectFallbackProvenance);
-        Assert.Equal(
-            OutputProvenance.DirectText,
-            ExecutionDispatch.RtkUnavailableFallback(rtk).OutputProvenance);
-    }
-
-    [Fact]
-    public void Rtk_argument_vector_preserves_constant_native_semantics()
-    {
-        var plan = Plan(
-            "git \"\" \"hello world\" \"*.md\" 001 0x10 -x:'joined value' -- foo",
-            "auto",
-            RtkPath,
-            Application("git", "/usr/bin/git"));
-
-        Assert.Equal(
-            ["git", "", "hello world", "*.md", "001", "0x10", "-x:joined value", "--", "foo"],
-            plan.RtkArgumentVector.ToArray());
-    }
 
     [Theory]
     [InlineData("")]
@@ -133,235 +133,15 @@ public sealed class ExecutionPlannerTests
         AssertDirect(plan, script, RequestedExecutionRoute.Auto);
     }
 
-    [Fact]
-    public void Legacy_native_argument_passing_keeps_the_exact_PowerShell_path()
-    {
-        var commands = Application("git", "/usr/bin/git");
-        var plan = ExecutionPlanner.Create(
-            "git status",
-            "rtk",
-            new RtkExecutableIdentity(RtkPath),
-            commands,
-            compressAvailable: true,
-            ResolutionContext.Warm,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Legacy");
 
-        AssertDirect(plan, "git status", RequestedExecutionRoute.Rtk);
-        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
-    }
 
-    [Theory]
-    [InlineData("cmd.exe")]
-    [InlineData("cscript.exe")]
-    [InlineData("find.exe")]
-    [InlineData("sqlcmd.exe")]
-    [InlineData("wscript.exe")]
-    [InlineData("fixture.js")]
-    [InlineData("fixture.vbs")]
-    [InlineData("fixture.wsf")]
-    public void Windows_argument_mode_keeps_legacy_targets_on_PowerShell(
-        string executableName)
-    {
-        var commandName = Path.GetFileNameWithoutExtension(executableName);
-        var source = Path.Combine(Path.GetTempPath(), executableName);
-        var plan = ExecutionPlanner.Create(
-            $"{commandName} status",
-            "rtk",
-            new RtkExecutableIdentity(RtkPath),
-            Application(commandName, source),
-            compressAvailable: true,
-            ResolutionContext.Warm,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Windows");
 
-        AssertDirect(plan, $"{commandName} status", RequestedExecutionRoute.Rtk);
-        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
-    }
 
-    [Fact]
-    public void Windows_argument_mode_routes_an_ordinary_native_image()
-    {
-        var plan = ExecutionPlanner.Create(
-            "fixture status",
-            "auto",
-            new RtkExecutableIdentity(RtkPath),
-            Application("fixture", Path.Combine(Path.GetTempPath(), "fixture.exe")),
-            compressAvailable: true,
-            ResolutionContext.Warm,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Windows");
 
-        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
-    }
 
-    [Theory]
-    [InlineData("fixture.js")]
-    [InlineData("fixture.vbs")]
-    [InlineData("fixture.wsf")]
-    public void Standard_argument_mode_preserves_non_batch_launcher_routing(
-        string executableName)
-    {
-        var plan = ExecutionPlanner.Create(
-            "fixture status",
-            "auto",
-            new RtkExecutableIdentity(RtkPath),
-            Application("fixture", Path.Combine(Path.GetTempPath(), executableName)),
-            compressAvailable: true,
-            ResolutionContext.Warm,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Standard");
 
-        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
-    }
 
-    [Fact]
-    public void Cold_unknown_argument_mode_routes_only_mode_invariant_arguments()
-    {
-        var source = typeof(ExecutionPlannerTests).Assembly.Location;
-        var commands = Application("fixture", source);
-        var safe = ExecutionPlanner.Create(
-            "fixture status --porcelain=v1",
-            "auto",
-            new RtkExecutableIdentity(RtkPath),
-            commands,
-            compressAvailable: true,
-            ResolutionContext.Cold,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: null);
-        var uncertain = ExecutionPlanner.Create(
-            "fixture status 'two words'",
-            "rtk",
-            new RtkExecutableIdentity(RtkPath),
-            commands,
-            compressAvailable: true,
-            ResolutionContext.Cold,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: null);
 
-        Assert.Equal(ExecutionPath.Rtk, safe.ExecutionPath);
-        Assert.NotNull(safe.ColdCommandTargetIdentity);
-        Assert.Equal(ExecutionPath.PowerShellDirect, uncertain.ExecutionPath);
-        Assert.Equal(
-            ExecutionFallbackReason.RtkFidelityExclusion,
-            uncertain.FallbackReason);
-    }
-
-    [Theory]
-    [InlineData("simple", true)]
-    [InlineData("aZ09_-./:=+,%@", true)]
-    [InlineData("", false)]
-    [InlineData("two words", false)]
-    [InlineData("quote\"", false)]
-    [InlineData("back\\slash", false)]
-    [InlineData("*.md", false)]
-    [InlineData("file?.md", false)]
-    [InlineData("$value", false)]
-    [InlineData("semi;colon", false)]
-    public void Cold_unknown_argument_mode_allowlist_is_deliberately_narrow(
-        string argument,
-        bool expected)
-    {
-        Assert.Equal(expected, ExecutionPlanner.IsModeInvariantArgument(argument));
-    }
-
-    [Theory]
-    [InlineData("Legacy")]
-    [InlineData("Unrecognized")]
-    public void Cold_explicitly_unusable_argument_mode_stays_direct(string mode)
-    {
-        var source = typeof(ExecutionPlannerTests).Assembly.Location;
-        var plan = ExecutionPlanner.Create(
-            "fixture status",
-            "rtk",
-            new RtkExecutableIdentity(RtkPath),
-            Application("fixture", source),
-            compressAvailable: true,
-            ResolutionContext.Cold,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: mode);
-
-        Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
-        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
-    }
-
-    [Fact]
-    public void Cold_cheap_fidelity_exclusion_does_not_hash_the_target()
-    {
-        var hashes = 0;
-        ExecutableFileIdentity.BeforeHashForTests = _ => hashes++;
-        try
-        {
-            var plan = ExecutionPlanner.Create(
-                "fixture status",
-                "rtk",
-                new RtkExecutableIdentity(RtkPath),
-                Application("fixture", typeof(ExecutionPlannerTests).Assembly.Location),
-                compressAvailable: true,
-                ResolutionContext.Cold,
-                workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-                nativeArgumentPassing: "Legacy");
-
-            Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
-            Assert.Equal(0, hashes);
-        }
-        finally
-        {
-            ExecutableFileIdentity.BeforeHashForTests = null;
-        }
-    }
-
-    [Fact]
-    public void Cold_Windows_legacy_target_is_rejected_before_hash()
-    {
-        var directory = Directory.CreateTempSubdirectory("ptk-cold-windows-target-");
-        var source = Path.Combine(directory.FullName, "cmd.exe");
-        File.WriteAllText(source, "fixture");
-        var hashes = 0;
-        ExecutableFileIdentity.BeforeHashForTests = _ => hashes++;
-        try
-        {
-            var plan = ExecutionPlanner.Create(
-                "fixture status",
-                "rtk",
-                new RtkExecutableIdentity(RtkPath),
-                Application("fixture", source),
-                compressAvailable: true,
-                ResolutionContext.Cold,
-                workingDirectory: directory.FullName,
-                nativeArgumentPassing: "Windows");
-
-            Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
-            Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
-            Assert.Equal(0, hashes);
-        }
-        finally
-        {
-            ExecutableFileIdentity.BeforeHashForTests = null;
-            directory.Delete(recursive: true);
-        }
-    }
-
-    [Fact]
-    public void Cold_unidentifiable_target_stays_on_exact_PowerShell()
-    {
-        var missing = Path.Combine(
-            Path.GetTempPath(),
-            "ptk-missing-target-" + Guid.NewGuid().ToString("N"));
-        var plan = ExecutionPlanner.Create(
-            "fixture status",
-            "rtk",
-            new RtkExecutableIdentity(RtkPath),
-            Application("fixture", missing),
-            compressAvailable: true,
-            ResolutionContext.Cold,
-            workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: null);
-
-        Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
-        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, plan.FallbackReason);
-        Assert.Null(plan.ColdCommandTargetIdentity);
-    }
 
     [Theory]
     [InlineData("clean { 'cleanup' } end { git status }")]
@@ -401,25 +181,6 @@ public sealed class ExecutionPlannerTests
         Assert.Equal(ExecutionFallbackReason.RtkIneligibleShape, forced.FallbackReason);
     }
 
-    [Theory]
-    [InlineData("docker")]
-    [InlineData("podman")]
-    [InlineData("kubectl")]
-    [InlineData("oc")]
-    public void Keeps_container_exec_wrappers_on_the_exact_PowerShell_path(string executable)
-    {
-        var script = $"{executable} exec target git status";
-        var commands = Application(executable, $"/usr/bin/{executable}");
-
-        var automatic = Plan(script, "auto", RtkPath, commands);
-        var forced = Plan(script, "rtk", RtkPath, commands);
-
-        AssertDirect(automatic, script, RequestedExecutionRoute.Auto);
-        Assert.Equal(ExecutionDomain.NativeTerminal, automatic.Domain);
-        AssertDirect(forced, script, RequestedExecutionRoute.Rtk);
-        Assert.Equal(ExecutionDomain.NativeTerminal, forced.Domain);
-        Assert.Equal(ExecutionFallbackReason.RtkFidelityExclusion, forced.FallbackReason);
-    }
 
     [Theory]
     [InlineData(CommandTypes.Alias, null, null)]
@@ -467,21 +228,16 @@ public sealed class ExecutionPlannerTests
         Assert.Null(pwsh.Domain);
         Assert.Equal(RtkPath, pwsh.OutputShapingRtkIdentity?.ExecutablePath);
 
-        var forced = Plan("Get-ChildItem", "RTK", RtkPath, commands);
-        AssertDirect(forced, "Get-ChildItem", RequestedExecutionRoute.Rtk);
-        Assert.Equal(RtkPath, forced.OutputShapingRtkIdentity?.ExecutablePath);
-        Assert.Equal(ExecutionDomain.PowerShell, forced.Domain);
+        // route=rtk asserts the route but does not override RTK's judgment:
+        // when RTK declines to rewrite, the exact original still executes as
+        // PowerShell with a labeled fallback.
+        var forcedDecline = Plan("Get-ChildItem", "RTK", RtkPath, commands);
+        AssertDirect(forcedDecline, "Get-ChildItem", RequestedExecutionRoute.Rtk);
+        Assert.Equal(RtkPath, forcedDecline.OutputShapingRtkIdentity?.ExecutablePath);
+        Assert.Equal(ExecutionDomain.PowerShell, forcedDecline.Domain);
         Assert.Equal(
-            ExecutionFallbackReason.RtkResolutionNotApplication,
-            forced.FallbackReason);
-
-        var batchCommands = Application("git", "/tmp/git.cmd");
-        var forcedBatch = Plan("git status", "rtk", RtkPath, batchCommands);
-        AssertDirect(forcedBatch, "git status", RequestedExecutionRoute.Rtk);
-        Assert.Equal(ExecutionDomain.NativeTerminal, forcedBatch.Domain);
-        Assert.Equal(
-            ExecutionFallbackReason.RtkFidelityExclusion,
-            forcedBatch.FallbackReason);
+            ExecutionFallbackReason.RtkIneligibleShape,
+            forcedDecline.FallbackReason);
 
         var forcedFallback = Plan("git status | Out-Null", "rtk", RtkPath, commands);
         AssertDirect(
@@ -508,12 +264,16 @@ public sealed class ExecutionPlannerTests
             "git status",
             "rtk",
             RtkPath,
-            Application("git", "/usr/bin/git"));
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: "rtk git status");
 
         Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
         Assert.Equal(OutputProvenance.RtkUnknown, plan.OutputProvenance);
         Assert.Equal(RequestedExecutionRoute.Rtk, plan.RequestedRoute);
-        Assert.Equal(["git", "status"], plan.RtkArgumentVector.ToArray());
+        // The bare `rtk` head binds to the startup-pinned executable so PATH
+        // cannot substitute a different binary at execution time.
+        Assert.Contains(RtkPath, plan.ExecutionScript);
+        Assert.EndsWith("git status", plan.ExecutionScript);
         Assert.Collection(
             plan.PermittedFallbacks,
             fallback => Assert.Equal(ExecutionPath.PowerShellDirect, fallback));
@@ -694,39 +454,6 @@ public sealed class ExecutionPlannerTests
     }
 
 
-    [Fact]
-    public void Plan_constructor_binds_cold_target_identity_to_command_and_cwd()
-    {
-        var cwd = Path.GetFullPath(Path.GetTempPath());
-        var otherCwd = Path.Combine(cwd, "ptk-other-cwd");
-        var targetPath = typeof(ExecutionPlannerTests).Assembly.Location;
-        var target = ColdCommandTargetIdentity.TryCapture(
-            "fixture",
-            new ResolvedCommand(CommandTypes.Application, targetPath, targetPath),
-            cwd);
-        Assert.NotNull(target);
-
-        ExecutionPlan Create(string commandName, string workingDirectory) => new(
-            "fixture status",
-            executionScript: null,
-            ExecutionDomain.NativeTerminal,
-            ExecutionPath.Rtk,
-            PreExecutionValidation.None,
-            ResolutionContext.Cold,
-            RequestedExecutionRoute.Auto,
-            OutputProvenance.RtkUnknown,
-            [ExecutionPath.PowerShellDirect],
-            fallbackReason: null,
-            new RtkExecutableIdentity(RtkPath),
-            workingDirectory: workingDirectory,
-            rtkArgumentVector: [commandName, "status"],
-            directFallbackProvenance: OutputProvenance.DirectText,
-            coldCommandTargetIdentity: target);
-
-        Assert.Throws<ArgumentException>(() => Create("other", cwd));
-        Assert.Throws<ArgumentException>(() => Create("fixture", otherCwd));
-        Assert.NotNull(Create("fixture", cwd));
-    }
 
     [Theory]
     [InlineData("git status | Out-Null", "mixed_dataflow")]
@@ -742,11 +469,17 @@ public sealed class ExecutionPlannerTests
         Assert.Equal(expectedDomain, plan.Domain?.ToMachineCode());
     }
 
+    /// <summary>
+    /// Models the caller: RTK is asked for a rewrite and its answer is handed
+    /// to the planner as data. A null <paramref name="rewrittenScript"/> is a
+    /// decline, which must keep the exact original on PowerShell.
+    /// </summary>
     private static ExecutionPlan Plan(
         string script,
         string route,
         string? rtkPath,
-        TrustedCommandSnapshot commands) =>
+        TrustedCommandSnapshot commands,
+        string? rewrittenScript = null) =>
         ExecutionPlanner.Create(
             script,
             route,
@@ -755,7 +488,7 @@ public sealed class ExecutionPlannerTests
             compressAvailable: true,
             ResolutionContext.Warm,
             workingDirectory: Path.GetFullPath(Path.GetTempPath()),
-            nativeArgumentPassing: "Standard");
+            rewrittenScript: rewrittenScript);
 
     private static void AssertDirect(
         ExecutionPlan plan,

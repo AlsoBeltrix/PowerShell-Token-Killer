@@ -17,10 +17,7 @@ public sealed class ExecutionDispatchTests
         var dispatch = ExecutionDispatch.FromPlan(plan);
 
         Assert.Same(plan, dispatch.Plan);
-        Assert.Null(dispatch.ExecutionScript);
-        Assert.Equal(
-            ["git", "commit", "-m", "exact original"],
-            dispatch.RtkArgumentVector.ToArray());
+        Assert.Equal("rtk git commit -m \"exact original\"", dispatch.ExecutionScript);
         Assert.Equal(Path.GetFullPath(Path.GetTempPath()), dispatch.WorkingDirectory);
         Assert.Equal(ExecutionDomain.NativeTerminal, dispatch.Domain);
         Assert.Equal(ExecutionPath.Rtk, dispatch.ExecutionPath);
@@ -58,7 +55,6 @@ public sealed class ExecutionDispatchTests
             ExecutionFallbackReason.RtkExecutableBecameUnavailable,
             dispatch.FallbackReason);
         Assert.Null(dispatch.RtkExecutableIdentity);
-        Assert.Empty(dispatch.RtkArgumentVector);
     }
 
     [Fact]
@@ -87,7 +83,6 @@ public sealed class ExecutionDispatchTests
             ExecutionFallbackReason.RtkExecutableBecameUnavailable,
             dispatch.FallbackReason);
         Assert.Null(dispatch.RtkExecutableIdentity);
-        Assert.Empty(dispatch.RtkArgumentVector);
     }
 
     [Fact]
@@ -127,19 +122,9 @@ public sealed class ExecutionDispatchTests
         ResolutionContext resolutionContext = ResolutionContext.Warm)
     {
         var workingDirectory = Path.GetFullPath(Path.GetTempPath());
-        var targetPath = typeof(ExecutionDispatchTests).Assembly.Location;
-        var coldTarget = resolutionContext == ResolutionContext.Cold
-            ? ColdCommandTargetIdentity.TryCapture(
-                targetPath,
-                new ResolvedCommand(
-                    System.Management.Automation.CommandTypes.Application,
-                    targetPath,
-                    targetPath),
-                workingDirectory)
-            : null;
         return new ExecutionPlan(
             originalScript,
-            executionScript: null,
+            executionScript: "rtk " + originalScript,
             ExecutionDomain.NativeTerminal,
             ExecutionPath.Rtk,
             PreExecutionValidation.None,
@@ -150,17 +135,11 @@ public sealed class ExecutionDispatchTests
             fallbackReason: null,
             new RtkExecutableIdentity(RtkPath),
             workingDirectory: workingDirectory,
-            rtkArgumentVector: resolutionContext == ResolutionContext.Cold
-                ? [targetPath]
-                : originalScript.StartsWith("git commit", StringComparison.Ordinal)
-                    ? ["git", "commit", "-m", "exact original"]
-                    : ["git", "status"],
             directFallbackProvenance:
                 permittedFallbacks.Contains(ExecutionPath.PowerShellDirect)
                     ? resolutionContext == ResolutionContext.Cold
                         ? OutputProvenance.DirectText
                         : OutputProvenance.PowerShellObjects
-                    : null,
-            coldCommandTargetIdentity: coldTarget);
+                    : null);
     }
 }

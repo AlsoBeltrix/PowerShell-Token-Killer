@@ -13,6 +13,18 @@ if (WorkerProcessEntry.IsWorkerInvocation(args))
     return;
 }
 
+// RTK is a required dependency: PTK compresses PowerShell objects itself and
+// routes everything else to RTK. Refuse to start rather than come up as a
+// half-working server whose native output is silently unfiltered. stderr,
+// never stdout — stdout is the JSON-RPC transport.
+if (RtkDependency.ResolveExecutablePath() is null)
+{
+    await Console.Error.WriteLineAsync(RtkDependency.UnavailableMessage())
+        .ConfigureAwait(false);
+    Environment.ExitCode = 78; // EX_CONFIG
+    return;
+}
+
 var builder = Host.CreateApplicationBuilder(args);
 
 // stdout carries the JSON-RPC transport; every log line must go to stderr.

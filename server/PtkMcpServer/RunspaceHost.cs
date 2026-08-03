@@ -3154,8 +3154,6 @@ public sealed class RunspaceHost : IDisposable
                     var commands = CaptureForegroundCommandFacts(runspace, script);
                     var workingDirectory =
                         TryCaptureCurrentFileSystemLocation(runspace);
-                    var nativeArgumentPassing =
-                        TryCaptureNativeArgumentPassing(runspace);
                     var assessment = TrustedPreflightClassifier.AssessShellDialect(script, commands);
                     var findingOverride = DialectFindingOverrideForTests;
                     var finding = findingOverride is null
@@ -3194,6 +3192,17 @@ public sealed class RunspaceHost : IDisposable
                                 BashAvailable(commands)),
                             Plan: plan);
                     }
+                    // Ask RTK whether it can rewrite this script. The call runs
+                    // here, in preflight, so the planner stays pure and the
+                    // bounded child process is covered by the same deadline as
+                    // every other pre-execution check.
+                    var rewritten = effectiveRtkIdentity is null
+                        ? null
+                        : RtkCommandRewriter.TryRewrite(
+                            effectiveRtkIdentity,
+                            script,
+                            workingDirectory,
+                            CancellationToken.None);
                     plan = ExecutionPlanner.Create(
                         script,
                         route,
@@ -3202,7 +3211,7 @@ public sealed class RunspaceHost : IDisposable
                         compressAvailable: shapeOutput && primed.CompressCommand is not null,
                         ResolutionContext.Warm,
                         workingDirectory,
-                        nativeArgumentPassing);
+                        rewritten);
                 }
                 return (Refusal: (string?)null, Plan: plan);
             }, CancellationToken.None);
@@ -3456,80 +3465,6 @@ public sealed class RunspaceHost : IDisposable
                 return WithDispatchRouting(bashResult, dispatch);
             }
 
-            if (dispatch.ExecutionPath == ExecutionPath.Rtk)
-            {
-                var automaticStateBeforeRtkStart =
-                    TryCaptureWarmAutomaticState(runspace);
-                ResetExitCode(runspace);
-                var processResult = await RtkProcessRunner.ExecuteAsync(
-                    dispatch,
-                    callDeadline,
-                    cancellationToken);
-                if (processResult.ProvenPreStartFallbackReason is { } fallbackReason)
-                {
-                    // A machine-proved pre-start failure did not earn a warm
-                    // state mutation. Restore the reset before any fallback
-                    // authorization/capture gate that can still return
-                    // NotStarted.
-                    if (!TryRestoreWarmAutomaticState(
-                            runspace,
-                            automaticStateBeforeRtkStart))
-                    {
-                        RecycleAbandoning(Task.CompletedTask, runspace);
-                        return WithDispatchRouting(new InvokeResult(
-                            Success: false,
-                            Output: string.Empty,
-                            Errors:
-                            [
-                                "RTK proved that the command did not start, but PTK could not restore automatic session state; the runspace was recycled and the original command was not retried.",
-                            ],
-                            Warnings: [],
-                            TimedOut: false,
-                            Disposition: InvokeDisposition.NotStarted,
-                            UserExecutionStarted: false,
-                            WarmStateLost: true), dispatch);
-                    }
-                    var fallbackDispatch = ExecutionDispatch.RtkPreStartFallback(
-                        plan,
-                        fallbackReason);
-                    if (authorizer is not null)
-                    {
-                        if (!await InvokeAuthorizationBarrierAsync(() =>
-                                authorizer.AuthorizeDispatchAsync(
-                                    fallbackDispatch,
-                                    CancellationToken.None)))
-                        {
-                            return AuthorizationFailureResult(timedOut: false);
-                        }
-                        if (cancellationToken.IsCancellationRequested)
-                            return AuthorizationFailureResult(timedOut: false);
-                        if (DateTimeOffset.UtcNow >= callDeadline)
-                            return AuthorizationFailureResult(timedOut: true);
-                    }
-                    dispatch = fallbackDispatch;
-                }
-                else
-                {
-                    if (processResult.Disposition == InvokeDisposition.Completed)
-                        SetExitCode(runspace, processResult.ExitCode ?? 0);
-                    var shaped = await ShapeRtkOutputGateHeldAsync(
-                        processResult,
-                        primed,
-                        runspace,
-                        callDeadline,
-                        cancellationToken);
-                    if (outputCapture is not null && shaped.UserExecutionStarted)
-                    {
-                        shaped = shaped with
-                        {
-                            OutputRecovery = OutputRecoverySummary.Unavailable(
-                                "rtk_capture_unsupported",
-                                advertise: true),
-                        };
-                    }
-                    return WithDispatchRouting(shaped, dispatch);
-                }
-            }
 
             // The supervisor waits until the exact dispatch is durable and
             // known capturable before reserving output capacity. Reservation

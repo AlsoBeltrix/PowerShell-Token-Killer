@@ -6,10 +6,13 @@ on approval, retaining that document's release-blocking rule, non-goals,
 and Slices 5–6 by reference.
 
 **Review:** openreview codex (harness default model/effort, ungraded) over
-`e22d619..3f8160c`: `acceptable_with_changes`. One material change —
-the warm-binding guard — was verified against live product behavior and
-incorporated into Slice 2 at `2f7defa`. Provenance and the reproduction are
-in `.agents/review/openreview-rtk-router-codex-r1.md`.
+`e22d619..3f8160c`: `acceptable_with_changes`. Its material change asked for
+a per-call warm-binding guard in Slice 2. That guard was added at `2f7defa`
+and then **removed** in favor of Slice 0: the owner ruled that the agent's
+session must not inherit user state at all, which eliminates the shadowing
+the guard defended against rather than checking for it on every call. The
+finding is closed as removed-by-design. Provenance and the original
+reproduction remain in `.agents/review/openreview-rtk-router-codex-r1.md`.
 
 ## Product definition
 
@@ -97,6 +100,56 @@ Use the rule in `.agents/plans/minimum-viable-release.md` §"Release-blocking
 rule" verbatim. Findings reachable only through disabled audit, the SIEM
 receiver, `PtkAuditAdmin`, or an unselected platform do not block.
 
+## Slice 0 — the agent's session is a clean PowerShell 7
+
+The worker runspace must contain only what PowerShell 7 itself ships. It is
+the agent's session, not the machine owner's shell, and inherited user state
+must not reach it.
+
+Observed defect (this machine, 2026-08-03, installed `0.2.0-dev.g12e1ff5`):
+a fresh session is clean and `ls` is the shipped alias to `Get-ChildItem`.
+But `RunspaceHost.cs` sets `PSModulePath` to include the user module
+directory, so referencing any name exported by a module living there
+autoloads that whole module. One reference to a user module's command
+loaded 44 commands and **retroactively replaced `ls` with a user function**
+for the remainder of the session. The leak is lazy, so two sessions on the
+same machine differ by whatever was typed first — sessions are not
+reproducible.
+
+`InitialSessionState.CreateDefault()` (`RunspaceHost.cs:467`) already
+excludes `$PROFILE`; that part is correct and stays. The gap is module
+autoloading.
+
+Set `$PSModuleAutoloadingPreference = 'None'` in the initial session state
+so no module loads unless the script explicitly imports it. Keep the
+`PSModulePath` assignment (`RunspaceHost.cs:468-475`) unchanged: hosted
+workers must still *discover* `ActiveDirectory` and `ExchangeOnlineManagement`
+beside the installed `pwsh` (landed at `36146a1`). Discovery is retained;
+implicit loading is not.
+
+Cost: none observed. `Import-Module <name>` continues to work and the module
+stays warm for the session's life — verified explicitly. Modules requiring an
+explicit import today (AD, Exchange) are unaffected because they already
+require one.
+
+Verification must exercise the real path, not a mid-session approximation:
+`$PSModuleAutoloadingPreference` set inside a running session is not proof
+that the `InitialSessionState` route behaves identically.
+
+Guards:
+
+1. In a fresh session, referencing a name exported only by a module in the
+   user module directory does not load that module, and `ls` remains
+   `Alias -> Get-ChildItem` afterward.
+2. `Import-Module` of a module in that directory succeeds, and its commands
+   remain available on the next invocation in the same session.
+3. Two fresh sessions expose identical command tables regardless of what was
+   invoked in either.
+
+**Complete when:** all three guards fail against the current build, pass
+after the change, and AD/Exchange discovery via explicit import still works
+on the Windows validation host.
+
 ## Slice 1 — delete post-success command advice
 
 Remove `PostSuccessGuidance` end to end:
@@ -131,33 +184,13 @@ Rewrite acceptance rules — a rewrite is used only when all hold:
 2. stdout differs from the submitted script (identity rewrites are a
    decline; nothing to gain).
 3. stdout contains no newline the submitted script did not contain.
-4. **Warm-binding guard.** Every command name RTK wrapped with `rtk`
-   resolves in the selected warm session to `Application` — a native
-   executable — and not to a function, alias, cmdlet, or external script.
-
-The warm-binding guard is load-bearing and non-optional. RTK rewrites
-command *text* and has no knowledge of session state, so it will rewrite
-`git status` to `rtk git status` even when the session defines
-`function global:git`. Without the guard, delegation would silently execute
-native `git` instead of the user's persisted binding — a different command
-than the one submitted, which the release-blocking rule names first.
-
-Implement the guard from warm command facts already captured for the
-selected session (the same read-only CLR enumeration that
-`CaptureForegroundCommandFacts` performs today; it executes no PowerShell).
-Extract the wrapped names from RTK's stdout, look each up, and decline the
-whole rewrite unless every one binds to `Application`. Decline whole, never
-per-segment: a partially applied rewrite is a third execution shape nobody
-requested.
-
-Existing coverage pins this behavior and must keep passing unchanged:
-`server/PtkMcpServer.Tests/InvokeToolTests.cs:1364`
-(`Warm_function_or_alias_shadow_keeps_native_name_on_direct_route`) proves a
-warm `function global:git` or `Set-Alias git` keeps `git status` on
-`ExecutionPath.PowerShellDirect`. Add the equivalent guard for a rewrite
-that RTK returned.
 
 Otherwise execute the original text unchanged.
+
+No per-call command-binding check is performed. Slice 0 guarantees the
+session contains only what PowerShell 7 ships, so a name RTK wraps cannot
+have been redefined by inherited user state. Do not add a binding guard
+here; if Slice 0 is ever weakened, this decision reopens.
 
 Delete, after confirming no remaining production caller:
 
@@ -171,14 +204,8 @@ Delete, after confirming no remaining production caller:
   retained path uses it
 
 Retain: `RtkProcessRunner` process mechanics, `RtkExecutableIdentity`
-startup pinning, `ExecutionPath.Rtk`, output provenance so RTK-produced
-output is not sent through `rtk log` a second time, and the warm
-command-fact capture the binding guard depends on.
-
-What is deleted is PTK deciding routing *eligibility* and resolving
-*executable identity on disk*. What is retained is PTK deciding whether a
-name binds to something other than a native executable **in this session** —
-a question only PTK can answer and RTK never can.
+startup pinning, `ExecutionPath.Rtk`, and output provenance so RTK-produced
+output is not sent through `rtk log` a second time.
 
 Closes `opr-48`, `opr-49`, `opr-50`, `opr-51` (PATH/drive/casing
 resolution) and `opr-55` (argv boundary divergence) as removed code — all
@@ -186,10 +213,8 @@ five exist only because PTK resolved targets itself.
 
 **Complete when:** a compound command (`git status && cargo test`) routes
 through RTK, a declined command (`npm test`) executes exactly as
-PowerShell, a warm-shadowed name (`function global:git`) executes the
-PowerShell binding and never RTK, an absent RTK binary executes every
-command exactly, and no production code resolves an executable against PATH
-for routing.
+PowerShell, an absent RTK binary executes every command exactly, and no
+production code resolves an executable against PATH for routing.
 
 ## Slice 3 — delete shell inference
 
@@ -313,9 +338,11 @@ These bind the implementing agent.
 
 ## Ordered execution
 
-1. Decision 1.
-2. Slices 1–3 (deletions and the router swap).
-3. Slice 4, then Slice 5.
-4. Slice 6.
-5. Decisions 2 and 4, then Slice 7.
-6. Decision 5 and publish only on explicit go.
+1. Slice 0 — independent of Decision 1; it is a correctness fix in its own
+   right and is a precondition for Slice 2's no-binding-guard rule.
+2. Decision 1.
+3. Slices 1–3 (deletions and the router swap).
+4. Slice 4, then Slice 5.
+5. Slice 6.
+6. Decisions 2 and 4, then Slice 7.
+7. Decision 5 and publish only on explicit go.

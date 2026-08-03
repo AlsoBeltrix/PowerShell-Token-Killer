@@ -90,12 +90,27 @@ Both halves reproduced live against the installed build:
 
 The finding is real and the guard must live in PTK.
 
-## Disposition
+## Disposition — superseded by Slice 0 (owner ruling, 2026-08-03)
 
-Slice 2 amended: acceptance rule 4 (warm-binding guard), a rationale
-paragraph, retained command-fact capture, the deleted-vs-retained boundary
-restated, and a completion criterion covering a warm-shadowed name.
+Slice 2 was first amended at `2f7defa` to add a per-call warm-binding guard.
+That amendment was then **reverted**. The owner ruled that the agent's
+PowerShell session must not inherit user state at all: it is the agent's
+session, not the machine owner's shell.
 
-The amendment narrows Decision 1's scope: RTK is the rewrite *generator*;
-PTK keeps the final say on whether a name binds natively in this session.
-Decision 1 remains unruled.
+Investigation prompted by that ruling found the actual defect is broader
+than the finding described. `InitialSessionState.CreateDefault()` already
+excludes `$PROFILE`, but the retained `PSModulePath` allows lazy module
+autoloading: referencing any command exported by a module in the user module
+directory loads that whole module and retroactively rebinds names already in
+the session — the shipped `ls` alias became a user function mid-session.
+
+Slice 0 blocks module autoloading in the initial session state. With no
+inherited state, a name RTK wraps cannot have been redefined, so the guard
+has nothing to defend and was removed. The finding is closed as
+**removed-by-design**, not fixed.
+
+The reviewer's mechanism was correct and its evidence reproduced; only the
+remedy changed. Had the guard shipped, it would have papered over the
+session-inheritance defect rather than exposing it.
+
+Decision 1 remains unruled. Slice 0 does not depend on it.

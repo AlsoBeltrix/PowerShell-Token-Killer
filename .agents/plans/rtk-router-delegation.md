@@ -1,11 +1,32 @@
 # Plan: RTK router delegation and minimum viable release
 
-**Status:** APPROVED 2026-08-03. Routing authority is settled: RTK is a
-required dependency and its rewriter is PTK's router (owner, 2026-08-03).
-Slices 0–6 are authorized. Decisions 2–5 (platforms, Outlook/COM boundary,
-version, publish) remain unruled and gate Slice 7 only. This plan supersedes
-`.agents/plans/minimum-viable-release.md`, retaining that document's
-release-blocking rule, non-goals, and Slices 5–6 by reference.
+**Status:** Slices 0–6 EXECUTED 2026-08-03. Routing authority is settled: RTK
+is a required dependency and its rewriter is PTK's router (owner,
+2026-08-03). Decisions 2–5 (platforms, Outlook/COM boundary, version,
+publish) remain unruled and gate Slice 7, which is unstarted. This plan
+supersedes `.agents/plans/minimum-viable-release.md`, retaining that
+document's release-blocking rule, non-goals, and Slices 5–6 by reference.
+
+| Slice | Landed | Result |
+| --- | --- | --- |
+| 0 — clean session | `d2ca2f1` | autoload blocked; 3 guards, mutation-proved |
+| 1 — delete post-success advice | `fa9b1ce` | `opr-58` closed; −444 lines |
+| 2 — RTK router delegation | `e6e718d` | 3 guards, mutation-proved; −2,000 lines |
+| 3 — delete shell inference | `87075a7` | 7 findings closed; −4,056 lines |
+| 4 — native stderr fidelity | `931dccb` | release blocker; guard mutation-proved |
+| 5 — session reliability | `44c4c97`, `3a24ee1` | `opr-20`, `opr-19` (both HIGH) |
+| 6 — disposition the backlog | `397303b` | all 59 dispositioned; 0 open blockers |
+
+Slice 2 found a defect the tests caught and the plan had not anticipated: RTK
+returns a bare `rtk` head, so executing its rewrite verbatim would resolve
+`rtk` through PATH at run time and could run a different binary than the one
+PTK pinned and hashed at startup. The accepted rewrite now binds the pinned
+absolute path.
+
+`opr-20` ships with a known gap, recorded in its commit and in
+`.agents/review/dispositions.md`: its fail-closed half is guarded, its
+pre-write half is not, because no available test seam reaches that window. A
+vacuous guard was removed rather than shipped.
 
 **Review:** openreview codex (harness default model/effort, ungraded) over
 `e22d619..3f8160c`: `acceptable_with_changes`. Its material change asked for

@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **WorkerProcessExit `opr-52` intake (2026-08-01):** LOW accepted and plan-gated at `e13bb8a`: four bounded production protocol/bootstrap detail codes are absent from terminal normalization allowlists, so correct exit classes lose actionable identity, incarnation, containment-group, or handle-direction detail. Focused tests pass 78/78 but do not guard the four mappings. No product or test change.
+
 - **SupervisorLifecycle complete-source record revalidated (2026-08-01):** all 139 byte-unchanged lines rechecked at `4306716` as the named subject with filter, registration, shutdown, lifetime, and recent focused-test integration; tests passed 21/21. Prior limited `2ac1cd4` plus dependency-level filter coverage promoted to explicit complete-source coverage. Opus found no current defect; no product or test change.
 
 - **AuditSpoolRecordCodec whole-file review closed (2026-08-01):** all 127 lines reviewed at `9ac4960` with live/closed readers, sink recovery, scanner, envelope shape, and focused-test integration; tests passed 42/42. Prior limited `4c39b9f` review expanded; Opus found no current defect and no product or test change.
@@ -1009,6 +1011,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-52` LOW accepted and plan-gated: add four exact bounded allowlist mappings and producer-code terminal guards while preserving generic fallback, exit classes, graceful silence, and the 256-byte ASCII limit. No product or test change.
 
 - **Review intake:** `opr-51` LOW accepted and plan-gated: compare executable paths with Windows ordinal-ignore-case semantics while retaining digest and Unix-mode equality; add casing and changed-content guards. No product or test change.
 

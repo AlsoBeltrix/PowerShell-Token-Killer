@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ExecutionPlanner `opr-55` intake (2026-08-01):** MEDIUM accepted plan-gated at `3548eb8`: attached `CommandParameterAst` arguments are merged into one RTK argv element while real PowerShell Standard and Windows native probes send separate prefix and operand elements. Existing test pins the wrong merged vector. No product or test change.
+
 - **ExecutionPlan complete-source record revalidated (2026-08-01):** all 590 byte-unchanged lines rechecked at `6a66e20` in two bounded passes plus whole-file Opus integration; focused planner, dispatch, and shell-dialect tests passed 103/103. Existing `s3-rtk-preference-isolation`, `opr-4`, and `opr-48` through `opr-51` excluded. Three production-unreachable candidates retained only as reactivation notes; Bash original-script provenance verified explicit and guarded. Prior limited record expanded; no product or test change.
 
 - **AuditExportCheckpoint complete-source record revalidated (2026-08-01):** all 527 byte-unchanged lines rechecked at `497e0b2` in two bounded passes plus whole-file production-reachability integration; focused tests passed 103/103. Existing `opr-37`, `opr-38`, and repaired Windows durability were excluded. The only caller candidate belongs to removed exporter completion and remains a reactivation review note, not a current finding. Prior limited record expanded; no product or test change.

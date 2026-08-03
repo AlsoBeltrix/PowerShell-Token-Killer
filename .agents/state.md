@@ -11,7 +11,7 @@ short and update it when important repo facts change.
 
 - **ExecutionPlanner `opr-56` intake (2026-08-01):** MEDIUM accepted plan-gated at `3628487`: eligibility, domain classification, and guidance ignore `EndBlock.Traps`; RTK dispatch drops the handler. A warm native-error probe proved direct PowerShell enters the trap while the constructed RTK argv cannot. No product or test change.
 
-- **ExecutionPlanner `opr-55` intake (2026-08-01):** MEDIUM accepted plan-gated at `3548eb8`: attached `CommandParameterAst` arguments are merged into one RTK argv element while real PowerShell Standard and Windows native probes send separate prefix and operand elements. Existing test pins the wrong merged vector. No product or test change.
+- **ExecutionPlanner `opr-55` intake (2026-08-01):** MEDIUM accepted plan-gated at `3548eb8`: constant `CommandParameterAst` arguments, including whitespace-separated colon syntax, are merged into one RTK argv element while real PowerShell Standard and Windows native probes send separate prefix and operand elements. Existing test pins the wrong merged vector. No product or test change.
 
 - **ExecutionPlan complete-source record revalidated (2026-08-01):** all 590 byte-unchanged lines rechecked at `6a66e20` in two bounded passes plus whole-file Opus integration; focused planner, dispatch, and shell-dialect tests passed 103/103. Existing `s3-rtk-preference-isolation`, `opr-4`, and `opr-48` through `opr-51` excluded. Three production-unreachable candidates retained only as reactivation notes; Bash original-script provenance verified explicit and guarded. Prior limited record expanded; no product or test change.
 

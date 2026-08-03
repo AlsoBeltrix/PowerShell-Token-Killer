@@ -1,4 +1,4 @@
-# opr-55: RTK planning merges attached native parameter arguments
+# opr-55: RTK planning merges native parameter arguments
 
 **Severity**: MEDIUM — an RTK-eligible native invocation can receive different argument boundaries than the same script executed directly by PowerShell, changing target command behavior solely because routing selected RTK.
 
@@ -8,9 +8,9 @@
 
 ## Evidence
 
-`ExecutionPlanner.TryCreateRtkArgumentVector` handles a `CommandParameterAst` with a constant attached argument by concatenating `parameter.Extent.Text[..prefixLength]` and the argument value into one immutable-vector element. `RtkProcessRunner.CreateStartInfo` then adds each vector element once to `ProcessStartInfo.ArgumentList`.
+`ExecutionPlanner.TryCreateRtkArgumentVector` handles a `CommandParameterAst` with a constant argument by concatenating `parameter.Extent.Text[..prefixLength]` and the argument value into one immutable-vector element. This covers quoted and unquoted attached values and the whitespace-separated colon form: for `-foo: bar`, the parameter extent is exactly `-foo: bar`, its argument starts at `bar`, and concatenation freezes one element containing the embedded space. `RtkProcessRunner.CreateStartInfo` then adds each vector element once to `ProcessStartInfo.ArgumentList`.
 
-PowerShell 7 native probes against `node` showed both supported `PSNativeCommandArgumentPassing` modes preserve two target argv elements: `-x:"joined value"` becomes `['-x:', 'joined value']`, and `-x:value` becomes `['-x:', 'value']`, under both `Standard` and `Windows`. A second unquoted probe encoded every received argument as UTF-8 Base64; both modes returned exactly `["LXg6","dmFsdWU="]`, which decodes to `['-x:', 'value']`. The planner instead freezes one element, `-x:joined value` or `-x:value`. Existing `ExecutionPlannerTests.Rtk_argument_vector_preserves_constant_native_semantics` explicitly expects the incorrect merged element and therefore guards the defect rather than native equivalence.
+PowerShell 7 native probes against `node` showed both supported `PSNativeCommandArgumentPassing` modes preserve two target argv elements: `-x:"joined value"` becomes `['-x:', 'joined value']`, `-x:value` becomes `['-x:', 'value']`, and `-foo: bar` becomes `['-foo:', 'bar']`, under both `Standard` and `Windows`. A second unquoted probe encoded every received argument as UTF-8 Base64; both modes returned exactly `["LXg6","dmFsdWU="]`, which decodes to `['-x:', 'value']`. The planner instead freezes one element for every form. Existing `ExecutionPlannerTests.Rtk_argument_vector_preserves_constant_native_semantics` explicitly expects an incorrect merged element and therefore guards the defect rather than native equivalence.
 
 ## Predicted observable failure
 
@@ -18,9 +18,9 @@ A warm invocation routes a constant application command containing attached Powe
 
 ## Required repair
 
-At the `CommandParameterAst { Argument: ConstantExpressionAst }` branch, preserve the separate parameter-prefix and argument boundaries proved by both supported native passing modes, or return ineligible when exact reconstruction cannot be proved. Retain the expansion exclusion and prefix-bound checks. Do not change valueless parameters, string constants, or numeric extent spelling.
+At the `CommandParameterAst { Argument: ConstantExpressionAst }` branch, preserve the separate parameter-prefix and argument boundaries proved by both supported native passing modes, including whitespace-separated colon syntax, or return ineligible when exact reconstruction cannot be proved. Retain the expansion exclusion and prefix-bound checks. If the repair emits two vector entries, adjust the builder capacity/finalization invariant rather than calling `MoveToImmutable` with count no longer equal to capacity. Do not change valueless parameters, string constants, or numeric extent spelling.
 
-Correct the existing merged-vector assertion and add independent Standard/Windows guards for unquoted and quoted attached values, plus a target-visible argc/argv integration guard through `RtkProcessRunner`. Temporarily revert only the repair, prove the guards fail, restore it, then run focused planner/dispatch/runner tests and the repository verification entry point.
+Correct the existing merged-vector assertion and add independent Standard/Windows guards for unquoted, quoted, and whitespace-separated colon values, plus a target-visible argc/argv integration guard through `RtkProcessRunner`. Temporarily revert only the repair, prove the guards fail, restore it, then run focused planner/dispatch/runner tests and the repository verification entry point.
 
 ## Reviewer
 

@@ -16,3 +16,5 @@ bin/
 obj/
 *.user
 *.local.json
+.tokensave\
+.serena\

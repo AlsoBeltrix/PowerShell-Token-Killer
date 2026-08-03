@@ -639,6 +639,70 @@ public sealed class SessionWorkerClientTests
     }
 
     /// <summary>
+    /// Slice 5 / opr-19: StopAsync completed _fatal before its handshake, and
+    /// NextRequestId rejects a completed _fatal - so request allocation threw
+    /// on the very next line, the nonfatal catch swallowed it, and no shutdown
+    /// frame was ever written. Every close, reset, replace, and dispose
+    /// skipped worker-side session teardown and went straight to forced
+    /// containment. The graceful exchange must actually happen.
+    /// Re-completing _fatal before the handshake makes this FAIL.
+    /// </summary>
+    [Fact]
+    public async Task Stop_performs_the_graceful_shutdown_handshake_before_containment()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 4,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var stop = client.StopAsync(
+            WorkerContainmentReason.Close,
+            CancellationToken.None);
+
+        // The worker must actually receive a correlated shutdown frame.
+        var request = await process.ReadRequestAsync();
+        Assert.Equal(WorkerMessageKind.Shutdown, request.Kind);
+        Assert.NotNull(request.RequestId);
+
+        await process.WriteEventAsync(
+            WorkerOperationProtocol.CreateEmptyEnvelope(
+                WorkerMessageKind.Stopped,
+                client.SessionId,
+                client.Incarnation,
+                request.RequestId!.Value));
+
+        var containment = await stop.WaitAsync(CheckpointTimeout);
+        Assert.NotNull(containment);
+    }
+
+    /// <summary>
+    /// Slice 5 / opr-19 failure path: a worker that never acknowledges must
+    /// still reach bounded containment rather than hanging or throwing.
+    /// </summary>
+    [Fact]
+    public async Task Stop_without_an_acknowledgement_still_reaches_containment()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 5,
+            Limits);
+        await InitializeAsync(client, process);
+
+        using var cancellation = new CancellationTokenSource(
+            TimeSpan.FromMilliseconds(250));
+        var containment = await client
+            .StopAsync(WorkerContainmentReason.Close, cancellation.Token)
+            .WaitAsync(CheckpointTimeout);
+
+        Assert.NotNull(containment);
+    }
+
+    /// <summary>
     /// <summary>
     /// Slice 5 / opr-20, fail-closed half: at or after the first write attempt
     /// the stream and the request outcome are both ambiguous, so the client

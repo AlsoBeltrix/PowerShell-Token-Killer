@@ -556,9 +556,6 @@ internal sealed class ProcessSessionWorker : ISessionWorker
             }
         }
         if (shouldShutdown)
-            _fatal.TrySetResult();
-
-        if (shouldShutdown)
         {
             try
             {
@@ -590,6 +587,20 @@ internal sealed class ProcessSessionWorker : ISessionWorker
             }
             catch (Exception exception) when (!IsFatal(exception))
             {
+                // Cancellation, a missing acknowledgement, or an invalid one:
+                // fall through to containment, which is the final descendant
+                // sweep either way.
+            }
+            finally
+            {
+                // Completed only after the handshake attempt. Completing it
+                // before, as this used to, made NextRequestId(allowStopping)
+                // throw on the very next line — that check also rejects a
+                // completed _fatal — so the shutdown frame was never written,
+                // `stopped` was never read, and every close, reset, replace,
+                // and dispose skipped worker-side session teardown and went
+                // straight to forced containment.
+                _fatal.TrySetResult();
             }
         }
 
@@ -785,7 +796,12 @@ internal sealed class ProcessSessionWorker : ISessionWorker
             await _process.WaitForExitAsync().ConfigureAwait(false);
             lock (_gate)
             {
-                if (_stopped || Volatile.Read(ref _disposed) != 0)
+                // `_stopping` as well as `_stopped`: a worker that acknowledges
+                // shutdown may exit before StopAsync assigns `_stopped`, and
+                // that exit is expected, not a fault. Checking only `_stopped`
+                // let the race poison a session we asked to leave — masked
+                // while the handshake was unreachable, live now that it runs.
+                if (_stopping || _stopped || Volatile.Read(ref _disposed) != 0)
                     return;
             }
             Poison(new EndOfStreamException("Worker process exited unexpectedly."));

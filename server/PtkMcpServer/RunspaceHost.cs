@@ -1199,34 +1199,6 @@ public sealed class RunspaceHost : IDisposable
         catch { return false; }
     }
 
-    private static bool AllowsAdvisoryFileWriteGuidance(Runspace runspace)
-    {
-        try
-        {
-            if (LanguagePrimitives.IsTrue(
-                    runspace.SessionStateProxy.GetVariable("WhatIfPreference")))
-            {
-                return false;
-            }
-
-            if (runspace.SessionStateProxy.GetVariable("ConfirmPreference") is not
-                ConfirmImpact.High)
-            {
-                return false;
-            }
-
-            return runspace.SessionStateProxy.GetVariable("PSDefaultParameterValues") is not
-                System.Collections.IDictionary { Count: > 0 };
-        }
-        catch
-        {
-            // Advice is optional. If ambient semantics cannot be proven, stay
-            // silent instead of suggesting a non-equivalent native redirect.
-            return false;
-        }
-    }
-
-
     internal enum WaitOutcome { Completed, TimedOut, Canceled }
 
     // Deadline checks are wall-clock and re-evaluated in bounded chunks, never
@@ -1677,19 +1649,9 @@ public sealed class RunspaceHost : IDisposable
         InvokeResult result,
         ExecutionDispatch dispatch)
     {
-        var warnings = result.Warnings;
-        if (result.Success &&
-            result.Disposition == InvokeDisposition.Completed &&
-            result.Errors.Length == 0 &&
-            !result.PipelineHadErrors &&
-            result.ExitCode is null &&
-            dispatch.PostSuccessGuidance is { } guidance)
-        {
-            warnings = [.. warnings, guidance.Render()];
-        }
         return result with
         {
-            Warnings = warnings,
+            Warnings = result.Warnings,
             Routing = new ExecutionRouteSummary(
                 dispatch.RequestedRoute,
                 dispatch.ExecutionPath,
@@ -3194,9 +3156,6 @@ public sealed class RunspaceHost : IDisposable
                         TryCaptureCurrentFileSystemLocation(runspace);
                     var nativeArgumentPassing =
                         TryCaptureNativeArgumentPassing(runspace);
-                    var allowFileSystemGuidance =
-                        IsCurrentLocationFileSystem(runspace) &&
-                        AllowsAdvisoryFileWriteGuidance(runspace);
                     var assessment = TrustedPreflightClassifier.AssessShellDialect(script, commands);
                     var findingOverride = DialectFindingOverrideForTests;
                     var finding = findingOverride is null
@@ -3242,7 +3201,6 @@ public sealed class RunspaceHost : IDisposable
                         commands,
                         compressAvailable: shapeOutput && primed.CompressCommand is not null,
                         ResolutionContext.Warm,
-                        allowFileSystemGuidance,
                         workingDirectory,
                         nativeArgumentPassing);
                 }

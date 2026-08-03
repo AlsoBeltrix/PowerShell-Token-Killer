@@ -24,36 +24,6 @@ internal enum PreExecutionValidation
     BashSyntax,
 }
 
-internal sealed record PostSuccessGuidance
-{
-    internal const string PreferNativeRedirection = "prefer_native_redirection";
-    internal const int MaximumSuggestedScriptCharacters = 1024;
-
-    internal PostSuccessGuidance(string code, string suggestedScript)
-    {
-        if (!string.Equals(code, PreferNativeRedirection, StringComparison.Ordinal))
-            throw new ArgumentException("Unknown post-success guidance code.", nameof(code));
-        if (string.IsNullOrWhiteSpace(suggestedScript) ||
-            suggestedScript.Length > MaximumSuggestedScriptCharacters ||
-            suggestedScript.Contains('\r') || suggestedScript.Contains('\n'))
-        {
-            throw new ArgumentException(
-                "A suggested script must be one bounded nonempty line.",
-                nameof(suggestedScript));
-        }
-
-        Code = code;
-        SuggestedScript = suggestedScript;
-    }
-
-    internal string Code { get; }
-    internal string SuggestedScript { get; }
-
-    internal string Render() =>
-        $"[ptk:routing] mixed native/PowerShell file capture completed unchanged. " +
-        $"For direct file capture next time, prefer: {SuggestedScript}";
-}
-
 internal enum ResolutionContext
 {
     Warm,
@@ -179,7 +149,6 @@ internal sealed record ExecutionPlan
         BashExecutableIdentity? bashExecutableIdentity = null,
         string? workingDirectory = null,
         RtkExecutableIdentity? outputShapingRtkIdentity = null,
-        PostSuccessGuidance? postSuccessGuidance = null,
         ImmutableArray<string> rtkArgumentVector = default,
         OutputProvenance? directFallbackProvenance = null,
         ColdCommandTargetIdentity? coldCommandTargetIdentity = null)
@@ -346,14 +315,6 @@ internal sealed record ExecutionPlan
                 "An output-shaping RTK identity requires a shaped direct PowerShell plan.",
                 nameof(outputShapingRtkIdentity));
         }
-        if (postSuccessGuidance is not null &&
-            (domain != ExecutionDomain.MixedDataflow ||
-             executionPath != ExecutionPath.PowerShellDirect))
-        {
-            throw new ArgumentException(
-                "Post-success guidance requires a mixed-dataflow direct plan.",
-                nameof(postSuccessGuidance));
-        }
         if (fallbackReason is not null &&
             (requestedRoute != RequestedExecutionRoute.Rtk ||
              executionPath != ExecutionPath.PowerShellDirect))
@@ -377,7 +338,6 @@ internal sealed record ExecutionPlan
         BashExecutableIdentity = bashExecutableIdentity;
         WorkingDirectory = workingDirectory;
         OutputShapingRtkIdentity = outputShapingRtkIdentity;
-        PostSuccessGuidance = postSuccessGuidance;
         RtkArgumentVector = normalizedRtkArguments;
         DirectFallbackProvenance = directFallbackProvenance;
         ColdCommandTargetIdentity = coldCommandTargetIdentity;
@@ -397,7 +357,6 @@ internal sealed record ExecutionPlan
     internal BashExecutableIdentity? BashExecutableIdentity { get; }
     internal string? WorkingDirectory { get; }
     internal RtkExecutableIdentity? OutputShapingRtkIdentity { get; }
-    internal PostSuccessGuidance? PostSuccessGuidance { get; }
     internal ImmutableArray<string> RtkArgumentVector { get; }
     internal OutputProvenance? DirectFallbackProvenance { get; }
     internal ColdCommandTargetIdentity? ColdCommandTargetIdentity { get; }
@@ -480,7 +439,6 @@ internal sealed record ExecutionDispatch
         ExecutionPath == ExecutionPath.PowerShellDirect
             ? Plan.OutputShapingRtkIdentity
             : null;
-    internal PostSuccessGuidance? PostSuccessGuidance => Plan.PostSuccessGuidance;
     internal ExecutionDomain? Domain => Plan.Domain;
     internal PreExecutionValidation PreExecutionValidation => Plan.PreExecutionValidation;
     internal ResolutionContext ResolutionContext => Plan.ResolutionContext;

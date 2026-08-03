@@ -615,8 +615,12 @@ public sealed class ExecutionPlannerTests
             Enum.GetValues<ExecutionFallbackReason>().Select(value => value.ToMachineCode()));
     }
 
+    /// <summary>
+    /// Slice 1 regression: a mixed native/PowerShell dataflow plan still
+    /// classifies and executes as before, and carries no suggestion surface.
+    /// </summary>
     [Fact]
-    public void Plans_one_bounded_post_success_redirection_suggestion_for_safe_mixed_capture()
+    public void Mixed_dataflow_plans_execute_unchanged_and_carry_no_suggestion()
     {
         var commands = Application("git", "/usr/bin/git");
         commands.Set(
@@ -628,107 +632,12 @@ public sealed class ExecutionPlannerTests
                 IsCanonicalManagementSetContent: true));
 
         const string original = "git diff | Set-Content -Path 'patch file.txt'";
-        var plan = Plan(
-            original,
-            "auto",
-            RtkPath,
-            commands);
+        var plan = Plan(original, "auto", RtkPath, commands);
 
         Assert.Equal(ExecutionDomain.MixedDataflow, plan.Domain);
         Assert.Equal(ExecutionPath.PowerShellDirect, plan.ExecutionPath);
         Assert.Equal(original, plan.ExecutionScript);
-        Assert.Equal(
-            PostSuccessGuidance.PreferNativeRedirection,
-            plan.PostSuccessGuidance?.Code);
-        Assert.Equal(
-            "git diff > 'patch file.txt'",
-            plan.PostSuccessGuidance?.SuggestedScript);
-        Assert.Contains("completed unchanged", plan.PostSuccessGuidance?.Render());
     }
-
-    [Fact]
-    public void Mixed_guidance_stays_silent_for_dynamic_or_semantically_different_shapes()
-    {
-        var commands = Application("git", "/usr/bin/git");
-        commands.Set(
-            "Set-Content",
-            CommandTypes.All,
-            new ResolvedCommand(
-                CommandTypes.Cmdlet,
-                Source: "Microsoft.PowerShell.Management",
-                IsCanonicalManagementSetContent: true));
-        commands.Set(
-            "Measure-Object",
-            CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Cmdlet));
-        commands.Set(
-            "Get-Date",
-            CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Cmdlet));
-        commands.Set(
-            "EvilModule\\Set-Content",
-            CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Cmdlet, Source: "EvilModule"));
-
-        foreach (var script in new[]
-        {
-            "git diff | Set-Content $target",
-            "git diff | Set-Content patch.txt -NoNewline",
-            "git diff | Set-Content 'patch[1].txt'",
-            "git diff | Set-Content env:PATCH",
-            "git diff | Set-Content 'C:\\patch.txt'",
-            "using module './Evil.psm1'; git diff | Set-Content patch.txt",
-            "git diff | EvilModule\\Set-Content patch.txt",
-            "git diff | Measure-Object",
-            "Get-Date | Set-Content patch.txt",
-            "git diff > patch.txt",
-            "git diff |\n Set-Content patch.txt",
-            "param($x = 1); git diff | Set-Content patch.txt",
-            "git diff | Set-Content patch.txt &",
-        })
-        {
-            Assert.Null(Plan(script, "auto", RtkPath, commands).PostSuccessGuidance);
-        }
-
-        commands.Set(
-            "Set-Content",
-            CommandTypes.All,
-            new ResolvedCommand(CommandTypes.Function));
-        Assert.Null(Plan(
-            "git diff | Set-Content patch.txt",
-            "auto",
-            RtkPath,
-            commands).PostSuccessGuidance);
-
-        commands.Set(
-            "Set-Content",
-            CommandTypes.All,
-            new ResolvedCommand(
-                CommandTypes.Cmdlet,
-                Source: "Microsoft.PowerShell.Management"));
-        Assert.Null(Plan(
-            "git diff | Set-Content patch.txt",
-            "auto",
-            RtkPath,
-            commands).PostSuccessGuidance);
-
-        commands.Set(
-            "Set-Content",
-            CommandTypes.All,
-            new ResolvedCommand(
-                CommandTypes.Cmdlet,
-                Source: "Microsoft.PowerShell.Management",
-                IsCanonicalManagementSetContent: true));
-        Assert.Null(ExecutionPlanner.Create(
-            "git diff | Set-Content patch.txt",
-            "auto",
-            new RtkExecutableIdentity(RtkPath),
-            commands,
-            compressAvailable: true,
-            ResolutionContext.Warm,
-            allowFileSystemGuidance: false).PostSuccessGuidance);
-    }
-
     [Fact]
     public void Plan_constructor_rejects_false_rtk_identity_or_provenance()
     {
@@ -782,22 +691,8 @@ public sealed class ExecutionPlannerTests
             ImmutableArray<ExecutionPath>.Empty,
             ExecutionFallbackReason.RtkIneligibleShape,
             rtkExecutableIdentity: null));
-        Assert.Throws<ArgumentException>(() => new ExecutionPlan(
-            "git status",
-            "git status",
-            ExecutionDomain.NativeTerminal,
-            ExecutionPath.PowerShellDirect,
-            PreExecutionValidation.None,
-            ResolutionContext.Warm,
-            RequestedExecutionRoute.Auto,
-            OutputProvenance.PowerShellObjects,
-            ImmutableArray<ExecutionPath>.Empty,
-            fallbackReason: null,
-            rtkExecutableIdentity: null,
-            postSuccessGuidance: new PostSuccessGuidance(
-                PostSuccessGuidance.PreferNativeRedirection,
-                "git status > status.txt")));
     }
+
 
     [Fact]
     public void Plan_constructor_binds_cold_target_identity_to_command_and_cwd()
@@ -859,7 +754,6 @@ public sealed class ExecutionPlannerTests
             commands,
             compressAvailable: true,
             ResolutionContext.Warm,
-            allowFileSystemGuidance: true,
             workingDirectory: Path.GetFullPath(Path.GetTempPath()),
             nativeArgumentPassing: "Standard");
 

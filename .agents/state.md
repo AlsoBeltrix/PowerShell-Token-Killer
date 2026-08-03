@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **ExecutionPlanner complete-source review closed (2026-08-02):** all 675 lines reviewed at blob `234c3833` in three bounded passes plus whole-file Opus integration; focused tests passed 103/103. Accepted HIGH `opr-58`, MEDIUM `opr-55`/`opr-56`, LOW `opr-57`; prior repaired and adjacent findings remained excluded. Exact target-visible probes resolved the sole integration dispute in favor of `opr-55`. Prior limited record expanded; no product or test change.
+
 - **ExecutionPlanner `opr-58` intake (2026-08-01):** HIGH accepted plan-gated at `a3b7994`: successful mixed-dataflow guidance can recommend redirecting a fully buffering producer into its own input. Disposable-file proof preserved 13 characters under the completed pipeline but the suggested shape truncated the target to zero. No product or test change.
 
 - **ExecutionPlanner `opr-57` intake (2026-08-01):** LOW accepted plan-gated at `1de0286`: redirected `CommandExpressionAst` pipelines return `PowerShell` before redirections are checked, so audit routing metadata mislabels file-writing expression forms. Execution remains PowerShellDirect. No product or test change.
@@ -1070,7 +1072,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** expand the 675-line `ExecutionPlanner` current-head review; its prior record is limited rather than explicit complete-source coverage. Review classification, route eligibility, executable identity binding, validation ordering, fallback provenance, working-directory handling, and every active plan/runner consumer in bounded passes plus whole-file Opus integration, with focused execution planner/dispatch tests. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** expand the current 49-line `server/PtkMcpServer/Program.cs` review at blob `ba01d79`; the prior record covers an older blob and a limited startup surface. Recheck the complete startup sequence against supervisor/worker entry selection, DI aliases and lifetimes, filters, stdio purity, shutdown ownership, and current startup/handshake tests with whole-file Opus integration. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

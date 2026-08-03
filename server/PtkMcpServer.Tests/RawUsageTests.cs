@@ -84,15 +84,13 @@ public sealed class RawUsageTests : IDisposable
         Assert.Equal(false, rawParam.DefaultValue);
         Assert.Contains("Deprecated compatibility flag", raw);
         Assert.Contains(
-            "no effect on dialect handling, interpreter/routing, process choice, capture, or shaping",
+            "no effect on routing, process choice, capture, or shaping",
             raw);
         Assert.Contains("Use ptk_output when a handle is returned", raw);
 
         var route = DescriptionOf(Parameter(invoke, "route"));
-        Assert.Contains(
-            "explicit consent to interpret the exact original text as PowerShell",
-            route);
-        Assert.Contains("normal capture and shaping still apply", route);
+        Assert.Contains("'pwsh' skips rtk", route);
+        Assert.Contains("runs the exact original text as PowerShell", route);
 
         var session = DescriptionOf(Parameter(invoke, "session"));
         Assert.Contains("Connection-local warm session name", session);

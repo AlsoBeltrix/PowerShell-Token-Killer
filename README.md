@@ -50,7 +50,7 @@ flowchart LR
     H[Agent harness] --> S[PTK MCP supervisor]
     S --> D[default worker process]
     S --> N[named worker processes]
-    D --> E[PowerShell / RTK / validated Bash]
+    D --> E[PowerShell / RTK]
     N --> E
     S --> O[bounded output store<br/>ptk_output]
 ```
@@ -173,9 +173,8 @@ post-start retry.
 
 Overrides are deliberately narrow:
 
-- `route="pwsh"` consents to interpret the exact original text as PowerShell
-  and bypasses dialect/Bash/RTK execution routing. Normal capture and shaping
-  still apply.
+- `route="pwsh"` skips the RTK rewrite entirely and runs the exact original
+  text as PowerShell. Normal capture and shaping still apply.
 - `route="rtk"` asserts RTK routing. RTK still decides: if it declines to
   rewrite the script, the labeled fallback executes the exact original once.
 - `raw=true` is deprecated compatibility telemetry. It does not change the

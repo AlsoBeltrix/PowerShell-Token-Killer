@@ -134,44 +134,6 @@ internal static class ExecutionPlanner
             fallbackReason: null,
             outputShapingRtkIdentity);
 
-    internal static ExecutionPlan CreateBash(
-        string script,
-        string? route,
-        RtkExecutableIdentity rtkExecutableIdentity,
-        BashExecutableIdentity bashExecutableIdentity,
-        string workingDirectory,
-        ResolutionContext resolutionContext)
-    {
-        ArgumentNullException.ThrowIfNull(script);
-        ArgumentNullException.ThrowIfNull(rtkExecutableIdentity);
-        ArgumentNullException.ThrowIfNull(bashExecutableIdentity);
-        ArgumentException.ThrowIfNullOrWhiteSpace(workingDirectory);
-
-        var requestedRoute = NormalizeRoute(route);
-        Parser.ParseInput(script, out _, out var parseErrors);
-        if (parseErrors.Length == 0 || requestedRoute == RequestedExecutionRoute.PowerShell)
-        {
-            throw new ArgumentException(
-                "Bash delegation requires independently parse-fatal PowerShell input without route=pwsh consent.",
-                nameof(script));
-        }
-
-        return new ExecutionPlan(
-            script,
-            executionScript: null,
-            ExecutionDomain.Bash,
-            ExecutionPath.BashViaRtk,
-            PreExecutionValidation.BashSyntax,
-            resolutionContext,
-            requestedRoute,
-            OutputProvenance.RtkUnknown,
-            ImmutableArray<ExecutionPath>.Empty,
-            fallbackReason: null,
-            rtkExecutableIdentity,
-            bashExecutableIdentity,
-            workingDirectory);
-    }
-
     private static ExecutionPlan Direct(
         string script,
         bool compressAvailable,

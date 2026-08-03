@@ -29,8 +29,6 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     private bool _validationStarted;
     private bool _validationCompleted;
     private bool _effectAuthorized;
-    private bool _validatorStarted;
-    private bool _validatorCompleted;
     private bool _authorizationPersistenceFailed;
     private bool _userExecutionStarted;
     private bool _terminalWritten;
@@ -328,11 +326,9 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
                 outcomeState: "dispatched",
                 detailCode: dispatch.IsFallback
                     ? dispatch.FallbackReason?.ToMachineCode()
-                    : dispatch.ExecutionPath == ExecutionPath.BashViaRtk
-                        ? dispatch.BashExecutableIdentity?.AuditIdentityCode
-                        : dispatch.OutputShapingRtkIdentity is not null
-                            ? "rtk_log_authorized"
-                            : null);
+                    : dispatch.OutputShapingRtkIdentity is not null
+                        ? "rtk_log_authorized"
+                        : null);
             _authorizedDispatch = dispatch;
             _effectAuthorized = true;
             return ValueTask.FromResult(true);
@@ -348,118 +344,6 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         }
     }
 
-    public ValueTask<bool> RecordValidatorStartedAsync(
-        ExecutionDispatch dispatch,
-        CancellationToken _)
-    {
-        ArgumentNullException.ThrowIfNull(dispatch);
-        EnsureActive();
-        EnsureCurrentBashDispatch(dispatch);
-        if (_validatorStarted || _validatorCompleted)
-            throw new InvalidOperationException("The Bash validator lifecycle already started.");
-
-        try
-        {
-            Append(
-                "execution.validator_started",
-                outcomeState: "started",
-                terminationCertainty: "not_applicable",
-                rootCoverage: "unknown");
-            _validatorStarted = true;
-            return ValueTask.FromResult(true);
-        }
-        catch (AuditUnavailableException)
-        {
-            _authorizationPersistenceFailed = true;
-            return ValueTask.FromResult(false);
-        }
-    }
-
-    public ValueTask<bool> RecordValidatorCompletedAsync(
-        ExecutionDispatch dispatch,
-        BashSyntaxValidationResult result,
-        CancellationToken _)
-    {
-        ArgumentNullException.ThrowIfNull(dispatch);
-        ArgumentNullException.ThrowIfNull(result);
-        EnsureActive();
-        EnsureCurrentBashDispatch(dispatch);
-        if (_validatorCompleted || result.Status == BashSyntaxValidationStatus.AuditUnavailable)
-            throw new InvalidOperationException("The Bash validator outcome is not recordable.");
-        if (result.ProcessStarted != _validatorStarted)
-            throw new InvalidOperationException("The Bash validator start fact does not match its outcome.");
-        if (result.ProcessStarted &&
-            result.RootTerminationConfirmed is null)
-        {
-            throw new InvalidOperationException(
-                "A started validator requires explicit root-process termination certainty.");
-        }
-        if (!result.ProcessStarted &&
-            result.RootTerminationConfirmed == true)
-        {
-            throw new InvalidOperationException(
-                "A validator that did not start cannot have confirmed root termination.");
-        }
-        if ((result.Status is BashSyntaxValidationStatus.Valid or
-                BashSyntaxValidationStatus.SyntaxInvalid) &&
-            result.RootTerminationConfirmed != true)
-        {
-            throw new InvalidOperationException(
-                "A completed validator must have confirmed root-process termination.");
-        }
-
-        var completed = result.Status == BashSyntaxValidationStatus.Valid;
-        var terminationCertainty = result.RootTerminationConfirmed switch
-        {
-            true => "confirmed",
-            false => "unconfirmed",
-            null => "not_applicable",
-        };
-        var rootCoverage = result.RootTerminationConfirmed switch
-        {
-            true => "complete",
-            false => "unknown",
-            null => "none",
-        };
-        try
-        {
-            Append(
-                completed ? "execution.validator_completed" : "execution.validator_failed",
-                outcomeState: completed ? "completed" : result.Status switch
-                {
-                    BashSyntaxValidationStatus.TimedOut => "timed_out",
-                    BashSyntaxValidationStatus.Canceled => "canceled",
-                    BashSyntaxValidationStatus.StartOutcomeUnknown => "outcome_unknown",
-                    BashSyntaxValidationStatus.SyntaxInvalid or
-                        BashSyntaxValidationStatus.RuntimeFailed => "failed",
-                    _ => "not_started",
-                },
-                detailCode: result.DetailCode,
-                exitCode: result.ExitCode,
-                terminationCertainty: terminationCertainty,
-                rootCoverage: rootCoverage);
-            _validatorCompleted = true;
-            return ValueTask.FromResult(true);
-        }
-        catch (AuditUnavailableException)
-        {
-            _authorizationPersistenceFailed = true;
-            return ValueTask.FromResult(false);
-        }
-    }
-
-    private void EnsureCurrentBashDispatch(ExecutionDispatch dispatch)
-    {
-        if (!_effectAuthorized ||
-            _authorizedDispatch is null ||
-            !ReferenceEquals(_authorizedDispatch, dispatch) ||
-            dispatch.ExecutionPath != ExecutionPath.BashViaRtk ||
-            dispatch.BashExecutableIdentity is null)
-        {
-            throw new InvalidOperationException(
-                "Validator facts must belong to the currently authorized Bash dispatch.");
-        }
-    }
 
     internal void RecordValidationNoStart(string detailCode)
     {

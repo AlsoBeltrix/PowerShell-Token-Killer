@@ -54,33 +54,7 @@ public sealed class TrustedPreflightClassifierTests
         { "echo `date +%s`", "backticks" },
     };
 
-    [Theory]
-    [MemberData(nameof(BashDetections))]
-    public void Dialect_classifier_names_every_frozen_construct(string script, string expected)
-    {
-        var finding = TrustedPreflightClassifier.GetShellDialectFinding(
-            script, StockCommands());
 
-        Assert.Contains(expected, finding, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Theory]
-    [InlineData("Get-Date", false, false)]
-    [InlineData("export FOO=1", false, true)]
-    [InlineData("Write-Output >", true, false)]
-    [InlineData("cat <<EOF\nhello\nEOF", true, true)]
-    public void Assessment_keeps_parse_fatality_independent_from_dialect_guidance(
-        string script,
-        bool expectedParseFatal,
-        bool expectedFinding)
-    {
-        var assessment = TrustedPreflightClassifier.AssessShellDialect(
-            script,
-            StockCommands());
-
-        Assert.Equal(expectedParseFatal, assessment.PowerShellParseFatal);
-        Assert.Equal(expectedFinding, assessment.Finding is not null);
-    }
 
     public static TheoryData<string> FalsePositiveScripts => new()
     {
@@ -104,93 +78,12 @@ public sealed class TrustedPreflightClassifierTests
         "echo a \\\necho b",
     };
 
-    [Theory]
-    [MemberData(nameof(FalsePositiveScripts))]
-    public void Dialect_classifier_keeps_the_frozen_false_positive_set_silent(string script)
-    {
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding(script, StockCommands()));
-    }
 
-    [Theory]
-    [InlineData(CommandTypes.Alias)]
-    [InlineData(CommandTypes.Function)]
-    [InlineData(CommandTypes.Cmdlet)]
-    [InlineData(CommandTypes.Application)]
-    public void Any_real_warm_resolution_exempts_a_bash_collision(CommandTypes type)
-    {
-        var commands = StockCommands();
-        commands.Set("export", CommandTypes.All,
-            new ResolvedCommand(type, type == CommandTypes.Application ? "/usr/bin/export" : null));
 
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding("export X=1", commands));
-    }
 
-    [Fact]
-    public void Uncertain_cold_resolution_suppresses_a_false_refusal_without_claiming_application()
-    {
-        var commands = StockCommands();
-        commands.Set(
-            "export",
-            CommandTypes.All,
-            new ResolvedCommand((CommandTypes)0, ResolutionUncertain: true));
 
-        var resolved = commands.Resolve("export", CommandTypes.All);
-        Assert.NotNull(resolved);
-        Assert.True(resolved.ResolutionUncertain);
-        Assert.NotEqual(CommandTypes.Application, resolved.CommandType);
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding("export X=1", commands));
-    }
 
-    [Theory]
-    [InlineData("function export { param($Assignment) $Assignment }; export X=1")]
-    [InlineData("Set-Alias export Write-Output; export X=1")]
-    [InlineData("Set-Alias -Name export -Value Write-Output; export X=1")]
-    [InlineData("Set-Alias -Name:export -Value Write-Output; export X=1")]
-    [InlineData("New-Alias export Write-Output; export X=1")]
-    [InlineData("Set-Alias set __mySet; set -e")]
-    public void Preceding_supported_local_definitions_exempt_their_uses(string script)
-    {
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding(script, StockCommands()));
-    }
 
-    [Theory]
-    [InlineData("export X=1; Set-Alias export Write-Output")]
-    [InlineData("export X=1; function export { param($value) $value }")]
-    [InlineData("Set-Alias -Scope Global -Name export -Value Write-Output; export X=1")]
-    public void Later_or_unsupported_local_definitions_do_not_exempt_the_use(string script)
-    {
-        Assert.Contains(
-            "export",
-            TrustedPreflightClassifier.GetShellDialectFinding(script, StockCommands()),
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void A_recursive_use_inside_its_own_definition_is_exempt()
-    {
-        const string script =
-            "function export { param($Assignment) if ($Assignment -eq 'again') { export X=1 } else { $Assignment } }; export again";
-
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding(script, StockCommands()));
-    }
-
-    [Theory]
-    [InlineData(CommandTypes.Alias, "Set-Variable", true)]
-    [InlineData(CommandTypes.Alias, "Write-Output", false)]
-    [InlineData(CommandTypes.Function, null, false)]
-    [InlineData(CommandTypes.Application, null, false)]
-    public void Set_flags_only_while_resolution_is_the_stock_alias(
-        CommandTypes type,
-        string? definition,
-        bool shouldFlag)
-    {
-        var commands = new TrustedCommandSnapshot();
-        commands.Set("set", CommandTypes.All, new ResolvedCommand(type, Definition: definition));
-
-        var finding = TrustedPreflightClassifier.GetShellDialectFinding("set -euo pipefail", commands);
-
-        Assert.Equal(shouldFlag, finding?.Contains("shell options", StringComparison.OrdinalIgnoreCase) == true);
-    }
 
     public static TheoryData<string> BlankedOrUnrelatedParseFatalEvidence => new()
     {
@@ -206,26 +99,7 @@ public sealed class TrustedPreflightClassifierTests
         "foo 'bar'() { echo hi; }",
     };
 
-    [Theory]
-    [MemberData(nameof(BlankedOrUnrelatedParseFatalEvidence))]
-    public void Parse_fatal_evidence_is_blanked_local_and_never_synthesized(string script)
-    {
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding(script, StockCommands()));
-    }
 
-    [Theory]
-    [InlineData(CommandTypes.Alias)]
-    [InlineData(CommandTypes.Function)]
-    [InlineData(CommandTypes.Application)]
-    public void Resolved_parse_recovery_keyword_is_not_bash_evidence(CommandTypes type)
-    {
-        var commands = StockCommands();
-        commands.Set("then", CommandTypes.All,
-            new ResolvedCommand(type, type == CommandTypes.Application ? "/usr/bin/then" : null));
-
-        Assert.Null(TrustedPreflightClassifier.GetShellDialectFinding(
-            "if $true; Get-Date; then", commands));
-    }
 
     private static TrustedCommandSnapshot StockCommands()
     {

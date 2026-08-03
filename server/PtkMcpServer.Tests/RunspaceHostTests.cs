@@ -1205,24 +1205,6 @@ public sealed class RunspaceHostTests : IDisposable
         Assert.Equal("state-cleared", after.Output.Trim());
     }
 
-    [Fact]
-    public async Task Dialect_refusal_is_structured_as_not_started()
-    {
-        var authorizationCalls = 0;
-        var refused = await _host.InvokeAsync(
-            "export X=1",
-            new TestInvocationAuthorizer((preparation, cancellationToken) =>
-            {
-                authorizationCalls++;
-                return ValueTask.FromResult(true);
-            }));
-
-        Assert.False(refused.Success);
-        Assert.Contains("[ptk:dialect]", refused.Output);
-        Assert.Equal(InvokeDisposition.NotStarted, refused.Disposition);
-        Assert.False(refused.UserExecutionStarted);
-        Assert.Equal(0, authorizationCalls);
-    }
 
     [Fact]
     public void Nonpublic_audited_invocation_requires_the_two_barrier_authorizer()

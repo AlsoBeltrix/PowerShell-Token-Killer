@@ -10,11 +10,12 @@ public static class InvokeTool
 {
     [McpServerTool(Name = "ptk_invoke")]
     [Description(
-        "Run shell work once in one isolated warm PowerShell session. PowerShell, " +
-        "mixed-dataflow, and most native commands use that session's persistent " +
-        "runspace; eligible terminal native commands route internally through rtk, " +
-        "and independently proven parse-fatal Bash syntax may use startup-pinned " +
-        "Bash/RTK processes owned by the same worker. Output is token-compressed while " +
+        "Run PowerShell 7 work once in one isolated warm session. The dialect is " +
+        "PowerShell, not bash: translate bash-only syntax, or invoke bash explicitly " +
+        "as an ordinary native command (bash -lc '...') when you genuinely need it. " +
+        "Everything executes in that session's persistent runspace; rtk rewrites the " +
+        "native commands it recognizes so their output is filtered at the source. " +
+        "Output is token-compressed while " +
         "preserving errors, exit codes, and structure. Variables, imported modules, " +
         "functions, directory, environment drift, and established connections persist " +
         "only in the selected session. Non-default sessions must first be opened with " +
@@ -29,17 +30,17 @@ public static class InvokeTool
         [Description("The command to execute: a PowerShell script or a native command line (git, npm, ...).")] string script,
         CancellationToken cancellationToken,
         [Description(
-            "Deprecated compatibility flag: true has no effect on dialect handling, " +
-            "interpreter/routing, process choice, capture, or shaping. Use ptk_output " +
+            "Deprecated compatibility flag: true has no effect on " +
+            "routing, process choice, capture, or shaping. Use ptk_output " +
             "when a handle is returned.")]
         bool raw = false,
         [Description(
-            "Routing override: 'auto' (default) runs a single native command " +
-            "through rtk's filters; 'pwsh' is explicit consent to interpret the exact " +
-            "original text as PowerShell and bypass automatic dialect/Bash/RTK routing; " +
-            "normal capture and shaping still apply; 'rtk' asserts RTK only for an " +
-            "eligible terminal native application. An ineligible assertion executes the exact original " +
-            "once and returns a labeled effective route without asking for a retry.")]
+            "Routing override: 'auto' (default) offers the script to rtk, which " +
+            "rewrites the native commands it recognizes and declines the rest; " +
+            "'pwsh' skips rtk and runs the exact original text as PowerShell; " +
+            "'rtk' asserts the rtk route but cannot override rtk's own decision. " +
+            "A declined script executes the exact original once and returns a " +
+            "labeled effective route without asking for a retry.")]
         string route = "auto",
         [Description(
             "Per-call timeout override in seconds, capped by the server maximum. A " +

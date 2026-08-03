@@ -296,64 +296,13 @@ public sealed class ExecutionPlannerTests
     }
 
     [Fact]
-    public void CreateBash_carries_only_the_typed_bounded_delegation_facts()
-    {
-        const string script = "if true; then printf '%s\\n' hello; fi";
-        var cwd = Path.GetFullPath(Path.GetTempPath());
-        var rtk = new RtkExecutableIdentity(RtkPath);
-        var bash = BashExecutableIdentity.TryCapture(typeof(ExecutionPlannerTests).Assembly.Location);
-        Assert.NotNull(bash);
-
-        var plan = ExecutionPlanner.CreateBash(
-            script,
-            "auto",
-            rtk,
-            bash,
-            cwd,
-            ResolutionContext.Warm);
-
-        Assert.Equal(script, plan.OriginalScript);
-        Assert.Null(plan.ExecutionScript);
-        Assert.Equal(ExecutionDomain.Bash, plan.Domain);
-        Assert.Equal(ExecutionPath.BashViaRtk, plan.ExecutionPath);
-        Assert.Equal(PreExecutionValidation.BashSyntax, plan.PreExecutionValidation);
-        Assert.Equal(ResolutionContext.Warm, plan.ResolutionContext);
-        Assert.Equal(RequestedExecutionRoute.Auto, plan.RequestedRoute);
-        Assert.Equal(OutputProvenance.RtkUnknown, plan.OutputProvenance);
-        Assert.Empty(plan.PermittedFallbacks);
-        Assert.Null(plan.FallbackReason);
-        Assert.Same(rtk, plan.RtkExecutableIdentity);
-        Assert.Same(bash, plan.BashExecutableIdentity);
-        Assert.Equal(cwd, plan.WorkingDirectory);
-    }
-
-    [Theory]
-    [InlineData("Write-Output 'valid PowerShell'", "auto")]
-    [InlineData("if true; then printf hello; fi", "pwsh")]
-    public void CreateBash_requires_parse_fatal_input_without_pwsh_consent(
-        string script,
-        string route)
-    {
-        var bash = BashExecutableIdentity.TryCapture(typeof(ExecutionPlannerTests).Assembly.Location);
-        Assert.NotNull(bash);
-
-        Assert.Throws<ArgumentException>(() => ExecutionPlanner.CreateBash(
-            script,
-            route,
-            new RtkExecutableIdentity(RtkPath),
-            bash,
-            Path.GetFullPath(Path.GetTempPath()),
-            ResolutionContext.Warm));
-    }
-
-    [Fact]
     public void Machine_codes_cover_every_frozen_plan_value()
     {
         Assert.Equal(
-            ["powershell", "native_terminal", "mixed_dataflow", "bash"],
+            ["powershell", "native_terminal", "mixed_dataflow"],
             Enum.GetValues<ExecutionDomain>().Select(value => value.ToMachineCode()));
         Assert.Equal(
-            ["powershell_direct", "rtk", "native_direct", "bash_via_rtk"],
+            ["powershell_direct", "rtk", "native_direct"],
             Enum.GetValues<ExecutionPath>().Select(value => value.ToMachineCode()));
         Assert.Equal(
             ["auto", "pwsh", "rtk"],

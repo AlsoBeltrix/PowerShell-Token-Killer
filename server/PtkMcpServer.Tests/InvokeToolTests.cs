@@ -1005,17 +1005,6 @@ public sealed class InvokeToolTests : IDisposable
             Dispatch = dispatch;
             return ValueTask.FromResult(true);
         }
-
-        public ValueTask<bool> RecordValidatorStartedAsync(
-            ExecutionDispatch dispatch,
-            CancellationToken cancellationToken) =>
-            ValueTask.FromResult(true);
-
-        public ValueTask<bool> RecordValidatorCompletedAsync(
-            ExecutionDispatch dispatch,
-            BashSyntaxValidationResult result,
-            CancellationToken cancellationToken) =>
-            ValueTask.FromResult(true);
     }
 
     [Theory]

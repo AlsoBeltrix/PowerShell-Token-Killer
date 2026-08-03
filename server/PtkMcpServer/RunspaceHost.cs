@@ -31,14 +31,6 @@ internal interface IInvocationAuthorizer
         ExecutionDispatch dispatch,
         CancellationToken cancellationToken);
 
-    ValueTask<bool> RecordValidatorStartedAsync(
-        ExecutionDispatch dispatch,
-        CancellationToken cancellationToken);
-
-    ValueTask<bool> RecordValidatorCompletedAsync(
-        ExecutionDispatch dispatch,
-        BashSyntaxValidationResult result,
-        CancellationToken cancellationToken);
 }
 
 /// <summary>Result of one foreground invocation managed by the session host.
@@ -182,7 +174,6 @@ public sealed class RunspaceHost : IDisposable
     private readonly string? _modulePath;
     private readonly string? _moduleSource;
     private readonly RtkExecutableIdentity? _rtkExecutableIdentity;
-    private readonly BashExecutableIdentity? _bashExecutableIdentity;
     // The warm runspace, as a task: recycle paths swap in a REBUILD that runs
     // off the response's critical path. The slice-0 incident class — a stalled
     // Runspace.Open or module import silently withholding the labeled timeout
@@ -333,7 +324,6 @@ public sealed class RunspaceHost : IDisposable
         TimeSpan? callTimeout = null,
         string? modulePathOverride = null,
         TimeSpan? maxCallTimeout = null,
-        string? bashPathOverride = null,
         string? rtkPathOverride = null)
     {
         _callTimeout = callTimeout ?? TimeSpan.FromSeconds(300);
@@ -353,9 +343,6 @@ public sealed class RunspaceHost : IDisposable
             _rtkExecutableIdentity = CaptureStartupRtkIdentity(
                 initialPrimed.Runspace,
                 rtkPathOverride);
-            _bashExecutableIdentity = CaptureStartupBashIdentity(
-                initialPrimed.Runspace,
-                bashPathOverride);
         }
         catch
         {
@@ -612,13 +599,9 @@ public sealed class RunspaceHost : IDisposable
     /// preflight and its CLR command snapshot are active.</summary>
     internal TimeSpan PreflightDelayForTests { get; set; }
 
-    /// <summary>Test seam for the fixed internal Bash syntax-validation cap.</summary>
-    internal TimeSpan BashValidationLimitForTests { get; set; } =
-        BashProcessRunner.DefaultValidationLimit;
 
     /// <summary>Test seam that may alter only detector output. The independent
     /// PowerShell parse-fatal fact remains owned by the trusted parser.</summary>
-    internal Func<string, string?>? DialectFindingOverrideForTests { get; set; }
 
     /// <summary>Test-only compatibility seam for fixtures that vary a fake
     /// RTK after constructing a shared host. Production always uses the
@@ -974,8 +957,7 @@ public sealed class RunspaceHost : IDisposable
     {
         var requests = TrustedPreflightClassifier
             .GetRequiredCommandNames(script)
-            .Select(name => new CommandLookupRequest(name, CommandTypes.All, CommandTypes.All))
-            .Append(new CommandLookupRequest("bash", CommandTypes.All, CommandTypes.All));
+            .Select(name => new CommandLookupRequest(name, CommandTypes.All, CommandTypes.All));
         return CaptureCommandFacts(runspace, requests);
     }
 
@@ -1108,60 +1090,6 @@ public sealed class RunspaceHost : IDisposable
         }
         if (terminatingError is not null) errors.Add(terminatingError);
         return (FilterRtkNag(stderr), [.. errors]);
-    }
-
-    private static bool BashAvailable(TrustedCommandSnapshot commands) =>
-        commands.Resolve("bash", CommandTypes.All)?.CommandType == CommandTypes.Application;
-
-    private static BashExecutableIdentity? CaptureStartupBashIdentity(
-        Runspace runspace,
-        string? bashPathOverride)
-    {
-        if (bashPathOverride is not null)
-            return BashExecutableIdentity.TryCapture(bashPathOverride);
-
-        var resolved = WithReadOnlyCommandLookup(
-            runspace,
-            invocation => CaptureResolvedCommand(
-                invocation,
-                "bash",
-                CommandTypes.Application));
-        return BashExecutableIdentity.TryCapture(resolved?.Source);
-    }
-
-    private static string FormatDialectRefusal(string finding, bool bashAvailable)
-    {
-        // Two quoting layers compose in the wrap (sd2-1): the wrap itself is
-        // a PowerShell command line (its single-quoted argument is a
-        // PowerShell string literal — escape ' by doubling), and bash then
-        // parses the string's VALUE as script text (escape ' with a
-        // backslash). The POSIX '\'' idiom alone parse-fails at the
-        // PowerShell layer before bash ever runs.
-        var recovery = bashAvailable
-            ? "Rewrite it in PowerShell, or run it unchanged as bash by wrapping the whole script: " +
-              "bash -lc '...'. The wrap is itself a PowerShell command line, so write a literal ' " +
-              "inside the wrap by doubling it for PowerShell and backslash-escaping it for bash: " +
-              "bash -lc 'echo it\\''s' prints it's."
-            : "Rewrite it in PowerShell (bash is not available on this machine).";
-        return $"[ptk:dialect] not executed: the script contains {finding} - bash-only syntax, " +
-               $"and this tool runs PowerShell 7. {recovery}";
-    }
-
-    private static string FormatBashDelegationUnavailable(
-        string finding,
-        bool bashAvailable,
-        bool rtkAvailable,
-        bool workingDirectoryAvailable)
-    {
-        var reason = !bashAvailable
-            ? "the startup-pinned Bash executable is unavailable"
-            : !rtkAvailable
-                ? "the pinned RTK executable is unavailable"
-                : !workingDirectoryAvailable
-                    ? "the warm filesystem working directory is unavailable"
-                    : "the trusted Bash execution plan could not be prepared";
-        return $"[ptk:dialect] not executed: the script contains {finding}, but {reason}; " +
-               "the original script was NOT started and PTK did not request a retry.";
     }
 
     private static string? TryCaptureCurrentFileSystemLocation(Runspace runspace)
@@ -1553,58 +1481,6 @@ public sealed class RunspaceHost : IDisposable
         Disposition: InvokeDisposition.NotStarted,
         UserExecutionStarted: false);
 
-    private static InvokeResult BashValidationFailureResult(
-        BashSyntaxValidationResult validation)
-    {
-        var status = validation.Status;
-        var reason = status switch
-        {
-            BashSyntaxValidationStatus.SyntaxInvalid =>
-                "Bash syntax validation rejected the submitted script",
-            BashSyntaxValidationStatus.TimedOut =>
-                "the bounded Bash syntax validator timed out",
-            BashSyntaxValidationStatus.Canceled =>
-                "the Bash syntax validator was canceled",
-            BashSyntaxValidationStatus.StartFailed =>
-                "the startup-pinned Bash validator could not start",
-            BashSyntaxValidationStatus.StartOutcomeUnknown =>
-                "the Bash validator start outcome could not be proven",
-            BashSyntaxValidationStatus.RuntimeFailed =>
-                "the Bash syntax validator failed internally",
-            BashSyntaxValidationStatus.IdentityChanged =>
-                "the startup-pinned Bash identity changed",
-            BashSyntaxValidationStatus.AuditUnavailable =>
-                "validator audit persistence became unavailable",
-            _ => "Bash syntax validation did not authorize execution",
-        };
-        var termination = validation.RootTerminationConfirmed == false
-            ? "; validator root-process termination could not be confirmed and descendant coverage is unknown"
-            : string.Empty;
-        return new InvokeResult(
-            Success: false,
-            Output: $"[ptk:dialect] not executed: {reason}{termination}; the original script was NOT started and PTK did not request a retry.",
-            Errors: [],
-            Warnings: [],
-            TimedOut: status == BashSyntaxValidationStatus.TimedOut,
-            Disposition: InvokeDisposition.NotStarted,
-            UserExecutionStarted: false)
-        {
-            AuditDetailCode = validation.DetailCode,
-        };
-    }
-
-    private static InvokeResult BashDependencyFailureResult(string detailCode) => new(
-        Success: false,
-        Output: "[ptk:dialect] not executed: the pinned Bash/RTK delegation identity became unavailable; the original script was NOT started and PTK did not request a retry.",
-        Errors: [],
-        Warnings: [],
-        TimedOut: false,
-        Disposition: InvokeDisposition.NotStarted,
-        UserExecutionStarted: false)
-    {
-        AuditDetailCode = detailCode,
-    };
-
     private static async Task<bool> InvokeAuthorizationBarrierAsync(
         Func<ValueTask<bool>> authorize)
     {
@@ -1656,7 +1532,6 @@ public sealed class RunspaceHost : IDisposable
                 dispatch.RequestedRoute,
                 dispatch.ExecutionPath,
                 dispatch.FallbackReason,
-                dispatch.ExecutionPath == ExecutionPath.BashViaRtk ||
                 string.Equals(
                     dispatch.ExecutionScript,
                     dispatch.Plan.OriginalScript,
@@ -3154,44 +3029,6 @@ public sealed class RunspaceHost : IDisposable
                     var commands = CaptureForegroundCommandFacts(runspace, script);
                     var workingDirectory =
                         TryCaptureCurrentFileSystemLocation(runspace);
-                    var assessment = TrustedPreflightClassifier.AssessShellDialect(script, commands);
-                    var findingOverride = DialectFindingOverrideForTests;
-                    var finding = findingOverride is null
-                        ? assessment.Finding
-                        : findingOverride(script);
-                    if (finding is not null)
-                    {
-                        if (assessment.PowerShellParseFatal)
-                        {
-                            if (_bashExecutableIdentity is not null &&
-                                effectiveRtkIdentity is not null &&
-                                workingDirectory is not null)
-                            {
-                                plan = ExecutionPlanner.CreateBash(
-                                    script,
-                                    route,
-                                    effectiveRtkIdentity,
-                                    _bashExecutableIdentity,
-                                    workingDirectory,
-                                    ResolutionContext.Warm);
-                                return (Refusal: (string?)null, Plan: plan);
-                            }
-
-                            return (
-                                Refusal: FormatBashDelegationUnavailable(
-                                    finding,
-                                    _bashExecutableIdentity is not null,
-                                    effectiveRtkIdentity is not null,
-                                    workingDirectory is not null),
-                                Plan: plan);
-                        }
-
-                        return (
-                            Refusal: FormatDialectRefusal(
-                                finding,
-                                BashAvailable(commands)),
-                            Plan: plan);
-                    }
                     // Ask RTK whether it can rewrite this script. The call runs
                     // here, in preflight, so the planner stays pure and the
                     // bounded child process is covered by the same deadline as
@@ -3408,62 +3245,6 @@ public sealed class RunspaceHost : IDisposable
                 dispatch = fallbackDispatch;
             }
 
-            if (dispatch.ExecutionPath == ExecutionPath.BashViaRtk)
-            {
-                if (dispatch.RtkExecutableIdentity is not { } bashRtk ||
-                    !bashRtk.MatchesCurrentFile())
-                {
-                    return WithDispatchRouting(
-                        BashDependencyFailureResult("rtk_identity_changed"),
-                        dispatch);
-                }
-
-                var validation = await BashProcessRunner.ValidateAsync(
-                    dispatch,
-                    callDeadline,
-                    cancellationToken,
-                    () => authorizer is null
-                        ? ValueTask.FromResult(true)
-                        : authorizer.RecordValidatorStartedAsync(
-                            dispatch,
-                            CancellationToken.None),
-                    BashValidationLimitForTests);
-
-                if (validation.Status == BashSyntaxValidationStatus.AuditUnavailable)
-                    return AuthorizationFailureResult(timedOut: false);
-
-                if (authorizer is not null &&
-                    !await InvokeAuthorizationBarrierAsync(() =>
-                        authorizer.RecordValidatorCompletedAsync(
-                            dispatch,
-                            validation,
-                            CancellationToken.None)))
-                {
-                    return AuthorizationFailureResult(timedOut: false);
-                }
-
-                if (validation.Status != BashSyntaxValidationStatus.Valid)
-                {
-                    return WithDispatchRouting(
-                        BashValidationFailureResult(validation),
-                        dispatch);
-                }
-
-                var bashResult = await BashProcessRunner.ExecuteAsync(
-                    dispatch,
-                    callDeadline,
-                    cancellationToken);
-                if (outputCapture is not null && bashResult.UserExecutionStarted)
-                {
-                    bashResult = bashResult with
-                    {
-                        OutputRecovery = OutputRecoverySummary.Unavailable(
-                            "rtk_capture_unsupported",
-                            advertise: true),
-                    };
-                }
-                return WithDispatchRouting(bashResult, dispatch);
-            }
 
 
             // The supervisor waits until the exact dispatch is durable and

@@ -1,5 +1,7 @@
 # Review status
 
+**Scope extension 2026-08-01 — opr-11:** a real shipped-server stdio probe established generated DataAnnotations are advisory schema, not an enforced input boundary. `opr-11`'s repair must therefore validate `auto|pwsh|rtk` in the active runtime path and refuse explicit unknown values in `WorkerSupervisor.ParseRoute`; `AllowedValues` remains client guidance only. Severity remains MEDIUM. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier` at `09df6b8`. No product or test change.
+
 **Open — opr-54:** LOW — at `c9a7f51`, generated session-name schema constraints are not enforced by the shipped server and `WorkerSupervisor.Refused` echoes rejected raw names into PTK directive lines; a real stdio probe injected a forged status line without starting a worker. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-54.md`.
 
 **Open — opr-53:** MEDIUM — at `c9a7f51`, worker-controlled invocation and state text shares one unframed channel with PTK-authored retry, status, and recovery directives; a real stdio invoke preserved forged status and recovery lines beside the genuine recovery line. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-53.md`.

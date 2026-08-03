@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **`opr-11` runtime-boundary extension (2026-08-01):** real shipped-server stdio evidence proves generated DataAnnotations are advisory schema rather than enforced input validation. The existing MEDIUM route-fallback repair must validate in the active runtime path and make `WorkerSupervisor.ParseRoute` refuse explicit unknown values; schema-only repair is insufficient. No product or test change.
+
 - **WorkerSupervisor `opr-54` intake (2026-08-01):** LOW accepted and plan-gated at `c9a7f51`: generated session-name schema constraints are not enforced by the shipped server, and rejected raw names are echoed into PTK directive lines. A real stdio probe injected a forged status line and started no worker. No product or test change.
 
 - **WorkerSupervisor `opr-53` intake (2026-08-01):** MEDIUM accepted and plan-gated at `c9a7f51`: worker-controlled invocation and state text can forge PTK-authored retry, status, and recovery directives because both share one unframed response channel. A real stdio invoke preserved forged status and recovery lines beside the genuine recovery line. No product or test change.
@@ -1019,6 +1021,8 @@ short and update it when important repo facts change.
   worker/process guards cover during execution and after an observable effect.
 
 ## Next
+
+- **Review intake:** `opr-11` MEDIUM remains plan-gated: add client schema guidance plus authoritative active-runtime route validation and defensive parser refusal; real stdio guards must prove unknown routes never execute as `auto`. No product or test change.
 
 - **Review intake:** `opr-54` LOW accepted and plan-gated: enforce canonical session/name values at the runtime operation boundary and never reflect rejected raw input into PTK control lines; guard real stdio calls across all session-bearing tools. No product or test change.
 

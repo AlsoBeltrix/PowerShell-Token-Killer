@@ -5,6 +5,12 @@ authorized. This plan supersedes `.agents/plans/minimum-viable-release.md`
 on approval, retaining that document's release-blocking rule, non-goals,
 and Slices 5–6 by reference.
 
+**Review:** openreview codex (harness default model/effort, ungraded) over
+`e22d619..3f8160c`: `acceptable_with_changes`. One material change —
+the warm-binding guard — was verified against live product behavior and
+incorporated into Slice 2 at `9adcf95`. Provenance and the reproduction are
+in `.agents/review/openreview-rtk-router-codex-r1.md`.
+
 ## Product definition
 
 PTK is two things, equally load-bearing:
@@ -125,6 +131,31 @@ Rewrite acceptance rules — a rewrite is used only when all hold:
 2. stdout differs from the submitted script (identity rewrites are a
    decline; nothing to gain).
 3. stdout contains no newline the submitted script did not contain.
+4. **Warm-binding guard.** Every command name RTK wrapped with `rtk`
+   resolves in the selected warm session to `Application` — a native
+   executable — and not to a function, alias, cmdlet, or external script.
+
+The warm-binding guard is load-bearing and non-optional. RTK rewrites
+command *text* and has no knowledge of session state, so it will rewrite
+`git status` to `rtk git status` even when the session defines
+`function global:git`. Without the guard, delegation would silently execute
+native `git` instead of the user's persisted binding — a different command
+than the one submitted, which the release-blocking rule names first.
+
+Implement the guard from warm command facts already captured for the
+selected session (the same read-only CLR enumeration that
+`CaptureForegroundCommandFacts` performs today; it executes no PowerShell).
+Extract the wrapped names from RTK's stdout, look each up, and decline the
+whole rewrite unless every one binds to `Application`. Decline whole, never
+per-segment: a partially applied rewrite is a third execution shape nobody
+requested.
+
+Existing coverage pins this behavior and must keep passing unchanged:
+`server/PtkMcpServer.Tests/InvokeToolTests.cs:1364`
+(`Warm_function_or_alias_shadow_keeps_native_name_on_direct_route`) proves a
+warm `function global:git` or `Set-Alias git` keeps `git status` on
+`ExecutionPath.PowerShellDirect`. Add the equivalent guard for a rewrite
+that RTK returned.
 
 Otherwise execute the original text unchanged.
 
@@ -140,8 +171,14 @@ Delete, after confirming no remaining production caller:
   retained path uses it
 
 Retain: `RtkProcessRunner` process mechanics, `RtkExecutableIdentity`
-startup pinning, `ExecutionPath.Rtk`, and output provenance so
-RTK-produced output is not sent through `rtk log` a second time.
+startup pinning, `ExecutionPath.Rtk`, output provenance so RTK-produced
+output is not sent through `rtk log` a second time, and the warm
+command-fact capture the binding guard depends on.
+
+What is deleted is PTK deciding routing *eligibility* and resolving
+*executable identity on disk*. What is retained is PTK deciding whether a
+name binds to something other than a native executable **in this session** —
+a question only PTK can answer and RTK never can.
 
 Closes `opr-48`, `opr-49`, `opr-50`, `opr-51` (PATH/drive/casing
 resolution) and `opr-55` (argv boundary divergence) as removed code — all
@@ -149,8 +186,10 @@ five exist only because PTK resolved targets itself.
 
 **Complete when:** a compound command (`git status && cargo test`) routes
 through RTK, a declined command (`npm test`) executes exactly as
-PowerShell, an absent RTK binary executes every command exactly, and no
-production code resolves an executable against PATH for routing.
+PowerShell, a warm-shadowed name (`function global:git`) executes the
+PowerShell binding and never RTK, an absent RTK binary executes every
+command exactly, and no production code resolves an executable against PATH
+for routing.
 
 ## Slice 3 — delete shell inference
 

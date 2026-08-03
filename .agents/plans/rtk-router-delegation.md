@@ -8,7 +8,7 @@ and Slices 5–6 by reference.
 **Review:** openreview codex (harness default model/effort, ungraded) over
 `e22d619..3f8160c`: `acceptable_with_changes`. One material change —
 the warm-binding guard — was verified against live product behavior and
-incorporated into Slice 2 at `9adcf95`. Provenance and the reproduction are
+incorporated into Slice 2 at `2f7defa`. Provenance and the reproduction are
 in `.agents/review/openreview-rtk-router-codex-r1.md`.
 
 ## Product definition

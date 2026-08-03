@@ -9,9 +9,7 @@
     PowerShellVersion = '7.2'
     FunctionsToExport = @(
         'Compress-PtcObject',
-        'Compress-PtcOutput',
-        'Get-PtcShellDialectFinding',
-        'Resolve-PtcInvokeScript'
+        'Compress-PtcOutput'
     )
     AliasesToExport   = @()
     CmdletsToExport   = @()

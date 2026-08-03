@@ -259,9 +259,17 @@ internal static class ExecutionPlanner
         // recognizes. Removing those prefixes must therefore reproduce exactly
         // what was submitted. Anything else — reordered, edited, or invented
         // text — is not a rewrite PTK will execute in the caller's name.
+        // Exact, not whitespace-normalized. Normalizing collapsed runs of
+        // whitespace anywhere — including inside a quoted argument — so a
+        // rewrite that changed `git commit -m "a  b"` to `... "a b"` reduced
+        // to the same string and was accepted, then executed with different
+        // argument text. RTK inserts `rtk ` and a single following space and
+        // changes nothing else, so removing exactly that must reproduce the
+        // submitted text byte for byte. Only leading and trailing whitespace
+        // is forgiven, because the submitted text is trimmed before use.
         if (!string.Equals(
-                NormalizeWhitespace(stripped.ToString()),
-                NormalizeWhitespace(script),
+                stripped.ToString().Trim(),
+                script.Trim(),
                 StringComparison.Ordinal))
         {
             return false;
@@ -271,10 +279,6 @@ internal static class ExecutionPlanner
         return true;
     }
 
-    private static string NormalizeWhitespace(string value) =>
-        string.Join(' ', value.Split(
-            (char[]?)null,
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
 
     private static ExecutionDomain? ClassifyDomain(
         string script,

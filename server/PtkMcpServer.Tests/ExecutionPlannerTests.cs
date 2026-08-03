@@ -58,6 +58,28 @@ public sealed class ExecutionPlannerTests
     }
 
     /// <summary>
+    /// The strip-and-compare must be exact, not whitespace-normalized. A
+    /// normalized comparison collapsed runs of whitespace anywhere — including
+    /// inside a quoted argument — so a rewrite that silently changed the text
+    /// of an argument reduced to the same string and was accepted, then
+    /// executed with different argument content than the caller submitted.
+    /// </summary>
+    [Fact]
+    public void Rewrite_altering_whitespace_inside_a_quoted_argument_is_declined()
+    {
+        const string script = "git commit -m \"two  spaces\"";
+
+        var plan = Plan(
+            script,
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: "rtk git commit -m \"two spaces\"");
+
+        AssertDirect(plan, script, RequestedExecutionRoute.Auto);
+    }
+
+    /// <summary>
     /// Slice 2: RTK holds no session state, so it wraps a name the session may
     /// have bound to something other than a native executable. Executing that
     /// rewrite would run a different command than the caller submitted.

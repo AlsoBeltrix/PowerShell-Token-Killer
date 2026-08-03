@@ -673,102 +673,6 @@ function Invoke-PtcRtkLog {
     }
 }
 
-# Routing for the unified shell surface (unified-shell-routing plan): a script
-# that is exactly one bare native-application command with constant arguments
-# is rewritten to run through rtk, whose per-command filters compress output at
-# the source and whose passthrough keeps unknown commands intact (verified in
-# the plan's slice-0 probe). Everything else - pipelines, chains, variables,
-# cmdlets, aliases, redirections, parse errors - returns unchanged and runs as
-# PowerShell: natives inside chains execute with correct semantics there, and
-# their text output still gets the log-shaped rtk leg in Compress-PtcOutput.
-# With no rtk binary the script also returns unchanged (same execution as
-# before routing existed; unfiltered, never a failure).
-function Resolve-PtcInvokeScript {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [AllowEmptyString()]
-        [string]$Script,
-        # 'pwsh' always returns the script unchanged; 'rtk' skips the
-        # Application resolution check but still needs the single-command
-        # constant-args shape to rewrite safely.
-        [ValidateSet('auto', 'pwsh', 'rtk')]
-        [string]$Route = 'auto'
-    )
-
-    if ($Route -eq 'pwsh') { return $Script }
-
-    $rtk = Get-PtcRtkCommand
-    if (-not $rtk) { return $Script }
-
-    $tokens = $null
-    $parseErrors = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseInput($Script, [ref]$tokens, [ref]$parseErrors)
-    if (@($parseErrors).Count -gt 0) { return $Script }
-    if ($null -ne $ast.ParamBlock -or $null -ne $ast.BeginBlock -or $null -ne $ast.ProcessBlock) { return $Script }
-    if ($null -eq $ast.EndBlock) { return $Script }
-    $statements = @($ast.EndBlock.Statements)
-    if ($statements.Count -ne 1) { return $Script }
-    $pipeline = $statements[0]
-    if ($pipeline -isnot [System.Management.Automation.Language.PipelineAst]) { return $Script }
-    if (@($pipeline.PipelineElements).Count -ne 1) { return $Script }
-    $command = $pipeline.PipelineElements[0]
-    if ($command -isnot [System.Management.Automation.Language.CommandAst]) { return $Script }
-    if ($command.InvocationOperator -ne [System.Management.Automation.Language.TokenKind]::Unknown) { return $Script }
-    if (@($command.Redirections).Count -gt 0) { return $Script }
-
-    $elements = @($command.CommandElements)
-    if ($elements[0] -isnot [System.Management.Automation.Language.StringConstantExpressionAst]) { return $Script }
-    $name = $elements[0].Value
-    if ([System.IO.Path]::GetFileNameWithoutExtension($name) -eq 'rtk') { return $Script }
-    foreach ($element in ($elements | Microsoft.PowerShell.Utility\Select-Object -Skip 1)) {
-        # StringConstantExpressionAst derives from ConstantExpressionAst, so
-        # one check covers bare words, quoted literals, and numbers. A
-        # parameter like -m is constant unless its attached argument is not
-        # (-flag:$var).
-        $isConstant = $element -is [System.Management.Automation.Language.ConstantExpressionAst] -or
-            ($element -is [System.Management.Automation.Language.CommandParameterAst] -and
-                ($null -eq $element.Argument -or
-                 $element.Argument -is [System.Management.Automation.Language.ConstantExpressionAst]))
-        if (-not $isConstant) { return $Script }
-    }
-
-    if ($Route -ne 'rtk') {
-        # Resolve in this runspace: aliases, cmdlets, and functions shadow
-        # native binaries here exactly as they would at execution time (on
-        # Windows, ls is an alias and `rtk ls` fails - slice-0 probe). The
-        # Lookup is intentionally restricted to the imported/session command
-        # table so prepare cannot auto-import a discoverable module and run its
-        # top-level code before the audited dispatch barrier.
-        $resolved = Get-PtcLoadedCommand $name ([System.Management.Automation.CommandTypes]::All)
-        if ($null -eq $resolved -or $resolved.CommandType -ne [System.Management.Automation.CommandTypes]::Application) { return $Script }
-        # Batch shims (npm.cmd, npx.cmd) get special argument quoting from
-        # PowerShell that an rtk.exe re-invocation would not reproduce -
-        # empty-string and embedded-quote args could reach the shim
-        # differently. Semantics win over filtering: keep them on the
-        # PowerShell path.
-        if ([System.IO.Path]::GetExtension($resolved.Source) -in '.cmd', '.bat') { return $Script }
-    }
-
-    "& '{0}' {1}" -f $rtk.Replace("'", "''"), $command.Extent.Text
-}
-
-# Shell-dialect detector (shell-dialect plan D1, slice 1; every shape below
-# was probed 2026-07-09 and frozen in .agents/plans/shell-dialect.md "Slice
-# 0 results"). Agents feed this harness bash one-liners, and PowerShell
-# either refuses them with errors that never name the real problem (a
-# heredoc dies as "Missing file specification after redirection operator")
-# or - the worst probed case - silently changes their meaning (echo `date`
-# prints the literal text and exits 0). This names the construct so the
-# invoke path can refuse fast with honest guidance (slice 2) instead of
-# letting the misdiagnosis reach the agent. Detection is deliberately
-# narrow: parse-fatal shapes key on the parser's own error id AND the bash
-# text shape; clean-parse shapes key on exact AST forms; the plan's
-# false-positive set must never trip. An over-match breaks a legitimate
-# script while a miss merely falls back to today's behavior, so precision
-# wins over recall - trailing-\ line continuation is excluded for exactly
-# that reason (a legal Windows path ending; accepted miss, frozen in the
-# plan). Returns a short label naming the construct, or $null.
 function Limit-PtcPassthrough {
     param(
         [AllowNull()][string]$Text,
@@ -925,6 +829,5 @@ function Compress-PtcOutput {
 
 Microsoft.PowerShell.Core\Export-ModuleMember -Function @(
     'Compress-PtcObject',
-    'Compress-PtcOutput',
-    'Resolve-PtcInvokeScript'
+    'Compress-PtcOutput'
 )

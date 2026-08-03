@@ -106,47 +106,32 @@ runspace's current directory and environment still apply.
 
 Routing rules:
 
-- A script that is exactly one bare native application command with constant
-  arguments, such as `git status --short`, is rewritten through `rtk` when
-  `rtk` is available.
+- RTK decides. PTK submits the exact submitted text to
+  `rtk hook check --agent ptk` and either runs the rewrite RTK returns or runs
+  the original unchanged. It does not judge eligibility from the PowerShell
+  AST and does not resolve executables against PATH.
+- RTK rewrites each segment of a compound command it recognizes and preserves
+  the rest, so `git status && cargo test` routes both halves. Heredocs,
+  multi-line blocks, pipelines, and unknown commands are declined by RTK and
+  execute exactly as PowerShell.
+- An accepted rewrite must reduce to the submitted text once RTK's inserted
+  `rtk ` prefixes are removed, and every wrapped name must resolve to a native
+  application in the selected session. Either check failing declines the whole
+  rewrite; a partially applied rewrite is never executed.
 - `rtk` itself is not double-routed.
-- Cmdlets, aliases, functions, pipelines, chains, variables, expandable
-  strings, redirections, mixed dataflow, and `.cmd`/`.bat` shims stay on the
-  exact PowerShell path. RTK routing never prefilters bytes flowing into a
-  PowerShell consumer or redirection sink.
 - PTK freezes RTK's canonical path, bounded SHA-256 identity, and Unix mode at
-  server startup. Warm-session `PATH`/`PTK_RTK_PATH` changes cannot substitute
-  a different binary. Identity or availability loss before a routed process
-  starts takes the exact-original fallback once; PTK never
-  asks the model to reconstruct the command and never retries after start.
-- Automatic Bash delegation requires all three independent facts: PowerShell
-  parse-fatal input, detector evidence for a specific Bash construct outside
-  comments/strings, and a successful post-dispatch
-  `bash --noprofile --norc -n -c <exact-script>` syntax check. Only then does
-  PTK execute the exact bytes once via startup-pinned RTK and
-  `bash --noprofile --norc -c`. Both direct process environments remove Bash
-  startup/function/option injection and platform loader-injection variables.
-- Missing/drifted Bash or RTK, invalid syntax, validator timeout, or an
-  exhausted call budget returns a labeled not-started result without running
-  the submitted script or requesting a retry. Start and termination certainty
-  remain explicit in the returned outcome.
-- A clean-parsing detector finding retains the fast `[ptk:dialect]` refusal.
-  `route=pwsh` bypasses the detector/delegation path as explicit PowerShell
-  consent; normal capture and shaping still apply. The deprecated `raw=true`
-  flag is inert compatibility telemetry and does not affect dialect handling,
-  interpreter, routing, process choice, capture, or shaping.
-- High-confidence mixed file capture remains advisory: the exact original
-  `<native application> | Set-Content <constant non-wildcard path>` pipeline
-  runs first in PowerShell. Only the exact built-in
-  `Microsoft.PowerShell.Management` `Set-Content` implementation in a
-  filesystem location is eligible, and only after it completes without
-  PowerShell errors may PTK
-  append `[ptk:routing]` with the simpler direct-capture style
-  `<native application> > <path>` for next time. PTK never rewrites or reruns
-  the command, never refuses to teach style, and emits no suggestion for
-  dynamic or provider-qualified paths, extra sink semantics, shadowed
-  commands, multiline shapes, existing redirection, ambient WhatIf/Confirm or
-  default-parameter overrides, or failed pipelines.
+  server startup, and binds that absolute path into the accepted rewrite, so
+  warm-session `PATH`/`PTK_RTK_PATH` changes cannot substitute a different
+  binary. Identity or availability loss before a routed process starts takes
+  the exact-original fallback once; PTK never asks the model to reconstruct
+  the command and never retries after start.
+- Bash is not inferred. PTK does not detect, refuse, validate, or delegate a
+  dialect. A user who needs bash invokes it explicitly as an ordinary native
+  command (`bash -lc '...'`), and rtk sees that like any other command. The
+  deprecated `raw=true` flag is inert compatibility telemetry and does not
+  affect interpreter, routing, process choice, capture, or shaping.
+- PTK emits no post-success command advice. A mixed native/PowerShell pipeline
+  executes exactly as submitted and returns no rewritten-command suggestion.
 
 Output shaping:
 
@@ -163,9 +148,6 @@ Output shaping:
   rehash to a regular nonsymlink file of at most 128 MiB, checks Unix mode
   drift, and validates the returned routing envelope against the authorized
   digest.
-- Delegated Bash/RTK stdout and stderr are each captured to a 4 MiB response
-  bound while the pipes continue draining. Truncation is labeled and never
-  causes re-execution.
 - Nonzero native exit codes are reported as `[exit] N`.
 
 Overrides:

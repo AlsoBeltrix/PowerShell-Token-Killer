@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Windows CI confirmed `opr-7` concurrent-publication arm (2026-08-02):** run `30784201961` observed a concurrent initializer see `.ptk-audit-quota.lock` after final-name creation but before Windows owner-only DACL protection, causing non-retryable pre-open verification failure. Unchanged-code run `30786526767` passed all six jobs and the focused Windows test passed 20/20 locally. Opus classified `OPR7_EXTENSION`, MEDIUM; existing atomic quota-control publication plan gate remains, with no product or test change.
+
 - **OutputStore review in progress (2026-08-02):** lines 1–541 at blob `7ca10b70` are complete across exact-source Opus gates for 1–249, 250–438, and 439–541 after the initial oversized pass timed out; models/options, reservation state, prepare/deadline races, detach, sealing, fault observation, and disposal are clean. Independent focused tests passed 99/99. A contested supervisor-artifact dispose-after-publication candidate was rejected by focused Opus as intentional/duplicate of repaired `gh-16-1`/`gh-16-2`: the sink completes observation and the bounded store retains a publicly discoverable session artifact. No product or test change.
 
 - **Program complete-source review closed (2026-08-02):** all 49 lines reviewed at blob `ba01d79` in one complete Opus composition pass with worker entry, stdin guard, lifecycle/filter, DI aliases, disposal, and real stdio behavior; focused tests passed 68/68 and exact-head CI `30782965551` passed all six jobs including three-platform handshakes. Existing `opr-1`, `opr-8` through `opr-10`, and `opr-42` remained excluded. Opus found no current defect; no product or test change.

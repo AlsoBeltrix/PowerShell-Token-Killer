@@ -1798,6 +1798,25 @@ public sealed class RunspaceHost : IDisposable
             detached.TypeNames.Add(detachedTypeName);
 
             var runtimeType = baseObject?.GetType();
+            if (baseObject is ErrorRecord errorRecord)
+            {
+                // An ErrorRecord reaching the output stream is almost always
+                // native stderr redirected with 2>&1, and its text is the whole
+                // point. Property projection buried that text: every member is
+                // an active getter, so the record rendered as one `Value`
+                // column reading "[active member not evaluated]" and the
+                // message was lost. TryFreezeErrorRecord already reads it
+                // safely — same trusted-assembly gate the error stream uses —
+                // so project the message rather than the object's shape.
+                _lossyProjection = true;
+                var frozen = TryFreezeErrorRecord(errorRecord, out var errorText);
+                if (!frozen)
+                    _activeMemberOmitted = true;
+                if (!TryChargeProjection(MeasureRetainedText(errorText) + 64))
+                    return;
+                _captured.Add(PSObject.AsPSObject(errorText));
+                return;
+            }
             if (runtimeType == typeof(FileInfo) || runtimeType == typeof(DirectoryInfo))
             {
                 _lossyProjection = true;

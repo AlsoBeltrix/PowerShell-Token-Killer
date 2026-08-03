@@ -23,6 +23,53 @@ public sealed class RunspaceHostTests : IDisposable
         Assert.Equal("STA", result.Output.Trim());
     }
 
+    /// <summary>
+    /// Slice 4: a native command's stderr redirected with 2>&amp;1 arrives as
+    /// ErrorRecord objects on the output stream. Every member of an
+    /// ErrorRecord is an active getter, so property projection replaced the
+    /// text with "[active member not evaluated]" and the message was lost —
+    /// a supported tool returning materially wrong output. The message must
+    /// survive.
+    /// </summary>
+    [Fact]
+    public async Task Native_stderr_redirected_into_output_keeps_its_text()
+    {
+        var script = OperatingSystem.IsWindows()
+            ? "& cmd /c \"echo PTK_STDERR_SENTINEL 1>&2\" 2>&1"
+            : "& sh -c 'echo PTK_STDERR_SENTINEL 1>&2' 2>&1";
+
+        var result = await _host.InvokeAsync(script);
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Contains("PTK_STDERR_SENTINEL", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "active member not evaluated",
+            result.Output,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Slice 4: the repair must not weaken the safety gate it reuses. An
+    /// ErrorRecord whose exception type is not from a trusted PowerShell
+    /// assembly still refuses to read that exception, and says so.
+    /// </summary>
+    [Fact]
+    public async Task Untrusted_error_exception_text_is_still_refused()
+    {
+        var result = await _host.InvokeAsync(
+            "$e = [System.Management.Automation.ErrorRecord]::new(" +
+            "[PtkUntrustedFixtureException]::new('MUST_NOT_BE_READ'), " +
+            "'id', 'NotSpecified', $null); $e",
+            route: "pwsh");
+
+        // The fixture type does not exist, so the script fails; what matters
+        // is that no path prints an untrusted exception's message.
+        Assert.DoesNotContain(
+            "MUST_NOT_BE_READ",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task State_persists_across_calls()
     {

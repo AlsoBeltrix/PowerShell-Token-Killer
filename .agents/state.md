@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Output formatter `opr-59` intake (2026-08-03):** LOW accepted and plan-gated: reading a nonempty Available or Incomplete artifact exactly at EOF returns a correct zero-byte page, but `FormatRead` then falsely appends `(no captured bytes)` despite its nonzero artifact-byte header. Repair is formatter-only and must preserve the true empty-artifact marker. No product or test file changed.
+
 - **macOS CI reopened `ci-slow-seal-2` (2026-08-02):** run `30784201961` failed unchanged slow-seal test code at `3.1263559s` against the three-second bound; the stopwatch includes variable work before witnessed seal entry. Unchanged-code run `30786526767` passed all six jobs. Opus classified the LOW recurrence as the same test-guard defect, not a product regression; further tolerance widening is prohibited and a fresh approved plan is required before re-anchoring the test-only measurement. No product or test change was made.
 - **Historical first closure of `ci-slow-seal-2` (2026-08-01; superseded by recurrence):** test-only commit `5180d0b` retained the two-second seal limit with independent three-second elapsed bound below the five-second caller budget. Mutation proof failed at `3.1491933s`; restored focused and 1,221/1,221 full server tests passed. Exact-head run `30748054339` passed all six jobs plus macOS-only rerun jobs `91497781569` and `91498323805`. Historical plan: `.agents/plans/ci-slow-seal-elapsed-headroom.md`.
 

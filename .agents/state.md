@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **Minimum viable release reset (2026-08-03):** `.agents/plans/minimum-viable-release.md` is DRAFT and authorizes no code. It limits release work to the five-tool PowerShell product, removes automatic Bash inference and post-success command advice, fixes only core session reliability, reuses existing packaging, and requires direct product checks only. No review is authorized without a separate explicit owner approval for that invocation. Await Decision 1 on the proposed product contract. Any later state entry directing unattended review is stale and superseded.
+
 - **Output formatter `opr-59` intake (2026-08-03):** LOW accepted and plan-gated: reading a nonempty Available or Incomplete artifact exactly at EOF returns a correct zero-byte page, but `FormatRead` then falsely appends `(no captured bytes)` despite its nonzero artifact-byte header. Repair is formatter-only and must preserve the true empty-artifact marker. No product or test file changed.
 
 - **macOS CI reopened `ci-slow-seal-2` (2026-08-02):** run `30784201961` failed unchanged slow-seal test code at `3.1263559s` against the three-second bound; the stopwatch includes variable work before witnessed seal entry. Unchanged-code run `30786526767` passed all six jobs. Opus classified the LOW recurrence as the same test-guard defect, not a product regression; further tolerance widening is prohibited and a fresh approved plan is required before re-anchoring the test-only measurement. No product or test change was made.
@@ -1082,7 +1084,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** continue `server/PtkMcpServer/Execution/OutputStore.cs` blob `7ca10b70` at lines 1215–1450 of 2,195. Those lines were previously consulted only for atomic-publication visibility; now review artifact creation and rendering, UTF-8 and output bounds, unlink-before-publication and flush ordering, reservation claim/publication cleanup, and capacity arithmetic completely. Use bounded exact-source Opus integration; exclude repaired `rbc-7`/`rbc-14` and accepted `opr-36`. Prioritize shipped product reachability over test-seam-only hardening.
+- **Immediate work:** no unattended review. Await owner Decision 1 on `.agents/plans/minimum-viable-release.md`; implementation starts only after that approval.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 
@@ -1131,7 +1133,7 @@ additional exact-head macOS attempts (`91446210698`, `91446785138`). Production
 remained unchanged; direct macOS mutation proof was unavailable and is not
 claimed.
 
-**Immediate next:** resume bounded read-only Claude Opus 5 review on merged
+**Immediate next:** obtain Decision 1 on the minimum release contract. Do not invoke a reviewer unless the owner separately approves that exact review.
 master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
 `opr-4` through `opr-18` are accepted and plan gated. `opr-14` is HIGH:
 fixed-signature `fcntl` P/Invokes mispass variadic arguments on Apple arm64;
@@ -1293,6 +1295,8 @@ readiness remain parked while product defects are active.
   in `.agents/machines.md`.
 
 ## Active Sources
+
+- `.agents/plans/minimum-viable-release.md` (draft; no implementation authority)
 
 - `AGENTS.md`
 - `.agents/repo-guidance.md`

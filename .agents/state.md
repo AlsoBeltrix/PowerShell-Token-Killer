@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditEvidenceRetentionAudit whole-file review closed (2026-08-01):** all 188 lines reviewed at `2c6bb7a` with evidence-store deletion, exact content/identity proof, event validation, and focused-test integration; tests passed 15/15. Existing HIGH `opr-35` was excluded as pre-selection scope. Prior limited `735000e` review expanded; no additional distinct finding and no product or test change.
+
 - **WorkerProcessExit whole-file review closed (2026-08-01):** all 179 lines reviewed at `c82d804` with process entry, server exit producers, both bootstrap implementations, and focused-test integration; tests passed 78/78. Accepted LOW `opr-52`; prior limited `a930e27` review expanded. No product or test change.
 
 - **WorkerProcessExit `opr-52` intake (2026-08-01):** LOW accepted and plan-gated at `e13bb8a`: four bounded production protocol/bootstrap detail codes are absent from terminal normalization allowlists, so correct exit classes lose actionable identity, incarnation, containment-group, or handle-direction detail. Focused tests pass 78/78 but do not guard the four mappings. No product or test change.
@@ -1042,7 +1044,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 188-line `AuditEvidenceRetentionAudit` current-head whole-file review; its prior record was limited to retention-event construction, ordering and bounds, count/byte truthfulness, exception handling, sensitive data, and fail-closed behavior rather than explicitly integrated complete-source caller/test coverage. Include evidence-store retention callers and focused retention-audit tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 381-line `WorkerSupervisor` current-head whole-file review; its prior record was limited to public result formatting and exception-to-tool responses rather than complete-source lifecycle, named-session, audit, validation, and state/reset/invoke integration. Review in bounded passes plus a whole-file Opus integration, with focused supervisor/session seam tests. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

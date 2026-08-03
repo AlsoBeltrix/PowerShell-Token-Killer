@@ -77,21 +77,27 @@ changes.
 CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
 runs the same battery (Pester, server/SIEM tests, handshake) on an
 ubuntu/windows/macos matrix for pushes to `master`/`ci/**` and PRs to
-`master`. Local verification before claiming completion still applies. See
-`.agents/repo-map.json` for the machine-readable record.
+`master`. Local verification before claiming completion still applies. The
+machine-readable `.agents/repo-map.json` record was removed by the governance
+refresh at `8e6624c`; this section is now the only record of the verification
+battery. (`.agents/plans/release-distribution.md` and
+`.agents/plans/warm-runspace-mcp-server.md` still instruct agents to update
+that deleted file — stale plan text, not an instruction to recreate it.)
 
 ## Remotes & Sync
 
-Three remotes are configured (`git remote -v`, confirmed 2026-07-10):
+Remote configuration is per-clone. In this clone (`git remote -v`, confirmed
+2026-08-03) exactly one remote is configured:
 
 - `origin` — `https://github.com/AlsoBeltrix/PowerShell-Token-Killer.git`
   (GitHub renamed the repo to capital-W `PowerShell-Token-Killer`; the URL
   was updated to match on the owner's go, 2026-07-10)
-- `gitea` — `http://q:3000/michael/Powershell-Token-Killer.git` (owner's
-  local Gitea mirror; observed in the owner's push flow 2026-07-09)
-- `github` — `https://github.com/roethlar/Powershell-Token-Killer`
-  (observed in config 2026-07-10; not previously recorded — purpose
-  unconfirmed, presumed the owner's personal mirror)
+
+The `gitea` (`http://q:3000/michael/Powershell-Token-Killer.git`) and `github`
+(`https://github.com/roethlar/Powershell-Token-Killer`) remotes recorded here
+on 2026-07-10 are absent from this clone; they were observed in the owner's
+own clone and remain plausible there. Re-check `git remote -v` per clone
+rather than trusting this list.
 
 `master` tracks `origin/master`. A `personal` remote
 (`https://github.com/roethlar/-PowerShell-Token-Killer.git`) was recorded

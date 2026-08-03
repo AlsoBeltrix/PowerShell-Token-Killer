@@ -4,6 +4,841 @@ Rotated verbatim from `.agents/state.md` by the `handoff` and `drift`
 operators; current state lives there. Entries below are historical record,
 newest rotation first.
 
+## Rotated 2026-08-03 (drift based on e22d619)
+
+Landed or self-labelled-superseded `## Now` entries, preserved verbatim.
+Canonical detail for these records lives in `.agents/review/index.md`,
+`.agents/machines.md`, and the named plans; current state lives in
+`.agents/state.md`.
+
+### From `## Now`
+
+- **Historical first closure of `ci-slow-seal-2` (2026-08-01; superseded by recurrence):** test-only commit `5180d0b` retained the two-second seal limit with independent three-second elapsed bound below the five-second caller budget. Mutation proof failed at `3.1491933s`; restored focused and 1,221/1,221 full server tests passed. Exact-head run `30748054339` passed all six jobs plus macOS-only rerun jobs `91497781569` and `91498323805`. Historical plan: `.agents/plans/ci-slow-seal-elapsed-headroom.md`.
+
+- **Program complete-source review closed (2026-08-02):** all 49 lines reviewed at blob `ba01d79` in one complete Opus composition pass with worker entry, stdin guard, lifecycle/filter, DI aliases, disposal, and real stdio behavior; focused tests passed 68/68 and exact-head CI `30782965551` passed all six jobs including three-platform handshakes. Existing `opr-1`, `opr-8` through `opr-10`, and `opr-42` remained excluded. Opus found no current defect; no product or test change.
+
+- **ExecutionPlanner complete-source review closed (2026-08-02):** all 675 lines reviewed at blob `234c3833` in three bounded passes plus whole-file Opus integration; focused tests passed 103/103. Accepted HIGH `opr-58`, MEDIUM `opr-55`/`opr-56`, LOW `opr-57`; prior repaired and adjacent findings remained excluded. Exact target-visible probes resolved the sole integration dispute in favor of `opr-55`. Prior limited record expanded; no product or test change.
+
+- **ExecutionPlanner `opr-58` intake (2026-08-01):** HIGH accepted plan-gated at `a3b7994`: successful mixed-dataflow guidance can recommend redirecting a fully buffering producer into its own input. Disposable-file proof preserved 13 characters under the completed pipeline but the suggested shape truncated the target to zero. No product or test change.
+
+- **ExecutionPlanner `opr-57` intake (2026-08-01):** LOW accepted plan-gated at `1de0286`: redirected `CommandExpressionAst` pipelines return `PowerShell` before redirections are checked, so audit routing metadata mislabels file-writing expression forms. Execution remains PowerShellDirect. No product or test change.
+
+- **ExecutionPlanner `opr-56` intake (2026-08-01):** MEDIUM accepted plan-gated at `3628487`: eligibility, domain classification, and guidance ignore `EndBlock.Traps`; RTK dispatch drops the handler. A warm native-error probe proved direct PowerShell enters the trap while the constructed RTK argv cannot. No product or test change.
+
+- **ExecutionPlanner `opr-55` intake (2026-08-01):** MEDIUM accepted plan-gated at `3548eb8`: constant `CommandParameterAst` arguments, including whitespace-separated colon syntax, are merged into one RTK argv element while real PowerShell Standard and Windows native probes send separate prefix and operand elements. Existing test pins the wrong merged vector. No product or test change.
+
+- **ExecutionPlan complete-source record revalidated (2026-08-01):** all 590 byte-unchanged lines rechecked at `6a66e20` in two bounded passes plus whole-file Opus integration; focused planner, dispatch, and shell-dialect tests passed 103/103. Existing `s3-rtk-preference-isolation`, `opr-4`, and `opr-48` through `opr-51` excluded. Three production-unreachable candidates retained only as reactivation notes; Bash original-script provenance verified explicit and guarded. Prior limited record expanded; no product or test change.
+
+- **AuditExportCheckpoint complete-source record revalidated (2026-08-01):** all 527 byte-unchanged lines rechecked at `497e0b2` in two bounded passes plus whole-file production-reachability integration; focused tests passed 103/103. Existing `opr-37`, `opr-38`, and repaired Windows durability were excluded. The only caller candidate belongs to removed exporter completion and remains a reactivation review note, not a current finding. Prior limited record expanded; no product or test change.
+
+- **WorkerSupervisor whole-file review closed (2026-08-01):** all 381 lines reviewed at source-equivalent `c9a7f51` in two bounded passes plus whole-file Opus integration against named sessions, protocol, tools, and real stdio behavior; focused tests passed 29/29. Accepted MEDIUM `opr-53`, LOW `opr-54`, and extended existing MEDIUM `opr-11`; existing MEDIUM `opr-42` remained excluded. Prior limited `3cd2482` record expanded. No product or test change.
+
+- **`opr-11` runtime-boundary extension (2026-08-01):** real shipped-server stdio evidence proves generated DataAnnotations are advisory schema rather than enforced input validation. The existing MEDIUM route-fallback repair must validate in the active runtime path and make `WorkerSupervisor.ParseRoute` refuse explicit unknown values; schema-only repair is insufficient. No product or test change.
+
+- **WorkerSupervisor `opr-54` intake (2026-08-01):** LOW accepted and plan-gated at `c9a7f51`: generated session-name schema constraints are not enforced by the shipped server, and rejected raw names are echoed into PTK directive lines. A real stdio probe injected a forged status line and started no worker. No product or test change.
+
+- **WorkerSupervisor `opr-53` intake (2026-08-01):** MEDIUM accepted and plan-gated at `c9a7f51`: worker-controlled invocation and state text can forge PTK-authored retry, status, and recovery directives because both share one unframed response channel. A real stdio invoke preserved forged status and recovery lines beside the genuine recovery line. No product or test change.
+
+- **AuditEvidenceRetentionAudit whole-file review closed (2026-08-01):** all 188 lines reviewed at `2c6bb7a` with evidence-store deletion, exact content/identity proof, event validation, and focused-test integration; tests passed 15/15. Existing HIGH `opr-35` was excluded as pre-selection scope. Prior limited `735000e` review expanded; no additional distinct finding and no product or test change.
+
+- **WorkerProcessExit whole-file review closed (2026-08-01):** all 179 lines reviewed at `c82d804` with process entry, server exit producers, both bootstrap implementations, and focused-test integration; tests passed 78/78. Accepted LOW `opr-52`; prior limited `a930e27` review expanded. No product or test change.
+
+- **WorkerProcessExit `opr-52` intake (2026-08-01):** LOW accepted and plan-gated at `e13bb8a`: four bounded production protocol/bootstrap detail codes are absent from terminal normalization allowlists, so correct exit classes lose actionable identity, incarnation, containment-group, or handle-direction detail. Focused tests pass 78/78 but do not guard the four mappings. No product or test change.
+
+- **SupervisorLifecycle complete-source record revalidated (2026-08-01):** all 139 byte-unchanged lines rechecked at `4306716` as the named subject with filter, registration, shutdown, lifetime, and recent focused-test integration; tests passed 21/21. Prior limited `2ac1cd4` plus dependency-level filter coverage promoted to explicit complete-source coverage. Opus found no current defect; no product or test change.
+
+- **AuditSpoolRecordCodec whole-file review closed (2026-08-01):** all 127 lines reviewed at `9ac4960` with live/closed readers, sink recovery, scanner, envelope shape, and focused-test integration; tests passed 42/42. Prior limited `4c39b9f` review expanded; Opus found no current defect and no product or test change.
+
+- **WorkerSession whole-file review closed (2026-08-01):** all 125 lines reviewed at `6e2c1d4` with runtime, worker server, construction, artifact capture/codec, and focused-test integration; tests passed 38/38. Existing MEDIUM `opr-4` was excluded without extension. Prior limited `5f2e1fb` review expanded; no additional distinct finding and no product or test change.
+
+- **AuditSpoolSegmentIdentity whole-file review closed (2026-08-01):** all 116 lines reviewed at `1a0d80f` with scanner, checkpoint, writer, retirement, event-validation, and focused-test integration; tests passed 41/41. Production parse consumers gate output before use. Prior limited `b4ffe87` review expanded; Opus found no current defect and no product or test change.
+
+- **AuditEvidenceOrphanReconciler whole-file review closed (2026-08-01):** all 101 lines reviewed at `a352bc2` with both active static startup callers, provider, protected spool, and focused-test integration; tests passed 11/11. Existing MEDIUM `opr-6` and LOW `opr-34` were excluded. Instance cadence API is dormant; static pre-writer proof is live. Prior limited `77a324e` review expanded; no additional current finding and no product or test change.
+
+- **AuditAdminDispositionFailure whole-file review closed (2026-08-01):** all 89 lines reviewed at `cea2ff8` with active disposition administration, typed stage/effect classification, and focused-test integration; tests passed 22/22. Verified `s2-admin-disposition-failures` remained intact and was excluded. Prior limited `888914d` review expanded; no current finding and no product or test change.
+
+- **WorkerLaunchCommand whole-file review closed (2026-08-01):** all 68 lines reviewed at `a565184` with command factory, both platform launchers, and focused-test integration; tests passed 14/14. Existing MEDIUM `opr-29` was excluded after its Unix launcher repair boundary was recorded separately. Prior limited `d847df2` review expanded; no additional distinct finding and no product or test change.
+
+- **AuditOutputRequestProtector whole-file review closed (2026-08-01):** all 67 lines reviewed at `6b349b8` with metadata capture, output-handle generation, and focused-test integration; tests passed 14/14. Repo-wide C# inventory found no production construction or capture caller, correcting the queued active-caller wording. Prior limited `a2c343f` review expanded. Opus found no current defect; no product or test change.
+
+- **InvokeTool whole-file review closed (2026-08-01):** all 65 lines reviewed at `77aa9a9` with assembly registration, session seam, production adapter, schema, and runtime integration; focused tests passed 90/90. Prior limited `f0418b0` review expanded. Opus found no current defect; no product or test change.
+
+- **AuditAdminFailure whole-file review closed (2026-08-01):** all 58 lines reviewed at `11bad9d` with evidence-admin classification, failure publication, and fault-injection integration; focused tests passed 20/20. Prior limited `618f007` review expanded. Opus found no current defect; no product or test change.
+
+- **SupervisorCallFilter whole-file review closed (2026-08-01):** all 55 lines reviewed at `f1cf11d` with server registration, lifecycle/lease, shutdown, and cross-platform integration; focused tests passed 21/21. Prior limited `6675e37` review expanded. Opus found no current defect; no product or test change.
+
+- **AuditEffectiveIdentity whole-file review closed (2026-08-01):** all 30 lines reviewed at `92a60aa` with audit-admin construction, event schema/serialization, and cross-platform integration; focused tests passed 55/55. Prior limited `c1d83e1` review expanded. Opus found no current defect; no product or test change.
+
+- **BashExecutableIdentity whole-file review closed (2026-08-01):** all 26 lines reviewed at `9d5a443` with executable identity, production startup resolution, planner/runner, and focused-test integration; sequential tests passed 102/102. Prior limited `385db4c` review expanded to complete-source coverage. Opus found no current defect; no product or test change.
+
+- **RawUsageCounter complete-source record revalidated (2026-08-01):** all 17 byte-unchanged lines rechecked at `10a3547` against both increment boundaries, state reporting, lifecycle, and focused tests; 6/6 passed. Prior `469959c` no-findings result remains valid, including atomicity and inert signed-wrap adjudication. Semantic inventory now accepts explicit complete-source wording, not only `whole-file` tokens. No product or test change.
+
+- **AuditStartupConfiguration whole-file review closed (2026-08-01):** all 71 lines reviewed at `8648f37` with `PtkAuditAdmin`, options, checkpoint-reader, and test integration; focused tests passed 3/3. Existing MEDIUM `opr-5` remains the only finding. Post-record filename inventory has no missing production `.cs` basename, so coverage work now audits abbreviated records rather than trusting filename mentions. No product or test change.
+
+- **ColdCommandResolution whole-file review closed (2026-08-01):** all 268 lines reviewed at `ca5384f` in two bounded passes and whole-file integration against planner, plan invariants, executable identity, focused tests, upstream source, and platform probes; tests passed 95/95. Accepted MEDIUM `opr-48`, `opr-49`, `opr-50`, and LOW `opr-51`; existing `opr-2` and refuted-as-defect `rbc-13` remained excluded. No product or test change.
+
+- **ColdCommandResolution `opr-51` intake (2026-08-01):** LOW accepted and plan-gated: Windows target matching uses case-sensitive record equality despite platform-aware identity policy, so casing-only resolution changes spuriously no-start. No product or test change.
+
+- **ColdCommandResolution `opr-50` intake (2026-08-01):** MEDIUM accepted and plan-gated: Windows drive-relative command names bypass the bare-name guard and resolve against server drive state instead of child location semantics. No product or test change.
+
+- **ColdCommandResolution `opr-49` intake (2026-08-01):** MEDIUM accepted and plan-gated: Windows rooted or drive-relative PATH entries bind server process drive state instead of the audited child working directory. No product or test change.
+
+- **ColdCommandResolution `opr-48` intake (2026-08-01):** MEDIUM accepted and plan-gated: Unix resolver tests the union of raw execute bits rather than real-identity `X_OK`, so cold prepare and commit can bind a PATH file PowerShell would skip. No product or test change.
+
+- **BashProcessRunner whole-file review closed (2026-08-01):** all 803 lines reviewed at `94ff698` in three bounded passes plus whole-file integration against containment, RTK parity, invoke models, dispatch, and production callers; focused tests passed 27/27. Accepted MEDIUM `opr-47`; extended existing `opr-4` and `opr-40`. No product or test change.
+
+- **BashProcessRunner `opr-40` extension (2026-08-01):** Bash execution uses the same two eager 4 MiB capture allocations as direct RTK, roughly 8 MiB of large-object-heap storage before output. Accepted scope of the existing LOW plan-gated allocation-shape defect. No product or test change.
+
+- **BashProcessRunner `opr-4` extension (2026-08-01):** Bash pre-start budget classification can combine `TimedOut=true` with cancellation audit detail because the guard snapshots cancellation but `BudgetFailure` re-reads the deadline. Accepted LOW scope of the existing MEDIUM plan-gated immutable-cause defect. No product or test change.
+
+- **BashProcessRunner `opr-47` intake (2026-08-01):** MEDIUM accepted plan-gated: a slow successful validator-start audit flush can consume the fixed `bash -n` process budget and replace an already-determinate exit verdict with `TimedOut`. No product or test change.
+
+- **AuditJournal whole-file review closed (2026-08-01):** all 897 lines reviewed at `54822ee` in three bounded passes plus whole-file integration against serializer, health, factory, live-reader, and production caller evidence; focused tests passed 59/59. No additional distinct finding; direct `opr-35` and `opr-36` remain unchanged. No product or test change.
+
+- **WindowsProcessTreeSupervisor whole-file review closed (2026-08-01):** all 621 lines reviewed at `32c5748` in three bounded passes plus whole-file integration against native implementation, authority, and production callers; focused tests passed 85/85. No additional distinct finding; existing `opr-23` and the separate `rbc-5` boundary remain unchanged. No product or test change.
+
+- **UnixWorkerProcessLauncher re-review closed (2026-08-01):** all 1,207 lines reviewed at `431183f` in four bounded passes plus whole-file integration against broker, registry, authority, and production callers; focused tests passed 20/20. No additional distinct finding; existing `opr-14`, `opr-24` through `opr-29`, and `opr-46` remain unchanged. No product or test change.
+
+- **UnixWorkerContainmentRegistry re-review closed (2026-08-01):** all 515 lines reviewed at `afbf64f` in two bounded passes plus whole-file integration; focused tests passed 12/12. One current LOW finding, `opr-46`, was accepted; lifecycle/API candidates were rejected as reference-safe or production-unreachable. No product or test change.
+
+- **UnixWorkerContainmentRegistry `opr-46` intake (2026-08-01):** LOW accepted and plan-gated: PID reuse between identity and group probes can latch false escape and transiently report `descendants_unknown`; exact background proof still releases registry. No product or test change.
+
+- **SessionWorkerClient re-review closed (2026-08-01):** all 888 lines reviewed at `c8e6c4e` in three bounded passes plus whole-file integration; focused tests passed 80/80. No additional distinct finding; existing HIGH `opr-19` and LOW `opr-22` gained scoped repair/guard extensions. No product or test change.
+
+- **SessionWorkerClient `opr-22` scope extension (2026-08-01):** existing LOW finding now covers both directions of late wall-clock classification: first-use delay can label timeout canceled, while successful cleanup crossing deadline can label caller cancellation timed out. No product or test change.
+
+- **SessionWorkerClient `opr-19` scope extension (2026-08-01):** existing HIGH finding now also requires stop repair to coordinate prompt worker exit with `_stopping` and preserve containment on every failed graceful exchange. No product or test change.
+
+- **TrustedPreflightClassifier re-review closed (2026-08-01):** all 448 lines reviewed at `864cfe2` in two bounded passes plus whole-file integration; focused tests passed 88/88. Exact runtime probes admitted HIGH `opr-43`, MEDIUM `opr-44`, LOW `opr-45`; one invalid-dual-dialect candidate was rejected. No product or test change.
+
+- **TrustedPreflightClassifier `opr-45` intake (2026-08-01):** LOW accepted and plan-gated: nested local definitions are flattened across script-block scopes, suppressing valid top-level Bash builtin evidence that PowerShell cannot resolve. No product or test change.
+
+- **TrustedPreflightClassifier `opr-44` intake (2026-08-01):** MEDIUM accepted plan-gated: named Bash options after `set -o` are missed unless the literal is `pipefail`, causing valid Bash to fail under PowerShell `Set-Variable`. No product or test change.
+
+- **TrustedPreflightClassifier `opr-43` intake (2026-08-01):** HIGH accepted plan-gated: fatal PowerShell parse handling returns before recovered trusted Bash command evidence is scanned, so valid Bash can fall through to PowerShell failure. No product or test change.
+
+- **NamedSessionSupervisor re-review closed (2026-08-01):** all 1,231 lines reviewed at `ca7fe85` in three bounded passes plus whole-file integration; focused tests passed 36/36. One current finding, MEDIUM `opr-42`, was accepted in the active `WorkerSupervisor` caller; all supervisor-local candidates were rejected. No product or test change.
+
+- **NamedSessionSupervisor integration intake `opr-42` (2026-08-01):** MEDIUM accepted plan-gated: `WorkerSupervisor.StateAsync` releases the session lease, then uses two registry snapshots; concurrent removal can fault, same-name replacement can mix incarnations, and registry change can tear the count. No product or test change.
+
+- **DefaultSessionRuntimeFactory re-review closed (2026-08-01):** all 44 lines reviewed at `c5f9536` with active callers and protocol validation; focused tests passed 26/26. One candidate merged into existing MEDIUM `opr-10`; no distinct new finding and no product or test change.
+
+- **DefaultSessionRuntimeFactory `opr-10` extension (2026-08-01):** finite fractional or sub-millisecond positive timeout values violate the downstream whole-second protocol contract and abort startup. Merged into existing MEDIUM `opr-10`; no new finding ID and no product or test change.
+
+- **RtkProcessRunner re-review closed (2026-08-01):** all 442 lines reviewed at `2debaf6` in two bounded passes plus whole-file dispatch integration; focused tests passed 76/76. Outcomes: LOW `opr-40`, MEDIUM `opr-41`, LOW extension to existing MEDIUM `opr-4`, and Opus-clean comment correction `e83c209`. No runtime behavior or test change.
+
+- **RtkProcessRunner `opr-41` intake (2026-08-01):** MEDIUM accepted plan-gated: a canceled or expired RTK dispatch can start no process yet persist a fabricated zero `$LASTEXITCODE`; the reset pipeline can also replace prior `$?` with success. No product or test change.
+
+- **RtkProcessRunner `opr-4` extension (2026-08-01):** pre-start budget classification can combine `TimedOut=true` with a cancellation audit detail because the decision snapshots cancellation but re-reads the deadline. Accepted LOW as the existing immutable-cause defect; `opr-4` remains MEDIUM and plan-gated. No product or test change.
+
+- **RtkProcessRunner review intake (2026-08-01):** `opr-40` LOW accepted and plan-gated: every direct RTK execution eagerly allocates two 4 MiB capture buffers, roughly 8 MiB of large-object-heap storage before any output is read. No product or test change.
+
+- **OutputRootLease current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 433 lines in two bounded passes plus one whole-file active-caller integration pass; focused tests passed 27/27. One distinct LOW finding, `opr-39`, was accepted; verified `opr-3` was excluded and a closed-descriptor candidate was rejected. No product or test change.
+
+- **ChildStdinGuard current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 68 lines in one complete source/startup-caller/test pass; focused tests passed 22/22. Outcome `no_additional_current_findings`; existing `opr-1`, `opr-8`, and verified `rbc-1` overlap were excluded. No product or test change.
+
+- **ScriptEvidenceStore current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 1,613 lines in eight bounded passes plus three thematic integration passes; focused tests passed 89/89. Outcome `no_additional_current_findings`; verified `s2-admin-evidence-failures` and existing `opr-35` overlap were excluded, and nine pass candidates were independently rejected after current-call-path adjudication. No product or test change.
+
+- **ScriptEvidenceStoreProvider current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 243 lines in three bounded source/contract/test passes plus one current-production call-graph pass; focused tests passed 50/50. Outcome `no_additional_current_findings`; existing `opr-6` was excluded, and four pass candidates were independently rejected as current-inert or production-unreachable. No product or test change.
+
+- **AuditSpoolQuotaLease current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 254 lines in two bounded passes plus one active-caller integration pass; focused tests passed 10/10. Outcome `no_additional_current_findings`; existing `opr-7` was excluded. No product or test change.
+
+- **AuditEvidenceSpoolScanner current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 731 lines in four bounded passes plus one active-caller integration pass; focused tests passed 31/31. Outcome `no_additional_current_findings`; existing `opr-34` and `opr-35` overlap was excluded. No product or test change.
+
+- **AuditCallMetadata current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 710 lines in four bounded passes plus one production-reachability pass; focused tests passed 14/14. Outcome `no_additional_current_findings`; `AuditCallMetadataCapture.TryCapture` has no production caller after intentional runtime-audit removal — only tests and its own definition remain — and existing `opr-11`, `opr-12`, and verified `s2-job-id-audit-poison` were excluded. No product or test change from this review.
+
+
+- **SessionRuntime current-head full-file re-review complete (2026-08-01):** Claude Opus 5 reviewed all 491 lines in four bounded passes plus one production-call-graph pass; focused tests passed 109/109. Outcome `no_additional_current_findings`; existing `opr-18` was excluded and a factory-only `opr-10` rediscovery was rejected. No product or test change.
+
+- **FileAuditJournalSink full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,707 lines in eleven bounded passes plus four thematic cross-boundary passes; focused tests passed 50/50. Outcome `no_current_findings`; two same-user substitution candidates and one Linux raw-descriptor lifetime candidate were rejected against the quota call graph, threat boundary, and sole caller lifetime. No product or test change.
+
+- **SecureAuditStorage full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,619 lines in seven bounded passes plus two split cross-boundary passes; focused tests passed 15/15. Outcome `no_current_findings`; Windows durability-seam and macOS ACL candidates were rejected on exact semantics, caller ordering, and threat boundary. No product or test change.
+
+- **AuditEvent full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,227 lines in five bounded passes plus two split cross-boundary passes; focused tests passed 13/13. Active admin and journal event validation/serialization is clean; dormant call-context paths were excluded. No product or test change.
+
+- **AuditOperatorDispositionOutcome full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,110 lines in five bounded passes plus two split cross-boundary passes; focused tests passed 22/22 and 13/13. Outcome `no_current_findings`; no product or test change.
+
+- **AuditOperatorDispositionIntent full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,057 lines in five bounded passes plus cross-boundary adjudication; focused tests passed 22/22. Outcome: one current finding, `opr-38` LOW, already recorded plan-gated; no product or test change.
+
+- **Review intake:** `opr-38` LOW accepted plan-gated: `AuditOperatorDispositionProof` accepts one trailing LF in an acknowledged-gap reason, durably creating an out-of-grammar proof whose clean spelling conflicts on retry.
+
+- **AuditOptions full review complete (2026-08-01):** Claude Opus 5 reviewed all 208 lines plus the complete production call graph; focused baselines passed 10/10 and 3/3. Outcome `no_current_findings` beyond existing `opr-5`; the newline-permissive options regex is unreachable behind the checkpoint codec's strict identity validation. No product or test change.
+
+- **AuditCompletedChainRetirement full review complete (2026-08-01):** Claude Opus 5 reviewed all 933 lines in five bounded passes plus cross-boundary adjudication; focused retirement tests passed 13/13 and preparation tests 22/22. Active `RecoverUnderQuota` is clean; removed exporter initiation remains dormant. No product or test change.
+
+- **AuditExportCheckpointStore full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,659 lines in seven bounded passes plus cross-boundary adjudication; focused tests passed 40/40. Outcome `no_current_findings`; removed exporter-only block/retry paths require re-review if reactivated. No product or test change.
+
+- **AuditAnchoredWriterPreparation full review complete (2026-08-01):** Claude Opus 5 reviewed all 493 lines in three bounded passes plus cross-boundary adjudication; focused tests passed 22/22 and 13/13. Outcome: one current finding, `opr-37` HIGH, already recorded plan-gated; no product or test change.
+
+- **Review intake:** `opr-37` HIGH accepted plan-gated: crash-truncated canonical initial-checkpoint temporary is non-authoritative but rejected by exact-byte-only recovery, permanently denying anchored and administration startup.
+
+- **AuditAdminOperations full review complete (2026-08-01):** Claude Opus 5 reviewed all 1,124 lines in five bounded passes plus cross-boundary integration at `bfd571e`; evidence-access tests passed 20/20 and disposition tests 22/22. Two candidates were rejected by exact ownership and mutation-tested publication semantics. Outcome `no_current_findings`; no product or test change.
+
+- **Windows scheduler cancellation recurrence is closed:** the earlier
+  drain-based repair `8588374` remained vulnerable because the test's disposable
+  token callback could be removed during cancellation unwind. Test-only repair
+  `9e66a35` witnesses cancellation in the operation's own unwind path before
+  drain; Opus accepted the exact SHA with `guard_confirmed=true`. PR #31 run
+  `30703723050` passed all six jobs and merged as `c9e5a44`.
+- **GitHub issue #12 is closed as superseded by the per-connection worker
+  topology:** bounded Windows probes against both the source-built server and a
+  self-contained `win-x64` apphost completed the full outer-worker → child
+  client → inner-supervisor/worker → nested-`ptk_invoke` path in 6.4/6.5
+  seconds. Four distinct process identities were observed, nested output was
+  `42`, and the outer session remained ready. Opus accepted closure; no code
+  change or regression guard was warranted. Reopen only with exact current
+  build identity and server/worker exit diagnostics from a recurrence.
+- **GitHub issue #11 is closed after real-Codex transport-boundary validation:**
+  installed `0.2.0-dev.g12e1ff5` recovered a path-verified killed worker on the
+  same MCP connection, reported `warm_state_lost`, and invoked through a new
+  worker. Killing the path-verified public supervisor made the old client fail
+  immediately with `Transport closed`; a fresh Codex session launched a new
+  supervisor and invoked successfully. Opus accepted the qualified worker/public
+  boundary docs; PR #26 passed all six hosted jobs and merged as `3b570ff`.
+- **GitHub issue #10 is closed as resolved by retiring the audit startup gate:**
+  installed `0.2.0-dev.g12e1ff5` initialized with `PTK_AUDIT_ROOT` beneath a
+  regular file, reported audit disabled before and after reset, invoked, reset,
+  created no audit root, and exited gracefully. The current startup guard passed
+  1/1 and the hosted handshake diagnostic remains green. Opus accepted closure
+  with `guard_confirmed=true`; reopen only on current-build audit gating.
+- **GitHub issue #9 is closed after exact-client validation of both reported
+  stages:** current Claude Code path-verified and killed its installed public
+  supervisor, then transparently restarted PTK and returned `ptk_state` promptly
+  on one post-kill call. Current Codex instead failed immediately with
+  `Transport closed` and succeeded from a fresh session; neither client hung.
+  The audit wedge is the retired gate closed under #10. Opus accepted closure;
+  the original older-client observation remains valid history.
+- **GitHub issue #3 is closed after current-product reconciliation:** shell
+  dialect guidance, cross-platform warm-state isolation, 300-second default
+  timeout/recovery, and an actionable live missing-command diagnostic cover its
+  ergonomics items. The permission proposal is resolved by the documented
+  non-authorization-boundary/client-prompt posture and the owner's explicit
+  rejection of the bypassable policy-file gate. Opus accepted closure.
+- **HISTORICAL — superseded 2026-07-30: Non-disruptive side-by-side upgrade plan
+  drafted at `5f5d00d`; valid Claude
+  Opus 5 openreview intake is complete.** `.agents/plans/mcp-side-by-side-upgrade.md`
+  records the captured retry over `c4bd2af..caf467e`: ten candidates, eight
+  admitted and two declined, with one admitted metadata finding already
+  resolved. The owner settled `ssu-1` on 2026-07-29: managed registrations use a
+  native self-contained stable launcher and retain the no-`pwsh` distribution
+  contract. The owner also settled `ssu-3`: migration is transactional and
+  harness-specific; Codex avoids its unsafe remove command, Grok requires a
+  disposable-config CLI proof, and every changed harness rolls back
+  byte-for-byte on failure. The owner settled `ssu-4`: install-home `~/.ptk/launcher/` is never a
+  wholesale payload entry or removed after registration; launcher changes use
+  validated sibling-file replacement and fail closed if the stable path cannot
+  remain continuously present. The owner settled `ssu-5`: Windows uses
+  handle-based `FileRenameInfoEx` replacement with delete-sharing readers and no
+  delete-first fallback; Unix uses `rename(2)` plus a parent-directory flush.
+  The owner settled `ssu-6`: install/reuse performs full runtime hashing, while
+  normal launch reads at most 266240 control-file bytes and never enumerates or
+  hashes the payload tree. One other plan/product finding and one citation
+  correction remain open at
+  `.agents/review/mcp-side-by-side-upgrade-opus5-r2.md`. The next owner gate is
+  `ssu-7`. Implementation is not authorized. Codereview remains deferred until
+  Slice 0 has an implemented fix and deterministic revert-fails/restore-passes
+  guard proof.
+
+- **HISTORICAL — superseded 2026-07-30: MCP upgrade-continuity openreview
+  completed on 2026-07-29; owner ruling
+  pending.** Claude Opus 5 at max effort reviewed
+  `d32f2a06e451df02cfa9b63d5c0dda570d1262ec..a308bdadbbda954340f48d63772e72787e9f6990`.
+  Intake admitted five findings and declined one overstatement; see
+  `.agents/review/mcp-upgrade-continuity-opus5-r1.md` and `muc-1` through
+  `muc-6` in `.agents/review/index.md`. Current recommendation is
+  side-by-side immutable versions below the single `~/.ptk` home, with active
+  connections left on their pinned old version until natural exit. Same-client
+  transparent adoption remains unsolved and would require an explicit owner
+  reversal before reopening the discarded guardian or daemon architectures.
+
+- **Windows enterprise validation landed local fixes `36146a1` and `56b562c`
+  on `ASHBIAMWEB1` (2026-07-29).** Hosted workers now discover modules beside
+  installed `pwsh`, and Windows runspaces now use STA for COM automation. The
+  real exact-account EXO metadata read and warm-session reuse passed; its
+  explicitly selected values were retained and the remaining incomplete marker
+  truthfully denotes uninspected type data. Graph never authenticated or read
+  API data. STA removed the Outlook COM hang, but the local Outlook profile has
+  no current user, so no Inbox item was read. No candidate was installed during
+  those field probes and no probe process was left running; detailed host
+  evidence is in `.agents/machines.md`.
+- **Exact-head Windows x64 PTK runtime/package acceptance passed at
+  `7eaf8a0cbe391abda7185e23e621fe7b01028886` on `ASHBIAMWEB1`
+  (2026-07-28).** Direct Windows execution found and separately committed
+  acceptance witness startup/CRLF defect `6ccdaa7` and real worker
+  initialization deadline-classification race `7eaf8a0`. The final head
+  passed 1,212/1,212 server tests, 144 Pester tests with one platform skip,
+  direct and packaged handshakes, disposable staged activation, and packaged
+  100-cycle worker replacement/Job Object timeout/crash/cleanup acceptance.
+  The ordinary token still cannot create Windows symlinks, so the independent
+  SIEM suite remains 226/247 with all 21 failures during privileged link
+  setup before product assertions. No candidate was installed or registered;
+  host evidence and package hashes are in `.agents/machines.md`.
+- **Windows installer ACL repair landed locally at `bb2349a` (2026-07-28).**
+  The install transaction now normalizes its Windows payload root before staged
+  validation to a protected, current-user-only, inheritable full-control ACL.
+  This prevents a sandbox-created non-inheriting `~/.ptk` DACL from making
+  installed `~/.ptk/bin/` unreadable after activation. The regression failed with the
+  exact access denial when the fix was removed and passed after restoration;
+  the live ACL-only repair restored `ptk_invoke`. Installed payload bytes were
+  not replaced and nothing was pushed. Host evidence is in
+  `.agents/machines.md`.
+- **Handoff checkpoint (2026-07-28): all currently available Linux x86_64
+  acceptance is complete; the remaining Windows and enterprise gates are
+  separate.** Exact committed head
+  `37b7d94dacdfd7fb03b52ce95d4409031e6e6699` passed Pester on `gabrielle`
+  and the full server, SIEM, dependency-audit, native-package, handshake, and
+  100-cycle staged-package production-acceptance battery on `magneto`.
+  Evidence is committed at `14daad6`; the read-only installed-payload rollback
+  baseline is committed at `3f5dc11`. All disposable validation roots were
+  removed, and nothing was installed, registered, deployed, or pushed. The
+  current Codex installation remains the old `0.2.0-dev.g6db333c` job-API
+  build, not the validated five-tool named-session candidate. `NETWATCH-01`
+  can close only generic Windows packaging/process/Job Object acceptance; it
+  is a personal gaming machine with no company AD, on-prem Exchange, Exchange
+  Online, or Outlook administration access. Those real workflow gates require
+  a separate company-connected supported Windows admin host with the required
+  modules, network access, and authentication.
+- **Exact-head staged-package acceptance now also passes on macOS ARM64.**
+  Committed head `920944ef3a4491edbf1d2c6a3915a5e39106a8fb`
+  produced genuine Mach-O ARM64 `PtkMcpServer` and `PtkWorkerBroker`
+  executables, passed the five-tool staged handshake, and passed the complete
+  100-cycle production-acceptance matrix from the packaged executable. Process
+  and file-descriptor counts remained 5/5 and 531/531 across all replacements;
+  timeout, direct worker death, process-group escape, and supervisor hard-kill
+  containment all passed. No process remained, the disposable root was
+  removed, and nothing was installed or registered.
+- **One immutable Linux x86_64 package now passes on all three available Linux
+  hosts, including both hosts without a .NET SDK.** `magneto` built and
+  validated the exact `d243c82d135b390b69fd93b25d01135f4d791a58`
+  package; `gabrielle` and `altiera` independently verified the same source
+  and layout hashes, confirmed the SDK was absent, and passed both the complete
+  public handshake and 100-cycle production acceptance from those package
+  bytes. Each host contained timeout and direct-kill descendants, refused the
+  process-group escape, preserved the sibling, and removed all descendants
+  after supervisor hard-kill. No package process remained, all disposable
+  roots were removed, and nothing was installed or registered.
+- **Production-reliability Slice 11 is complete and integrated on local
+  `master`.** Exact documentation/integration commit
+  `2c96e842618d73ac59fa37d5492a5ae92a0d163d` publishes the implemented
+  one-supervisor/many-session-workers contract, reduces audit documentation to
+  retained administration/receiver boundaries, marks the discarded guardian
+  plan as historical, and reconciles the release-plan pointer. Verification
+  found that build-on-launch `dotnet run` wrote NuGet warnings onto MCP stdout;
+  the checkout path now builds first and launches with
+  `--no-build --no-launch-profile`. The original registration handshake failed
+  on that non-JSON stdout and the corrected exact command passed the complete
+  five-tool/named-session handshake. Pester passed 141 with two platform skips,
+  the server suite passed 1,212/1,212, and the retained SIEM receiver passed
+  247/247. Current `origin/master`
+  `c9b11bcb0b4e41a11110c5870562b4980c0b86b3` was the exact merge base; local
+  `master` was fast-forwarded and its content diff against the verified salvage
+  branch was empty. Nothing was pushed, installed, registered, or deployed.
+- **The five high-severity XML-crypto dependency advisories are closed locally
+  at exact commit `b6fcbcdd9a81bdd5ce9e9ba8dde087a2adc02ff3`.**
+  `Microsoft.PowerShell.SDK` 7.6.3 still requests vulnerable
+  `System.Security.Cryptography.Xml` 10.0.6, so the server now directly pins
+  patched 10.0.10. The transitive vulnerability audit changed from five
+  advisories on every server project to no vulnerable packages; the complete
+  Pester/server/SIEM/handshake battery and 100-cycle production acceptance
+  passed with zero build warnings. A validated self-contained layout resolved
+  only 10.0.10 and passed the complete public handshake. A replacement-server
+  diagnostic also preserved all values on an EXO-style selected/deserialized
+  object, evaluated an explicitly selected script property exactly once, and
+  surfaced a terminating error's message. This is useful synthetic evidence,
+  not a substitute for the pending real EXO/Outlook workflow on Windows.
+- **Cross-RID package generation now fails closed at exact commit
+  `e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0`.** A macOS probe of the advertised
+  `linux-arm64` layout path found a Mach-O ARM64 `PtkWorkerBroker` inside the
+  package rather than a Linux ELF binary. PTK has no proved cross-target native
+  compiler contract, so `dev-install.ps1 -LayoutOnly` now refuses a target RID
+  that differs from the build host before creating the output directory. The
+  new guard failed when the check was removed and passed when restored; Pester
+  passed 142 with two platform skips, server 1,212/1,212, SIEM 247/247, the
+  direct-checkout handshake, and a same-RID self-contained package handshake.
+  Exact committed head `37b7d94dacdfd7fb03b52ce95d4409031e6e6699`
+  subsequently passed the complete Linux x86_64 battery on real hosts: Pester
+  passed 142 with two platform skips, server passed 1,212/1,212, SIEM passed
+  247/247, the transitive vulnerability audit was clean, direct and
+  staged-package handshakes passed, both public executables were genuine x86-64
+  ELF binaries, and the 100-cycle production-acceptance matrix passed. This
+  prevents a mislabeled release artifact and proves the matching-host
+  `linux-x64` path; it does not replace the pending build and execution on a
+  real ARM64 Linux host. UTM is not used.
+- **Production-reliability salvage Slice 0 is recorded on
+  `impl/production-reliability-salvage`.** The unchanged product base is exact
+  `origin/master` commit `c9b11bc`; only the reviewed plan/review records sit
+  between that product tree and the implementation branch head. The Pester
+  suite passed 141 tests with two platform skips, the SIEM suite passed
+  247/247, the handshake passed, and the third full server run passed
+  1,587/1,587. The first two full server runs exposed three different
+  intermittent failures that each passed immediately in isolation; they remain
+  recorded production blockers rather than being normalized away. Two
+  independent ephemeral Codex agents received distinct PTK server PIDs `9595`
+  and `9596`, proving the production harness gives them separate MCP server
+  processes/connections. No product file changed during the baseline.
+- **The owner-approved Slice 1 R0 retirement is implemented on
+  `impl/production-reliability-salvage`.** The frozen guardian/private-host
+  contract, recovery/package schemas and examples, native acquisition
+  inventory, `PtkResilienceTestFixture`, and its two consuming test classes are
+  removed with their project references. The retained audit/SIEM vectors now
+  have a smaller `AuditInteropContractTests` guard, and
+  `ToolSchemaConformanceTests` freezes the exact live five-tool direct-server
+  surface. The real `PtkContainmentTestFixture` and both Windows containment
+  test files are byte-identical to the base. Focused contract/schema tests,
+  Pester, SIEM, formatting, and the stdio handshake pass. Three bounded
+  post-change server-suite attempts each passed 1,556/1,557 but hit a different
+  already-isolated timing failure. Diagnosis then proved that none of the five
+  implicated runtime or test files differs from the product base, all five
+  implicated classes pass together under default parallelism, and the complete
+  suite passes 1,557/1,557 when xUnit collections are serialized. A paired
+  default-parallel full run also passed 1,557/1,557, confirming intermittent
+  load sensitivity. The 16-logical-CPU Mac was under unrelated load averages
+  around 24/45/47, including a long-running Headroom proxy using about two
+  cores; no PTK, pwsh, testhost, or sleep-process leak remained. Slice 1a is
+  now implemented with test-runner JSON and no timeout or product change. The
+  reviewed assembly attribute was discarded after the exact runner and an
+  isolated reproduction both ignored it; the runner JSON setting proved
+  effective and remains explicitly overrideable. Three consecutive ordinary
+  server runs passed 1,557/1,557, followed by green Pester, SIEM, and stdio
+  handshake checks. This removes invalid cross-collection testhost contention;
+  it does not erase the anchored-evidence ordering race, fixed watchdog residue,
+  carried Windows failures, or the lack of current cross-platform CI evidence.
+  Product decisions 3-4 and any `ci/**` push or PR remain independently gated.
+  Exact machine evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 2 is complete in the local
+  checkout.** Ordinary invoke no longer opens or depends on audit storage;
+  `ptk_state` reports audit disabled. `WorkerSupervisor`,
+  `SupervisorLifecycle`, and `SupervisorCallFilter` now own admission,
+  cancellation/drain, and ordered runtime shutdown without the idle watchdog.
+  The anchored OTLP producer, its runtime protobuf dependencies, and its
+  producer-to-SIEM conformance surface are removed; the relocated receiver
+  proto, standalone SIEM, legacy `PtkAuditAdmin`, and local legacy-state
+  primitives remain. The runtime installer excludes `PtkAuditAdmin`. Exact
+  candidate tree `faf8c2338a1a729fc5c46d87376475265148a5b0` passed the full
+  macOS ARM64 battery and a clean Linux x86_64 battery over SSH on `magneto`.
+  A deliberate startup regression made the unwritable-audit-root integration
+  guard fail, byte-exact restoration made it pass, and the runtime-package
+  boundary guard was separately proved red-to-green. ARM64 Linux is untested;
+  UTM is not to be used. Exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 3 is complete locally at code head
+  `bfa335ec223609df9ce0dbfcfd9efe99382203d4`.** The prepared
+  prepare/descriptor/commit/abort protocol, cold-job worker codec, and their
+  staging-only tests are removed. One strict v2 worker protocol now has only
+  initialize/ready, foreground invoke, nonblocking state, targeted cancel,
+  bounded artifact transfer, one terminal, and shutdown/stopped messages.
+  Request IDs are monotonic, stale session/incarnation frames and unsolicited
+  terminals are fatal, frames and logical fields are bounded, and invalid
+  worker-owned output is classified as a runtime failure rather than blaming
+  supervisor input. A real unwired fixture proves warm variables, prompt busy
+  state, cancellation with one terminal, and isolation between two differently
+  identified worker servers. Deliberate mutations proved the message union,
+  no-background boundary, artifact length/digest, capacity, shutdown
+  correlation, warm-state, cross-routing, and unsolicited-terminal guards.
+  The exact commit passed 1,223/1,223 server tests, Pester 141 with two platform
+  skips, SIEM 247/247, formatting, and the public handshake on macOS ARM64, then
+  the same behavior battery in a clean disposable checkout on Linux x86_64
+  `magneto`. Public MCP behavior is unchanged. The slice is not pushed or
+  installed; exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 4 is complete locally at code head
+  `75505b98021229efebc338597d38450059da9294`.** Disposable workers now use
+  the worker-only Unix broker or Windows creation-time Job Object containment,
+  with independent per-worker teardown and unchanged public MCP behavior.
+  Direct Windows validation found and repaired four concrete issues: Job Object
+  termination now retains the handle until emptiness is proved; route-consent
+  testing no longer depends on host aliases; a failed kill request cannot kill
+  the root through descendants-only cleanup; and a wedged first containment
+  request cannot race away the bounded observer's independent retry. The last
+  retry guard passed 30 consecutive Windows runs. Exact-head full batteries
+  passed on macOS ARM64, Linux x86_64 `magneto`, and Windows x64 `NETWATCH-01`:
+  server 1,240/1,240, Pester 141 passed with two platform skips, SIEM 247/247,
+  and the full stdio handshake. No test process survived and every disposable
+  remote checkout was removed. The slice is not pushed or installed; exact
+  evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 5 is complete locally at code head
+  `001c4ebe23d48e1804f2bb169f09a8f0e0c0dd2a`.** One MCP connection now owns
+  a fixed maximum of eight internal named-session slots, including lazy
+  `default`, with one isolated contained worker process and warm runspace per
+  session. Lifecycle admission, shared startup, per-session foreground
+  serialization, automatic timeout/crash/transport recovery, confirmed-empty
+  replacement, cached PID health, sealed-output survival, close/reset, and
+  concurrent connection shutdown are covered behind the internal fixture.
+  The real-process guard proves overlapping commands, variables, modules,
+  environment, directories, and processes remain isolated and that workers
+  inherit the supervisor's launch directory. Deliberate mutations proved the
+  launch-directory, containment-proof, stopped-worker PID, late-start
+  shutdown, and invoke/state transport-recovery guards. Exact-commit batteries
+  passed on macOS ARM64, Linux x86_64 `magneto`, and Windows x64
+  `NETWATCH-01`: server 1,264/1,264, SIEM 247/247, platform-appropriate Pester
+  counts, and the public stdio handshake. No candidate process or disposable
+  remote checkout survived. The public MCP surface remains unchanged; the
+  slice is not pushed or installed. Exact evidence is in
+  `.agents/machines.md`.
+- **Production-reliability salvage Slice 6 is locally implemented and committed
+  at code head `6c9bdacc84685af54055b22627666bfb8231c2d1`; Windows validation
+  remains pending.** Production now exposes exactly `ptk_invoke`,
+  `ptk_output`, `ptk_reset`, `ptk_session`, and `ptk_state`. Cold jobs and the
+  in-process runspace path are gone; every command executes only in the
+  explicitly resolved named session's contained worker, while reset, state,
+  lifecycle, and sealed output remain supervisor-owned. Twelve deliberate
+  guard mutations failed independently and were restored byte-for-byte. The
+  exact commit passed 1,167/1,167 server tests, Pester 141 with two platform
+  skips, SIEM 247/247, the public handshake, formatting, and package smoke on
+  macOS ARM64; the same server/Pester/SIEM/handshake battery passed from the
+  verified archive on Linux x86_64 `magneto`. `NETWATCH-01` was unreachable at
+  both its current DNS address and its previously used address, so Windows x64
+  remains pending. No candidate Linux process survived. The slice is not
+  pushed or installed; exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 7 is locally implemented and committed
+  at code head `51594735e40c6d50a2aaf94c84a9e55a70f63b50`; macOS ARM64 and
+  Linux x86_64 are verified, and Windows x64 remains pending.** It classifies
+  failure before the first invoke pipe-write call as `not_started` and every
+  failure after write-call entry and before a complete terminal as
+  `outcome_unknown`. A complete terminal remains authoritative; recovery makes
+  one automatic replacement attempt; a failed replacement projects
+  `reset_required=true`; and sibling and separate-supervisor isolation remain
+  intact. Six deliberate regressions failed for their intended reason and
+  every source was restored byte-for-byte. Exact-commit batteries passed on
+  macOS and Linux: server 1,180/1,180, SIEM 247/247, platform-appropriate
+  Pester counts, and the public stdio handshake; macOS additionally passed
+  scoped formatting and self-contained publish smoke. No candidate process or
+  disposable Linux checkout survived. `NETWATCH-01` timed out again after the
+  Linux run. The local Slice 6 and Slice 7 archives remain available for
+  Windows validation. The owner directed continued local implementation
+  without waiving either Windows gate. The slice is not pushed or installed;
+  exact evidence is in `.agents/machines.md`.
+- **Production-reliability salvage Slice 8 is locally implemented and committed
+  at product code head `4270487c891d3c2cb0976f25eb3082f90c7ac630`;
+  test-only guard descendant `4779cb2f7000306cc11f24fe017a4671b5b16cbf`
+  closes a mutation-discovered late-publication test gap. macOS ARM64 and Linux
+  x86_64 are verified; Windows x64 remains pending.** Optional recovery now
+  reserves full per-invocation quota against immutable session identity before
+  dispatch, uses one fixed capture buffer and one bounded connection-wide
+  storage lane, validates the complete worker artifact protocol while
+  discarding, publishes only immutable complete handles, and safely reclaims
+  abandoned owned output roots without touching live roots. Fifteen deliberate
+  production regressions failed for their intended reasons and were restored;
+  the restored focused battery passed 82/82 and the complete server suite
+  passed 1,197/1,197 on the test-hardened macOS head. The product commit also
+  passed Pester 141 with two platform skips, SIEM 247/247, formatting, public
+  built and published handshakes, and ARM64 self-contained publish smoke on
+  macOS; its verified archive passed the full server/Pester/SIEM/handshake
+  battery on Linux x86_64 `magneto`. No candidate process or disposable Linux
+  checkout survived. The slice is not pushed or installed; exact evidence is
+  in `.agents/machines.md`.
+- **Production-reliability salvage Slice 9 is locally implemented and committed
+  at code head `46710afd2e90911f2402019ff9ab4ddc10695845`; macOS ARM64 and
+  Linux x86_64 are verified, and Windows x64 remains pending.** The development
+  installer now publishes only the single public supervisor/internal-worker
+  package and required Unix broker, runs the complete public handshake before
+  and after activation, snapshots the installer-owned payload and known harness
+  registrations, changes registrations last, and restores and verifies exact
+  bytes plus Unix modes after activation or registration failure. Registration
+  initialization runs as a checked child, so its deliberate `exit 1` cannot
+  bypass rollback. Unconfirmed rollback retains a readable recovery manifest.
+  Six deliberate regressions proved file restoration, recovery-snapshot
+  retention and manifest, checked child registration, current named-session
+  guidance, and same-named function isolation. The exact commit passed the
+  complete Linux x86_64 battery on `magneto`: server 1,199/1,199, Pester 141
+  with two platform skips, SIEM 247/247, built handshake, transaction matrix,
+  local-RID layout publish/validation, and staged plus activated package
+  handshakes. The matching macOS package smokes and behavior batteries passed;
+  one exact-final full-suite repeat hit the already-recorded unchanged 500 ms
+  Bash pipe-drain fixture under host load and passed immediately in isolation.
+  No installed payload or real registration changed, and no candidate process
+  or disposable Linux checkout survived. Exact evidence is in
+  `.agents/machines.md`.
+- **mini-SIEM S1-S3 are complete and incorporated on local `master`; the S3 durable
+  store head is `eb51f2e` and its producer-conformance compatibility head is
+  `9f53831`.** S1 supplies the solution skeleton and strict startup config; S2
+  supplies the independently compiled canonical proto, bounded exact
+  one-record validator, real Kestrel mTLS, and frozen response table. S3 replaces
+  the fail-closed placeholder with a startup-migrated SQLite store: one
+  serialized nondeferred transaction re-reads and conditionally advances the
+  producer chain, stores exact raw request evidence, and atomically appends the
+  versioned custody ledger under asserted WAL/FULL writer policy. Byte-identical
+  replay is idempotent even after head advance; duplicate mismatch, chain
+  failure, and strict-validator failure commit quarantine evidence before a
+  permanent response; any commit/quarantine failure remains retryable and can
+  never false-ack. The SQLite package's vulnerable native minimum is overridden
+  to its patched bundle, and the dependency audit is clean. The isolated
+  producer conformance project remains source-compatible and its ordinary fake
+  receiver path remains unchanged. Producer-owned exact v1/v2 fixtures exist at
+  `1f6d485`; the serialized v3 OTLP request fixture remains absent and is never
+  invented from R0's JSONL vector. Local evidence and guard proofs are recorded
+  in `.agents/machines.md`. Combined local verification of merge `374f164`
+  passed on macOS, exact integration tip `1ad195e` passed direct Windows
+  checkout validation, and exact snapshot `a473ca3` passed the direct Linux
+  behavior battery after manual generation around an ARM64 MSBuild-only
+  `protoc` crash; the exact commands, contexts, counts, and clean-build caveat
+  are recorded there. Hosted run `29520427103` at `72c6103` passed all three
+  SIEM jobs and the complete Ubuntu/macOS product batteries; its Windows
+  server failure is addressed by the CI portability follow-up below.
+- **Audited-harness Slices 7a-7f and the Windows wait-ownership prerequisite
+  are complete and landed on local `master`; Slice 7f code head is
+  `a9e757e`.**
+  The strict bounded v1 worker protocol freezes all nine wire kinds, enforces
+  strict UTF-8 NDJSON with duplicate/unknown/version rejection, caps encoded
+  frames at 1 MiB and JSON depth at 32, preserves fragmented and coalesced
+  input, serializes writes, latches ambiguous writer failure, and clears
+  pooled script-bearing buffers. Claude Code 2.1.209 accepted exact range
+  `a88d605..f86de26` with `guard_confirmed=true` after six independent
+  mutations and the full battery. Code head `e70089f` then adds the
+  behavior-preserving tool-to-provider operations seam and the separately
+  disposable ordered lifetime seam; Claude accepted exact range
+  `2eca287..e70089f` with `guard_confirmed=true` after four mutations and the
+  full battery. Code head `56734e3` then adds the platform-neutral worker
+  lifecycle core with strict boot/phase/correlation checks, deadline and host
+  cancellation races, and exactly-once lifetime cleanup; Claude accepted
+  exact range `cfaee5f..56734e3` with `guard_confirmed=true` after seven
+  independent mutations and the full battery. Code head `bbc2a0e` then adds
+  the deliberately unwired Windows creation-time containment primitive:
+  exact `KILL_ON_JOB_CLOSE` Job Object configuration, one five-handle
+  `CreateProcessW`/`STARTUPINFOEX` launch with `JOB_LIST` and `HANDLE_LIST`,
+  closed Unicode environment, proof-only suspension, job-first rollback, and
+  direct runnable/pre-resume/tree-death Windows fixtures. Claude accepted exact
+  range `3348167..bbc2a0e` with `guard_confirmed=true` after seven mutations
+  and the full battery; the exact tree also passed direct `NETWATCH-01`
+  validation. Code head `d1cca1b` closes cancellable-wait ownership using a
+  per-wait noninheritable duplicated process handle, with guards covering both
+  the owning constructor and active async call path. The preliminary `5ea7d60`
+  review was reopened after independent preflight found its active-path guard
+  vacuous; only the corrected fixed-SHA acceptance is final. Code head
+  `12617cc` then adds the Windows-only managed `--worker` lifecycle entry,
+  exact bootstrap-variable removal and noninheritable pipe ownership, stable
+  managed exit mapping, and bounded allow-listed abnormal diagnostics while
+  leaving default MCP operations in-process. Independent preflight reopened
+  preliminary head `e2cbfb5` for two guard vacuities; test-only commits
+  `e9421cc` and `12617cc` close the concrete environment-removal and global
+  diagnostic-destination gaps. Claude accepted exact range
+  `eec7ed1..12617cc` with `guard_confirmed=true` after eleven independent
+  mutations and the full battery; the exact tree also passed direct
+  `NETWATCH-01` lifecycle and containment validation. Code head `a9e757e` then
+  adds strict private request/cancel parsing, response encoding, and a bounded
+  standalone scheduler with targeted cancellation, exactly-one terminal
+  ownership, and fatal peer cleanup while remaining deliberately unwired from
+  production.
+  Claude accepted exact range `3580e67..a9e757e` with
+  `guard_confirmed=true` after independent mutation proof and the full battery.
+  Completion records are committed at `83ca3b1`; the accepted feature history
+  was fast-forwarded to local `master`, content arrival was verified by direct
+  branch diff, and the feature branch was removed. Canonical review and Windows
+  evidence is in `.agents/review/index.md` and `.agents/machines.md`.
+- **Audited-harness Slice 7g is complete and landed on local `master` at code
+  head `eef38cb`.** It adds only strict transport-neutral value codecs for
+  foreground invoke, job controls, and state, with strict logical UTF-8
+  script/result limits. It does not bind invoke to ordinary request transport
+  or add runtime execution, prepare/commit, background start, audit/output
+  transfer, job-ID allocation,
+  reset, proxy wiring, or MCP behavior. Claude Code 2.1.210 accepted exact
+  range `a83e2e6..eef38cb` with `guard_confirmed=true` after ten independent
+  mutations and the full battery. Completion records are committed at
+  `8428f17`; the accepted feature history was fast-forwarded to local `master`,
+  content arrival was verified by direct branch diff, and the feature branch
+  was removed. Canonical evidence is in the audited-harness plan and
+  `.agents/review/index.md`.
+- **Audited-harness Slice 7h is complete and landed on local `master` at code
+  head `8f5c57c`.** It adds only strict unwired prepare,
+  prepared-correlation, commit, and abort values for foreground invoke. It
+  freezes canonical UUIDv4 plan ID, exact strict-UTF-8 script digest, worker
+  generation, and original absolute deadline correlation without adding
+  reservation behavior, execution, the final prepared descriptor, audit/output
+  transfer, background IDs, server wiring, or MCP behavior. Claude Code
+  2.1.210 accepted exact range
+  `1179ed0..8f5c57c` with `guard_confirmed=true` after eleven independent
+  mutations and the full battery. Completion records are committed at
+  `c07a958`; the accepted feature history was fast-forwarded to local `master`,
+  content arrival was verified by direct branch diff, and the feature branch
+  was removed. Canonical evidence is in the audited-harness plan and
+  `.agents/review/index.md`.
+- **The owner-approved two-layer MCP resilience sequence is implemented
+  through every locally actionable R5 Windows barrier; the exact verified
+  code/test head is `195e7e6`. R0-R4 are complete.** R5 now owns real Windows
+  private-host launch, containment, monitoring, exact-generation restart,
+  lifecycle audit, delivery truth, declared-state restoration, job/output
+  tombstones, and recovery-aware state. Real apphost tests cover startup and
+  replacement crashes, request/effect/response barriers, native descendant
+  cleanup, idle persistence, lost jobs, and ambiguous reset requiring explicit
+  repair. The complete repository battery and stdio handshake pass at that
+  head; exact machine evidence is in `.agents/machines.md`. R5 is not
+  cross-platform complete: production Unix still deliberately refuses startup
+  until the approved native outer broker exists. The target keeps one public
+  stdio guardian alive while it
+  restarts an exact-version private host, and makes a healthy host replace an
+  unexpectedly lost session worker. It never replays ambiguous work, changes
+  generation on every replacement, recreates only frozen declared bootstrap
+  state, and keeps guardian-local health/output surfaces usable. The canonical
+  draft is `.agents/plans/mcp-resilience.md`; it narrowly supersedes the older
+  explicit-restart target without weakening audit, containment, or session
+  isolation. The owner additionally accepted the guardian crash boundary and
+  fail-fast model-retry contract: no server queue or saved-state authoring tool
+  in this stage; only proved-no-start errors direct the model to poll state and
+  submit a new request, while `outcome_unknown` is never retried. The owner
+  requested a fresh Claude Fable 5 maximum-effort review of that update.
+  Claude Code 2.1.210 accepted the complete exact range
+  `5ae154c..b4a2c0c` with `guard_confirmed=true` and no comments; its result
+  metadata reported `claude-fable-5` plus CLI helper usage and no Opus model.
+  Canonical review evidence is in `.agents/review/index.md`. For packaging,
+  the owner confirmed nothing
+  has shipped and only this development environment is in use, then delegated
+  the choice: keep the current registration usable through R6, perform one R7
+  cutover to the matched guardian package, and preserve no direct-server
+  migration or compatibility layer. An eligible alias also recovers
+  automatically to its fresh declared baseline after an execution-timeout
+  terminal and confirmed old-tree death; the timed-out call is never replayed.
+  Retryable recovery refusals carry phase, attempt, poll delay, and an exact
+  readiness gate: delay expiry permits only `ptk_state`, and a fresh operation
+  waits for readiness plus pre-write dispatch revalidation. After private
+  write begins, the existing `outcome_unknown`/no-replay boundary still wins.
+  Exact R0 verification and direct macOS/Windows evidence are recorded in
+  `.agents/machines.md`. The in-repo independent audit found no R0 blocker.
+  After the compression proxy was removed, Claude Code 2.1.211 routed directly
+  to `claude-fable-5` at maximum effort and accepted exact range
+  `215e10f..c1d809f` with matching SHAs and `guard_confirmed=true`. Its model
+  metadata reported Fable plus the Haiku helper and no Opus model. It proved
+  the Sentinel projection, post-write `outcome_unknown`, and Unix hard-
+  containment guards red-to-green, restored its clean detached tree, and
+  reported only one non-blocking fixture-hygiene advisory. Canonical review
+  evidence is in `.agents/review/index.md`; the earlier fail-closed attempts
+  and their resolution remain in
+  `.agents/review/mcp-resilience-r0-review.contested.md`.
+- **CI portability Slices 11-16 are complete at final test-only head
+  `5642376`; hosted run `29541559607` passed all six jobs at exact pushed
+  descendant `7bc08aa`.** Run
+  `29536074900` proved Slices 11-12 closed their R0 checkout and marker races,
+  then exposed four older scheduler, reprime-setup, Unix deadline, and Windows
+  retry-notification assumptions. Each repair changes only its test; the
+  review closure additionally freezes the native deadline helper without
+  restoring a scheduler-latency ceiling. Focused red/green proofs, the complete
+  macOS battery, direct Linux/Windows batteries at the runtime-equivalent
+  preceding head, exact final-head platform guards, and independent review all
+  passed, followed by green Ubuntu/macOS/Windows product and SIEM jobs. Slices
+  1-10 remain complete with green hosted evidence. Canonical details are in
+  `.agents/plans/ci-portability-repair.md` and
+  `.agents/machines.md`; RTK distribution remains a separate decision.
+- **Audited-harness Slice 6 is complete locally.** Code
+  head `7999328` moves invoke/job/state/reset behavior and session-lifetime
+  caches behind one owning `SessionRuntime`, leaves audit and output
+  capabilities per operation, keeps MCP adapters thin and schema-compatible,
+  and preserves jobs-before-runspace audited shutdown. Claude Code 2.1.208
+  accepted exact range `aca20a6..7999328` with `guard_confirmed=true` in a
+  clean detached worktree after independent cache-isolation, ownership,
+  adapter, and reset-lifetime mutation proofs plus the full battery. Completion
+  records are committed at `67b900d`. The accepted feature history was
+  fast-forwarded to local `master`, content arrival was verified independently,
+  and the feature branch was removed. Canonical evidence is in
+  `.agents/review/index.md`.
+- **Audited-harness Slice 5 is complete locally.** Final code head
+  `fc61be6` completes audited cold-background planning, typed exactly-once
+  dispatch/fallback, provenance-
+  aware polling, and path-free output recovery. Eligible direct-text jobs
+  reserve output capacity before start, seal one immutable bounded supervisor
+  artifact, and publish its opaque handle before terminal notification;
+  seam-absent RTK jobs remain explicitly unrecoverable, and model-facing job
+  surfaces expose no internal path. Claude Code 2.1.208 and Grok 0.2.93 each
+  accepted exact range `ee21f16..fc61be6` with `guard_confirmed=true` in clean
+  detached worktrees after independent guard proofs and the full verification
+  battery. Completion records are committed at `bbb1742`. The accepted
+  feature history was fast-forwarded through handoff tip `de8dc53` to local
+  `master`, content arrival was verified independently, and the feature branch
+  was removed. Canonical evidence is in `.agents/review/index.md`.
+- **Audited-harness Slice 4 is complete locally.** Final product
+  head `76d4f0c` integrates the supervisor-owned output store and audited
+  `ptk_output`, bounded two-stage same-invocation capture/recovery, anonymous
+  retained artifacts, truthful recovery hints, behaviorally inert legacy
+  `raw`, explicit `route=pwsh` consent, and the narrow unshaped state probe.
+  Claude accepted exact integrated range `9c89abf..76d4f0c` with
+  `guard_confirmed=true` after eight independent cross-slice red-to-green
+  proofs and the full local battery. The accepted feature history was
+  fast-forwarded to local `master`, content arrival was verified independently,
+  and the feature branch was removed. Canonical review evidence is in
+  `.agents/review/index.md`; host-specific evidence is in `.agents/machines.md`.
+- **Audited-harness Slice 3 is complete locally.** Final
+  integrated code head `b78d9c6` completes structured foreground routing,
+  audited RTK/Bash dispatch, bounded preference-independent RTK capture,
+  exact-original pre-start fallback, and post-success mixed-domain guidance.
+  Claude accepted the exact fixed head with `guard_confirmed=true`; all six
+  admitted material findings are closed. The accepted feature history was
+  fast-forwarded to local `master`, content arrival was verified independently,
+  and the feature branch was removed. Canonical review and platform evidence
+  is in `.agents/review/index.md` and `.agents/machines.md`.
+- **Audited-harness Slice 2 is complete locally.** The final
+  integrated code head `3d3739a` completes job/control audit, local-only and
+  anchored OTLP export, evidence administration and retention, permanent
+  operator disposition, and the strict `ptk.audit/2` extension. Claude
+  accepted the exact fixed head with `guard_confirmed=true`; all four material
+  integrated-review findings are closed, and the accepted feature history was
+  fast-forwarded to local `master`. Canonical review and platform evidence are
+  in `.agents/review/index.md` and `.agents/machines.md`.
+- **Audited-harness slices 0-4 are complete locally.** Slice 1 commit
+  `460c106` adds the mandatory current-server audit foundation, exact-script
+  evidence, capacity reservation, protected local storage, and fail-closed
+  pre-effect guards. Claude accepted the fixed-SHA implementation after an
+  independent red→green guard proof; canonical review evidence is in
+  `.agents/review/index.md` and platform evidence is in `.agents/machines.md`.
+  `.agents/plans/audited-harness-sessions.md` combines
+  mandatory PTK-owned/SIEM-exportable audit, private harness-scoped
+  process-per-session workers, internal PTK→RTK routing, same-invocation
+  output recovery, and no-retry mixed-domain handling. Its frozen slice-0
+  results record the absent RTK capture seam, local-only/anchored OTLP
+  contracts, exact profile/protocol bounds, carried routing guards, and live
+  passing Windows/Unix parent-death probes. Both plan reviewers accepted the
+  same approved pre-implementation content. Canonical pre-implementation
+  review evidence and fixed-head guards live in `.agents/review/index.md`.
+- **Slice 10 production acceptance is in progress on
+  `impl/production-reliability-salvage`.** `c2f67d3` added the unshipped
+  production-acceptance stress harness and package-boundary guards; `9151e57`
+  made selected-session state and the supervisor-local session list prove
+  prompt, truthful behavior while three real calls remain active across two
+  servers. Linux acceptance then reproduced an intermittent
+  `descendants_unknown` reset refusal even though broker and registry
+  containment were confirmed. Root cause was an asynchronous forwarding race:
+  the Unix registry's exact empty-domain proof was complete, but the public
+  worker proof task could still be pending when the supervisor checked it.
+  `156aac2` publishes that already-completed exact proof before returning
+  `ConfirmedEmpty`; the supervisor's fail-closed rule is unchanged. The guard
+  failed with the synchronization removed and passed after restoration.
+  Verification at `156aac2`: 1,204 server tests, 141 Pester tests (2 skipped),
+  247 SIEM tests, handshake, macOS 100 replacement cycles, and the Linux
+  diagnostic reproducer's 100 replacement cycles all passed.
+- **Slice 10 timeout containment is committed and directly verified at
+  `ef1657b22b9847f24dc991e6a9c0a58aa8624281`.** One absolute admission
+  deadline now reaches the runspace; a dedicated watchdog stays live while
+  PowerShell cancellation or terminal transport is blocked; timed-out
+  incomplete output remains recoverable under the supervisor's single recovery
+  handle; and production fail-fast replaces only the unresponsive worker. Five
+  targeted regressions failed for their intended reason and passed after
+  byte-exact restoration. Complete macOS ARM64 and exact-archive Linux x86_64
+  batteries passed, including 100 replacements, timeout child/grandchild death,
+  sibling survival, resource return, and supervisor hard-kill containment.
+  Exact host identities, commands, counts, archive/log hashes, and cleanup are
+  recorded in `.agents/machines.md`. Nothing was installed, deployed, or
+  pushed.
+- **Slice 10 Unix process-group escape acceptance is committed at
+  `a626c3b8e993575ad916058bc33959c02b4daae3` and verified on macOS ARM64 and
+  exact-archive Linux x86_64.** The public harness proves a real `setsid`
+  escape reports `descendants_unknown`, retains the escaped PID as unconfirmed,
+  blocks worker reuse, does not replay the timed-out command, and permits a
+  different worker only after exact escaped-PID cleanup. Making the registry
+  ignore process-group changes produced a false `ready` replacement and made
+  the new guard fail; byte-exact restoration passed reduced and full
+  acceptance. Full host evidence and cleanup hashes are in
+  `.agents/machines.md`.
+- **Slice 10 direct-worker-death containment is committed at
+  `8b9644ae8937b33c9bd9de1498dbef6ee7cd88d2` and verified on macOS ARM64 and
+  exact-archive Linux x86_64.** The Unix broker now treats reaping the worker as
+  the immediate trigger to contain any remaining process-group members;
+  descendants can no longer keep the broker waiting indefinitely by retaining
+  inherited pipes. The new low-level guard failed against the old broker with
+  both descendants still live and passed after the fix. Public acceptance
+  directly kills a worker during an in-flight command, proves both descendants
+  exit, reports `outcome_unknown` without replay, replaces only that worker,
+  and preserves the sibling PID and warm variable. Complete macOS and Linux
+  batteries passed; exact counts, log hashes, host split, and cleanup are in
+  `.agents/machines.md`. A focused nine-case pass makes the full hard-kill
+  boundary mapping explicit: deterministic transport-death guards cover before
+  write, write-call entry, during result, and after terminal decode; real
+  worker/process guards cover during execution and after an observable effect.
+
 ## Rotated 2026-07-11 (drift based on 78779b0)
 
 The previous current-work sections are preserved verbatim below. Live

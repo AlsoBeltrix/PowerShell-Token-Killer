@@ -638,6 +638,33 @@ public sealed class SessionWorkerClientTests
         Assert.True(failure.ContainmentEmpty?.IsCompletedSuccessfully);
     }
 
+    /// <summary>
+    /// <summary>
+    /// Slice 5 / opr-20, fail-closed half: at or after the first write attempt
+    /// the stream and the request outcome are both ambiguous, so the client
+    /// must still poison. The repair narrows the poisoning window; it must not
+    /// remove it. The writer invokes its first-write callback immediately
+    /// before the stream write, so a failure raised by that write is at-write
+    /// and stays fail-closed.
+    /// </summary>
+    [Fact]
+    public async Task State_failure_at_the_first_write_still_poisons_the_transport()
+    {
+        var process = new ScriptedProcess(WriteFailureMode.SynchronousAtEntry);
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 1,
+            Limits);
+        await InitializeAsync(client, process);
+
+        await Assert.ThrowsAnyAsync<Exception>(
+            () => client.StateAsync(listAvailable: false, CancellationToken.None));
+
+        Assert.False(
+            client.IsTransportUsable,
+            "an ambiguous at-write failure must still poison the transport");
+    }
     private static async Task InitializeAsync(
         ProcessSessionWorker client,
         ScriptedProcess process)

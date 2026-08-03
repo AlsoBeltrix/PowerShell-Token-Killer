@@ -498,8 +498,19 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                 Incarnation,
                 requestId,
                 listAvailable);
-            writeAttempted = true;
-            await WriteRequiredAsync(request, cancellationToken)
+            // Set from the writer's own callback, invoked immediately before
+            // the underlying stream write — not eagerly before the call. The
+            // writer has two cancellation points before it offers any byte to
+            // the pipe (its write-gate wait, and an explicit token check
+            // before encoding). An eager flag treated a cancel at either point
+            // as an ambiguous transport, so a canceled read-only ptk_state
+            // poisoned the worker and the supervisor replaced a perfectly
+            // healthy session, losing its variables, modules, and
+            // connections. This is the boundary the invoke path already uses.
+            await WriteRequiredAsync(
+                    request,
+                    cancellationToken,
+                    () => writeAttempted = true)
                 .ConfigureAwait(false);
             var snapshot = WorkerOperationProtocol.ParseStateSnapshot(
                 await ReadRequiredAsync(cancellationToken).ConfigureAwait(false),
@@ -510,12 +521,18 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
+            // Proved pre-write: the worker never saw this request, so the
+            // transport is still sound and there is nothing to cancel. At or
+            // after the first write attempt the stream and the request outcome
+            // are both ambiguous, and fail-closed poisoning still applies.
             if (writeAttempted)
-                Poison(exception);
-            if (exception is OperationCanceledException &&
-                cancellationToken.IsCancellationRequested)
             {
-                await CancelBestEffortAsync().ConfigureAwait(false);
+                Poison(exception);
+                if (exception is OperationCanceledException &&
+                    cancellationToken.IsCancellationRequested)
+                {
+                    await CancelBestEffortAsync().ConfigureAwait(false);
+                }
             }
             throw;
         }

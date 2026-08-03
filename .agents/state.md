@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **AuditSpoolSegmentIdentity whole-file review closed (2026-08-01):** all 116 lines reviewed at `1a0d80f` with scanner, checkpoint, writer, retirement, event-validation, and focused-test integration; tests passed 41/41. Production parse consumers gate output before use. Prior limited `b4ffe87` review expanded; Opus found no current defect and no product or test change.
+
 - **AuditEvidenceOrphanReconciler whole-file review closed (2026-08-01):** all 101 lines reviewed at `a352bc2` with both active static startup callers, provider, protected spool, and focused-test integration; tests passed 11/11. Existing MEDIUM `opr-6` and LOW `opr-34` were excluded. Instance cadence API is dormant; static pre-writer proof is live. Prior limited `77a324e` review expanded; no additional current finding and no product or test change.
 
 - **AuditAdminDispositionFailure whole-file review closed (2026-08-01):** all 89 lines reviewed at `cea2ff8` with active disposition administration, typed stage/effect classification, and focused-test integration; tests passed 22/22. Verified `s2-admin-disposition-failures` remained intact and was excluded. Prior limited `888914d` review expanded; no current finding and no product or test change.
@@ -1028,7 +1030,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate unattended review:** begin the 116-line `AuditSpoolSegmentIdentity` current-head whole-file review; its prior record was limited to segment filename parsing, canonical identity, ordering, invalid-input handling, and cross-platform path semantics rather than explicitly integrated complete-source caller/test coverage. Include scanner/checkpoint callers and focused segment-identity tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
+- **Immediate unattended review:** begin the 125-line `WorkerSession` current-head whole-file review; its prior record was limited to operation dispatch, deadline/cancellation forwarding, capture ownership, result mapping, artifact fallback, routes, and lifetime forwarding rather than explicitly integrated complete-source caller/test coverage. Include named-session supervisor/client callers and focused worker-session tests in a bounded Claude Opus 5 pass. Do not implement plan-gated findings without an approved plan.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 

@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **RTK router delegation plan drafted (2026-08-03):** `.agents/plans/rtk-router-delegation.md` is DRAFT and authorizes no code. It supersedes `.agents/plans/minimum-viable-release.md` on approval, retaining that document's release-blocking rule, non-goals, and packaging/proof slices by reference. Product definition restated by the owner: PTK is a warm PowerShell runspace **and a compression router** — PTK compresses PowerShell objects itself, everything else routes to RTK. The plan replaces PTK's own AST/PATH routing with RTK's `rtk hook check` rewriter (validated against rtk 0.44.2 and source `../rtk`), deletes shell inference and post-success advice, and closes ~18 findings as removed code. Await Decision 1 on routing authority. Process constraints in that plan retire the "accepted and plan-gated" finding state and prohibit unattended review and file-by-file source review.
+
 - **Minimum viable release reset (2026-08-03):** `.agents/plans/minimum-viable-release.md` is DRAFT and authorizes no code. It limits release work to the five-tool PowerShell product, removes automatic Bash inference and post-success command advice, fixes only core session reliability, reuses existing packaging, and requires direct product checks only. No review is authorized without a separate explicit owner approval for that invocation. Await Decision 1 on the proposed product contract. Any later state entry directing unattended review is stale and superseded.
 
 - **Output formatter `opr-59` intake (2026-08-03):** LOW accepted and plan-gated: reading a nonempty Available or Incomplete artifact exactly at EOF returns a correct zero-byte page, but `FormatRead` then falsely appends `(no captured bytes)` despite its nonzero artifact-byte header. Repair is formatter-only and must preserve the true empty-artifact marker. No product or test file changed.
@@ -268,7 +270,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate work:** no unattended review. Await owner Decision 1 on `.agents/plans/minimum-viable-release.md`; implementation starts only after that approval.
+- **Immediate work:** no unattended review. Await owner Decision 1 on `.agents/plans/rtk-router-delegation.md` (routing authority); implementation starts only after that approval. The 59-item `opr-*` intake queue below is superseded by that plan's Slice 6 dispositions and is retained only until it runs.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 
@@ -317,7 +319,7 @@ additional exact-head macOS attempts (`91446210698`, `91446785138`). Production
 remained unchanged; direct macOS mutation proof was unavailable and is not
 claimed.
 
-**Immediate next:** obtain Decision 1 on the minimum release contract. Do not invoke a reviewer unless the owner separately approves that exact review.
+**Immediate next:** obtain Decision 1 on routing authority in `.agents/plans/rtk-router-delegation.md`. Do not invoke a reviewer unless the owner separately approves that exact review.
 master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
 `opr-4` through `opr-18` are accepted and plan gated. `opr-14` is HIGH:
 fixed-signature `fcntl` P/Invokes mispass variadic arguments on Apple arm64;
@@ -482,7 +484,11 @@ readiness remain parked while product defects are active.
 
 ## Active Sources
 
-- `.agents/plans/minimum-viable-release.md` (draft; no implementation authority)
+- `.agents/plans/rtk-router-delegation.md` (draft; no implementation authority;
+  supersedes the minimum-viable-release plan on approval)
+- `.agents/plans/minimum-viable-release.md` (draft; no implementation authority;
+  its release-blocking rule, non-goals, and packaging/proof slices are retained
+  by reference from the router-delegation plan)
 
 - `AGENTS.md`
 - `.agents/repo-guidance.md`

@@ -18,3 +18,5 @@ obj/
 *.local.json
 .tokensave\
 .serena\
+.serena/
+.tokensave/

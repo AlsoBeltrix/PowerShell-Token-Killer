@@ -5,6 +5,10 @@ short and update it when important repo facts change.
 
 ## Now
 
+- **RTK is a required dependency (owner, 2026-08-03):** "rtk was never optional. rtk was always stated requirement when I asked for this." PTK is a compression router; the thing it routes to is not optional. A missing or unusable RTK is a startup error with an actionable message, never a silent degraded mode. Do not build a without-RTK product tier, capability matrix, or per-call degradation reporting. The README's recommended-not-required framing and its "PTK still provides" list are stale and are corrected in Slice 2. Packaging must resolve RTK delivery (bundle or checked prerequisite) rather than installing onto a machine without it.
+
+- **Routing authority settled; plan APPROVED (owner, 2026-08-03):** `.agents/plans/rtk-router-delegation.md` Slices 0–6 are authorized. RTK's `rtk hook check` rewriter is PTK's router for non-PowerShell work; PTK stops walking the AST for eligibility and stops resolving executables against PATH. Decisions 2–5 (platforms, Outlook/COM, version, publish) remain unruled and gate Slice 7 only.
+
 - **Session inheritance is a defect; Slice 0 added (owner, 2026-08-03):** the agent's PowerShell session must contain only what PowerShell 7 ships. Observed on `ASHBIAMWEB1` at `0.2.0-dev.g12e1ff5`: `InitialSessionState.CreateDefault()` correctly skips `$PROFILE`, but the retained `PSModulePath` lets any reference to a user-module command autoload that module — one such reference pulled in 44 commands and retroactively replaced the shipped `ls` alias with a user function for the rest of the session. The leak is lazy, so sessions on one machine are not reproducible. Fix is `$PSModuleAutoloadingPreference = 'None'` in the initial session state, keeping `PSModulePath` for AD/Exchange discovery; explicit `Import-Module` is unaffected. Slice 0 in `.agents/plans/rtk-router-delegation.md` is independent of Decision 1.
 
 - **RTK router delegation plan reviewed (2026-08-03):** openreview codex (harness default model/effort, ungraded) over `e22d619..3f8160c` returned `acceptable_with_changes` with one material change and one HIGH finding: RTK rewrites command text with no session knowledge, so unguarded delegation would execute native `git` when the warm session defines `function global:git`. Both halves were independently reproduced live. The per-call binding guard added at `2f7defa` was then **removed** in favor of Slice 0 — a clean session cannot have the shadowing the guard defended against, so the finding closes as removed-by-design rather than fixed. Record: `.agents/review/openreview-rtk-router-codex-r1.md`. Dispatch deviations (default tier per owner word, `-s read-only` so no worktree, codex auth-refresh errors on stderr) are recorded there, not silent.
@@ -274,7 +278,7 @@ short and update it when important repo facts change.
 
 - **Review intake:** `opr-4` gained LOW pre-start classification scope under the existing MEDIUM plan gate: a no-start RTK or Bash result can combine a timeout outcome with cancellation audit detail. No product or test change.
 
-- **Immediate work:** no unattended review. Await owner Decision 1 on `.agents/plans/rtk-router-delegation.md` (routing authority); implementation starts only after that approval. The 59-item `opr-*` intake queue below is superseded by that plan's Slice 6 dispositions and is retained only until it runs.
+- **Immediate work:** execute `.agents/plans/rtk-router-delegation.md` Slices 0–6 in order, one slice per commit. No unattended review; no file-by-file source review; fix-or-close, never record a new gated finding. The 59-item `opr-*` intake queue below is superseded by that plan's Slice 6 dispositions and is retained only until it runs.
 
 - **Review intake:** `opr-39` LOW accepted and plan-gated: `TryReclaim` can snapshot artifacts before marker ownership, remove the marker, then fail final directory deletion, leaving recognized residue without durable proof for any later retry.
 
@@ -323,7 +327,7 @@ additional exact-head macOS attempts (`91446210698`, `91446785138`). Production
 remained unchanged; direct macOS mutation proof was unavailable and is not
 claimed.
 
-**Immediate next:** obtain Decision 1 on routing authority in `.agents/plans/rtk-router-delegation.md`. Do not invoke a reviewer unless the owner separately approves that exact review.
+**Immediate next:** `.agents/plans/rtk-router-delegation.md` Slice 0 (clean session). Do not invoke a reviewer unless the owner separately approves that exact review.
 master. `opr-3` closed through PR #27 as `f5da911`; `opr-1`, `opr-2`, and
 `opr-4` through `opr-18` are accepted and plan gated. `opr-14` is HIGH:
 fixed-signature `fcntl` P/Invokes mispass variadic arguments on Apple arm64;

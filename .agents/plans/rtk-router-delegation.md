@@ -1,9 +1,11 @@
 # Plan: RTK router delegation and minimum viable release
 
-**Status:** DRAFT 2026-08-03. Decision 1 is unruled; no slice below is
-authorized. This plan supersedes `.agents/plans/minimum-viable-release.md`
-on approval, retaining that document's release-blocking rule, non-goals,
-and Slices 5–6 by reference.
+**Status:** APPROVED 2026-08-03. Routing authority is settled: RTK is a
+required dependency and its rewriter is PTK's router (owner, 2026-08-03).
+Slices 0–6 are authorized. Decisions 2–5 (platforms, Outlook/COM boundary,
+version, publish) remain unruled and gate Slice 7 only. This plan supersedes
+`.agents/plans/minimum-viable-release.md`, retaining that document's
+release-blocking rule, non-goals, and Slices 5–6 by reference.
 
 **Review:** openreview codex (harness default model/effort, ungraded) over
 `e22d619..3f8160c`: `acceptable_with_changes`. Its material change asked for
@@ -67,26 +69,34 @@ with inherited stdio and no filtering. Never route through it.
 `Invoke-PtcRtkLog` (`src/PwshTokenCompressor.psm1:606`). Unchanged by this
 plan.
 
-## Decision 1 — routing authority (UNRULED; blocks every slice)
+## Routing authority (SETTLED — owner, 2026-08-03)
 
-Proposed: RTK's rewriter becomes PTK's routing authority for non-PowerShell
-work. PTK submits the exact script text to `rtk hook check`; a rewrite is
-executed as PowerShell (the rewritten text is a shell command line that
-PowerShell runs natively); a decline executes the original text unchanged.
+RTK's rewriter is PTK's routing authority for non-PowerShell work. PTK
+submits the exact script text to `rtk hook check`; a rewrite is executed as
+PowerShell (the rewritten text is a shell command line that PowerShell runs
+natively); a decline executes the original text unchanged.
 
 PTK stops deciding routing eligibility from its own PowerShell AST walk and
 stops resolving executable identity against PATH.
 
-Consequences if approved:
+**RTK is a required dependency, not an optional enhancement** (owner,
+2026-08-03: "rtk was never optional. rtk was always stated requirement when
+I asked for this"). PTK is a compression router; the thing it routes to is
+not optional. Treat a missing or unusable RTK as a startup error with an
+actionable message, not as a silent degraded mode. Do not build a
+without-RTK product tier, a capability matrix, or per-call degradation
+reporting.
+
+This supersedes the README's current framing that PTK "still provides"
+value without RTK; that wording is corrected in Slice 2.
+
+Consequences:
 
 - Routing coverage widens: compound commands and env-prefixed commands
   become routable, which they are not today.
 - ~2,000 production lines are deleted.
 - ~18 accepted findings close as removed code rather than being repaired.
-- RTK stops being optional for native-command compression. Absent RTK, PTK
-  still delivers warm state, object compression, ANSI cleanup, bounded
-  text, and same-invocation recovery; native commands execute exactly and
-  unfiltered. Startup must report which mode is active.
+- Packaging must ensure RTK is present (Slice 7, Decision 2).
 
 ## Deferred decisions
 
@@ -176,7 +186,18 @@ passes.
 Add a rewriter client that invokes the startup-pinned RTK identity as
 `hook check --agent ptk <script>`, reads stdout only, and applies a bounded
 timeout independent of the call budget. Treat non-zero exit, empty stdout,
-timeout, or a missing RTK binary as *decline*, never as failure.
+or timeout as *decline* — run the original text unchanged, never fail the
+call.
+
+A **missing or unusable RTK is a startup error**, not a per-call decline:
+RTK is required (see "Routing authority"). Resolve and pin it at startup as
+today; if it cannot be resolved, fail startup with an actionable message
+naming `PTK_RTK_PATH` and the PATH lookup. Do not degrade silently and do
+not carry a without-RTK code path through the call path.
+
+Correct the README's RTK section in this slice: it currently frames RTK as
+recommended-not-required and enumerates what PTK "still provides" without
+it. Replace that with the requirement.
 
 Rewrite acceptance rules — a rewrite is used only when all hold:
 
@@ -213,7 +234,7 @@ five exist only because PTK resolved targets itself.
 
 **Complete when:** a compound command (`git status && cargo test`) routes
 through RTK, a declined command (`npm test`) executes exactly as
-PowerShell, an absent RTK binary executes every command exactly, and no
+PowerShell, an absent RTK fails startup with an actionable message, and no
 production code resolves an executable against PATH for routing.
 
 ## Slice 3 — delete shell inference
@@ -314,8 +335,16 @@ behind Decisions 2 and 4. Add to its direct-check list:
 
 11. a compound native command routes through RTK and returns compressed
     output;
-12. with RTK absent from PATH, the same command executes exactly and the
-    startup report says native filtering is unavailable.
+12. with RTK absent, startup fails with the actionable message and names
+    `PTK_RTK_PATH`;
+13. a fresh session exposes the shipped `ls` alias and loads no user module
+    (Slice 0), on a host whose user module directory contains one.
+
+RTK is a required dependency, so packaging must resolve how it reaches the
+user: bundled alongside PTK, or documented as a prerequisite the installer
+checks for and refuses to proceed without. That choice rides Decision 2
+(supported platforms), since it is per-RID. Do not ship an installer that
+completes successfully onto a machine with no RTK.
 
 ## Process constraints
 
@@ -338,11 +367,9 @@ These bind the implementing agent.
 
 ## Ordered execution
 
-1. Slice 0 — independent of Decision 1; it is a correctness fix in its own
-   right and is a precondition for Slice 2's no-binding-guard rule.
-2. Decision 1.
-3. Slices 1–3 (deletions and the router swap).
-4. Slice 4, then Slice 5.
-5. Slice 6.
-6. Decisions 2 and 4, then Slice 7.
-7. Decision 5 and publish only on explicit go.
+1. Slice 0 — clean session; precondition for Slice 2's no-binding-guard rule.
+2. Slices 1–3 (deletions and the router swap).
+3. Slice 4, then Slice 5.
+4. Slice 6.
+5. Decisions 2 and 4, then Slice 7.
+6. Decision 5 and publish only on explicit go.

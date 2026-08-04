@@ -10,11 +10,12 @@ SHAs pinned and matched. All five admitted at intake. Per-finding detail:
 
 | ID    | Severity | Impact (one line)                                        | Status |
 |-------|----------|----------------------------------------------------------|--------|
-| hcc-1 | MEDIUM   | kimi uninstall deletes a pre-existing custom registration | `[~]`  |
+| hcc-1 | MEDIUM   | kimi uninstall deletes a pre-existing custom registration | `[x]` (codex/gpt-5.6-sol/high/std, accepted) |
 | hcc-2 | MEDIUM   | claude payload gate accepts an empty bin dir; can register a dead binary + arm the hook | `[~]` |
 | hcc-3 | MEDIUM   | apostrophe in ptk path writes invalid kimi TOML           | `[~]`  |
 | hcc-4 | LOW      | oversized consent number crashes instead of re-prompting  | `[~]`  |
 | hcc-5 | LOW      | kimi skip blurb ignores KIMI_CODE_HOME                    | `[~]`  |
+| hcc-6 | HIGH     | install rolls back when claude is detected without its CLI (owner field report) | `[~]`  |
 
 > **Dispositioned 2026-08-03.** Every accepted `opr-*` finding now carries
 > exactly one disposition in `.agents/review/dispositions.md` — fixed,

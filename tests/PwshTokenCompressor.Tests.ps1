@@ -463,6 +463,9 @@ Describe 'redirect hook and installer' {
             # would deny every call toward an invisible tool (mhi-6). The leg
             # must skip ONLY the hook and still write the conditionally
             # worded guidance block (grok's single layer).
+            # hcc-6: this degradation is a SUCCESS, not a failed leg - a
+            # failed leg exits ptk_init nonzero, which rolls back a whole
+            # install on machines where claude is simply not installed.
             $pwshExe = (Get-Command pwsh).Source
             $oldPath = $env:PATH
             try {
@@ -473,12 +476,38 @@ Describe 'redirect hook and installer' {
                 $env:PATH = $oldPath
             }
 
-            $LASTEXITCODE | Should -Not -Be 0
+            $LASTEXITCODE | Should -Be 0
             $out | Should -Match 'claude CLI not found'
             # No hook write at all - not even an empty settings file.
             Test-Path -LiteralPath $script:settings | Should -BeFalse
             # The nudge stays.
             Get-Content -LiteralPath $script:nudgeFile -Raw | Should -Match 'ptk-guidance'
+        }
+
+        It 'detection-mode run succeeds when claude is detected but its CLI is absent (hcc-6)' {
+            # The owner-hit shape end to end: ~/.claude exists (detection
+            # fires) but the claude CLI does not. Install drives exactly
+            # this path; the run must succeed with guidance, not roll back.
+            $homeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-clhome-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path (Join-Path $homeDir '.claude') -Force | Out-Null
+            $pwshExe = (Get-Command pwsh).Source
+            $oldPath = $env:PATH; $oldHome = $env:HOME; $oldUserProfile = $env:USERPROFILE
+            try {
+                $env:PATH = [System.IO.Path]::GetTempPath() # no claude, no shim
+                $env:HOME = $homeDir; $env:USERPROFILE = $homeDir # Unix/Windows $HOME sources
+                $out = '' | & $pwshExe -NoProfile -File $script:initScript -PtkHome $script:fakeHome 2>&1 | Out-String
+                $code = $LASTEXITCODE
+                $nudgeText = Get-Content -LiteralPath (Join-Path $homeDir '.claude' 'CLAUDE.md') -Raw
+            }
+            finally {
+                $env:PATH = $oldPath; $env:HOME = $oldHome; $env:USERPROFILE = $oldUserProfile
+                Remove-Item -LiteralPath $homeDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
+            $code | Should -Be 0
+            $out | Should -Match 'claude CLI not found'
+            $out | Should -Not -Match 'leg\(s\) failed'
+            $nudgeText | Should -Match 'ptk-guidance'
         }
 
         It 'registers the installed hook copy when the payload carries it' {

@@ -411,6 +411,7 @@ function Invoke-PtkClaudeLeg {
     $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
     $claudeCli = Get-Command claude -ErrorAction SilentlyContinue
     $registered = $false
+    $registrationFailed = $false
     if ($Uninstall) {
         if ($claudeCli) {
             if ($DryRun) {
@@ -440,6 +441,7 @@ function Invoke-PtkClaudeLeg {
             Write-Warning (('[claude] claude mcp add failed - not installing the blocking hook ' +
                 '(it would steer at a tool claude cannot see). Register manually: ' +
                 'claude mcp add --scope user ptk "{0}"') -f $binary)
+            $registrationFailed = $true
         }
         else {
             Write-Host '[claude] registered with Claude Code (user scope).'
@@ -517,7 +519,11 @@ function Invoke-PtkClaudeLeg {
         # grok's ONLY layer (grok session-loads this file, no hook).
         Install-PtkNudgeBlock -Path $nudgeTarget
     }
-    (-not $skipHook)
+    # hcc-6: a harness that CANNOT be wired (CLI absent) degrades to
+    # guidance-only success - claude is optional, and a failed leg exits
+    # nonzero, which rolls back a whole install. Only a real registration
+    # error (CLI present, mcp add failed) fails the leg.
+    (-not $registrationFailed)
 }
 
 # mhi-12: `codex mcp remove ptk` strips only the base [mcp_servers.ptk]

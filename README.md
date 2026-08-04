@@ -248,18 +248,14 @@ Installs self-contained binaries without cloning this repository or requiring
 the .NET SDK:
 
 ```powershell
-# Windows
-irm https://raw.githubusercontent.com/AlsoBeltrix/PowerShell-Token-Killer/master/install.ps1 | iex
+pwsh -File scripts/install.ps1 -FromRelease
 ```
 
-```sh
-# macOS / Linux
-curl -fsSL https://raw.githubusercontent.com/AlsoBeltrix/PowerShell-Token-Killer/master/install.sh | sh
-```
-
-`install.ps1` and `install.sh` are in the repository root. The download URLs
-above resolve once the v0.2.0 release is published; until then, run the
-scripts from a checkout.
+One installer, `scripts/install.ps1`, on every platform. It needs PowerShell 7,
+which is also what ptk runs. `-FromRelease` takes the latest published release
+(`-Version 0.2.0` pins one); without it, the installer builds this checkout,
+which additionally needs the .NET SDK. Everything after the payload is
+obtained is identical either way.
 
 The installer:
 
@@ -279,28 +275,29 @@ The installer:
   `rtk hook check`, not `rtk --version`: the rewriter has to actually answer.
   If it cannot, the install aborts rather than leaving a server that exits 78;
 - registers the server as the final mutation, printing the command when no
-  `claude` CLI is present; and
-- supports `-Uninstall` / `--uninstall`, with destructive purge kept explicit.
+  `claude` CLI is present, then runs the per-agent init that wires up every
+  detected harness — claude, codex, grok, and agy; and
+- supports `-Uninstall`, which reverses all of it and keeps user files;
+  `-Purge` also removes them.
 
-The matched payload is self-contained and does not require an installed
-PowerShell. The optional hook does require `pwsh`. Winget packaging is a
+The installed payload is self-contained: the server embeds its own PowerShell
+engine and does not need one installed to run. Winget packaging is a
 post-v0.2.0 follow-up, not a currently working install path.
 
-The v0.2.0 binaries are not publisher-signed or Apple-notarized. The official
-one-line paths are the tested install route; browser-downloaded or repackaged
-archives may trigger SmartScreen or Gatekeeper warnings.
+The v0.2.0 binaries are not publisher-signed or Apple-notarized. The installer
+is the tested install route; browser-downloaded or repackaged archives may
+trigger SmartScreen or Gatekeeper warnings.
 
-### Current development install
+### Installing from source
 
-To publish the current checkout into the canonical `~/.ptk` layout and
-register detected harnesses:
+Omit `-FromRelease` to build and install this checkout instead. That path
+additionally needs the .NET SDK.
 
 ```powershell
-pwsh -NoProfile -File scripts/dev-install.ps1
+pwsh -NoProfile -File scripts/install.ps1
 ```
 
-This is a developer path and requires PowerShell 7 plus the .NET SDK. For
-source debugging, you can instead build the checkout and register the
+For source debugging, you can instead build the checkout and register the
 stdout-clean no-build launch directly:
 
 ```powershell
@@ -324,7 +321,7 @@ Microsoft Defender Antivirus has falsely detected `PtkMcpServer.dll` as
 `Trojan:MSIL/AsyncRAT.AB!MTB` on Windows and quarantined it out of the build
 output and the installed `~/.ptk/bin` payload. The symptom is an install or
 build that appears to succeed while the DLL silently disappears;
-`scripts/dev-install.ps1` now detects the missing file and fails with
+`scripts/install.ps1` now detects the missing file and fails with
 guidance instead. The file has been submitted to Microsoft for a
 false-positive determination (status tracked in
 [issue #7](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/issues/7);

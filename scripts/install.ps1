@@ -1,30 +1,40 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-Dev-only installer (release-distribution plan, tier 1): publishes the current
-checkout self-contained and installs it into the one ptk home (~/.ptk), or
-produces the canonical release layout for CI. NOT the public install story —
-end users get install.ps1/install.sh against GitHub Releases.
+The ptk installer. Installs a published release, or this checkout, into the
+one ptk home (~/.ptk); also produces the canonical layout for release CI.
 
 .DESCRIPTION
-Default (install): publish for this machine's RID -> replace the
-installer-owned payload in ~/.ptk (bin/, src/, scripts/, VERSION) wholesale,
-leaving every other file (user config) untouched -> register the server with
-Claude Code at user scope (remove-then-add) -> write the Add/Remove Programs
-entry on Windows -> run the full per-agent init (ptk_init.ps1: hooks,
-registrations, guidance for every detected harness). One command per
-machine. -Uninstall reverses all of it and keeps user files. -LayoutOnly -OutputDir <dir> only
-builds the layout (release CI reuses this so dev and release artifacts are
-the same layout by construction); -Rid and -Version parameterize it.
+Install obtains a payload — a prebuilt release asset with -FromRelease, or a
+self-contained publish of this checkout otherwise — and from there the path
+is identical: stage it, smoke-test it, snapshot the prior payload, activate
+as a unit, ensure rtk is present, register the server, and run the per-agent
+init that wires up every detected harness (claude, codex, grok, agy). Any
+failure during activation or registration restores the previous payload
+byte-identically.
+
+~/.ptk holds bin/, src/, scripts/, VERSION, LICENSE, README.md — replaced
+wholesale on upgrade. Everything else there is user-owned and is never
+touched except by -Purge.
+
+rtk is a required dependency: the server exits 78 without one. An rtk already
+on PATH is used as-is; otherwise the matching build is fetched from rtk's
+releases, checksum-verified, and recorded so uninstall removes only that copy.
+
+-Uninstall reverses all of it and keeps user files; add -Purge to remove them.
+-LayoutOnly -OutputDir <dir> builds the layout and stops — release CI drives
+that mode per RID, so release artifacts and local installs are the same layout
+by construction.
 
 Install logic lives in small functions so a future `PtkMcpServer install`
 verb can host it in-process (the binary embeds the PowerShell engine).
 
 .EXAMPLE
-pwsh -File scripts/dev-install.ps1                # install current HEAD
-pwsh -File scripts/dev-install.ps1 -Hook          # ... and install the hook
-pwsh -File scripts/dev-install.ps1 -Uninstall
-pwsh -File scripts/dev-install.ps1 -LayoutOnly -Validate -OutputDir out/ptk-layout
+pwsh -File scripts/install.ps1 -FromRelease         # latest published release
+pwsh -File scripts/install.ps1 -FromRelease -Version 0.2.0
+pwsh -File scripts/install.ps1                      # build and install this checkout
+pwsh -File scripts/install.ps1 -Uninstall
+pwsh -File scripts/install.ps1 -LayoutOnly -Validate -OutputDir out/ptk-layout
 #>
 [CmdletBinding(DefaultParameterSetName = 'Install')]
 param(
@@ -50,11 +60,23 @@ param(
     [string]$Rid,
 
     # Version stamped into the publish (-p:Version) and the VERSION file.
-    # Release CI passes the tag version; dev installs default to
-    # 0.2.0-dev.g<shortsha>.
+    # Release CI passes the tag version; source installs default to
+    # 0.2.0-dev.g<shortsha>. With -FromRelease, selects which release to
+    # install instead (default: latest).
     [Parameter(ParameterSetName = 'Install')]
     [Parameter(ParameterSetName = 'LayoutOnly')]
     [string]$Version,
+
+    # Install a prebuilt release asset instead of building this checkout.
+    # This is how a user with no .NET SDK installs; everything after the
+    # payload is obtained is identical either way.
+    [Parameter(ParameterSetName = 'Install')]
+    [switch]$FromRelease,
+
+    # Also remove user-owned files under ~/.ptk. Uninstall keeps them by
+    # default.
+    [Parameter(ParameterSetName = 'Uninstall')]
+    [switch]$Purge,
 
     # Run the full public handshake against the layout without activating it.
     [Parameter(ParameterSetName = 'LayoutOnly')]
@@ -67,6 +89,9 @@ $ptkHome = Join-Path $HOME '.ptk'
 # Everything the installer owns and replaces wholesale on upgrade; anything
 # else under ~/.ptk is user-owned and never touched here.
 $payloadEntries = @('bin', 'src', 'scripts', 'VERSION', 'LICENSE', 'README.md')
+# Records an rtk this installer placed, so uninstall removes only that copy
+# and never a user's own.
+$rtkMarkerName = '.ptk-installed-rtk'
 $arpKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ptk'
 $installTransactionModule = Join-Path $PSScriptRoot 'ptk_install_transaction.psm1'
 Import-Module $installTransactionModule -Force
@@ -183,6 +208,176 @@ function Assert-PtkPayloadIntact {
     throw 'Install incomplete: payload files missing (possible antivirus quarantine).'
 }
 
+# --- release payload -------------------------------------------------------
+# Obtaining the payload is the only thing that differs between installing a
+# published release and building this checkout. Everything downstream -
+# transaction, validation, registration, harness init - is shared.
+
+function Get-PtkReleaseLayout {
+    param(
+        [Parameter(Mandatory)][string]$Destination,
+        [Parameter(Mandatory)][string]$TargetRid,
+        [string]$ReleaseVersion
+    )
+
+    $repository = 'AlsoBeltrix/PowerShell-Token-Killer'
+    $extension = if ($TargetRid -like 'win-*') { 'zip' } else { 'tar.gz' }
+    if ($ReleaseVersion) {
+        $tag = if ($ReleaseVersion.StartsWith('v')) { $ReleaseVersion } else { "v$ReleaseVersion" }
+    }
+    else {
+        $latest = Invoke-RestMethod "https://api.github.com/repos/$repository/releases/latest"
+        $tag = $latest.tag_name
+    }
+    $number = $tag.TrimStart('v')
+    $asset = "ptk-$number-$TargetRid.$extension"
+    $base = "https://github.com/$repository/releases/download/$tag"
+
+    $staging = Join-Path ([IO.Path]::GetTempPath()) ("ptk-dl-{0}" -f ([guid]::NewGuid()))
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    try {
+        Write-Host "Downloading $asset ($tag)..."
+        $archive = Join-Path $staging $asset
+        Invoke-WebRequest -Uri "$base/$asset" -OutFile $archive -UseBasicParsing
+        $sums = Join-Path $staging 'SHA256SUMS'
+        Invoke-WebRequest -Uri "$base/SHA256SUMS" -OutFile $sums -UseBasicParsing
+
+        $line = Get-Content -LiteralPath $sums |
+            Where-Object { $_ -match [regex]::Escape($asset) } |
+            Select-Object -First 1
+        if (-not $line) { throw "SHA256SUMS has no entry for $asset." }
+        $expected = ($line -split '\s+')[0].ToLowerInvariant()
+        $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($expected -ne $actual) {
+            throw ("Checksum mismatch for {0}.`n  expected {1}`n  actual   {2}`n" +
+                'Refusing to install an unverified download.') -f $asset, $expected, $actual
+        }
+        Write-Host '  checksum verified'
+
+        New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+        if ($extension -eq 'zip') {
+            Expand-Archive -LiteralPath $archive -DestinationPath $Destination -Force
+        }
+        else {
+            tar -xzf $archive -C $Destination
+            if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $asset" }
+        }
+        return $number
+    }
+    finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# --- rtk -------------------------------------------------------------------
+# rtk is a required dependency: the server exits 78 without one. An rtk the
+# user already has is used as-is and never touched; one this installer places
+# is recorded so uninstall removes only that copy.
+
+function Get-PtkRtkAssetName {
+    param([Parameter(Mandatory)][string]$TargetRid)
+    switch ($TargetRid) {
+        'win-x64' { 'rtk-x86_64-pc-windows-msvc.zip' }
+        # No upstream aarch64 Windows build; the x64 binary runs under
+        # Windows ARM64 emulation and is probed below like any other.
+        'win-arm64' { 'rtk-x86_64-pc-windows-msvc.zip' }
+        'linux-x64' { 'rtk-x86_64-unknown-linux-musl.tar.gz' }
+        'linux-arm64' { 'rtk-aarch64-unknown-linux-gnu.tar.gz' }
+        'osx-arm64' { 'rtk-aarch64-apple-darwin.tar.gz' }
+        default { throw "No rtk asset mapping for RID '$TargetRid'." }
+    }
+}
+
+function Test-PtkRtkAnswers {
+    param([Parameter(Mandatory)][string]$Path)
+    # A version banner only proves the image loaded. ptk depends on the
+    # rewriter answering, which is what must work under emulation.
+    try {
+        $rewritten = & $Path hook check --agent ptk 'git status --short' 2>$null
+        return $LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($rewritten)
+    }
+    catch { return $false }
+}
+
+function Install-PtkRtk {
+    param([Parameter(Mandatory)][string]$TargetRid)
+
+    $existing = Get-Command rtk -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($existing -and (Test-PtkRtkAnswers -Path $existing.Source)) {
+        Write-Host "rtk found on PATH: $($existing.Source)"
+        return
+    }
+
+    Write-Host 'rtk not found; installing it alongside ptk (required dependency).'
+    $asset = Get-PtkRtkAssetName -TargetRid $TargetRid
+    $staging = Join-Path ([IO.Path]::GetTempPath()) ("ptk-rtk-{0}" -f ([guid]::NewGuid()))
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    try {
+        $archive = Join-Path $staging $asset
+        Invoke-WebRequest -UseBasicParsing `
+            -Uri "https://github.com/rtk-ai/rtk/releases/latest/download/$asset" `
+            -OutFile $archive
+        $sums = Join-Path $staging 'checksums.txt'
+        Invoke-WebRequest -UseBasicParsing `
+            -Uri 'https://github.com/rtk-ai/rtk/releases/latest/download/checksums.txt' `
+            -OutFile $sums
+
+        $line = Get-Content -LiteralPath $sums |
+            Where-Object { $_ -match [regex]::Escape($asset) } |
+            Select-Object -First 1
+        if (-not $line) { throw "rtk checksums.txt has no entry for $asset." }
+        $expected = ($line -split '\s+')[0].ToLowerInvariant()
+        $actual = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($expected -ne $actual) { throw "Checksum mismatch for $asset; refusing to install it." }
+
+        $extracted = Join-Path $staging 'x'
+        New-Item -ItemType Directory -Path $extracted -Force | Out-Null
+        if ($asset.EndsWith('.zip')) {
+            Expand-Archive -LiteralPath $archive -DestinationPath $extracted -Force
+        }
+        else {
+            tar -xzf $archive -C $extracted
+            if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $asset" }
+        }
+
+        $binaryName = if ($IsWindows) { 'rtk.exe' } else { 'rtk' }
+        $found = Get-ChildItem -LiteralPath $extracted -Filter $binaryName -Recurse -File |
+            Select-Object -First 1
+        if (-not $found) { throw "rtk archive did not contain $binaryName." }
+
+        $target = Join-Path $ptkHome 'bin' $binaryName
+        New-Item -ItemType Directory -Path (Split-Path $target -Parent) -Force | Out-Null
+        Copy-Item -LiteralPath $found.FullName -Destination $target -Force
+        if (-not $IsWindows) { chmod +x $target }
+
+        if (-not (Test-PtkRtkAnswers -Path $target)) {
+            $hint = if ($TargetRid -eq 'win-arm64') {
+                ' On Windows ARM64 the x64 rtk runs under emulation; check that x64 emulation is available.'
+            }
+            else { '' }
+            throw ("The installed rtk did not answer 'hook check'.$hint " +
+                'ptk would refuse to start, so this install is being stopped.')
+        }
+        Set-Content -LiteralPath (Join-Path $ptkHome $rtkMarkerName) -Value $target -NoNewline
+        Write-Host "rtk installed: $target"
+    }
+    finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-PtkInstalledRtk {
+    $marker = Join-Path $ptkHome $rtkMarkerName
+    if (-not (Test-Path -LiteralPath $marker)) { return }
+    $ours = (Get-Content -LiteralPath $marker -Raw).Trim()
+    if ($ours -and (Test-Path -LiteralPath $ours)) {
+        Remove-Item -LiteralPath $ours -Force
+        Write-Host "Removed the rtk this installer placed: $ours"
+    }
+    Remove-Item -LiteralPath $marker -Force
+}
+
 # Stamps the built version into the packaged module manifest so every
 # user-visible surface agrees. ModuleVersion is a System.Version and cannot
 # hold a prerelease label, so a version like 0.2.0-rc.1 splits: 0.2.0 into
@@ -255,7 +450,7 @@ function New-PtkLayout {
         -ManifestPath (Join-Path $src.FullName 'PwshTokenCompressor.psd1') `
         -PayloadVersion $PayloadVersion
     $scripts = New-Item -ItemType Directory -Path (Join-Path $Destination 'scripts') -Force
-    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'dev-install.ps1',
+    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'install.ps1',
         'ptk_install_transaction.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
@@ -325,7 +520,7 @@ function Write-PtkArpEntry {
     Set-ItemProperty -Path $arpKeyPath -Name Publisher -Value 'PowerShell-Token-Killer'
     Set-ItemProperty -Path $arpKeyPath -Name InstallLocation -Value $ptkHome
     Set-ItemProperty -Path $arpKeyPath -Name UninstallString -Value (
-        'pwsh -NoProfile -File "{0}" -Uninstall' -f (Join-Path $ptkHome 'scripts' 'dev-install.ps1'))
+        'pwsh -NoProfile -File "{0}" -Uninstall' -f (Join-Path $ptkHome 'scripts' 'install.ps1'))
     Set-ItemProperty -Path $arpKeyPath -Name NoModify -Value 1 -Type DWord
     Set-ItemProperty -Path $arpKeyPath -Name NoRepair -Value 1 -Type DWord
     Write-Host 'Wrote Add/Remove Programs entry (HKCU).'
@@ -540,8 +735,15 @@ switch ($mode) {
         }
         Unregister-PtkServer
         Remove-PtkArpEntry
+        Remove-PtkInstalledRtk
         Remove-PtkPayload
-        Write-Host 'ptk uninstalled. User-owned files under ~/.ptk (if any) were kept.'
+        if ($Purge -and (Test-Path -LiteralPath $ptkHome)) {
+            Remove-Item -LiteralPath $ptkHome -Recurse -Force
+            Write-Host "ptk uninstalled and $ptkHome purged."
+        }
+        else {
+            Write-Host 'ptk uninstalled. User-owned files under ~/.ptk (if any) were kept.'
+        }
     }
     default {
         Assert-NotElevated
@@ -552,7 +754,13 @@ Assert-PtkRuntimeNotRunning
         $snapshot = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-rollback-{0}" -f ([guid]::NewGuid()))
         New-Item -ItemType Directory -Path $staging | Out-Null
         try {
-            New-PtkLayout -Destination $staging -TargetRid $targetRid -PayloadVersion $payloadVersion
+            if ($FromRelease) {
+                $payloadVersion = Get-PtkReleaseLayout `
+                    -Destination $staging -TargetRid $targetRid -ReleaseVersion $Version
+            }
+            else {
+                New-PtkLayout -Destination $staging -TargetRid $targetRid -PayloadVersion $payloadVersion
+            }
             Assert-PtkPayloadIntact -Root $staging -TargetRid $targetRid
             Invoke-PtkInstallTransaction `
                 -StagingRoot $staging `
@@ -585,6 +793,10 @@ Assert-PtkRuntimeNotRunning
                 -RegistrationCutover {
                     $installedBinary = Join-Path $ptkHome 'bin' (
                         Get-PtkServerBinaryName -TargetRid $targetRid)
+                    # Before any harness is pointed at this payload: the server
+                    # exits 78 without rtk, and an install that registers a
+                    # server which cannot start is not a successful install.
+                    Install-PtkRtk -TargetRid $targetRid
                     $registeredNow = Register-PtkServer -BinaryPath $installedBinary
                     if ($Hook) {
                         Write-Host 'NOTE: -Hook is deprecated - the full per-agent init runs by default.'

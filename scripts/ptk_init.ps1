@@ -21,7 +21,7 @@ hooks are trust-gated (plan: Evidence).
 
 claude leg: checks the installed payload (~/.ptk) and refuses the hook when
 it is missing - a redirect hook without a server steers every shell call at
-a tool that cannot answer; run scripts/dev-install.ps1 first. Installs one
+a tool that cannot answer; run scripts/install.ps1 first. Installs one
 PreToolUse entry (matcher "Bash|PowerShell") running scripts/ptk-hook.ps1
 (deny-with-guidance; PTK_DIRECT in a command is the escape hatch) and the
 ptk guidance block in ~/.claude/CLAUDE.md (standard layer, no opt-in - it
@@ -55,7 +55,7 @@ param(
     [switch]$Local,
 
     # Deprecated: user-level is the default now. Accepted so older callers
-    # (an installed dev-install.ps1 from a previous payload) keep working.
+    # (an installed install.ps1 from a previous payload) keep working.
     [switch]$Global,
 
     [switch]$Show,
@@ -252,7 +252,7 @@ function Invoke-PtkClaudeLeg {
         Write-Host "[claude] hook script: $hookScript $((Test-Path -LiteralPath $hookScript) ? '' : '(MISSING)')"
         Write-Host ("[claude] nudge block: {0} in {1}" -f ($nudgePresent ? 'INSTALLED' : 'not installed'), $nudgeTarget)
         Write-Host ("[claude] installed payload: {0} ({1})" -f
-            ($payloadPresent ? 'present' : 'MISSING - run scripts/dev-install.ps1'), $PtkHome)
+            ($payloadPresent ? 'present' : 'MISSING - run scripts/install.ps1'), $PtkHome)
         return $true
     }
 
@@ -270,7 +270,7 @@ function Invoke-PtkClaudeLeg {
         # Registration gate: enforce only where the steered-to tool can
         # answer. A hook without an installed server denies every shell call
         # while pointing at nothing.
-        Write-Warning (('No installed ptk payload at {0}. Run scripts/dev-install.ps1 first - it ' +
+        Write-Warning (('No installed ptk payload at {0}. Run scripts/install.ps1 first - it ' +
             'publishes the server to ~/.ptk and registers it with Claude Code - then re-run ' +
             'this script.') -f $PtkHome)
         if (-not $DryRun) { return $false }
@@ -481,7 +481,7 @@ function Invoke-PtkCodexLeg {
         }
         elseif (-not (Test-Path -LiteralPath $binary)) {
             # Registering a missing exe writes a broken config.toml entry.
-            Write-Warning (('[codex] no installed ptk server at {0}. Run scripts/dev-install.ps1 ' +
+            Write-Warning (('[codex] no installed ptk server at {0}. Run scripts/install.ps1 ' +
                 'first, then re-run this script.') -f $binary)
             $ok = $false
         }
@@ -573,7 +573,7 @@ function Invoke-PtkGrokLeg {
         $ok = $false
     }
     elseif (-not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-        Write-Warning (('[grok] no installed ptk server at {0}. Run scripts/dev-install.ps1 ' +
+        Write-Warning (('[grok] no installed ptk server at {0}. Run scripts/install.ps1 ' +
             'first, then re-run this script.') -f $binary)
         $ok = $false
     }
@@ -658,7 +658,7 @@ function Invoke-PtkAgyLeg {
     }
 
     if (-not $globallyRegistered -and -not (Test-Path -LiteralPath $binary -PathType Leaf)) {
-        Write-Warning (('[agy] no installed ptk server at {0}. Run scripts/dev-install.ps1 ' +
+        Write-Warning (('[agy] no installed ptk server at {0}. Run scripts/install.ps1 ' +
             'first, then re-run this script.') -f $binary)
         return $false
     }

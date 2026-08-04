@@ -559,7 +559,7 @@ Describe 'redirect hook and installer' {
             $out = pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $emptyHome 2>&1 | Out-String
 
             $LASTEXITCODE | Should -Be 1
-            $out | Should -Match 'dev-install'
+            $out | Should -Match 'install\.ps1'
             Test-Path -LiteralPath $script:settings | Should -BeFalse
         }
 
@@ -1001,7 +1001,7 @@ Describe 'development package layout' {
     }
 
     It 'refuses a cross-RID native package before creating the output directory' {
-        $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'dev-install.ps1'
+        $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
         $arch = switch ($architecture) {
             'X64' { 'x64' }

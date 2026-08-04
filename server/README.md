@@ -49,7 +49,7 @@ explicit `-TimeoutSec 90` gives cold build/startup work room to finish.
 
 A checkout has no project-scope registration (the committed `.mcp.json` is
 deliberately empty). Install and register user-wide with
-`pwsh -File scripts/dev-install.ps1` (builds a self-contained binary into
+`pwsh -File scripts/install.ps1` (builds a self-contained binary into
 `~/.ptk` and registers it), or register the checkout directly:
 
 ```powershell
@@ -204,7 +204,7 @@ add` + `~/.codex/AGENTS.md` block; no hook — trust-gated), grok
 guidance home is `~/.claude/CLAUDE.md`, which grok session-loads), and agy
 (a user-level plugin directory carrying registration + rules; no hook —
 enforcement is deferred until a live install run demonstrates agy's
-documented deny surface). `dev-install.ps1` chains this script by default:
+documented deny surface). `install.ps1` chains this script by default:
 one command per machine produces the whole state.
 
 ```powershell
@@ -230,7 +230,7 @@ then on; the installer warns about this. `-Show`/`-DryRun`/`-Uninstall`
 operate on the same target the install form would.
 
 The installer refuses to install the hook while no installed payload exists
-at `~/.ptk` (run `scripts/dev-install.ps1` first): a redirect hook without a
+at `~/.ptk` (run `scripts/install.ps1` first): a redirect hook without a
 server would deny every shell call while steering at a tool that cannot
 answer. It preserves unrelated hooks and replaces only the ptk-owned entry
 when re-run. The hook takes effect at the next Claude Code session start.
@@ -250,7 +250,7 @@ produces: an entry written from a checkout that later moved fails open
 silently on every shell call. The installer registers the installed copy
 (`~/.ptk/scripts/ptk-hook.ps1`) to make that class structurally rare, and
 `ptk_init.ps1 -Show` flags a registered target that no longer exists. Two
-heal paths: re-running `ptk_init.ps1`, or a `dev-install.ps1` install —
+heal paths: re-running `ptk_init.ps1`, or a `install.ps1` install —
 the latter refreshes an existing hook entry only when it also registered
 the server with Claude Code (no claude CLI → no refresh; run
 `ptk_init.ps1 -Agent claude` yourself after registering manually).

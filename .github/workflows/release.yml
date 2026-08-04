@@ -60,7 +60,7 @@ jobs:
           } else {
             '${{ github.ref_name }}'
           }
-          # dev-install.ps1 strips a leading v; keep the tag shape out of the
+          # install.ps1 strips a leading v; keep the tag shape out of the
           # artifact name too.
           $version = $version -replace '^[vV]', ''
           "version=$version" >> $env:GITHUB_OUTPUT
@@ -110,7 +110,7 @@ jobs:
       - name: Build layout
         shell: pwsh
         run: |
-          pwsh -NoProfile -File scripts/dev-install.ps1 `
+          pwsh -NoProfile -File scripts/install.ps1 `
             -LayoutOnly `
             -OutputDir out/ptk `
             -Rid ${{ matrix.rid }} `

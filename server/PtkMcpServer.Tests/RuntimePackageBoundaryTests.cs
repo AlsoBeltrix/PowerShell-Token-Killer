@@ -8,7 +8,7 @@ public sealed class RuntimePackageBoundaryTests
         var installer = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "scripts",
-            "dev-install.ps1"));
+            "install.ps1"));
 
         Assert.Contains("PtkWorkerBroker", installer, StringComparison.Ordinal);
         Assert.Contains(
@@ -26,7 +26,7 @@ public sealed class RuntimePackageBoundaryTests
         var installer = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "scripts",
-            "dev-install.ps1"));
+            "install.ps1"));
 
         Assert.Contains(
             "$ptkRuntimeProcessNames = @('PtkMcpServer', 'PtkWorkerBroker')",
@@ -49,7 +49,7 @@ public sealed class RuntimePackageBoundaryTests
         var installer = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "scripts",
-            "dev-install.ps1"));
+            "install.ps1"));
 
         Assert.Contains(
             "Invoke-PtkHarnessInitialization",

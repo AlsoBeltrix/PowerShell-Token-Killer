@@ -3,10 +3,10 @@
 **Status:** DRAFT 2026-08-03. Decision 2 is RULED: five RIDs (owner,
 2026-08-03 — "packaging for Windows x64 & ARM64, macOS ARM64, Linux x64 &
 ARM64 ... GH CIs should cover it"). Decisions A and B are RULED 2026-08-04
-(emulated x64 rtk on win-arm64; Apache-2.0). Decisions C–D and Decisions
-3–5 carried from `.agents/plans/minimum-viable-release.md` are UNRULED and
-gate the slices that name them. No code, tag, or publication is authorized
-by this draft.
+(emulated x64 rtk on win-arm64; Apache-2.0). Decision 3 is WITHDRAWN as
+mis-scoped and replaced by Slice 7.0, which is APPROVED 2026-08-04.
+Decisions C, D, and 5 are UNRULED and gate the slices that name them.
+Slice 7.0 is authorized to proceed; no tag or publication is.
 
 This plan executes Slice 7 of `.agents/plans/rtk-router-delegation.md`. It
 supersedes the packaging mechanics of `.agents/plans/release-distribution.md`
@@ -112,9 +112,30 @@ ship an installer that completes successfully onto a machine with no RTK.**
 Under (a) and (b), the installed layout must record which rtk PTK pinned so
 uninstall removes only a PTK-placed copy and never a user's own rtk.
 
-## Decision 3 — Outlook/COM boundary (UNRULED)
+## Decision 3 — superseded by Slice 7.0
 
-Carried unchanged from `.agents/plans/minimum-viable-release.md:141`.
+**Withdrawn 2026-08-04.** This decision was mis-scoped and must not be
+ruled as written. It asked whether to accept a documented "Outlook/COM
+boundary", implying the only unrendered values were live COM and lazy
+getters on Outlook and EXO objects.
+
+That is false, and it was verified false on an ordinary Windows host with
+no Outlook and no Exchange present (2026-08-04): `Get-Culture` renders as
+`[active member not evaluated]`, and so does `git push` output. The defect
+is not a COM boundary — it is that `ProjectOutput`
+(`server/PtkMcpServer/RunspaceHost.cs:1776`) recognizes six types and
+returns no data for everything else. Outlook and EXO are merely where the
+owner first noticed it (GitHub #8).
+
+Accepting the old wording would have shipped a compression tool that
+silently drops values for most .NET types under a note describing a
+narrower problem. Slice 7.0 replaces this decision. The remaining genuine
+question — whether PTK should execute active COM/lazy getters — is answered
+NO by Slice 7.0 and needs no separate ruling: the fallback renders text
+without invoking user getters, so the safety posture is unchanged.
+
+Original text, retained so the supersession is auditable, from
+`.agents/plans/minimum-viable-release.md:141`.
 Recommended contract: materialized, selected, and deserialized values are
 supported; PTK does not invoke active/lazy/COM getters to enrich output; the
 limitation is documented and GitHub #8 stays open. Making active COM values
@@ -125,6 +146,128 @@ mandatory instead is a separate product slice that blocks packaging.
 Tagging and publishing are owner actions. CI assembles a **draft** release
 only. Nothing in this plan authorizes a tag, a public release, or a push of
 a `v*` ref.
+
+## Slice 7.0 — the shaper renders unknown types instead of dropping them
+
+**Approved 2026-08-04 (owner: "yeah fix it").** Release blocker under
+`.agents/plans/minimum-viable-release.md` §Release-blocking rule: `ptk_invoke`
+returns materially wrong output — no data at all — for most object types.
+
+### The defect
+
+`ProjectOutput` (`server/PtkMcpServer/RunspaceHost.cs:1776`) handles
+scalars via `TryPassiveScalar`, then branches on an allowlist of exactly
+six shapes: `ErrorRecord`, `FileInfo`, `DirectoryInfo`, `MatchInfo`,
+`Process`, `PSCustomObject`. Its final `else` (line 1859) calls
+`AddActiveMemberPlaceholder(detached, "Value")`, which emits
+`[active member not evaluated]` and sets `_activeMemberOmitted`, flagging
+the whole capture incomplete.
+
+Every other type lands there: `CultureInfo`, `TimeZoneInfo`,
+`X509Certificate2`, `ServiceController`, AD and Exchange objects, and any
+type from any module. Reproduced 2026-08-04 on a host with no Outlook and
+no Exchange (`Get-Culture`; `git push`).
+
+`PassiveNoteValue` (line 2001) has the same hole one level down: a
+non-scalar note value becomes `[nested <type> not expanded ...]`.
+
+### Why the current behavior exists, and what must not change
+
+Active PowerShell members are executable user code. Reading one during
+capture runs that code on the producer callback — arbitrary execution at
+shaping time, which PTK refuses. Two guards enforce this and **must keep
+passing unchanged**:
+
+- `A_spoofed_service_controller_name_never_authorizes_live_getters`
+  (`RunspaceHostTests.cs:451`) — a user type named `ServiceController`
+  with counting getters; asserts `Reads == 0`.
+- `Passive_capture_never_enumerates_a_user_property_adapter`
+  (`RunspaceHostTests.cs:510`) — a user `PSPropertyAdapter`; asserts zero
+  `GetProperties`/`GetProperty` calls.
+
+Both build their types in-memory with `Add-Type`. That is the
+discriminator this slice turns on: **assembly trust**, the same mechanism
+`TryFreezeErrorRecord` (line 1738) already uses to decide whether an
+exception's `Message` is safe to read. `ErrorRecord` is the precedent —
+it hit this exact dead end and Slice 4 fixed it by projecting text
+instead of shape.
+
+### The repair
+
+Add a final fallback ahead of the `else` placeholder: when the base
+object's type comes from a trusted assembly, render it with a bounded
+`ToString()` and project that text; otherwise keep the existing
+placeholder.
+
+Trust test — reuse and widen `IsTrustedPowerShellAssembly` (line 1767)
+into a shared predicate that accepts a type whose assembly is:
+
+- loaded from the runtime/framework directory
+  (`AppContext.BaseDirectory` or `RuntimeEnvironment.GetRuntimeDirectory()`),
+  covering `System.*` and `Microsoft.*` BCL types; or
+- one of the two already-trusted PowerShell assemblies with the matching
+  public key token.
+
+An assembly that is dynamic (`Assembly.IsDynamic`) or has no on-disk
+`Location` is never trusted — that is precisely what `Add-Type` produces,
+so both guards keep their placeholder and their zero read counts.
+
+Constraints on the rendering itself:
+
+- Call `ToString()` only. Never enumerate properties, never touch ETS,
+  never consult a `PSPropertyAdapter`.
+- A type that overrides `ToString()` in an untrusted assembly is excluded
+  by the trust test before the call is reached.
+- Wrap in try/catch; on throw, fall back to the placeholder and set
+  `_captureFailed` as the existing catch paths do.
+- Charge the result through `TryChargeProjection` like every other
+  retained string, and bound it — cap the rendered text and truncate with
+  a marker rather than retaining an unbounded `ToString()`.
+- A rendered value is a lossy projection, not an omission: set
+  `_lossyProjection`, do **not** set `_activeMemberOmitted`. This matters
+  for the user-visible marker — the capture reports
+  `passive_projection_lossy`, not `active_member_not_evaluated`, because
+  no active member was skipped.
+
+Apply the same fallback to `PassiveNoteValue` so nested trusted values
+render rather than reporting `[nested ... not expanded]`.
+
+### Issue #8's secondary complaint
+
+`TryFreezeErrorRecord` returns
+`"[PowerShell error text omitted because its exception type was not safe to
+inspect]"` for any exception outside the two trusted PowerShell assemblies
+(line 1751), so a module's own exception loses its message entirely. Widen
+it to the same shared trust predicate, so a framework exception surfaces
+its `Message`. An exception type from a genuinely untrusted assembly keeps
+the omission text. Confirm against #8's reported `route: pwsh` case before
+claiming it fixed; if the reported case involves an untrusted module
+assembly, say so plainly rather than reporting a fix the report would not
+observe.
+
+### Guards (each mutation-proved)
+
+1. `Get-Culture` returns text containing the culture name, and the capture
+   is not flagged `active_member_not_evaluated`.
+2. A native command's object output (the `git push` shape from this
+   session) renders its text rather than two placeholder rows.
+3. Both existing no-live-getter guards still pass **unchanged** — not
+   edited to accommodate the fallback. If either needs editing, the trust
+   test is wrong; fix the trust test.
+4. A trusted type whose `ToString()` is enormous is truncated to the cap
+   with a marker.
+5. A trusted type whose `ToString()` throws yields the placeholder and a
+   failed-capture flag, not an escaped exception.
+6. An exception from a trusted framework assembly surfaces its `Message`;
+   one from an `Add-Type` assembly keeps the omission text.
+
+**Complete when:** guards 1, 2, and 6 fail against the current build and
+pass after; guards 3–5 pass; the full battery passes; and a real
+`ptk_invoke` of `Get-Culture` on this host shows the value.
+
+Do not attempt to realize active COM or lazy getters. That was issue #8's
+suggestion 1 and it stays rejected: it executes user code at shaping time.
+Suggestion 2 (fall back to a text rendering) is what this slice implements.
 
 ## Slice 7.1 — repair the two Unix HIGH findings
 
@@ -319,8 +462,10 @@ and still binding:
 
 ## Ordered execution
 
-1. Rule Decisions A–D and Decision 3.
-2. Slice 7.1 (Unix HIGH repairs) — required before any Unix RID packages.
-3. Slice 7.2, then 7.3, then 7.4.
-4. Slice 7.5.
-5. Decision 5, then tag and publish only on an explicit separate go.
+1. Slice 7.0 (shaper fallback) — approved; a release blocker in the
+   supported contract, independent of platform.
+2. Rule Decisions C and D. (A and B are ruled; 3 is withdrawn.)
+3. Slice 7.1 (Unix HIGH repairs) — required before any Unix RID packages.
+4. Slice 7.2, then 7.3, then 7.4.
+5. Slice 7.5.
+6. Decision 5, then tag and publish only on an explicit separate go.

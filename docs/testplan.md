@@ -1,97 +1,217 @@
 # ptk test plan
 
-Use ptk for real work. Report where it failed you.
+Drive ptk at its limits and report what breaks. Each item below is a test to
+run deliberately, not a thing to notice in passing.
 
-## What to report
+Run every test you can. Record the exact script you sent and the verbatim
+response for each. A paraphrase is not reproducible.
 
-Anything that made ptk harder to use than doing the work another way. In
-particular:
+## 1. Object shaping
 
-- **Wrong output.** A value that came back missing, truncated, mislabelled, or
-  different from what the command actually produced.
-- **A command that did something other than what you submitted.**
-- **State you expected to survive that did not**, or state that survived when
-  you expected it gone.
-- **A response you could not act on** — an error that did not say what to do,
-  a marker you could not interpret, a handle that did not resolve.
-- **A tool description that told you something untrue**, or omitted something
-  you had to discover by trial.
-- **Anything you had to work around**, including workarounds that succeeded.
-  Say what you tried first and why it failed.
+ptk compresses PowerShell objects before they are formatted. `[active member
+not evaluated]` in a response means a value was dropped.
 
-Report what worked as well. If a hard thing was easy, that is data.
+1.1 Emit a plain framework object: `Get-Culture`, `[System.TimeZoneInfo]::Local`,
+`Get-Item .`, `Get-Process -Id $PID`. Did every property you would need come
+back?
 
-## Ground to cover
+1.2 Emit objects from a module: `Get-Service`, certificates from `Cert:\`, AD or
+Exchange objects if you have them. Same question.
 
-Do real work, not synthetic probes, wherever you can. The point is usage data.
+1.3 `Select-Object` a subset of properties from each of the above. Do the
+selected values survive?
 
-**Ordinary use.** Run the commands you would actually run: inspect files,
-query git, run a build or a test suite, filter logs, call native tools. Judge
-whether the output you got back was enough to act on without rerunning
-anything.
+1.4 Nest: `[pscustomobject]@{ Inner = Get-Culture; List = @(Get-Process | Select -First 3) }`.
 
-**Objects.** PowerShell returns objects, and ptk compresses them before they
-are formatted. Pipe cmdlets that return rich objects — services, processes,
-files, certificates, culture and time zone info, anything from a module you
-have. Check whether the values you needed survived. Look for
-`[active member not evaluated]`, which means a value was dropped.
+1.5 Emit 1, 40, 500, and 5000 objects. Where does the response change shape,
+and is the change explained in the output?
 
-**Text.** Native command output, logs, stderr redirected with `2>&1`,
-multi-megabyte output. Check text arrived as text and that redirection did not
-lose it.
+1.6 Emit a mixed stream: objects and strings interleaved in one pipeline.
 
-**Large output.** Push past whatever the inline limit is. You should get a
-recovery handle. Use it. Read it in chunks, search it. Confirm you can reach
-content the inline response omitted, and that it matches what the command
-produced.
+1.7 Define a class with `Add-Type` whose `ToString()` or a property getter
+writes to a global variable, emit an instance, then read the variable. It must
+be untouched — capture must never run your code. Try it again with your class
+deriving from a framework type.
 
-**Sessions.** Open your own named sessions. Import a module, connect to
-something, set variables, change directory — then come back later and see what
-is still there. Run different work in two sessions at once and check they did
-not contaminate each other. Find the session limit and see what happens at it.
+1.8 Emit a type whose `ToString()` is enormous — a `StringBuilder` holding a
+megabyte. Is the response bounded?
 
-**Recovery.** Time an invocation out. Kill something. Reset a session. Then
-keep working in it. The question is whether you can continue, and whether ptk
-told you clearly what state you were in.
+## 2. Text and streams
 
-**Long work.** Run something slow enough to need a raised timeout. Run
-something that produces output steadily for a while. Run something
-interactive or that expects a TTY and see what happens.
+2.1 A native command writing only to stdout.
 
-**Routing.** ptk sends native commands to rtk for filtering and runs
-PowerShell itself. Notice when output was compressed and when it was not, and
-whether the route it chose matched what you wanted. Try `route=pwsh` when you
-want exact PowerShell. Define a function whose name shadows a native command
-and check which one ran.
+2.2 A native command writing only to stderr.
 
-**The dialect boundary.** It is PowerShell 7, not bash. Try bash-shaped things
-— pipelines into `head`, heredocs, `&&` chains, `$(...)`, globs, quoting with
-embedded spaces. Report what silently did something different rather than
-failing loudly.
+2.3 `2>&1` on a command that writes to both. Did the stderr text survive?
 
-**Failure modes.** Commands that exit non-zero, throw, write only to stderr,
-produce nothing, or hang. Check the exit code and the error text reached you
-intact.
+2.4 A command that exits non-zero. Is the exit code reported?
 
-## How to report
+2.5 A command producing no output at all.
 
-One GitHub issue per session's worth of work.
+2.6 `throw` from PowerShell. Then throw an exception type defined by
+`Add-Type`. Compare the error text you get back.
+
+2.7 Text with embedded ANSI colour codes, tabs, CRLF, and non-ASCII
+characters. Anything mangled?
+
+2.8 Output several megabytes of text.
+
+## 3. Recovery handles
+
+3.1 Produce output large enough to be truncated inline. Note the handle.
+
+3.2 Read the handle back in chunks with `offset` and `maxBytes`. Does the
+content reassemble into what the command actually produced?
+
+3.3 Search the handle for a string you know is only in the truncated portion.
+
+3.4 Ask for `status` and `list`.
+
+3.5 Read a handle from an earlier invocation, after other calls have run.
+
+3.6 Read a handle after resetting the session that produced it.
+
+3.7 Invent a plausible-looking handle that does not exist. Is the refusal
+clear?
+
+## 4. Sessions
+
+4.1 Open a named session. Set a variable, import a module, change directory.
+Confirm all three survive the next invocation.
+
+4.2 Open a second session. Set the same variable name to a different value.
+Confirm neither leaks into the other.
+
+4.3 Run slow work in two sessions simultaneously. Did they actually run at the
+same time?
+
+4.4 Keep opening sessions until you are refused. How many did you get, and is
+the refusal clear?
+
+4.5 Close a session, then invoke against it.
+
+4.6 Open a session, close it, open it again under the same name. Is the old
+state gone?
+
+4.7 Invoke against a session name you never opened.
+
+## 5. Failure and recovery
+
+5.1 Time out an invocation: `Start-Sleep -Seconds 60` with a two-second
+budget. What does the response say?
+
+5.2 Immediately invoke again in that session. Then keep retrying. How long
+until it works, and does the interim response explain itself?
+
+5.3 Was the warm state from 4.1 still there afterwards? Should it have been?
+
+5.4 Repeat the timeout-and-recover cycle five times in one session. Does it
+degrade?
+
+5.5 Kill the worker process for a session from outside, then invoke.
+
+5.6 `ptk_reset` a session, then invoke.
+
+5.7 Run something that consumes memory hard, or spawns many children, and see
+what containment does.
+
+5.8 Run a command that waits on stdin or expects a TTY.
+
+5.9 Run something that spawns a background process outliving the call, then
+check whether the session can be closed.
+
+## 6. Routing
+
+ptk runs PowerShell itself and sends native commands to rtk for filtering.
+
+6.1 A bare native command: `git status --short`. Was the output compressed?
+
+6.2 The same command with an argument rtk will not recognise. Compare.
+
+6.3 A compound: `git status && git log --oneline -5`.
+
+6.4 A native command inside a PowerShell pipeline:
+`git log --oneline -20 | Select-Object -First 3`.
+
+6.5 The same script with `route=pwsh`, then `route=rtk`. Do the responses
+differ, and does either mislabel what happened?
+
+6.6 Define `function git { 'MINE' }` in a session, then invoke `git status`.
+Which ran? If the real git ran, that is a command other than the one you sent.
+
+6.7 A command whose arguments contain spaces, single quotes, double quotes,
+and a literal `$`. Did they arrive intact? Verify by having the command echo
+its own arguments.
+
+6.8 A script containing the literal token `rtk` in an argument.
+
+## 7. Dialect boundary
+
+It is PowerShell 7, not bash. For each, report whether it worked, failed
+loudly, or silently did something other than what the syntax means.
+
+7.1 `ls -la`
+
+7.2 `cat file | head -20`
+
+7.3 `foo && bar` and `foo || bar`
+
+7.4 `export FOO=bar` and `FOO=bar somecommand`
+
+7.5 `$(date)` and backtick substitution
+
+7.6 A heredoc
+
+7.7 `grep -r pattern .`
+
+7.8 `rm -rf` on a temp directory you created
+
+7.9 `bash -lc '...'` wrapping a bash script whole
+
+7.10 A path with a space, unquoted and quoted
+
+## 8. Scale
+
+8.1 Fifty invocations in a row in one session. Does latency drift?
+
+8.2 One invocation producing 100k lines.
+
+8.3 One invocation producing 50k objects.
+
+8.4 A deeply nested object graph, five levels down.
+
+8.5 A pipeline that emits steadily for two minutes.
+
+8.6 The largest single script you can reasonably send.
+
+## 9. Tool descriptions
+
+9.1 Read every tool's description and parameter list. List anything that is
+untrue, ambiguous, or missing.
+
+9.2 List anything you had to learn by trial that the descriptions should have
+told you.
+
+9.3 List every parameter you never found a use for, and every one you wanted
+and did not find.
+
+## Reporting
+
+One GitHub issue.
 
 ```powershell
 gh issue create `
   --repo AlsoBeltrix/PowerShell-Token-Killer `
-  --title "Usage report: <what you were doing>" `
+  --title "Test report: <platform>" `
   --body-file report.md
 ```
 
-Lead with what got in your way. For each item give the exact script you sent,
-what came back, and what you expected instead. Verbatim output — a paraphrase
-of a defect is not reproducible.
+Lead with the failures. For each: the test number, the exact script, the
+verbatim response, and what you expected instead.
 
-Include your platform, and the ptk version from `ptk_state`.
+Then list what passed, by number. Then what you could not run, and why.
 
-Say how much of your work you could complete through ptk, and where you fell
-back to something else. That number matters more than a list of passes.
+State your platform and the ptk version from `ptk_state`.
 
-If a report already exists for this version, comment on it instead of opening
-another.
+Do not fix anything you find, and do not modify ptk. If a report already
+exists for this version, comment on it rather than opening another.

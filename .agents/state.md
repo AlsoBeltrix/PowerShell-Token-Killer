@@ -37,10 +37,26 @@ of the router plan and supersedes the packaging mechanics of
 Actions covers the matrix; each RID builds on its own native runner because
 `Assert-PtkNativeBuildRid` refuses cross-RID layout builds.
 
-Selecting Linux and macOS activates two HIGH findings that Windows-only
-would have dodged — they are no longer deferrable and now block Unix
-packaging: `opr-15` (Unix identity-probe fail-open; Linux and macOS) and
-`opr-14` (Apple arm64 `fcntl` variadic mispass; macOS). The rest of
+**Slice 7.1 is complete (2026-08-04): both Unix HIGH findings are repaired
+and Unix packaging is unblocked.** Selecting Linux and macOS activated two
+findings a Windows-only release would have dodged:
+
+- `opr-15` at `cd00276` — identity observation is now tri-state (exact,
+  confirmed-absent, indeterminate). Previously every query failure read as
+  "process dead", so one transient `/proc` error could release a session
+  alias while an escaped descendant still ran. Indeterminate now fails
+  closed and retries, matching `ProcessGroupExists`.
+- `opr-14` at `67d37dd` — `FD_CLOEXEC` is set with `ioctl(FIOCLEX)` instead
+  of a fixed-signature P/Invoke to variadic `fcntl`, which is wrong on
+  Apple arm64. Also atomic, closing the get/set inheritance window.
+  **`FIOCLEX` differs per platform** (Darwin `0x20006601`, Linux `0x5451`,
+  both verified against xnu and Linux uapi headers) — a shared constant
+  would break Linux.
+
+`opr-14`'s guards skip on Windows, so it was proved on branch
+`ci/opr-14-cloexec`: all six CI jobs green including `macos-latest`, which
+is Apple arm64 — the exact platform the ABI bug affects. Merged fast-forward
+and the branch deleted. The rest of
 `.agents/review/dispositions.md` §"deferred to platform selection" is
 MEDIUM/LOW and does not block.
 
@@ -76,6 +92,10 @@ that would catch a real redirection gate is pinned at `24eff27`. When
 reproducing shaper behavior, use a bare cmdlet — a native command PTK runs
 directly because the script was prefixed with a cmdlet is a property of the
 call, not of the shaper.
+
+**Next: Slice 7.2** (version, license packaging, layout), which is gated on
+Decision C. Then 7.3 (`release.yml`), 7.4 (installers, gated on Decision D),
+7.5 (direct proof).
 
 **Still unruled and gating:** release version (Decision C/4), how RTK
 reaches the user (Decision D), publish (Decision 5). Do not ship an

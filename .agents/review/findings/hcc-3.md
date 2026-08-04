@@ -18,13 +18,17 @@ For a profile like `C:\Users\O'Brien`, install writes an invalid
 Wrong TOML string kind for user-controlled content.
 
 ## Approach
-(pending)
+The hook block now writes the command as a TOML basic string via
+`ConvertTo-PtkTomlBasicString` (escapes `\` and `"`; apostrophes stay
+literal), and `Get-PtkKimiHookTarget` undoes that escaping before
+shape-parsing so the staleness check resolves the real path.
 
 ## Files changed
-(pending)
+- `scripts/ptk_init.ps1` — `ConvertTo-PtkTomlBasicString`, `$kimiHookBlock`, `Get-PtkKimiHookTarget`
+- `tests/PwshTokenCompressor.Tests.ps1` — hcc-3 guard test
 
 ## Guard proof
-(pending)
+- `tests/PwshTokenCompressor.Tests.ps1::'kimi hook block survives an apostrophe in the payload path (hcc-3)'` — with the fix stashed the block is a literal string and the basic-string assertion FAILS; restored it PASSES, including the not-STALE read-back (verified 2026-08-04).
 
 ## Coder dispute (if any)
 —

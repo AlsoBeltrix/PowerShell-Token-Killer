@@ -867,14 +867,19 @@ function Invoke-PtkAgyLeg {
 # byte-identical - the same contract as the nudge markers.
 $kimiHookBegin = '# >>> ptk-hook (managed by ptk_init.ps1 - do not edit between the markers)'
 $kimiHookEnd = '# <<< ptk-hook'
-# TOML literal string (single quotes) keeps Windows backslashes verbatim;
-# $hookCommand already double-quotes the -File path.
+# TOML basic string for the hook command (hcc-3): literal strings cannot
+# contain an apostrophe, and the hook path is user-controlled
+# (C:\Users\O'Brien). Escape backslashes and double quotes.
+function ConvertTo-PtkTomlBasicString {
+    param([string]$Text)
+    '"' + (($Text -replace '\\', '\\') -replace '"', '\"') + '"'
+}
 $kimiHookBlock = @"
 $kimiHookBegin
 [[hooks]]
 event = "PreToolUse"
 matcher = "Bash"
-command = '$hookCommand'
+command = $(ConvertTo-PtkTomlBasicString $hookCommand)
 $kimiHookEnd
 "@
 
@@ -891,7 +896,10 @@ function Get-PtkKimiHookTarget {
     param([string]$Text)
     if ([string]$Text -match ('(?s){0}(.*?){1}' -f
         [regex]::Escape($kimiHookBegin), [regex]::Escape($kimiHookEnd))) {
-        return Get-PtkHookCommandTarget $Matches[1]
+        # Undo the TOML basic-string escaping (hcc-3) before shape-parsing,
+        # or Windows backslashes read back doubled and every install looks
+        # stale.
+        return Get-PtkHookCommandTarget ($Matches[1] -replace '\\(.)', '$1')
     }
     $null
 }

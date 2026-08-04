@@ -840,6 +840,36 @@ Describe 'redirect hook and installer' {
             finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
+        It 'kimi hook block survives an apostrophe in the payload path (hcc-3)' {
+            # TOML literal strings cannot contain an apostrophe; the block
+            # must use a basic string, and the staleness read-back must
+            # unescape it (an escaped path that fails Test-Path would read
+            # as STALE forever).
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-O'Brien-{0}" -f ([guid]::NewGuid()))
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            $homeWithBin = Join-Path $root 'home'
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'bin') -Force | Out-Null
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'scripts') -Force | Out-Null
+            $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'scripts' 'ptk-hook.ps1') -Value '# stub'
+            try {
+                pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                $raw = Get-Content -LiteralPath $toml -Raw
+                # Basic string: outer double quotes, inner quotes escaped,
+                # the apostrophe literal.
+                $raw | Should -Match ([regex]::Escape('command = "pwsh -NoProfile -File \"'))
+                $raw | Should -Match ([regex]::Escape("O'Brien"))
+                $show = pwsh -NoProfile -File $script:initScript -Agent kimi -Show -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-String
+                $show | Should -Match '\[kimi\] ptk hook: INSTALLED'
+                $show | Should -Not -Match 'STALE'
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
         It 'kimi leg uninstall removes only the ptk entry and the marked hook block' {
             $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
             New-Item -ItemType Directory -Path $root -Force | Out-Null

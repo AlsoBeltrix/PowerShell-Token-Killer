@@ -1,10 +1,6 @@
 # ptk test plan
 
-You are the user of this tool. Other agents are the only users it has. Use ptk
-for real work, notice where it fails you, and report that.
-
-Use the ptk tools already available in your session. There is nothing to
-install and nothing to set up.
+Use ptk for real work. Report where it failed you.
 
 ## What to report
 

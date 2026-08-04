@@ -1040,6 +1040,19 @@ Describe 'redirect hook and installer' {
                 $out | Should -Match 'would add mcpServers'
             }
 
+            It 'an oversized selection number re-asks instead of crashing (hcc-4)' {
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = '2147483648' | pwsh -NoProfile -File $script:initScript -DryRun 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match 'Unrecognized selection'
+                # After the re-ask hits EOF (treated as Enter), the run completes.
+                $out | Should -Match 'would add mcpServers'
+            }
+
             It '-AllAgents answers yes without asking' {
                 $env:PTK_INIT_INTERACTIVE = '1'
                 try {

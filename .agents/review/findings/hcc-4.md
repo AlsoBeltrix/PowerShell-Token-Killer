@@ -20,13 +20,16 @@ and asking again.
 Unchecked numeric conversion in interactive input parsing.
 
 ## Approach
-(pending)
+All numeric conversions in the skip-selection parser now go through
+`[int]::TryParse` with bounds checked after parse; an oversized token is
+simply invalid input and re-asks.
 
 ## Files changed
-(pending)
+- `scripts/ptk_init.ps1` — `Read-PtkConsentSkips` token loop
+- `tests/PwshTokenCompressor.Tests.ps1` — hcc-4 guard test
 
 ## Guard proof
-(pending)
+- `tests/PwshTokenCompressor.Tests.ps1::'an oversized selection number re-asks instead of crashing (hcc-4)'` — with the fix stashed the run dies on the cast (nonzero exit) and the test FAILS; restored it PASSES (verified 2026-08-04).
 
 ## Coder dispute (if any)
 —

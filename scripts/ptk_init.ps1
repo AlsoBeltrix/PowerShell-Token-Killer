@@ -296,15 +296,21 @@ function Read-PtkConsentSkips {
         $picked = @{}
         $valid = $true
         foreach ($token in ($answer -split '[,;\s]+' | Where-Object { $_ })) {
+            $lo = 0; $hi = 0
+            $isRange = $token -match '^(\d+)-(\d+)$'
+            # TryParse everywhere (hcc-4): a digit string past Int32.MaxValue
+            # must re-ask, not throw past the loop and kill the installer.
             if ($token -eq '0') {
                 1..$Detected.Count | ForEach-Object { $picked[$_] = $true }
             }
-            elseif ($token -match '^(\d+)-(\d+)$' -and [int]$Matches[1] -ge 1 -and
-                    [int]$Matches[2] -le $Detected.Count -and [int]$Matches[1] -le [int]$Matches[2]) {
-                [int]$Matches[1]..[int]$Matches[2] | ForEach-Object { $picked[$_] = $true }
+            elseif ($isRange -and
+                    [int]::TryParse($Matches[1], [ref]$lo) -and [int]::TryParse($Matches[2], [ref]$hi) -and
+                    $lo -ge 1 -and $hi -le $Detected.Count -and $lo -le $hi) {
+                $lo..$hi | ForEach-Object { $picked[$_] = $true }
             }
-            elseif ($token -match '^\d+$' -and [int]$token -ge 1 -and [int]$token -le $Detected.Count) {
-                $picked[[int]$token] = $true
+            elseif (-not $isRange -and [int]::TryParse($token, [ref]$lo) -and
+                    $lo -ge 1 -and $lo -le $Detected.Count) {
+                $picked[$lo] = $true
             }
             else { $valid = $false; break }
         }

@@ -281,9 +281,23 @@ Suggestion 2 (fall back to a text rendering) is what this slice implements.
 
 ## Slice 7.1 — repair the two Unix HIGH findings
 
+**Status: both repaired 2026-08-04.** `opr-15` at `cd00276` (master);
+`opr-14` on branch `ci/opr-14-cloexec`, held there until the Linux and macOS
+runners prove it, because its guards skip on Windows and this development
+host cannot execute them. Dispositions updated in
+`.agents/review/dispositions.md`.
+
 Decision 2 selected Linux and macOS, so these leave the deferred bucket.
 Both are containment-correctness defects in the supported release contract;
 both meet the release-blocking rule's "breaks a named session" clause.
+
+Implementation note for `opr-14` that the finding did not anticipate: the
+repair replaced the variadic `fcntl(F_SETFD)` with `ioctl(FIOCLEX)`, which
+passes no variadic argument at all and is additionally atomic. `FIOCLEX` is
+**not** the same constant on both platforms — Darwin `_IO('f', 1)` is
+`0x20006601`, Linux is `0x5451`. A single shared constant would have broken
+Linux, the platform that already worked. Both values were verified against
+the xnu and Linux uapi headers rather than assumed.
 
 **`opr-15` (blocks linux-x64, linux-arm64, osx-arm64).** Detail in
 `.agents/review/findings/opr-15.md`. `IsIdentityLive` in

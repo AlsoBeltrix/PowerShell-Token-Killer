@@ -19,10 +19,12 @@ is the disposition of record.
 - **open-blocker** — meets the release-blocking rule and is not yet fixed.
   Each needs its own slice and an owner go.
 
-## fixed (5)
+## fixed (7)
 
 | ID | Sev | Landed |
 | --- | --- | --- |
+| `opr-14` | HIGH | `ci/opr-14-cloexec` — FD_CLOEXEC via `ioctl(FIOCLEX)`, no variadic ABI mismatch on Apple arm64 |
+| `opr-15` | HIGH | `cd00276` — tri-state identity; an indeterminate query no longer reads as death |
 | `opr-19` | HIGH | `3a24ee1` — graceful shutdown handshake now runs before containment |
 | `opr-20` | HIGH | `44c4c97` — pre-write state cancellation no longer poisons a healthy session |
 | `opr-58` | HIGH | `fa9b1ce` — post-success command advice deleted |
@@ -83,19 +85,19 @@ only through abandoned-root reclamation, not ordinary use.
 
 None. Every remaining finding is dispositioned above.
 
-## deferred to platform selection (13)
+## deferred to platform selection (11)
 
-Decision 2 selects the release platform. These are platform-specific and
-gate only their own platform's packaging, per the plan's Decision 2 text:
+**Decision 2 is ruled: five RIDs** (owner, 2026-08-03), so Linux and macOS
+are selected and this bucket is no longer a deferral for the two HIGH
+items — both are repaired and moved to `fixed` above.
 
-`opr-14` (HIGH, Apple arm64 `fcntl` variadic mispass) — blocks macOS.
-`opr-15` (HIGH, Unix identity-probe fail-open) — blocks Linux and macOS.
+The remainder stay deferred. They are MEDIUM/LOW and do not meet the
+release-blocking rule, so selecting a platform does not by itself make them
+blockers:
+
 `opr-25`, `opr-26`, `opr-29`, `opr-30`, `opr-31` (MEDIUM), `opr-24`,
 `opr-27`, `opr-28`, `opr-46` (LOW) — Unix containment and launcher paths.
 `opr-13` (MEDIUM), `opr-23` (MEDIUM) — Windows/environment identity.
-
-Windows-only release: none of the Unix items block. Do not repair an
-unselected platform's findings.
 
 ## remaining, not blocking (14)
 

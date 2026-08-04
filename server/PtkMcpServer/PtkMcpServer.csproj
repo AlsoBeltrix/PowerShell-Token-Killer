@@ -5,6 +5,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Overridden by release CI via -p:Version from the tag; this is the
+         value a plain local build reports. -->
+    <Version Condition="'$(Version)' == ''">0.2.0</Version>
+    <Product>PowerShell Token Killer</Product>
+    <Company>PowerShell-Token-Killer</Company>
+    <Copyright>(c) 2026 PowerShell Token Killer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
     <PtkNativeCompiler Condition="'$(PtkNativeCompiler)' == ''">cc</PtkNativeCompiler>
     <PtkWorkerBrokerPath
       Condition="'$(OS)' != 'Windows_NT'">$(MSBuildProjectDirectory)/obj/$(Configuration)/$(TargetFramework)/ptk-native/$(RuntimeIdentifier)/PtkWorkerBroker</PtkWorkerBrokerPath>
@@ -31,6 +37,24 @@
       CopyToOutputDirectory="PreserveNewest"
       CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+
+  <!-- The source commit rides in the informational version, so an installed
+       binary can be traced to its exact source. Not a provenance system and
+       not per-rebuild uniqueness: a build outside a git checkout simply omits
+       the suffix rather than failing. -->
+  <Target Name="PtkStampSourceCommit" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse --short HEAD"
+          ConsoleToMSBuild="true"
+          StandardOutputImportance="low"
+          ContinueOnError="true"
+          IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="PtkSourceCommit" />
+      <Output TaskParameter="ExitCode" PropertyName="PtkSourceCommitExitCode" />
+    </Exec>
+    <PropertyGroup Condition="'$(PtkSourceCommitExitCode)' == '0' and '$(PtkSourceCommit)' != ''">
+      <InformationalVersion>$(Version)+$(PtkSourceCommit.Trim())</InformationalVersion>
+    </PropertyGroup>
+  </Target>
 
   <Target
     Name="BuildPtkWorkerBroker"

@@ -66,7 +66,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $ptkHome = Join-Path $HOME '.ptk'
 # Everything the installer owns and replaces wholesale on upgrade; anything
 # else under ~/.ptk is user-owned and never touched here.
-$payloadEntries = @('bin', 'src', 'scripts', 'VERSION')
+$payloadEntries = @('bin', 'src', 'scripts', 'VERSION', 'LICENSE', 'README.md')
 $arpKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ptk'
 $installTransactionModule = Join-Path $PSScriptRoot 'ptk_install_transaction.psm1'
 Import-Module $installTransactionModule -Force
@@ -160,6 +160,9 @@ function Assert-PtkPayloadIntact {
     $required = @(
         (Join-Path $Root 'bin' (Get-PtkServerBinaryName -TargetRid $TargetRid))
         (Join-Path $Root 'bin' 'PtkMcpServer.dll')
+        (Join-Path $Root 'src' 'PwshTokenCompressor.psd1')
+        (Join-Path $Root 'LICENSE')
+        (Join-Path $Root 'VERSION')
     )
     if ($TargetRid -notlike 'win-*') {
         $required += Join-Path $Root 'bin' 'PtkWorkerBroker'
@@ -205,6 +208,11 @@ function New-PtkLayout {
     foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'dev-install.ps1',
         'ptk_install_transaction.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
+    }
+    # Apache-2.0 requires the licence to travel with the distribution, and a
+    # user inspecting an installed payload should find it without the repo.
+    foreach ($f in 'LICENSE', 'README.md') {
+        Copy-Item -LiteralPath (Join-Path $repoRoot $f) -Destination $Destination
     }
     Set-Content -LiteralPath (Join-Path $Destination 'VERSION') -Value $PayloadVersion -NoNewline
 }

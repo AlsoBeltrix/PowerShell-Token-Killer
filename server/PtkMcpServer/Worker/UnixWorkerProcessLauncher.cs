@@ -798,6 +798,7 @@ internal sealed class UnixWorkerNative : IUnixWorkerNative
     private const int CloseOnExec = 1;
     private const int Interrupted = 4;
     private const int PermissionDenied = 1;
+    private const int NoSuchProcess = 3; // ESRCH
 
     public int Spawn(
         string executable,
@@ -925,6 +926,41 @@ internal sealed class UnixWorkerNative : IUnixWorkerNative
             return QueryDarwinIdentity(processId);
         throw new PlatformNotSupportedException(
             "Unix worker containment requires Linux or macOS.");
+    }
+
+    /// <summary>
+    /// Identity query that separates absence from failure (opr-15). Absence is
+    /// proved by <c>kill(pid, 0)</c> reporting ESRCH — the kernel's own answer
+    /// that no such process exists — rather than inferred from a read error.
+    /// Anything else is indeterminate and must keep containment unconfirmed.
+    /// </summary>
+    public UnixIdentityObservation ObserveIdentity(int processId)
+    {
+        if (processId <= 0)
+            return UnixIdentityObservation.Indeterminate;
+
+        try
+        {
+            return UnixIdentityObservation.Exact(QueryIdentity(processId));
+        }
+        catch (Exception exception) when (
+            exception is not OutOfMemoryException and
+                         not StackOverflowException)
+        {
+            // The identity read failed. Ask the kernel directly whether the
+            // process exists: ESRCH is a confirmed absence, EPERM proves it
+            // is alive but not ours to inspect, and anything else leaves the
+            // question open.
+            if (KillProcess(processId, 0) == 0)
+                return UnixIdentityObservation.Indeterminate;
+
+            var error = Marshal.GetLastPInvokeError();
+            return error switch
+            {
+                NoSuchProcess => UnixIdentityObservation.ConfirmedAbsent,
+                _ => UnixIdentityObservation.Indeterminate,
+            };
+        }
     }
 
     public int GetProcessGroup(int processId)

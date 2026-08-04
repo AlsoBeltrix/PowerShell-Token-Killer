@@ -116,6 +116,61 @@ public sealed class UnixWorkerContainmentRegistryTests
             CancellationToken.None);
     }
 
+    /// <summary>
+    /// opr-15: a transient identity-query failure on an observed escaped
+    /// descendant must not be read as that descendant having died. Previously
+    /// IsIdentityLive caught every failure and answered "not live", so one
+    /// unlucky /proc read released the session alias while the escaped
+    /// process was still running.
+    /// </summary>
+    [Fact]
+    public async Task A_transient_identity_failure_does_not_release_a_live_escape()
+    {
+        var native = new RecordingNative();
+        var identity = native.AddPendingDomain(10, 20);
+        using var registry = new UnixWorkerContainmentRegistry(native);
+
+        await registry.RegisterPendingAsync(identity, CancellationToken.None);
+        native.Arm(identity);
+        native.AddDescendant(30, parent: 20, processGroup: 20);
+        await registry.RegisterArmedAsync(identity, CancellationToken.None);
+        await WaitUntilAsync(() => registry.HealthyObservationCount > 0);
+
+        native.SetProcessGroup(30, 30);
+        await WaitUntilAsync(() => registry.EscapeObserved);
+        var empty = registry.WaitForEmptyAsync(identity);
+
+        // The worker group empties while the escaped descendant is still
+        // alive, and its identity query starts failing transiently.
+        native.RemoveDomain(identity);
+        native.TransientIdentityFailures.Add(30);
+
+        var result = await registry.CompleteAsync(
+            identity,
+            brokerConfirmed: true,
+            CancellationToken.None);
+        Assert.Equal(
+            WorkerContainmentOutcome.DescendantsUnknown,
+            result.Outcome);
+
+        // Through the transient failure, containment stays unconfirmed.
+        await Task.Delay(750);
+        Assert.False(
+            empty.IsCompleted,
+            "a transient identity failure released containment while the escape was alive");
+
+        // And once the query works again and still reports it alive.
+        native.TransientIdentityFailures.Remove(30);
+        await Task.Delay(750);
+        Assert.False(
+            empty.IsCompleted,
+            "containment was released while the escape was observably alive");
+
+        // Only an actual death releases it.
+        native.RemoveProcess(30);
+        await empty.WaitAsync(CheckpointTimeout);
+    }
+
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
         var deadline = DateTimeOffset.UtcNow + CheckpointTimeout;
@@ -235,6 +290,11 @@ public sealed class UnixWorkerContainmentRegistryTests
             out int processId) =>
             throw new NotSupportedException();
 
+        /// <summary>Process ids whose next identity observation fails
+        /// transiently — the query cannot be answered, which is not the same
+        /// as the process being gone.</summary>
+        internal HashSet<int> TransientIdentityFailures { get; } = [];
+
         public UnixProcessIdentity QueryIdentity(int processId)
         {
             lock (_gate)
@@ -242,6 +302,18 @@ public sealed class UnixWorkerContainmentRegistryTests
                 return _identities.TryGetValue(processId, out var identity)
                     ? identity
                     : throw new ArgumentException("process absent");
+            }
+        }
+
+        public UnixIdentityObservation ObserveIdentity(int processId)
+        {
+            lock (_gate)
+            {
+                if (TransientIdentityFailures.Contains(processId))
+                    return UnixIdentityObservation.Indeterminate;
+                return _identities.TryGetValue(processId, out var identity)
+                    ? UnixIdentityObservation.Exact(identity)
+                    : UnixIdentityObservation.ConfirmedAbsent;
             }
         }
 

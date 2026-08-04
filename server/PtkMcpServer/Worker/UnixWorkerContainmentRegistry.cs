@@ -14,6 +14,40 @@ internal sealed record UnixWorkerContainmentIdentity(
     UnixProcessIdentity WorkerIdentity,
     int WorkerProcessGroup);
 
+/// <summary>
+/// Why an identity query answered the way it did. Absence and failure are
+/// different facts: a process that is gone releases containment, a query that
+/// could not be answered must not.
+/// </summary>
+internal enum UnixIdentityState
+{
+    /// <summary>The kernel answered; <see cref="UnixIdentityObservation.Identity"/>
+    /// is that process's exact identity.</summary>
+    Exact,
+
+    /// <summary>The kernel answered that no such process exists.</summary>
+    ConfirmedAbsent,
+
+    /// <summary>The query failed for a reason other than absence — transient
+    /// I/O, permissions, or resource pressure. Nothing may be concluded about
+    /// whether the process is alive.</summary>
+    Indeterminate,
+}
+
+internal readonly record struct UnixIdentityObservation(
+    UnixIdentityState State,
+    UnixProcessIdentity Identity)
+{
+    internal static UnixIdentityObservation Exact(UnixProcessIdentity identity) =>
+        new(UnixIdentityState.Exact, identity);
+
+    internal static readonly UnixIdentityObservation ConfirmedAbsent =
+        new(UnixIdentityState.ConfirmedAbsent, default);
+
+    internal static readonly UnixIdentityObservation Indeterminate =
+        new(UnixIdentityState.Indeterminate, default);
+}
+
 internal interface IUnixWorkerNative
 {
     int Spawn(
@@ -24,6 +58,13 @@ internal interface IUnixWorkerNative
         out int processId);
 
     UnixProcessIdentity QueryIdentity(int processId);
+
+    /// <summary>
+    /// Identity query that reports <em>why</em> it failed. Containment
+    /// decisions use this rather than <see cref="QueryIdentity"/>, whose
+    /// exception cannot distinguish "process is gone" from "could not look".
+    /// </summary>
+    UnixIdentityObservation ObserveIdentity(int processId);
     int GetProcessGroup(int processId);
     bool ProcessGroupExists(int processGroup);
     List<ProcessTableRow>? TryTakeProcessTable();
@@ -333,10 +374,10 @@ internal sealed class UnixWorkerContainmentRegistry : IUnixWorkerContainmentRegi
         if (!registration.BrokerConfirmed ||
             (registration.Armed &&
                 registration.HealthyObservationCount == 0) ||
-            IsIdentityLive(
+            !CanTreatIdentityAsGone(
                 registration.Identity.BrokerProcessId,
                 registration.Identity.BrokerIdentity) ||
-            IsIdentityLive(
+            !CanTreatIdentityAsGone(
                 registration.Identity.WorkerProcessId,
                 registration.Identity.WorkerIdentity))
         {
@@ -359,7 +400,7 @@ internal sealed class UnixWorkerContainmentRegistry : IUnixWorkerContainmentRegi
         foreach (var (processId, identity) in
                  registration.EscapedDescendants)
         {
-            if (IsIdentityLive(processId, identity))
+            if (!CanTreatIdentityAsGone(processId, identity))
                 return false;
         }
 
@@ -374,16 +415,34 @@ internal sealed class UnixWorkerContainmentRegistry : IUnixWorkerContainmentRegi
         registration.Empty.TrySetResult();
     }
 
-    private bool IsIdentityLive(int processId, UnixProcessIdentity expected)
+    /// <summary>
+    /// Whether this exact incarnation may be treated as gone. Only a confirmed
+    /// absence or an observed different incarnation qualifies.
+    ///
+    /// An indeterminate query must NOT: catching every failure and answering
+    /// "not live" made a transient /proc read error indistinguishable from
+    /// process death, so a single unlucky read could release a session alias
+    /// while an escaped descendant was still running (opr-15). Fails closed,
+    /// matching ProcessGroupExists, and retries through the existing observer.
+    /// </summary>
+    private bool CanTreatIdentityAsGone(int processId, UnixProcessIdentity expected)
     {
+        UnixIdentityObservation observation;
         try
         {
-            return _native.QueryIdentity(processId) == expected;
+            observation = _native.ObserveIdentity(processId);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
             return false;
         }
+
+        return observation.State switch
+        {
+            UnixIdentityState.ConfirmedAbsent => true,
+            UnixIdentityState.Exact => observation.Identity != expected,
+            _ => false,
+        };
     }
 
     private void RequireLivePending(UnixWorkerContainmentIdentity identity)

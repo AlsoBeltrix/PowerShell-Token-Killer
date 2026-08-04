@@ -889,6 +889,141 @@ Describe 'redirect hook and installer' {
             finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
+        Context 'ptk_init consent prompt' {
+            BeforeAll {
+                # All five harness CLIs shimmed, so detection finds the full
+                # supported set on any machine; -DryRun keeps every leg
+                # write-free. PTK_INIT_INTERACTIVE forces the prompt path
+                # with piped stdin (the seam; otherwise a redirected stdin
+                # takes the non-interactive default).
+                $script:consentShimDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-consent-{0}" -f ([guid]::NewGuid()))
+                New-Item -ItemType Directory -Path $script:consentShimDir -Force | Out-Null
+                foreach ($c in 'claude', 'codex', 'grok', 'agy', 'kimi') {
+                    Set-Content -LiteralPath (Join-Path $script:consentShimDir "$c.ps1") -Value 'exit 0'
+                }
+                $script:savedConsentPath = $env:PATH
+                $env:PATH = $script:consentShimDir + [System.IO.Path]::PathSeparator + $env:PATH
+                # Point the kimi leg at an empty home so its dry-run lines do
+                # not depend on the machine's real ~/.kimi-code state.
+                $script:savedKimiHome = $env:KIMI_CODE_HOME
+                $script:consentKimiHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimihome-{0}" -f ([guid]::NewGuid()))
+                New-Item -ItemType Directory -Path $script:consentKimiHome -Force | Out-Null
+                $env:KIMI_CODE_HOME = $script:consentKimiHome
+            }
+            AfterAll {
+                $env:PATH = $script:savedConsentPath
+                $env:KIMI_CODE_HOME = $script:savedKimiHome
+                Remove-Item -LiteralPath $script:consentShimDir -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $script:consentKimiHome -Recurse -Force -ErrorAction SilentlyContinue
+            }
+
+            It 'skips the numbered and ranged selections and prints their blurbs' {
+                # Detection order is the supported-agent order:
+                # 1 claude, 2 codex, 3 grok, 4 agy, 5 kimi.
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = '2,4-5' | pwsh -NoProfile -File $script:initScript -DryRun 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                $out | Should -Match 'Found: 1 claude, 2 codex, 3 grok, 4 agy, 5 kimi'
+                $out | Should -Match '\[codex\] skipped'
+                $out | Should -Match '\[agy\] skipped'
+                $out | Should -Match '\[kimi\] skipped'
+                $out | Should -Match 'by hand: codex mcp add ptk --'
+                $out | Should -Match 'by hand: add to ~/.kimi-code/mcp.json'
+                # claude and grok still ran (dry-run).
+                $out | Should -Match 'would run: claude mcp remove --scope user ptk'
+                $out | Should -Match 'grok mcp add -s user'
+                $out | Should -Not -Match 'codex mcp get ptk'
+                $out | Should -Not -Match 'would write the ptk plugin'
+                $out | Should -Not -Match 'would add mcpServers'
+            }
+
+            It '0 skips every harness' {
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = '0' | pwsh -NoProfile -File $script:initScript -DryRun 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                ([regex]::Matches($out, 'skipped\. Later')).Count | Should -Be 5
+                $out | Should -Not -Match 'would run: claude mcp remove'
+                $out | Should -Not -Match 'would write the ptk plugin'
+            }
+
+            It 'Enter installs every detected harness' {
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = "`n" | pwsh -NoProfile -File $script:initScript -DryRun 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                $out | Should -Not -Match 'skipped\. Later'
+                $out | Should -Match 'would run: claude mcp remove --scope user ptk'
+                $out | Should -Match 'codex mcp get ptk'
+                $out | Should -Match 'grok mcp add -s user'
+                $out | Should -Match 'would write the ptk plugin'
+                $out | Should -Match 'would add mcpServers'
+            }
+
+            It '-AllAgents answers yes without asking' {
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = '' | pwsh -NoProfile -File $script:initScript -DryRun -AllAgents 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                $out | Should -Not -Match 'Skip \(1,3'
+                $out | Should -Not -Match 'skipped\. Later'
+                $out | Should -Match 'would run: claude mcp remove --scope user ptk'
+                $out | Should -Match 'would add mcpServers'
+            }
+
+            It '-SkipAgent excludes without asking and lists the rest' {
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = '' | pwsh -NoProfile -File $script:initScript -DryRun -SkipAgent grok,kimi 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                $out | Should -Match '\[grok\] skipped'
+                $out | Should -Match '\[kimi\] skipped'
+                $out | Should -Match 'by hand: grok mcp add -s user'
+                # The prompt offers only what survived the filter.
+                $out | Should -Match 'Found: 1 claude, 2 codex, 3 agy'
+                $out | Should -Match 'codex mcp get ptk'
+            }
+
+            It 'a non-interactive session installs all with a notice' {
+                # No PTK_INIT_INTERACTIVE: piped stdin is redirected, so the
+                # prompt cannot run - the default preserves prior behavior.
+                $out = '' | pwsh -NoProfile -File $script:initScript -DryRun 2>&1 | Out-String
+                $out | Should -Match 'Non-interactive session: wiring up every detected harness'
+                $out | Should -Not -Match 'Skip \(1,3'
+                $out | Should -Match 'would run: claude mcp remove --scope user ptk'
+                $out | Should -Match 'would add mcpServers'
+            }
+
+            It 'uninstall never asks' {
+                $env:PTK_INIT_INTERACTIVE = '1'
+                try {
+                    $out = '' | pwsh -NoProfile -File $script:initScript -Uninstall -DryRun 2>&1 | Out-String
+                }
+                finally { Remove-Item env:PTK_INIT_INTERACTIVE -ErrorAction SilentlyContinue }
+
+                $out | Should -Not -Match 'Skip \(1,3'
+                $out | Should -Match 'claude mcp remove --scope user ptk'
+                $out | Should -Match 'codex mcp remove ptk'
+            }
+
+            It '-Agent and -SkipAgent together are rejected' {
+                $out = pwsh -NoProfile -File $script:initScript -Agent claude -SkipAgent grok -DryRun 2>&1 | Out-String
+                $LASTEXITCODE | Should -Not -Be 0
+                $out | Should -Match 'mutually exclusive'
+            }
+        }
+
         It 'grok leg -DryRun snapshots the registration command, writing nothing' {
             $toml = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-grok-{0}.toml" -f ([guid]::NewGuid()))
             $out = pwsh -NoProfile -File $script:initScript -Agent grok -DryRun -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -GrokConfigPath $toml | Out-String

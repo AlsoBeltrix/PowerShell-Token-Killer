@@ -28,16 +28,24 @@ existing entry is left as-is; otherwise `codex mcp add ptk -- <installed
 binary>`) and the guidance block in ~/.codex/AGENTS.md. No hook: codex
 hooks are trust-gated (plan: Evidence).
 
-claude leg: checks the installed payload (~/.ptk) and refuses the hook when
-it is missing - a redirect hook without a server steers every shell call at
-a tool that cannot answer; run scripts/install.ps1 first. Installs one
-PreToolUse entry (matcher "Bash|PowerShell") running scripts/ptk-hook.ps1
-(deny-with-guidance; PTK_DIRECT in a command is the escape hatch) and the
-ptk guidance block in ~/.claude/CLAUDE.md (standard layer, no opt-in - it
-is also grok's nudge home). Existing hooks - including rtk's own Bash
-rewrite hook - are preserved. Idempotent: re-running replaces ptk-owned
-entries instead of duplicating them. Takes effect at the next session
-start.
+claude leg: registers the server user-scope (claude mcp add, remove-then-add
+so re-installs never collide), checks the installed payload (~/.ptk) and
+refuses registration and the hook when it is missing - a redirect hook
+without a server steers every shell call at a tool that cannot answer; run
+scripts/install.ps1 first. Installs one PreToolUse entry (matcher
+"Bash|PowerShell") running scripts/ptk-hook.ps1 (deny-with-guidance;
+PTK_DIRECT in a command is the escape hatch) and the ptk guidance block in
+~/.claude/CLAUDE.md (standard layer, no opt-in - it is also grok's nudge
+home). Existing hooks - including rtk's own Bash rewrite hook - are
+preserved. Idempotent: re-running replaces ptk-owned entries instead of
+duplicating them. Takes effect at the next session start.
+
+Consent: a detection-mode install (no -Agent) asks once, pacman-style -
+a numbered list of the detected harnesses and a single skip selection
+(1,3; 2-4; 0=skip all; Enter=install all). Declined or -SkipAgent'd
+harnesses print a manual-setup blurb. -AllAgents answers yes to everything;
+a non-interactive session installs all with a notice. -Uninstall and -Show
+never ask.
 
 BREAKING CHANGE vs the single-harness version of this script: installs are
 USER-LEVEL BY DEFAULT (~/.claude/settings.json). The old project-local
@@ -58,6 +66,14 @@ param(
     # "codex,grok" as one literal string; comma-separated values are split
     # and accepted.
     [string[]]$Agent,
+
+    # Harnesses to exclude (comma-separated accepted, like -Agent). Prints
+    # the same manual-setup blurb a prompt decline would.
+    [string[]]$SkipAgent,
+
+    # Answer yes to every harness: no consent prompt. Cannot be combined
+    # with -Agent/-SkipAgent.
+    [switch]$AllAgents,
 
     # Claude-only opt-in: patch the project-local .claude/settings.json (the
     # pre-multi-harness default) instead of the user-level file.
@@ -100,6 +116,22 @@ foreach ($name in $Agent) {
     if ($name -notin ($supportedAgents + 'all')) {
         throw ("Unknown agent '{0}'. Supported: {1}, all." -f $name, ($supportedAgents -join ', '))
     }
+}
+# -SkipAgent normalizes the same way ('all' is not meaningful there).
+$SkipAgent = @($SkipAgent |
+    ForEach-Object { [string]$_ -split ',' } |
+    ForEach-Object { $_.Trim().ToLowerInvariant() } |
+    Where-Object { $_ })
+foreach ($name in $SkipAgent) {
+    if ($name -notin $supportedAgents) {
+        throw ("Unknown agent '{0}' in -SkipAgent. Supported: {1}." -f $name, ($supportedAgents -join ', '))
+    }
+}
+if ($AllAgents -and ($Agent -or $SkipAgent)) {
+    throw '-AllAgents cannot be combined with -Agent or -SkipAgent.'
+}
+if ($Agent -and $SkipAgent) {
+    throw '-Agent and -SkipAgent are mutually exclusive.'
 }
 
 # The marker every ptk-owned settings entry is recognized by (install, show,
@@ -229,6 +261,60 @@ function Uninstall-PtkNudgeBlock {
     Write-Host "ptk guidance block removed from $Path"
 }
 
+# --- per-harness consent ---------------------------------------------------
+# Pacman-style: one numbered list, one skip selection. Declined or
+# -SkipAgent'd harnesses get a manual-setup blurb so nothing is a dead end.
+
+function Get-PtkManualBlurb {
+    param([Parameter(Mandatory)][string]$Name)
+    $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
+    switch ($Name) {
+        'claude' { "  by hand: claude mcp add --scope user ptk `"$binary`"" }
+        'codex'  { "  by hand: codex mcp add ptk -- `"$binary`"" }
+        'grok'   { "  by hand: grok mcp add -s user ptk `"$binary`"" }
+        'agy'    { '  by hand: no CLI registration surface - re-run the leg to write the plugin' }
+        'kimi'   { "  by hand: add to ~/.kimi-code/mcp.json under `"mcpServers`": `"ptk`": {`"command`": `"$binary`", `"args`": []}" }
+    }
+}
+
+function Write-PtkSkipNotice {
+    param([Parameter(Mandatory)][string]$Name)
+    Write-Host ("[{0}] skipped. Later: pwsh -File `"{1}`" -Agent {0}" -f $Name, $PSCommandPath)
+    Write-Host (Get-PtkManualBlurb -Name $Name)
+}
+
+# Returns the harness names the user chose to skip. Enter = skip nothing;
+# tokens are 1-based numbers, ranges (2-4), or 0 for everything; separators
+# are commas/semicolons/whitespace. Invalid input re-asks.
+function Read-PtkConsentSkips {
+    param([Parameter(Mandatory)][string[]]$Detected)
+    $numbered = for ($i = 0; $i -lt $Detected.Count; $i++) { '{0} {1}' -f ($i + 1), $Detected[$i] }
+    Write-Host ("Found: {0}" -f ($numbered -join ', '))
+    while ($true) {
+        $answer = Read-Host 'Skip (1,3; 2-4; 0=skip all; Enter=install all)'
+        if ([string]::IsNullOrWhiteSpace($answer)) { return @() }
+        $picked = @{}
+        $valid = $true
+        foreach ($token in ($answer -split '[,;\s]+' | Where-Object { $_ })) {
+            if ($token -eq '0') {
+                1..$Detected.Count | ForEach-Object { $picked[$_] = $true }
+            }
+            elseif ($token -match '^(\d+)-(\d+)$' -and [int]$Matches[1] -ge 1 -and
+                    [int]$Matches[2] -le $Detected.Count -and [int]$Matches[1] -le [int]$Matches[2]) {
+                [int]$Matches[1]..[int]$Matches[2] | ForEach-Object { $picked[$_] = $true }
+            }
+            elseif ($token -match '^\d+$' -and [int]$token -ge 1 -and [int]$token -le $Detected.Count) {
+                $picked[[int]$token] = $true
+            }
+            else { $valid = $false; break }
+        }
+        if ($valid) {
+            return @($picked.Keys | Sort-Object { [int]$_ } | ForEach-Object { $Detected[[int]$_ - 1] })
+        }
+        Write-Host "Unrecognized selection '$answer' - try again."
+    }
+}
+
 function Invoke-PtkClaudeLeg {
     $target = $SettingsPath
     if (-not $target) {
@@ -269,6 +355,12 @@ function Invoke-PtkClaudeLeg {
         }
         else { 'INSTALLED' }
         Write-Host "[claude] ptk hook: $hookState"
+        $registration = 'unknown (claude CLI not found)'
+        if (Get-Command claude -ErrorAction SilentlyContinue) {
+            claude mcp get ptk *> $null
+            $registration = ($LASTEXITCODE -eq 0) ? 'REGISTERED' : 'not registered'
+        }
+        Write-Host "[claude] registration: $registration (user scope)"
         Write-Host "[claude] hook script: $hookScript $((Test-Path -LiteralPath $hookScript) ? '' : '(MISSING)')"
         Write-Host ("[claude] nudge block: {0} in {1}" -f ($nudgePresent ? 'INSTALLED' : 'not installed'), $nudgeTarget)
         Write-Host ("[claude] installed payload: {0} ({1})" -f
@@ -297,20 +389,57 @@ function Invoke-PtkClaudeLeg {
         Write-Host 'DRY RUN - continuing to show what an install would write.'
     }
 
-    # CLI gate (mhi-9): the hook blocks shell calls to steer them at MCP
-    # ptk, which only answers where Claude Code can see the server - and
-    # the user-scope registration surface is the claude CLI itself. With
-    # the CLI absent that registration cannot exist, so the hook would
-    # deny every shell call toward a tool the harness cannot see (mhi-6).
-    # Skip ONLY the hook: the nudge below is conditionally worded, safe
-    # everywhere, and grok's single layer.
-    $skipHook = -not $Uninstall -and
-        -not (Get-Command claude -ErrorAction SilentlyContinue)
+    # Registration lives in this leg (folded in from install.ps1 with the
+    # per-harness consent work) so one claude consent covers every claude
+    # change. Remove-then-add: re-installs and dev<->release switches never
+    # collide. The hook gate (mhi-6/mhi-9) is registration-based: the hook
+    # blocks shell calls to steer them at MCP ptk, which only answers where
+    # Claude Code can see the server - no registration, no hook. Skip ONLY
+    # the hook: the nudge below is conditionally worded, safe everywhere,
+    # and grok's single layer.
+    $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
+    $claudeCli = Get-Command claude -ErrorAction SilentlyContinue
+    $registered = $false
+    if ($Uninstall) {
+        if ($claudeCli) {
+            if ($DryRun) {
+                Write-Host 'DRY RUN - would run: claude mcp remove --scope user ptk'
+            }
+            else {
+                claude mcp remove --scope user ptk *> $null
+                Write-Host (($LASTEXITCODE -eq 0) ?
+                    '[claude] registration removed.' : '[claude] no registration to remove.')
+            }
+        }
+    }
+    elseif (-not $claudeCli) {
+        Write-Warning (('[claude] claude CLI not found - not registering, not installing the ' +
+            'blocking hook. Register ptk first (claude mcp add --scope user ptk "{0}"), then ' +
+            're-run this script. Installing the guidance block only.') -f $binary)
+    }
+    elseif ($DryRun) {
+        Write-Host (('DRY RUN - would run: claude mcp remove --scope user ptk; ' +
+            'claude mcp add --scope user ptk "{0}"') -f $binary)
+        $registered = $true  # show the hook write a real run would perform
+    }
+    else {
+        claude mcp remove --scope user ptk *> $null
+        claude mcp add --scope user ptk $binary | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning (('[claude] claude mcp add failed - not installing the blocking hook ' +
+                '(it would steer at a tool claude cannot see). Register manually: ' +
+                'claude mcp add --scope user ptk "{0}"') -f $binary)
+        }
+        else {
+            Write-Host '[claude] registered with Claude Code (user scope).'
+            $registered = $true
+        }
+    }
+    $skipHook = -not $Uninstall -and -not $registered
 
     if ($skipHook) {
-        Write-Warning ('[claude] claude CLI not found - not installing the blocking hook. ' +
-            'Register ptk first (claude mcp add --scope user ptk "<binary>"), then re-run ' +
-            'this script. Installing the guidance block only.')
+        # The gate that decided this (CLI absent or registration failed)
+        # already printed its warning - nothing further to say here.
     }
     elseif ($Uninstall -and -not $installed) {
         # Nothing ptk-owned in the settings: skip the write entirely rather
@@ -805,7 +934,7 @@ function Invoke-PtkKimiLeg {
         # as an empty shell.
         if ($registered) {
             if ($DryRun) {
-                Write-Host "DRY RUN - would remove the mcpServers.ptk entry from $mcpPath"
+                Write-Host "[kimi] DRY RUN - would remove the mcpServers.ptk entry from $mcpPath"
             }
             else {
                 $servers = $mcp['mcpServers']
@@ -827,7 +956,7 @@ function Invoke-PtkKimiLeg {
         # entries and other config untouched.
         if ($hookInstalled) {
             if ($DryRun) {
-                Write-Host "DRY RUN - would remove the ptk hook block from $configPath"
+                Write-Host "[kimi] DRY RUN - would remove the ptk hook block from $configPath"
             }
             else {
                 $kept = Get-PtkKimiHookStripped $configText
@@ -957,6 +1086,29 @@ $resolvedAgents =
     }
     elseif ($Agent -contains 'all') { $supportedAgents }
     else { @($Agent | Select-Object -Unique) }
+
+# -SkipAgent excludes legs in every mode; each exclusion gets the same
+# manual-setup blurb a prompt decline prints.
+if ($SkipAgent) {
+    $resolvedAgents = @($resolvedAgents | Where-Object { $_ -notin $SkipAgent })
+    foreach ($name in $SkipAgent) { Write-PtkSkipNotice -Name $name }
+}
+
+# Per-harness consent (pacman-style, one prompt): detection-mode installs
+# only - an explicit -Agent is already consent, and -Uninstall/-Show never
+# ask. PTK_INIT_INTERACTIVE=1 forces the prompt path (test seam).
+$prompted = -not $Agent -and -not $Uninstall -and -not $Show -and -not $AllAgents -and
+    $resolvedAgents.Count -gt 0
+$interactive = (-not [Console]::IsInputRedirected) -or ($env:PTK_INIT_INTERACTIVE -eq '1')
+if ($prompted -and $interactive) {
+    $skipped = @(Read-PtkConsentSkips -Detected $resolvedAgents)
+    foreach ($name in $skipped) { Write-PtkSkipNotice -Name $name }
+    $resolvedAgents = @($resolvedAgents | Where-Object { $_ -notin $skipped })
+}
+elseif ($prompted) {
+    Write-Host (('Non-interactive session: wiring up every detected harness ({0}). ' +
+        'Scope with -Agent/-SkipAgent; -AllAgents silences this notice.') -f ($resolvedAgents -join ', '))
+}
 
 $failedLegs = @()
 foreach ($name in $resolvedAgents) {

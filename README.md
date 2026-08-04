@@ -274,9 +274,11 @@ The installer:
   uninstall removes only the copy the installer placed. The check probes
   `rtk hook check`, not `rtk --version`: the rewriter has to actually answer.
   If it cannot, the install aborts rather than leaving a server that exits 78;
-- registers the server as the final mutation, printing the command when no
-  `claude` CLI is present, then runs the per-agent init that wires up every
-  detected harness — claude, codex, grok, and agy; and
+- runs the per-agent init, which wires up the detected harnesses — claude,
+  codex, grok, agy, kimi — after one pacman-style consent prompt listing what
+  was found (Enter wires all; `-Agent`/`-SkipAgent`/`-AllAgents` pre-answer,
+  and a non-interactive session wires all with a notice). Skipped harnesses
+  print the manual registration command; and
 - supports `-Uninstall`, which reverses all of it and keeps user files;
   `-Purge` also removes them.
 

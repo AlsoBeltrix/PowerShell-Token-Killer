@@ -134,6 +134,20 @@ because `install.sh` is gone. The installed payload still embeds its own
 PowerShell and does not need one. No POSIX bootstrap was written — deliberate
 under the owner's one-installer instruction, not an oversight.
 
+**Per-harness consent landed (2026-08-04, owner-directed: pacman-style).** A
+detection-mode `ptk_init` install asks once: a numbered `Found:` list of
+detected harnesses and a single skip selection (`1,3`; `2-4`; `0`=skip all;
+Enter=install all). Declines and `-SkipAgent` exclusions print a
+manual-setup blurb (the harness's `mcp add` command or config snippet plus
+the re-run command). `-AllAgents` answers yes to everything; a
+non-interactive session wires all with a notice. `-Uninstall`/`-Show` never
+ask. Claude's registration moved from `install.ps1` into the claude leg, so
+one consent covers registration + hook + nudge and leg failure fails the
+install into rollback as before. `install.ps1` gained `-Agent`/`-SkipAgent`/
+`-AllAgents` pass-throughs. Upgrades re-prompt every time — no consent
+store; add one only on evidence. Pester 99 passed, 1 platform skip; the
+skip-filter mutation is caught by the new tests.
+
 **Kimi harness leg landed (2026-08-04).** `ptk_init.ps1` now covers claude,
 codex, grok, agy, and kimi. The kimi leg merges `mcpServers.ptk` into
 `~/.kimi-code/mcp.json` (no scriptable CLI surface exists), installs the same

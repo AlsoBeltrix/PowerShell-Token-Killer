@@ -8,9 +8,11 @@ one ptk home (~/.ptk); also produces the canonical layout for release CI.
 Install obtains a payload — a prebuilt release asset with -FromRelease, or a
 self-contained publish of this checkout otherwise — and from there the path
 is identical: stage it, smoke-test it, snapshot the prior payload, activate
-as a unit, ensure rtk is present, register the server, and run the per-agent
-init that wires up every detected harness (claude, codex, grok, agy, kimi). Any
-failure during activation or registration restores the previous payload
+as a unit, ensure rtk is present, and run the per-agent init that registers
+and wires up the detected harnesses (claude, codex, grok, agy, kimi). An
+interactive install asks once which harnesses to skip (pacman-style;
+Enter wires all); -Agent/-SkipAgent/-AllAgents pre-answer. Any failure
+during activation or registration restores the previous payload
 byte-identically.
 
 ~/.ptk holds bin/, src/, scripts/, VERSION, LICENSE, README.md — replaced
@@ -80,10 +82,27 @@ param(
 
     # Run the full public handshake against the layout without activating it.
     [Parameter(ParameterSetName = 'LayoutOnly')]
-    [switch]$Validate
+    [switch]$Validate,
+
+    # Per-harness consent, passed through to ptk_init: -Agent wires only the
+    # named harnesses, -SkipAgent wires all detected except these,
+    # -AllAgents answers yes to everything without prompting. With none of
+    # them, an interactive install asks once (pacman-style skip selection).
+    [Parameter(ParameterSetName = 'Install')]
+    [string[]]$Agent,
+    [Parameter(ParameterSetName = 'Install')]
+    [string[]]$SkipAgent,
+    [Parameter(ParameterSetName = 'Install')]
+    [switch]$AllAgents
 )
 
 $ErrorActionPreference = 'Stop'
+if ($AllAgents -and ($Agent -or $SkipAgent)) {
+    throw '-AllAgents cannot be combined with -Agent or -SkipAgent.'
+}
+if ($Agent -and $SkipAgent) {
+    throw '-Agent and -SkipAgent are mutually exclusive.'
+}
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $ptkHome = Join-Path $HOME '.ptk'
 # Everything the installer owns and replaces wholesale on upgrade; anything
@@ -480,34 +499,10 @@ function Remove-PtkPayload {
     }
 }
 
-# Returns $true when the server actually got registered with Claude Code;
-# $false when registration was left to the user (the install arm then warns,
-# and the claude leg of ptk_init skips its blocking hook - mhi-6/mhi-9).
-function Register-PtkServer {
-    param([Parameter(Mandatory)][string]$BinaryPath)
-    $claude = Get-Command claude -ErrorAction SilentlyContinue
-    if (-not $claude) {
-        Write-Host 'claude CLI not found - register manually:'
-        Write-Host "  claude mcp add --scope user ptk `"$BinaryPath`""
-        return $false
-    }
-    # Remove-then-add so re-installs and dev<->release switches never collide.
-    claude mcp remove --scope user ptk *> $null
-    claude mcp add --scope user ptk $BinaryPath | Out-Host
-    if ($LASTEXITCODE -ne 0) {
-        throw ("claude mcp add failed; any previous ptk user-scope registration was " +
-            "already removed. Register manually: claude mcp add --scope user ptk `"{0}`"" -f $BinaryPath)
-    }
-    Write-Host 'Registered with Claude Code (user scope).'
-    $true
-}
-
-function Unregister-PtkServer {
-    $claude = Get-Command claude -ErrorAction SilentlyContinue
-    if (-not $claude) { return }
-    claude mcp remove --scope user ptk *> $null
-    if ($LASTEXITCODE -eq 0) { Write-Host 'Removed Claude Code registration (user scope).' }
-}
+# Claude registration moved into ptk_init's claude leg (per-harness consent
+# work): one consent covers registration, hook, and nudge, and a leg failure
+# fails the init child, which fails this installer into the same rollback a
+# Register-PtkServer throw used to trigger.
 
 function Write-PtkArpEntry {
     param([Parameter(Mandatory)][string]$PayloadVersion)
@@ -719,11 +714,11 @@ switch ($mode) {
     'Uninstall' {
         Assert-NotElevated
     Assert-PtkRuntimeNotRunning
-        # Per-agent init reversal first (needs a ptk_init.ps1), then Claude
-        # registration, ARP, payload. ptk_init -Uninstall reverses every
-        # SUPPORTED leg - not just detected ones (mhi-10) - (hook + guidance
-        # blocks, codex/grok registrations, agy plugin) and no-ops safely
-        # where nothing is installed.
+        # Per-agent init reversal first (needs a ptk_init.ps1), then ARP and
+        # payload. ptk_init -Uninstall reverses every SUPPORTED leg - not
+        # just detected ones (mhi-10) - (claude registration, hook, and
+        # guidance; codex/grok/kimi registrations; the agy plugin) and no-ops
+        # safely where nothing is installed.
         $init = Join-Path $ptkHome 'scripts' 'ptk_init.ps1'
         if (-not (Test-Path -LiteralPath $init)) { $init = Join-Path $PSScriptRoot 'ptk_init.ps1' }
         if (Test-Path -LiteralPath $init) {
@@ -738,7 +733,6 @@ switch ($mode) {
             Write-Warning ('A ptk hook entry exists in the user settings but no ptk_init.ps1 was ' +
                 'found; run ptk_init.ps1 -Uninstall from a checkout to remove it.')
         }
-        Unregister-PtkServer
         Remove-PtkArpEntry
         Remove-PtkInstalledRtk
         Remove-PtkPayload
@@ -802,18 +796,19 @@ Assert-PtkRuntimeNotRunning
                     # exits 78 without rtk, and an install that registers a
                     # server which cannot start is not a successful install.
                     Install-PtkRtk -TargetRid $targetRid
-                    $registeredNow = Register-PtkServer -BinaryPath $installedBinary
                     if ($Hook) {
                         Write-Host 'NOTE: -Hook is deprecated - the full per-agent init runs by default.'
                     }
-                    if (-not $registeredNow) {
-                        Write-Warning (('ptk is not registered with Claude Code (claude CLI not found); ' +
-                            'the claude leg installs guidance only, no blocking hook. Register manually, ' +
-                            'then re-run: pwsh -File "{0}"') -f (
-                            Join-Path $ptkHome 'scripts' 'ptk_init.ps1'))
-                    }
+                    # Registration, hooks, and guidance for every consented
+                    # harness - ptk_init asks once (pacman-style) unless a
+                    # consent flag pre-answers; a failing leg fails this
+                    # install into rollback.
+                    $initArgs = @()
+                    if ($Agent) { $initArgs += @('-Agent', ($Agent -join ',')) }
+                    if ($SkipAgent) { $initArgs += @('-SkipAgent', ($SkipAgent -join ',')) }
+                    if ($AllAgents) { $initArgs += '-AllAgents' }
                     Invoke-PtkHarnessInitialization -InitScript (
-                        Join-Path $ptkHome 'scripts' 'ptk_init.ps1')
+                        Join-Path $ptkHome 'scripts' 'ptk_init.ps1') -Arguments $initArgs
                     Write-PtkArpEntry -PayloadVersion $payloadVersion
                 }
         }

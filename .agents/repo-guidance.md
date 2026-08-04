@@ -116,23 +116,24 @@ that deleted file — stale plan text, not an instruction to recreate it.)
 ## Remotes & Sync
 
 Remote configuration is per-clone. In this clone (`git remote -v`, confirmed
-2026-08-03) exactly one remote is configured:
+2026-08-04) three remotes are configured:
 
 - `origin` — `https://github.com/AlsoBeltrix/PowerShell-Token-Killer.git`
   (GitHub renamed the repo to capital-W `PowerShell-Token-Killer`; the URL
-  was updated to match on the owner's go, 2026-07-10)
+  was updated to match on the owner's go, 2026-07-10). `master` tracks
+  `origin/master`.
+- `github` — `https://github.com/roethlar/Powershell-Token-Killer` (the
+  owner's fork).
+- `gitea` — `http://q:3000/michael/Powershell-Token-Killer` (LAN forge;
+  local class).
 
-The `gitea` (`http://q:3000/michael/Powershell-Token-Killer.git`) and `github`
-(`https://github.com/roethlar/Powershell-Token-Killer`) remotes recorded here
-on 2026-07-10 are absent from this clone; they were observed in the owner's
-own clone and remain plausible there. Re-check `git remote -v` per clone
-rather than trusting this list.
-
-`master` tracks `origin/master`. A `personal` remote
+The `github` and `gitea` remotes were added to this clone between the
+2026-08-03 and 2026-08-04 checks; all three accepted a `master` push on
+2026-08-04. A `personal` remote
 (`https://github.com/roethlar/-PowerShell-Token-Killer.git`) was recorded
 here previously but no longer exists in this repo's git config as of
-2026-07-03 — flagged in this refresh's approval summary rather than silently
-dropped. Push policy stays in `.agents/push-policy.md`, not here.
+2026-07-03. Re-check `git remote -v` per clone rather than trusting this
+list. Push policy stays in `.agents/push-policy.md`, not here.
 
 ## Earned Practices
 

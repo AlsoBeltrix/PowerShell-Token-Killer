@@ -23,13 +23,18 @@ The payload gate predates registration living in the leg and was never
 tightened when registration folded in.
 
 ## Approach
-(pending)
+The claude leg's `$payloadPresent` now tests the platform server binary as
+a leaf (`bin/PtkMcpServer[.exe]`, `-PathType Leaf`) instead of the `bin/`
+directory — the same gate shape the codex/grok/kimi legs already used. The
+suite fixtures that masked this (`fakeHome`, `homeWithScripts`) now carry a
+stub binary, and a new test pins the dir-without-binary refusal.
 
 ## Files changed
-(pending)
+- `scripts/ptk_init.ps1` (claude leg payload gate) — leaf test
+- `tests/PwshTokenCompressor.Tests.ps1` — fixtures + hcc-2 guard test
 
 ## Guard proof
-(pending)
+- `tests/PwshTokenCompressor.Tests.ps1::'refuses registration and hook when bin/ exists but the binary does not (hcc-2)'` — with the fix stashed the directory passes the gate and the test FAILS (exit 0, settings written); restored it PASSES (verified 2026-08-04).
 
 ## Coder dispute (if any)
 —

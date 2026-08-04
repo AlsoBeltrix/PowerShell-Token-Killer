@@ -330,7 +330,12 @@ function Invoke-PtkClaudeLeg {
         $preToolUse = @($settings['hooks']['PreToolUse'])
     }
     $installed = @($preToolUse | Where-Object { Test-PtkEntry $_ }).Count -gt 0
-    $payloadPresent = Test-Path -LiteralPath (Join-Path $PtkHome 'bin')
+    # Payload = the server binary itself, as a leaf (hcc-2): registration
+    # points at that exact file, so a leftover or damaged bin/ directory
+    # must not pass the gate - it would replace a working registration with
+    # a dead one and arm a deny hook toward a server that cannot start.
+    $payloadPresent = Test-Path -LiteralPath (
+        Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')) -PathType Leaf
     $nudgePresent = (Test-Path -LiteralPath $nudgeTarget) -and
         ((Get-Content -LiteralPath $nudgeTarget -Raw) -like "*$nudgeBegin*")
 

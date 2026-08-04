@@ -361,10 +361,12 @@ Describe 'redirect hook and installer' {
 
     Context 'ptk_init settings patching' {
         BeforeAll {
-            # Payload-gate seam: a home dir containing bin/ counts as an
-            # installed payload regardless of this machine's real ~/.ptk.
+            # Payload-gate seam: a home dir containing bin/ AND the server
+            # binary counts as an installed payload regardless of this
+            # machine's real ~/.ptk (hcc-2: the gate tests the binary leaf).
             $script:fakeHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-home-{0}" -f ([guid]::NewGuid()))
             New-Item -ItemType Directory -Path (Join-Path $script:fakeHome 'bin') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $script:fakeHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')) -Value 'stub'
             # CLI-gate seam (mhi-9): the claude leg now installs its hook
             # only when a `claude` command resolves; a shim on PATH keeps
             # these tests hermetic on machines without the real CLI.
@@ -484,6 +486,7 @@ Describe 'redirect hook and installer' {
             # installed payload is the stable target.
             $homeWithScripts = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-home2-{0}" -f ([guid]::NewGuid()))
             New-Item -ItemType Directory -Path (Join-Path $homeWithScripts 'bin') -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $homeWithScripts 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')) -Value 'stub'
             New-Item -ItemType Directory -Path (Join-Path $homeWithScripts 'scripts') -Force | Out-Null
             Set-Content -LiteralPath (Join-Path $homeWithScripts 'scripts' 'ptk-hook.ps1') -Value '# installed copy'
             try {
@@ -561,6 +564,24 @@ Describe 'redirect hook and installer' {
             $LASTEXITCODE | Should -Be 1
             $out | Should -Match 'install\.ps1'
             Test-Path -LiteralPath $script:settings | Should -BeFalse
+        }
+
+        It 'refuses registration and hook when bin/ exists but the binary does not (hcc-2)' {
+            # A leftover or damaged payload directory must not pass the
+            # gate: registration would point at a nonexistent executable and
+            # the hook would deny shell calls toward a server that cannot
+            # start.
+            $dirOnlyHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-dironly-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path (Join-Path $dirOnlyHome 'bin') -Force | Out-Null
+            try {
+                $out = pwsh -NoProfile -File $script:initScript -SettingsPath $script:settings -NudgePath $script:nudgeFile -PtkHome $dirOnlyHome 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 1
+                $out | Should -Match 'No installed ptk payload'
+                Test-Path -LiteralPath $script:settings | Should -BeFalse
+            }
+            finally {
+                Remove-Item -LiteralPath $dirOnlyHome -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
 
         It 'installs and removes the nudge block, preserving user content' {

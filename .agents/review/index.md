@@ -1,5 +1,21 @@
 # Review status
 
+## Active — hcc (harness-consent codereview, 2026-08-04)
+
+Generation pass: codex-cli 0.146.0, `codex/gpt-5.6-sol/xhigh (inline,
+session-only)/standard`, over `19201a1..092df3b` (kimi leg + rollback
+inventory + consent feature). Verdict `findings` (5), capability_ok true,
+SHAs pinned and matched. All five admitted at intake. Per-finding detail:
+`.agents/review/findings/hcc-<n>.md`.
+
+| ID    | Severity | Impact (one line)                                        | Status |
+|-------|----------|----------------------------------------------------------|--------|
+| hcc-1 | MEDIUM   | kimi uninstall deletes a pre-existing custom registration | `[~]`  |
+| hcc-2 | MEDIUM   | claude payload gate accepts an empty bin dir; can register a dead binary + arm the hook | `[~]` |
+| hcc-3 | MEDIUM   | apostrophe in ptk path writes invalid kimi TOML           | `[~]`  |
+| hcc-4 | LOW      | oversized consent number crashes instead of re-prompting  | `[~]`  |
+| hcc-5 | LOW      | kimi skip blurb ignores KIMI_CODE_HOME                    | `[~]`  |
+
 > **Dispositioned 2026-08-03.** Every accepted `opr-*` finding now carries
 > exactly one disposition in `.agents/review/dispositions.md` — fixed,
 > closed-removed, closed-out-of-scope, deferred to platform selection, or

@@ -1,0 +1,250 @@
+name: Release
+
+# Tag-triggered. Builds one artifact per RID on that RID's own native runner
+# and assembles a DRAFT release. Publishing is a separate owner action: this
+# workflow never publishes.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.2.0-rc.1) when running manually'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Each RID builds on matching hardware: PtkWorkerBroker is native and
+          # the layout generator refuses cross-RID builds.
+          - rid: win-x64
+            os: windows-latest
+            archive: zip
+          - rid: win-arm64
+            os: windows-11-arm
+            archive: zip
+          - rid: linux-x64
+            os: ubuntu-latest
+            archive: tar
+          - rid: linux-arm64
+            os: ubuntu-24.04-arm
+            archive: tar
+          - rid: osx-arm64
+            os: macos-latest
+            archive: tar
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.version }}'
+          } else {
+            '${{ github.ref_name }}'
+          }
+          # dev-install.ps1 strips a leading v; keep the tag shape out of the
+          # artifact name too.
+          $version = $version -replace '^[vV]', ''
+          "version=$version" >> $env:GITHUB_OUTPUT
+          Write-Host "Building version $version for ${{ matrix.rid }}"
+
+      # RTK is a required dependency, so the packaged server cannot even start
+      # without it and the handshake below would fail. win-arm64 has no
+      # upstream aarch64 build and runs the x64 binary under emulation.
+      - name: Install RTK
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = Join-Path $HOME '.local/bin'
+          New-Item -ItemType Directory -Path $dest -Force | Out-Null
+          $asset = switch ('${{ matrix.rid }}') {
+            'win-x64'     { 'rtk-x86_64-pc-windows-msvc.zip' }
+            'win-arm64'   { 'rtk-x86_64-pc-windows-msvc.zip' }
+            'linux-x64'   { 'rtk-x86_64-unknown-linux-musl.tar.gz' }
+            'linux-arm64' { 'rtk-aarch64-unknown-linux-gnu.tar.gz' }
+            'osx-arm64'   { 'rtk-aarch64-apple-darwin.tar.gz' }
+          }
+          $url = "https://github.com/rtk-ai/rtk/releases/latest/download/$asset"
+          $download = Join-Path ([IO.Path]::GetTempPath()) $asset
+          Invoke-WebRequest -Uri $url -OutFile $download
+          if ($asset.EndsWith('.zip')) {
+            Expand-Archive -Path $download -DestinationPath $dest -Force
+          } else {
+            tar -xzf $download -C $dest
+            if ($LASTEXITCODE -ne 0) { throw "tar failed for $asset" }
+          }
+          $dest >> $env:GITHUB_PATH
+
+      # A version banner only proves the loader started the image. PTK depends
+      # on the rewriter answering, which is what actually has to work under
+      # win-arm64 emulation.
+      - name: Verify RTK answers hook check
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          rtk --version
+          $rewritten = rtk hook check --agent ptk 'git status --short' 2>$null
+          if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($rewritten)) {
+            throw "rtk hook check did not answer on ${{ matrix.rid }} (exit $LASTEXITCODE)"
+          }
+          Write-Host "rtk rewrote to: $rewritten"
+
+      - name: Build layout
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File scripts/dev-install.ps1 `
+            -LayoutOnly `
+            -OutputDir out/ptk `
+            -Rid ${{ matrix.rid }} `
+            -Version ${{ steps.version.outputs.version }}
+
+      - name: Smoke-test the packaged server
+        shell: pwsh
+        run: |
+          $exe = if ('${{ matrix.rid }}'.StartsWith('win-')) {
+            'out/ptk/bin/PtkMcpServer.exe'
+          } else {
+            'out/ptk/bin/PtkMcpServer'
+          }
+          if (-not $IsWindows) { chmod +x $exe }
+          pwsh -NoProfile -File server/test-handshake.ps1 -ServerCommand (Resolve-Path $exe)
+
+      # The startup gate is a product contract: no RTK means a clear refusal,
+      # never a half-working server. Proven against the packaged bits.
+      - name: Prove the RTK startup gate
+        shell: pwsh
+        run: |
+          $exe = if ('${{ matrix.rid }}'.StartsWith('win-')) {
+            'out/ptk/bin/PtkMcpServer.exe'
+          } else {
+            'out/ptk/bin/PtkMcpServer'
+          }
+          # The child needs a genuinely empty environment block. Start-Process
+          # -Environment MERGES into the inherited one, so the real PATH
+          # survives and the server legitimately finds rtk — a gate that can
+          # never fail is not a gate. Clear the block explicitly instead.
+          $psi = [Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = (Resolve-Path $exe)
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardError = $true
+          $psi.EnvironmentVariables.Clear()
+          if ($IsWindows) {
+            # Without SystemRoot the loader cannot resolve system DLLs and the
+            # process dies before reaching PTK's own startup check.
+            $psi.EnvironmentVariables['SystemRoot'] = $env:SystemRoot
+          }
+          $p = [Diagnostics.Process]::Start($psi)
+          $text = $p.StandardError.ReadToEnd()
+          if (-not $p.WaitForExit(60000)) {
+            $p.Kill($true)
+            throw "server did not exit without RTK; it must refuse to start. stderr: $text"
+          }
+          if ($p.ExitCode -ne 78) {
+            throw "expected exit 78 without RTK, got $($p.ExitCode). stderr: $text"
+          }
+          if ($text -notmatch 'PTK_RTK_PATH') {
+            throw "refusal message did not name PTK_RTK_PATH. stderr: $text"
+          }
+          Write-Host "Startup gate ok: exit 78, message names PTK_RTK_PATH"
+
+      - name: Archive
+        id: archive
+        shell: pwsh
+        run: |
+          $name = "ptk-${{ steps.version.outputs.version }}-${{ matrix.rid }}"
+          New-Item -ItemType Directory -Path dist -Force | Out-Null
+          if ('${{ matrix.archive }}' -eq 'zip') {
+            $file = "dist/$name.zip"
+            Compress-Archive -Path out/ptk/* -DestinationPath $file
+          } else {
+            $file = "dist/$name.tar.gz"
+            tar -czf $file -C out/ptk .
+            if ($LASTEXITCODE -ne 0) { throw 'tar failed' }
+          }
+          $hash = (Get-FileHash $file -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $file -Leaf)" | Set-Content "$file.sha256"
+          "file=$file" >> $env:GITHUB_OUTPUT
+          Write-Host "$hash  $(Split-Path $file -Leaf)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ptk-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  draft:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v5
+        with:
+          path: staged
+          merge-multiple: true
+
+      - name: Collect checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd staged
+          cat *.sha256 > SHA256SUMS
+          rm -f *.sha256
+          echo "--- SHA256SUMS ---"
+          cat SHA256SUMS
+          # Five RIDs must all be present; a missing artifact means a runner
+          # failed and the draft would silently ship short.
+          count=$(ls -1 ptk-*.zip ptk-*.tar.gz 2>/dev/null | wc -l)
+          if [ "$count" -ne 5 ]; then
+            echo "expected 5 artifacts, found $count" >&2
+            ls -la >&2
+            exit 1
+          fi
+
+      - name: Resolve version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+          else
+            version="${{ github.ref_name }}"
+          fi
+          echo "version=${version#v}" >> "$GITHUB_OUTPUT"
+
+      # Draft only. Publishing this release is an owner action and is
+      # deliberately not automated.
+      - name: Assemble draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="v${{ steps.version.outputs.version }}"
+          fi
+          gh release create "$tag" \
+            --draft \
+            --title "ptk ${{ steps.version.outputs.version }}" \
+            --notes "Draft build for ${{ steps.version.outputs.version }}. Every asset was built and smoke-tested on its own native runner. Verify downloads against SHA256SUMS." \
+            staged/* \
+            || gh release upload "$tag" staged/* --clobber

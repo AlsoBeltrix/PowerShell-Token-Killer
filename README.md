@@ -242,10 +242,10 @@ elevated still launches PTK elevated.
 
 ## Installation
 
-### Target v0.2.0 public install — not released yet
+### v0.2.0 public install
 
-The approved release flow installs self-contained binaries without cloning
-this repository or requiring the .NET SDK:
+Installs self-contained binaries without cloning this repository or requiring
+the .NET SDK:
 
 ```powershell
 # Windows
@@ -257,26 +257,30 @@ irm https://raw.githubusercontent.com/AlsoBeltrix/PowerShell-Token-Killer/master
 curl -fsSL https://raw.githubusercontent.com/AlsoBeltrix/PowerShell-Token-Killer/master/install.sh | sh
 ```
 
-These URLs become usable when v0.2.0 is published; `install.ps1`, `install.sh`,
-release assets, and the release workflow are not present yet.
+`install.ps1` and `install.sh` are in the repository root. The download URLs
+above resolve once the v0.2.0 release is published; until then, run the
+scripts from a checkout.
 
-The target installer:
+The installer:
 
 - selects a smoke-tested `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,
   or `osx-arm64` asset and verifies it against `SHA256SUMS`;
-- installs one self-contained public supervisor whose internal worker mode owns
-  the named session processes, plus `PtkWorkerBroker` on Unix;
-- runs the complete public handshake against the staged package and again after
-  activation, before changing any harness registration;
+- refuses to run elevated, and refuses to replace a payload that is in use;
+- installs one self-contained supervisor whose internal worker mode owns the
+  named session processes, plus `PtkWorkerBroker` on Unix;
 - installs per-user under `~/.ptk` and preserves user-owned configuration on
-  upgrade/uninstall;
-- snapshots the prior installer-owned payload and known registration files, and
-  restores and verifies them after any activation or registration failure;
-- registers the public `PtkMcpServer` with detected harnesses only after the
-  activated package passes its handshake;
-- can install the redirect hook, whose public-installer default remains an
-  explicit release decision; and
-- supports uninstall, with destructive purge kept explicit.
+  upgrade and uninstall;
+- snapshots the prior installer-owned payload and restores it after any
+  activation or registration failure;
+- **ensures RTK is present before registering.** RTK is required, so an rtk
+  already on `PATH` is used as-is, and otherwise the matching rtk is fetched
+  from its own releases, verified against its `checksums.txt`, and recorded so
+  uninstall removes only the copy the installer placed. The check probes
+  `rtk hook check`, not `rtk --version`: the rewriter has to actually answer.
+  If it cannot, the install aborts rather than leaving a server that exits 78;
+- registers the server as the final mutation, printing the command when no
+  `claude` CLI is present; and
+- supports `-Uninstall` / `--uninstall`, with destructive purge kept explicit.
 
 The matched payload is self-contained and does not require an installed
 PowerShell. The optional hook does require `pwsh`. Winget packaging is a
@@ -341,7 +345,13 @@ RTK, so a PTK without RTK cannot do half its job. The server resolves RTK from
 finds none, it refuses to start and says so rather than coming up as a
 silently-unfiltered passthrough.
 
-PTK does not bundle or download RTK. Install it separately.
+PTK's release assets do not bundle RTK. The installer resolves it for you: an
+rtk already on `PATH` is used as-is and never touched, and otherwise the
+matching build is downloaded from RTK's own releases, verified against its
+`checksums.txt`, and placed in `~/.ptk/bin`. Uninstall removes only a copy the
+installer placed. Windows ARM64 has no upstream aarch64 rtk and runs the x64
+build under emulation; the installer probes `rtk hook check` to confirm that
+actually works before completing.
 
 Routing is RTK's decision, not PTK's. PTK submits the exact submitted text to
 `rtk hook check`; when RTK returns a rewrite, PTK executes that, and when RTK

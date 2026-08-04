@@ -4,6 +4,18 @@ Rotated verbatim from `.agents/state.md` by the `handoff` and `drift`
 operators; current state lives there. Entries below are historical record,
 newest rotation first.
 
+## Rotated 2026-08-04 (drift based on 19201a1)
+
+### From `## Now`
+
+- **RTK router delegation plan is executed through Slice 6 (2026-08-03).** Plan: `.agents/plans/rtk-router-delegation.md`. Slices 0-6 landed; Slice 7 (version, package, direct proof) is unstarted and gated on Decisions 2-5. Per-slice commit table is in the plan's status block.
+
+  Re-verified as of `a3112f3` (docs-only over code head `f637ad0`) on `ASHBIAMWEB1`: the whole battery passes. Counts live in `.agents/repo-guidance.md` §Verification, refreshed in the same pass; they moved during this work because ~6,500 lines and their tests were deleted. Local SIEM is 226/247 on this host only — the 21 pre-existing symlink-privilege cases recorded in `.agents/machines.md`, not a product failure.
+
+  **Hosted CI is green at `a3112f3`** — all six jobs, and the RTK install step succeeded on ubuntu, windows, and macos, so the previously unexercised install path is now proven. SIEM is 247/247 in CI, where symlink creation is permitted.
+
+  _Rotation note: superseded — Slice 7 was subsequently executed by the release-packaging plan (Slices 7.0-7.5 landed, `v0.2.0-rc.2` draft proved), which current `state.md` records; the commit-pinned CI/verification claims above stand as historical evidence of that pass._
+
 ## Rotated 2026-08-03 (drift based on a3112f3)
 
 Landed `## Now` and falsified `## Blockers` entries, preserved verbatim.

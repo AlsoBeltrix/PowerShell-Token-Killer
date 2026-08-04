@@ -41,24 +41,30 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-07-28, all passing):
+Confirmed automated verification commands (re-run 2026-08-03 at `a3112f3`, all
+passing). Counts are volatile — treat them as of that commit and re-verify
+rather than trusting them at a later head.
 
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 142 passed, 2 platform-skipped (PowerShell module/setup suite; requires
+— 84 passed, 1 platform-skipped (PowerShell module/setup suite; requires
 Pester 5 or later).
 
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 1,221/1,221 passed (C# MCP supervisor, named workers, containment, output,
-and retained administration suite; count re-confirmed 2026-08-01).
+— 1,059/1,059 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite).
 
 ```
 dotnet test siem/PtkSiem.slnx
 ```
-— 247/247 passed (standalone retained SIEM receiver suite).
+— 247/247 passed (standalone retained SIEM receiver suite) in CI and on hosts
+whose identity may create symlinks. On a Windows host without
+`SeCreateSymbolicLinkPrivilege` it is 226/247: the 21 failures stop in symlink
+test setup before any product assertion (see `.agents/machines.md`), and are
+not a product failure.
 
 ```
 dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
@@ -77,7 +83,9 @@ changes.
 CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
 runs the same battery (Pester, server/SIEM tests, handshake) on an
 ubuntu/windows/macos matrix for pushes to `master`/`ci/**` and PRs to
-`master`. Local verification before claiming completion still applies. The
+`master`. It first installs RTK on every platform, since the server refuses to
+start without it. Local verification before claiming completion still applies.
+The
 machine-readable `.agents/repo-map.json` record was removed by the governance
 refresh at `8e6624c`; this section is now the only record of the verification
 battery. (`.agents/plans/release-distribution.md` and

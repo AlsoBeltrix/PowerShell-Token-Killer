@@ -579,11 +579,13 @@ that landed in `460c106`._
 
 _Not verified by the 2026-07-11 containment probe._
 
-- Current Windows payload and guidance status remains unknown, including on
-  `NETWATCH-01`; the probe deliberately did not inspect `F:\dev` or installed
-  PTK files. The former combined Mac/Windows reinstall claim was falsified on
-  the Mac and is not evidence for any Windows host; verify the target payload
-  directly before taking install action.
+- `NETWATCH-01`'s payload and guidance status remains unknown; that probe
+  deliberately did not inspect `F:\dev` or installed PTK files. The former
+  combined Mac/Windows reinstall claim was falsified on the Mac and is not
+  evidence for any Windows host; verify the target payload directly before
+  taking install action.
+- `ASHBIAMWEB1` is no longer unknown: its installed payload is recorded in its
+  own section below (`0.2.0-dev.g12e1ff5`, re-confirmed 2026-08-03).
 
 ## mini-SIEM S1 baseline (Mac, 2026-07-15)
 
@@ -1610,8 +1612,8 @@ was used._
 
 - `rtk 0.44.2` at `C:\Users\mcoelho\.local\bin\rtk.exe`, on `PATH`. RTK source
   checkout for contract reading is at `D:\source\rtk` (branch `develop`).
-- Installed PTK remains `0.2.0-dev.g12e1ff5` (`~/.ptk/VERSION`) — the plan's
-  work is committed but not installed here.
+- Installed PTK remains `0.2.0-dev.g12e1ff5` (`~/.ptk/VERSION`, re-confirmed
+  2026-08-03) — the plan's work is committed but not installed here.
 - `codex-cli 0.146.0`. Its auth token is revoked: review dispatches complete
   and return valid verdicts while logging repeated
   `Failed to refresh token ... refresh token was revoked` to stderr. Run
@@ -1619,6 +1621,14 @@ was used._
 - SIEM suite is 226/247 on this host: the 21 failures are the recorded
   symlink-privilege cases, since the ordinary token cannot create Windows
   symlinks.
+
+_Battery re-run 2026-08-03 at `a3112f3` during a `drift` pass; every fact in the
+block above still held._ Server 1,059/1,059; Pester 84 passed with 1 platform
+skip; SIEM 226/247 with the same 21 symlink-privilege setup failures; no
+vulnerable package in any of the five server projects; the registration-command
+stdio handshake reported `HANDSHAKE PASSED`. Hosted CI at the same commit was
+green on all six jobs, including the RTK install step on all three platforms and
+SIEM 247/247 where symlink creation is permitted.
 
 ### Installed payload ACL repair — 2026-07-28
 

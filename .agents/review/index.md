@@ -11,7 +11,13 @@
 > during implementation is now either fixed in the slice that found it or given
 > a disposition — never a new gated entry.
 >
-> The narrative below is retained as the historical review record.
+> The narrative below is retained as the historical review record. In
+> particular, every `**Open — opr-N**` bullet and every "Status: accepted; plan
+> required" label below is frozen historical text from before that retirement —
+> read the disposition file for an `opr-*` finding's current standing, never
+> these bullets. The same applies to the push-state sentences in the older
+> loop-closure entries: git owns push state, and those lines describe a moment,
+> not the repo today.
 
 **Open — opr-59:** LOW — a valid EOF read of a nonempty retained artifact reports nonzero `bytes` and zero `bytes_returned`, then falsely appends `(no captured bytes)`. Status: accepted; plan required. Reviewer: `claude/@gcp-vertexai-us-global-integration/anthropic.claude-opus-5/max/frontier`. Detail: `.agents/review/findings/opr-59.md`.
 

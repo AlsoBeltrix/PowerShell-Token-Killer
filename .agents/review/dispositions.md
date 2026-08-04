@@ -83,7 +83,7 @@ only through abandoned-root reclamation, not ordinary use.
 
 None. Every remaining finding is dispositioned above.
 
-## deferred to platform selection (7)
+## deferred to platform selection (13)
 
 Decision 2 selects the release platform. These are platform-specific and
 gate only their own platform's packaging, per the plan's Decision 2 text:
@@ -97,7 +97,7 @@ gate only their own platform's packaging, per the plan's Decision 2 text:
 Windows-only release: none of the Unix items block. Do not repair an
 unselected platform's findings.
 
-## remaining, not blocking (9)
+## remaining, not blocking (14)
 
 Reachable in the release contract but below the release-blocking bar:
 diagnostics, labels, and bounded internal states that do not execute a

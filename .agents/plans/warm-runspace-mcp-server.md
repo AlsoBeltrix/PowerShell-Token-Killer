@@ -1,9 +1,13 @@
 # Plan: Warm-Runspace stdio MCP Server (prototype)
 
-**Status:** Slices 1-6 COMPLETE and pushed (2026-07-02). Slice 7 and Phase 2 are
-paused behind the go/no-go continuation decision in `.agents/decisions.md`
-("Whether ptk continues at all"); do not resume from this plan without checking
-that decision first.
+**Status:** Slices 1-6 COMPLETE (2026-07-02). The go/no-go that once paused
+Slice 7 and Phase 2 was decided **GO 2026-07-08** and is archived in
+`docs/history/decisions-archive.md`, so that gate is closed: Slice 7 is
+unblocked open work, currently unscheduled, and remains owner-run Windows
+validation. This plan is retained prior art — the implemented replacement is
+described in `.agents/plans/production-reliability-salvage.md` and
+`.agents/plans/rtk-router-delegation.md`, which control where this text
+conflicts. Check `.agents/state.md` before resuming from here.
 **Decision basis:** `.agents/decisions.md` → Open Decision (2026-06-27) "session-persistent
 warm-runspace backend", selected as active work by owner 2026-07-02. Settled
 sub-decisions there are binding on this plan; read that entry first.
@@ -82,8 +86,9 @@ output first — owner sequenced "server working first, then compression."
 
 Each slice: run `dotnet test` (and the handshake script where named) before
 claiming done; prove new tests guard by reverting the change once (per AGENTS.md
-Verification). Record the new verification command in `.agents/repo-map.json` when
-slice 1 lands.
+Verification). Record the new verification command in `.agents/repo-guidance.md`
+§Verification — `.agents/repo-map.json` was deleted by the governance refresh at
+`8e6624c` and must not be recreated.
 
 ## Non-goals (this plan)
 

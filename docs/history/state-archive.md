@@ -4,6 +4,43 @@ Rotated verbatim from `.agents/state.md` by the `handoff` and `drift`
 operators; current state lives there. Entries below are historical record,
 newest rotation first.
 
+## Rotated 2026-08-03 (drift based on a3112f3)
+
+Landed `## Now` and falsified `## Blockers` entries, preserved verbatim.
+Current state lives in `.agents/state.md`; canonical detail lives in
+`.agents/review/dispositions.md`, `.agents/review/findings/rbc-5.md`, and
+`.agents/machines.md`.
+
+### From `## Now`
+
+- **Implementation reviewed (2026-08-03):** openreview codex over `87d03d8..076626f` returned `acceptable_with_changes` and endorsed the architecture unchanged, including the pinned-path binding. Three material changes and four findings, all adopted and fixed with mutation-proved guards: the startup RTK gate used `File.Exists` while the runtime pins via `TryCapture` (HIGH — a path passing the weaker check let the server start and then run native commands unfiltered); the module still exported the pre-Slice-2 `Resolve-PtcInvokeScript` AST rewriter with no caller and a manifest entry for a deleted function; rewrite acceptance normalized whitespace, so a rewrite altering text inside a quoted argument was accepted; and `server/README.md` documented deleted Bash and post-success behavior. Record: `.agents/review/openreview-rtk-router-codex-r2.md`.
+
+### From `## Blockers`
+
+- **rbc-5/rbc-6 containment WIP is unlocated in this clone (2026-08-03).** The
+  recorded carrier `fix/rbc-6-unix-sigkill-escalation` @ `2b3ce1a` does not
+  resolve: no such branch locally or on `origin`, and `2b3ce1a` is an ordinary
+  `master` ancestor. Either the branch lives only on another remote/clone or it
+  was deleted. Do not recreate or re-derive the WIP; an owner ruling is needed
+  on whether it still exists anywhere before the `## Now` preservation
+  instruction can be acted on.
+
+  _Rotation note: re-checked at `a3112f3` — the branch is still absent, and the
+  premise is falsified. `.agents/review/findings/rbc-5.md` §Disposition (owner,
+  2026-07-19) already rejected that WIP ("Do not continue or commit it"), so
+  nothing was lost and no owner ruling is outstanding._
+
+- **Plan-record drift, reported but not edited in this narrow state pass:**
+  the warm-runspace plan still says slice 7 is paused behind the already
+  decided GO, and the shared-runspace idea still assumes the rejected policy
+  gate. Explicit owner calls, uncontested decisions, and live repo evidence
+  named above control. Both re-confirmed still stale 2026-08-03.
+
+  _Rotation note: both source documents were corrected in this drift pass
+  (`.agents/plans/warm-runspace-mcp-server.md` status block;
+  `.agents/plans/shared-persistent-runspace.md` gotcha 3), so the drift this
+  entry tracked no longer exists._
+
 ## Rotated 2026-08-03 (drift based on e22d619)
 
 Landed or self-labelled-superseded `## Now` entries, preserved verbatim.

@@ -128,7 +128,13 @@ Humans must be able to see and control sessions without asking an agent:
    standing exec service, and a GUID becomes a bearer token to an
    authenticated (possibly Exchange-admin) session. This amplifies the
    issue-#3 permission-bypass concern and likely lands behind the
-   policy-file gate design recorded in `.agents/decisions.md`. Socket
+   policy-file gate design recorded in `.agents/decisions.md`. **Stale as
+   of 2026-08-03:** the later explicit owner call in
+   `.agents/plans/security-layer.md` rejects that gate's open response, and
+   the owner's 2026-07-11 direction removes durable/shared runspaces from
+   the candidate build. Do not treat this sentence as current design
+   authority on a build go; re-derive the gate from the owner's decision at
+   that time. Socket
    permissions, key handling, and audit logging are design inputs, not
    afterthoughts.
 4. **Lifecycle.** Per-key idle expiry (an abandoned GUID must not hold

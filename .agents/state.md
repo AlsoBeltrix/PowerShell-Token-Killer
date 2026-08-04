@@ -5,13 +5,11 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **RTK router delegation plan is executed through Slice 6 (2026-08-03).** Plan: `.agents/plans/rtk-router-delegation.md`. Slices 0-6 landed and pushed; Slice 7 (version, package, direct proof) is unstarted and gated on Decisions 2-5. Per-slice commit table is in the plan's status block.
+- **RTK router delegation plan is executed through Slice 6 (2026-08-03).** Plan: `.agents/plans/rtk-router-delegation.md`. Slices 0-6 landed; Slice 7 (version, package, direct proof) is unstarted and gated on Decisions 2-5. Per-slice commit table is in the plan's status block.
 
-  Verified as of `f637ad0` on `ASHBIAMWEB1`: server 1,059/1,059, Pester 84 with 1 platform skip, stdio handshake passed. Counts moved during this work because ~6,500 lines and their tests were deleted; `.agents/repo-guidance.md` §Verification still records the pre-plan figures and is stale. SIEM is 226/247 — the 21 failures are the pre-existing symlink-privilege cases already recorded there, untouched by this plan.
+  Re-verified as of `a3112f3` (docs-only over code head `f637ad0`) on `ASHBIAMWEB1`: the whole battery passes. Counts live in `.agents/repo-guidance.md` §Verification, refreshed in the same pass; they moved during this work because ~6,500 lines and their tests were deleted. Local SIEM is 226/247 on this host only — the 21 pre-existing symlink-privilege cases recorded in `.agents/machines.md`, not a product failure.
 
-  **Hosted CI has not run since Slice 0.** `.github/workflows/ci.yml` now installs rtk on all three platforms (upstream `install.sh` is Linux/macOS only and lives on branch `master`, not `main`; Windows takes the published msvc zip). That install step is unexercised — every verification above is local Windows. First push to CI may need it corrected.
-
-- **Implementation reviewed (2026-08-03):** openreview codex over `87d03d8..076626f` returned `acceptable_with_changes` and endorsed the architecture unchanged, including the pinned-path binding. Three material changes and four findings, all adopted and fixed with mutation-proved guards: the startup RTK gate used `File.Exists` while the runtime pins via `TryCapture` (HIGH — a path passing the weaker check let the server start and then run native commands unfiltered); the module still exported the pre-Slice-2 `Resolve-PtcInvokeScript` AST rewriter with no caller and a manifest entry for a deleted function; rewrite acceptance normalized whitespace, so a rewrite altering text inside a quoted argument was accepted; and `server/README.md` documented deleted Bash and post-success behavior. Record: `.agents/review/openreview-rtk-router-codex-r2.md`.
+  **Hosted CI is green at `a3112f3`** — all six jobs, and the RTK install step succeeded on ubuntu, windows, and macos, so the previously unexercised install path is now proven. SIEM is 247/247 in CI, where symlink creation is permitted.
 
 - **RTK is a required dependency (owner, 2026-08-03):** "rtk was never optional. rtk was always stated requirement when I asked for this." PTK is a compression router; the thing it routes to is not optional. A missing RTK is a startup error (exit 78) with an actionable message, never a silent degraded mode. Do not build a without-RTK product tier, capability matrix, or per-call degradation reporting. CI installs rtk on all three platforms.
 
@@ -21,11 +19,11 @@ short and update it when important repo facts change.
 
 - **PTK infers no shell (2026-08-03).** Automatic Bash detection, refusal, validation, and delegation are deleted. Bash reaches RTK the way every other native command does: the user writes `bash -lc '...'`. The `ptk_invoke` description states the dialect is PowerShell 7 and names that escape hatch.
 
-- **Every `opr-*` finding is dispositioned (2026-08-03).** `.agents/review/dispositions.md` is the disposition of record for all 59: 5 fixed, 16 closed-removed (verified by symbol search, not assumed), 11 closed-out-of-scope behind disabled audit/SIEM, 12 deferred to platform selection, 9 remaining-not-blocking, 0 open blockers. The "accepted and plan-gated" state is retired — it let a finding be recorded without ever being resolved. A defect found during implementation is now fixed in its slice or dispositioned.
+- **Every `opr-*` finding is dispositioned (2026-08-03).** `.agents/review/dispositions.md` is the disposition of record and owns the per-bucket counts; it reports zero open blockers. Do not restate its buckets here. The "accepted and plan-gated" state is retired — it let a finding be recorded without ever being resolved. A defect found during implementation is now fixed in its slice or dispositioned.
 
 - **Known gap, `opr-20`:** its fail-closed half is guarded; its pre-write half is argued from the code path and unguarded. No available test seam reaches the pre-write window (each client owns its writer, the operation lease observes cancellation before the try block, and the stream seam sits downstream of the first-write callback). A vacuous guard was removed rather than shipped.
 
-- **Two non-blocking findings worth a look before release:** `opr-10` terminates the supervisor before the MCP handshake on a malformed timeout value; `opr-53` lets worker output forge PTK-authored control lines. Both cheap, both outside this plan's scope.
+- **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope.
 
 ## Next
 
@@ -55,8 +53,7 @@ record a new gated finding.
 - Warm-backend slice 7 is unblocked open work, currently unscheduled, and
   remains owner-run Windows validation: AD native import/warm reuse; Exchange
   implicit remoting with first-vs-repeated `Get-Queue` latency; EXO/Graph
-  unattended certificate auth. Its plan status still needs correction; see
-  `## Blockers`.
+  unattended certificate auth. Its plan status was corrected 2026-08-03.
 - Durable checkout and shared runspaces are removed from the candidate build
   scope by the owner's 2026-07-11 direction. Their older open-decision entry
   remains stale while `.agents/decisions.md` is under hold; the idea plan is
@@ -80,20 +77,24 @@ record a new gated finding.
 
 ## Blockers
 
-- **The invalid same-testhost cross-collection contention is repaired locally,
-  but its residual signals remain open.** Before Slice 1a, six default-parallel
-  runs exposed five intermittent fixed-watchdog/PATH failures while a serialized
-  control passed. Slice 1a disables default collection parallelism without
-  changing explicit concurrency tests, product deadlines, or assertions; three
-  consecutive ordinary runs then passed 1,557/1,557 under starting load averages
-  as high as 60.86. This closes the scheduling artifact, not every underlying
-  risk. A recurrence of the anchored-evidence publication/removal ordering race
-  or `JobManager.Dispose` bounded-observer failure in a serialized run is still
-  a real signal. Fixed watchdog sensitivity remains. The two recorded Windows
-  containment failures are repaired and the exact Slice 4 head passed direct
-  Mac, Linux, and Windows batteries; current hosted-CI evidence is still
-  absent, and later plan slices plus the deployment gates remain before any
-  production-ready claim.
+- **The invalid same-testhost cross-collection contention is repaired, but its
+  residual signals remain open.** Before Slice 1a, six default-parallel runs
+  exposed five intermittent fixed-watchdog/PATH failures while a serialized
+  control passed. Slice 1a disables default collection parallelism
+  (`server/PtkMcpServer.Tests/xunit.runner.json`,
+  `parallelizeTestCollections: false`, re-confirmed present as of `a3112f3`)
+  without changing explicit concurrency tests, product deadlines, or
+  assertions. This closes the scheduling artifact, not every underlying risk. A
+  recurrence of the anchored-evidence publication/removal ordering race or
+  `JobManager.Dispose` bounded-observer failure in a serialized run is still a
+  real signal, and fixed watchdog sensitivity remains.
+
+  The "hosted-CI evidence is absent" half of this item is falsified as of
+  `a3112f3`: all six CI jobs are green on ubuntu/windows/macos. Suite counts
+  belong to `.agents/repo-guidance.md` §Verification; the historical
+  1,557-test figure this entry used to carry predates the router-delegation
+  deletions and is dropped rather than refreshed. Later plan slices and the
+  deployment gates still stand before any production-ready claim.
 - **Direct ARM64 Linux build/execution validation needs a matching real host.**
   The prior UTM VM is not in use by owner direction. Cross-publishing from
   macOS is now correctly refused because it produced a Mach-O worker broker
@@ -102,46 +103,46 @@ record a new gated finding.
   `Grpc.Tools` evidence remains in `.agents/machines.md`, not as the current
   execution path.
 
-- **Current Slice 10 generic Windows validation is pending while
-  `NETWATCH-01` is unavailable.** Unix production containment and timeout
-  replacement now pass direct macOS ARM64 and Linux x86_64 acceptance; prior
-  retained Windows Job Object evidence does not substitute for an
-  exact-current-head Windows run. When the host returns, run only Windows
-  packaging/process/Job Object/timeout/crash/cleanup acceptance there. Exact
-  host evidence is in `.agents/machines.md`.
-- **The real AD/Exchange/EXO/Outlook workflow gate needs a company-connected
-  supported Windows admin host.** `NETWATCH-01` is a personal gaming machine
-  without company AD, on-prem Exchange, Exchange Online, or Outlook
-  administration access and cannot close this gate. The replacement server's
-  synthetic EXO-style projection remains useful evidence but is not a
-  substitute for the required modules, network access, authentication, and
-  real enterprise objects.
+- **Current Slice 10 generic Windows validation is pending — but no longer on
+  `NETWATCH-01`'s return.** Basis corrected 2026-08-03: `ASHBIAMWEB1` ran the
+  Windows leg on 2026-07-28 at head `7eaf8a0` — Windows x64 runtime/package,
+  Job Object, and 100-cycle packaged production acceptance all passed
+  (`.agents/machines.md` §`ASHBIAMWEB1`). What remains open is only that this
+  is not the current head; rerun Windows packaging/process/Job Object/timeout/
+  crash/cleanup acceptance at the head being shipped. That host's ordinary
+  token still cannot close the SIEM symlink-protection cases.
+- **The real AD/Exchange/EXO/Outlook workflow gate is partly closed; on-prem
+  Exchange and Outlook remain open.** Basis corrected 2026-08-03. `ASHBIAMWEB1`
+  is domain-joined to `ad.analog.com` and closed the EXO leg on 2026-07-29:
+  app-only auth, an identity-bound `Get-EXOMailbox` read, warm-reuse latency,
+  and retained selected properties (`.agents/machines.md` §Enterprise field
+  validation). Still unclosed there: on-prem Exchange (no `ExchangeInstallPath`,
+  no `RemoteExchange.ps1`, no `Get-Queue`), Graph (absent credential file, no
+  parent window for WAM, device code expired), and Outlook (COM initializes
+  after the STA fix but the namespace exposes no current user). The earlier
+  `NETWATCH-01`-is-a-gaming-machine framing is retired — that host was never
+  the only candidate.
 - **Decision-log conflict, correction blocked by the owner hold:**
   `.agents/decisions.md` still describes the policy-file gate as the open
   response after its criterion fires, while the later explicit owner call in
   `.agents/plans/security-layer.md` rejects that response. Its shared-host
   entry stages durable GUID sessions followed by sharing, while the owner's
   later direction removes both from the candidate build. Do not implement
-  either stale direction. Its audit-export evidence at line 312 also points to
-  producer behavior that the corrected plan removes; treat that as known stale
-  evidence after audit decision 4, never as authority to restore the producer.
-  Preserve these decision-log conflicts until the hold is released.
+  either stale direction. Its mini-SIEM entry's **Current evidence** paragraph
+  (the one citing `server/AUDIT-EXPORT.md` and the acknowledged OTLP export)
+  also describes producer behavior that the corrected plan removes; treat that
+  as known stale evidence after audit decision 4, never as authority to restore
+  the producer. Preserve these decision-log conflicts until the hold is
+  released. (A prior "line 312" pointer here was stale — line numbers drift;
+  the anchor above does not.)
 - **GitHub #7 closure is gated on Microsoft's WDSI verdict** on the submitted
   `PtkMcpServer.dll` (owner-submitted 2026-07-20). Interim quarantine-detection
   mitigation is landed (`51ce880`); no further local action on #7 until the
   verdict lands.
-- **Plan-record drift, reported but not edited in this narrow state pass:**
-  the warm-runspace plan still says slice 7 is paused behind the already
-  decided GO, and the shared-runspace idea still assumes the rejected policy
-  gate. Explicit owner calls, uncontested decisions, and live repo evidence
-  named above control. Both re-confirmed still stale 2026-08-03.
-- **rbc-5/rbc-6 containment WIP is unlocated in this clone (2026-08-03).** The
-  recorded carrier `fix/rbc-6-unix-sigkill-escalation` @ `2b3ce1a` does not
-  resolve: no such branch locally or on `origin`, and `2b3ce1a` is an ordinary
-  `master` ancestor. Either the branch lives only on another remote/clone or it
-  was deleted. Do not recreate or re-derive the WIP; an owner ruling is needed
-  on whether it still exists anywhere before the `## Now` preservation
-  instruction can be acted on.
+- **rbc-5 stays open, gated on resilience R7** landing its creation-time worker
+  containment plus the Windows hard-supervisor-death background-descendant
+  guard, with proof (`.agents/review/findings/rbc-5.md`). It is not gated on any
+  local branch.
 
 ## Verification
 

@@ -289,9 +289,10 @@ section).
    discovery, and the elevated-harness sentence in the security posture
    (the runspace inherits the harness's privileges — root/Admin harness
    means root/Admin shell); release-notes draft; `ModuleVersion` bumped to
-   0.2.0 to match the release; `.agents/repo-guidance.md` and
-   `.agents/repo-map.json` verification entries updated for the packaged
-   guardian and release workflow in the same slice that creates that drift.
+   0.2.0 to match the release; the `.agents/repo-guidance.md` §Verification
+   entries updated for the packaged guardian and release workflow in the same
+   slice that creates that drift (`.agents/repo-map.json` was deleted by the
+   governance refresh at `8e6624c`; do not recreate it).
 7. **RC rehearsal + release (owner-gated).** After every prerequisite lands:
    rc tag → draft release → one-line installs exercised on the owner's machines
    (hardware exists for every shipped RID), any runner-unsmokable ARM artifact

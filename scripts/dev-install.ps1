@@ -183,6 +183,53 @@ function Assert-PtkPayloadIntact {
     throw 'Install incomplete: payload files missing (possible antivirus quarantine).'
 }
 
+# Stamps the built version into the packaged module manifest so every
+# user-visible surface agrees. ModuleVersion is a System.Version and cannot
+# hold a prerelease label, so a version like 0.2.0-rc.1 splits: 0.2.0 into
+# ModuleVersion and rc.1 into PrivateData.PSData.Prerelease, which is where
+# PowerShell itself expects it.
+function Set-PtkManifestVersion {
+    param(
+        [Parameter(Mandatory)][string]$ManifestPath,
+        [Parameter(Mandatory)][string]$PayloadVersion
+    )
+    $numeric, $prerelease = $PayloadVersion -split '-', 2
+    # Build metadata (+sha) is not part of a module version at all.
+    $numeric = ($numeric -split '\+', 2)[0]
+    if ($numeric -notmatch '^\d+(\.\d+){1,3}$') {
+        throw "Cannot stamp module manifest: '$PayloadVersion' has no usable numeric version."
+    }
+
+    $text = Get-Content -LiteralPath $ManifestPath -Raw
+    $pattern = [regex]"(?m)^(\s*ModuleVersion\s*=\s*')[^']*(')"
+    # Check the match, not whether the text changed: stamping the version the
+    # manifest already carries is a no-op replacement, not a failure.
+    if (-not $pattern.IsMatch($text)) {
+        throw "Cannot stamp module manifest: no ModuleVersion assignment found in $ManifestPath."
+    }
+    $updated = $pattern.Replace($text, "`${1}$numeric`${2}", 1)
+
+    if ($prerelease) {
+        # PSData.Prerelease may not contain a leading hyphen or dots in the
+        # PowerShell gallery sense; normalize rc.1 to rc1.
+        $tag = ($prerelease -replace '[^A-Za-z0-9]', '')
+        $updated = $updated.TrimEnd() -replace '\}\s*$', @"
+    PrivateData       = @{
+        PSData = @{
+            Prerelease = '$tag'
+        }
+    }
+}
+"@
+    }
+    Set-Content -LiteralPath $ManifestPath -Value $updated -NoNewline
+
+    $check = Import-PowerShellDataFile -LiteralPath $ManifestPath
+    if ($check.ModuleVersion -ne $numeric) {
+        throw "Module manifest stamp failed: expected $numeric, manifest reports $($check.ModuleVersion)."
+    }
+}
+
 # Publishes the runtime server and assembles the canonical layout (bin/, src/,
 # scripts/, VERSION) in $Destination. Legacy audit administration remains a
 # separate source project and is not part of the installed runtime payload.
@@ -204,6 +251,9 @@ function New-PtkLayout {
     foreach ($f in 'PwshTokenCompressor.psd1', 'PwshTokenCompressor.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'src' $f) -Destination $src.FullName
     }
+    Set-PtkManifestVersion `
+        -ManifestPath (Join-Path $src.FullName 'PwshTokenCompressor.psd1') `
+        -PayloadVersion $PayloadVersion
     $scripts = New-Item -ItemType Directory -Path (Join-Path $Destination 'scripts') -Force
     foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'dev-install.ps1',
         'ptk_install_transaction.psm1') {

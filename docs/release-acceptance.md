@@ -1,65 +1,75 @@
-# ptk v0.2.0 release acceptance — agent runbook
+# ptk release acceptance
 
-You are testing an **installed** ptk before it is tagged and published. Your
-job is to find defects, not to confirm the build is good. A clean report that
-missed a real bug is a failure; a report that says "I could not test X" is a
-success.
+A test specification for an installed ptk. Work through the claims, try to
+falsify each one, and file a single report.
 
-Read this whole document before starting. Everything you need is here — you do
-not need a repository checkout.
+## Constraints
 
-## Scope and hard constraints
+- Testing only. Do not modify ptk's source, scripts, or installed payload.
+  Put probes in a temp directory.
+- Report defects; do not fix them.
+- Do not tag, publish, or edit a release.
+- A check that cannot run on your machine is "not tested", never "passed".
 
-- **Test only. Change nothing.** No edits to ptk's source, scripts, or
-  installed payload. Write throwaway probes in a temp directory.
-- **Do not fix anything you find.** Report it. The owner decides what blocks
-  the release.
-- **Do not tag, publish, or edit a release.**
-- One GitHub issue at the end, for the whole run. Not one per finding.
-- If a check cannot run on your machine, say so and why. Never mark a check
-  passed because it was skipped.
+## What ptk is
 
-## Preconditions
+An MCP server exposing five tools. It runs PowerShell 7 in warm named
+sessions, one contained worker process per session, and compresses output
+before returning it.
 
-You need:
+It is also a router. PowerShell objects it compresses itself, before
+PowerShell formats them to text. Everything else it submits to
+`rtk hook check --agent ptk <script>`; if rtk returns a rewrite, ptk validates
+and executes that, and if rtk declines, ptk executes the original text
+unchanged. rtk is a required dependency: without one, the server exits 78.
 
-- ptk installed (`~/.ptk` exists with `bin/`, `src/`, `VERSION`)
-- rtk on `PATH`, or at `~/.ptk/bin/rtk` — ptk exits 78 without it
-- PowerShell 7 (`pwsh`)
-- `gh` CLI authenticated against
-  `AlsoBeltrix/PowerShell-Token-Killer`, for the final report only
+Installed layout is `~/.ptk`: `bin/` (server, and on Unix `PtkWorkerBroker`),
+`src/` (the shaping module), `scripts/`, `VERSION`, `LICENSE`, `README.md`.
+Everything else under `~/.ptk` is user-owned and must survive install,
+upgrade, and uninstall.
 
-Record your environment first; every finding is meaningless without it.
+## Environment
+
+Record this before anything else.
 
 ```powershell
 $ptk = Join-Path $HOME '.ptk'
 $exe = if ($IsWindows) { "$ptk/bin/PtkMcpServer.exe" } else { "$ptk/bin/PtkMcpServer" }
 [pscustomobject]@{
-    OS        = [Runtime.InteropServices.RuntimeInformation]::OSDescription
-    Arch      = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-    Pwsh      = $PSVersionTable.PSVersion.ToString()
+    OS         = [Runtime.InteropServices.RuntimeInformation]::OSDescription
+    Arch       = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    Pwsh       = $PSVersionTable.PSVersion.ToString()
     PtkVersion = Get-Content "$ptk/VERSION"
-    Assembly  = [Diagnostics.FileVersionInfo]::GetVersionInfo("$ptk/bin/PtkMcpServer.dll").ProductVersion
-    Module    = (Import-PowerShellDataFile "$ptk/src/PwshTokenCompressor.psd1").ModuleVersion
-    Rtk       = (Get-Command rtk -ErrorAction SilentlyContinue).Source
+    Assembly   = [Diagnostics.FileVersionInfo]::GetVersionInfo("$ptk/bin/PtkMcpServer.dll").ProductVersion
+    Module     = (Import-PowerShellDataFile "$ptk/src/PwshTokenCompressor.psd1").ModuleVersion
+    Rtk        = (Get-Command rtk -ErrorAction SilentlyContinue).Source
     RtkVersion = (& rtk --version 2>$null)
 } | Format-List
 ```
 
-## How to drive ptk
+## Tool surface
 
-Two ways. Use whichever fits your harness; say which one you used.
+- `ptk_invoke` — `script`, `session`, `route` (`auto`|`pwsh`|`rtk`),
+  `timeoutSeconds`
+- `ptk_output` — `handle`, `action` (`read`|`search`|`status`|`list`),
+  `offset`, `maxBytes`, `pattern`, `session`
+- `ptk_state` — `session`
+- `ptk_reset` — `session`
+- `ptk_session` — `action` (`list`|`open`|`close`), `name`
 
-**(a) You are an MCP client with ptk tools.** Call `ptk_invoke`, `ptk_output`,
-`ptk_state`, `ptk_reset`, `ptk_session` directly. Open your own named session
-first and use it throughout, so you do not disturb anything else:
-`ptk_session action=open name=acc1`, then pass `session=acc1`.
+`ptk_session` identifies its target with `name`. The other tools use
+`session`.
 
-**(b) Drive the server over stdio.** Start `$exe` as a child process and speak
-JSON-RPC on stdin/stdout: `initialize`, then the
-`notifications/initialized` notification, then `tools/call`. One JSON object
-per line. This is the only way to test startup behaviour and crash recovery.
-Minimal client:
+## Driving the server
+
+Either drive it as an MCP client, or over stdio. State which you used.
+
+As a client, open your own session and use it throughout:
+`ptk_session action=open name=acc1`, then `session=acc1` on each call.
+
+Over stdio, start `$exe` and exchange one JSON object per line: `initialize`,
+the `notifications/initialized` notification, then `tools/call`. This is the
+only way to observe startup and crash behaviour.
 
 ```powershell
 $psi = [Diagnostics.ProcessStartInfo]::new()
@@ -93,168 +103,149 @@ function Invoke-Ptk($script, $session = 'default', $extra = @{}) {
 Rpc 'initialize' @{ protocolVersion = '2024-11-05'; capabilities = @{}; clientInfo = @{ name = 'acc'; version = '1' } } | Out-Null
 ```
 
-Note `ptk_session` takes **`name`**, not `session`, for its open/close target.
+## A. Install and uninstall
 
-## The claims to test
+Installer tests mutate `~/.ptk`. If a live ptk is serving from it, run them
+against an isolated fake home and record that you did.
 
-Each item is a claim. Try to falsify it. Where a command is given it is a
-starting point, not the whole test — probe around it.
+- **A1** A fresh install from the release asset, using `install.ps1` or
+  `install.sh` rather than unpacking the archive by hand, produces a server
+  that starts.
+- **A2** An asset whose bytes do not match `SHA256SUMS` is refused.
+- **A3** On a machine with no rtk on `PATH`, the installer downloads rtk,
+  verifies it against rtk's `checksums.txt`, and confirms it answers before
+  reporting success.
+- **A4** Installing over an existing install replaces the payload and leaves
+  user-owned files under `~/.ptk` intact.
+- **A5** A failure between payload activation and registration restores the
+  prior payload byte-identically.
+- **A6** `install.sh` executes under dash, not only bash.
+- **A7** Uninstall removes the payload, the MCP registration, and on Windows
+  the Add/Remove Programs entry, while keeping user-owned files unless
+  `--purge` / `-Purge`.
+- **A8** Uninstall removes only an rtk the installer placed, recorded in
+  `~/.ptk/.ptk-installed-rtk`. An rtk the user already had is left alone.
+- **A9** The installer does not report success on a machine where the server
+  will refuse to start.
 
-### A. Install and uninstall
+## B. Product contract
 
-**Never run an installer against a `~/.ptk` that a live ptk is serving from.**
-If your own harness is using ptk, do installer tests against an isolated fake
-home instead, and say that you did.
+Against the installed server.
 
-- **A1.** A fresh install from the release asset completes and leaves a server
-  that starts. Run the real `install.ps1` (Windows) or `install.sh`
-  (macOS/Linux) — not a manual unzip. This has never been executed end to end
-  on any platform.
-- **A2.** A corrupted asset is rejected. Truncate or edit a downloaded asset
-  and confirm the installer refuses it rather than installing it.
-- **A3.** The rtk fetch path works. On a machine with **no rtk on PATH**, the
-  installer must download it, verify it against rtk's `checksums.txt`, and
-  confirm it answers. This branch has never downloaded anything — every prior
-  run found rtk already present and returned early.
-- **A4.** Installing over an existing install replaces the payload and
-  preserves user-owned files under `~/.ptk` (e.g. a `policy.psd1` you create).
-- **A5.** A failure part-way through activation restores the prior payload
-  byte-identically. Inject a failure after the payload is copied and before
-  registration finishes.
-- **A6.** `install.sh` runs under a real POSIX `sh` (dash), not just bash.
-- **A7.** Uninstall after a real install leaves no payload, no MCP
-  registration, and on Windows no Add/Remove Programs entry — while leaving
-  user-owned files unless `--purge`/`-Purge`.
-- **A8.** Uninstall must not delete an rtk the user already had. The installer
-  records what it placed in `~/.ptk/.ptk-installed-rtk`; only that copy is
-  removable.
+- **B1** Exactly five tools are exposed.
+- **B2** A named session retains warm state across invocations.
+- **B3** Object output is compressed rather than formatted — 40 objects
+  summarise rather than dumping.
+- **B4** Plain text is returned as text.
+- **B5** Output over the inline bound returns a `ptk_output` handle, and the
+  handle recovers the content.
+- **B6** An invocation that exceeds its timeout reports the timeout and does
+  not prevent a later invocation on that session from succeeding. A session
+  whose worker is being replaced reports `session_recovering` and executes
+  nothing; poll until it clears.
+- **B7** `ptk_reset` and `ptk_session action=close` both succeed.
+- **B8** With no rtk resolvable, the server exits 78 and names
+  `PTK_RTK_PATH` on stderr. Launch it with a cleared environment block —
+  setting `PATH` to empty in an inherited environment does not necessarily
+  remove rtk from resolution.
 
-### B. Product contract on your platform
+With a checkout, `server/direct-product-proof.ps1 -ServerPath <exe>` covers
+B1–B8.
 
-Only `win-x64` has had the full product proof run against an installed
-candidate. Every other platform has had the transport handshake and the RTK
-startup gate, nothing more.
+## C. Output shaping
 
-Check each of these against the **installed** server:
+The shaper renders values from trusted assemblies — the .NET runtime
+directory, `System.Management.Automation`, and
+`Microsoft.PowerShell.Commands.Utility` — by calling `ToString()`. Values from
+any other assembly yield `[active member not evaluated]`.
 
-- **B1.** Exactly five tools are exposed: `ptk_invoke`, `ptk_output`,
-  `ptk_state`, `ptk_reset`, `ptk_session`.
-- **B2.** A named session retains warm state across invocations
-  (`$global:x = 42` then read it back).
-- **B3.** PowerShell objects are compressed, not formatted to text — 40
-  objects should summarise, not dump.
-- **B4.** Plain text passes through as text.
-- **B5.** Large output returns a `ptk_output` handle and the handle recovers
-  the content.
-- **B6.** An invocation that times out (`Start-Sleep -Seconds 30` with
-  `timeoutSeconds=2`) reports the timeout, and a later invocation on that
-  session succeeds. It may report `session_recovering` briefly first — retry
-  for up to a minute before calling it a failure.
-- **B7.** `ptk_reset` and `ptk_session action=close` both work.
-- **B8.** With rtk absent, the server refuses to start: exit code 78 and a
-  message naming `PTK_RTK_PATH`. Test with a genuinely empty environment
-  block — merging an empty `PATH` into an inherited environment does not hide
-  rtk, and the check passes vacuously.
+The invariant: capture must never execute user code. A type from a dynamic or
+location-less assembly, which is what `Add-Type` produces, must never have a
+getter or `ToString()` invoked.
 
-If the repository is available to you,
-`pwsh -File server/direct-product-proof.ps1 -ServerPath <exe>` runs B1–B8 in
-one shot. Reporting its output is fine; reporting it without running it is
-not.
+- **C1** A framework type such as `[System.Globalization.CultureInfo]` renders
+  its value.
+- **C2** An `Add-Type` type whose `ToString()` increments a static counter:
+  the counter stays at zero and the output is the placeholder.
+- **C3** An `Add-Type` type deriving from a framework type is treated as
+  untrusted.
+- **C4** A trusted generic parameterised over a user type — `List<UserType>`,
+  `Nullable<UserStruct>` — does not execute the user type's members.
+- **C5** A framework type with a slow or blocking `ToString()` does not stall
+  capture. Rendering runs on the producer callback.
+- **C6** Many large renderings in one invocation stay within the projection
+  budget and the response stays bounded.
+- **C7** A rendered value marks the capture `passive_projection_lossy`; a
+  skipped active member marks it `active_member_not_evaluated`.
+- **C8** An exception from a trusted assembly surfaces its message; an
+  exception from an `Add-Type` assembly does not.
+- **C9** Native command stderr redirected with `2>&1` arrives as text, not as
+  a placeholder.
 
-### C. Trusted-type rendering (new, and the broadest change in this release)
+## D. Sessions
 
-The output shaper used to recognise six types and return
-`[active member not evaluated]` for everything else, discarding the value.
-It now calls `ToString()` on any type from the .NET runtime directory or from
-`System.Management.Automation` / `Microsoft.PowerShell.Commands.Utility`.
+- **D1** Eight sessions open concurrently; the ninth is refused with a clear
+  reason.
+- **D2** Invocations in different sessions run concurrently and do not share
+  warm state, including for identically named variables and functions.
+- **D3** Invocations within one session serialise. A queued call whose budget
+  expires before it starts fails without executing.
+- **D4** Repeated timeout-and-recovery cycles on one session recover each
+  time.
+- **D5** After a worker process is killed, the next invocation on that session
+  succeeds.
+- **D6** Several sessions producing large output concurrently each yield a
+  usable `ptk_output` handle.
+- **D7** `ptk_state` on a healthy session does not disturb it, including when
+  the call is cancelled.
 
-**The safety rule that must not break:** user code must never be executed
-during output capture. A type from an `Add-Type` assembly — dynamic, or with
-no on-disk location — must still get the placeholder, never a `ToString()`
-call.
+## E. Routing
 
-- **C1.** `Get-Culture` returns the culture, not a placeholder.
-- **C2.** A user type from `Add-Type` whose `ToString()` increments a counter:
-  the counter must stay at zero and the output must be the placeholder.
-- **C3.** A user type that **subclasses** a framework type. Does it inherit
-  trust it should not? The check reads `value.GetType().Assembly`, so it
-  should be rejected — confirm rather than assume.
-- **C4.** A trusted generic parameterised over a user type
-  (`List<UserType>`, `Nullable<UserStruct>`): whose `ToString()` runs?
-- **C5.** A framework type whose `ToString()` is slow or blocking. Rendering
-  happens on the producer callback; does it stall capture?
-- **C6.** Many large renderings in one invocation — the projection budget must
-  hold and the output must stay bounded.
-- **C7.** The marker is `passive_projection_lossy`, not
-  `active_member_not_evaluated`, when a value was rendered rather than
-  skipped.
-- **C8.** A framework exception surfaces its message; an `Add-Type` exception
-  still shows the "not safe to inspect" text.
+ptk accepts a rewrite from rtk only when it binds the absolute rtk path
+pinned at startup, stripping `rtk ` prefixes reproduces the submitted text
+byte-for-byte, and every wrapped name resolves to a native application in the
+session.
 
-### D. Sessions under load
+- **E1** A session-defined `function git` is not displaced by a rewrite of
+  `git status`. The function runs.
+- **E2** Quoted arguments containing spaces and embedded quotes survive a
+  rewrite unchanged.
+- **E3** A script rtk declines executes unchanged, with its exit code and
+  stderr intact.
+- **E4** `route=pwsh` never routes through rtk. `route=rtk` on a script rtk
+  declines reports a labelled fallback and executes the original once.
+- **E5** A script containing the literal token `rtk` cannot be made to reduce
+  correctly while executing something other than what was submitted.
+- **E6** A compound command routes and returns compressed output.
 
-- **D1.** Eight named sessions open at once; the ninth is refused cleanly.
-- **D2.** Concurrent invocations in different sessions run in parallel and do
-  not contaminate each other's warm state (same variable name, different
-  values).
-- **D3.** Calls within one session serialise; a queued call whose budget
-  expires while waiting fails fast **without executing**.
-- **D4.** Repeated timeout-and-recover cycles on one session — does it recover
-  every time, or degrade?
-- **D5.** Kill a worker process directly, then invoke on that session.
-- **D6.** Several sessions each producing large output, each recovered through
-  `ptk_output`.
+## F. Security
 
-### E. Routing
+- **F1** The installer refuses to run as root or Administrator.
+- **F2** Windows: scan the installed payload with current Defender. Report
+  detections, and whether the payload survives. Issue #7 tracks a prior false
+  positive on `PtkMcpServer.dll`.
+- **F3** macOS: the binaries are ad-hoc signed and not notarised. Report what
+  a user encounters installing via `install.sh`, and whether Gatekeeper
+  requires an override.
+- **F4** The server runs with the invoking user's privileges and does not
+  escalate.
+- **F5** A command child cannot observe the worker's protocol descriptors.
 
-ptk submits your exact script text to `rtk hook check --agent ptk`. If rtk
-returns a rewrite, ptk validates it before executing: the rewrite must bind
-the absolute rtk path pinned at startup, stripping `rtk ` prefixes must
-reproduce your text byte-for-byte, and every wrapped name must resolve to a
-native application in the session.
+## G. Mutation checks
 
-- **E1.** Define `function git { 'MINE' }` in a session, then invoke
-  `git status`. The function must run. If the real git runs instead, that is a
-  different command than the one submitted — a release blocker.
-- **E2.** Quoted arguments with spaces and embedded quotes survive
-  byte-exactly through a rewrite.
-- **E3.** A command rtk declines (`rtk hook check` exits non-zero) executes
-  unchanged, with the right exit code and stderr.
-- **E4.** `route=pwsh` never routes. `route=rtk` on a shape rtk declines
-  reports a labelled fallback and does not retry.
-- **E5.** Adversarial: can you construct a script containing the literal token
-  `rtk` where prefix-stripping reproduces the original but the executed
-  command differs in meaning?
+These verify that a guard fails when the behaviour it guards is broken. Each
+needs a checkout and the .NET SDK. Revert the change afterwards.
 
-### F. Security posture
-
-- **F1.** The installer refuses to run as root / Administrator.
-- **F2.** Windows: scan the installed payload with current Defender. Issue #7
-  is a tracked false positive on `PtkMcpServer.dll`; report whether it
-  reproduces, and whether the file survives the scan.
-- **F3.** macOS: the binaries are ad-hoc signed, not notarised. Report exactly
-  what a user sees installing via `install.sh` — does the documented path work
-  without a Gatekeeper override?
-- **F4.** The warm runspace inherits the harness's privileges. Confirm the
-  installed server does not escalate beyond the invoking user.
-
-### G. Known-vacuous-guard check (macOS ARM64 only)
-
-`opr-14` was an ABI bug: `FD_CLOEXEC` was set through a fixed-signature
-P/Invoke to libc's variadic `fcntl`, which is wrong on Apple arm64. It was
-replaced with `ioctl(FIOCLEX)`. The guard passes — but it was never shown to
-**fail** against the old code on Apple silicon, so it may be vacuous.
-
-If you are on macOS ARM64 and have a checkout and .NET SDK: restore the old
-`fcntl(F_SETFD)` call and run the `UnixCloseOnExec` tests. If they still pass,
-the guard proves nothing and a stronger test is needed — one that proves a
-command child cannot inherit the worker's protocol descriptors across `exec`.
-Report which outcome you saw.
+- **G1** macOS ARM64. In `server/PtkMcpServer/Worker/UnixCloseOnExec.cs`,
+  route `TrySet` back through a fixed-signature P/Invoke to variadic `fcntl`
+  with `F_SETFD` instead of `ioctl(FIOCLEX)`, then run the
+  `UnixCloseOnExec` tests. Report whether they fail. If they pass, the guard
+  does not detect the ABI mismatch it exists for, and the behaviour needs a
+  test that observes descriptor inheritance across `exec` instead.
 
 ## Reporting
 
-One issue, at the end. Judge each finding against this rule — a defect blocks
-the release only if it:
+One report for the run. A defect blocks the release only if it:
 
 - executes a different command than submitted, loses user data, or repeats
   execution;
@@ -265,53 +256,45 @@ the release only if it:
 - exposes a security defect in the default configuration; or
 - causes the Windows artifact to be quarantined by current Defender.
 
-If you are unsure whether something qualifies, write **unsure**. Do not guess,
-and do not inflate a cosmetic issue into a blocker or talk a real one down.
-
-Report confirmations too. "A3 exercised — rtk downloaded, checksum verified,
-answered `hook check`" is a result. Silence is not.
+Classify each finding against that rule, or as unsure. Include confirmations
+and untested items; both change what the release knows about itself.
 
 ```powershell
 gh issue create `
   --repo AlsoBeltrix/PowerShell-Token-Killer `
-  --title "Release acceptance: v0.2.0 on <rid> (<os>)" `
-  --label "" `
+  --title "Release acceptance: <version> on <rid>" `
   --body-file results.md
 ```
 
-Use this shape for `results.md`:
-
 ```markdown
 ## Environment
-<the table from Preconditions>
-How ptk was driven: <MCP client | stdio>
-Installed from: <release tag / asset / manual>
+<the table above>
+Driven via: <MCP client | stdio>
+Installed from: <asset or method>
 
 ## Summary
-<n> checks run, <n> passed, <n> failed, <n> skipped.
-Blockers: <count, or none>
+<n> run, <n> passed, <n> failed, <n> not tested. Blockers: <n>
 
 ## Blockers
-### <ID> — <one-line claim>
+### <ID> — <claim>
 Command:
     <exact command>
-Expected: <...>
-Observed: <actual output>
-Blocking rule: <which clause it meets>
+Expected:
+Observed:
+Rule:
 
-## Non-blocking findings
-<same shape, plus why it does not block>
+## Non-blocking
+<same shape, with why it does not block>
 
 ## Unsure
-<findings you could not classify, with your reasoning>
+<finding and reasoning>
 
-## Confirmed working
-<IDs and a line each>
+## Passed
+<IDs, one line each>
 
 ## Not tested
-<IDs and why — missing hardware, no checkout, etc.>
+<IDs and why>
 ```
 
-If another agent has already filed a report for this release, add yours as a
-comment on that issue rather than opening a second one, and say which platform
-you covered.
+If a report already exists for this version, comment on it with your platform
+rather than opening another.

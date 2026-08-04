@@ -596,6 +596,8 @@ function Assert-PtkArpStateRestored {
 }
 
 function Get-PtkRegistrationPaths {
+    # Kimi's data root moves with KIMI_CODE_HOME (same rule as ptk_init).
+    $kimiHome = [string]$env:KIMI_CODE_HOME ? $env:KIMI_CODE_HOME : (Join-Path $HOME '.kimi-code')
     @(
         (Join-Path $HOME '.claude.json')
         (Join-Path $HOME '.claude' 'settings.json')
@@ -605,6 +607,9 @@ function Get-PtkRegistrationPaths {
         (Join-Path $HOME '.grok' 'config.toml')
         (Join-Path $HOME '.gemini' 'config' 'mcp_config.json')
         (Join-Path $HOME '.gemini' 'config' 'plugins' 'ptk')
+        (Join-Path $kimiHome 'mcp.json')
+        (Join-Path $kimiHome 'config.toml')
+        (Join-Path $kimiHome 'AGENTS.md')
     )
 }
 

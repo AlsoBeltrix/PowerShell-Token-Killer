@@ -44,15 +44,42 @@ packaging: `opr-15` (Unix identity-probe fail-open; Linux and macOS) and
 `.agents/review/dispositions.md` §"deferred to platform selection" is
 MEDIUM/LOW and does not block.
 
-**`win-arm64` has no upstream RTK binary** — rtk v0.44.2 publishes only
-`rtk-x86_64-pc-windows-msvc.zip`. Since PTK refuses to start without a
-capturable RTK, win-arm64 needs the x64 rtk under emulation or the RID gets
-dropped. Unruled (plan Decision A).
+**Decision A RULED (owner, 2026-08-04): win-arm64 ships with the emulated
+x64 rtk.** rtk v0.44.2 publishes only `rtk-x86_64-pc-windows-msvc.zip`, so
+the RID runs it under Windows ARM64 x64 emulation. CI must prove the
+emulated rtk answers `hook check`, not merely `--version`; the installer
+must fail at install time if it does not.
 
-**Still unruled and gating:** license (no `LICENSE` file exists in the repo;
-plan Decision B), release version (Decision C/4), how RTK reaches the user
-(Decision D), Outlook/COM boundary (Decision 3), publish (Decision 5). Do
-not ship an installer that completes onto a machine with no RTK.
+**Decision B RULED (owner, 2026-08-04): Apache-2.0.** `LICENSE` now exists
+at the repo root; it was previously absent. Slice 7.2 packages it into every
+artifact.
+
+**Slice 7.0 landed at `bf1fc0b` (owner: "yeah fix it").** The object shaper
+recognized six types and returned `[active member not evaluated]` for every
+other one — `Get-Culture` came back with no data on a host with no Outlook
+and no Exchange. GitHub #8 framed this as an Outlook/COM problem; it was not,
+and Decision 3 is **withdrawn as mis-scoped** rather than ruled. Types from
+trusted assemblies (the framework directory plus the two PowerShell
+assemblies) now render via `ToString()`; dynamic and location-less
+assemblies — what `Add-Type` produces — are never trusted, so both
+no-live-getter guards pass unedited. The exception-message gate is widened
+the same way (#8's secondary complaint). Rendering is capped at 2048 chars
+and marked `passive_projection_lossy`, not `active_member_not_evaluated`.
+Do not reopen this as a COM-getter question: executing active getters at
+shaping time stays rejected.
+
+**Routing is not defective — a suspected bug was investigated and closed
+(2026-08-04).** `git ... 2>&1` appeared to fall back to PowerShell. It does
+not: RTK declines `git --version` (nothing to compress) with or without a
+redirection, and rewrites `git status --short` either way. The regression
+that would catch a real redirection gate is pinned at `24eff27`. When
+reproducing shaper behavior, use a bare cmdlet — a native command PTK runs
+directly because the script was prefixed with a cmdlet is a property of the
+call, not of the shaper.
+
+**Still unruled and gating:** release version (Decision C/4), how RTK
+reaches the user (Decision D), publish (Decision 5). Do not ship an
+installer that completes onto a machine with no RTK.
 
 **Process constraints stay in force** (`.agents/plans/rtk-router-delegation.md`
 §Process constraints): no reviewer invocation without a separate explicit

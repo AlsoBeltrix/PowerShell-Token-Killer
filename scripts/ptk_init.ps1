@@ -273,7 +273,7 @@ function Get-PtkManualBlurb {
         'codex'  { "  by hand: codex mcp add ptk -- `"$binary`"" }
         'grok'   { "  by hand: grok mcp add -s user ptk `"$binary`"" }
         'agy'    { '  by hand: no CLI registration surface - re-run the leg to write the plugin' }
-        'kimi'   { "  by hand: add to ~/.kimi-code/mcp.json under `"mcpServers`": `"ptk`": {`"command`": `"$binary`", `"args`": []}" }
+        'kimi'   { '  by hand: add to ' + (Join-Path (Get-PtkKimiHome) 'mcp.json') + " under `"mcpServers`": `"ptk`": {`"command`": `"$binary`", `"args`": []}" }
     }
 }
 

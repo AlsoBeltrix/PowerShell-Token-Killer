@@ -1004,7 +1004,9 @@ Describe 'redirect hook and installer' {
                 $out | Should -Match '\[agy\] skipped'
                 $out | Should -Match '\[kimi\] skipped'
                 $out | Should -Match 'by hand: codex mcp add ptk --'
-                $out | Should -Match 'by hand: add to ~/.kimi-code/mcp.json'
+                # hcc-5: the kimi blurb names the actual kimi home, which
+                # moves with KIMI_CODE_HOME (set to a temp dir here).
+                $out | Should -Match ([regex]::Escape('by hand: add to ' + (Join-Path $script:consentKimiHome 'mcp.json')))
                 # claude and grok still ran (dry-run).
                 $out | Should -Match 'would run: claude mcp remove --scope user ptk'
                 $out | Should -Match 'grok mcp add -s user'

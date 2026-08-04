@@ -20,13 +20,16 @@ registration.
 Blurb text not derived from the same home resolution as the leg.
 
 ## Approach
-(pending)
+The kimi blurb now builds its mcp.json path from `Get-PtkKimiHome`, the same
+resolution the leg uses; the consent test asserts the configured (temp)
+home rather than the hardcoded path.
 
 ## Files changed
-(pending)
+- `scripts/ptk_init.ps1` — `Get-PtkManualBlurb` kimi case
+- `tests/PwshTokenCompressor.Tests.ps1` — assertion now derives the home
 
 ## Guard proof
-(pending)
+- `tests/PwshTokenCompressor.Tests.ps1::'skips the numbered and ranged selections and prints their blurbs'` — the home-aware assertion FAILS with the fix stashed (blurb names `~/.kimi-code`), PASSES restored (verified 2026-08-04).
 
 ## Coder dispute (if any)
 —

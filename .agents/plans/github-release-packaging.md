@@ -2,10 +2,11 @@
 
 **Status:** DRAFT 2026-08-03. Decision 2 is RULED: five RIDs (owner,
 2026-08-03 — "packaging for Windows x64 & ARM64, macOS ARM64, Linux x64 &
-ARM64 ... GH CIs should cover it"). Decisions A–D below and Decisions 3–5
-carried from `.agents/plans/minimum-viable-release.md` are UNRULED and gate
-the slices that name them. No code, tag, or publication is authorized by
-this draft.
+ARM64 ... GH CIs should cover it"). Decision A is RULED 2026-08-04
+(emulated x64 rtk on win-arm64). Decisions B–D and Decisions 3–5 carried
+from `.agents/plans/minimum-viable-release.md` are UNRULED and gate the
+slices that name them. No code, tag, or publication is authorized by this
+draft.
 
 This plan executes Slice 7 of `.agents/plans/rtk-router-delegation.md`. It
 supersedes the packaging mechanics of `.agents/plans/release-distribution.md`
@@ -26,7 +27,7 @@ cross-target contract.
 | RID | Runner | RTK upstream asset |
 | --- | --- | --- |
 | `win-x64` | `windows-latest` | `rtk-x86_64-pc-windows-msvc.zip` |
-| `win-arm64` | `windows-11-arm` | none — x64 under emulation (Decision A) |
+| `win-arm64` | `windows-11-arm` | `rtk-x86_64-pc-windows-msvc.zip`, emulated (Decision A) |
 | `linux-x64` | `ubuntu-latest` | `rtk-x86_64-unknown-linux-musl.tar.gz` |
 | `linux-arm64` | `ubuntu-24.04-arm` | `rtk-aarch64-unknown-linux-gnu.tar.gz` |
 | `osx-arm64` | `macos-latest` | `rtk-aarch64-apple-darwin.tar.gz` |
@@ -44,20 +45,28 @@ Selecting Linux and macOS activates the platform gate in
 `.agents/review/dispositions.md` §"deferred to platform selection" bucket.
 Two HIGH findings stop being deferrable — see Slice 7.1.
 
-## Decision A — win-arm64 RTK strategy (UNRULED)
+## Decision A — win-arm64 RTK strategy (RULED: emulated x64)
+
+**Ruled 2026-08-04 (owner, y):** ship win-arm64 using the x86_64 rtk under
+Windows ARM64's x64 emulation. Do not drop the RID and do not wait for an
+upstream aarch64 Windows build.
 
 RTK publishes no aarch64 Windows binary. PTK refuses to start without a
 capturable RTK (`server/PtkMcpServer/Execution/RtkDependency.cs:26`), so a
 win-arm64 install with no RTK is a dead install.
 
-Options: (a) ship win-arm64 with the x64 rtk under Windows ARM64 x64
-emulation, documented; (b) drop win-arm64 until upstream ships aarch64.
+Consequences that bind later slices:
 
-Under (a), Slice 7.3 must add a win-arm64 CI step proving the emulated rtk
-answers `hook check` — not merely that `rtk --version` runs. Emulation
-failure must surface at install time, not first invocation.
-
-Under (b), delete the `win-arm64` row everywhere in this plan.
+- Slice 7.3 adds a win-arm64 CI step proving the emulated rtk answers
+  `hook check` — not merely that `rtk --version` runs. A version banner
+  proves the loader started the image; it does not prove the rewriter
+  returns usable stdout under emulation, which is the contract PTK depends
+  on (`.agents/plans/rtk-router-delegation.md` §Upstream contract).
+- Slice 7.4's installer surfaces an emulation failure at install time, not
+  at first invocation. On win-arm64 the installer must execute a real
+  `hook check` probe against the rtk it just placed and fail the install if
+  the probe does not answer.
+- Slice 7.2 documents the emulation in the win-arm64 release notes.
 
 ## Decision B — license (UNRULED)
 

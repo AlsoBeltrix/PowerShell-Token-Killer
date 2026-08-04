@@ -93,13 +93,28 @@ reproducing shaper behavior, use a bare cmdlet — a native command PTK runs
 directly because the script was prefixed with a cmdlet is a property of the
 call, not of the shaper.
 
-**Next: Slice 7.2** (version, license packaging, layout), which is gated on
-Decision C. Then 7.3 (`release.yml`), 7.4 (installers, gated on Decision D),
-7.5 (direct proof).
+**Decisions C and D RULED (owner, 2026-08-04):** release version `v0.2.0`;
+RTK reaches users by fetch-on-install (installer downloads the matching rtk,
+checksum-verified against rtk's own `checksums.txt`, into `~/.ptk/bin`; an
+rtk already on PATH is used as-is and never touched; a marker file records
+what the installer placed so uninstall removes only that).
 
-**Still unruled and gating:** release version (Decision C/4), how RTK
-reaches the user (Decision D), publish (Decision 5). Do not ship an
-installer that completes onto a machine with no RTK.
+**Every slice of the release plan is executed.** 7.2 version/licence
+packaging (`5b19260`, `fb6d951`), 7.3 `.github/workflows/release.yml`
+(`ecc5df4`), 7.4 `install.ps1` + `install.sh` (`141793d`, `eec2ccd`), 7.5
+`server/direct-product-proof.ps1` (`db5601c`).
+
+**A `v0.2.0-rc.2` draft release exists and is proved** (run `30940515893`,
+head `fb6d951`): five RIDs each built, handshake-smoked, and RTK-gate-proved
+on their own native runner; 16/16 direct product checks against the
+installed win-x64 candidate; Defender scan clean with the payload intact.
+The emulated x64 rtk on `windows-11-arm` answered `hook check`, so Decision
+A is proved rather than assumed. Full evidence is in the plan's status
+table — do not restate it here.
+
+**The only thing left is Decision 5: tag and publish.** That is terminal and
+owner-only. CI assembles drafts; nothing tags a `v*` ref or publishes
+without an explicit separate go.
 
 **Process constraints stay in force** (`.agents/plans/rtk-router-delegation.md`
 §Process constraints): no reviewer invocation without a separate explicit

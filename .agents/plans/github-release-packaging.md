@@ -16,10 +16,33 @@ without a separate explicit owner go.
 | 7.0 shaper fallback | `bf1fc0b` |
 | 7.1 `opr-15` | `cd00276` |
 | 7.1 `opr-14` | `67d37dd` (proved on macos-latest arm64 CI) |
-| 7.2 version + license packaging | next |
-| 7.3 `release.yml` | pending |
-| 7.4 installers | pending |
-| 7.5 direct proof | pending |
+| 7.2 version + license packaging | `5b19260`, `fb6d951` |
+| 7.3 `release.yml` | `ecc5df4` |
+| 7.4 installers | `141793d`, `eec2ccd` |
+| 7.5 direct proof | `db5601c` |
+
+**All slices are executed.** The candidate is built and proved; only
+Decision 5 remains.
+
+Evidence, `v0.2.0-rc.2` draft (run `30940515893`, head `fb6d951`):
+
+- Five RIDs built on their own native runners, all six jobs green. Each
+  artifact was handshake-smoke-tested and had its RTK startup gate proved on
+  its own platform before archiving.
+- Assets ~50–58 MB each plus `SHA256SUMS`; the published win-x64 checksum
+  was independently re-verified after download.
+- **Decision A is proved, not assumed:** on `windows-11-arm` the emulated
+  x64 rtk answered `hook check` with `rtk git status --short`, the packaged
+  server passed the handshake, and the gate returned exit 78.
+- `server/direct-product-proof.ps1` against the installed win-x64
+  candidate: 16/16 checks, including warm named sessions, `ptk_output`
+  recovery, timeout recovery, compound native routing, and the trusted-type
+  rendering from Slice 7.0.
+- Windows Defender custom scan of the packaged payload: clean, payload
+  intact. Issue #7's false positive does not reproduce on this artifact.
+
+Version surfaces agree: `VERSION` `0.2.0-rc.2`, module `0.2.0` +
+prerelease `rc2`, assembly `0.2.0-rc.2+fb6d951`.
 
 This plan executes Slice 7 of `.agents/plans/rtk-router-delegation.md`. It
 supersedes the packaging mechanics of `.agents/plans/release-distribution.md`

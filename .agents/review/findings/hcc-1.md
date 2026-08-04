@@ -3,7 +3,7 @@
 **Severity**: MEDIUM — uninstall destroys user state ptk never created (data loss of a hand-maintained registration).
 **Status**: In progress
 **Branch**: —
-**Commit**: (pending)
+**Commit**: `11df290`
 
 ## Evidence
 `scripts/ptk_init.ps1` kimi leg: install leaves an existing `mcpServers.ptk`

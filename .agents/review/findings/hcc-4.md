@@ -3,7 +3,7 @@
 **Severity**: LOW — malformed input kills the run (and rolls back a full install) instead of re-asking.
 **Status**: In progress
 **Branch**: —
-**Commit**: (pending)
+**Commit**: `9fbd00f`
 
 ## Evidence
 `scripts/ptk_init.ps1:302-307` — the skip-selection parser casts digit tokens

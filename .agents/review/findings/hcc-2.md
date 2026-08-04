@@ -3,7 +3,7 @@
 **Severity**: MEDIUM — can replace a working claude registration with a dead one and arm a deny hook pointing at a server that cannot start.
 **Status**: In progress
 **Branch**: —
-**Commit**: (pending)
+**Commit**: `39d6064`
 
 ## Evidence
 `scripts/ptk_init.ps1:333` — `$payloadPresent = Test-Path ... (Join-Path $PtkHome 'bin')`

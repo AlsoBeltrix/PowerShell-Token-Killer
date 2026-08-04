@@ -3,7 +3,7 @@
 **Severity**: LOW — manual-setup instructions point at the wrong file for relocated kimi homes.
 **Status**: In progress
 **Branch**: —
-**Commit**: (pending)
+**Commit**: `a3d0d17`
 
 ## Evidence
 `scripts/ptk_init.ps1:276` — the kimi manual blurb hardcodes

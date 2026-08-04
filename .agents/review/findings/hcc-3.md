@@ -3,7 +3,7 @@
 **Severity**: MEDIUM — writes a config.toml kimi cannot load (harness config breakage) for a path containing an apostrophe.
 **Status**: In progress
 **Branch**: —
-**Commit**: (pending)
+**Commit**: `383f4e8`
 
 ## Evidence
 `scripts/ptk_init.ps1:867` — `$kimiHookBlock` embeds `$hookCommand` in a TOML

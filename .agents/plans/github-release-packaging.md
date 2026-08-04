@@ -2,11 +2,11 @@
 
 **Status:** DRAFT 2026-08-03. Decision 2 is RULED: five RIDs (owner,
 2026-08-03 — "packaging for Windows x64 & ARM64, macOS ARM64, Linux x64 &
-ARM64 ... GH CIs should cover it"). Decision A is RULED 2026-08-04
-(emulated x64 rtk on win-arm64). Decisions B–D and Decisions 3–5 carried
-from `.agents/plans/minimum-viable-release.md` are UNRULED and gate the
-slices that name them. No code, tag, or publication is authorized by this
-draft.
+ARM64 ... GH CIs should cover it"). Decisions A and B are RULED 2026-08-04
+(emulated x64 rtk on win-arm64; Apache-2.0). Decisions C–D and Decisions
+3–5 carried from `.agents/plans/minimum-viable-release.md` are UNRULED and
+gate the slices that name them. No code, tag, or publication is authorized
+by this draft.
 
 This plan executes Slice 7 of `.agents/plans/rtk-router-delegation.md`. It
 supersedes the packaging mechanics of `.agents/plans/release-distribution.md`
@@ -68,12 +68,21 @@ Consequences that bind later slices:
   the probe does not answer.
 - Slice 7.2 documents the emulation in the win-arm64 release notes.
 
-## Decision B — license (UNRULED)
+## Decision B — license (RULED: Apache-2.0)
 
-The repository ships no `LICENSE` file and the GitHub API reports no license
-for it (checked 2026-08-03). A public release requires one. Candidates: MIT,
-Apache-2.0. Whichever is chosen, Slice 7.2 adds `LICENSE` at the repo root
-and packages it into every artifact.
+**Ruled 2026-08-04 (owner):** Apache-2.0. Chosen over MIT for its explicit
+patent grant and retaliation clause; it also matches rtk, PTK's required
+dependency.
+
+The repository shipped no `LICENSE` and the GitHub API reported no license
+(checked 2026-08-03). `LICENSE` now exists at the repo root, verbatim
+Apache-2.0.
+
+Slice 7.2 packages it into every artifact. Do not add a NOTICE file unless
+PTK actually redistributes third-party Apache-2.0 material — under
+Decision D option (a) the installer fetches rtk at install time rather than
+redistributing it, which carries no NOTICE obligation; option (b) bundling
+does, and would require attribution for rtk in the artifact.
 
 ## Decision C — release version (Decision 4, UNRULED)
 

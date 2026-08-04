@@ -3,7 +3,7 @@
 **Severity**: HIGH — a supported machine shape (no claude CLI, possibly a ~/.claude remnant) cannot install the product: the whole install rolls back.
 **Status**: In progress
 **Branch**: —
-**Commit**: (pending)
+**Commit**: `553450c`
 
 ## Evidence
 Owner field report 2026-08-04: "install fails if claude is not installed",

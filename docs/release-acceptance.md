@@ -11,22 +11,16 @@ falsify each one, and file a single report.
 - Do not tag, publish, or edit a release.
 - A check that cannot run on your machine is "not tested", never "passed".
 
-## What ptk is
+## Orientation
 
-An MCP server exposing five tools. It runs PowerShell 7 in warm named
-sessions, one contained worker process per session, and compresses output
-before returning it.
+Before testing, establish from the running server what ptk is, what each tool
+accepts, and what it claims to do. The tool descriptions and `ptk_state` are
+the source. If you cannot arrive at an accurate picture from those, stop and
+report that: a test suite written against a misunderstanding is worse than no
+suite, and the descriptions are themselves part of what ships.
 
-It is also a router. PowerShell objects it compresses itself, before
-PowerShell formats them to text. Everything else it submits to
-`rtk hook check --agent ptk <script>`; if rtk returns a rewrite, ptk validates
-and executes that, and if rtk declines, ptk executes the original text
-unchanged. rtk is a required dependency: without one, the server exits 78.
-
-Installed layout is `~/.ptk`: `bin/` (server, and on Unix `PtkWorkerBroker`),
-`src/` (the shaping module), `scripts/`, `VERSION`, `LICENSE`, `README.md`.
-Everything else under `~/.ptk` is user-owned and must survive install,
-upgrade, and uninstall.
+State your understanding in the report. Where a claim below rests on a detail
+you could not confirm from the server, say so.
 
 ## Environment
 
@@ -47,29 +41,14 @@ $exe = if ($IsWindows) { "$ptk/bin/PtkMcpServer.exe" } else { "$ptk/bin/PtkMcpSe
 } | Format-List
 ```
 
-## Tool surface
-
-- `ptk_invoke` — `script`, `session`, `route` (`auto`|`pwsh`|`rtk`),
-  `timeoutSeconds`
-- `ptk_output` — `handle`, `action` (`read`|`search`|`status`|`list`),
-  `offset`, `maxBytes`, `pattern`, `session`
-- `ptk_state` — `session`
-- `ptk_reset` — `session`
-- `ptk_session` — `action` (`list`|`open`|`close`), `name`
-
-`ptk_session` identifies its target with `name`. The other tools use
-`session`.
-
 ## Driving the server
 
-Either drive it as an MCP client, or over stdio. State which you used.
+Either drive it as an MCP client, or over stdio. State which you used. Work in
+your own named session so a shared installation is not disturbed.
 
-As a client, open your own session and use it throughout:
-`ptk_session action=open name=acc1`, then `session=acc1` on each call.
-
-Over stdio, start `$exe` and exchange one JSON object per line: `initialize`,
-the `notifications/initialized` notification, then `tools/call`. This is the
-only way to observe startup and crash behaviour.
+Startup, refusal, and crash behaviour are only observable over stdio: start
+`$exe` and exchange one JSON object per line — `initialize`, the
+`notifications/initialized` notification, then `tools/call`.
 
 ```powershell
 $psi = [Diagnostics.ProcessStartInfo]::new()

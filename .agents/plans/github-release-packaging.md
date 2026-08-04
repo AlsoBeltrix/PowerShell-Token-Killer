@@ -34,6 +34,11 @@ cross-target contract.
 No `osx-x64`. Verified against `rtk-ai/rtk` v0.44.2 release assets
 (2026-08-03): the only Windows asset is x86_64-msvc.
 
+Both ARM runner labels exist and are free and unlimited on public
+repositories (GitHub hosted-runner reference, checked 2026-08-03); this repo
+is public. The five-RID matrix therefore costs nothing in Actions minutes,
+and no self-hosted runner is needed.
+
 Selecting Linux and macOS activates the platform gate in
 `.agents/plans/minimum-viable-release.md` §Decision 2 and the
 `.agents/review/dispositions.md` §"deferred to platform selection" bucket.
@@ -142,6 +147,19 @@ inherit the worker's duplicated request reader and event writer.
 
 Repair: an ABI-correct non-variadic native shim on Apple arm64, preserving
 Linux behavior.
+
+The shim has an existing home. `server/PtkMcpServer/Native/ptk_worker_broker.c`
+is already compiled per-RID by the `BuildPtkWorkerBroker` target
+(`server/PtkMcpServer/PtkMcpServer.csproj:35`) on every non-Windows build,
+already includes `fcntl.h`, and already carries `__APPLE__` conditionals.
+Adding a `ptk_set_cloexec(int fd)` wrapper there — where the C compiler
+emits the correct variadic call sequence — avoids inventing a second native
+build path. Note the target currently produces an executable, not a shared
+library, so exposing a callable symbol needs either a second output or a
+small dedicated source; choose whichever keeps `-Werror -Wpedantic` clean.
+Both call sites (`UnixWorkerBootstrap.cs:304`,
+`UnixWorkerProcessLauncher.cs:1094`) declare the identical bad P/Invoke and
+must both be replaced.
 
 Guards on real Apple arm64: `FD_CLOEXEC` is actually set; an exec-created
 command child cannot observe duplicated bootstrap descriptors; overlapping

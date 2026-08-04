@@ -5,7 +5,11 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **RTK router delegation plan is executed through Slice 6 (2026-08-03).** Plan: `.agents/plans/rtk-router-delegation.md`. Slices 0-6 landed and pushed; Slice 7 (version, package, direct proof) is unstarted and gated on Decisions 2-5. Verification at each slice: full server suite, Pester, stdio handshake.
+- **RTK router delegation plan is executed through Slice 6 (2026-08-03).** Plan: `.agents/plans/rtk-router-delegation.md`. Slices 0-6 landed and pushed; Slice 7 (version, package, direct proof) is unstarted and gated on Decisions 2-5. Per-slice commit table is in the plan's status block.
+
+  Verified as of `f637ad0` on `ASHBIAMWEB1`: server 1,059/1,059, Pester 84 with 1 platform skip, stdio handshake passed. Counts moved during this work because ~6,500 lines and their tests were deleted; `.agents/repo-guidance.md` §Verification still records the pre-plan figures and is stale. SIEM is 226/247 — the 21 failures are the pre-existing symlink-privilege cases already recorded there, untouched by this plan.
+
+  **Hosted CI has not run since Slice 0.** `.github/workflows/ci.yml` now installs rtk on all three platforms (upstream `install.sh` is Linux/macOS only and lives on branch `master`, not `main`; Windows takes the published msvc zip). That install step is unexercised — every verification above is local Windows. First push to CI may need it corrected.
 
 - **Implementation reviewed (2026-08-03):** openreview codex over `87d03d8..076626f` returned `acceptable_with_changes` and endorsed the architecture unchanged, including the pinned-path binding. Three material changes and four findings, all adopted and fixed with mutation-proved guards: the startup RTK gate used `File.Exists` while the runtime pins via `TryCapture` (HIGH — a path passing the weaker check let the server start and then run native commands unfiltered); the module still exported the pre-Slice-2 `Resolve-PtcInvokeScript` AST rewriter with no caller and a manifest entry for a deleted function; rewrite acceptance normalized whitespace, so a rewrite altering text inside a quoted argument was accepted; and `server/README.md` documented deleted Bash and post-success behavior. Record: `.agents/review/openreview-rtk-router-codex-r2.md`.
 

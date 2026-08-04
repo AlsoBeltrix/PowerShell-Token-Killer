@@ -1606,6 +1606,20 @@ was used._
 
 ## `ASHBIAMWEB1` — Codex Windows workspace
 
+### RTK router delegation verification host — 2026-08-03
+
+- `rtk 0.44.2` at `C:\Users\mcoelho\.local\bin\rtk.exe`, on `PATH`. RTK source
+  checkout for contract reading is at `D:\source\rtk` (branch `develop`).
+- Installed PTK remains `0.2.0-dev.g12e1ff5` (`~/.ptk/VERSION`) — the plan's
+  work is committed but not installed here.
+- `codex-cli 0.146.0`. Its auth token is revoked: review dispatches complete
+  and return valid verdicts while logging repeated
+  `Failed to refresh token ... refresh token was revoked` to stderr. Run
+  `codex login` before the next dispatch.
+- SIEM suite is 226/247 on this host: the 21 failures are the recorded
+  symlink-privilege cases, since the ordinary token cannot create Windows
+  symlinks.
+
 ### Installed payload ACL repair — 2026-07-28
 
 - Before `bb2349a`, `C:\Users\mcoelho\.ptk` had a protected DACL whose

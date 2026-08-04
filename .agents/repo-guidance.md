@@ -41,7 +41,7 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-08-03 at `a3112f3`, all
+Confirmed automated verification commands (re-run 2026-08-04 at `10ac387`, all
 passing). Counts are volatile — treat them as of that commit and re-verify
 rather than trusting them at a later head.
 
@@ -54,8 +54,11 @@ Pester 5 or later).
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 1,059/1,059 passed (C# MCP supervisor, named workers, containment, output,
-and retained administration suite).
+— 1,068/1,068 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite). The count rose from 1,059 with the
+Slice 7.0 shaper guards, the `opr-15` containment guard, and the `opr-14`
+close-on-exec guards; the last of those skip on Windows and are exercised by
+the Linux and macOS CI runners.
 
 ```
 dotnet test siem/PtkSiem.slnx
@@ -79,6 +82,23 @@ pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -Timeout
 — passed the stdout-clean direct-checkout launch and complete five-tool,
 multi-session stdio handshake. Run manually when server-facing setup or code
 changes.
+
+```
+pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
+```
+— 16/16 checks against an **installed** candidate, not a checkout: the five
+tools, warm named sessions, object compression, trusted-type rendering, text
+preservation, `ptk_output` recovery, timeout recovery, reset/close, compound
+native routing, and the RTK startup gate (exit 78 naming `PTK_RTK_PATH`).
+This is the release gate for a packaged artifact; the handshake proves the
+transport, this proves the product contract. Run it per selected platform
+before publishing.
+
+Release artifacts are built by `.github/workflows/release.yml` on a `v*` tag
+or `workflow_dispatch`. It builds each of the five RIDs on its own native
+runner, smoke-tests and RTK-gate-proves every artifact there, and assembles a
+**draft** release only — publishing is an owner action. Public installers are
+`install.ps1` and `install.sh` at the repo root.
 
 CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
 runs the same battery (Pester, server/SIEM tests, handshake) on an

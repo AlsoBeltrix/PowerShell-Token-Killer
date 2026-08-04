@@ -165,8 +165,17 @@ the whole capture incomplete.
 
 Every other type lands there: `CultureInfo`, `TimeZoneInfo`,
 `X509Certificate2`, `ServiceController`, AD and Exchange objects, and any
-type from any module. Reproduced 2026-08-04 on a host with no Outlook and
-no Exchange (`Get-Culture`; `git push`).
+type from any module. Reproduced 2026-08-04 with `Get-Culture` on a host
+with no Outlook and no Exchange.
+
+Reproduce it with a bare cmdlet, never with a native command. A native
+command that RTK rewrites returns RTK-filtered text and never reaches this
+projection at all; one PTK runs directly (RTK declined it, or the script is
+a compound whose other segments are cmdlets) does. An earlier draft of this
+plan cited `git push` output as evidence — that output was PowerShell-direct
+only because the submitted script was prefixed with `Set-Location`, which
+is a property of how the call was made, not of the shaper. `Get-Culture`
+reproduces the defect with nothing else in play.
 
 `PassiveNoteValue` (line 2001) has the same hole one level down: a
 non-scalar note value becomes `[nested <type> not expanded ...]`.
@@ -249,8 +258,9 @@ observe.
 
 1. `Get-Culture` returns text containing the culture name, and the capture
    is not flagged `active_member_not_evaluated`.
-2. A native command's object output (the `git push` shape from this
-   session) renders its text rather than two placeholder rows.
+2. A `[System.TimeZoneInfo]` (a second trusted type, from a different
+   assembly than `CultureInfo`) renders its text rather than a placeholder
+   row.
 3. Both existing no-live-getter guards still pass **unchanged** — not
    edited to accommodate the fallback. If either needs editing, the trust
    test is wrong; fix the trust test.

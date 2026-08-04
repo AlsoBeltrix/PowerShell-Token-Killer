@@ -33,6 +33,27 @@ public sealed class ExecutionPlannerTests
     }
 
     /// <summary>
+    /// A redirection does not make a rewrite ineligible. RTK rewrites
+    /// `git status --short 2>&amp;1` (verified against rtk 0.44.2), the
+    /// redirection binds to the `rtk` head, and stripping the prefix
+    /// reproduces the submitted text — so the plan must route it rather
+    /// than falling back and losing the compression.
+    /// </summary>
+    [Theory]
+    [InlineData("git status --short", "rtk git status --short")]
+    [InlineData("git status --short 2>&1", "rtk git status --short 2>&1")]
+    public void A_redirection_does_not_block_an_otherwise_valid_rewrite(
+        string script,
+        string rewritten)
+    {
+        var commands = Application("git", "/usr/bin/git");
+        var plan = Plan(script, "rtk", RtkPath, commands, rewrittenScript: rewritten);
+
+        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
+        Assert.Null(plan.FallbackReason);
+    }
+
+    /// <summary>
     /// Slice 2: RTK only ever inserts `rtk ` before segments it recognizes, so
     /// stripping those prefixes must reproduce the submitted text exactly. A
     /// binary on PTK_RTK_PATH that is not RTK — one that merely echoes its

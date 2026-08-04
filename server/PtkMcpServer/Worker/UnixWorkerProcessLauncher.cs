@@ -821,12 +821,11 @@ internal sealed class UnixWorkerNative : IUnixWorkerNative
                 var descriptor = DuplicateAboveMinimum(mapping.Source);
                 if (descriptor < 0)
                     return Marshal.GetLastPInvokeError();
-                var flags = Fcntl(descriptor, GetDescriptorFlags, 0);
-                if (flags < 0 ||
-                    Fcntl(
-                        descriptor,
-                        SetDescriptorFlags,
-                        flags | CloseOnExec) < 0)
+                // ABI-correct on Apple arm64, unlike a fixed-signature fcntl
+                // P/Invoke to a variadic callee (opr-14). Atomic, so an
+                // overlapping spawn cannot inherit this descriptor between a
+                // get and a set.
+                if (!UnixCloseOnExec.TrySet(descriptor))
                 {
                     var failure = Marshal.GetLastPInvokeError();
                     _ = CloseNative(descriptor);

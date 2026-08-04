@@ -233,12 +233,8 @@ internal sealed class UnixWorkerBootstrapNative : IUnixWorkerBootstrapNative
 
     public void SetCloseOnExec(int descriptor)
     {
-        var flags = Fcntl(descriptor, GetDescriptorFlags, 0);
-        if (flags < 0 ||
-            Fcntl(descriptor, SetDescriptorFlags, flags | CloseOnExec) < 0)
-        {
+        if (!UnixCloseOnExec.TrySet(descriptor))
             throw NativeFailure("fcntl(FD_CLOEXEC)");
-        }
     }
 
     public int DuplicateCloseOnExec(int descriptor)

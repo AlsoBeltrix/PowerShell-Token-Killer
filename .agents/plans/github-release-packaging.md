@@ -2,11 +2,24 @@
 
 **Status:** DRAFT 2026-08-03. Decision 2 is RULED: five RIDs (owner,
 2026-08-03 — "packaging for Windows x64 & ARM64, macOS ARM64, Linux x64 &
-ARM64 ... GH CIs should cover it"). Decisions A and B are RULED 2026-08-04
-(emulated x64 rtk on win-arm64; Apache-2.0). Decision 3 is WITHDRAWN as
-mis-scoped and replaced by Slice 7.0, which is APPROVED 2026-08-04.
-Decisions C, D, and 5 are UNRULED and gate the slices that name them.
-Slice 7.0 is authorized to proceed; no tag or publication is.
+ARM64 ... GH CIs should cover it"). Decisions A–D are all RULED 2026-08-04:
+emulated x64 rtk on win-arm64, Apache-2.0, `v0.2.0`, fetch-on-install.
+Decision 3 is WITHDRAWN as mis-scoped and replaced by Slice 7.0.
+
+Slices 7.0 and 7.1 are EXECUTED. Slices 7.2–7.5 are authorized and
+unblocked. **Decision 5 (tag and publish) remains UNRULED and is terminal**:
+CI assembles a draft release only; no tag, no publication, no `v*` ref push
+without a separate explicit owner go.
+
+| Slice | Status |
+| --- | --- |
+| 7.0 shaper fallback | `bf1fc0b` |
+| 7.1 `opr-15` | `cd00276` |
+| 7.1 `opr-14` | `67d37dd` (proved on macos-latest arm64 CI) |
+| 7.2 version + license packaging | next |
+| 7.3 `release.yml` | pending |
+| 7.4 installers | pending |
+| 7.5 direct proof | pending |
 
 This plan executes Slice 7 of `.agents/plans/rtk-router-delegation.md`. It
 supersedes the packaging mechanics of `.agents/plans/release-distribution.md`
@@ -84,7 +97,11 @@ Decision D option (a) the installer fetches rtk at install time rather than
 redistributing it, which carries no NOTICE obligation; option (b) bundling
 does, and would require attribution for rtk in the artifact.
 
-## Decision C — release version (Decision 4, UNRULED)
+## Decision C — release version (RULED: v0.2.0)
+
+**Ruled 2026-08-04 (owner, y).** The release is `v0.2.0`. Dev builds already
+stamp `0.2.0-dev.g<sha>`, so numbering the release below its own prereleases
+was never an option. Nothing has shipped, so no upgrade path is owed.
 
 `src/PwshTokenCompressor.psd1:3` says `ModuleVersion = '0.1.0'`;
 `Get-PtkVersion` (`scripts/dev-install.ps1:114`) defaults dev builds to
@@ -92,25 +109,44 @@ does, and would require attribution for rtk in the artifact.
 `v0.2.0` as the intended release. One value must reach every user-visible
 surface. Do not invent a second build-number system.
 
-## Decision D — how RTK reaches the user (UNRULED)
+## Decision D — how RTK reaches the user (RULED: fetch-on-install)
 
-RTK is Apache-2.0, so all three options are legally available.
-
-(a) **Fetch-on-install.** The installer detects rtk; when absent it
+**Ruled 2026-08-04 (owner, a).** The installer detects rtk; when absent it
 downloads the RID's asset from `rtk-ai/rtk` releases, verifies it against
 that release's `checksums.txt`, and lays it into `~/.ptk/bin`. PTK's
-registration then points `PTK_RTK_PATH` at that copy. One command still
-works; PTK's release assets vendor no third-party binary.
+registration points `PTK_RTK_PATH` at that copy. PTK's own release assets
+vendor no third-party binary, and PTK does not own rtk's staleness.
 
-(b) **Bundle.** Each PTK asset carries rtk. Larger assets; PTK owns rtk
-staleness and its license/attribution surface.
+Rejected: bundling rtk in each asset (PTK would own its staleness and
+attribution surface), and refusing to install (worst first-run experience
+for no safety gain, since the fetch is checksum-verified).
 
-(c) **Hard prerequisite.** Installer refuses and prints rtk's installer.
+Binding consequences:
 
-Whichever is ruled, the invariant from `.agents/state.md` holds: **do not
-ship an installer that completes successfully onto a machine with no RTK.**
-Under (a) and (b), the installed layout must record which rtk PTK pinned so
-uninstall removes only a PTK-placed copy and never a user's own rtk.
+- **Never complete an install onto a machine where PTK will refuse to
+  start.** A failed or unverifiable rtk fetch fails the install, with the
+  message naming both `PTK_RTK_PATH` and rtk's own installer.
+- **Record which rtk PTK placed** in the installed layout, so uninstall
+  removes only a PTK-placed copy and never a user's own rtk. An rtk already
+  on PATH is used as-is and never touched.
+- Verify the download against the release's `checksums.txt`, not merely
+  HTTPS. An unverified binary that PTK then pins and hashes at startup is
+  exactly the substitution the pinning exists to prevent.
+- On win-arm64 the fetched asset is the x64 build (Decision A), and the
+  installer must run a real `hook check` probe against it before declaring
+  success.
+- rtk is Apache-2.0, so distributing it would have been permitted; this
+  choice avoids the obligation rather than being forced by it.
+
+RID → asset map (rtk v0.44.2 assets, verified 2026-08-03):
+
+| RID | rtk asset |
+| --- | --- |
+| `win-x64` | `rtk-x86_64-pc-windows-msvc.zip` |
+| `win-arm64` | `rtk-x86_64-pc-windows-msvc.zip` (emulated) |
+| `linux-x64` | `rtk-x86_64-unknown-linux-musl.tar.gz` |
+| `linux-arm64` | `rtk-aarch64-unknown-linux-gnu.tar.gz` |
+| `osx-arm64` | `rtk-aarch64-apple-darwin.tar.gz` |
 
 ## Decision 3 — superseded by Slice 7.0
 

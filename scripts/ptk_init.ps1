@@ -929,10 +929,20 @@ function Invoke-PtkKimiLeg {
     }
 
     if ($Uninstall) {
-        # Registration: remove only the ptk entry; other servers are the
-        # user's. A file left holding nothing is removed rather than left
-        # as an empty shell.
-        if ($registered) {
+        # Registration: remove only the entry this leg manages - one whose
+        # command is the installed payload binary. A custom entry (install
+        # left it as-is, mhi-8) is not ptk-owned state; removing it on
+        # uninstall would destroy a registration ptk never created (hcc-1).
+        # A file left holding nothing is removed rather than left as an
+        # empty shell.
+        $entryIsOurs = $registered -and
+            ([string]$mcp['mcpServers']['ptk']['command'] -eq [string]$binary)
+        if ($registered -and -not $entryIsOurs) {
+            Write-Warning (('[kimi] mcpServers.ptk points at a custom command ({0}) - left as-is; ' +
+                'remove it from {1} manually if unwanted.') -f
+                $mcp['mcpServers']['ptk']['command'], $mcpPath)
+        }
+        elseif ($registered) {
             if ($DryRun) {
                 Write-Host "[kimi] DRY RUN - would remove the mcpServers.ptk entry from $mcpPath"
             }

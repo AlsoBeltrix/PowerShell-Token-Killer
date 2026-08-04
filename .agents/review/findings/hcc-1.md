@@ -20,13 +20,17 @@ Asymmetric ownership: the leg refuses to touch a custom entry on install but
 deletes it on uninstall.
 
 ## Approach
-(pending)
+Uninstall now removes the `mcpServers.ptk` entry only when its `command`
+equals the payload binary this leg installs (`$binary`); any other entry is
+custom user state and gets a warning naming the manual removal instead of
+deletion (install's leave-as-is probe, made symmetric).
 
 ## Files changed
-(pending)
+- `scripts/ptk_init.ps1` (kimi leg uninstall branch) — ownership check before removal
+- `tests/PwshTokenCompressor.Tests.ps1` — hcc-1 guard test
 
 ## Guard proof
-(pending)
+- `tests/PwshTokenCompressor.Tests.ps1::'kimi leg uninstall leaves a custom registration untouched (hcc-1)'` — with the fix stashed the custom entry is deleted and the test FAILS; restored it PASSES (verified 2026-08-04).
 
 ## Coder dispute (if any)
 —

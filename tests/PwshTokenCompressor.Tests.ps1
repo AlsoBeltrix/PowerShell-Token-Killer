@@ -797,6 +797,28 @@ Describe 'redirect hook and installer' {
             finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
+        It 'kimi leg uninstall leaves a custom registration untouched (hcc-1)' {
+            # Install leaves a pre-existing mcpServers.ptk as-is; uninstall
+            # must not then delete what ptk never created.
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            Set-Content -LiteralPath $mcp -Value '{"mcpServers":{"ptk":{"command":"x","args":[]}}}'
+            $homeWithBin = Join-Path $root 'home'
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'bin') -Force | Out-Null
+            $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
+            try {
+                $out = pwsh -NoProfile -File $script:initScript -Agent kimi -Uninstall -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match 'custom command'
+                (Get-Content -LiteralPath $mcp -Raw | ConvertFrom-Json).mcpServers.ptk.command | Should -Be 'x'
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
         It 'kimi leg uninstall removes only the ptk entry and the marked hook block' {
             $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
             New-Item -ItemType Directory -Path $root -Force | Out-Null

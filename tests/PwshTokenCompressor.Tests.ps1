@@ -719,6 +719,176 @@ Describe 'redirect hook and installer' {
             finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
         }
 
+        It 'kimi leg writes registration, hook, and nudge, preserving existing config' {
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            Set-Content -LiteralPath $mcp -Value '{"mcpServers":{"other":{"command":"/bin/echo","args":[]}}}'
+            Set-Content -LiteralPath $toml -Value "model = `"keep-me`"`n"
+            $homeWithBin = Join-Path $root 'home'
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'bin') -Force | Out-Null
+            $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
+            try {
+                pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
+                $LASTEXITCODE | Should -Be 0
+
+                # Registration merged in: ptk added, the other server preserved.
+                $servers = (Get-Content -LiteralPath $mcp -Raw | ConvertFrom-Json).mcpServers
+                $servers.ptk.command | Should -Be (Join-Path $homeWithBin 'bin' $binName)
+                $servers.other.command | Should -Be '/bin/echo'
+
+                # Hook: marker-delimited [[hooks]] block, matcher on kimi's
+                # shell tool, existing TOML content untouched.
+                $raw = Get-Content -LiteralPath $toml -Raw
+                $raw | Should -Match 'keep-me'
+                $raw | Should -Match '\[\[hooks\]\]'
+                $raw | Should -Match 'matcher = "Bash"'
+                $raw | Should -Match 'ptk-hook\.ps1'
+                $raw | Should -Match '>>> ptk-hook'
+                Get-Content -LiteralPath $nudge -Raw | Should -Match 'ptk-guidance'
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
+        It 'kimi leg leaves an existing registration as-is and still installs hook and nudge' {
+            # mhi-8 parity: the probe runs before the payload gate, so a
+            # custom entry is left untouched even with no installed payload -
+            # and because that entry answers, the hook may install.
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            Set-Content -LiteralPath $mcp -Value '{"mcpServers":{"ptk":{"command":"x","args":[]}}}'
+            $emptyHome = Join-Path $root 'nohome'
+            try {
+                $out = pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $emptyHome | Out-String
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match 'already registered - left as is'
+                (Get-Content -LiteralPath $mcp -Raw | ConvertFrom-Json).mcpServers.ptk.command | Should -Be 'x'
+                Get-Content -LiteralPath $toml -Raw | Should -Match 'ptk-hook\.ps1'
+                Get-Content -LiteralPath $nudge -Raw | Should -Match 'ptk-guidance'
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
+        It 'kimi leg refuses registration and hook without a payload but still writes the nudge' {
+            # The mhi-6/mhi-9 gate: a hook steering at tools no registration
+            # can answer must not ship; the conditionally-worded nudge is
+            # safe everywhere.
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            $emptyHome = Join-Path $root 'nohome'
+            try {
+                $out = pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $emptyHome 2>&1 | Out-String
+                $LASTEXITCODE | Should -Be 1
+                $out | Should -Match 'no installed ptk server'
+                $out | Should -Match 'not installing the blocking hook'
+                Test-Path -LiteralPath $mcp | Should -BeFalse
+                Test-Path -LiteralPath $toml | Should -BeFalse
+                Get-Content -LiteralPath $nudge -Raw | Should -Match 'ptk-guidance'
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
+        It 'kimi leg uninstall removes only the ptk entry and the marked hook block' {
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            Set-Content -LiteralPath $mcp -Value '{"mcpServers":{"other":{"command":"/bin/echo","args":[]}}}'
+            Set-Content -LiteralPath $toml -Value "model = `"keep-me`"`n"
+            $homeWithBin = Join-Path $root 'home'
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'bin') -Force | Out-Null
+            $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
+            try {
+                pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                pwsh -NoProfile -File $script:initScript -Agent kimi -Uninstall -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
+                $LASTEXITCODE | Should -Be 0
+
+                $servers = (Get-Content -LiteralPath $mcp -Raw | ConvertFrom-Json).mcpServers
+                $servers.other.command | Should -Be '/bin/echo'
+                $servers.PSObject.Properties['ptk'] | Should -BeNullOrEmpty
+
+                $raw = Get-Content -LiteralPath $toml -Raw
+                $raw | Should -Match 'keep-me'
+                $raw | Should -Not -Match 'ptk-hook'
+                (Get-Content -LiteralPath $nudge -Raw) | Should -Not -Match 'ptk-guidance'
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
+        It 'kimi leg removes config files it emptied on uninstall' {
+            # A file the leg created and then fully reversed is removed, not
+            # left behind as an empty shell.
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            $mcp = Join-Path $root 'cfg' 'mcp.json'
+            $toml = Join-Path $root 'cfg' 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            $homeWithBin = Join-Path $root 'home'
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'bin') -Force | Out-Null
+            $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
+            try {
+                pwsh -NoProfile -File $script:initScript -Agent kimi -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                Test-Path -LiteralPath $mcp | Should -BeTrue
+                Test-Path -LiteralPath $toml | Should -BeTrue
+                pwsh -NoProfile -File $script:initScript -Agent kimi -Uninstall -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-Null
+                $LASTEXITCODE | Should -Be 0
+                Test-Path -LiteralPath $mcp | Should -BeFalse
+                Test-Path -LiteralPath $toml | Should -BeFalse
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
+        It 'kimi leg -DryRun names its actions and writes nothing' {
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            $homeWithBin = Join-Path $root 'home'
+            New-Item -ItemType Directory -Path (Join-Path $homeWithBin 'bin') -Force | Out-Null
+            $binName = $IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer'
+            Set-Content -LiteralPath (Join-Path $homeWithBin 'bin' $binName) -Value 'stub'
+            try {
+                $out = pwsh -NoProfile -File $script:initScript -Agent kimi -DryRun -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $homeWithBin | Out-String
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match 'DRY RUN - would add mcpServers\.ptk'
+                $out | Should -Match 'DRY RUN - would add the ptk PreToolUse hook block'
+                Test-Path -LiteralPath $mcp | Should -BeFalse
+                Test-Path -LiteralPath $toml | Should -BeFalse
+                Test-Path -LiteralPath $nudge | Should -BeFalse
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
+        It '-Show reports kimi leg status without writing' {
+            $root = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-kimi-{0}" -f ([guid]::NewGuid()))
+            $mcp = Join-Path $root 'mcp.json'
+            $toml = Join-Path $root 'config.toml'
+            $nudge = Join-Path $root 'AGENTS.md'
+            try {
+                $out = pwsh -NoProfile -File $script:initScript -Agent kimi -Show -KimiMcpPath $mcp -KimiConfigPath $toml -NudgePath $nudge -PtkHome $script:fakeHome | Out-String
+                $LASTEXITCODE | Should -Be 0
+                $out | Should -Match '\[kimi\] registration: not registered'
+                $out | Should -Match '\[kimi\] ptk hook: not installed'
+                $out | Should -Match '\[kimi\] nudge block: not installed'
+                Test-Path -LiteralPath $mcp | Should -BeFalse
+                Test-Path -LiteralPath $toml | Should -BeFalse
+            }
+            finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+
         It 'grok leg -DryRun snapshots the registration command, writing nothing' {
             $toml = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-grok-{0}.toml" -f ([guid]::NewGuid()))
             $out = pwsh -NoProfile -File $script:initScript -Agent grok -DryRun -NudgePath $script:nudgeFile -PtkHome $script:fakeHome -GrokConfigPath $toml | Out-String
@@ -788,6 +958,9 @@ Describe 'redirect hook and installer' {
             $out | Should -Match 'codex mcp remove ptk'
             $out | Should -Match 'grok mcp remove -s user ptk'
             $out | Should -Match ([regex]::Escape((Join-Path 'plugins' 'ptk')))
+            # The kimi leg is file-based: it reports either way, registered
+            # or not, and DryRun writes nothing.
+            $out | Should -Match '\[kimi\]'
         }
 
         It 'leaves an existing codex registration as-is even without an installed payload' {

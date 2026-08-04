@@ -15,6 +15,12 @@ those live.
 | grok | `grok mcp add -s user ptk <exe>` → `~/.grok/config.toml`. LIVE (state call answered). Installer leg shipped 2026-07-09: config-presence short-circuit (leave-as-is), add only when absent; uninstall attempts `grok mcp remove -s user` (a MIRROR of the verified add form, not itself live-verified — reports honestly on failure) | `ptk__ptk_state` | **No spillover**: grok did NOT honor the `~/.claude/settings.json` hook (a third-party ledger claimed it scans that file — wrong for this build). No grok hook shipped | **VERIFIED**: grok session-loads `~/.claude/CLAUDE.md` (marker probe quoted back) — the claude leg's guidance block covers grok |
 | agy | `~/.gemini/config/mcp_config.json` `mcpServers` entry. LIVE (state call answered; headless auth worked this time). Installer leg shipped 2026-07-09: user-level plugin dir (`~/.gemini/config/plugins/ptk/`) carrying registration (omitted when the global entry exists, which is left as-is) + rules; plugin auto-discovery is an OPEN PROBE for the first owner install run | unprefixed (`ptk_state`) | documented deny-with-guidance via customization-root/plugin `hooks.json` — live firing NOT yet demonstrated, so the shipped plugin carries NO `hooks.json`; enforcement lands after a live install run meets the verify-once bar | plugin `rules/ptk.md` (shipped by the leg) |
 
+## Verified 2026-08-04 (kimi leg, owner's macOS box)
+
+| Harness | Registration | Tool naming | Enforcement (redirect hook) | Nudge home |
+| --- | --- | --- | --- | --- |
+| kimi | `~/.kimi-code/mcp.json` `mcpServers.ptk` entry — direct JSON merge by `ptk_init.ps1 -Agent kimi` (no scriptable CLI surface; `/mcp-config` is TUI-only). Leave-as-is when an entry exists, payload gate otherwise; `$KIMI_CODE_HOME` honored. **LIVE**: a fresh `kimi -p` session's `ptk_state` call answered | `mcp__ptk__ptk_invoke` (same scheme as Claude Code) | **VERIFIED end to end**: `[[hooks]]` `PreToolUse` matcher `"Bash"` in `~/.kimi-code/config.toml` running the same `ptk-hook.ps1` — a fresh headless session's Bash call was denied with the ptk guidance quoted verbatim. Kimi's hook protocol accepts the script's stdout deny JSON unchanged; hook failure is fail-open by kimi's design | `~/.kimi-code/AGENTS.md` (documented global instruction file, moves with `KIMI_CODE_HOME`) |
+
 ## Known limitations (dated)
 
 - 2026-07-08 — codex `exec` (headless) auto-denies MCP tool calls ("user

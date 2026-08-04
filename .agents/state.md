@@ -28,7 +28,6 @@ an explicit go.
 
 Unqueued work that exists if the owner wants it, in no particular order:
 
-- A Kimi harness leg (none exists).
 - A POSIX bootstrap so macOS/Linux can install without `pwsh` already
   present.
 - Narrowing the install-time smoke test. It is a full product handshake run
@@ -135,9 +134,15 @@ because `install.sh` is gone. The installed payload still embeds its own
 PowerShell and does not need one. No POSIX bootstrap was written — deliberate
 under the owner's one-installer instruction, not an oversight.
 
-**Kimi has no harness leg.** `ptk_init.ps1` covers claude, codex, grok, and
-agy. Kimi is absent entirely; adding one needs its config location,
-registration format, and tool-name prefix.
+**Kimi harness leg landed (2026-08-04).** `ptk_init.ps1` now covers claude,
+codex, grok, agy, and kimi. The kimi leg merges `mcpServers.ptk` into
+`~/.kimi-code/mcp.json` (no scriptable CLI surface exists), installs the same
+`ptk-hook.ps1` as a `[[hooks]]` PreToolUse `matcher = "Bash"` entry in
+`config.toml` (owner-approved in the mandate; kimi's protocol accepts the
+script's stdout deny JSON verbatim), and writes the shared nudge block to
+`~/.kimi-code/AGENTS.md`. Live-verified on this box (docs/harness-support.md):
+a fresh `kimi -p` session was denied on Bash with the ptk guidance and got an
+answer from `ptk_state`.
 
 **Fixture sessions renamed `exchange-*` → `sample-*` (`e2d31db`).** The
 install-time smoke test printed `named worker topology ok: exchange-online

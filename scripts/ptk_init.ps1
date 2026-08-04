@@ -11,8 +11,17 @@ Multi-harness init (.agents/plans/multi-harness-init.md): three independent
 layers per harness - registration (the MCP server), enforcement (a blocking
 pre-tool hook, only where live-verified), nudge (a marker-delimited guidance
 block in the harness's user-level instructions file). Implemented legs:
-claude, codex; the grok/agy legs are planned (slices 3-4) and currently
-report themselves as not implemented.
+claude, codex, grok, agy, kimi.
+
+kimi leg: registration by direct merge into <kimi-home>/mcp.json (no
+scriptable kimi CLI surface exists - /mcp-config is TUI-only), a PreToolUse
+deny hook in <kimi-home>/config.toml ([[hooks]] matcher "Bash", kimi's shell
+tool; the documented hook protocol accepts ptk-hook.ps1's stdout deny JSON
+verbatim), and the shared nudge block in <kimi-home>/AGENTS.md, the
+documented global instruction file. Kimi home is $KIMI_CODE_HOME when set,
+else ~/.kimi-code. The hook is gated like claude's: it steers shell calls at
+the ptk tools, so it ships only when a registration can answer (already
+registered, or the installed payload exists).
 
 codex leg: idempotent registration (`codex mcp get ptk` answers -> the
 existing entry is left as-is; otherwise `codex mcp add ptk -- <installed
@@ -72,12 +81,14 @@ param(
     [string]$GrokConfigPath,
     [string]$AgyPluginRoot,
     [string]$AgyConfigPath,
+    [string]$KimiMcpPath,
+    [string]$KimiConfigPath,
     # Where the installed payload lives (test seam).
     [string]$PtkHome = (Join-Path $HOME '.ptk')
 )
 $ErrorActionPreference = 'Stop'
 
-$supportedAgents = @('claude', 'codex', 'grok', 'agy')
+$supportedAgents = @('claude', 'codex', 'grok', 'agy', 'kimi')
 
 # Normalize -Agent: split comma-joined values (`pwsh -File` hands
 # "codex,grok" over as one string), trim, lowercase, validate.
@@ -141,8 +152,17 @@ function Test-PtkAgentPresent {
     param([Parameter(Mandatory)][string]$Name)
     if (Get-Command -Name $Name -ErrorAction SilentlyContinue) { return $true }
     # Claude Code is configured through files; an existing ~/.claude is as
-    # good a detection signal as the CLI.
-    ($Name -eq 'claude') -and (Test-Path -LiteralPath (Join-Path $HOME '.claude'))
+    # good a detection signal as the CLI. Kimi is file-configured the same
+    # way (no scriptable CLI registration surface), so ~/.kimi-code counts.
+    # (Parenthesized: -and/-or are left-associative in PowerShell.)
+    (($Name -eq 'claude') -and (Test-Path -LiteralPath (Join-Path $HOME '.claude'))) -or
+    (($Name -eq 'kimi') -and (Test-Path -LiteralPath (Get-PtkKimiHome)))
+}
+
+# Kimi's data root: $KIMI_CODE_HOME when set, else ~/.kimi-code (the mcp.json,
+# config.toml, and global AGENTS.md all move with it).
+function Get-PtkKimiHome {
+    [string]$env:KIMI_CODE_HOME ? $env:KIMI_CODE_HOME : (Join-Path $HOME '.kimi-code')
 }
 
 function Read-PtkSettings {
@@ -697,6 +717,203 @@ function Invoke-PtkAgyLeg {
     $true
 }
 
+# kimi leg: registration in <kimi-home>/mcp.json (mcpServers.ptk entry, JSON
+# merged in place - there is no scriptable kimi CLI surface; /mcp-config is
+# TUI-only), a PreToolUse deny hook in <kimi-home>/config.toml, and the
+# shared nudge block in <kimi-home>/AGENTS.md (documented global instruction
+# file). The kimi hook protocol passes the same stdin shape the claude hook
+# reads (tool_input.command) and accepts the same stdout deny JSON
+# ptk-hook.ps1 already emits, so the one hook script serves both harnesses.
+# Kimi's matcher targets its shell tool by name: "Bash" (there is no
+# PowerShell tool). Hook failure on the kimi side is fail-open by design
+# (documented), matching the nudge's conditional wording.
+
+# Markers delimiting the ptk-owned [[hooks]] block in kimi's config.toml
+# (TOML comments), so install/uninstall round-trips leave user content
+# byte-identical - the same contract as the nudge markers.
+$kimiHookBegin = '# >>> ptk-hook (managed by ptk_init.ps1 - do not edit between the markers)'
+$kimiHookEnd = '# <<< ptk-hook'
+# TOML literal string (single quotes) keeps Windows backslashes verbatim;
+# $hookCommand already double-quotes the -File path.
+$kimiHookBlock = @"
+$kimiHookBegin
+[[hooks]]
+event = "PreToolUse"
+matcher = "Bash"
+command = '$hookCommand'
+$kimiHookEnd
+"@
+
+function Get-PtkKimiHookStripped {
+    param([string]$Text)
+    $pattern = '(?s)(?:\r?\n\r?\n)?{0}.*?{1}(?:\r?\n)?' -f
+        [regex]::Escape($kimiHookBegin), [regex]::Escape($kimiHookEnd)
+    [regex]::Replace([string]$Text, $pattern, '')
+}
+
+# The -File target of the ptk-owned kimi hook block, for staleness checks;
+# $null when no marked block or an unrecognized shape.
+function Get-PtkKimiHookTarget {
+    param([string]$Text)
+    if ([string]$Text -match ('(?s){0}(.*?){1}' -f
+        [regex]::Escape($kimiHookBegin), [regex]::Escape($kimiHookEnd))) {
+        return Get-PtkHookCommandTarget $Matches[1]
+    }
+    $null
+}
+
+function Invoke-PtkKimiLeg {
+    $kimiHome = Get-PtkKimiHome
+    $mcpPath = $KimiMcpPath ? $KimiMcpPath : (Join-Path $kimiHome 'mcp.json')
+    $configPath = $KimiConfigPath ? $KimiConfigPath : (Join-Path $kimiHome 'config.toml')
+    $nudgeTarget = $NudgePath ? $NudgePath : (Join-Path $kimiHome 'AGENTS.md')
+    $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
+
+    $mcp = Read-PtkSettings -Path $mcpPath
+    $registered = $mcp.ContainsKey('mcpServers') -and $null -ne $mcp['mcpServers'] -and
+        ($mcp['mcpServers'] -is [System.Collections.IDictionary]) -and
+        $mcp['mcpServers'].Contains('ptk')
+    $payloadPresent = Test-Path -LiteralPath $binary -PathType Leaf
+    $configText = (Test-Path -LiteralPath $configPath -PathType Leaf) ?
+        (Get-Content -LiteralPath $configPath -Raw) : ''
+    $hookInstalled = $configText -like "*$kimiHookBegin*"
+    $hookTarget = Get-PtkKimiHookTarget $configText
+    $hookStale = $hookInstalled -and $hookTarget -and
+        (-not (Test-Path -LiteralPath $hookTarget -PathType Leaf))
+    $nudgePresent = (Test-Path -LiteralPath $nudgeTarget) -and
+        ((Get-Content -LiteralPath $nudgeTarget -Raw) -like "*$nudgeBegin*")
+
+    if ($Show) {
+        Write-Host ("[kimi] cli: {0}" -f
+            ((Get-Command kimi -ErrorAction SilentlyContinue) ? (Get-Command kimi).Source : 'NOT FOUND'))
+        Write-Host ("[kimi] registration: {0} ({1})" -f
+            ($registered ? 'REGISTERED' : 'not registered'), $mcpPath)
+        $hookState = if (-not $hookInstalled) { 'not installed' }
+        elseif ($hookStale) { 'INSTALLED but STALE - registered file missing: {0} (re-run this script to heal)' -f $hookTarget }
+        else { 'INSTALLED' }
+        Write-Host "[kimi] ptk hook: $hookState ($configPath)"
+        Write-Host ("[kimi] nudge block: {0} in {1}" -f
+            ($nudgePresent ? 'INSTALLED' : 'not installed'), $nudgeTarget)
+        Write-Host ("[kimi] installed payload: {0} ({1})" -f
+            ($payloadPresent ? 'present' : 'MISSING - run scripts/install.ps1'), $PtkHome)
+        return $true
+    }
+
+    if ($Uninstall) {
+        # Registration: remove only the ptk entry; other servers are the
+        # user's. A file left holding nothing is removed rather than left
+        # as an empty shell.
+        if ($registered) {
+            if ($DryRun) {
+                Write-Host "DRY RUN - would remove the mcpServers.ptk entry from $mcpPath"
+            }
+            else {
+                $servers = $mcp['mcpServers']
+                $servers.Remove('ptk')
+                if ($servers.Count -eq 0) { $mcp.Remove('mcpServers') }
+                if ($mcp.Count -eq 0) {
+                    Remove-Item -LiteralPath $mcpPath -Force
+                }
+                else {
+                    Set-Content -LiteralPath $mcpPath -Value ($mcp | ConvertTo-Json -Depth 32) -NoNewline
+                }
+                Write-Host '[kimi] registration removed.'
+            }
+        }
+        else {
+            Write-Host '[kimi] no registration to remove.'
+        }
+        # Hook: strip exactly the marked block, leaving any user [[hooks]]
+        # entries and other config untouched.
+        if ($hookInstalled) {
+            if ($DryRun) {
+                Write-Host "DRY RUN - would remove the ptk hook block from $configPath"
+            }
+            else {
+                $kept = Get-PtkKimiHookStripped $configText
+                if ([string]::IsNullOrWhiteSpace($kept)) {
+                    Remove-Item -LiteralPath $configPath -Force
+                }
+                else {
+                    Set-Content -LiteralPath $configPath -Value $kept -NoNewline
+                }
+                Write-Host '[kimi] ptk hook removed.'
+            }
+        }
+        else {
+            Write-Host '[kimi] no ptk hook entry - nothing to remove.'
+        }
+        Uninstall-PtkNudgeBlock -Path $nudgeTarget
+        return $true
+    }
+
+    $ok = $true
+
+    # Registration. Probe FIRST (the mhi-8 lesson): an existing entry -
+    # including a custom one pointing somewhere other than ~/.ptk - is left
+    # as-is regardless of payload.
+    if ($registered) {
+        Write-Host '[kimi] already registered - left as is (mcp.json has mcpServers.ptk).'
+    }
+    elseif ($DryRun) {
+        Write-Host ("DRY RUN - would add mcpServers.ptk -> `"{0}`" to {1} (other servers preserved)" -f
+            $binary, $mcpPath)
+    }
+    elseif (-not $payloadPresent) {
+        # Registering a missing binary points every session at a tool that
+        # cannot answer.
+        Write-Warning (('[kimi] no installed ptk server at {0}. Run scripts/install.ps1 ' +
+            'first, then re-run this script.') -f $binary)
+        $ok = $false
+    }
+    else {
+        if (-not $mcp.ContainsKey('mcpServers') -or $null -eq $mcp['mcpServers']) {
+            $mcp['mcpServers'] = @{}
+        }
+        $mcp['mcpServers']['ptk'] = @{ command = $binary; args = @() }
+        $dir = Split-Path -Parent $mcpPath
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        Set-Content -LiteralPath $mcpPath -Value ($mcp | ConvertTo-Json -Depth 32) -NoNewline
+        Write-Host "[kimi] registered (user-level $mcpPath)."
+    }
+
+    # Hook (the mhi-6/mhi-9 gate): it steers shell calls at the ptk tools, so
+    # it ships only where a registration can answer - an existing entry
+    # (custom or ours) or the payload this run just registered. Skipping the
+    # hook never blocks the nudge.
+    $hookAllowed = $registered -or $payloadPresent
+    if (-not $hookAllowed) {
+        Write-Warning ('[kimi] no registration can answer (no existing entry, no installed ' +
+            'payload) - not installing the blocking hook. Run scripts/install.ps1 first, ' +
+            'then re-run this script.')
+    }
+    elseif ($DryRun) {
+        Write-Host ("DRY RUN - would {0} the ptk PreToolUse hook block in {1} (matcher `"Bash`")" -f
+            ($hookInstalled ? 'replace' : 'add'), $configPath)
+    }
+    else {
+        $kept = Get-PtkKimiHookStripped $configText
+        $nl = [Environment]::NewLine
+        $content = ($kept ? ($kept + $nl + $nl) : '') + $kimiHookBlock.Trim() + $nl
+        $dir = Split-Path -Parent $configPath
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        Set-Content -LiteralPath $configPath -Value $content -NoNewline
+        if ($hookStale) {
+            Write-Host ("[kimi] replaced STALE hook registration (pointed at missing {0})" -f $hookTarget)
+        }
+        Write-Host "[kimi] ptk hook installed in $configPath (takes effect next session)."
+    }
+
+    # Standard layer, written even when registration failed (conditional
+    # wording, safe on machines where ptk never arrives).
+    Install-PtkNudgeBlock -Path $nudgeTarget
+    $ok
+}
+
 # --- resolve which legs run ---------------------------------------------
 
 $explicitTargets = [bool]$SettingsPath -or [bool]$NudgePath
@@ -731,7 +948,7 @@ $resolvedAgents =
         else {
             $detected = @($supportedAgents | Where-Object { Test-PtkAgentPresent -Name $_ })
             if ($detected.Count -eq 0) {
-                Write-Host ('No supported agent harness detected (claude/codex/grok/agy); defaulting ' +
+                Write-Host ('No supported agent harness detected (claude/codex/grok/agy/kimi); defaulting ' +
                     'to the claude leg. Pass -Agent to choose explicitly.')
                 $detected = @('claude')
             }
@@ -748,6 +965,7 @@ foreach ($name in $resolvedAgents) {
         'codex' { Invoke-PtkCodexLeg }
         'grok' { Invoke-PtkGrokLeg }
         'agy' { Invoke-PtkAgyLeg }
+        'kimi' { Invoke-PtkKimiLeg }
     }
     if (-not $ok) { $failedLegs += $name }
 }

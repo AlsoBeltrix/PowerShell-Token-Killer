@@ -9,7 +9,7 @@ Install obtains a payload — a prebuilt release asset with -FromRelease, or a
 self-contained publish of this checkout otherwise — and from there the path
 is identical: stage it, smoke-test it, snapshot the prior payload, activate
 as a unit, ensure rtk is present, register the server, and run the per-agent
-init that wires up every detected harness (claude, codex, grok, agy). Any
+init that wires up every detected harness (claude, codex, grok, agy, kimi). Any
 failure during activation or registration restores the previous payload
 byte-identically.
 

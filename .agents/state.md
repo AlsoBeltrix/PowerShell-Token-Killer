@@ -27,15 +27,32 @@ short and update it when important repo facts change.
 
 ## Next
 
-**Slice 7 — version, package, direct proof.** Gated on owner Decisions 2-5:
-supported platforms (Decision 2), Outlook/COM boundary (3), release version
-(4), publish (5). Decision 2 also decides which platform findings matter —
-see `.agents/review/dispositions.md` §"deferred to platform selection". A
-Windows-only first release is blocked by none of them.
+**GitHub release packaging.** Plan:
+`.agents/plans/github-release-packaging.md` (DRAFT), which executes Slice 7
+of the router plan and supersedes the packaging mechanics of
+`.agents/plans/release-distribution.md`.
 
-Packaging must also resolve how RTK reaches the user: bundled, or a
-prerequisite the installer checks for and refuses to proceed without. Do not
-ship an installer that completes onto a machine with no RTK.
+**Decision 2 is RULED — five RIDs** (owner, 2026-08-03): `win-x64`,
+`win-arm64`, `linux-x64`, `linux-arm64`, `osx-arm64`. No `osx-x64`. GitHub
+Actions covers the matrix; each RID builds on its own native runner because
+`Assert-PtkNativeBuildRid` refuses cross-RID layout builds.
+
+Selecting Linux and macOS activates two HIGH findings that Windows-only
+would have dodged — they are no longer deferrable and now block Unix
+packaging: `opr-15` (Unix identity-probe fail-open; Linux and macOS) and
+`opr-14` (Apple arm64 `fcntl` variadic mispass; macOS). The rest of
+`.agents/review/dispositions.md` §"deferred to platform selection" is
+MEDIUM/LOW and does not block.
+
+**`win-arm64` has no upstream RTK binary** — rtk v0.44.2 publishes only
+`rtk-x86_64-pc-windows-msvc.zip`. Since PTK refuses to start without a
+capturable RTK, win-arm64 needs the x64 rtk under emulation or the RID gets
+dropped. Unruled (plan Decision A).
+
+**Still unruled and gating:** license (no `LICENSE` file exists in the repo;
+plan Decision B), release version (Decision C/4), how RTK reaches the user
+(Decision D), Outlook/COM boundary (Decision 3), publish (Decision 5). Do
+not ship an installer that completes onto a machine with no RTK.
 
 **Process constraints stay in force** (`.agents/plans/rtk-router-delegation.md`
 §Process constraints): no reviewer invocation without a separate explicit
@@ -156,8 +173,12 @@ record a new gated finding.
 
 ## Active Sources
 
+- `.agents/plans/github-release-packaging.md` (DRAFT; executes router Slice 7
+  behind Decisions A-D, 3, and 5) — supersedes the packaging mechanics of
+  `.agents/plans/release-distribution.md` slices 3, 4, 6, 7
 - `.agents/plans/rtk-router-delegation.md` (APPROVED; Slices 0-6 executed,
-  Slice 7 gated on Decisions 2-5) — supersedes the minimum-viable-release plan
+  Slice 7 handed to the release-packaging plan) — supersedes the
+  minimum-viable-release plan
 - `.agents/plans/minimum-viable-release.md` (superseded; its release-blocking
   rule, non-goals, and packaging/proof slices are retained by reference from
   the router-delegation plan)

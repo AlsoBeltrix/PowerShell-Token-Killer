@@ -420,7 +420,13 @@ function Invoke-PtkPackageSmoke {
     if (-not (Test-Path -LiteralPath $handshake -PathType Leaf)) {
         throw "Package smoke script is unavailable: $handshake"
     }
+    # Say what this is before it happens. The smoke test starts local worker
+    # processes and opens named test sessions; unannounced, that reads like an
+    # installer connecting to something.
     Write-Host "Validating staged PTK package: $BinaryPath"
+    Write-Host ('  Local smoke test: starts the packaged server and two throwaway ' +
+        'PowerShell worker processes to prove session isolation. No network, no ' +
+        'external services.')
     & ([Environment]::ProcessPath) -NoProfile -File $handshake `
         -ServerCommand $BinaryPath `
         -TimeoutSec 90 |

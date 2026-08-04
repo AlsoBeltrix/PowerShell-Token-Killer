@@ -12,10 +12,10 @@ public sealed class WorkerSupervisorTests
         var text = await InvokePublicAsync(
             WorkerInvocationDisposition.NotStarted,
             "worker_transport_unavailable",
-            "exchange-online");
+            "sample-online");
 
         Assert.Equal(
-            "[ptk invoke] status=not_started session=exchange-online " +
+            "[ptk invoke] status=not_started session=sample-online " +
             "detail=worker_transport_unavailable; the command was not started " +
             "and PTK did not retry it; correct the stated cause before retrying.",
             text);
@@ -27,10 +27,10 @@ public sealed class WorkerSupervisorTests
         var text = await InvokePublicAsync(
             WorkerInvocationDisposition.OutcomeUnknown,
             "worker_transport_failure",
-            "exchange-onprem");
+            "sample-onprem");
 
         Assert.Equal(
-            "[ptk invoke] status=outcome_unknown session=exchange-onprem " +
+            "[ptk invoke] status=outcome_unknown session=sample-onprem " +
             "detail=worker_transport_failure; do not resubmit automatically; " +
             "PTK did not retry the command.",
             text);
@@ -42,7 +42,7 @@ public sealed class WorkerSupervisorTests
         var text = WorkerSupervisor.FormatList(
             [
                 new NamedSessionSnapshot(
-                    "exchange-online",
+                    "sample-online",
                     Guid.NewGuid(),
                     NamedSessionState.Faulted,
                     WorkerProcessId: null,

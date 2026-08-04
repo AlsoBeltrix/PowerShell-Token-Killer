@@ -379,16 +379,16 @@ try {
         jsonrpc = '2.0'; id = 6; method = 'tools/call'
         params = @{
             name = 'ptk_session'
-            arguments = @{ action = 'open'; name = 'exchange-online' }
+            arguments = @{ action = 'open'; name = 'sample-online' }
         }
     }
     $onlineOpen = (Read-RpcResponse -Id 6).result
     $onlineOpenText = $onlineOpen.content[0].text
     $onlinePidMatch = [regex]::Match(
         $onlineOpenText,
-        '(?m)^session=exchange-online state=ready worker_pid=(\d+) active=false ')
+        '(?m)^session=sample-online state=ready worker_pid=(\d+) active=false ')
     if ($onlineOpen.isError -or -not $onlinePidMatch.Success) {
-        throw "exchange-online did not open a ready worker: '$onlineOpenText'"
+        throw "sample-online did not open a ready worker: '$onlineOpenText'"
     }
     $onlinePid = [int]$onlinePidMatch.Groups[1].Value
 
@@ -396,45 +396,46 @@ try {
         jsonrpc = '2.0'; id = 7; method = 'tools/call'
         params = @{
             name = 'ptk_session'
-            arguments = @{ action = 'open'; name = 'exchange-onprem' }
+            arguments = @{ action = 'open'; name = 'sample-onprem' }
         }
     }
     $onPremOpen = (Read-RpcResponse -Id 7).result
     $onPremOpenText = $onPremOpen.content[0].text
     $onPremPidMatch = [regex]::Match(
         $onPremOpenText,
-        '(?m)^session=exchange-onprem state=ready worker_pid=(\d+) active=false ')
+        '(?m)^session=sample-onprem state=ready worker_pid=(\d+) active=false ')
     if ($onPremOpen.isError -or -not $onPremPidMatch.Success) {
-        throw "exchange-onprem did not open a ready worker: '$onPremOpenText'"
+        throw "sample-onprem did not open a ready worker: '$onPremOpenText'"
     }
     $onPremPid = [int]$onPremPidMatch.Groups[1].Value
     if ($onlinePid -eq $onPremPid) {
         throw "named sessions shared worker pid $onlinePid"
     }
-    Write-Host "named worker topology ok: exchange-online pid=$onlinePid, exchange-onprem pid=$onPremPid"
+    Write-Host ("named worker topology ok: two local test sessions got separate " +
+        "workers (sample-online pid=$onlinePid, sample-onprem pid=$onPremPid)")
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 8; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = $onlineSeedScript; session = 'exchange-online' }
+            arguments = @{ script = $onlineSeedScript; session = 'sample-online' }
         }
     }
     $onlineSeed = (Read-RpcResponse -Id 8).result.content[0].text
     if ($onlineSeed -notmatch "(?m)^$escapedOnlineToken\r?$") {
-        throw "exchange-online seed failed: '$onlineSeed'"
+        throw "sample-online seed failed: '$onlineSeed'"
     }
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 9; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = $onPremSeedScript; session = 'exchange-onprem' }
+            arguments = @{ script = $onPremSeedScript; session = 'sample-onprem' }
         }
     }
     $onPremSeed = (Read-RpcResponse -Id 9).result.content[0].text
     if ($onPremSeed -notmatch "(?m)^$escapedOnPremToken\r?$") {
-        throw "exchange-onprem seed failed: '$onPremSeed'"
+        throw "sample-onprem seed failed: '$onPremSeed'"
     }
 
     Send-Rpc @{
@@ -443,7 +444,7 @@ try {
             name = 'ptk_invoke'
             arguments = @{
                 script = '$shared; Get-PtkOverlap'
-                session = 'exchange-online'
+                session = 'sample-online'
             }
         }
     }
@@ -452,7 +453,7 @@ try {
             $onlineRead,
             "(?m)^$escapedOnlineToken\r?$").Count -ne 2 -or
         $onlineRead -match $escapedOnPremToken) {
-        throw "exchange-online variable/function state was not isolated: '$onlineRead'"
+        throw "sample-online variable/function state was not isolated: '$onlineRead'"
     }
 
     Send-Rpc @{
@@ -461,7 +462,7 @@ try {
             name = 'ptk_invoke'
             arguments = @{
                 script = '$shared; Get-PtkOverlap'
-                session = 'exchange-onprem'
+                session = 'sample-onprem'
             }
         }
     }
@@ -470,7 +471,7 @@ try {
             $onPremRead,
             "(?m)^$escapedOnPremToken\r?$").Count -ne 2 -or
         $onPremRead -match $escapedOnlineToken) {
-        throw "exchange-onprem variable/function state was not isolated: '$onPremRead'"
+        throw "sample-onprem variable/function state was not isolated: '$onPremRead'"
     }
     Write-Host 'warm-state isolation ok: identical variable/function names retained different behavior'
 
@@ -478,7 +479,7 @@ try {
         jsonrpc = '2.0'; id = 12; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = $executionScript; session = 'exchange-online' }
+            arguments = @{ script = $executionScript; session = 'sample-online' }
         }
     }
     $executionResult = (Read-RpcResponse -Id 12).result.content[0].text
@@ -486,7 +487,7 @@ try {
         jsonrpc = '2.0'; id = 13; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = '$executionCount'; session = 'exchange-online' }
+            arguments = @{ script = '$executionCount'; session = 'sample-online' }
         }
     }
     $executionState = (Read-RpcResponse -Id 13).result.content[0].text
@@ -506,11 +507,11 @@ try {
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 14; method = 'tools/call'
-        params = @{ name = 'ptk_reset'; arguments = @{ session = 'exchange-online' } }
+        params = @{ name = 'ptk_reset'; arguments = @{ session = 'sample-online' } }
     }
     $resetText = (Read-RpcResponse -Id 14).result.content[0].text
     if ($resetText -notmatch '(?m)^\[ptk reset\] completed\r?$' -or
-        $resetText -notmatch '(?m)^session=exchange-online state=ready worker_pid=\d+ ') {
+        $resetText -notmatch '(?m)^session=sample-online state=ready worker_pid=\d+ ') {
         throw "selected-session reset failed: '$resetText'"
     }
 
@@ -518,7 +519,7 @@ try {
         jsonrpc = '2.0'; id = 15; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = '$shared'; session = 'exchange-online' }
+            arguments = @{ script = '$shared'; session = 'sample-online' }
         }
     }
     $onlineAfterReset = (Read-RpcResponse -Id 15).result.content[0].text
@@ -533,7 +534,7 @@ try {
             name = 'ptk_invoke'
             arguments = @{
                 script = '$shared; Get-PtkOverlap'
-                session = 'exchange-onprem'
+                session = 'sample-onprem'
             }
         }
     }
@@ -541,7 +542,7 @@ try {
     if ([regex]::Matches(
             $onPremAfterReset,
             "(?m)^$escapedOnPremToken\r?$").Count -ne 2) {
-        throw "reset of exchange-online damaged exchange-onprem: '$onPremAfterReset'"
+        throw "reset of sample-online damaged sample-onprem: '$onPremAfterReset'"
     }
     Write-Host 'selected reset ok: one worker lost warm state and the other did not'
 
@@ -549,23 +550,23 @@ try {
         jsonrpc = '2.0'; id = 17; method = 'tools/call'
         params = @{
             name = 'ptk_session'
-            arguments = @{ action = 'close'; name = 'exchange-online' }
+            arguments = @{ action = 'close'; name = 'sample-online' }
         }
     }
     $closeText = (Read-RpcResponse -Id 17).result.content[0].text
-    if ($closeText -ne '[ptk session] closed session=exchange-online') {
-        throw "exchange-online close failed: '$closeText'"
+    if ($closeText -ne '[ptk session] closed session=sample-online') {
+        throw "sample-online close failed: '$closeText'"
     }
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 18; method = 'tools/call'
         params = @{
             name = 'ptk_invoke'
-            arguments = @{ script = '$neverDispatched = 2'; session = 'exchange-online' }
+            arguments = @{ script = '$neverDispatched = 2'; session = 'sample-online' }
         }
     }
     $closedInvoke = (Read-RpcResponse -Id 18).result.content[0].text
-    if ($closedInvoke -notmatch '^\[ptk invoke\] refused session=exchange-online detail=session_not_found;' -or
+    if ($closedInvoke -notmatch '^\[ptk invoke\] refused session=sample-online detail=session_not_found;' -or
         $closedInvoke -notmatch 'Nothing was executed\.$') {
         throw "closed session did not refuse before dispatch: '$closedInvoke'"
     }
@@ -591,8 +592,8 @@ try {
     $finalList = (Read-RpcResponse -Id 20).result.content[0].text
     if ([regex]::Matches($finalList, '(?m)^session=').Count -ne 2 -or
         $finalList -notmatch '(?m)^session=default state=cold worker_pid=none ' -or
-        $finalList -notmatch '(?m)^session=exchange-onprem state=ready worker_pid=\d+ ' -or
-        $finalList -match '(?m)^session=exchange-online ') {
+        $finalList -notmatch '(?m)^session=sample-onprem state=ready worker_pid=\d+ ' -or
+        $finalList -match '(?m)^session=sample-online ') {
         throw "final session registry was wrong: '$finalList'"
     }
     Write-Host 'session close ok: closed alias stayed absent and remaining session stayed ready'

@@ -68,11 +68,11 @@ public sealed class NamedSessionProcessIntegrationTests
         try
         {
             var opened = await Task.WhenAll(
-                sessions.OpenAsync("exchange-onprem"),
-                sessions.OpenAsync("exchange-online"))
+                sessions.OpenAsync("sample-onprem"),
+                sessions.OpenAsync("sample-online"))
                 .WaitAsync(CheckpointTimeout);
-            var onPrem = opened.Single(item => item.Name == "exchange-onprem");
-            var online = opened.Single(item => item.Name == "exchange-online");
+            var onPrem = opened.Single(item => item.Name == "sample-onprem");
+            var online = opened.Single(item => item.Name == "sample-online");
             Assert.NotNull(onPrem.WorkerProcessId);
             Assert.NotNull(online.WorkerProcessId);
             Assert.NotEqual(onPrem.WorkerProcessId, online.WorkerProcessId);
@@ -83,21 +83,21 @@ public sealed class NamedSessionProcessIntegrationTests
                 $"initial-marker={launchMarkerValue}",
                 await InvokeAsync(
                     sessions,
-                    "exchange-onprem",
+                    "sample-onprem",
                     $"'initial-marker=' + " +
                         $"(Get-Content -LiteralPath '{PsLiteral(launchMarkerName)}' -Raw)"));
             Assert.Contains(
                 $"initial-marker={launchMarkerValue}",
                 await InvokeAsync(
                     sessions,
-                    "exchange-online",
+                    "sample-online",
                     $"'initial-marker=' + " +
                         $"(Get-Content -LiteralPath '{PsLiteral(launchMarkerName)}' -Raw)"));
 
             var environmentName = $"PTK_SESSION_{Guid.NewGuid():N}";
             var setupOnPrem = await InvokeAsync(
                 sessions,
-                "exchange-onprem",
+                "sample-onprem",
                 SetupScript(
                     "onprem",
                     environmentName,
@@ -105,7 +105,7 @@ public sealed class NamedSessionProcessIntegrationTests
                     onPremModule));
             var setupOnline = await InvokeAsync(
                 sessions,
-                "exchange-online",
+                "sample-online",
                 SetupScript(
                     "online",
                     environmentName,
@@ -116,14 +116,14 @@ public sealed class NamedSessionProcessIntegrationTests
 
             var onPremState = await InvokeAsync(
                 sessions,
-                "exchange-onprem",
+                "sample-onprem",
                 ProbeScript(
                     environmentName,
                     "OnPremOnly",
                     "OnlineOnly"));
             var onlineState = await InvokeAsync(
                 sessions,
-                "exchange-online",
+                "sample-online",
                 ProbeScript(
                     environmentName,
                     "OnlineOnly",
@@ -146,17 +146,17 @@ public sealed class NamedSessionProcessIntegrationTests
             Assert.Contains($"pid={online.WorkerProcessId}", onlineState);
             Assert.DoesNotContain("tag=onprem", onlineState);
 
-            await sessions.CloseAsync("exchange-onprem")
+            await sessions.CloseAsync("sample-onprem")
                 .WaitAsync(CheckpointTimeout);
             await WaitForExitAsync(onPremWitness);
             Assert.False(onlineWitness.HasExited);
             var onlineAfterSiblingClose = await InvokeAsync(
                 sessions,
-                "exchange-online",
+                "sample-online",
                 "'still-online=' + (Get-Overlap)");
             Assert.Contains("still-online=online", onlineAfterSiblingClose);
 
-            var reset = await sessions.ResetAsync("exchange-online")
+            var reset = await sessions.ResetAsync("sample-online")
                 .WaitAsync(CheckpointTimeout);
             Assert.True(reset.WarmStateLost);
             Assert.NotEqual(online.WorkerProcessId, reset.WorkerProcessId);
@@ -165,7 +165,7 @@ public sealed class NamedSessionProcessIntegrationTests
 
             var resetState = await InvokeAsync(
                 sessions,
-                "exchange-online",
+                "sample-online",
                 "\"function=$([bool](Get-Command Get-Overlap -ErrorAction SilentlyContinue));" +
                 "marker=$([bool](Get-Variable Marker -Scope Global -ErrorAction SilentlyContinue));" +
                 $"env=$env:{environmentName};" +
@@ -177,7 +177,7 @@ public sealed class NamedSessionProcessIntegrationTests
 
             var activeMarker = Path.Combine(root, "active-entered");
             var active = sessions.InvokeAsync(
-                "exchange-online",
+                "sample-online",
                 $"[IO.File]::WriteAllText('{PsLiteral(activeMarker)}', 'entered'); " +
                     "Start-Sleep -Seconds 300",
                 raw: false,

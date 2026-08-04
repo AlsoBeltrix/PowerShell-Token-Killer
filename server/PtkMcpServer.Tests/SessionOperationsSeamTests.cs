@@ -32,10 +32,10 @@ public sealed class SessionOperationsSeamTests
                 raw: true,
                 route: "rtk",
                 timeoutSeconds: 17,
-                session: "exchange-online",
+                session: "sample-online",
                 outputStore: outputStore));
         Assert.Equal(
-            ["Get-Item .", cancellation.Token, true, "rtk", 17, "exchange-online", outputStore],
+            ["Get-Item .", cancellation.Token, true, "rtk", 17, "sample-online", outputStore],
             operations.LastArguments);
 
         Assert.Equal(
@@ -43,20 +43,20 @@ public sealed class SessionOperationsSeamTests
             await StateTool.State(
                 operations,
                 listAvailable: true,
-                session: "exchange-onprem",
+                session: "sample-onprem",
                 cancellationToken: cancellation.Token));
         Assert.Equal(
-            [true, "exchange-onprem", cancellation.Token],
+            [true, "sample-onprem", cancellation.Token],
             operations.LastArguments);
 
         Assert.Equal(
             "reset",
             await ResetTool.Reset(
                 operations,
-                session: "exchange-online",
+                session: "sample-online",
                 cancellationToken: cancellation.Token));
         Assert.Equal(
-            ["exchange-online", cancellation.Token],
+            ["sample-online", cancellation.Token],
             operations.LastArguments);
 
         Assert.Equal(
@@ -64,10 +64,10 @@ public sealed class SessionOperationsSeamTests
             await SessionTool.Session(
                 operations,
                 "open",
-                name: "exchange-online",
+                name: "sample-online",
                 cancellationToken: cancellation.Token));
         Assert.Equal(
-            ["open", "exchange-online", cancellation.Token],
+            ["open", "sample-online", cancellation.Token],
             operations.LastArguments);
     }
 

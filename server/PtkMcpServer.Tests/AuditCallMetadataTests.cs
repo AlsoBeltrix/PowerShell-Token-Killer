@@ -20,7 +20,7 @@ public sealed class AuditCallMetadataTests
             "ptk_invoke",
             ("raw", false),
             ("script", "Get-Process"),
-            ("session", "exchange-online"));
+            ("session", "sample-online"));
         var client = new AuditClientContext("Claude Code", "2.1.207", "stdio-7");
 
         Assert.True(Capture(call, client, out var metadata, out var script, out var failure));
@@ -35,7 +35,7 @@ public sealed class AuditCallMetadataTests
         Assert.Equal("ptk_invoke", metadata.Request.Tool);
         Assert.Equal("invoke", metadata.Request.Action);
         Assert.Equal(["raw", "script", "session"], metadata.Request.ProvidedFields);
-        Assert.Equal("exchange-online", metadata.Request.SessionRequested);
+        Assert.Equal("sample-online", metadata.Request.SessionRequested);
         Assert.Equal("auto", metadata.Request.Route);
         Assert.Null(metadata.Request.Background);
         Assert.False(metadata.Request.Raw);
@@ -85,7 +85,7 @@ public sealed class AuditCallMetadataTests
     public void Session_capture_records_explicit_lifecycle_target_without_job_fields()
     {
         Assert.True(Capture(
-            Call("ptk_session", ("action", "open"), ("name", "exchange-online")),
+            Call("ptk_session", ("action", "open"), ("name", "sample-online")),
             new(),
             out var opened,
             out var script,
@@ -93,7 +93,7 @@ public sealed class AuditCallMetadataTests
 
         Assert.Null(script);
         Assert.Equal("open", opened!.Request.Action);
-        Assert.Equal("exchange-online", opened.Request.SessionRequested);
+        Assert.Equal("sample-online", opened.Request.SessionRequested);
         Assert.Equal(["action", "name"], opened.Request.ProvidedFields);
         Assert.Null(opened.Request.JobId);
         Assert.True(opened.OperationProfile.MayHaveSideEffects);
@@ -117,7 +117,7 @@ public sealed class AuditCallMetadataTests
             Call("ptk_session", ("action", "open")),
             "name is required for this action");
         AssertRejected(
-            Call("ptk_session", ("action", "list"), ("name", "exchange-online")),
+            Call("ptk_session", ("action", "list"), ("name", "sample-online")),
             "list does not accept name");
         AssertRejected(
             Call("ptk_session", ("action", "future")),
@@ -136,13 +136,13 @@ public sealed class AuditCallMetadataTests
         Assert.Equal(5, state.OperationProfile.MaximumRecordSlots);
 
         Assert.True(Capture(
-            Call("ptk_reset", ("session", "exchange-onprem")),
+            Call("ptk_reset", ("session", "sample-onprem")),
             new(),
             out var reset,
             out _,
             out _));
         Assert.Equal("reset", reset!.Request.Action);
-        Assert.Equal("exchange-onprem", reset.Request.SessionRequested);
+        Assert.Equal("sample-onprem", reset.Request.SessionRequested);
         Assert.True(reset.OperationProfile.MayHaveSideEffects);
         Assert.Equal(4, reset.OperationProfile.MaximumRecordSlots);
     }

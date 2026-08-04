@@ -830,23 +830,23 @@ try {
     }
 
     $openAOnPrem = Send-PtkTool $serverA 'ptk_session' @{
-        action = 'open'; name = 'exchange-onprem'
+        action = 'open'; name = 'sample-onprem'
     }
     $openAOnline = Send-PtkTool $serverA 'ptk_session' @{
-        action = 'open'; name = 'exchange-online'
+        action = 'open'; name = 'sample-online'
     }
     $openBOnPrem = Send-PtkTool $serverB 'ptk_session' @{
-        action = 'open'; name = 'exchange-onprem'
+        action = 'open'; name = 'sample-onprem'
     }
     $aOnPremPid = Get-SessionPid (
         Get-PtkToolText (Receive-PtkToolResult $serverA $openAOnPrem)
-    ) 'exchange-onprem'
+    ) 'sample-onprem'
     $aOnlinePid = Get-SessionPid (
         Get-PtkToolText (Receive-PtkToolResult $serverA $openAOnline)
-    ) 'exchange-online'
+    ) 'sample-online'
     $bOnPremPid = Get-SessionPid (
         Get-PtkToolText (Receive-PtkToolResult $serverB $openBOnPrem)
-    ) 'exchange-onprem'
+    ) 'sample-onprem'
     if (@($aOnPremPid, $aOnlinePid, $bOnPremPid | Sort-Object -Unique).Count -ne 3) {
         throw 'Named sessions across two PTK servers did not receive three distinct workers.'
     }
@@ -866,28 +866,28 @@ try {
     $moduleAOnline = 'PtkAcceptanceAOnline'
     $moduleBOnPrem = 'PtkAcceptanceBOnPrem'
 
-    [void](Invoke-PtkScript $serverA 'exchange-onprem' (
+    [void](Invoke-PtkScript $serverA 'sample-onprem' (
         New-SessionSetupScript $tagAOnPrem $moduleAOnPrem $aOnPremDirectory
     ))
-    [void](Invoke-PtkScript $serverA 'exchange-online' (
+    [void](Invoke-PtkScript $serverA 'sample-online' (
         New-SessionSetupScript $tagAOnline $moduleAOnline $aOnlineDirectory
     ))
-    [void](Invoke-PtkScript $serverB 'exchange-onprem' (
+    [void](Invoke-PtkScript $serverB 'sample-onprem' (
         New-SessionSetupScript $tagBOnPrem $moduleBOnPrem $bOnPremDirectory
     ))
 
     Assert-Probe (
-        Invoke-PtkScript $serverA 'exchange-onprem' (
+        Invoke-PtkScript $serverA 'sample-onprem' (
             New-SessionProbeScript $moduleAOnPrem
         )
     ) $tagAOnPrem $tagAOnline $aOnPremDirectory $aOnPremPid
     Assert-Probe (
-        Invoke-PtkScript $serverA 'exchange-online' (
+        Invoke-PtkScript $serverA 'sample-online' (
             New-SessionProbeScript $moduleAOnline
         )
     ) $tagAOnline $tagAOnPrem $aOnlineDirectory $aOnlinePid
     Assert-Probe (
-        Invoke-PtkScript $serverB 'exchange-onprem' (
+        Invoke-PtkScript $serverB 'sample-onprem' (
             New-SessionProbeScript $moduleBOnPrem
         )
     ) $tagBOnPrem $tagAOnPrem $bOnPremDirectory $bOnPremPid
@@ -914,19 +914,19 @@ try {
     $concurrent = @(
         [pscustomobject]@{
             Server = $serverA
-            Session = 'exchange-onprem'
+            Session = 'sample-onprem'
             Ready = $readyAOnPrem
             Token = $tagAOnPrem
         },
         [pscustomobject]@{
             Server = $serverA
-            Session = 'exchange-online'
+            Session = 'sample-online'
             Ready = $readyAOnline
             Token = $tagAOnline
         },
         [pscustomobject]@{
             Server = $serverB
-            Session = 'exchange-onprem'
+            Session = 'sample-onprem'
             Ready = $readyBOnPrem
             Token = $tagBOnPrem
         }
@@ -950,7 +950,7 @@ try {
     Wait-ForFiles @($readyAOnPrem, $readyAOnline, $readyBOnPrem)
 
     $activeStateId = Send-PtkTool $serverA 'ptk_state' @{
-        session = 'exchange-onprem'
+        session = 'sample-onprem'
         listAvailable = $false
     }
     $activeListId = Send-PtkTool $serverA 'ptk_session' @{
@@ -966,7 +966,7 @@ try {
             "(?m)^ptk supervisor: pid=$($serverA.Process.Id) sessions=3/8`r?$"
         ) -or
         $activeState -notmatch (
-            "(?m)^session=exchange-onprem state=ready worker_pid=$aOnPremPid " +
+            "(?m)^session=sample-onprem state=ready worker_pid=$aOnPremPid " +
             "active=true warm_state_lost=false last_failure=none " +
             "reset_required=false`r?$"
         ) -or
@@ -977,8 +977,8 @@ try {
     }
     foreach ($expected in @(
             "session=default state=cold worker_pid=none active=false ",
-            "session=exchange-onprem state=ready worker_pid=$aOnPremPid active=true ",
-            "session=exchange-online state=ready worker_pid=$aOnlinePid active=true "
+            "session=sample-onprem state=ready worker_pid=$aOnPremPid active=true ",
+            "session=sample-online state=ready worker_pid=$aOnlinePid active=true "
         )) {
         if ($activeList -notmatch "(?m)^$([regex]::Escape($expected))") {
             throw "Active session list omitted '$expected' from: '$activeList'"
@@ -1007,20 +1007,20 @@ try {
     # Phase 2: 100 replacement cycles with a warm sibling.
     $siblingPid = Get-SessionPid (
         Get-PtkToolText (Invoke-PtkTool $serverA 'ptk_session' @{ action = 'list' })
-    ) 'exchange-onprem'
+    ) 'sample-onprem'
     $warmup = Get-PtkToolText (Invoke-PtkTool $serverA 'ptk_reset' @{
-        session = 'exchange-online'
+        session = 'sample-online'
     })
-    $victimPid = Get-SessionPid $warmup 'exchange-online'
+    $victimPid = Get-SessionPid $warmup 'sample-online'
     Start-Sleep -Milliseconds 500
     $baseline = Get-SettledFleetResources $serverA.Process.Id
     $samples = [Collections.Generic.List[object]]::new()
 
     for ($cycle = 1; $cycle -le $ResetCycles; $cycle++) {
         $resetText = Get-PtkToolText (Invoke-PtkTool $serverA 'ptk_reset' @{
-            session = 'exchange-online'
+            session = 'sample-online'
         })
-        $nextVictimPid = Get-SessionPid $resetText 'exchange-online'
+        $nextVictimPid = Get-SessionPid $resetText 'sample-online'
         if ($nextVictimPid -eq $victimPid) {
             throw "Reset cycle $cycle reused worker PID $victimPid."
         }
@@ -1030,7 +1030,7 @@ try {
             action = 'list'
         })
         if ($sessionsText -notmatch (
-            "(?m)^session=exchange-onprem state=ready worker_pid=$siblingPid active=false "
+            "(?m)^session=sample-onprem state=ready worker_pid=$siblingPid active=false "
         )) {
             throw "Reset cycle $cycle changed or faulted sibling worker $siblingPid."
         }
@@ -1103,7 +1103,7 @@ try {
     $timeoutRequest = Send-PtkTool $serverA 'ptk_invoke' @{
         script = $timeoutScript
         route = 'pwsh'
-        session = 'exchange-online'
+        session = 'sample-online'
         timeoutSeconds = $timeoutInvokeTimeout
     }
     Wait-ForFiles @($timeoutMarker)
@@ -1155,7 +1155,7 @@ try {
         )
         $replacementMatch = [regex]::Match(
             $replacementList,
-            '(?m)^session=exchange-online state=ready worker_pid=(\d+) ' +
+            '(?m)^session=sample-online state=ready worker_pid=(\d+) ' +
                 'active=false '
         )
         if ($replacementMatch.Success -and
@@ -1169,7 +1169,7 @@ try {
         throw "Timed-out worker $victimPid was not replaced: '$replacementList'"
     }
     if ($replacementList -notmatch (
-            "(?m)^session=exchange-onprem state=ready worker_pid=$siblingPid " +
+            "(?m)^session=sample-onprem state=ready worker_pid=$siblingPid " +
             'active=false '
         )) {
         throw "Timeout recovery changed or faulted sibling worker $siblingPid."
@@ -1191,7 +1191,7 @@ try {
         "$replacementPid; $($timeoutMarkerIds.Count) native descendants exited"
     )
 
-    $siblingProbe = Invoke-PtkScript $serverA 'exchange-onprem' (
+    $siblingProbe = Invoke-PtkScript $serverA 'sample-onprem' (
         New-SessionProbeScript $moduleAOnPrem
     )
     Assert-Probe $siblingProbe $tagAOnPrem $tagAOnline $aOnPremDirectory $siblingPid

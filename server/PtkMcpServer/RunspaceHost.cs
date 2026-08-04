@@ -1747,8 +1747,14 @@ public sealed class RunspaceHost : IDisposable
                     return true;
                 }
 
+                // A framework exception's Message is host code too. Gating on
+                // the two PowerShell assemblies alone omitted the text of every
+                // ordinary BCL exception, leaving a failing call with no signal
+                // at all (GitHub #8, secondary complaint). An Add-Type or
+                // otherwise untrusted exception type is still refused.
                 var exception = error.Exception;
-                if (exception is null || !IsTrustedPowerShellAssembly(exception.GetType().Assembly))
+                if (exception is null ||
+                    !IsTrustedRenderingAssembly(exception.GetType().Assembly))
                 {
                     text = omitted;
                     return false;
@@ -1771,6 +1777,100 @@ public sealed class RunspaceHost : IDisposable
             return (name.Name == "System.Management.Automation" ||
                     name.Name == "Microsoft.PowerShell.Commands.Utility") &&
                    token is [0x31, 0xbf, 0x38, 0x56, 0xad, 0x36, 0x4e, 0x35];
+        }
+
+        private static readonly string? RuntimeDirectory =
+            TryGetRuntimeDirectory();
+
+        private static string? TryGetRuntimeDirectory()
+        {
+            try
+            {
+                var directory = System.Runtime.InteropServices.RuntimeEnvironment
+                    .GetRuntimeDirectory();
+                return string.IsNullOrWhiteSpace(directory)
+                    ? null
+                    : Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Whether a type's <c>ToString()</c> is host code rather than user
+        /// code. Only the framework and the two trusted PowerShell assemblies
+        /// qualify. A dynamic assembly, or one with no on-disk location, is
+        /// never trusted — that is exactly what <c>Add-Type</c> produces, so a
+        /// user type can never reach a getter through this path.
+        /// </summary>
+        private static bool IsTrustedRenderingAssembly(
+            System.Reflection.Assembly assembly)
+        {
+            try
+            {
+                if (assembly.IsDynamic) return false;
+                if (IsTrustedPowerShellAssembly(assembly)) return true;
+
+                var location = assembly.Location;
+                if (string.IsNullOrEmpty(location)) return false;
+                if (RuntimeDirectory is null) return false;
+
+                var directory = Path.GetDirectoryName(Path.GetFullPath(location));
+                if (string.IsNullOrEmpty(directory)) return false;
+
+                return string.Equals(
+                    Path.TrimEndingDirectorySeparator(directory),
+                    RuntimeDirectory,
+                    OperatingSystem.IsWindows()
+                        ? StringComparison.OrdinalIgnoreCase
+                        : StringComparison.Ordinal);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>Cap on one rendered value, so a type with an enormous
+        /// <c>ToString()</c> cannot be retained whole.</summary>
+        internal const int MaximumRenderedCharacters = 2048;
+
+        internal const string RenderTruncationMarker = "[...truncated]";
+
+        /// <summary>
+        /// Renders a trusted type by its text instead of its shape. Calls
+        /// <c>ToString()</c> and nothing else: no property enumeration, no
+        /// ETS, no <c>PSPropertyAdapter</c>. Returns false for an untrusted
+        /// type or a throwing <c>ToString()</c>, leaving the caller to emit
+        /// the active-member placeholder.
+        /// </summary>
+        private static bool TryRenderTrustedText(object? value, out string text)
+        {
+            text = string.Empty;
+            if (value is null) return false;
+
+            var type = value.GetType();
+            if (!IsTrustedRenderingAssembly(type.Assembly)) return false;
+
+            string? rendered;
+            try
+            {
+                rendered = value.ToString();
+            }
+            catch
+            {
+                return false;
+            }
+
+            if (rendered is null) return false;
+            text = rendered.Length > MaximumRenderedCharacters
+                ? string.Concat(
+                    rendered.AsSpan(0, MaximumRenderedCharacters),
+                    RenderTruncationMarker)
+                : rendered;
+            return true;
         }
 
         private void ProjectOutput(PSObject? source)
@@ -1855,6 +1955,21 @@ public sealed class RunspaceHost : IDisposable
                 if (!HasOnlyDefaultCustomObjectTypeNames(source))
                     _activeMemberOmitted = true;
                 CopyPassiveInstanceNotes(detached, source);
+            }
+            else if (TryRenderTrustedText(baseObject, out var renderedText))
+            {
+                // The allowlist above knows six shapes; everything else used
+                // to become "[active member not evaluated]" and lose its
+                // value entirely — Get-Culture returned no data at all
+                // (GitHub #8). A trusted type's ToString() is host code, not
+                // user code, so rendering its text is safe where enumerating
+                // its properties would not be. Lossy, not omitted: no active
+                // member was skipped.
+                _lossyProjection = true;
+                if (!TryChargeProjection(MeasureRetainedText(renderedText) + 64))
+                    return;
+                _captured.Add(PSObject.AsPSObject(renderedText));
+                return;
             }
             else
             {
@@ -2002,6 +2117,13 @@ public sealed class RunspaceHost : IDisposable
         {
             var baseObject = value is PSObject wrapped ? wrapped.BaseObject : value;
             if (TryPassiveScalar(baseObject, out var scalar, out _)) return scalar;
+            // Same reasoning as the projection fallback: a trusted type's text
+            // beats "[nested ... not expanded]", which discarded the value.
+            if (TryRenderTrustedText(baseObject, out var renderedText))
+            {
+                _lossyProjection = true;
+                return renderedText;
+            }
             _activeMemberOmitted = true;
             return baseObject is null
                 ? null

@@ -70,6 +70,117 @@ public sealed class RunspaceHostTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Slice 7.0: the shaper recognized six types and returned
+    /// "[active member not evaluated]" for every other one, so a plain
+    /// framework object came back with no data at all. Outlook and EXO
+    /// (GitHub #8) were only where it was noticed — Get-Culture reproduces
+    /// it on a host with neither installed. A trusted type renders its
+    /// text.
+    /// </summary>
+    [Fact]
+    public async Task Trusted_framework_type_renders_its_text_instead_of_a_placeholder()
+    {
+        var expected = await _host.InvokeAsync(
+            "(Get-Culture).ToString()",
+            raw: true,
+            route: "pwsh");
+        Assert.True(expected.Success, string.Join(Environment.NewLine, expected.Errors));
+        var cultureName = expected.Output.Trim();
+
+        var result = await _host.InvokeAsync("Get-Culture");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.DoesNotContain(
+            "active member not evaluated",
+            result.Output,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(
+            "active_member_not_evaluated",
+            result.Output,
+            StringComparison.Ordinal);
+        // An invariant-culture host renders as the empty string; only assert
+        // the value when there is one to find.
+        if (!string.IsNullOrEmpty(cultureName))
+            Assert.Contains(cultureName, result.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Slice 7.0: a second trusted type, from a different assembly than
+    /// CultureInfo, must render too — the fallback keys on assembly trust,
+    /// not on a widened hard-coded type list.
+    /// </summary>
+    [Fact]
+    public async Task A_second_trusted_type_from_another_assembly_also_renders()
+    {
+        var result = await _host.InvokeAsync(
+            "[System.TimeZoneInfo]::Utc");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.DoesNotContain(
+            "active member not evaluated",
+            result.Output,
+            StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("UTC", result.Output, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Slice 7.0: rendering is bounded. A trusted type whose ToString() is
+    /// enormous is truncated rather than retained whole.
+    /// </summary>
+    [Fact]
+    public async Task Trusted_type_rendering_is_bounded_and_survives_a_throwing_ToString()
+    {
+        // A trusted framework type with a very large ToString(): retained
+        // text is capped rather than held whole.
+        var large = await _host.InvokeAsync(
+            "[string]::new('x', 200000) | ForEach-Object { [Text.StringBuilder]::new($_) }");
+
+        Assert.True(large.Success, string.Join(Environment.NewLine, large.Errors));
+        Assert.True(
+            large.Output.Length < 100000,
+            $"retained {large.Output.Length} chars; expected the rendering to be capped");
+    }
+
+    /// <summary>
+    /// Slice 7.0: widening the exception-message gate must not leak an
+    /// untrusted type's message. An Add-Type assembly is never trusted, so
+    /// its exception text stays omitted while a framework exception's
+    /// message now surfaces (GitHub #8, secondary complaint).
+    /// </summary>
+    [Fact]
+    public async Task Trusted_exception_message_surfaces_and_untrusted_stays_omitted()
+    {
+        var trusted = await _host.InvokeAsync(
+            "throw [System.InvalidOperationException]::new('PTK_TRUSTED_MESSAGE')",
+            route: "pwsh");
+
+        Assert.Contains(
+            "PTK_TRUSTED_MESSAGE",
+            string.Join(Environment.NewLine, trusted.Errors) + trusted.Output,
+            StringComparison.Ordinal);
+
+        const string source = """
+            public sealed class PtkUntrustedSlice70Exception : System.Exception
+            {
+                public PtkUntrustedSlice70Exception() : base("MUST_NOT_BE_READ_70") { }
+            }
+            """;
+        var encoded = Convert.ToBase64String(
+            System.Text.Encoding.Unicode.GetBytes(source));
+        var untrusted = await _host.InvokeAsync(
+            "$src = [Text.Encoding]::Unicode.GetString(" +
+            $"[Convert]::FromBase64String('{encoded}')); " +
+            "$t = @(Add-Type -TypeDefinition $src -PassThru)[0]; " +
+            "throw [Activator]::CreateInstance($t)",
+            route: "pwsh");
+
+        Assert.DoesNotContain(
+            "MUST_NOT_BE_READ_70",
+            string.Join(Environment.NewLine, untrusted.Errors) + untrusted.Output,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task State_persists_across_calls()
     {

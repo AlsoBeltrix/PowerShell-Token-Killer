@@ -27,9 +27,29 @@ short and update it when important repo facts change.
 
 ## Next
 
-**GitHub release packaging.** Plan:
-`.agents/plans/github-release-packaging.md` (DRAFT), which executes Slice 7
-of the router plan and supersedes the packaging mechanics of
+**Nothing is queued.** The release plan is fully executed and the candidate
+is proved. Decision 5 — tag `v0.2.0` and publish — is the only remaining
+gate, and it is owner-only. Do not tag, publish, or push a `v*` ref without
+an explicit go.
+
+Unqueued work that exists if the owner wants it, in no particular order:
+
+- A Kimi harness leg (none exists).
+- A POSIX bootstrap so macOS/Linux can install without `pwsh` already
+  present.
+- Narrowing the install-time smoke test. It is a full product handshake run
+  twice per install, opening worker sessions and writing under `~/.ptk`; a
+  failure of the second one rolls back an otherwise-good install, so a flake
+  reverts a working installation. Initialize plus `tools/list` would catch a
+  broken payload without that exposure.
+- One live defect seen during this session and not investigated:
+  `Get-Process dotnet | Where-Object { $_.CommandLine -match 'testhost' }`
+  was refused with `Trusted pre-execution isolation failed; the script was
+  NOT executed and the runspace was recycled` — an ordinary read-only
+  pipeline refused, and warm state lost, for a command that never ran.
+
+**Release plan:** `.agents/plans/github-release-packaging.md`, which executes
+Slice 7 of the router plan and supersedes the packaging mechanics of
 `.agents/plans/release-distribution.md`.
 
 **Decision 2 is RULED — five RIDs** (owner, 2026-08-03): `win-x64`,
@@ -101,8 +121,44 @@ what the installer placed so uninstall removes only that).
 
 **Every slice of the release plan is executed.** 7.2 version/licence
 packaging (`5b19260`, `fb6d951`), 7.3 `.github/workflows/release.yml`
-(`ecc5df4`), 7.4 `install.ps1` + `install.sh` (`141793d`, `eec2ccd`), 7.5
+(`ecc5df4`), 7.4 installers (`141793d`, `eec2ccd`, since consolidated), 7.5
 `server/direct-product-proof.ps1` (`db5601c`).
+
+**One installer: `scripts/install.ps1` (`3109ec1`, 2026-08-04).** Three
+existed. The root `install.ps1`/`install.sh` registered claude only and never
+called `ptk_init.ps1`, so anyone installing from a release never got the
+codex, grok, or agy legs — those legs are written and live-verified, and ran
+only from the dev script. Merged into the dev script, which already had the
+transaction, rollback, ARP entry, harness init, and uninstall; it gained
+`-FromRelease` (download the asset, verify against `SHA256SUMS`), rtk
+resolution before registration, and `-Purge`. Root scripts deleted, net −491
+lines. Modes: `-FromRelease`, bare (build checkout), `-Uninstall [-Purge]`,
+`-LayoutOnly -OutputDir` (release CI). Verified at that commit: server
+1,068/1,068, Pester 84 with 1 platform skip, layout build correct.
+
+Consequence to keep in view: **macOS and Linux now need `pwsh` to install**,
+because `install.sh` is gone. The installed payload still embeds its own
+PowerShell and does not need one. No POSIX bootstrap was written — deliberate
+under the owner's one-installer instruction, not an oversight.
+
+**Kimi has no harness leg.** `ptk_init.ps1` covers claude, codex, grok, and
+agy. Kimi is absent entirely; adding one needs its config location,
+registration format, and tool-name prefix.
+
+**Fixture sessions renamed `exchange-*` → `sample-*` (`e2d31db`).** The
+install-time smoke test printed `named worker topology ok: exchange-online
+pid=..., exchange-onprem pid=...` — two processes named after an admin's mail
+infrastructure, during a tool install. Nothing Exchange-related ran; the
+names were flavour resembling ptk's target workflows. The installer now also
+announces the smoke test before running it (local workers, no network).
+
+**Agent test plan: `docs/testplan.md` (`c73b434`).** ~70 numbered stress
+tests an agent runs against a ptk it is already connected to, filing one
+GitHub issue. Written for a cold reader on any machine: no install, no
+checkout, no session context, no chat residue. It is a document only — **do
+not run it and do not spawn agents against it** without an explicit owner go.
+Earlier drafts that put this in `.github/workflows/` and a `.agents/` plan
+were removed as wrong-shaped.
 
 **A `v0.2.0-rc.2` draft release exists and is proved** (run `30940515893`,
 head `fb6d951`): five RIDs each built, handshake-smoked, and RTK-gate-proved

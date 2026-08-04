@@ -1,12 +1,18 @@
 # Review status
 
-## Active — hcc (harness-consent codereview, 2026-08-04)
+## Closed — hcc (harness-consent codereview, 2026-08-04)
 
 Generation pass: codex-cli 0.146.0, `codex/gpt-5.6-sol/xhigh (inline,
 session-only)/standard`, over `19201a1..092df3b` (kimi leg + rollback
 inventory + consent feature). Verdict `findings` (5), capability_ok true,
-SHAs pinned and matched. All five admitted at intake. Per-finding detail:
-`.agents/review/findings/hcc-<n>.md`.
+SHAs pinned and matched. All five admitted at intake; hcc-6 joined as an
+owner field report mid-loop. All six fixed (one commit each), guard-proved
+(revert→fail→restore→pass, re-verified by the reviewer in its own
+worktree), and verified **accepted**: hcc-1..5 at codex standard
+(gpt-5.6-sol/high), hcc-6 at frontier (codex gpt-5.6-sol/xhigh,
+escalated: T2 — the recorded claude frontier proved undispatchable: org
+subscription access disabled; the owner named the codex frontier pair).
+Per-finding detail: `.agents/review/findings/hcc-<n>.md`.
 
 | ID    | Severity | Impact (one line)                                        | Status |
 |-------|----------|----------------------------------------------------------|--------|
@@ -15,7 +21,7 @@ SHAs pinned and matched. All five admitted at intake. Per-finding detail:
 | hcc-3 | MEDIUM   | apostrophe in ptk path writes invalid kimi TOML           | `[x]` (codex/gpt-5.6-sol/high/std, accepted) |
 | hcc-4 | LOW      | oversized consent number crashes instead of re-prompting  | `[x]` (codex/gpt-5.6-sol/high/std, accepted) |
 | hcc-5 | LOW      | kimi skip blurb ignores KIMI_CODE_HOME                    | `[x]` (codex/gpt-5.6-sol/high/std, accepted) |
-| hcc-6 | HIGH     | install rolls back when claude is detected without its CLI (owner field report) | `[~]`  |
+| hcc-6 | HIGH     | install rolls back when claude is detected without its CLI (owner field report) | `[x]` (codex/gpt-5.6-sol/xhigh/frontier, esc:T2, accepted) |
 
 > **Dispositioned 2026-08-03.** Every accepted `opr-*` finding now carries
 > exactly one disposition in `.agents/review/dispositions.md` — fixed,

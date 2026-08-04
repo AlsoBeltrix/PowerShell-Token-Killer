@@ -5,7 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
-- Active review loop: `.agents/review/index.md` — hcc-1..hcc-5 (codex generation pass over the kimi/consent range), fixes landing one commit per finding.
+- **hcc review loop closed (2026-08-04):** the codex generation pass over
+  the kimi/consent range produced five findings; those plus owner-reported
+  hcc-6 (**install rolled back on claude-less machines** — release-relevant,
+  fixed at `553450c`) are all fixed one-commit-each, guard-proved, and
+  reviewer-verified accepted (hcc-6 at frontier via owner-named codex pair;
+  the claude frontier is undispatchable on this machine — org subscription
+  disabled). Details: `.agents/review/index.md`.
 
 - **RTK is a required dependency (owner, 2026-08-03):** "rtk was never optional. rtk was always stated requirement when I asked for this." PTK is a compression router; the thing it routes to is not optional. A missing RTK is a startup error (exit 78) with an actionable message, never a silent degraded mode. Do not build a without-RTK product tier, capability matrix, or per-call degradation reporting. CI installs rtk on all three platforms.
 

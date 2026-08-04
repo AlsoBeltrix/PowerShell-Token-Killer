@@ -48,9 +48,9 @@ rather than trusting them at a later head.
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 99 passed, 1 platform-skipped (PowerShell module/setup suite; requires
-Pester 5 or later). The count rose from 84 with the kimi harness leg and the
-per-harness consent prompt.
+— 104 passed, 1 platform-skipped (PowerShell module/setup suite; requires
+Pester 5 or later). The count rose from 84 with the kimi harness leg, the
+per-harness consent prompt, and the hcc-1..6 review fixes.
 
 ```
 dotnet test server/PtkMcpServer.slnx

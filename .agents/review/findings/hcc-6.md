@@ -1,7 +1,7 @@
 # hcc-6: Install fails when claude is detected but its CLI is absent
 
 **Severity**: HIGH — a supported machine shape (no claude CLI, possibly a ~/.claude remnant) cannot install the product: the whole install rolls back.
-**Status**: In progress
+**Status**: Verified
 **Branch**: —
 **Commit**: `553450c`
 
@@ -55,3 +55,5 @@ harness.
 ## Reviewer comments
 (intake) Owner field report 2026-08-04 during the hcc loop; mechanism
 confirmed by code read.
+
+(verification) Reviewer: codex / gpt-5.6-sol / xhigh / frontier — escalated: T2 (recorded HIGH). codex-cli 0.146.0 (model from the -m pin; the JSONL stream emits no model id). The owner-named claude frontier (claude-opus-5/max) proved undispatchable on this machine — "Your organization has disabled Claude subscription access for Claude Code", identical on a fresh-process retry, recorded in `.agents/review/harnesses.local.json`; the owner then named codex gpt-5.6-sol @ xhigh as the codex frontier pair for this dispatch. reviewed_sha 553450c781895921043a7e23a53f231e8adf34d4, base_sha 5ff8bb10a6a95251340fee7c23f08164af95df7c, guard_confirmed true, capability_ok true, verdict **accepted**, 2026-08-04T23:49Z. Comments: "Independent head/base/head guard proof produced 2 PASS, 2 FAIL, then 2 PASS with exact base/head source blobs." / "A shimmed `claude mcp add` failure still exited 1, reported the failed leg, and installed no blocking hook." / "Uninstall without the claude CLI exited 0. The mhi-9 guard confirmed the hook remains skipped while the guidance nudge is retained." / "Full PowerShell suite passed: 104 passed, 0 failed, 1 skipped." (Reviewer-noted caveat: Pester's process exit code is 0 without -CI even when a test fails; the fail/pass mutation was directly observed, so the proof stands.) Record committed as part of the verification history.

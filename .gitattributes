@@ -1,3 +1,8 @@
+# Shell scripts must keep LF in the repository: a CRLF shebang makes the
+# kernel look for an interpreter named "/bin/sh\r", which does not exist.
+# install.sh is fetched and piped straight to sh by end users.
+*.sh text eol=lf
+
 # R0 contract artifacts are byte-exact inputs and must survive every checkout.
 server/Contracts/ResilienceR0/*.json text eol=lf
 server/Contracts/ResilienceR0/*.jsonl text eol=lf

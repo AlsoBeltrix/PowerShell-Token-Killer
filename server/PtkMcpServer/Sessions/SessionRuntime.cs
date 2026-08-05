@@ -174,6 +174,24 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
                 $"fallback={fallbackReason.ToMachineCode()}; " +
                 "the original script was dispatched once and PTK did not retry it.");
         }
+        else if (result.UserExecutionStarted &&
+                 result.Routing is { EffectivePath: ExecutionPath.Rtk } routed)
+        {
+            // Say so when a rewrite actually ran. Only declines were ever
+            // labeled, and only under an explicit route=rtk, so a caller could
+            // not tell from any response which route had run — the auto and
+            // pwsh responses for the same script were byte-identical (GitHub
+            // #34 F8, #35, #36).
+            //
+            // A decline under `auto` stays silent on purpose: it is the
+            // overwhelmingly common case (every cmdlet, every pipeline), and
+            // labeling it would put a routing line on nearly every response to
+            // report that nothing happened.
+            sb.AppendLine();
+            sb.Append(
+                $"[route] requested={routed.RequestedRoute.ToMachineCode()} " +
+                $"effective={routed.EffectivePath.ToMachineCode()}");
+        }
 
         if (result.ExitCode is int exitCode)
         {

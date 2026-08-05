@@ -52,6 +52,54 @@ public sealed class OutputShapingTests : IDisposable
         Assert.DoesNotContain("more", result.Output);
     }
 
+    /// <summary>
+    /// GitHub #34 F7 / #35 F4: an elided response carried
+    /// "[N lines elided - recovery=unavailable ...]" and then ended with a
+    /// working recovery handle — the two statements contradicted each other in
+    /// the same response. The hint is composed while the artifact is still
+    /// being written, so a handle it cannot see yet is not the same as no
+    /// recovery; it must not assert either way.
+    /// </summary>
+    [Fact]
+    public async Task An_elision_marker_never_contradicts_the_recovery_line()
+    {
+        var result = await _host.InvokeAsync(
+            "1..3000 | ForEach-Object { \"line-$_-\" + ('x' * 40) }");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Contains("elided", result.Output, StringComparison.Ordinal);
+        // The marker itself must claim no verdict.
+        var markerLine = result.Output
+            .Split('\n')
+            .FirstOrDefault(line => line.Contains("elided", StringComparison.Ordinal));
+        Assert.NotNull(markerLine);
+        Assert.DoesNotContain("recovery=unavailable", markerLine, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// GitHub #34 F8, #35, #36: only declines were labeled, and only under an
+    /// explicit route=rtk, so no response ever said which route actually ran —
+    /// the auto and pwsh answers for one script were byte-identical. A rewrite
+    /// that RUNS now says so.
+    ///
+    /// A decline under `auto` stays silent deliberately: that is every cmdlet
+    /// and every pipeline, and labeling it would put a routing line on nearly
+    /// every response to announce that nothing happened.
+    /// </summary>
+    [Fact]
+    public async Task A_plain_cmdlet_carries_no_routing_noise()
+    {
+        // The positive half — a command that actually routes reports
+        // effective=rtk — needs a real rtk, which this suite replaces with a
+        // stub, so it is proved against a live server instead (recorded in the
+        // commit). What is provable here is the half that would regress into
+        // noise: a decline under `auto` stays silent.
+        var plain = await _host.InvokeAsync("Get-Date -Format yyyy");
+
+        Assert.True(plain.Success, string.Join(Environment.NewLine, plain.Errors));
+        Assert.DoesNotContain("[route]", plain.Output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task Legacy_raw_does_not_skip_compression()
     {

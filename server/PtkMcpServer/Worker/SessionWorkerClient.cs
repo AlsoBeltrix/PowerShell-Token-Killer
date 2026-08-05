@@ -43,29 +43,24 @@ internal sealed class WorkerExitException(
     internal int? ExitCode { get; } = exitCode;
 
     /// <summary>
-    /// How the worker exited, derived from its exit code — the one signal on
-    /// this path the caller cannot author.
+    /// Whether PTK observed enough to say anything beyond "the worker died".
     /// </summary>
     /// <remarks>
-    /// Deliberately NOT parsed from <see cref="Diagnostic"/>. The worker runs
-    /// the caller's script in-process, so the caller shares the worker's
-    /// standard error and can write a convincing
-    /// <c>ptk_worker_exit kind=...</c> line before killing the process
-    /// (verified live, finding i13-1). Classifying from that text would let a
-    /// caller put words in PTK's mouth — a confidently wrong cause, which is
-    /// worse than the "unknown" this feature exists to replace. The exit code
-    /// is set by the runtime and cannot be forged from inside the script.
+    /// There is deliberately no <c>Kind</c> here. Nothing this class carries is
+    /// forgery-proof: the worker runs the caller's script in-process, so the
+    /// caller both shares the worker's standard error (can write a convincing
+    /// <c>ptk_worker_exit kind=...</c> line) and chooses the exit code
+    /// (<c>[Environment]::Exit(84)</c>). Deriving a cause from either would let
+    /// a caller put words in PTK's mouth. The first fix for i13-1 only moved
+    /// the forgery from the text to the code; the reviewer caught that.
+    ///
+    /// What PTK genuinely observed is that the process exited when nobody asked
+    /// it to. That is the only claim made. The exit code and the retained line
+    /// are still reported — they are usually the real cause and are exactly the
+    /// evidence GitHub #13 needs — but as labelled untrusted evidence, never as
+    /// PTK's own classification.
     /// </remarks>
-    internal string? Kind => ExitCode switch
-    {
-        WorkerProcessExit.InvalidInvocationExitCode => "invocation_error",
-        WorkerProcessExit.BootstrapFailureExitCode => "bootstrap_failure",
-        WorkerProcessExit.InitializeFailureExitCode => "initialize_failed",
-        WorkerProcessExit.ProtocolFailureExitCode => "protocol_error",
-        WorkerProcessExit.TransportFailureExitCode => "transport_failure",
-        WorkerProcessExit.RuntimeFailureExitCode => "runtime_failure",
-        _ => null,
-    };
+    internal bool HasEvidence => ExitCode is not null || Diagnostic is not null;
 
     private static string Describe(string? diagnostic, int? exitCode)
     {
@@ -831,11 +826,13 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         {
             WorkerProtocolException protocol => protocol.DetailCode,
             WorkerProcessException process => process.DetailCode,
-            // The worker's own vocabulary when it managed to say why, its exit
-            // otherwise. Only a death that explains nothing falls through to
-            // the transport code, which is all any of these used to report.
-            WorkerExitException { Kind: { } kind } => $"worker_exit_{kind}",
-            WorkerExitException { ExitCode: not null } =>
+            // One code for every unrequested death, because that is the only
+            // thing PTK observed rather than was told. The cause travels as
+            // labelled untrusted evidence beside it — a caller controls both
+            // the worker's exit code and its standard error, so any finer
+            // classification here would be PTK repeating the caller's claim as
+            // its own (i13-1, reopened).
+            WorkerExitException { HasEvidence: true } =>
                 "worker_exited_unexpectedly",
             EndOfStreamException => "worker_transport_closed",
             ObjectDisposedException => "worker_transport_closed",
@@ -927,11 +924,7 @@ internal sealed class ProcessSessionWorker : ISessionWorker
     /// reached the pipe — with the blanket "worker_transport_closed".
     /// </summary>
     private WorkerExitException? InformativeWorkerExit() =>
-        RecordedWorkerExit() is { } exit &&
-            (exit.Kind is not null || exit.ExitCode is not null ||
-                exit.Diagnostic is not null)
-            ? exit
-            : null;
+        RecordedWorkerExit() is { HasEvidence: true } exit ? exit : null;
 
     private WorkerExitException? RecordedWorkerExit() =>
         _fatal.Task.IsFaulted

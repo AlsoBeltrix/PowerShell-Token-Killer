@@ -101,18 +101,22 @@ public sealed class WorkerSupervisorTests
     {
         var text = await InvokePublicAsync(
             WorkerInvocationDisposition.OutcomeUnknown,
-            "worker_exit_runtime_failure",
+            "worker_exited_unexpectedly",
             "sample-online",
             new WorkerExitException(
                 "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
                 exitCode: 84));
 
+        // The facts are carried, and explicitly marked as possibly the
+        // caller's own: the executed script controls both the worker's exit
+        // code and its standard error (i13-1, reopened).
         Assert.Equal(
             "[ptk invoke] status=outcome_unknown session=sample-online " +
-            "detail=worker_exit_runtime_failure; do not resubmit automatically; " +
-            "PTK did not retry the command. worker exit_code=84 " +
-            "worker_stderr_tail(untrusted)=\"ptk_worker_exit " +
-            "kind=runtime_failure detail=runtime_failure\"",
+            "detail=worker_exited_unexpectedly; do not resubmit automatically; " +
+            "PTK did not retry the command. evidence(untrusted, may originate " +
+            "from the executed command): exit_code=84 " +
+            "worker_stderr_tail=\"ptk_worker_exit kind=runtime_failure " +
+            "detail=runtime_failure\"",
             text);
     }
 
@@ -128,7 +132,8 @@ public sealed class WorkerSupervisorTests
             "worker_transport_failure",
             "sample-onprem");
 
-        Assert.DoesNotContain("worker exit_code=", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("evidence(untrusted", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("exit_code=", text, StringComparison.Ordinal);
         Assert.DoesNotContain("worker_stderr_tail", text, StringComparison.Ordinal);
     }
 

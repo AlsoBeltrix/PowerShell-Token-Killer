@@ -341,18 +341,20 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
     {
         if (exception.WorkerExit is not { } exit)
             return string.Empty;
-        var sb = new StringBuilder();
+        // Everything here is labelled untrusted because all of it is: the
+        // caller's script runs inside the worker, so it both shares the
+        // worker's standard error and chooses the exit code (i13-1, reopened).
+        // The facts are still shown — they are usually the real cause, and
+        // they are the evidence #13 exists to deliver — but the reader must
+        // weigh them, not read them as PTK's own finding.
+        var sb = new StringBuilder(" evidence(untrusted, may originate from the executed command):");
         if (exit.ExitCode is { } code)
         {
-            sb.Append(" worker exit_code=")
+            sb.Append(" exit_code=")
                 .Append(code.ToString(CultureInfo.InvariantCulture));
         }
-        // Labelled untrusted because it is: the caller's own script shares the
-        // worker's standard error, so this line may be theirs rather than the
-        // worker's (finding i13-1). It is still worth showing — it is often the
-        // real cause — but the reader must not read it as PTK's finding.
         if (exit.Diagnostic is { } diagnostic)
-            sb.Append(" worker_stderr_tail(untrusted)=\"").Append(diagnostic).Append('"');
+            sb.Append(" worker_stderr_tail=\"").Append(diagnostic).Append('"');
         return sb.ToString();
     }
 

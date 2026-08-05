@@ -88,6 +88,48 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Finding i13-2: the Unix worker exit code must stay absent. The only
+    /// status observable here is the broker's, and the broker reports its own
+    /// containment outcome — a fixed 64 once it reaps the worker
+    /// (`monitor_worker`) — never the child's. Publishing that as "the worker's
+    /// exit code" made every Unix death claim the same wrong number.
+    /// </summary>
+    /// <remarks>
+    /// Asserted against the source, like the other invariants in this class,
+    /// because the behavioural tests here skip on Windows and a scripted
+    /// in-memory fake cannot fail when the real launcher regresses — the
+    /// reviewer proved the first attempt at this guard vacuous for exactly that
+    /// reason. Restoring `_brokerExit.Result` fails this test on every
+    /// platform.
+    /// </remarks>
+    [Fact]
+    public void Unix_reports_no_worker_exit_code_because_only_the_brokers_is_observable()
+    {
+        var launcher = File.ReadAllText(LauncherSourcePath());
+        var broker = File.ReadAllText(BrokerSourcePath());
+
+        Assert.Matches(
+            new Regex(
+                @"public\s+int\?\s+ExitCode\s*=>\s*null\s*;",
+                RegexOptions.CultureInvariant),
+            launcher);
+        Assert.DoesNotMatch(
+            new Regex(
+                @"ExitCode\s*=>[\s\S]{0,200}?_brokerExit",
+                RegexOptions.CultureInvariant),
+            launcher);
+        // The premise: the broker returns its own constant after reaping, so
+        // there is no worker status to relay yet. If this stops holding, the
+        // finding's reasoning needs revisiting before the property changes.
+        Assert.Matches(
+            new Regex(
+                @"if\s*\(worker_reaped\)\s*\{[\s\S]{0,400}?return\s+contain_worker\(" +
+                    @"[\s\S]{0,120}?\?\s*64",
+                RegexOptions.CultureInvariant),
+            broker);
+    }
+
     [Fact]
     public void Confirmed_registry_proof_is_published_before_containment_returns()
     {

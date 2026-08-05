@@ -765,7 +765,7 @@ public sealed class SessionWorkerClientTests
         Assert.Equal(
             WorkerInvocationDisposition.OutcomeUnknown,
             failure.Disposition);
-        Assert.Equal("worker_exit_runtime_failure", failure.CauseDetailCode);
+        Assert.Equal("worker_exited_unexpectedly", failure.CauseDetailCode);
         Assert.Equal(84, failure.WorkerExit?.ExitCode);
         Assert.Equal(
             "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
@@ -876,14 +876,22 @@ public sealed class SessionWorkerClientTests
     }
 
     /// <summary>
-    /// Finding i13-1: the worker runs the caller's script in-process, so the
-    /// caller shares the worker's standard error and can write a convincing
-    /// ptk_worker_exit line before killing the process. Classification comes
-    /// from the exit code, which the script cannot forge — a confidently wrong
-    /// cause is worse than the "unknown" this feature replaced.
+    /// Finding i13-1, reopened: the caller's script runs inside the worker, so
+    /// it controls BOTH the standard error text and the exit code
+    /// ([Environment]::Exit(84)). Neither is forgery-proof, so PTK asserts only
+    /// what it observed — that the process exited unrequested — and carries the
+    /// rest as untrusted evidence. The first fix merely moved the forgery from
+    /// the text to the code.
     /// </summary>
-    [Fact]
-    public async Task A_forged_exit_line_cannot_dictate_the_reported_kind()
+    [Theory]
+    // A perfect imitation of a genuine runtime failure: the worker's own
+    // diagnostic wording AND its reserved exit code, both chosen by the caller.
+    [InlineData("ptk_worker_exit kind=runtime_failure detail=runtime_failure\n", 84)]
+    [InlineData("ptk_worker_exit kind=protocol_error detail=invalid_json\n", 82)]
+    [InlineData("ptk_worker_exit kind=bootstrap_failure detail=handle_missing\n", 80)]
+    public async Task A_caller_cannot_make_ptk_assert_a_cause(
+        string forged,
+        int forgedExitCode)
     {
         var process = new ScriptedProcess();
         await using var client = new ProcessSessionWorker(
@@ -901,27 +909,29 @@ public sealed class SessionWorkerClientTests
             artifactCapture: null,
             CancellationToken.None);
         _ = await process.ReadRequestAsync();
-        // Exactly what the worker writes for a genuine runtime failure, but
-        // paired with an exit code the worker never uses for one.
-        await process.ExitUnexpectedlyAsync(
-            "ptk_worker_exit kind=runtime_failure detail=runtime_failure\n",
-            exitCode: 1);
+        await process.ExitUnexpectedlyAsync(forged, forgedExitCode);
 
         var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
             () => call);
 
+        // PTK claims only the death, never a cause it was handed.
         Assert.Equal("worker_exited_unexpectedly", failure.CauseDetailCode);
-        Assert.NotEqual("worker_exit_runtime_failure", failure.CauseDetailCode);
-        // Still retained: it is evidence, just not PTK's classification.
-        Assert.Equal(
-            "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
-            failure.WorkerExit?.Diagnostic);
+        Assert.DoesNotContain(
+            "worker_exit_",
+            failure.CauseDetailCode,
+            StringComparison.Ordinal);
+        // The evidence still travels — it is usually the real cause.
+        Assert.Equal(forged.TrimEnd('\n'), failure.WorkerExit?.Diagnostic);
+        Assert.Equal(forgedExitCode, failure.WorkerExit?.ExitCode);
     }
 
     /// <summary>
-    /// Finding i13-2: on Unix no worker exit code is observable, so nothing is
-    /// classified there — but the worker's own dying words still reach the
-    /// caller. Losing the classification must not lose the evidence too.
+    /// Finding i13-2, second half: with no exit code at all the worker's own
+    /// dying words must still reach the caller. This covers the shape, not the
+    /// Unix property itself — that guard lives in
+    /// <c>UnixWorkerExitCodeTests</c>, because a scripted fake cannot fail when
+    /// the real launcher regresses (the reviewer proved this one vacuous for
+    /// that purpose).
     /// </summary>
     [Fact]
     public async Task Without_an_exit_code_the_diagnostic_still_reaches_the_caller()
@@ -949,9 +959,11 @@ public sealed class SessionWorkerClientTests
         var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
             () => call);
 
-        // No forgeable signal is trusted, so no kind is claimed...
-        Assert.Equal("worker_transport_closed", failure.CauseDetailCode);
-        // ...but the text is still carried, which is what a reader needs.
+        // The death is still named as a death — a diagnostic is evidence even
+        // with no exit code, which is precisely the Unix case.
+        Assert.Equal("worker_exited_unexpectedly", failure.CauseDetailCode);
+        Assert.Null(failure.WorkerExit?.ExitCode);
+        // And the text is carried, which is what a reader needs.
         Assert.Equal(
             "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
             failure.WorkerExit?.Diagnostic);
@@ -998,8 +1010,11 @@ public sealed class SessionWorkerClientTests
                 artifactCapture: null,
                 CancellationToken.None));
 
-        Assert.Equal("worker_exit_runtime_failure", second.CauseDetailCode);
+        Assert.Equal("worker_exited_unexpectedly", second.CauseDetailCode);
         Assert.Equal(84, second.WorkerExit?.ExitCode);
+        Assert.Equal(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
+            second.WorkerExit?.Diagnostic);
     }
 
     private static async Task InitializeAsync(

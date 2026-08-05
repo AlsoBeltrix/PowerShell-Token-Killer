@@ -1838,3 +1838,19 @@ of the commit under test. When these four fail together from a ptk session,
 re-run from a plain shell before treating it as a product regression.
 Whether the truncation is product-visible inside `ptk_invoke` child
 processes is undecided — not filed as an issue; owner's call.
+
+## Hosted CI runner flakes (GitHub Actions)
+
+Observed 2026-08-05, recorded so the next reader does not re-investigate a
+green product as a regression.
+
+- `test (windows-latest)` failed run 31028868581 at `178acea` with
+  `System.IO.IOException : The protected external path owner or DACL is
+  invalid` from `SecureAuditStorage.VerifyWindowsOwnerOnlyAcl`, in
+  `FileAuditJournalSinkTests.Concurrent_factories_converge_on_one_host_identity_without_temporary_files`.
+  The commit touched only worker death diagnostics -- nothing near audit
+  storage. The immediately following commit (`17a6a44`, same audit code)
+  passed all six jobs, and the same suite passed locally on Windows at both
+  commits. Treated as a runner-environment flake in the audit ACL fixture,
+  not a product failure. A recurrence with a product change nearby deserves a
+  fresh look.

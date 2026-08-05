@@ -109,6 +109,15 @@ machine observation from this pass (ptk-session `PSModulePath` truncation
 failing four StateToolTests) is recorded in `.agents/machines.md`, not filed
 as an issue — owner's call whether it is product-visible.
 
+Session-close facts (as of `4943cf1`, 2026-08-05): the owner pushed all
+three remotes to `4943cf1` by hand. The #38 and #41 fixes landed without a
+reviewer dispatch — codex was undispatchable at the time (its configured
+headroom gateway was not running and the owner was out of frontier-model
+credits), and the owner declined an automatic dispatch for these fixes.
+Server suite 1,132/1,132 from a plain shell at that head; run verification
+from a plain shell if the four StateToolTests fail together from a ptk
+session (see `.agents/machines.md`).
+
 Decision 5 — tag `v0.2.0` and publish — is still owner-only and untouched.
 
 Decision 5 — tag `v0.2.0` and publish — remains owner-only and is now

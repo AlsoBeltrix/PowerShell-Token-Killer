@@ -1,3 +1,5 @@
+using PtkMcpServer.Sessions;
+
 namespace PtkMcpServer.Tests;
 
 // ProcessEnvironment collection: mutates PSExecutionPolicyPreference and calls
@@ -86,6 +88,43 @@ public sealed class OutputShapingTests : IDisposable
     /// and every pipeline, and labeling it would put a routing line on nearly
     /// every response to announce that nothing happened.
     /// </summary>
+    /// <summary>
+    /// GitHub #34 F2, #35 F5: for a lossy projection the artifact stores the
+    /// same reduced view already shown inline — #34 measured a nested graph
+    /// whose entire stored capture was 105 bytes of the collapsed table — yet
+    /// the response offered a bare "recovery=available", promising a fuller
+    /// copy that does not exist. The offer stands; the claim is now qualified.
+    /// </summary>
+    [Fact]
+    public async Task A_lossy_projection_says_its_artifact_holds_the_same_view()
+    {
+        // Driven through the session runtime, which composes the recovery
+        // line; InvokeAsync alone returns the shaped text without it.
+        using var store = new OutputStore(new OutputStoreOptions(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".ptk",
+                "lossy-recovery-tests",
+                Guid.NewGuid().ToString("N")),
+            TimeSpan.FromMinutes(15),
+            TimeSpan.FromHours(1),
+            MaximumArtifactBytes: 1024 * 1024,
+            MaximumSessionBytes: 2 * 1024 * 1024,
+            MaximumAggregateBytes: 4 * 1024 * 1024));
+        using var runtime = new SessionRuntime(_host, new RawUsageCounter());
+
+        var result = await runtime.InvokeAsync(
+            "[pscustomobject]@{ L1 = [pscustomobject]@{ L2 = 'deep' } }",
+            CancellationToken.None,
+            outputStore: store);
+
+        Assert.Contains("recovery=available", result, StringComparison.Ordinal);
+        Assert.Contains(
+            "same shaped view as above",
+            result,
+            StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_plain_cmdlet_carries_no_routing_noise()
     {

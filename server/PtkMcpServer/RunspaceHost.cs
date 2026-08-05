@@ -1833,6 +1833,99 @@ public sealed class RunspaceHost : IDisposable
             }
         }
 
+        /// <summary>
+        /// How much a property name looks like the thing that identifies an
+        /// object. Used only to order projection so the cap keeps the columns
+        /// a reader wants; it never decides whether a property is safe.
+        /// </summary>
+        private static int IdentityRank(string name) => name switch
+        {
+            "Name" => 5,
+            "Id" or "Status" => 4,
+            "DisplayName" or "FullName" or "Path" => 3,
+            "Value" or "Version" or "Length" or "Count" => 2,
+            _ => name.EndsWith("Name", StringComparison.Ordinal) ? 1 : 0,
+        };
+
+        /// <summary>How many scalar properties of one trusted object are
+        /// projected. Bounds a pathological type without truncating any
+        /// ordinary one — the widest in practice is CultureInfo at 14.</summary>
+        internal const int MaximumProjectedProperties = 32;
+
+        /// <summary>
+        /// Projects the scalar properties of a trusted type by name, instead
+        /// of collapsing the object to a single <c>ToString()</c>.
+        ///
+        /// Only trusted assemblies qualify, so the getters are host code —
+        /// the same rule <see cref="TryRenderTrustedText"/> already applies.
+        /// Only scalar-typed properties are read: a property returning
+        /// another object could be arbitrarily deep or expensive, and
+        /// <c>TryPassiveScalar</c> already defines what is inert to retain.
+        /// Indexers are skipped (they take arguments and may be unbounded),
+        /// and a getter that throws costs its own property, not the object.
+        ///
+        /// Returns false when nothing useful came back, leaving the caller to
+        /// fall through to the text rendering.
+        /// </summary>
+        private bool TryProjectTrustedProperties(PSObject detached, object? value)
+        {
+            if (value is null) return false;
+
+            var type = value.GetType();
+            if (!IsTrustedRenderingAssembly(type.Assembly)) return false;
+
+            System.Reflection.PropertyInfo[] properties;
+            try
+            {
+                properties = type.GetProperties(
+                    System.Reflection.BindingFlags.Public |
+                    System.Reflection.BindingFlags.Instance);
+            }
+            catch
+            {
+                return false;
+            }
+
+            // Reflection order is declaration order, which is not usefulness
+            // order: ServiceController yielded UserName and BinaryPathName
+            // while Name and Status fell past the cap. PowerShell's own
+            // preferred-column data would be authoritative, but reading it
+            // means entering ETS — exactly what capture must not do. Prefer
+            // identity-shaped names instead; it is a static rule over property
+            // names and reads nothing.
+            var ordered = properties
+                .OrderByDescending(property => IdentityRank(property.Name))
+                .ToArray();
+
+            var projected = 0;
+            foreach (var property in ordered)
+            {
+                if (projected >= MaximumProjectedProperties) break;
+                if (!property.CanRead) continue;
+                if (property.GetIndexParameters().Length > 0) continue;
+
+                object? raw;
+                try
+                {
+                    raw = property.GetValue(value);
+                }
+                catch
+                {
+                    // One unreadable property is not a reason to lose the rest.
+                    continue;
+                }
+
+                // Scalars only: TryPassiveScalar is the existing definition of
+                // what is inert enough to retain.
+                if (!TryPassiveScalar(raw, out var scalar, out _)) continue;
+
+                AddPassiveProperty(detached, property.Name, scalar);
+                projected++;
+            }
+
+            return projected > 0;
+        }
+
         /// <summary>Cap on one rendered value, so a type with an enormous
         /// <c>ToString()</c> cannot be retained whole.</summary>
         internal const int MaximumRenderedCharacters = 2048;
@@ -1955,6 +2048,15 @@ public sealed class RunspaceHost : IDisposable
                 if (!HasOnlyDefaultCustomObjectTypeNames(source))
                     _activeMemberOmitted = true;
                 CopyPassiveInstanceNotes(detached, source);
+            }
+            else if (TryProjectTrustedProperties(detached, baseObject))
+            {
+                // Named values beat one display string. Rendering ToString()
+                // alone gave `Get-Culture` -> "en-US" and dropped all 21 of
+                // its properties; every platform report measured that loss
+                // (GitHub #33-#36). Scalar properties of a trusted type are
+                // host code and safe to read, so they are projected by name.
+                _lossyProjection = true;
             }
             else if (TryRenderTrustedText(baseObject, out var renderedText))
             {

@@ -227,11 +227,26 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
             result.OutputRecovery is { Advertise: true } recovery)
         {
             sb.AppendLine();
-            sb.Append(recovery.Handle is { } handle
-                ? $"recovery=available: ptk_output handle={handle}"
-                : recovery.DetailCode == "rtk_capture_unsupported"
+            if (recovery.Handle is { } handle)
+            {
+                // Same qualifier as the worker path (WorkerSupervisor): a
+                // lossy projection's artifact holds the reduced view already
+                // shown inline, and a bare "recovery=available" promised more
+                // than exists (GitHub #34 F2, #35 F5).
+                sb.Append($"recovery=available: ptk_output handle={handle}");
+                if (recovery.DetailCode == "passive_projection_lossy")
+                {
+                    sb.Append(
+                        " (same shaped view as above; the unshaped object was " +
+                        "not retained)");
+                }
+            }
+            else
+            {
+                sb.Append(recovery.DetailCode == "rtk_capture_unsupported"
                     ? "recovery=unavailable: rtk capture unsupported"
                     : "recovery=unavailable: output capture unavailable; command was not rerun");
+            }
         }
 
         var response = sb.ToString().TrimEnd();

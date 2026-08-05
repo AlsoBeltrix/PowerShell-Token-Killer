@@ -241,6 +241,19 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             {
                 sb.Append("recovery=available: ptk_output handle=")
                     .Append(handle);
+                // Say what the artifact actually holds. A lossy projection
+                // stores the same reduced view already shown inline, so a bare
+                // "recovery=available" promised a fuller copy that does not
+                // exist — worst on nested objects, where the entire stored
+                // capture was the collapsed table (GitHub #34 F2, #35 F5).
+                // The handle is still offered: it is a stable snapshot, and
+                // the caller decides whether reading it is worthwhile.
+                if (recovery.DetailCode == "passive_projection_lossy")
+                {
+                    sb.Append(
+                        " (same shaped view as above; the unshaped object was " +
+                        "not retained)");
+                }
             }
             else
             {

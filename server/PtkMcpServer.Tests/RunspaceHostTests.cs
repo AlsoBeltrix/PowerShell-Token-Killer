@@ -106,6 +106,70 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     /// <summary>
+    /// GitHub #33-#36, the headline complaint: a trusted object collapsed to
+    /// one display string, losing every named value. #34 measured it — 0 of 21
+    /// CultureInfo properties, 0 of 7 on TimeZoneInfo. Scalar properties of a
+    /// trusted type are host code and are now projected by name.
+    /// </summary>
+    [Fact]
+    public async Task A_trusted_type_projects_its_named_scalar_properties()
+    {
+        var culture = await _host.InvokeAsync("Get-Culture");
+
+        Assert.True(culture.Success, string.Join(Environment.NewLine, culture.Errors));
+        // Named columns, not one bare display string. The inline table is
+        // width-bounded, so this asserts that identity-shaped names lead —
+        // which is what the ordering exists to guarantee — not that every
+        // property fits.
+        Assert.Contains("Name", culture.Output, StringComparison.Ordinal);
+        Assert.Contains("DisplayName", culture.Output, StringComparison.Ordinal);
+        Assert.Contains("en-US", culture.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "active member not evaluated",
+            culture.Output,
+            StringComparison.OrdinalIgnoreCase);
+
+        var zone = await _host.InvokeAsync("[System.TimeZoneInfo]::Local");
+        Assert.True(zone.Success, string.Join(Environment.NewLine, zone.Errors));
+        Assert.Contains("Id", zone.Output, StringComparison.Ordinal);
+        Assert.Contains("DisplayName", zone.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The property projection must not become a way to run user code: an
+    /// Add-Type type is untrusted, so none of its getters may be invoked even
+    /// though projection now reads properties.
+    /// </summary>
+    [Fact]
+    public async Task Projecting_properties_never_reads_an_untrusted_type()
+    {
+        const string source = """
+            public sealed class PtkProjectionProbe
+            {
+                public static int Reads;
+                public string Trap { get { Reads++; return "MUST_NOT_PROJECT"; } }
+                public int Number { get { Reads++; return 7; } }
+            }
+            """;
+        var encoded = Convert.ToBase64String(
+            System.Text.Encoding.Unicode.GetBytes(source));
+        var result = await _host.InvokeAsync(
+            "$src = [Text.Encoding]::Unicode.GetString(" +
+            $"[Convert]::FromBase64String('{encoded}')); " +
+            "$global:ptkProjectionType = @(Add-Type -TypeDefinition $src -PassThru)[0]; " +
+            "[Activator]::CreateInstance($global:ptkProjectionType)",
+            route: "pwsh");
+
+        Assert.DoesNotContain("MUST_NOT_PROJECT", result.Output, StringComparison.Ordinal);
+
+        var reads = await _host.InvokeAsync(
+            "$global:ptkProjectionType.GetField('Reads').GetValue($null)",
+            raw: true,
+            route: "pwsh");
+        Assert.Equal("0", reads.Output.Trim());
+    }
+
+    /// <summary>
     /// Slice 7.0: a second trusted type, from a different assembly than
     /// CultureInfo, must render too — the fallback keys on assembly trust,
     /// not on a widened hard-coded type list.

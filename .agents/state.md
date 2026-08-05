@@ -64,8 +64,22 @@ short and update it when important repo facts change.
 ## Next
 
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
-issues, one codex review per completed fix, maximum two rounds. #37 and the
-version gap are done. Remaining, roughly by weight:
+issues, one codex review per completed fix, maximum two rounds.
+
+Done so far: #37 (shadowed-name routing), the version gap, the
+elision/recovery contradiction, the missing effective-route label, refusals
+arriving as MCP success, and the misapplied uncertainty rider.
+
+**Known follow-up, deliberately deferred:** the refusal → `isError` mapping
+reads the response text, because the tools return `Task<string>` and the
+structured `InvokeDisposition` is flattened before the filter sees it. Codex
+round 2 argued for carrying the outcome as data instead, and it is right —
+text matching cannot be made airtight, only well-pinned. Every marker the
+matcher accepts is covered by a test, including the false-positive shapes.
+Threading a structured result through the tool surface is the real fix and
+is a larger change than this batch.
+
+Remaining, roughly by weight:
 
 1. **Passive object shaping** — the dominant complaint in all four reports.
    `Get-Culture` renders `en-US` and nothing else; #34 quantified 0 of 21
@@ -77,19 +91,11 @@ version gap are done. Remaining, roughly by weight:
    advertised recovery cannot exist. Worst on nested graphs (#34 F2: the
    entire stored capture is 105 bytes of the table already shown) and on a
    1 MB `ToString()` where ~1.1 MB survives nowhere.
-3. **Contradictory elision marker** — `[N lines elided - recovery=unavailable
-   ...]` in the same response that ends `recovery=available: handle=...`, and
-   the retained window is a head-only prefix while the inline view implies
-   head+tail.
-4. **`route=auto` never labels its effective route**, though the description
-   says a decline is labeled; you cannot tell which route ran.
-5. **`IsError=false` on every refusal** (#34) — session_not_found,
-   capacity_exceeded, recovering, handle_not_found all arrive as MCP success;
-   a client trusting `isError` treats them as having worked.
-6. **`outcome may be unknown` on failures whose outcome is known** (#35 F6) —
-   a parse error executed nothing; the rider teaches distrust where trust is
-   deserved.
-7. Platform-specific: macOS 2-minute pipeline dies at the MCP layer and the
+3. **The retained window is a head-only prefix** while the inline view shows
+   head+tail, implying the end is recoverable when it is not (#35 F4). The
+   marker's contradictory wording is fixed; the prefix-vs-window claim is
+   not.
+4. Platform-specific: macOS 2-minute pipeline dies at the MCP layer and the
    worker is lost (#35 F2, Linux ran the same test fine); Windows ARM64 MSIX
    module imports fail `Access is denied` inside workers (#34 F3); Linux
    `2>&1` reverses stdout/stderr ordering (#36).

@@ -36,9 +36,15 @@ public sealed class SessionRuntimeTests
         int expectedSeconds)
     {
         var previous = Environment.GetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS");
+        var previousMax = Environment.GetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS");
         try
         {
             Environment.SetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS", configured);
+            // Hold the maximum at the ceiling so this theory judges the call
+            // value on its own merits; the pair rule has its own theory
+            // below, and without this the 86400 case falls back because it
+            // exceeds the default 3600 maximum.
+            Environment.SetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS", "86400");
 
             // Must not throw for any input, and must land on a value the
             // worker protocol will actually accept.
@@ -52,6 +58,50 @@ public sealed class SessionRuntimeTests
         finally
         {
             Environment.SetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS", previous);
+            Environment.SetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS", previousMax);
+        }
+    }
+
+    /// <summary>
+    /// opr-10, the pair half: each value can be individually legal and the
+    /// PAIR still illegal, because CreateLimits rejects a default greater
+    /// than the maximum. Validating the two variables independently does not
+    /// cover it, and the throw lands in the same place — before the MCP
+    /// handshake in supervisor mode, before initialize in worker mode.
+    /// </summary>
+    [Theory]
+    [InlineData("3000", "100")]    // both legal alone, inverted together
+    [InlineData("86400", "1")]     // both boundaries, inverted together
+    // Finding o10-1: the simplest trigger of all -- lower the maximum alone
+    // and leave the call timeout unset, so the 300 default exceeds it.
+    [InlineData(null, "100")]
+    [InlineData("300", "3600")]    // the shipped defaults
+    [InlineData("1", "86400")]
+    [InlineData("abc", "xyz")]     // both fall back
+    public void Configured_timeout_pair_is_always_one_the_protocol_accepts(
+        string? call,
+        string maximum)
+    {
+        var previousCall = Environment.GetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS");
+        var previousMax = Environment.GetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS");
+        try
+        {
+            Environment.SetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS", call);
+            Environment.SetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS", maximum);
+
+            var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
+            var maxTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
+
+            // Exactly what Program.cs and WorkerProcessEntry do next. It must
+            // not throw for any configured pair.
+            var limits = WorkerOperationProtocol.CreateLimits(callTimeout, maxTimeout);
+
+            Assert.True(limits.DefaultTimeoutSeconds <= limits.MaximumTimeoutSeconds);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PTK_CALL_TIMEOUT_SECONDS", previousCall);
+            Environment.SetEnvironmentVariable("PTK_MAX_CALL_TIMEOUT_SECONDS", previousMax);
         }
     }
 

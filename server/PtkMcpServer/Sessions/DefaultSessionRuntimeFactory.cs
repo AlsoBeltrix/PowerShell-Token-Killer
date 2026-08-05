@@ -10,11 +10,32 @@ namespace PtkMcpServer.Sessions;
 /// </summary>
 internal static class DefaultSessionRuntimeFactory
 {
-    internal static TimeSpan ReadCallTimeout() =>
-        ReadPositiveSeconds("PTK_CALL_TIMEOUT_SECONDS", 300);
+    private const double DefaultCallTimeoutSeconds = 300;
+    private const double DefaultMaxCallTimeoutSeconds = 3600;
 
-    internal static TimeSpan ReadMaxCallTimeout() =>
-        ReadPositiveSeconds("PTK_MAX_CALL_TIMEOUT_SECONDS", 3600);
+    internal static TimeSpan ReadCallTimeout()
+    {
+        var call = ReadSeconds("PTK_CALL_TIMEOUT_SECONDS", DefaultCallTimeoutSeconds);
+        // opr-10, the pair half: each variable can be individually legal
+        // while the PAIR is not, because CreateLimits rejects a default
+        // greater than the maximum. Configuring only the call timeout above
+        // the default maximum is the ordinary way to hit it. An inverted pair
+        // is a misconfiguration of BOTH values, so both fall back together
+        // rather than silently honouring one and inventing the other.
+        return TimeSpan.FromSeconds(
+            call <= ReadSeconds("PTK_MAX_CALL_TIMEOUT_SECONDS", DefaultMaxCallTimeoutSeconds)
+                ? call
+                : DefaultCallTimeoutSeconds);
+    }
+
+    internal static TimeSpan ReadMaxCallTimeout()
+    {
+        var maximum = ReadSeconds("PTK_MAX_CALL_TIMEOUT_SECONDS", DefaultMaxCallTimeoutSeconds);
+        return TimeSpan.FromSeconds(
+            ReadSeconds("PTK_CALL_TIMEOUT_SECONDS", DefaultCallTimeoutSeconds) <= maximum
+                ? maximum
+                : DefaultMaxCallTimeoutSeconds);
+    }
 
     internal static SessionRuntime Create(
         TimeSpan callTimeout,
@@ -56,17 +77,16 @@ internal static class DefaultSessionRuntimeFactory
     /// and no handshake rather than the documented fallback. Validate against
     /// the downstream contract here, at the one place the value enters.
     /// </remarks>
-    private static TimeSpan ReadPositiveSeconds(string variable, double fallbackSeconds) =>
-        TimeSpan.FromSeconds(
-            double.TryParse(
-                Environment.GetEnvironmentVariable(variable),
-                NumberStyles.Float,
-                CultureInfo.InvariantCulture,
-                out var seconds) &&
-            double.IsFinite(seconds) &&
-            Math.Floor(seconds) == seconds &&
-            seconds >= 1 &&
-            seconds <= WorkerOperationProtocol.MaximumTimeoutSeconds
-                ? seconds
-                : fallbackSeconds);
+    private static double ReadSeconds(string variable, double fallbackSeconds) =>
+        double.TryParse(
+            Environment.GetEnvironmentVariable(variable),
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var seconds) &&
+        double.IsFinite(seconds) &&
+        Math.Floor(seconds) == seconds &&
+        seconds >= 1 &&
+        seconds <= WorkerOperationProtocol.MaximumTimeoutSeconds
+            ? seconds
+            : fallbackSeconds;
 }

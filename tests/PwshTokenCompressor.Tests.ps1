@@ -1520,7 +1520,7 @@ Describe 'development package layout' {
         # a bare-name search passes even with the call deleted (finding
         # i42-2).
         $src | Should -Match 'Get-PtkPayloadIndex -Root \$staging'
-        $src | Should -Match 'Assert-PtkPayloadComplete'
+        $src | Should -Match 'Assert-PtkPayloadComplete\s*`?\s*\r?\n?\s*-StagedIndex \$stagedIndex'
 
         $caseRoot = Join-Path $TestDrive ('payload-complete-' + [guid]::NewGuid().ToString('N'))
         $staged = Join-Path $caseRoot 'staged'

@@ -205,6 +205,18 @@ public sealed class RunspaceHostTests : IDisposable
     [Fact]
     public async Task A_trusted_type_projects_its_named_scalar_properties()
     {
+        // Ask the host for its own culture name rather than assuming en-US:
+        // CI's ubuntu runner is invariant, where the projected Name is empty
+        // and a hardcoded value fails on a correct shaper (red on master,
+        // 2026-08-05). Same reason as
+        // Trusted_framework_type_renders_its_text_instead_of_a_placeholder.
+        var expected = await _host.InvokeAsync(
+            "(Get-Culture).Name",
+            raw: true,
+            route: "pwsh");
+        Assert.True(expected.Success, string.Join(Environment.NewLine, expected.Errors));
+        var cultureName = expected.Output.Trim();
+
         var culture = await _host.InvokeAsync("Get-Culture");
 
         Assert.True(culture.Success, string.Join(Environment.NewLine, culture.Errors));
@@ -214,7 +226,8 @@ public sealed class RunspaceHostTests : IDisposable
         // property fits.
         Assert.Contains("Name", culture.Output, StringComparison.Ordinal);
         Assert.Contains("DisplayName", culture.Output, StringComparison.Ordinal);
-        Assert.Contains("en-US", culture.Output, StringComparison.Ordinal);
+        if (!string.IsNullOrEmpty(cultureName))
+            Assert.Contains(cultureName, culture.Output, StringComparison.Ordinal);
         Assert.DoesNotContain(
             "active member not evaluated",
             culture.Output,

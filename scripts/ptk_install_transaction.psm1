@@ -75,6 +75,26 @@ function Copy-PtkInstallPath {
     Copy-Item -LiteralPath $Source -Destination $Destination -Recurse -Force
 }
 
+# Merges a backup over a target that could not be fully deleted, overwriting
+# what survived. Only rollback uses this, and only after a partial delete:
+# every other replacement path demands an empty target so it can never nest.
+function Restore-PtkInstallPathContents {
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+
+    if (-not (Test-Path -LiteralPath $Source -PathType Container)) {
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force
+        return
+    }
+    New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+    foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
+        Copy-Item -LiteralPath $child.FullName `
+            -Destination (Join-Path $Destination $child.Name) -Recurse -Force
+    }
+}
+
 function Remove-PtkInstallPath {
     param([Parameter(Mandatory)][string]$Path)
 
@@ -224,9 +244,29 @@ function Restore-PtkInstallSnapshot {
     $failures = [Collections.Generic.List[string]]::new()
     foreach ($record in @($Snapshot.Records)) {
         try {
-            Remove-PtkInstallPath -Path $record.Path
-            Assert-PtkInstallPathRemoved -Path $record.Path -Operation 'Install rollback'
-            if ($record.Fingerprint -ne 'missing') {
+            # A locked child makes the recursive delete throw AFTER deleting
+            # most of the tree. Rollback is the one place that must still put
+            # the user's payload back, so a failed delete must not abort it
+            # before the restore below even runs (#42).
+            try { Remove-PtkInstallPath -Path $record.Path } catch { }
+            if (Test-Path -LiteralPath $record.Path) {
+                # A locked child defeats the recursive delete partway, and
+                # rollback is the one place that must still put the user's
+                # payload back (#42). Merge the backup over whatever survived
+                # instead of demanding an empty target: the fingerprint check
+                # in Assert-PtkInstallSnapshotRestored is what proves the
+                # result, so a best-effort merge either restores exactly or is
+                # caught there.
+                if ($record.Fingerprint -ne 'missing') {
+                    Restore-PtkInstallPathContents `
+                        -Source $record.Backup -Destination $record.Path
+                }
+                else {
+                    Assert-PtkInstallPathRemoved `
+                        -Path $record.Path -Operation 'Install rollback'
+                }
+            }
+            elseif ($record.Fingerprint -ne 'missing') {
                 Copy-PtkInstallPath -Source $record.Backup -Destination $record.Path
             }
         }
@@ -298,18 +338,75 @@ function Install-PtkStagedPayload {
     New-Item -ItemType Directory -Path $PayloadRoot -Force | Out-Null
 
     $activated = 0
+    $retired = [Collections.Generic.List[string]]::new()
     foreach ($entry in $PayloadEntries) {
         $target = Join-Path $PayloadRoot $entry
-        Remove-PtkInstallPath -Path $target
-        # A survivor here nested the new payload inside the old one and left
-        # the previous, incomplete payload registered (#42). The caller's
-        # snapshot rollback restores the prior payload.
+        # Rename the old entry aside BEFORE deleting anything (#42, found by a
+        # real locked-file reinstall). Deleting in place destroys the live
+        # payload file by file and only discovers a lock partway through,
+        # leaving an install that is neither the old one nor the new one and
+        # cannot be rolled back under the same lock. A rename is atomic and
+        # fails harmlessly: nothing is destroyed, and the user keeps the ptk
+        # they already had.
+        if (Test-Path -LiteralPath $target) {
+            $aside = "$target.replacing-$([guid]::NewGuid().ToString('N'))"
+            $moveFailure = $null
+            try {
+                Move-Item -LiteralPath $target -Destination $aside
+            }
+            catch {
+                $moveFailure = $_.Exception.Message
+            }
+            # A locked file makes Move-Item move a directory PARTIALLY: most
+            # children reach the aside copy and the locked one stays behind.
+            # Put the moved children back so the caller keeps the payload they
+            # had, then fail. Best-effort by design -- if this cannot fully
+            # undo, say so rather than claim an intact payload.
+            if ($moveFailure -or (Test-Path -LiteralPath $target)) {
+                $restored = $true
+                if (Test-Path -LiteralPath $aside) {
+                    try {
+                        # Merge, never Move-Item -Force: moving a directory
+                        # onto an existing same-named directory nests it
+                        # (target\cs\cs), which is the very defect this whole
+                        # change exists to prevent.
+                        Restore-PtkInstallPathContents `
+                            -Source $aside -Destination $target
+                        Remove-Item -LiteralPath $aside -Recurse -Force
+                    }
+                    catch { $restored = $false }
+                }
+                throw ("Install activation cannot replace '$target'" +
+                    $(if ($moveFailure) { " ($moveFailure)" } else { ' (it survived being moved aside)' }) + '. ' +
+                    $(if ($restored) {
+                        'Nothing was changed: the existing payload is intact. '
+                    }
+                    else {
+                        "Part of the previous payload could not be put back and remains at '$aside'; " +
+                        'move its contents back by hand before using ptk again. '
+                    }) +
+                    'A running ptk server holding a file handle is the most likely cause: stop ' +
+                    'every ptk process and any harness that launched one, then retry.')
+            }
+            $retired.Add($aside)
+        }
+        # Belt and braces: the rename above is what guarantees this, but a
+        # survivor here would nest the new payload inside the old one and
+        # leave the previous, incomplete payload registered.
         Assert-PtkInstallPathRemoved -Path $target -Operation 'Install activation'
         Move-Item -LiteralPath (Join-Path $StagingRoot $entry) -Destination $target
         $activated++
         if ($FaultAfterEntry -eq $activated) {
             throw "Injected activation failure after payload entry $activated."
         }
+    }
+
+    # Every entry landed. The retired copies are now dead weight; the caller's
+    # snapshot is the recovery path from here on. A failure to delete them is
+    # cosmetic - the install itself is complete and correct - so it must not
+    # fail the transaction and undo a good install.
+    foreach ($aside in $retired) {
+        try { Remove-PtkInstallPath -Path $aside } catch { }
     }
 }
 

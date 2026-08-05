@@ -1468,19 +1468,26 @@ Describe 'development package layout' {
         Set-Content -LiteralPath (Join-Path $payload 'bin' 'old.txt') -Value 'old' -NoNewline
         Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
 
-        # Stand in for every real cause of a surviving directory -- a running
-        # server holding a handle, an AV scanner, a partial recursive delete.
-        # The transaction must not trust that removal succeeded.
+        # Stand in for every real cause of a delete that does not take effect
+        # -- a running server holding a handle, an AV scanner, a partial
+        # recursive delete. Activation must not depend on Remove-Item working.
         Mock -CommandName Remove-PtkInstallPath -ModuleName ptk_install_transaction -MockWith { }
 
-        { Install-PtkStagedPayload `
-                -StagingRoot $staging `
-                -PayloadRoot $payload `
-                -PayloadEntries @('bin') } | Should -Throw
+        # Asserts the OUTCOME, not the mechanism: activation renames the old
+        # entry aside rather than deleting in place, so it survives a broken
+        # remove instead of throwing. Either way the payload must end up
+        # replaced and never nested.
+        Install-PtkStagedPayload `
+            -StagingRoot $staging `
+            -PayloadRoot $payload `
+            -PayloadEntries @('bin')
 
         # The precise damage the issue describes: never a nested payload.
         Join-Path $payload 'bin' 'bin' | Should -Not -Exist
         Join-Path $payload 'bin' 'bin' 'new.txt' | Should -Not -Exist
+        # And the replacement actually happened.
+        Join-Path $payload 'bin' 'new.txt' | Should -Exist
+        Join-Path $payload 'bin' 'old.txt' | Should -Not -Exist
     }
 
     # Issue #42: Assert-PtkPayloadIntact name-checked five paths, so an
@@ -1627,10 +1634,62 @@ Describe 'development package layout' {
 
         Mock -CommandName Remove-PtkInstallPath -ModuleName ptk_install_transaction -MockWith { }
 
-        { Restore-PtkInstallSnapshot -Snapshot $snapshot } | Should -Throw
+        # Asserts the OUTCOME, not the mechanism. Rollback must put the
+        # user's payload back even when the delete does not take effect --
+        # it is the last line of defence, so it merges the backup over
+        # whatever survived rather than demanding an empty target. What it
+        # must never do is nest.
+        Restore-PtkInstallSnapshot -Snapshot $snapshot
 
-        # The damage: never a nested restore.
         Join-Path $payload 'bin' 'bin' | Should -Not -Exist
+        Join-Path $payload 'bin' 'original.txt' | Should -Exist
+        Get-Content -LiteralPath (Join-Path $payload 'bin' 'original.txt') -Raw |
+            Should -BeExactly 'original'
+        # And the restore is provably byte-identical, which is the real
+        # contract the transaction relies on.
+        { Assert-PtkInstallSnapshotRestored -Snapshot $snapshot } | Should -Not -Throw
+    }
+
+    # Issue #42, found by a real locked-file reinstall: the guard stopped the
+    # nesting, but Remove-Item had already deleted most of bin/ before hitting
+    # the locked file, so the install was left broken (208 of 296 files) and
+    # rollback could not restore under the same lock. Destroying the live
+    # payload before knowing the replacement can land is the actual hazard.
+    # Rename aside first: a lock fails the rename, which destroys nothing.
+    It 'does not destroy the existing payload when it cannot be replaced' {
+        $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
+        Import-Module $transactionModule -Force
+
+        $caseRoot = Join-Path $TestDrive ('activation-lock-' + [guid]::NewGuid().ToString('N'))
+        $payload = Join-Path $caseRoot 'home'
+        $staging = Join-Path $caseRoot 'staging'
+        New-Item -ItemType Directory -Path (Join-Path $payload 'bin'), (Join-Path $staging 'bin') -Force |
+            Out-Null
+        1..5 | ForEach-Object {
+            Set-Content -LiteralPath (Join-Path $payload 'bin' "old$_.txt") -Value "old$_" -NoNewline
+        }
+        Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
+
+        $locked = Join-Path $payload 'bin' 'old3.txt'
+        $handle = [IO.File]::Open(
+            $locked, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            { Install-PtkStagedPayload `
+                    -StagingRoot $staging `
+                    -PayloadRoot $payload `
+                    -PayloadEntries @('bin') } | Should -Throw
+
+            # Never nested.
+            Join-Path $payload 'bin' 'bin' | Should -Not -Exist
+            # And -- the point of this test -- the old payload is still whole,
+            # so the user still has the ptk they had before the failed install.
+            1..5 | ForEach-Object {
+                Join-Path $payload 'bin' "old$_.txt" | Should -Exist
+            }
+        }
+        finally {
+            $handle.Close()
+        }
     }
 
     It 'refuses a cross-RID native package before creating the output directory' {

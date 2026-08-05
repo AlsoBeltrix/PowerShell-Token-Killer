@@ -1834,6 +1834,77 @@ public sealed class RunspaceHost : IDisposable
         }
 
         /// <summary>
+        /// Types whose declaring container makes a getter unsafe to call
+        /// regardless of what it returns: the value is produced on demand, by
+        /// user code or by waiting.
+        /// </summary>
+        private static readonly HashSet<string> DeferredValueTypeNames = new(
+            [
+                "System.Lazy`1",
+                "System.Threading.Tasks.Task",
+                "System.Threading.Tasks.Task`1",
+                "System.Threading.Tasks.ValueTask",
+                "System.Threading.Tasks.ValueTask`1",
+                "System.Func`1",
+            ],
+            StringComparer.Ordinal);
+
+        /// <summary>
+        /// Whether a property's DECLARED type is one this capture is willing
+        /// to retain. Decided before the getter runs — judging the returned
+        /// value is too late, because reading it is the thing that must be
+        /// safe.
+        /// </summary>
+        private static bool IsInertScalarPropertyType(Type type)
+        {
+            var target = Nullable.GetUnderlyingType(type) ?? type;
+            return target.IsPrimitive
+                || target.IsEnum
+                || target == typeof(string)
+                || target == typeof(decimal)
+                || target == typeof(DateTime)
+                || target == typeof(DateTimeOffset)
+                || target == typeof(TimeSpan)
+                || target == typeof(Guid);
+        }
+
+        /// <summary>
+        /// Whether the getter itself is safe to invoke. A virtual getter can
+        /// be overridden by an untrusted subclass, and a property declared on
+        /// a deferred-value container computes rather than reads.
+        /// </summary>
+        private static bool IsInertGetter(System.Reflection.PropertyInfo property)
+        {
+            var getter = property.GetGetMethod(nonPublic: false);
+            if (getter is null) return false;
+
+            var declaring = property.DeclaringType;
+            if (declaring is null) return false;
+            if (!IsTrustedRenderingAssembly(declaring.Assembly)) return false;
+
+            // A virtual getter is not itself the risk: an override lives on a
+            // subclass, and a subclass from an untrusted assembly never
+            // reaches here — the caller checks the RUNTIME type's assembly
+            // before any of this. Rejecting virtual getters outright would
+            // exclude Name, DisplayName and LCID on CultureInfo, which are
+            // virtual on an unsealed class and are exactly what this projection
+            // exists to return.
+            //
+            // What matters is the reflected type: if the object's own type is
+            // trusted, the code that will run is trusted, override or not.
+            if (!IsTrustedRenderingAssembly(
+                    (property.ReflectedType ?? declaring).Assembly))
+            {
+                return false;
+            }
+
+            var name = declaring.IsGenericType
+                ? declaring.GetGenericTypeDefinition().FullName
+                : declaring.FullName;
+            return name is null || !DeferredValueTypeNames.Contains(name);
+        }
+
+        /// <summary>
         /// How much a property name looks like the thing that identifies an
         /// object. Used only to order projection so the cap keeps the columns
         /// a reader wants; it never decides whether a property is safe.
@@ -1898,12 +1969,28 @@ public sealed class RunspaceHost : IDisposable
                 .ToArray();
 
             var projected = 0;
+            var attempted = 0;
             foreach (var property in ordered)
             {
                 if (projected >= MaximumProjectedProperties) break;
+                // Bound the getters ATTEMPTED, not just the values kept: a type
+                // with many rejected properties would otherwise run unbounded
+                // getters to retain nothing (codereview).
+                if (attempted >= MaximumProjectedProperties * 2) break;
                 if (!property.CanRead) continue;
                 if (property.GetIndexParameters().Length > 0) continue;
 
+                // Decide from the DECLARED type, before calling anything.
+                // Judging the returned value cannot restore the invariant: the
+                // getter has already run by then. `Lazy<T>.Value` is declared
+                // by System.Private.CoreLib — trusted — and invokes a user
+                // delegate; `Task<T>.Result` blocks the producer callback.
+                // Verified: a Lazy whose factory set a global had that global
+                // set during capture (codereview HIGH).
+                if (!IsInertScalarPropertyType(property.PropertyType)) continue;
+                if (!IsInertGetter(property)) continue;
+
+                attempted++;
                 object? raw;
                 try
                 {

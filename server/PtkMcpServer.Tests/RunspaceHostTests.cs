@@ -136,6 +136,28 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     /// <summary>
+    /// codereview HIGH: a trusted type can still hand user code to a getter.
+    /// `Lazy&lt;T&gt;` is System.Private.CoreLib, so it passes the assembly test,
+    /// but reading `.Value` runs the caller's factory delegate — and it did:
+    /// a Lazy whose factory set a global had that global set during capture.
+    /// Judging the returned value cannot undo it; the getter has already run.
+    /// The property's declared type and declaring container now gate the call.
+    /// </summary>
+    [Fact]
+    public async Task Projection_never_runs_a_deferred_value_getter()
+    {
+        var result = await _host.InvokeAsync(
+            "$global:ptkLazyRan = 0; " +
+            "[Lazy[string]]::new([Func[string]]{ $global:ptkLazyRan = 1; 'SIDE_EFFECT' })",
+            route: "pwsh");
+
+        Assert.DoesNotContain("SIDE_EFFECT", result.Output, StringComparison.Ordinal);
+
+        var ran = await _host.InvokeAsync("$global:ptkLazyRan", raw: true, route: "pwsh");
+        Assert.Equal("0", ran.Output.Trim());
+    }
+
+    /// <summary>
     /// The property projection must not become a way to run user code: an
     /// Add-Type type is untrusted, so none of its getters may be invoked even
     /// though projection now reads properties.

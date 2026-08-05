@@ -125,6 +125,28 @@ public sealed class OutputShapingTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// GitHub #34 F5: `1>&amp;2` is valid cmd/bash and reserved-but-unimplemented
+    /// in PowerShell, so the whole script is parse-rejected and nothing runs.
+    /// The bare parser message says "reserved for future use" and nothing
+    /// about what to write instead, which is the actual problem for a caller
+    /// carrying bash habits into a PowerShell dialect.
+    /// </summary>
+    [Fact]
+    public async Task A_bash_stderr_redirection_explains_the_dialect_boundary()
+    {
+        using var runtime = new SessionRuntime(_host, new RawUsageCounter());
+
+        var result = await runtime.InvokeAsync(
+            "cmd /c echo hi 1>&2",
+            CancellationToken.None);
+
+        Assert.Contains("reserved for future use", result, StringComparison.Ordinal);
+        Assert.Contains("[ptk hint]", result, StringComparison.Ordinal);
+        Assert.Contains("Write-Error", result, StringComparison.Ordinal);
+        Assert.Contains("bash -lc", result, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_plain_cmdlet_carries_no_routing_noise()
     {

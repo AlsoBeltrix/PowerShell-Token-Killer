@@ -214,6 +214,23 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
             sb.AppendLine();
             sb.AppendLine("[errors]");
             foreach (var error in result.Errors) sb.AppendLine(error);
+
+            // `1>&2` is valid cmd/bash and reserved-but-unimplemented in
+            // PowerShell, so the whole script is parse-rejected and nothing
+            // runs — with an error that says "reserved for future use" and
+            // nothing about what to write instead (GitHub #34 F5). The
+            // dialect boundary is the actual problem; name the fix.
+            if (result.Errors.Any(error =>
+                    error.Contains("'1>&2'", StringComparison.Ordinal)))
+            {
+                sb.AppendLine(
+                    "[ptk hint] `1>&2` is cmd/bash syntax; PowerShell reserves it " +
+                    "and rejects the whole script before anything runs. To send " +
+                    "output to stderr from PowerShell use `Write-Error`, or keep " +
+                    "the redirection inside the native command's own quoted " +
+                    "argument (cmd /c \"... 1>&2\"), or run the line through " +
+                    "bash -lc '...'.");
+            }
         }
 
         if (result.Warnings.Length > 0)

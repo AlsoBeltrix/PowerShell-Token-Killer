@@ -1134,6 +1134,22 @@ Describe 'redirect hook and installer' {
                 $out | Should -Match 'codex mcp remove ptk'
             }
 
+            It 'install.ps1 does not pipe the init child through Out-Host (hcc-7)' {
+                # Owner report: the consent prompt appeared only after he
+                # answered it blind. Mechanism: piping a native child makes
+                # pwsh assemble its stdout line-by-line, and the prompt is a
+                # PARTIAL line - held until a newline or the child's exit.
+                # A pty is required to reproduce the interactive condition,
+                # which Pester cannot allocate; the manual pty-probe proof is
+                # recorded in the finding doc. This test pins the mechanism
+                # structurally: the harness-init invocation must not pipe.
+                $install = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1') -Raw
+                $fn = [regex]::Match($install, '(?s)function Invoke-PtkHarnessInitialization.+?\n\}').Value
+                $fn | Should -Not -BeNullOrEmpty
+                $code = ($fn -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
+                $code | Should -Not -Match 'Out-Host'
+            }
+
             It '-Agent and -SkipAgent together are rejected' {
                 $out = pwsh -NoProfile -File $script:initScript -Agent claude -SkipAgent grok -DryRun 2>&1 | Out-String
                 $LASTEXITCODE | Should -Not -Be 0

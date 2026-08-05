@@ -640,7 +640,11 @@ function Invoke-PtkHarnessInitialization {
     # ptk_init.ps1 deliberately exits nonzero when any harness leg fails. Run
     # it as a child so that exit cannot terminate this installer before the
     # transaction restores the previous payload and registrations.
-    & ([Environment]::ProcessPath) -NoProfile -File $InitScript @Arguments | Out-Host
+    # No `| Out-Host` on this call (hcc-7): piping a native child makes
+    # pwsh assemble its stdout line-by-line, and ptk_init's consent prompt
+    # is a PARTIAL line - it would reach the terminal only after the user
+    # answered blind. Direct invocation lets the child inherit the console.
+    & ([Environment]::ProcessPath) -NoProfile -File $InitScript @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "Per-harness initialization failed with exit code $LASTEXITCODE."
     }

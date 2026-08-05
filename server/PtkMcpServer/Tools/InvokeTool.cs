@@ -39,14 +39,18 @@ public static class InvokeTool
             "rewrites the native commands it recognizes and declines the rest; " +
             "'pwsh' skips rtk and runs the exact original text as PowerShell; " +
             "'rtk' asserts the rtk route but cannot override rtk's own decision. " +
-            "A declined script executes the exact original once and returns a " +
-            "labeled effective route without asking for a retry.")]
+            "A declined script executes the exact original once, never retried. " +
+            "Responses carry a [route] line when a rewrite ran, and when an " +
+            "explicitly requested 'rtk' route was declined; an ordinary decline " +
+            "under 'auto' is silent, since that is most scripts.")]
         string route = "auto",
         [Description(
-            "Per-call timeout override in seconds, capped by the server maximum. A " +
-            "total wall-clock budget: queue wait behind another call counts against " +
-            "it, and a call whose budget expires while still queued fails fast " +
-            "without executing. Raise it for long work that needs warm session state.")]
+            "Per-call timeout override in seconds; 0 uses the server default (300). " +
+            "Valid range is 1 to the server maximum (3600 by default); anything " +
+            "else is refused without executing. A total wall-clock budget: queue " +
+            "wait behind another call counts against it, and a call whose budget " +
+            "expires while still queued fails fast without executing. Raise it for " +
+            "long work that needs warm session state.")]
         int timeoutSeconds = 0,
         [Description(
             "Connection-local warm session name. 'default' is lazy and always exists; " +

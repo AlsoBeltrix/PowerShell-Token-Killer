@@ -2970,6 +2970,9 @@ public sealed class RunspaceHost : IDisposable
         // reported: the elision marker denied recovery inside a response that
         // ended by offering a working handle (GitHub #34 F7, #35 F4). Defer to
         // the response's own recovery line instead of guessing ahead of it.
+        // The host response always ends with a recovery line, so pointing at it
+        // is true here even though the module's own default cannot promise it
+        // (a direct module consumer has no footer — codereview round 1).
         return recovery.Handle is { } handle
             ? $"recovery=available: ptk_output handle={handle}"
             : "see the recovery line at the end of this response";

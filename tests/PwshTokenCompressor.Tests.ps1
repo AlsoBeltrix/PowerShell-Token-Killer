@@ -1552,7 +1552,7 @@ Describe 'Compress-PtcOutput' {
         $lines = 1..1000 | ForEach-Object { "line $_" }
         $result = $lines | Compress-PtcOutput
 
-        $result | Should -Match '\[600 lines elided - see the recovery line at the end of this response\]'
+        $result | Should -Match '\[600 lines elided - output was truncated here\]'
         $result | Should -Match 'line 1\b'
         $result | Should -Match 'line 1000'
         $result | Should -Not -Match 'line 500\b'
@@ -1574,6 +1574,22 @@ Describe 'Compress-PtcOutput' {
         $result | Should -Not -Match 'recovery=available'
     }
 
+    It 'never points a direct consumer at a recovery line that does not exist' {
+        # codereview round 1: the first repair pointed the marker at "the
+        # recovery line at the end of this response". True for the MCP host,
+        # which always appends one - but a direct module consumer has no
+        # footer, so the marker named a mechanism that was not there. The
+        # default must promise nothing.
+        $lines = 1..1000 | ForEach-Object { "line $_" }
+        $result = $lines | Compress-PtcOutput
+
+        $result | Should -Match 'elided'
+        $result | Should -Not -Match 'recovery line'
+        $result | Should -Not -Match 'ptk_output'
+        # And there is indeed no footer to have pointed at.
+        $result | Should -Not -Match '(?m)^recovery='
+    }
+
     It 'composes the elision marker with a caller-supplied recovery hint' {
         # sd3-2..sd3-4: callers with their own retained artifact (ptk_job
         # polls) pass its advice; the marker is composed BY the elision,
@@ -1589,7 +1605,7 @@ Describe 'Compress-PtcOutput' {
         $big = ('x' * 20000)
         $result = "$big-A", "$big-B", "$big-C" | Compress-PtcOutput
 
-        $result | Should -Match '\[\d+ chars elided - see the recovery line at the end of this response\]'
+        $result | Should -Match '\[\d+ chars elided - output was truncated here\]'
         $result.Length | Should -BeLessThan 42000
         $result | Should -Match '^x'
         $result | Should -Match '-C$'
@@ -1599,7 +1615,7 @@ Describe 'Compress-PtcOutput' {
         $lines = 1..1000 | ForEach-Object { "line $_ " + ('y' * 400) }
         $result = $lines | Compress-PtcOutput
 
-        $result | Should -Match '\[\d+ lines and \d+ chars elided - see the recovery line at the end of this response\]'
+        $result | Should -Match '\[\d+ lines and \d+ chars elided - output was truncated here\]'
     }
 
     It 'bounds the labeled log-leg fallback too' {
@@ -1608,7 +1624,7 @@ Describe 'Compress-PtcOutput' {
         $result = $lines | Compress-PtcOutput
 
         $result | Should -Match '\[ptk:log rtk not found'
-        $result | Should -Match 'lines elided - see the recovery line at the end of this response'
+        $result | Should -Match 'lines elided - output was truncated here'
     }
 
     It 'passes a single string through exactly' {

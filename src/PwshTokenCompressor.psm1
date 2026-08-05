@@ -684,13 +684,16 @@ function Limit-PtcPassthrough {
         # downstream inference heuristics both failed - ANSI stripping
         # shortens without eliding, near-boundary elision lengthens).
         #
-        # The default states only what this function knows. It used to assert
-        # 'recovery=unavailable', which every caller that had not yet sealed
-        # its artifact then printed as fact - so a response could carry
-        # '[N lines elided - recovery=unavailable ...]' and end with a working
-        # handle, contradicting itself (GitHub #34 F7, #35 F4). A default
-        # cannot know whether recovery exists; it must not claim either way.
-        [string]$ElisionHint = 'see the recovery line at the end of this response'
+        # The default states only what this function knows, which is that it
+        # elided something. It used to assert 'recovery=unavailable', which
+        # every caller that had not yet sealed its artifact printed as fact -
+        # so a response could carry '[N lines elided - recovery=unavailable
+        # ...]' and end with a working handle, contradicting itself (GitHub
+        # #34 F7, #35 F4). Pointing at the recovery line instead was no better:
+        # a direct module consumer has no footer to point at. A default cannot
+        # know whether recovery exists, so it promises nothing and names no
+        # mechanism; hosts that do know pass their own hint.
+        [string]$ElisionHint = 'output was truncated here'
     )
 
     if ($null -eq $Text) { return '' }

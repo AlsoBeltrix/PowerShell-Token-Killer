@@ -1,5 +1,12 @@
 # Review status
 
+## Active — i13 (worker death diagnostics, 2026-08-05)
+
+Generation pass in flight: codex-cli 0.146.0 over `c1561ee..a2a713e`
+(GitHub #13 — retain the dying worker's diagnostic and exit code, and
+classify the failure from them). Plan:
+`.agents/plans/issue-13-worker-death-diagnostics.md`. Verdict pending.
+
 ## Closed — hcc (harness-consent codereview, 2026-08-04)
 
 Generation pass: codex-cli 0.146.0, `codex/gpt-5.6-sol/xhigh (inline,

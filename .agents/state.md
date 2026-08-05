@@ -116,13 +116,15 @@ could not finish here.** Open issues carrying that work:
   question, not a code one.
 - **#40** — macOS long-pipeline worker loss and Windows ARM64 MSIX module
   imports. Both need the matching hardware; neither reproduces here.
-- **#41** — nested object values are dropped by the **shaping module**, not
-  by capture. Established: the value is reachable inertly (the nested note's
-  `PSObject` holds a readable `PSNoteProperty`), a bounded-depth renderer was
-  written on the capture side, and the composed string was still discarded
-  downstream in `src/PwshTokenCompressor.psm1`. Reverted rather than shipped
-  half-working. The next attempt starts at the module's table renderer, not
-  at capture.
+- **#41** — nested object values are dropped **during capture**. An earlier
+  reading of this blamed the shaping module and was wrong; the issue carries
+  the retraction. The module renders both a nested PSCustomObject
+  (`@{Deep=MARKER}`) and a pre-composed string correctly on its own, so the
+  value is already gone before it runs. Two `TryRenderNestedNotes` variants
+  on `PassiveNoteValue` were written and reverted — the nested column stayed
+  empty while sibling scalars rendered, on a verified-current build. Next
+  step is to instrument `PassiveNoteValue` and see what it receives and
+  returns, rather than inferring from rendered output as both attempts did.
 
 Recurring lesson worth carrying: on this shaper, a stale build tree produces
 convincing wrong answers. Several investigations here chased behaviour that

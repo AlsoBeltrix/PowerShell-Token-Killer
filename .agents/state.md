@@ -126,14 +126,27 @@ conflated again.
    `.agents/plans/issue-13-worker-death-diagnostics.md` (the plan owns the
    detail, do not restate it here). Slices 1-3 landed; codex found three
    defects, all fixed, and its verification pass reopened two of the fixes,
-   both repaired at `e2c2902`. **Blocked on the reviewer transport:** two
-   round-2 dispatches died without a verdict, and codex has been logging a
-   revoked refresh token all day. Fail-closed, so this is not a pass —
-   `.agents/review/index.md` owns the detail and the evidence that does
-   exist (full battery green locally, CI green on all six jobs, every guard
-   sabotage-proved). Needs an owner go, and probably `codex login`, before a
-   third dispatch; rounds 1 and 2 are the recorded maximum. Slice 4 (closing
-   #13) waits on that verdict.
+   both repaired at `e2c2902` (head at handoff: `0c8fa5f`).
+
+   **In flight: the round-2 verdict.** Two dispatches over
+   `4f9284f..e2c2902` died without emitting an envelope — both ran out of
+   time doing their own worktree sabotage cycles, not because the work is
+   wrong. A third, deliberately narrowed dispatch (no worktree, no sabotage,
+   one test command, prompt at
+   `%TEMP%\3\codex-verify3-prompt.txt`) was running when this session ended;
+   its result was never seen. Re-dispatch that prompt to finish. The revoked
+   refresh token codex logs all day is noise — it returned valid envelopes
+   twice while logging it.
+
+   Fail-closed until an envelope lands: i13-1 and i13-2 are repaired and
+   locally guard-proved but NOT reviewer-confirmed.
+   `.agents/review/index.md` owns the loop state and the evidence that does
+   exist (full battery green locally, CI green on all six jobs at
+   `e2c2902`, every guard sabotage-proved — including re-running the
+   reviewer's own sabotage for the replaced i13-2 guard).
+
+   Slice 4 (closing #13) waits on that verdict. Nothing else in the queue
+   is blocked by it.
 
    **Durable lesson from this loop:** on the worker-death path nothing is
    forgery-proof, because the caller's script runs *inside* the worker — it

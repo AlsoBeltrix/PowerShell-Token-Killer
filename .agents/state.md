@@ -66,11 +66,11 @@ short and update it when important repo facts change.
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
 issues, one codex review per completed fix, maximum two rounds.
 
-Done so far: #37 (shadowed-name routing), the version gap, the
-elision/recovery contradiction, the missing effective-route label, refusals
-arriving as MCP success, the misapplied uncertainty rider, the passive
-object-shaping loss (the headline complaint), the lossy-recovery overclaim,
-and a hint for the `1>&2` dialect trap.
+Fixed: #37 (shadowed-name routing), the version gap, the elision/recovery
+contradiction, the missing effective-route label, refusals arriving as MCP
+success, the misapplied uncertainty rider, the passive object-shaping loss
+(the headline complaint), the lossy-recovery overclaim, a hint for the
+`1>&2` dialect trap, and the bounded-capture prefix claim (#35 F4).
 
 **Object shaping (`b3604f1`, `72a864e`).** A trusted type collapsed to one
 `ToString()`; `Get-Culture` returned `en-US` and nothing else. Scalar
@@ -105,20 +105,29 @@ matcher accepts is covered by a test, including the false-positive shapes.
 Threading a structured result through the tool surface is the real fix and
 is a larger change than this batch.
 
-Remaining:
+**Every reported issue is now fixed, or filed with the investigation that
+could not finish here.** Open issues carrying that work:
 
-1. **The retained window is a head-only prefix** while the inline view shows
-   head+tail, implying the end is recoverable when it is not (#35 F4). The
-   marker's contradictory wording is fixed; this claim is not. A caller who
-   trusts the inline shape will look for the tail in the artifact and not
-   find it.
-2. **Nested objects still collapse.** Projection reaches one level: a
-   property whose value is another object is not a scalar, so it is skipped.
-   `[pscustomobject]@{ L1 = [pscustomobject]@{ L2 = 'deep' } }` still shows
-   only `L1`. Bounded-depth projection is the obvious next step and was not
-   attempted here — the getter-safety work had to land first.
-3. **`#40`** — the two platform findings, which need macOS and Windows ARM64
-   hosts respectively.
+- **#38** — custom exception types yield no message. The safe repair (read
+  `Exception`'s private `_message` rather than the overridable `Message`) was
+  written and reverted: its own guard showed PowerShell already calls
+  `Message` twice during error-record construction, before capture. Whether
+  that is inside or outside PTK's no-user-code boundary is a product
+  question, not a code one.
+- **#40** — macOS long-pipeline worker loss and Windows ARM64 MSIX module
+  imports. Both need the matching hardware; neither reproduces here.
+- **#41** — nested object values are dropped by the **shaping module**, not
+  by capture. Established: the value is reachable inertly (the nested note's
+  `PSObject` holds a readable `PSNoteProperty`), a bounded-depth renderer was
+  written on the capture side, and the composed string was still discarded
+  downstream in `src/PwshTokenCompressor.psm1`. Reverted rather than shipped
+  half-working. The next attempt starts at the module's table renderer, not
+  at capture.
+
+Recurring lesson worth carrying: on this shaper, a stale build tree produces
+convincing wrong answers. Several investigations here chased behaviour that
+had already been fixed. Kill build-tree `PtkMcpServer` processes and rebuild
+before trusting a live probe.
 
 Decision 5 — tag `v0.2.0` and publish — remains owner-only and is now
 downstream of this backlog. Do not tag or push a `v*` ref without an explicit

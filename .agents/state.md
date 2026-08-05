@@ -126,9 +126,14 @@ conflated again.
    `.agents/plans/issue-13-worker-death-diagnostics.md` (the plan owns the
    detail, do not restate it here). Slices 1-3 landed; codex found three
    defects, all fixed, and its verification pass reopened two of the fixes,
-   both repaired at `e2c2902`. Round-2 verdict pending —
-   `.agents/review/index.md` owns the loop's state. Slice 4 (close the
-   issue) waits on it.
+   both repaired at `e2c2902`. **Blocked on the reviewer transport:** two
+   round-2 dispatches died without a verdict, and codex has been logging a
+   revoked refresh token all day. Fail-closed, so this is not a pass —
+   `.agents/review/index.md` owns the detail and the evidence that does
+   exist (full battery green locally, CI green on all six jobs, every guard
+   sabotage-proved). Needs an owner go, and probably `codex login`, before a
+   third dispatch; rounds 1 and 2 are the recorded maximum. Slice 4 (closing
+   #13) waits on that verdict.
 
    **Durable lesson from this loop:** on the worker-death path nothing is
    forgery-proof, because the caller's script runs *inside* the worker — it

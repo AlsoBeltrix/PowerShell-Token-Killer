@@ -20,11 +20,31 @@ pending.
 | i13-2 | MEDIUM   | Unix reported the broker's constant as the worker's exit code | `[~]` (fixed `17a6a44`, guard replaced `e2c2902`) |
 | i13-3 | MEDIUM   | the call after a death reported none of the known facts     | `[~]` (fixed `4f9284f`, awaiting round-2 verdict) |
 
-Note on provenance: codex's auth refresh token was revoked partway through
-both dispatches. Each returned a schema-valid envelope with matching pins and
-`capability_ok: true` regardless; recorded as a note per the
-dispatch-provenance rule, not as an invalidation. Round 2 also timed out once
-at 1800s and was re-dispatched with a larger budget.
+**Round 2 did not return a verdict — the loop is halted for the owner, not
+passed.** Two dispatches over `4f9284f..e2c2902` both died without emitting
+an envelope (the first hit the 1800s call budget; the second was aborted at
+the harness's own idle limit). The reviewer's abandoned clone under `.tmp/`
+was clean at `e2c2902` and has been removed. Absent an envelope the outcome
+is **not accepted** — the fail-closed rule in the playbook — so i13-1 and
+i13-2 stay `[~]`, repaired and locally guard-proved but not
+reviewer-confirmed.
+
+Root cause is almost certainly the reviewer transport, not the work: codex
+logged `Your access token could not be refreshed because your refresh token
+was revoked` continuously through every dispatch today. Rounds 1 and 2 of the
+generation/verification loop are also the recorded maximum, so a third
+dispatch needs an owner go and probably a `codex login` first.
+
+What is true without the reviewer: the full battery passes locally
+(server 1,151/1,151, Pester 107 + 1 platform skip, SIEM 226/247 for this
+host's symlink privilege, dependency audit clean), CI is green on all six
+jobs at `e2c2902`, and every guard was proved by sabotage — including
+re-running the reviewer's own sabotage for the replaced i13-2 guard.
+
+Provenance note: codex's token was already revoked partway through the two
+dispatches that *did* return envelopes (generation, and verification round
+1). Both carried matching pins and `capability_ok: true`; recorded as a note
+per the dispatch-provenance rule, not as an invalidation.
 
 ## Closed — hcc (harness-consent codereview, 2026-08-04)
 

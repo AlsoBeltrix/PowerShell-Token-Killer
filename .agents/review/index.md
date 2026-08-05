@@ -1,6 +1,49 @@
 # Review status
 
-## Active — i13 (worker death diagnostics, 2026-08-05)
+## Closed — o10 (opr-10 timeout validation, 2026-08-05)
+
+Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,
+over `7761b75..eca0891`. Verdict `findings` (1), capability_ok true, SHAs
+pinned and matched.
+
+| ID     | Severity | Impact (one line)                                        | Status |
+|--------|----------|----------------------------------------------------------|--------|
+| o10-1  | MEDIUM   | an individually valid maximum below the default still aborts startup | `[x]` (fixed `da62268`) |
+
+o10-1 is the pair half of `opr-10`: each variable can be individually legal
+while the pair is not, because `CreateLimits` rejects a default greater than
+the maximum. The working agent found the same defect independently while
+the review was in flight and had already fixed it; codex named a simpler
+trigger (`PTK_MAX_CALL_TIMEOUT_SECONDS=100` with the call timeout unset,
+so the 300 default exceeds it), which is now a pinned theory case. Guard
+proved: three cases fail with the pair logic reverted.
+
+## Closed — i42 (install payload activation, 2026-08-05)
+
+Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,
+over `b1c9184..8a1bf2a` (GitHub #42). Verdict `findings` (2),
+capability_ok true, SHAs pinned and matched. Both admitted at intake and
+fixed one commit each.
+
+| ID     | Severity | Impact (one line)                                        | Status |
+|--------|----------|----------------------------------------------------------|--------|
+| i42-1  | HIGH     | rollback repeats the nesting bug, so a failed install can half-restore the registered payload | `[x]` (fixed `044d53b`) |
+| i42-2  | LOW      | the completeness wiring check passes even with the call deleted | `[x]` (fixed `7761b75`) |
+
+i42-1 was the valuable one and was not visible from the diff alone:
+`Restore-PtkInstallSnapshot` removed the target and copied the snapshot back
+without checking the removal took effect, and `Copy-Item -Recurse` onto a
+surviving directory nests exactly as `Move-Item` does. The activation guard
+made it *more* reachable, since the condition that trips the guard is the
+condition that defeats the removal. Both call sites now share
+`Assert-PtkInstallPathRemoved`. Guard proved by reproducing the nested
+restore red before the fix.
+
+i42-2 was accurate: the assertion searched for a bare function name that
+also appears in the declaration the test extracts, so deleting the call left
+it passing. Proved by deleting only the call.
+
+## Closed — i13 (worker death diagnostics, 2026-08-05)
 
 Generation pass: codex-cli 0.146.0, `codex/gpt-5.6-sol/xhigh (inline,
 session-only)/standard`, over `c1561ee..a2a713e` (GitHub #13). Verdict

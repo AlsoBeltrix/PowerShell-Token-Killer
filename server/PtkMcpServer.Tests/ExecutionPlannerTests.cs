@@ -127,6 +127,22 @@ public sealed class ExecutionPlannerTests
     // An alias name that is not a readable literal is an unknown binding.
     [InlineData("Set-Alias -Name $chosen -Value Get-Date; git status",
                 "Set-Alias -Name $chosen -Value Get-Date; rtk git status")]
+    // codereview round 2: a switch takes no value, so the element after it is
+    // still the positional alias name. Consuming it recorded the wrong name.
+    [InlineData("Set-Alias -Force git Get-Date; git status",
+                "Set-Alias -Force git Get-Date; rtk git status")]
+    [InlineData("Set-Alias -PassThru -Force git Get-Date; git status",
+                "Set-Alias -PassThru -Force git Get-Date; rtk git status")]
+    [InlineData("New-Alias -Force -Name git -Value Get-Date; git status",
+                "New-Alias -Force -Name git -Value Get-Date; rtk git status")]
+    // codereview round 2: provider writes bind a command without naming it
+    // where the alias/function scan looks.
+    [InlineData("Set-Item -Path Function:git -Value { 'MINE' }; git status",
+                "Set-Item -Path Function:git -Value { 'MINE' }; rtk git status")]
+    [InlineData("New-Item -Path Alias:git -Value Get-Date; git status",
+                "New-Item -Path Alias:git -Value Get-Date; rtk git status")]
+    [InlineData("Set-Content -Path Function:\\git -Value { 'MINE' }; git status",
+                "Set-Content -Path Function:\\git -Value { 'MINE' }; rtk git status")]
     public void A_shadowing_binding_the_reader_cannot_disprove_is_never_routed(
         string script,
         string rewritten)
@@ -167,6 +183,25 @@ public sealed class ExecutionPlannerTests
             rewrittenScript: rewritten);
 
         Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
+    }
+
+    /// <summary>
+    /// codereview round 2: the binder rewrites the head token into
+    /// `&amp; '&lt;pinned rtk&gt;'`. A segment that already carries a call operator
+    /// would become `&amp; &amp; '&lt;pinned&gt;' git status` — a parse error rather than
+    /// the submitted command. Such a rewrite is declined.
+    /// </summary>
+    [Fact]
+    public void A_rewrite_of_a_call_operator_segment_is_declined()
+    {
+        var plan = Plan(
+            "& git status",
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: "& rtk git status");
+
+        AssertDirect(plan, "& git status", RequestedExecutionRoute.Auto);
     }
 
     /// <summary>

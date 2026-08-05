@@ -234,6 +234,13 @@ internal static class ExecutionPlanner
                 continue;
             }
 
+            // The binder below rewrites the head token into `& '<pinned>'`.
+            // A segment that already carries a call operator would then read
+            // `& & '<pinned>' git status` — a parse error, not the submitted
+            // command (codereview round 2). Decline instead of emitting it.
+            if (command.InvocationOperator != TokenKind.Unknown)
+                return false;
+
             // `rtk <name> ...` — the wrapped name is the next element, and it
             // must be a native application. RTK holds no session state, so it
             // would happily wrap a name the session bound to a function.
@@ -420,6 +427,19 @@ internal static class ExecutionPlanner
                 bindsUnknown = true;
                 continue;
             }
+
+            // A write through the Function: or Alias: provider binds a command
+            // without naming it anywhere this reader looks — `Set-Item -Path
+            // Function:git -Value {...}` (codereview round 2). Any script
+            // mentioning those drives is treated as binding unknown names.
+            if (command.CommandElements.Any(element =>
+                    element is StringConstantExpressionAst literal &&
+                    MentionsCommandProvider(literal.Value)))
+            {
+                bindsUnknown = true;
+                continue;
+            }
+
             if (!NamedAliasCommands.Contains(bare))
                 continue;
 
@@ -431,6 +451,35 @@ internal static class ExecutionPlanner
 
         return new ScriptBindings(names, bindsUnknown);
     }
+
+    /// <summary>
+    /// Whether a literal names the Function: or Alias: provider, in any of the
+    /// forms a path can take (`Function:git`, `Function:\git`, a
+    /// provider-qualified `Microsoft.PowerShell.Core\Function::git`).
+    /// </summary>
+    private static bool MentionsCommandProvider(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        return value.Contains("Function:", StringComparison.OrdinalIgnoreCase)
+            || value.Contains("Alias:", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Switch parameters of Set-Alias / New-Alias, plus the common parameters
+    /// that are switches. A switch takes no value, so the element after it is
+    /// still a positional argument. Prefix-matched the way PowerShell binds
+    /// parameter names.
+    /// </summary>
+    private static readonly string[] AliasSwitchParameters =
+    [
+        "Force", "PassThru", "WhatIf", "Confirm",
+        "Verbose", "Debug",
+    ];
+
+    private static bool IsAliasSwitchParameter(string parameterName) =>
+        !string.IsNullOrEmpty(parameterName) &&
+        AliasSwitchParameters.Any(candidate =>
+            candidate.StartsWith(parameterName, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// The alias name from a Set-Alias/New-Alias call: an explicit
@@ -455,13 +504,23 @@ internal static class ExecutionPlanner
                     parameter.ParameterName,
                     StringComparison.OrdinalIgnoreCase);
 
-                // -Name:value binds inline; -Name value takes the next element.
+                // Only a value-taking parameter consumes the next element. A
+                // switch does not: `Set-Alias -Force git Get-Date` binds `git`
+                // positionally, and treating -Force as consuming it recorded
+                // `Get-Date` as the alias name (codereview round 2).
                 CommandElementAst? argument = parameter.Argument;
-                if (argument is null && index + 1 < elements.Count &&
-                    elements[index + 1] is not CommandParameterAst)
+                if (argument is null)
                 {
-                    argument = elements[index + 1];
-                    index++; // consumed, so it is not read as positional
+                    if (IsAliasSwitchParameter(parameter.ParameterName))
+                    {
+                        continue; // takes no value; next element stays positional
+                    }
+                    if (index + 1 < elements.Count &&
+                        elements[index + 1] is not CommandParameterAst)
+                    {
+                        argument = elements[index + 1];
+                        index++; // consumed, so it is not read as positional
+                    }
                 }
 
                 if (!isName) continue;

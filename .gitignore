@@ -21,3 +21,4 @@ obj/
 .serena/
 .tokensave/
 .codex/config.toml
+.claude/.headroom_wrap_marker.json

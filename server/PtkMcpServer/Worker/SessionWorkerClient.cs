@@ -43,26 +43,29 @@ internal sealed class WorkerExitException(
     internal int? ExitCode { get; } = exitCode;
 
     /// <summary>
-    /// The <c>kind</c> the worker named in its own exit diagnostic, or
-    /// <see langword="null"/> when it did not write one. Parsed from the
-    /// worker's <c>ptk_worker_exit kind=... detail=...</c> contract
-    /// (<see cref="WorkerProcessExit"/>); any other line is not that contract
-    /// and yields nothing.
+    /// How the worker exited, derived from its exit code — the one signal on
+    /// this path the caller cannot author.
     /// </summary>
-    internal string? Kind
+    /// <remarks>
+    /// Deliberately NOT parsed from <see cref="Diagnostic"/>. The worker runs
+    /// the caller's script in-process, so the caller shares the worker's
+    /// standard error and can write a convincing
+    /// <c>ptk_worker_exit kind=...</c> line before killing the process
+    /// (verified live, finding i13-1). Classifying from that text would let a
+    /// caller put words in PTK's mouth — a confidently wrong cause, which is
+    /// worse than the "unknown" this feature exists to replace. The exit code
+    /// is set by the runtime and cannot be forged from inside the script.
+    /// </remarks>
+    internal string? Kind => ExitCode switch
     {
-        get
-        {
-            const string prefix = "ptk_worker_exit kind=";
-            if (Diagnostic is null || !Diagnostic.StartsWith(prefix, StringComparison.Ordinal))
-                return null;
-            var value = Diagnostic[prefix.Length..];
-            var end = value.IndexOf(' ', StringComparison.Ordinal);
-            if (end >= 0)
-                value = value[..end];
-            return value.Length == 0 ? null : value;
-        }
-    }
+        WorkerProcessExit.InvalidInvocationExitCode => "invocation_error",
+        WorkerProcessExit.BootstrapFailureExitCode => "bootstrap_failure",
+        WorkerProcessExit.InitializeFailureExitCode => "initialize_failed",
+        WorkerProcessExit.ProtocolFailureExitCode => "protocol_error",
+        WorkerProcessExit.TransportFailureExitCode => "transport_failure",
+        WorkerProcessExit.RuntimeFailureExitCode => "runtime_failure",
+        _ => null,
+    };
 
     private static string Describe(string? diagnostic, int? exitCode)
     {

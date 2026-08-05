@@ -347,8 +347,12 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             sb.Append(" worker exit_code=")
                 .Append(code.ToString(CultureInfo.InvariantCulture));
         }
+        // Labelled untrusted because it is: the caller's own script shares the
+        // worker's standard error, so this line may be theirs rather than the
+        // worker's (finding i13-1). It is still worth showing — it is often the
+        // real cause — but the reader must not read it as PTK's finding.
         if (exit.Diagnostic is { } diagnostic)
-            sb.Append(" worker_said=\"").Append(diagnostic).Append('"');
+            sb.Append(" worker_stderr_tail(untrusted)=\"").Append(diagnostic).Append('"');
         return sb.ToString();
     }
 

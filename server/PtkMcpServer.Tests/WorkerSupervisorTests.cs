@@ -111,8 +111,8 @@ public sealed class WorkerSupervisorTests
             "[ptk invoke] status=outcome_unknown session=sample-online " +
             "detail=worker_exit_runtime_failure; do not resubmit automatically; " +
             "PTK did not retry the command. worker exit_code=84 " +
-            "worker_said=\"ptk_worker_exit kind=runtime_failure " +
-            "detail=runtime_failure\"",
+            "worker_stderr_tail(untrusted)=\"ptk_worker_exit " +
+            "kind=runtime_failure detail=runtime_failure\"",
             text);
     }
 
@@ -129,7 +129,7 @@ public sealed class WorkerSupervisorTests
             "sample-onprem");
 
         Assert.DoesNotContain("worker exit_code=", text, StringComparison.Ordinal);
-        Assert.DoesNotContain("worker_said=", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("worker_stderr_tail", text, StringComparison.Ordinal);
     }
 
     private static async Task<string> InvokePublicAsync(

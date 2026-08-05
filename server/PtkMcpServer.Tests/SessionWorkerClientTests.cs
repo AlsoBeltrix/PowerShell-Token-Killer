@@ -875,6 +875,49 @@ public sealed class SessionWorkerClientTests
             failure.WorkerExit?.Diagnostic);
     }
 
+    /// <summary>
+    /// Finding i13-1: the worker runs the caller's script in-process, so the
+    /// caller shares the worker's standard error and can write a convincing
+    /// ptk_worker_exit line before killing the process. Classification comes
+    /// from the exit code, which the script cannot forge — a confidently wrong
+    /// cause is worse than the "unknown" this feature replaced.
+    /// </summary>
+    [Fact]
+    public async Task A_forged_exit_line_cannot_dictate_the_reported_kind()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 15,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'forges'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        // Exactly what the worker writes for a genuine runtime failure, but
+        // paired with an exit code the worker never uses for one.
+        await process.ExitUnexpectedlyAsync(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure\n",
+            exitCode: 1);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        Assert.Equal("worker_exited_unexpectedly", failure.CauseDetailCode);
+        Assert.NotEqual("worker_exit_runtime_failure", failure.CauseDetailCode);
+        // Still retained: it is evidence, just not PTK's classification.
+        Assert.Equal(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
+            failure.WorkerExit?.Diagnostic);
+    }
+
     private static async Task InitializeAsync(
         ProcessSessionWorker client,
         ScriptedProcess process)

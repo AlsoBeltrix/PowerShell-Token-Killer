@@ -10,12 +10,16 @@ internal static class WorkerProcessExit
 {
     internal const int MaximumDiagnosticBytes = 256;
 
-    private const int InvalidInvocationExitCode = 64;
-    private const int BootstrapFailureExitCode = 80;
-    private const int InitializeFailureExitCode = 81;
-    private const int ProtocolFailureExitCode = 82;
-    private const int TransportFailureExitCode = 83;
-    private const int RuntimeFailureExitCode = 84;
+    // Internal, not private: the supervisor classifies a worker death from
+    // these codes rather than from the diagnostic text, because the caller
+    // shares the worker's standard error and could otherwise forge a cause
+    // (finding i13-1). One definition, read from both sides.
+    internal const int InvalidInvocationExitCode = 64;
+    internal const int BootstrapFailureExitCode = 80;
+    internal const int InitializeFailureExitCode = 81;
+    internal const int ProtocolFailureExitCode = 82;
+    internal const int TransportFailureExitCode = 83;
+    internal const int RuntimeFailureExitCode = 84;
 
     private const string RuntimeFailureKind = "runtime_failure";
     private const string RuntimeFailureDetail = "runtime_failure";

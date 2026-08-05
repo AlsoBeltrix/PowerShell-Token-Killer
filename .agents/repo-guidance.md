@@ -41,25 +41,23 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-08-05 at `a2a8a9a`, all
-passing). Counts are volatile — treat them as of that commit and re-verify
-rather than trusting them at a later head.
+Confirmed automated verification commands (re-run 2026-08-05 at `f99a92b`).
+Counts are volatile — treat them as of that commit and re-verify rather than
+trusting them at a later head.
 
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
 — 107 passed, 1 platform-skipped (PowerShell module/setup suite; requires
-Pester 5 or later). The count rose from 104 with the test-report-backlog
-fixes landed through `008172e` (2026-08-04/05).
+Pester 5 or later), as of `f99a92b`.
 
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 1,129/1,129 passed (C# MCP supervisor, named workers, containment, output,
-and retained administration suite). The count rose from 1,068 with the same
-test-report-backlog fixes (object-shaping guards, the `ptk_state` version
-line, and the shadowed-name routing fix among them; see `.agents/state.md`
-§Now and §Next for the itemized list).
+— 1,132/1,132 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite), as of `f99a92b`. Run it from a plain
+shell: from a ptk session the four `StateToolTests` module probes can fail
+together on a truncated `PSModulePath` (see `.agents/machines.md`).
 
 ```
 dotnet test siem/PtkSiem.slnx
@@ -68,14 +66,15 @@ dotnet test siem/PtkSiem.slnx
 whose identity may create symlinks. On a Windows host without
 `SeCreateSymbolicLinkPrivilege` it is 226/247: the 21 failures stop in symlink
 test setup before any product assertion (see `.agents/machines.md`), and are
-not a product failure.
+not a product failure. This clone's host is one of those — re-confirmed
+226/247 at `f99a92b`.
 
 ```
 dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
 ```
-— every server project reported no vulnerable packages. Treat any listed
-package as a failed production dependency check even if the command itself
-returns zero.
+— every server project reported no vulnerable packages, re-confirmed at
+`f99a92b`. Treat any listed package as a failed production dependency check
+even if the command itself returns zero.
 
 ```
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
@@ -98,8 +97,9 @@ before publishing.
 Release artifacts are built by `.github/workflows/release.yml` on a `v*` tag
 or `workflow_dispatch`. It builds each of the five RIDs on its own native
 runner, smoke-tests and RTK-gate-proves every artifact there, and assembles a
-**draft** release only — publishing is an owner action. Public installers are
-`install.ps1` and `install.sh` at the repo root.
+**draft** release only — publishing is an owner action. There is one public
+installer, `scripts/install.ps1` (`3109ec1`, 2026-08-04); the former root
+`install.ps1`/`install.sh` pair was consolidated into it and deleted.
 
 CI exists as of 2026-07-08 (release-plan slice 2): `.github/workflows/ci.yml`
 runs the same battery (Pester, server/SIEM tests, handshake) on an
@@ -115,25 +115,21 @@ that deleted file — stale plan text, not an instruction to recreate it.)
 
 ## Remotes & Sync
 
-Remote configuration is per-clone. In this clone (`git remote -v`, confirmed
-2026-08-04) three remotes are configured:
+Remote configuration is per-clone and churns. In this clone (`git remote -v`,
+confirmed 2026-08-05) exactly one remote is configured:
 
 - `origin` — `https://github.com/AlsoBeltrix/PowerShell-Token-Killer.git`
   (GitHub renamed the repo to capital-W `PowerShell-Token-Killer`; the URL
   was updated to match on the owner's go, 2026-07-10). `master` tracks
   `origin/master`.
-- `github` — `https://github.com/roethlar/Powershell-Token-Killer` (the
-  owner's fork).
-- `gitea` — `http://q:3000/michael/Powershell-Token-Killer` (LAN forge;
-  local class).
 
-The `github` and `gitea` remotes were added to this clone between the
-2026-08-03 and 2026-08-04 checks; all three accepted a `master` push on
-2026-08-04. A `personal` remote
-(`https://github.com/roethlar/-PowerShell-Token-Killer.git`) was recorded
-here previously but no longer exists in this repo's git config as of
-2026-07-03. Re-check `git remote -v` per clone rather than trusting this
-list. Push policy stays in `.agents/push-policy.md`, not here.
+Remotes recorded here previously and since absent from this clone's git
+config: `github` (`roethlar/Powershell-Token-Killer`, the owner's fork) and
+`gitea` (`http://q:3000/michael/Powershell-Token-Killer`, LAN forge), both
+added between the 2026-08-03 and 2026-08-04 checks and gone by 2026-08-05;
+and `personal` (`roethlar/-PowerShell-Token-Killer`), gone by 2026-07-03.
+Re-check `git remote -v` per clone rather than trusting this list. Push
+policy stays in `.agents/push-policy.md`, not here.
 
 ## Earned Practices
 

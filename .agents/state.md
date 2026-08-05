@@ -19,17 +19,6 @@ short and update it when important repo facts change.
 
 - **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope.
 
-- **#38 fixed and closed (2026-08-05, owner ruling).** PowerShell's engine
-  invokes an exception's `Message` override while building the error record,
-  upstream of capture — ruled **outside** PTK's boundary. The invariant in
-  force promises only that the capture itself executes no user code. An
-  untrusted exception now surfaces its type name and base-constructor
-  message via a field read of `System.Exception`'s backing field (executes
-  nothing); the `Message` override is never invoked by capture and its
-  computed text is never reported. Ruling recorded in `.agents/decisions.md`;
-  invocation-counting guards in `RunspaceHostTests.cs`, proved failing
-  against the old behavior.
-
 ## Next
 
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
@@ -74,8 +63,9 @@ matcher accepts is covered by a test, including the false-positive shapes.
 Threading a structured result through the tool surface is the real fix and
 is a larger change than this batch.
 
-**Every reported issue is now fixed, or filed with the investigation that
-could not finish here.** Open issues carrying that work:
+**Every issue from the four platform test reports is now fixed, or filed with
+the investigation that could not finish here.** Open issues carrying that
+work:
 
 - **#40** — macOS long-pipeline worker loss and Windows ARM64 MSIX module
   imports. Both need the matching hardware; neither reproduces here.
@@ -102,27 +92,25 @@ had already been fixed. Kill build-tree `PtkMcpServer` processes and rebuild
 before trusting a live probe.
 
 **Next action** — none queued: the test-report backlog is complete. Every
-reported issue is fixed and closed (#33–#38, #41) or filed and blocked on
-matching hardware (#40). Remaining work is owner-gated: Decision 5, and any
-review dispatch, which happens only on the owner's explicit word. One new
-machine observation from this pass (ptk-session `PSModulePath` truncation
-failing four StateToolTests) is recorded in `.agents/machines.md`, not filed
-as an issue — owner's call whether it is product-visible.
+issue it raised is fixed and closed (#33–#38, #41) or filed and blocked on
+matching hardware (#40). Other GitHub issues remain open outside that
+backlog — #7 (Defender, gated on WDSI), #13, #30, #32 — and are not part of
+it. Remaining work is owner-gated: Decision 5, and any review dispatch, which
+happens only on the owner's explicit word. One new machine observation from
+this pass (ptk-session `PSModulePath` truncation failing four StateToolTests)
+is recorded in `.agents/machines.md`, not filed as an issue — owner's call
+whether it is product-visible.
 
-Session-close facts (as of `4943cf1`, 2026-08-05): the owner pushed all
-three remotes to `4943cf1` by hand. The #38 and #41 fixes landed without a
-reviewer dispatch — codex was undispatchable at the time (its configured
+Session-close fact (2026-08-05): the #38 and #41 fixes landed **without a
+reviewer dispatch** — codex was undispatchable at the time (its configured
 headroom gateway was not running and the owner was out of frontier-model
-credits), and the owner declined an automatic dispatch for these fixes.
-Server suite 1,132/1,132 from a plain shell at that head; run verification
-from a plain shell if the four StateToolTests fail together from a ptk
-session (see `.agents/machines.md`).
+credits), and the owner declined an automatic dispatch for these fixes. Suite
+counts belong to `.agents/repo-guidance.md` §Verification, which also records
+the plain-shell caveat.
 
-Decision 5 — tag `v0.2.0` and publish — is still owner-only and untouched.
-
-Decision 5 — tag `v0.2.0` and publish — remains owner-only and is now
-downstream of this backlog. Do not tag or push a `v*` ref without an explicit
-go.
+Decision 5 — tag `v0.2.0` and publish — remains owner-only, untouched, and is
+now downstream of this backlog. Do not tag or push a `v*` ref without an
+explicit go.
 
 Unqueued work that exists if the owner wants it, in no particular order:
 
@@ -318,7 +306,7 @@ record a new gated finding.
   exposed five intermittent fixed-watchdog/PATH failures while a serialized
   control passed. Slice 1a disables default collection parallelism
   (`server/PtkMcpServer.Tests/xunit.runner.json`,
-  `parallelizeTestCollections: false`, re-confirmed present as of `a3112f3`)
+  `parallelizeTestCollections: false`, re-confirmed present as of `f99a92b`)
   without changing explicit concurrency tests, product deadlines, or
   assertions. This closes the scheduling artifact, not every underlying risk. A
   recurrence of the anchored-evidence publication/removal ordering race or

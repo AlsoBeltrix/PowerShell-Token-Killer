@@ -4,6 +4,21 @@ Rotated verbatim from `.agents/state.md` by the `handoff` and `drift`
 operators; current state lives there. Entries below are historical record,
 newest rotation first.
 
+## Rotated 2026-08-05 (drift based on f99a92b)
+
+### From `## Now`
+
+- **#38 fixed and closed (2026-08-05, owner ruling).** PowerShell's engine
+  invokes an exception's `Message` override while building the error record,
+  upstream of capture — ruled **outside** PTK's boundary. The invariant in
+  force promises only that the capture itself executes no user code. An
+  untrusted exception now surfaces its type name and base-constructor
+  message via a field read of `System.Exception`'s backing field (executes
+  nothing); the `Message` override is never invoked by capture and its
+  computed text is never reported. Ruling recorded in `.agents/decisions.md`;
+  invocation-counting guards in `RunspaceHostTests.cs`, proved failing
+  against the old behavior.
+
 ## Rotated 2026-08-05 (drift based on a2a8a9a)
 
 ### From `## Now`

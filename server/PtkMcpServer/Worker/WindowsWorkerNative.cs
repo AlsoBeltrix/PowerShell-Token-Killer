@@ -68,6 +68,7 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
     private const uint JobObjectMessageActiveProcessZero = 4;
     private const uint ContainedWorkerTerminationExitCode = 0x50544B01;
     private const int WaitTimeout = 258;
+    private const uint StillActive = 259;
     private const uint CompletionPollMilliseconds = 100;
     private static readonly nuint JobCompletionKey = 0x50544B57;
     private const uint HandleFlagInherit = 0x00000001;
@@ -740,6 +741,42 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
 
         public int ProcessId { get; }
 
+        /// <summary>
+        /// The worker's exit code, or <see langword="null"/> while it runs and
+        /// whenever the query cannot answer. STILL_ACTIVE is reported as null:
+        /// a process may legitimately exit with 259, so the value alone cannot
+        /// distinguish the two and claiming a code here would invent evidence
+        /// on the one path that exists to explain a death.
+        /// </summary>
+        public int? ExitCode
+        {
+            get
+            {
+                try
+                {
+                    SafeProcessHandle process;
+                    lock (_gate)
+                    {
+                        if (_process is null || _process.IsInvalid ||
+                            _process.IsClosed)
+                        {
+                            return null;
+                        }
+                        process = _process;
+                    }
+
+                    if (!NativeMethods.GetExitCodeProcess(process, out var code))
+                        return null;
+                    return code == StillActive ? null : unchecked((int)code);
+                }
+                catch
+                {
+                    // Never throws: this reports on an already-failing path.
+                    return null;
+                }
+            }
+        }
+
         internal SafeProcessHandle ProcessHandle
         {
             get
@@ -1380,6 +1417,12 @@ internal sealed class WindowsWorkerNative : IWindowsWorkerNative
         internal static extern bool TerminateJobObject(
             NativeJobHandle job,
             uint exitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static extern bool GetExitCodeProcess(
+            SafeProcessHandle process,
+            out uint exitCode);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         internal static extern SafeFileHandle CreateIoCompletionPort(

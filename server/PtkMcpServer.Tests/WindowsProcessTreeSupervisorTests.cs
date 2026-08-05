@@ -593,6 +593,11 @@ public sealed class WindowsProcessTreeSupervisorTests
                 "DeleteProcThreadAttributeList",
                 "DuplicateHandle",
                 "GetCurrentProcess",
+                // Read-only, and deliberately not a way to end anything: it
+                // reports the exit code of a worker that already died, so a
+                // death can name its own cause (GitHub #13). The one atomic
+                // create and job-only termination below are unaffected.
+                "GetExitCodeProcess",
                 "GetQueuedCompletionStatus",
                 "InitializeProcThreadAttributeList",
                 "IsProcessInJob",
@@ -1120,6 +1125,8 @@ public sealed class WindowsProcessTreeSupervisorTests
     {
         internal Task WaitTask { get; } = Task.CompletedTask;
         public int ProcessId => processId;
+        internal int? StubExitCode { get; set; }
+        public int? ExitCode => StubExitCode;
 
         public Task WaitForExitAsync(CancellationToken cancellationToken = default) =>
             WaitTask;

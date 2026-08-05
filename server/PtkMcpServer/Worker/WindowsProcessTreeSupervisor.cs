@@ -34,6 +34,13 @@ internal interface IWindowsJobEmptyObserver : IDisposable
 internal interface IWindowsProcessHandle : IDisposable
 {
     int ProcessId { get; }
+
+    /// <summary>
+    /// The exit code once the process has exited, or <see langword="null"/>
+    /// while it runs and whenever the query fails. Never throws.
+    /// </summary>
+    int? ExitCode { get; }
+
     Task WaitForExitAsync(CancellationToken cancellationToken = default);
 }
 
@@ -387,6 +394,12 @@ internal sealed class ContainedWindowsWorker : IWorkerContainedProcess
     public Stream EventReader => Current.Pipes.EventReader;
     public Stream StandardOutputReader => Current.Pipes.StandardOutputReader;
     public Stream StandardErrorReader => Current.Pipes.StandardErrorReader;
+
+    // Null once ownership is released: the handle is gone and there is
+    // nothing left to ask. Reported only to explain a death, so an
+    // unanswerable query is absent rather than an error.
+    public int? ExitCode => _ownership?.Process.ExitCode;
+
     public Task ContainmentEmpty => _containmentEmpty.Task;
 
     public Task WaitForExitAsync(CancellationToken cancellationToken = default) =>

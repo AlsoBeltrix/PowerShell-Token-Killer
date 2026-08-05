@@ -319,13 +319,38 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             WorkerInvocationDisposition.NotStarted =>
                 $"[ptk invoke] status=not_started session={session} " +
                 $"detail={exception.CauseDetailCode}; the command was not started " +
-                "and PTK did not retry it; correct the stated cause before retrying.",
+                "and PTK did not retry it; correct the stated cause before retrying." +
+                WorkerExitFacts(exception),
             WorkerInvocationDisposition.OutcomeUnknown =>
                 $"[ptk invoke] status=outcome_unknown session={session} " +
                 $"detail={exception.CauseDetailCode}; do not resubmit automatically; " +
-                "PTK did not retry the command.",
+                "PTK did not retry the command." +
+                WorkerExitFacts(exception),
             _ => throw new ArgumentOutOfRangeException(nameof(exception)),
         };
+
+    /// <summary>
+    /// What the worker said as it died, appended to the failure line. Absent
+    /// facts are omitted rather than printed as placeholders, so a death that
+    /// explains nothing reads exactly as it did before GitHub #13 — and one
+    /// that explains itself names the cause instead of leaving the caller to
+    /// guess between a worker defect, a transport fault, and its own command
+    /// killing the process.
+    /// </summary>
+    private static string WorkerExitFacts(WorkerInvocationException exception)
+    {
+        if (exception.WorkerExit is not { } exit)
+            return string.Empty;
+        var sb = new StringBuilder();
+        if (exit.ExitCode is { } code)
+        {
+            sb.Append(" worker exit_code=")
+                .Append(code.ToString(CultureInfo.InvariantCulture));
+        }
+        if (exit.Diagnostic is { } diagnostic)
+            sb.Append(" worker_said=\"").Append(diagnostic).Append('"');
+        return sb.ToString();
+    }
 
     private static void AppendTerminal(
         StringBuilder sb,

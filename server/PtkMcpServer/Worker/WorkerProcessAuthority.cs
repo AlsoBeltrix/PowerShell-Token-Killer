@@ -34,6 +34,15 @@ internal interface IWorkerContainedProcess : IDisposable
     Stream EventReader { get; }
     Stream StandardOutputReader { get; }
     Stream StandardErrorReader { get; }
+
+    /// <summary>
+    /// The process exit code once it has exited, or <see langword="null"/>
+    /// while it is running and whenever the platform cannot answer. Read only
+    /// to explain a death (GitHub #13), so it never throws: a diagnostic that
+    /// can fail is worse than one that says nothing.
+    /// </summary>
+    int? ExitCode { get; }
+
     Task ContainmentEmpty { get; }
     Task WaitForExitAsync(CancellationToken cancellationToken = default);
     Task<WorkerContainmentResult> ContainAsync(WorkerContainmentReason reason);

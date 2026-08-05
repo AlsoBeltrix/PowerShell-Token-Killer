@@ -1,5 +1,7 @@
 using System.Collections;
+using System.Globalization;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace PtkMcpServer.Worker;
 
@@ -14,6 +16,68 @@ internal enum WorkerInvocationDisposition
 {
     NotStarted,
     OutcomeUnknown,
+}
+
+/// <summary>
+/// A worker process exited when nobody asked it to, carrying whatever it said
+/// on the way out. Before this existed the same event surfaced as a bare
+/// end-of-stream, indistinguishable from a pipe failure with a live worker —
+/// so a worker defect, a transport fault, and a caller's own command killing
+/// the process all read identically (GitHub #13).
+/// </summary>
+internal sealed class WorkerExitException(
+    string? diagnostic,
+    int? exitCode)
+    : EndOfStreamException(Describe(diagnostic, exitCode))
+{
+    /// <summary>
+    /// The worker's final standard-error line, or <see langword="null"/> when
+    /// it wrote nothing recognizable.
+    /// </summary>
+    internal string? Diagnostic { get; } = diagnostic;
+
+    /// <summary>
+    /// The process exit code, or <see langword="null"/> when the platform
+    /// could not answer.
+    /// </summary>
+    internal int? ExitCode { get; } = exitCode;
+
+    /// <summary>
+    /// The <c>kind</c> the worker named in its own exit diagnostic, or
+    /// <see langword="null"/> when it did not write one. Parsed from the
+    /// worker's <c>ptk_worker_exit kind=... detail=...</c> contract
+    /// (<see cref="WorkerProcessExit"/>); any other line is not that contract
+    /// and yields nothing.
+    /// </summary>
+    internal string? Kind
+    {
+        get
+        {
+            const string prefix = "ptk_worker_exit kind=";
+            if (Diagnostic is null || !Diagnostic.StartsWith(prefix, StringComparison.Ordinal))
+                return null;
+            var value = Diagnostic[prefix.Length..];
+            var end = value.IndexOf(' ', StringComparison.Ordinal);
+            if (end >= 0)
+                value = value[..end];
+            return value.Length == 0 ? null : value;
+        }
+    }
+
+    private static string Describe(string? diagnostic, int? exitCode)
+    {
+        var sb = new StringBuilder("Worker process exited unexpectedly");
+        if (exitCode is { } code)
+        {
+            sb.Append(" (exit code ")
+                .Append(code.ToString(CultureInfo.InvariantCulture))
+                .Append(')');
+        }
+        sb.Append('.');
+        if (diagnostic is not null)
+            sb.Append(' ').Append(diagnostic);
+        return sb.ToString();
+    }
 }
 
 internal sealed class WorkerInvocationException : IOException
@@ -34,6 +98,13 @@ internal sealed class WorkerInvocationException : IOException
 
     internal WorkerInvocationDisposition Disposition { get; }
     internal string CauseDetailCode { get; }
+
+    /// <summary>
+    /// What the worker said on its way out, when this failure was a worker
+    /// death rather than a transport fault. Null on every other cause.
+    /// </summary>
+    internal WorkerExitException? WorkerExit =>
+        InnerException as WorkerExitException;
 }
 
 internal interface ISessionWorker : IAsyncDisposable
@@ -275,6 +346,8 @@ internal sealed class ProcessSessionWorker : ISessionWorker
     private static readonly TimeSpan CancelWriteGrace =
         TimeSpan.FromMilliseconds(250);
     private static readonly TimeSpan DisposeGrace = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DiagnosticDrainGrace =
+        TimeSpan.FromSeconds(2);
 
     private readonly object _gate = new();
     private readonly IWorkerContainedProcess _process;
@@ -293,6 +366,7 @@ internal sealed class ProcessSessionWorker : ISessionWorker
     // supposed to write there, so retaining it would only buy an unbounded
     // channel for executed-command output.
     private readonly WorkerDiagnosticTail _standardErrorTail = new();
+    private readonly Task _exitObserved;
     private long _requestId;
     private bool _initialized;
     private bool _stopping;
@@ -319,7 +393,7 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         _standardErrorDrain =
             _standardErrorTail.DrainAsync(process.StandardErrorReader);
         _ = IgnoreFailureAsync(_fatal.Task);
-        _ = ObserveExitAsync();
+        _exitObserved = ObserveExitAsync();
     }
 
     public int ProcessId => _process.ProcessId;
@@ -486,14 +560,22 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                 throw;
             }
 
+            // A dying worker closes its event pipe before the exit observer
+            // can name the cause, so the in-flight read raises a bare
+            // end-of-stream first. Resolve the real cause BEFORE poisoning:
+            // _fatal is TrySetException, so whoever poisons first decides what
+            // every later reader sees, and poisoning with the bare
+            // end-of-stream here would discard the worker's own account of its
+            // death — the exact evidence #13 needs.
+            var cause = await WithWorkerExitAsync(exception).ConfigureAwait(false);
             if (writeStarted)
-                Poison(exception);
+                Poison(cause);
             throw new WorkerInvocationException(
                 writeStarted
                     ? WorkerInvocationDisposition.OutcomeUnknown
                     : WorkerInvocationDisposition.NotStarted,
-                InvocationFailureCode(exception, writeStarted),
-                exception);
+                InvocationFailureCode(cause, writeStarted),
+                cause);
         }
         finally
         {
@@ -746,6 +828,12 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         {
             WorkerProtocolException protocol => protocol.DetailCode,
             WorkerProcessException process => process.DetailCode,
+            // The worker's own vocabulary when it managed to say why, its exit
+            // otherwise. Only a death that explains nothing falls through to
+            // the transport code, which is all any of these used to report.
+            WorkerExitException { Kind: { } kind } => $"worker_exit_{kind}",
+            WorkerExitException { ExitCode: not null } =>
+                "worker_exited_unexpectedly",
             EndOfStreamException => "worker_transport_closed",
             ObjectDisposedException => "worker_transport_closed",
             IOException => writeStarted
@@ -795,6 +883,25 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         }
     }
 
+    /// <summary>
+    /// Upgrades a bare transport failure to the worker's own exit account when
+    /// the process is in fact dying. Returns <paramref name="exception"/>
+    /// unchanged when the worker is alive — a genuine pipe fault on a live
+    /// worker must keep reading exactly as it did before.
+    /// </summary>
+    private async Task<Exception> WithWorkerExitAsync(Exception exception)
+    {
+        if (exception is not EndOfStreamException and not ObjectDisposedException)
+            return exception;
+        await IgnoreFailureAsync(_exitObserved.WaitAsync(DiagnosticDrainGrace))
+            .ConfigureAwait(false);
+        if (!_fatal.Task.IsFaulted)
+            return exception;
+        return _fatal.Task.Exception?.InnerExceptions
+            .OfType<WorkerExitException>()
+            .FirstOrDefault() ?? exception;
+    }
+
     private static async Task IgnoreFailureAsync(Task task)
     {
         try
@@ -811,6 +918,13 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         try
         {
             await _process.WaitForExitAsync().ConfigureAwait(false);
+            // Let the retainer finish before reading it: the diagnostic is the
+            // worker's last write, so the bytes can still be in flight when the
+            // wait completes. Bounded so a stuck stream cannot hold the
+            // poisoning of a session that is already gone.
+            await IgnoreFailureAsync(
+                _standardErrorDrain.WaitAsync(DiagnosticDrainGrace))
+                .ConfigureAwait(false);
             lock (_gate)
             {
                 // `_stopping` as well as `_stopped`: a worker that acknowledges
@@ -821,7 +935,9 @@ internal sealed class ProcessSessionWorker : ISessionWorker
                 if (_stopping || _stopped || Volatile.Read(ref _disposed) != 0)
                     return;
             }
-            Poison(new EndOfStreamException("Worker process exited unexpectedly."));
+            Poison(new WorkerExitException(
+                _standardErrorTail.Text,
+                _process.ExitCode));
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -830,6 +946,9 @@ internal sealed class ProcessSessionWorker : ISessionWorker
     }
 
     private void Poison(Exception exception) =>
+        // WorkerExitException is an EndOfStreamException, hence an IOException,
+        // so it survives unwrapped and reaches the classifier with the worker's
+        // diagnostic and exit code intact.
         _fatal.TrySetException(
             exception is IOException
                 ? exception

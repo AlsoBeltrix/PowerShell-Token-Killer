@@ -191,6 +191,13 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
         public Stream EventReader => _pipes.WorkerEvents;
         public Stream StandardOutputReader => _pipes.StandardOutput;
         public Stream StandardErrorReader => _pipes.StandardError;
+
+        // The broker's own exit, already awaited for containment. It relays
+        // the worker's status, so a worker that died on a signal reports
+        // 128+signal rather than a code it never chose.
+        public int? ExitCode =>
+            _brokerExit.IsCompletedSuccessfully ? _brokerExit.Result : null;
+
         public Task ContainmentEmpty => _containmentEmpty.Task;
 
         internal async Task CompleteHandshakeAsync(

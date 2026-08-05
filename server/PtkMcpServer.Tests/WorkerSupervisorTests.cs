@@ -90,14 +90,57 @@ public sealed class WorkerSupervisorTests
         Assert.Contains("reset_required=true", text, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// GitHub #13: a worker death reported only that the transport closed, so
+    /// the caller could not tell a worker defect from its own command killing
+    /// the process, and had nothing to report but "ptk broke". The worker's
+    /// own dying words now reach the tool response.
+    /// </summary>
+    [Fact]
+    public async Task Public_invoke_names_what_the_dying_worker_said()
+    {
+        var text = await InvokePublicAsync(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            "worker_exit_runtime_failure",
+            "sample-online",
+            new WorkerExitException(
+                "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
+                exitCode: 84));
+
+        Assert.Equal(
+            "[ptk invoke] status=outcome_unknown session=sample-online " +
+            "detail=worker_exit_runtime_failure; do not resubmit automatically; " +
+            "PTK did not retry the command. worker exit_code=84 " +
+            "worker_said=\"ptk_worker_exit kind=runtime_failure " +
+            "detail=runtime_failure\"",
+            text);
+    }
+
+    /// <summary>
+    /// A failure with nothing to add must read exactly as it did before #13:
+    /// absent facts are omitted, never printed as empty placeholders.
+    /// </summary>
+    [Fact]
+    public async Task Public_invoke_adds_nothing_when_the_worker_said_nothing()
+    {
+        var text = await InvokePublicAsync(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            "worker_transport_failure",
+            "sample-onprem");
+
+        Assert.DoesNotContain("worker exit_code=", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("worker_said=", text, StringComparison.Ordinal);
+    }
+
     private static async Task<string> InvokePublicAsync(
         WorkerInvocationDisposition disposition,
         string detailCode,
-        string session)
+        string session,
+        WorkerExitException? workerExit = null)
     {
         using var supervisor = new WorkerSupervisor(
             new NamedSessionSupervisor(
-                () => new FailingWorkerFactory(disposition, detailCode),
+                () => new FailingWorkerFactory(disposition, detailCode, workerExit),
                 startupTimeout: TimeSpan.FromSeconds(5),
                 containmentGrace: TimeSpan.FromSeconds(1)));
         _ = await supervisor.NamedSessions.OpenAsync(session);
@@ -115,7 +158,8 @@ public sealed class WorkerSupervisorTests
 
     private sealed class FailingWorkerFactory(
         WorkerInvocationDisposition disposition,
-        string detailCode) : ISessionWorkerFactory
+        string detailCode,
+        WorkerExitException? workerExit = null) : ISessionWorkerFactory
     {
         public Task<ISessionWorker> StartAsync(
             Guid sessionId,
@@ -127,14 +171,16 @@ public sealed class WorkerSupervisorTests
                     sessionId,
                     incarnation,
                     disposition,
-                    detailCode));
+                    detailCode,
+                    workerExit));
     }
 
     private sealed class FailingWorker(
         Guid sessionId,
         long incarnation,
         WorkerInvocationDisposition disposition,
-        string detailCode) : ISessionWorker
+        string detailCode,
+        WorkerExitException? workerExit = null) : ISessionWorker
     {
         private readonly TaskCompletionSource _fatal =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -157,7 +203,7 @@ public sealed class WorkerSupervisorTests
                 new WorkerInvocationException(
                     disposition,
                     detailCode,
-                    new IOException("injected")));
+                    workerExit ?? (Exception)new IOException("injected")));
 
         public Task<WorkerStateSnapshot> StateAsync(
             bool listAvailable,

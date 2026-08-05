@@ -729,6 +729,152 @@ public sealed class SessionWorkerClientTests
             client.IsTransportUsable,
             "an ambiguous at-write failure must still poison the transport");
     }
+    /// <summary>
+    /// GitHub #13: a worker that dies mid-invocation used to report
+    /// worker_transport_closed and nothing else, so a worker defect, a
+    /// transport fault, and the caller's own command killing the process were
+    /// indistinguishable. The worker's own exit diagnostic now names the
+    /// cause.
+    /// </summary>
+    [Fact]
+    public async Task A_dying_worker_reports_the_kind_it_named_in_its_diagnostic()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 11,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'dies'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        await process.ExitUnexpectedlyAsync(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure\n",
+            exitCode: 84);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        Assert.Equal(
+            WorkerInvocationDisposition.OutcomeUnknown,
+            failure.Disposition);
+        Assert.Equal("worker_exit_runtime_failure", failure.CauseDetailCode);
+        Assert.Equal(84, failure.WorkerExit?.ExitCode);
+        Assert.Equal(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
+            failure.WorkerExit?.Diagnostic);
+    }
+
+    /// <summary>
+    /// A worker can die without managing to say why. The exit code alone still
+    /// separates "the process died" from "the pipe broke".
+    /// </summary>
+    [Fact]
+    public async Task A_silent_death_reports_the_exit_code()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 12,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'dies'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        await process.ExitUnexpectedlyAsync(diagnostic: null, exitCode: 139);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        Assert.Equal("worker_exited_unexpectedly", failure.CauseDetailCode);
+        Assert.Equal(139, failure.WorkerExit?.ExitCode);
+        Assert.Null(failure.WorkerExit?.Diagnostic);
+    }
+
+    /// <summary>
+    /// A death that explains nothing must read exactly as it did before #13.
+    /// Reporting a cause here would be inventing one.
+    /// </summary>
+    [Fact]
+    public async Task A_death_that_explains_nothing_still_reports_the_transport_close()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 13,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'dies'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        await process.ExitUnexpectedlyAsync(diagnostic: null, exitCode: null);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        Assert.Equal("worker_transport_closed", failure.CauseDetailCode);
+    }
+
+    /// <summary>
+    /// Output the worker never authored must not be quoted back as its dying
+    /// words: a caller's command writing to standard error is not a
+    /// ptk_worker_exit line.
+    /// </summary>
+    [Fact]
+    public async Task Foreign_standard_error_is_not_reported_as_a_worker_kind()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 14,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'dies'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        await process.ExitUnexpectedlyAsync(
+            "cc1plus: out of memory allocating 65536 bytes\n",
+            exitCode: 1);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        // Retained and reported as text, but never parsed into a kind ptk
+        // would then present as its own classification.
+        Assert.Equal("worker_exited_unexpectedly", failure.CauseDetailCode);
+        Assert.Equal(
+            "cc1plus: out of memory allocating 65536 bytes",
+            failure.WorkerExit?.Diagnostic);
+    }
+
     private static async Task InitializeAsync(
         ProcessSessionWorker client,
         ScriptedProcess process)
@@ -791,6 +937,8 @@ public sealed class SessionWorkerClientTests
             TaskCreationOptions.RunContinuationsAsynchronously);
         private readonly TaskCompletionSource _containmentEmpty = new(
             TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly Stream _standardError;
+        private readonly Stream _standardErrorWriter;
         private int _disposed;
 
         private readonly RequestWriteStream _requestWriterMonitor;
@@ -799,6 +947,9 @@ public sealed class SessionWorkerClientTests
         {
             var requests = new Pipe();
             var events = new Pipe();
+            var standardError = new Pipe();
+            _standardError = standardError.Reader.AsStream();
+            _standardErrorWriter = standardError.Writer.AsStream();
             _requestWriterMonitor = new RequestWriteStream(
                 requests.Writer.AsStream(),
                 writeFailureMode);
@@ -816,7 +967,8 @@ public sealed class SessionWorkerClientTests
         public Stream RequestWriter => _requestWriter;
         public Stream EventReader => _eventReader;
         public Stream StandardOutputReader => Stream.Null;
-        public Stream StandardErrorReader => Stream.Null;
+        public Stream StandardErrorReader => _standardError;
+        public int? ExitCode { get; private set; }
         public Task ContainmentEmpty => _containmentEmpty.Task;
         internal int RequestWriteCalls => _requestWriterMonitor.WriteCalls;
 
@@ -842,7 +994,26 @@ public sealed class SessionWorkerClientTests
         internal void ExitUnexpectedly()
         {
             _eventWriter.Dispose();
+            _standardErrorWriter.Dispose();
             _exit.TrySetResult();
+        }
+
+        /// <summary>
+        /// Dies the way a real worker does: writes its bounded exit
+        /// diagnostic, closes both streams, and reports an exit code.
+        /// </summary>
+        internal async Task ExitUnexpectedlyAsync(
+            string? diagnostic,
+            int? exitCode)
+        {
+            if (diagnostic is not null)
+            {
+                var bytes = System.Text.Encoding.ASCII.GetBytes(diagnostic);
+                await _standardErrorWriter.WriteAsync(bytes);
+                await _standardErrorWriter.FlushAsync();
+            }
+            ExitCode = exitCode;
+            ExitUnexpectedly();
         }
 
         public Task WaitForExitAsync(
@@ -867,6 +1038,8 @@ public sealed class SessionWorkerClientTests
             _requestReader.Dispose();
             _eventWriter.Dispose();
             _eventReader.Dispose();
+            _standardErrorWriter.Dispose();
+            _standardError.Dispose();
         }
     }
 

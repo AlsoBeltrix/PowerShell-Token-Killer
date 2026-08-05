@@ -32,13 +32,33 @@ fixed and guard-proved. Battery at `eca0891`: server 1,164/1,164, Pester 111
 + 1 skip, dependency audit clean, handshake passed, direct product proof
 17/17 against a complete payload.
 
-**What remains, and why each is stopped:**
+**#42 is CLOSED (2026-08-05).** Slice 4 did not need this host's install
+repaired: an install into an isolated `HOME` (`USERPROFILE`/`HOME`/`HOMEPATH`
+set on the child process, since `$HOME` itself is read-only) exercises the
+real transaction, activation, validation, and registration without touching
+`~/.ptk`. `Assert-PtkRuntimeNotRunning` filters by path prefix, so it scopes
+to the sandbox and does not see the live servers. **Use this technique for
+any future install-path work** — it is the difference between simulating the
+defect and reproducing it.
 
-1. **#42 slice 4 — close the loop.** Needs this host's nested install
-   repaired and re-verified. Repair means removing `~/.ptk` and reinstalling,
-   which requires killing the running ptk MCP server the working agent is
-   itself connected through. Owner action, or explicit go.
-2. **`opr-53` — needs an owner ruling before implementation.** The finding is
+Doing so found three further defects the unit tests could not see, all fixed
+in `1ff20c8`: activation deleted in place (destroying the payload before
+discovering a lock), the undo used `Move-Item -Force` (which nests a
+directory into a same-named directory, the very defect being fixed), and
+rollback aborted before restoring because its own delete threw. Proof:
+baseline 387 files, locked reinstall, still 387, no `bin/bin`, rescued
+install passes the release gate 17/17. Before that commit the same run left
+208.
+
+**This host's own `~/.ptk` is still nested** and still runs the stale
+111-file payload. It is not a code problem any more — the installer now
+refuses to install over it and says how to repair. Repair means closing every
+ptk process (including the server the working agent runs through) and
+reinstalling: owner action.
+
+**What remains:**
+
+1. **`opr-53` — needs an owner ruling before implementation.** The finding is
    re-confirmed live (a script that prints PTK-shaped lines has its forged
    `[ptk worker] status=` and `recovery=` handle preserved verbatim beside
    the genuine ones). The choice is (a) escape the reserved grammar inside
@@ -47,6 +67,12 @@ fixed and guard-proved. Battery at `eca0891`: server 1,164/1,164, Pester 111
    larger, touches the tool surface, and also fixes the deferred
    refusal→`isError` mapping. Recommendation: (b). Plan:
    `.agents/plans/pre-release-opr-10-opr-53.md`.
+
+   Not taken unilaterally, for two recorded reasons rather than caution:
+   `.agents/review/dispositions.md` dispositions it **not release-blocking**,
+   and option (b) changes all five tools from `Task<string>` to a structured
+   return — a design fork with user-visible consequences either way, which
+   the plan explicitly gates on the owner.
 
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
 issues, one codex review per completed fix, maximum two rounds. The backlog
@@ -77,17 +103,11 @@ Open work, ordered. An open issue is queued work: "backlog complete" is not
 the same as "nothing queued", and this section exists so the two are never
 conflated again.
 
-1. **#42 — install nests the payload at `~/.ptk/bin/bin`, leaving a stale
-   incomplete server registered. CODE COMPLETE, awaiting slice 4.** Slices 1,
-   2, 3, 3b landed (`8801281`, `b0573ee`, `210f865`, `8a1bf2a`) plus the two
-   codex findings (`044d53b`, `7761b75`). Activation and rollback now share
-   `Assert-PtkInstallPathRemoved` — removal is never treated as proof of
-   removal; the installer compares the installed tree against an index of the
-   staged tree captured before activation; an already-nested root is refused
-   up front; and the release gate materializes a `Process`, which
-   discriminates the two payloads on this host (fails on the truncated one,
-   17/17 on the complete one). Only slice 4 remains: repair this host and
-   verify, which needs the running server killed. Filed
+1. **#42 — CLOSED 2026-08-05.** Every slice landed and the issue carries the
+   close-out. Commits: `8801281`, `b0573ee`, `210f865`, `8a1bf2a`, the two
+   codex findings `044d53b` and `7761b75`, and `1ff20c8` for the three
+   defects only a real locked install exposed. The detail is above and in the
+   issue; do not restate it here. Original filing: filed
    2026-08-05 from this host's own broken install. `Move-Item` of a directory
    onto a surviving directory nests instead of replacing
    (`scripts/ptk_install_transaction.psm1:279`), so a failed or raced

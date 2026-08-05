@@ -1548,6 +1548,57 @@ Describe 'development package layout' {
         { & $probe } | Should -Throw -ExpectedMessage '*asm2.dll*'
     }
 
+    # Issue #42 slice 3: installs already in the nested state exist in the
+    # wild -- this host was one. Detect it and say so, rather than letting a
+    # user keep running a stale payload while a complete one sits unused one
+    # level down. Refuse with instructions rather than silently rearranging
+    # someone's install directory.
+    It 'detects an install already nested at bin/bin' {
+        $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
+        $src = Get-Content -LiteralPath $installScript -Raw
+        $extract = {
+            param($text, $name)
+            $start = $text.IndexOf("function $name")
+            if ($start -lt 0) { return '' }
+            $depth = 0
+            $seen = $false
+            for ($i = $start; $i -lt $text.Length; $i++) {
+                if ($text[$i] -eq '{') { $depth++; $seen = $true }
+                elseif ($text[$i] -eq '}') {
+                    $depth--
+                    if ($seen -and $depth -eq 0) { return $text.Substring($start, $i - $start + 1) }
+                }
+            }
+            return ''
+        }
+        $fn = & $extract $src 'Assert-PtkPayloadNotNested'
+        $fn | Should -Not -BeNullOrEmpty -Because 'slice 3 of issue #42 adds this function'
+
+        $caseRoot = Join-Path $TestDrive ('nested-detect-' + [guid]::NewGuid().ToString('N'))
+        $healthy = Join-Path $caseRoot 'healthy'
+        $nested = Join-Path $caseRoot 'nested'
+        New-Item -ItemType Directory -Path (Join-Path $healthy 'bin') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $healthy 'bin' 'PtkMcpServer.dll') -Value 'x' -NoNewline
+        New-Item -ItemType Directory -Path (Join-Path $nested 'bin' 'bin') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $nested 'bin' 'PtkMcpServer.dll') -Value 'x' -NoNewline
+        Set-Content -LiteralPath (Join-Path $nested 'bin' 'bin' 'PtkMcpServer.dll') -Value 'x' -NoNewline
+
+        $probe = {
+            param($body, $root)
+            & ([scriptblock]::Create($body + "`nAssert-PtkPayloadNotNested -Root '$root'"))
+        }
+        { & $probe $fn $healthy } | Should -Not -Throw
+        { & $probe $fn $nested } | Should -Throw -ExpectedMessage '*bin*'
+
+        # A bin/bin that is not itself a payload is somebody's data directory,
+        # not the #42 shape; do not fail an innocent install.
+        $innocent = Join-Path $caseRoot 'innocent'
+        New-Item -ItemType Directory -Path (Join-Path $innocent 'bin' 'bin') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $innocent 'bin' 'PtkMcpServer.dll') -Value 'x' -NoNewline
+        Set-Content -LiteralPath (Join-Path $innocent 'bin' 'bin' 'notes.txt') -Value 'x' -NoNewline
+        { & $probe $fn $innocent } | Should -Not -Throw
+    }
+
     It 'refuses a cross-RID native package before creating the output directory' {
         $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture

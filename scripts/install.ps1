@@ -239,6 +239,41 @@ function Assert-PtkPayloadIntact {
 # and truncation, and hashing the set is not worth the per-install cost. The
 # server binary's own integrity is already proved by the package smoke test
 # launching it.
+# Issue #42: installs already in the nested state exist in the wild, created
+# before the activation guard above. Such an install keeps running a stale,
+# incomplete payload while the complete one sits unused one level down, and
+# nothing about it looks wrong -- the server starts and handshakes. Say so
+# plainly rather than rearranging someone's install directory automatically.
+function Assert-PtkPayloadNotNested {
+    param([Parameter(Mandatory)][string]$Root)
+
+    $bin = Join-Path $Root 'bin'
+    $inner = Join-Path $bin 'bin'
+    if (-not (Test-Path -LiteralPath $inner -PathType Container)) { return }
+
+    # Only a bin/bin that is itself a payload is the #42 shape. Anything else
+    # under there is somebody's data directory and none of our business.
+    $marker = @(Get-ChildItem -LiteralPath $inner -Filter 'PtkMcpServer.*' -File -Force -ErrorAction SilentlyContinue)
+    if ($marker.Count -eq 0) { return }
+
+    $outerCount = @(Get-ChildItem -LiteralPath $bin -File -Force -ErrorAction SilentlyContinue).Count
+    $innerCount = @(Get-ChildItem -LiteralPath $inner -File -Force -ErrorAction SilentlyContinue).Count
+    throw ((@(
+        "This install is nested: '$inner' contains a second, complete payload."
+        "The registered server is '$bin' ($outerCount files), but the payload actually"
+        "installed most recently is '$inner' ($innerCount files)."
+        ''
+        'This is GitHub issue #42. An earlier install moved the new payload inside the'
+        'old one instead of replacing it, so the stale payload stayed registered. It'
+        'starts and handshakes normally, but it is missing assemblies, and PowerShell'
+        'commands whose objects need them fail -- Get-Process and Get-Service return'
+        'nothing and recycle the warm session.'
+        ''
+        'To repair: close every ptk process and any harness that launched one, remove'
+        "'$Root' entirely, and reinstall. Nothing under it is user data."
+    ) | ForEach-Object { $_ }) -join [Environment]::NewLine)
+}
+
 function Get-PtkPayloadIndex {
     param([Parameter(Mandatory)][string]$Root)
 
@@ -827,6 +862,9 @@ switch ($mode) {
     default {
         Assert-NotElevated
 Assert-PtkRuntimeNotRunning
+        # Before touching anything: an install already nested by the pre-fix
+        # activation bug cannot be repaired by installing over it (#42).
+        Assert-PtkPayloadNotNested -Root $ptkHome
         $targetRid = Get-PtkRid
         $payloadVersion = Get-PtkVersion
         $staging = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-stage-{0}" -f ([guid]::NewGuid()))

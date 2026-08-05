@@ -1541,13 +1541,13 @@ public sealed class RunspaceHost : IDisposable
 
     private sealed record WarmAutomaticState(object? LastExitCode);
 
-    private sealed record InvocationPrefixSnapshot(
+    internal sealed record InvocationPrefixSnapshot(
         string[] Output,
         string[] StandardError,
         string[] Errors,
         string[] Warnings);
 
-    private sealed record PassiveOutputSnapshot(
+    internal sealed record PassiveOutputSnapshot(
         PSObject[] Output,
         InvocationPrefixSnapshot Prefix,
         long TotalOutputCount,
@@ -1599,7 +1599,7 @@ public sealed class RunspaceHost : IDisposable
     /// <summary>Drains producer-owned collections as they grow and retains only
     /// bounded, passive DTOs. Active PowerShell members are executable user
     /// code, so this collector never reads them merely to display output.</summary>
-    private sealed class BoundedPassiveOutputCapture
+    internal sealed class BoundedPassiveOutputCapture
     {
         internal const string ActiveMemberMarker =
             "[active member not evaluated]";
@@ -1773,18 +1773,39 @@ public sealed class RunspaceHost : IDisposable
                 // A framework exception's Message is host code too. Gating on
                 // the two PowerShell assemblies alone omitted the text of every
                 // ordinary BCL exception, leaving a failing call with no signal
-                // at all (GitHub #8, secondary complaint). An Add-Type or
-                // otherwise untrusted exception type is still refused.
+                // at all (GitHub #8, secondary complaint).
                 var exception = error.Exception;
-                if (exception is null ||
-                    !IsTrustedRenderingAssembly(exception.GetType().Assembly))
+                if (exception is null)
                 {
                     text = omitted;
                     return false;
                 }
 
-                text = exception.Message ?? string.Empty;
-                return true;
+                if (IsTrustedRenderingAssembly(exception.GetType().Assembly))
+                {
+                    text = exception.Message ?? string.Empty;
+                    return true;
+                }
+
+                // An untrusted type's Message override is user code, so the
+                // property is never invoked here. PowerShell's engine has
+                // already called Message while building this record — that is
+                // upstream of the capture and outside its invariant, which
+                // promises only that the capture itself executes no user code
+                // (GitHub #38, owner ruling 2026-08-05). The base-constructor
+                // message is a plain field read and the type name is
+                // reflection metadata; neither executes anything.
+                var typeName =
+                    exception.GetType().FullName ?? "[unnamed exception type]";
+                if (ExceptionMessageField?.GetValue(exception) is string message &&
+                    message.Length > 0)
+                {
+                    text = $"{typeName}: {message}";
+                    return true;
+                }
+
+                text = $"{typeName}: [no message was readable without running user code]";
+                return false;
             }
             catch
             {
@@ -1792,6 +1813,17 @@ public sealed class RunspaceHost : IDisposable
                 return false;
             }
         }
+
+        /// <summary>System.Exception's backing field for the constructor-
+        /// supplied message. Reading a field executes nothing, so it is safe
+        /// on a type whose Message override is user code. Null if the runtime
+        /// ever stops exposing the field; the capture then reports the
+        /// message unreadable rather than invoking the property.</summary>
+        private static readonly System.Reflection.FieldInfo? ExceptionMessageField =
+            typeof(Exception).GetField(
+                "_message",
+                System.Reflection.BindingFlags.Instance |
+                    System.Reflection.BindingFlags.NonPublic);
 
         private static bool IsTrustedPowerShellAssembly(System.Reflection.Assembly assembly)
         {

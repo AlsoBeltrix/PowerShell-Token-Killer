@@ -34,6 +34,28 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-08-05): The capture invariant covers PTK's capture, not PowerShell's engine
+
+**Status:** Active — ruled by the owner on 2026-08-05 (GitHub #38).
+
+PowerShell's error-record construction invokes an exception's `Message`
+override (twice, measured by the #38 guard) before PTK's output capture ever
+sees the record. That engine behavior is outside PTK's boundary: the
+invariant in force promises only that **the capture itself executes no user
+code**.
+
+- `TryFreezeErrorRecord` reads an untrusted exception's base-constructor
+  message from `System.Exception`'s backing field — a field read executes
+  nothing — and reports the type name. The `Message` override is never
+  invoked by capture and its computed text is never reported.
+- Do not build engine-side suppression to chase the upstream `Message`
+  calls; they are PowerShell's own, not PTK's.
+- Guarded by the invocation-counting #38 tests in
+  `server/PtkMcpServer.Tests/RunspaceHostTests.cs`.
+
+This supersedes the Slice 7.0-era reading under which an untrusted
+exception's text was omitted wholesale.
+
 ### ACTIVE (2026-07-31): Release readiness is parked; every build gets a new identity
 
 **Status:** Active — directed by the owner on 2026-07-31.

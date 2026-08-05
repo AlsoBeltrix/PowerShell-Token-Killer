@@ -19,14 +19,16 @@ short and update it when important repo facts change.
 
 - **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope.
 
-- **#38: custom exception types still yield nothing** — not the message, not
-  the type name. The obvious repair (read `Exception`'s private `_message`
-  field rather than the overridable `Message` property) was implemented and
-  **reverted**: its own guard showed `Message` is already called twice by
-  PowerShell's error-record construction before capture sees it. So the
-  "capture never runs user code" invariant is already weaker than documented
-  for thrown exceptions. Whether that is inside or outside PTK's boundary is
-  a product question, filed rather than guessed.
+- **#38 fixed and closed (2026-08-05, owner ruling).** PowerShell's engine
+  invokes an exception's `Message` override while building the error record,
+  upstream of capture — ruled **outside** PTK's boundary. The invariant in
+  force promises only that the capture itself executes no user code. An
+  untrusted exception now surfaces its type name and base-constructor
+  message via a field read of `System.Exception`'s backing field (executes
+  nothing); the `Message` override is never invoked by capture and its
+  computed text is never reported. Ruling recorded in `.agents/decisions.md`;
+  invocation-counting guards in `RunspaceHostTests.cs`, proved failing
+  against the old behavior.
 
 ## Next
 
@@ -75,12 +77,6 @@ is a larger change than this batch.
 **Every reported issue is now fixed, or filed with the investigation that
 could not finish here.** Open issues carrying that work:
 
-- **#38** — custom exception types yield no message. The safe repair (read
-  `Exception`'s private `_message` rather than the overridable `Message`) was
-  written and reverted: its own guard showed PowerShell already calls
-  `Message` twice during error-record construction, before capture. Whether
-  that is inside or outside PTK's no-user-code boundary is a product
-  question, not a code one.
 - **#40** — macOS long-pipeline worker loss and Windows ARM64 MSIX module
   imports. Both need the matching hardware; neither reproduces here.
 - **#41** — nested object values are dropped **during capture**. An earlier
@@ -104,7 +100,8 @@ receives and returns for a nested note, and settle whether it is reached at
 all for `[pscustomobject]@{ Nested = [pscustomobject]@{ Deep = 'MARKER' } }`.
 Two attempts inferred the answer from rendered output and both were wrong;
 this needs direct observation. Everything else on the backlog is either
-landed or blocked on hardware (#40) or an owner ruling (#38).
+landed or blocked on hardware (#40); the #38 ruling landed 2026-08-05 and
+its fix is in.
 
 Decision 5 — tag `v0.2.0` and publish — is still owner-only and untouched.
 

@@ -1,3 +1,4 @@
+using System.Management.Automation;
 using PtkMcpServer.Tools;
 
 namespace PtkMcpServer.Tests;
@@ -49,25 +50,73 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     /// <summary>
-    /// Slice 4: the repair must not weaken the safety gate it reuses. An
-    /// ErrorRecord whose exception type is not from a trusted PowerShell
-    /// assembly still refuses to read that exception, and says so.
+    /// GitHub #38 (owner ruling, 2026-08-05): the capture invariant promises
+    /// only that the capture itself executes no user code — PowerShell's
+    /// engine already invokes Message while building the record, upstream of
+    /// PTK. The freeze therefore reads the base-constructor message straight
+    /// from System.Exception's backing field and reports the type name; the
+    /// Message override is never invoked and its computed text is never
+    /// reported. The invocation counter proves the capture added zero reads.
     /// </summary>
     [Fact]
-    public async Task Untrusted_error_exception_text_is_still_refused()
+    public void Error_freeze_reads_base_message_and_type_without_invoking_the_override()
     {
-        var result = await _host.InvokeAsync(
-            "$e = [System.Management.Automation.ErrorRecord]::new(" +
-            "[PtkUntrustedFixtureException]::new('MUST_NOT_BE_READ'), " +
-            "'id', 'NotSpecified', $null); $e",
-            route: "pwsh");
+        var exception = new PtkCountingOverrideException();
+        var record = new ErrorRecord(
+            exception, "PtkIssue38", ErrorCategory.InvalidOperation, null);
+        var readsBefore = PtkCountingOverrideException.OverrideReads;
 
-        // The fixture type does not exist, so the script fails; what matters
-        // is that no path prints an untrusted exception's message.
+        var safe = RunspaceHost.BoundedPassiveOutputCapture
+            .TryFreezeErrorRecord(record, out var text);
+
+        Assert.True(safe, text);
+        Assert.Contains("PTK_BASE_MESSAGE_38", text, StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(PtkCountingOverrideException), text, StringComparison.Ordinal);
         Assert.DoesNotContain(
-            "MUST_NOT_BE_READ",
-            result.Output,
-            StringComparison.Ordinal);
+            "PTK_OVERRIDE_MESSAGE_38", text, StringComparison.Ordinal);
+        Assert.Equal(readsBefore, PtkCountingOverrideException.OverrideReads);
+    }
+
+    public sealed class PtkCountingOverrideException : Exception
+    {
+        public static int OverrideReads;
+
+        public PtkCountingOverrideException() : base("PTK_BASE_MESSAGE_38") { }
+
+        public override string Message
+        {
+            get { OverrideReads++; return "PTK_OVERRIDE_MESSAGE_38"; }
+        }
+    }
+
+    /// <summary>
+    /// GitHub #38, fail-closed half: when nothing was handed to base(...),
+    /// the only message lives behind the override, which the capture must not
+    /// invoke. The type name still surfaces and the omission is flagged.
+    /// </summary>
+    [Fact]
+    public void Error_freeze_reports_the_type_when_no_message_is_passively_readable()
+    {
+        var record = new ErrorRecord(
+            new PtkOverrideOnlyMessageException(),
+            "PtkIssue38NoBase",
+            ErrorCategory.InvalidOperation,
+            null);
+
+        var safe = RunspaceHost.BoundedPassiveOutputCapture
+            .TryFreezeErrorRecord(record, out var text);
+
+        Assert.False(safe);
+        Assert.Contains(
+            nameof(PtkOverrideOnlyMessageException), text, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "PTK_OVERRIDE_ONLY_38", text, StringComparison.Ordinal);
+    }
+
+    public sealed class PtkOverrideOnlyMessageException : Exception
+    {
+        public override string Message => "PTK_OVERRIDE_ONLY_38";
     }
 
     /// <summary>
@@ -233,13 +282,15 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     /// <summary>
-    /// Slice 7.0: widening the exception-message gate must not leak an
-    /// untrusted type's message. An Add-Type assembly is never trusted, so
-    /// its exception text stays omitted while a framework exception's
-    /// message now surfaces (GitHub #8, secondary complaint).
+    /// Slice 7.0 omitted an untrusted exception's text wholesale; GitHub #38
+    /// re-ruled the boundary (owner, 2026-08-05): the message a custom type
+    /// handed to base(...) surfaces via a passive field read, with its type
+    /// name, while the Message override is still never invoked by the
+    /// capture — its computed text must appear nowhere. A framework
+    /// exception's message keeps surfacing as before (GitHub #8).
     /// </summary>
     [Fact]
-    public async Task Trusted_exception_message_surfaces_and_untrusted_stays_omitted()
+    public async Task Untrusted_exception_message_and_type_surface_without_the_override()
     {
         var trusted = await _host.InvokeAsync(
             "throw [System.InvalidOperationException]::new('PTK_TRUSTED_MESSAGE')",
@@ -251,9 +302,10 @@ public sealed class RunspaceHostTests : IDisposable
             StringComparison.Ordinal);
 
         const string source = """
-            public sealed class PtkUntrustedSlice70Exception : System.Exception
+            public sealed class PtkUntrustedIssue38Exception : System.Exception
             {
-                public PtkUntrustedSlice70Exception() : base("MUST_NOT_BE_READ_70") { }
+                public PtkUntrustedIssue38Exception() : base("PTK_BASE_38") { }
+                public override string Message { get { return "PTK_OVERRIDE_38"; } }
             }
             """;
         var encoded = Convert.ToBase64String(
@@ -265,10 +317,12 @@ public sealed class RunspaceHostTests : IDisposable
             "throw [Activator]::CreateInstance($t)",
             route: "pwsh");
 
-        Assert.DoesNotContain(
-            "MUST_NOT_BE_READ_70",
-            string.Join(Environment.NewLine, untrusted.Errors) + untrusted.Output,
-            StringComparison.Ordinal);
+        var combined =
+            string.Join(Environment.NewLine, untrusted.Errors) + untrusted.Output;
+        Assert.Contains("PTK_BASE_38", combined, StringComparison.Ordinal);
+        Assert.Contains(
+            "PtkUntrustedIssue38Exception", combined, StringComparison.Ordinal);
+        Assert.DoesNotContain("PTK_OVERRIDE_38", combined, StringComparison.Ordinal);
     }
 
     [Fact]

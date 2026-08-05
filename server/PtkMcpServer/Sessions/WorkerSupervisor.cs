@@ -225,6 +225,9 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             _ => WorkerInvokeRoute.Auto,
         };
 
+    internal static string FormatInvocationForTests(NamedSessionInvokeResult invocation) =>
+        FormatInvocation(invocation);
+
     private static string FormatInvocation(NamedSessionInvokeResult invocation)
     {
         var sb = new StringBuilder(invocation.Result.Text.TrimEnd());
@@ -275,11 +278,19 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
                     "this session worker is being replaced; the command was not retried");
                 break;
             case WorkerResultStatus.Failed:
+                // Only say the outcome is uncertain when it actually is. The
+                // rider used to ride every failure, including a script that
+                // ran and threw and a parse error that executed nothing — both
+                // fully known outcomes. Telling a caller to distrust a result
+                // that is certain teaches distrust exactly where trust is
+                // deserved (GitHub #35 F6).
                 AppendTerminal(
                     sb,
                     "failed",
                     invocation.Result.DetailCode,
-                    "outcome may be unknown; the command was not retried");
+                    invocation.Result.DetailCode == "outcome_unknown"
+                        ? "outcome may be unknown; the command was not retried"
+                        : "the command was not retried");
                 break;
             default:
                 throw new ArgumentOutOfRangeException();

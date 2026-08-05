@@ -36,6 +36,36 @@ public sealed class WorkerSupervisorTests
             text);
     }
 
+    /// <summary>
+    /// GitHub #35 F6: "outcome may be unknown" rode every failure, including a
+    /// script that ran and threw and a parse error that executed nothing. Both
+    /// outcomes are fully known, and telling a caller to distrust a certain
+    /// result teaches distrust where trust is deserved. Only a genuinely
+    /// uncertain outcome carries the rider now.
+    /// </summary>
+    [Theory]
+    [InlineData("execution_failed", false)]
+    [InlineData("outcome_unknown", true)]
+    public void Only_a_genuinely_uncertain_failure_says_the_outcome_may_be_unknown(
+        string detailCode,
+        bool expectUncertaintyRider)
+    {
+        var text = WorkerSupervisor.FormatInvocationForTests(
+            new NamedSessionInvokeResult(
+                new WorkerResult(
+                    RequestId: 1,
+                    WorkerResultStatus.Failed,
+                    "boom",
+                    detailCode),
+                OutputRecovery: null));
+
+        Assert.Contains($"detail={detailCode}", text, StringComparison.Ordinal);
+        Assert.Contains("the command was not retried", text, StringComparison.Ordinal);
+        Assert.Equal(
+            expectUncertaintyRider,
+            text.Contains("outcome may be unknown", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Faulted_session_snapshot_says_that_explicit_reset_is_required()
     {

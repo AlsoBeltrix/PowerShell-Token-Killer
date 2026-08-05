@@ -18,6 +18,9 @@ public sealed class SupervisorCallFilterTests
     [InlineData("[ptk output] invalid request: action=list accepts only session.", true)]
     [InlineData("[ptk output] invalid request: offset or maxBytes is outside the bounded contract.", true)]
     [InlineData("[operation not started] The operation was not started.", true)]
+    // codereview round 2: two no-start forms the first matcher missed.
+    [InlineData("[ptk invoke] status=not_started session=alpha detail=worker_transport_unavailable; the command was not started and PTK did not retry it.", true)]
+    [InlineData("[ptk output] action=read state=not_found detail=handle_not_found", true)]
     // Ordinary results, including ones that merely mention failure: the work
     // ran, so the call succeeded whatever the script concluded.
     [InlineData("hello", false)]
@@ -29,6 +32,11 @@ public sealed class SupervisorCallFilterTests
     [InlineData("[ptk session] opened", false)]
     // A user's own output must never be mistaken for PTK's refusal marker.
     [InlineData("my script printed: [ptk invoke] refused session=x", false)]
+    // codereview round 2: nor when the script's own output leads with it, on
+    // its own line or after a blank one. Only PTK's exact marker shape counts.
+    [InlineData("[ptk invoke] refusedish output from my script", false)]
+    [InlineData("\n[not ptk] refused something", false)]
+    [InlineData("ordinary line\n[ptk invoke] refused session=x", false)]
     public void A_refusal_is_flagged_as_an_error_and_a_result_is_not(
         string text,
         bool expectedIsError)

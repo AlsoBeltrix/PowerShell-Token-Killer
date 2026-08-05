@@ -71,31 +71,47 @@ internal static class SupervisorCallFilter
     }
 
     /// <summary>
-    /// Whether a response says the work was refused and nothing ran. Matches
-    /// only PTK's own leading refusal markers, never a phrase that could
-    /// appear in a user command's output.
+    /// Whether a response says PTK refused the work and nothing ran.
+    ///
+    /// Recognized from the first line only, and only when it is entirely one
+    /// of PTK's own status markers. Two constraints shape this, both from
+    /// codereview round 2:
+    ///
+    /// - It must not fire on a user's own output. A script whose stdout
+    ///   happens to begin with these words is not a refusal, so the whole
+    ///   first line must match the marker's shape — a bare prefix test let
+    ///   arbitrary text after it qualify.
+    /// - It must cover every no-start form the server emits, not the two that
+    ///   were convenient: `status=not_started` from the supervisor and
+    ///   `state=not_found` from the output store were both missed.
+    ///
+    /// This reads text because the tools return <c>Task&lt;string&gt;</c> and
+    /// the structured disposition is flattened before this point. Carrying the
+    /// outcome through as data is the better shape and is recorded as
+    /// follow-up in the commit; matching the server's own emitted markers is
+    /// the honest interim, and every marker below is pinned by a test.
     /// </summary>
     private static bool IsRefusalText(string text)
     {
-        var span = text.AsSpan().TrimStart();
+        var newline = text.AsSpan().IndexOfAny('\r', '\n');
+        var first = (newline >= 0 ? text.AsSpan(0, newline) : text.AsSpan()).Trim();
 
-        // "[ptk <tool>] refused ..." and "[ptk output] invalid request: ..."
-        if (span.StartsWith("[ptk ", StringComparison.Ordinal))
-        {
-            var close = span.IndexOf(']');
-            if (close > 0)
-            {
-                var rest = span[(close + 1)..].TrimStart();
-                if (rest.StartsWith("refused", StringComparison.Ordinal) ||
-                    rest.StartsWith("invalid request", StringComparison.Ordinal))
-                {
-                    return true;
-                }
-            }
-        }
+        if (first.StartsWith("[operation not started]", StringComparison.Ordinal))
+            return true;
+        if (!first.StartsWith("[ptk ", StringComparison.Ordinal))
+            return false;
 
-        return span.StartsWith(NotStartedMessage, StringComparison.Ordinal)
-            || span.StartsWith("[operation not started]", StringComparison.Ordinal);
+        var close = first.IndexOf(']');
+        if (close < 0) return false;
+        var rest = first[(close + 1)..].TrimStart();
+
+        // Nothing ran: an explicit refusal, or a malformed request.
+        return rest.StartsWith("refused ", StringComparison.Ordinal)
+            || rest.StartsWith("invalid request", StringComparison.Ordinal)
+            // "[ptk invoke] status=not_started ..." — proved not started.
+            || rest.StartsWith("status=not_started", StringComparison.Ordinal)
+            // "[ptk output] action=read state=not_found ..." — no such handle.
+            || rest.Contains("state=not_found", StringComparison.Ordinal);
     }
 
     private static CallToolResult Refusal() => new()

@@ -124,10 +124,20 @@ conflated again.
    (`server/PtkMcpServer/Sessions/WorkerSupervisor.cs:314`) instead of
    dropping them. Plan:
    `.agents/plans/issue-13-worker-death-diagnostics.md` (the plan owns the
-   detail, do not restate it here). Slices 1-3 landed (`c6dbb57`,
-   `a2a713e`); codex generation review active over `c1561ee..a2a713e` —
-   see `.agents/review/index.md`. Slice 4 (close the issue) waits on that
-   verdict.
+   detail, do not restate it here). Slices 1-3 landed; codex found three
+   defects, all fixed, and its verification pass reopened two of the fixes,
+   both repaired at `e2c2902`. Round-2 verdict pending —
+   `.agents/review/index.md` owns the loop's state. Slice 4 (close the
+   issue) waits on it.
+
+   **Durable lesson from this loop:** on the worker-death path nothing is
+   forgery-proof, because the caller's script runs *inside* the worker — it
+   controls both the worker's standard error and its exit code. PTK
+   therefore asserts only that the process exited unrequested, and presents
+   the exit code and retained stderr line as explicitly untrusted evidence.
+   Do not reintroduce a per-kind classification here without a
+   supervisor-owned authenticated channel; two successive attempts to
+   classify (from text, then from the exit code) were both forgeable.
 2. **#7 — Defender false positive.** Gated on Microsoft's WDSI verdict
    (submitted 2026-07-20). No local action until it lands.
 3. **#40 — macOS long-pipeline worker loss; Windows ARM64 MSIX module

@@ -2,10 +2,29 @@
 
 ## Active — i13 (worker death diagnostics, 2026-08-05)
 
-Generation pass in flight: codex-cli 0.146.0 over `c1561ee..a2a713e`
-(GitHub #13 — retain the dying worker's diagnostic and exit code, and
-classify the failure from them). Plan:
-`.agents/plans/issue-13-worker-death-diagnostics.md`. Verdict pending.
+Generation pass: codex-cli 0.146.0, `codex/gpt-5.6-sol/xhigh (inline,
+session-only)/standard`, over `c1561ee..a2a713e` (GitHub #13). Verdict
+`findings` (3), capability_ok true, SHAs pinned and matched. All three
+admitted at intake and fixed one commit each. Plan:
+`.agents/plans/issue-13-worker-death-diagnostics.md`.
+
+Verification round 1 over `178acea..4f9284f` returned **reopened**
+(guard_confirmed false) with two comments, both accepted without dispute:
+i13-1's first fix only moved the forgery from the stderr text to the exit
+code, and i13-2's guard was vacuous. Repaired in `e2c2902`; round 2 verdict
+pending.
+
+| ID    | Severity | Impact (one line)                                          | Status |
+|-------|----------|------------------------------------------------------------|--------|
+| i13-1 | HIGH     | caller-controlled input reported as PTK's own classification of a worker death | `[~]` (fixed `178acea`, reopened, repaired `e2c2902`) |
+| i13-2 | MEDIUM   | Unix reported the broker's constant as the worker's exit code | `[~]` (fixed `17a6a44`, guard replaced `e2c2902`) |
+| i13-3 | MEDIUM   | the call after a death reported none of the known facts     | `[~]` (fixed `4f9284f`, awaiting round-2 verdict) |
+
+Note on provenance: codex's auth refresh token was revoked partway through
+both dispatches. Each returned a schema-valid envelope with matching pins and
+`capability_ok: true` regardless; recorded as a note per the
+dispatch-provenance rule, not as an invalidation. Round 2 also timed out once
+at 1800s and was re-dispatched with a larger budget.
 
 ## Closed — hcc (harness-consent codereview, 2026-08-04)
 

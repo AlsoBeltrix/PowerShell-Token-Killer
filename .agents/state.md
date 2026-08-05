@@ -94,8 +94,11 @@ before trusting a live probe.
 **Next action** — none queued: the test-report backlog is complete. Every
 issue it raised is fixed and closed (#33–#38, #41) or filed and blocked on
 matching hardware (#40). Other GitHub issues remain open outside that
-backlog — #7 (Defender, gated on WDSI), #13, #30, #32 — and are not part of
-it. Remaining work is owner-gated: Decision 5, and any review dispatch, which
+backlog — #7 (Defender, gated on WDSI), #13, #30 — and are not part of it.
+(#32, the kimi leg, was closed 2026-08-05: it landed at `ad1665e` and the
+tracker was out of sync. The close comment records one deviation from the
+issue's design sketch — no `startupTimeoutMs` is written, and live
+verification passed without it.) Remaining work is owner-gated: Decision 5, and any review dispatch, which
 happens only on the owner's explicit word. One new machine observation from
 this pass (ptk-session `PSModulePath` truncation failing four StateToolTests)
 is recorded in `.agents/machines.md`, not filed as an issue — owner's call

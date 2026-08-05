@@ -29,8 +29,17 @@ short and update it when important repo facts change.
 
 - **Four platform test reports landed 2026-08-04/05** (#33 Windows x64, #34
   Windows ARM64, #35 macOS arm64, #36 Arch Linux x64), run against
-  `docs/testplan.md`. They agree on more than they disagree; the shaping
-  cluster below is the dominant complaint.
+  `docs/testplan.md`. All four are now closed: ten findings fixed, three
+  filed as #38/#40/#41. Verified at `008172e`: server 1,129/1,129 (from
+  1,068), Pester 107 with 1 platform skip, working tree clean, master in
+  sync with origin.
+
+  Every fix was mutation-proved and reviewed by codex at defaults, two rounds
+  maximum per the owner's instruction. The reviews found 14 real defects
+  across the rounds — each reproduced before acting — including two the
+  reports never saw: `Lazy<T>` and `ThreadLocal<T>` are trusted-assembly
+  types whose getters run a caller's delegate, and capture was invoking them.
+  The last review returned clean.
 
 - **#37 fixed and closed (`963195d`, `0056128`, `16638e0`).** The rtk rewrite
   ran the real binary when the submitted script defined a shadowing function
@@ -130,6 +139,16 @@ Recurring lesson worth carrying: on this shaper, a stale build tree produces
 convincing wrong answers. Several investigations here chased behaviour that
 had already been fixed. Kill build-tree `PtkMcpServer` processes and rebuild
 before trusting a live probe.
+
+**Next action** — the one unanswered question, and the only queued work:
+instrument `PassiveNoteValue` in `BoundedPassiveOutputCapture` to log what it
+receives and returns for a nested note, and settle whether it is reached at
+all for `[pscustomobject]@{ Nested = [pscustomobject]@{ Deep = 'MARKER' } }`.
+Two attempts inferred the answer from rendered output and both were wrong;
+this needs direct observation. Everything else on the backlog is either
+landed or blocked on hardware (#40) or an owner ruling (#38).
+
+Decision 5 — tag `v0.2.0` and publish — is still owner-only and untouched.
 
 Decision 5 — tag `v0.2.0` and publish — remains owner-only and is now
 downstream of this backlog. Do not tag or push a `v*` ref without an explicit

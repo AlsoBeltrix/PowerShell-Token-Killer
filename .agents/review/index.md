@@ -11,29 +11,47 @@ admitted at intake and fixed one commit each. Plan:
 Verification round 1 over `178acea..4f9284f` returned **reopened**
 (guard_confirmed false) with two comments, both accepted without dispute:
 i13-1's first fix only moved the forgery from the stderr text to the exit
-code, and i13-2's guard was vacuous. Repaired in `e2c2902`; round 2 verdict
-pending.
+code, and i13-2's guard was vacuous. Repaired in `e2c2902`.
+
+**Verification round 3 over `4f9284f..e2c2902` returned `accepted`,
+`guard_confirmed: true`, `capability_ok: true`, SHAs pinned and matched
+(2026-08-05).** Both round-1 comments are confirmed closed:
+
+- comment 1 (`SessionWorkerClient.cs:835`) — caller-controlled stderr and
+  exit code no longer form the detail token; every death with evidence maps
+  to the fixed `worker_exited_unexpectedly`, and the supervisor labels the
+  reported facts as untrusted evidence.
+- comment 2 (`UnixWorkerProcessLauncherTests.cs:112`) — the source-text
+  guard would catch the named `ExitCode => _brokerExit.Result` regression.
+  The reviewer names one residual hole, inherent to source-text guards: an
+  indirect broker-exit alias or decoy text could evade it. Recorded as
+  accepted residual risk, not an open finding.
 
 | ID    | Severity | Impact (one line)                                          | Status |
 |-------|----------|------------------------------------------------------------|--------|
-| i13-1 | HIGH     | caller-controlled input reported as PTK's own classification of a worker death | `[~]` (fixed `178acea`, reopened, repaired `e2c2902`) |
-| i13-2 | MEDIUM   | Unix reported the broker's constant as the worker's exit code | `[~]` (fixed `17a6a44`, guard replaced `e2c2902`) |
-| i13-3 | MEDIUM   | the call after a death reported none of the known facts     | `[~]` (fixed `4f9284f`, awaiting round-2 verdict) |
+| i13-1 | HIGH     | caller-controlled input reported as PTK's own classification of a worker death | `[x]` (fixed `178acea`, reopened, repaired `e2c2902`, accepted r3) |
+| i13-2 | MEDIUM   | Unix reported the broker's constant as the worker's exit code | `[x]` (fixed `17a6a44`, guard replaced `e2c2902`, accepted r3) |
+| i13-3 | MEDIUM   | the call after a death reported none of the known facts     | `[x]` (fixed `4f9284f`, accepted r3) |
 
-**Round 2 did not return a verdict — the loop is halted for the owner, not
-passed.** Two dispatches over `4f9284f..e2c2902` both died without emitting
-an envelope (the first hit the 1800s call budget; the second was aborted at
-the harness's own idle limit). The reviewer's abandoned clone under `.tmp/`
-was clean at `e2c2902` and has been removed. Absent an envelope the outcome
-is **not accepted** — the fail-closed rule in the playbook — so i13-1 and
-i13-2 stay `[~]`, repaired and locally guard-proved but not
-reviewer-confirmed.
+**Why rounds 2a/2b died, resolved 2026-08-05.** Two earlier dispatches over
+the same range died without emitting an envelope. The cause was not the
+reviewer's transport and not the work: codex's `config.toml` registers the
+`ptk` MCP server, and under `codex exec` (non-interactive, `approval:
+never`) every `ptk_invoke`/`ptk_session` call is auto-denied with `user
+cancelled MCP tool call`. The reviewer burned its budget retrying a tool it
+could never call. Round 3 added `-c 'mcp_servers={}'` and returned a verdict
+in 168s using 51,239 tokens.
 
-Root cause is almost certainly the reviewer transport, not the work: codex
-logged `Your access token could not be refreshed because your refresh token
-was revoked` continuously through every dispatch today. Rounds 1 and 2 of the
-generation/verification loop are also the recorded maximum, so a third
-dispatch needs an owner go and probably a `codex login` first.
+The `refresh token was revoked` error codex logs continuously is confirmed
+**noise** — a `pong` probe returned in ~3s while logging it, and round 3
+completed while logging it. Do not treat it as a dispatch blocker.
+
+**Dispatch recipe for this host** (codex is API-only via Portkey; there is
+no `codex login` to run):
+
+```
+codex exec --cd <repo> -s read-only --color never -c 'mcp_servers={}' - < <prompt-file>
+```
 
 What is true without the reviewer: the full battery passes locally
 (server 1,151/1,151, Pester 107 + 1 platform skip, SIEM 226/247 for this

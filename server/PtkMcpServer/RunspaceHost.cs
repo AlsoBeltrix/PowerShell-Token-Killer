@@ -1567,10 +1567,33 @@ public sealed class RunspaceHost : IDisposable
                         ? "passive_projection_lossy"
                         : null;
 
-        internal string? LimitationNote => IncompleteReason is null
-            ? null
-            : $"[ptk:capture incomplete reason={IncompleteReason} " +
-              $"retained={Output.Length} total={TotalOutputCount}]";
+        internal string? LimitationNote
+        {
+            get
+            {
+                if (IncompleteReason is null) return null;
+                var note =
+                    $"[ptk:capture incomplete reason={IncompleteReason} " +
+                    $"retained={Output.Length} total={TotalOutputCount}]";
+
+                // Say which end survived. The inline view shows a head and a
+                // tail, so a reader reasonably assumes the artifact holds at
+                // least that much — but when the capture bound is hit, the
+                // retained window is the FIRST N items and everything after is
+                // gone, artifact included. A caller looking for the end of the
+                // output will not find it and needs to know that now, not
+                // after paging to the last byte (GitHub #35 F4).
+                if (CaptureBoundExceeded && TotalOutputCount > Output.Length)
+                {
+                    note +=
+                        $" the first {Output.Length} of {TotalOutputCount} were kept; " +
+                        "the rest, including the end, was not captured and is not " +
+                        "recoverable.";
+                }
+
+                return note;
+            }
+        }
     }
 
     /// <summary>Drains producer-owned collections as they grow and retains only

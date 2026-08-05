@@ -147,6 +147,25 @@ public sealed class OutputShapingTests : IDisposable
         Assert.Contains("bash -lc", result, StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// GitHub #35 F4: when the capture bound is hit the retained window is the
+    /// FIRST N items — but the inline view shows a head and a tail, so a
+    /// reader assumes the end is recoverable. It is not: the tail was never
+    /// captured, artifact included. #35 found it by paging to the end of a
+    /// handle and discovering the last lines missing.
+    /// </summary>
+    [Fact]
+    public async Task A_bounded_capture_says_the_end_was_not_kept()
+    {
+        var result = await _host.InvokeAsync(
+            "1..60000 | ForEach-Object { \"line-$_-abcdefghijklmnopqrstuvwxyz0123456789\" }");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Contains("capture_bound_exceeded", result.Output, StringComparison.Ordinal);
+        Assert.Contains("including the end", result.Output, StringComparison.Ordinal);
+        Assert.Contains("not recoverable", result.Output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task A_plain_cmdlet_carries_no_routing_noise()
     {

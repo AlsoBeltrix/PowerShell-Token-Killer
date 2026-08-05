@@ -197,6 +197,13 @@ internal static class ExecutionPlanner
         var stripped = new System.Text.StringBuilder(rewritten);
         var bound = new System.Text.StringBuilder(rewritten);
 
+        // Names the submitted script itself defines. The command snapshot is
+        // captured in preflight, before the worker executes anything, so a
+        // function defined by this very script does not exist yet and its name
+        // still resolves to the native application (GitHub #37). The submitted
+        // AST does show the definition, so it is the authority here.
+        var definedHere = DefinedCommandNames(script);
+
         // Walk in reverse so removing a head token cannot move an earlier one.
         var commandAsts = ast
             .FindAll(node => node is CommandAst, searchNestedScriptBlocks: true)
@@ -226,6 +233,12 @@ internal static class ExecutionPlanner
             if (command.CommandElements.Count < 2 ||
                 command.CommandElements[1] is not StringConstantExpressionAst wrapped)
             {
+                return false;
+            }
+            if (definedHere.Contains(wrapped.Value))
+            {
+                // The caller's own definition wins. Routing here would run the
+                // native binary instead of the command they submitted.
                 return false;
             }
             if (commands.Resolve(wrapped.Value, CommandTypes.All)?.CommandType !=
@@ -279,6 +292,87 @@ internal static class ExecutionPlanner
         return true;
     }
 
+
+    /// <summary>
+    /// Cmdlets whose effect is to bind a name to something other than the
+    /// native application of the same name. Matched by their own name, since a
+    /// script that redefines <em>these</em> is already outside what a static
+    /// read can prove.
+    /// </summary>
+    private static readonly HashSet<string> AliasDefiningCommands = new(
+        [
+            "Set-Alias", "sal",
+            "New-Alias", "nal",
+            "Import-Alias", "ipal",
+        ],
+        StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Every command name the submitted script binds for itself: `function` and
+    /// `filter` declarations at any nesting depth, plus alias creation whose
+    /// name is a readable literal. Conservative in the safe direction — a name
+    /// this cannot read statically is not added, but the wrapped-name check
+    /// that consumes this also requires a literal, so an unreadable definition
+    /// cannot smuggle a routed name past it.
+    /// </summary>
+    private static HashSet<string> DefinedCommandNames(string script)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ast = Parser.ParseInput(script, out _, out var parseErrors);
+        if (parseErrors.Length > 0)
+        {
+            // Unparseable submitted text is not routed anyway (the reduction
+            // check fails first); returning empty keeps this pure.
+            return names;
+        }
+
+        foreach (var definition in ast
+                     .FindAll(node => node is FunctionDefinitionAst, searchNestedScriptBlocks: true)
+                     .Cast<FunctionDefinitionAst>())
+        {
+            if (!string.IsNullOrEmpty(definition.Name))
+                names.Add(definition.Name);
+        }
+
+        foreach (var command in ast
+                     .FindAll(node => node is CommandAst, searchNestedScriptBlocks: true)
+                     .Cast<CommandAst>())
+        {
+            if (command.CommandElements.FirstOrDefault() is not
+                StringConstantExpressionAst head ||
+                !AliasDefiningCommands.Contains(head.Value))
+            {
+                continue;
+            }
+
+            // -Name <value>, or the first positional argument. Bound
+            // parameters are not resolved here: an alias whose name is not a
+            // readable literal is handled by the caller's literal requirement.
+            var elements = command.CommandElements;
+            for (var index = 1; index < elements.Count; index++)
+            {
+                if (elements[index] is CommandParameterAst parameter)
+                {
+                    if (!"Name".StartsWith(parameter.ParameterName, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    var value = parameter.Argument as StringConstantExpressionAst
+                        ?? (index + 1 < elements.Count
+                            ? elements[index + 1] as StringConstantExpressionAst
+                            : null);
+                    if (value is not null) names.Add(value.Value);
+                    continue;
+                }
+
+                if (elements[index] is StringConstantExpressionAst positional)
+                {
+                    names.Add(positional.Value);
+                    break;
+                }
+            }
+        }
+
+        return names;
+    }
 
     private static ExecutionDomain? ClassifyDomain(
         string script,

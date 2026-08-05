@@ -54,6 +54,58 @@ public sealed class ExecutionPlannerTests
     }
 
     /// <summary>
+    /// GitHub #37: the command snapshot is captured in preflight, before the
+    /// worker runs anything, so a function the submitted script defines does
+    /// not exist yet and its name still resolves to the native application.
+    /// The rewrite was accepted and the real binary ran instead of the
+    /// caller's function — a different command than the one submitted.
+    ///
+    /// The submitted script's own AST does show the definition, so a name
+    /// defined anywhere in the script must never be routed, whatever the
+    /// snapshot says.
+    /// </summary>
+    [Theory]
+    [InlineData("function git { 'MINE' }; git status", "function git { 'MINE' }; rtk git status")]
+    [InlineData("filter git { 'MINE' }; git status", "filter git { 'MINE' }; rtk git status")]
+    [InlineData("workflow git { 'MINE' }; git status", "workflow git { 'MINE' }; rtk git status")]
+    [InlineData("Set-Alias git Get-Date; git status", "Set-Alias git Get-Date; rtk git status")]
+    [InlineData("New-Alias git Get-Date; git status", "New-Alias git Get-Date; rtk git status")]
+    public void A_name_the_submitted_script_defines_is_never_routed(
+        string script,
+        string rewritten)
+    {
+        var plan = Plan(
+            script,
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: rewritten);
+
+        AssertDirect(plan, script, RequestedExecutionRoute.Auto);
+    }
+
+    /// <summary>
+    /// The #37 guard must not over-reach: a script that merely mentions a
+    /// command name, or defines some unrelated function, still routes.
+    /// </summary>
+    [Theory]
+    [InlineData("git status", "rtk git status")]
+    [InlineData("function helper { 'x' }; git status", "function helper { 'x' }; rtk git status")]
+    public void A_script_defining_an_unrelated_name_still_routes(
+        string script,
+        string rewritten)
+    {
+        var plan = Plan(
+            script,
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: rewritten);
+
+        Assert.Equal(ExecutionPath.Rtk, plan.ExecutionPath);
+    }
+
+    /// <summary>
     /// Slice 2: RTK only ever inserts `rtk ` before segments it recognizes, so
     /// stripping those prefixes must reproduce the submitted text exactly. A
     /// binary on PTK_RTK_PATH that is not RTK — one that merely echoes its

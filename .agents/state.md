@@ -43,7 +43,38 @@ Open work, ordered. An open issue is queued work: "backlog complete" is not
 the same as "nothing queued", and this section exists so the two are never
 conflated again.
 
-1. **#13 — worker death diagnostics (agent-actionable, top of queue).** The
+1. **#42 — install nests the payload at `~/.ptk/bin/bin`, leaving a stale
+   incomplete server registered (agent-actionable, top of queue).** Filed
+   2026-08-05 from this host's own broken install. `Move-Item` of a directory
+   onto a surviving directory nests instead of replacing
+   (`scripts/ptk_install_transaction.psm1:279`), so a failed or raced
+   `Remove-PtkInstallPath` silently produces `bin/bin/` and leaves the old
+   payload registered. Here that is 111 files against a correct publish's 296
+   — 185 missing, including `System.Collections.NonGeneric.dll` and
+   `Microsoft.PowerShell.SDK.dll`. `Assert-PtkPayloadIntact`
+   (`scripts/install.ps1:199`) name-checks five paths, all present in the
+   stale payload, so it passes; the package smoke test passes too, because
+   the server starts and handshakes fine. The issue owns the detail and the
+   three-part repair; do not restate it here.
+
+   This is the root cause of the previously uninvestigated live defect: an
+   ordinary read-only `Get-Service`/`Get-Process` is refused with "Trusted
+   pre-execution isolation failed" **and the warm runspace is recycled**,
+   because ETS member access throws `FileNotFoundException` for the missing
+   assembly. `ConvertFrom-Json` is broken in the same worker for the same
+   reason. Release-blocking for 1.0: an install can look healthy and then
+   destroy warm session state on a read-only command.
+
+2. **#13 — worker death diagnostics — CLOSED 2026-08-05.** Slice 4 executed:
+   the issue carries the close-out comment and the design record (nothing on
+   the worker-death path is forgery-proof, so PTK asserts only the
+   unrequested exit and labels the exit code and stderr tail untrusted).
+   Round-3 verification over `4f9284f..e2c2902` returned `accepted` /
+   `guard_confirmed: true`, SHAs matched; `.agents/review/index.md` owns the
+   verdict and the one accepted residual risk. Historical detail below is
+   retained until the next rotation.
+
+   The
    owner's 2026-08-04 comment closed the speculative-fix path and named what
    the next recurrence needs: the worker stderr diagnostic, or the crash
    event/exit code. PTK currently discards both, so a recurrence is
@@ -65,24 +96,17 @@ conflated again.
    both repaired at `e2c2902` — still the last code commit as of `78b2dbb`;
    everything after it is docs and `.gitignore`.
 
-   **In flight: the round-2 verdict.** Two dispatches over
-   `4f9284f..e2c2902` died without emitting an envelope — both ran out of
-   time doing their own worktree sabotage cycles, not because the work is
-   wrong. A third, deliberately narrowed dispatch (no worktree, no sabotage,
-   one test command, prompt at
-   `%TEMP%\3\codex-verify3-prompt.txt`) was running when this session ended;
-   its result was never seen. Re-dispatch that prompt to finish. The revoked
-   refresh token codex logs all day is noise — it returned valid envelopes
-   twice while logging it.
-
-   Fail-closed until an envelope lands: i13-1 and i13-2 are repaired and
-   locally guard-proved but NOT reviewer-confirmed.
-   `.agents/review/index.md` owns the loop state and the evidence that does
-   exist; do not copy its counts here. Hosted CI is green on all six jobs at
-   `78b2dbb` (run `31038629493`).
-
-   Slice 4 (closing #13) waits on that verdict. Nothing else in the queue
-   is blocked by it.
+   **Reviewer dispatch on this host — settled 2026-08-05.** The two dead
+   round-2 dispatches were not a transport problem and not the work. codex's
+   `~/.codex/config.toml` registers the `ptk` MCP server, and under
+   `codex exec` (non-interactive, `approval: never`) every `ptk_invoke` /
+   `ptk_session` call is auto-denied with `user cancelled MCP tool call`;
+   the reviewer burned its whole budget retrying a tool it could never call.
+   Adding `-c 'mcp_servers={}'` fixed it — round 3 returned a verdict in
+   168s on 51k tokens. codex here is API-only through Portkey; there is no
+   `codex login` to run, and the `refresh token was revoked` line it logs
+   continuously is confirmed noise (a `pong` probe answered in ~3s while
+   logging it). The dispatch recipe lives in `.agents/review/index.md`.
 
    **Durable lesson from this loop:** on the worker-death path nothing is
    forgery-proof, because the caller's script runs *inside* the worker — it
@@ -117,11 +141,11 @@ in no particular order:
   failure of the second one rolls back an otherwise-good install, so a flake
   reverts a working installation. Initialize plus `tools/list` would catch a
   broken payload without that exposure.
-- One live defect seen during this session and not investigated:
-  `Get-Process dotnet | Where-Object { $_.CommandLine -match 'testhost' }`
-  was refused with `Trusted pre-execution isolation failed; the script was
-  NOT executed and the runspace was recycled` — an ordinary read-only
-  pipeline refused, and warm state lost, for a command that never ran.
+- ~~One live defect seen during this session and not investigated~~ —
+  investigated and root-caused 2026-08-05; it is **#42**, the nested-payload
+  install, not a router or classifier bug. See queue item 1. The refusal
+  reproduces on any command whose objects need a trimmed-away assembly
+  (`Get-Process`, `Get-Service`), so it will disappear on a repaired install.
 
 **Release plan:** `.agents/plans/github-release-packaging.md`, which executes
 Slice 7 of the router plan and supersedes the packaging mechanics of

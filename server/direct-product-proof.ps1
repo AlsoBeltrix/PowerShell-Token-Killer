@@ -120,6 +120,17 @@ try {
     Report 'renders a trusted type instead of dropping it' `
         ($culture -notmatch 'active member not evaluated') ($culture -split "`n")[0]
 
+    # Issue #42: the check above passed against a payload missing 185 of its
+    # 296 assemblies, because CultureInfo needs none of them. Process does --
+    # its ETS members reach System.Collections.NonGeneric -- so a truncated
+    # payload fails here with an ExtendedTypeSystemException wrapping a
+    # FileNotFoundException, or returns nothing at all. This is the cheap
+    # end of the check; the installer's own staged-vs-installed comparison is
+    # the real guard.
+    $process = InvokeTool -Script '$p = Get-Process -Id $PID; "proof_pid=" + $p.Id'
+    Report 'materializes a type needing the wider assembly set' `
+        ($process -match 'proof_pid=\d+') ($process -split "`n")[0]
+
     # 6. plain text survives as text
     $text = InvokeTool -Script "'plain-sentinel-text'"
     Report 'preserves plain text' ($text -match 'plain-sentinel-text')

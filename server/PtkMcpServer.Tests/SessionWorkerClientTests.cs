@@ -918,6 +918,45 @@ public sealed class SessionWorkerClientTests
             failure.WorkerExit?.Diagnostic);
     }
 
+    /// <summary>
+    /// Finding i13-2: on Unix no worker exit code is observable, so nothing is
+    /// classified there — but the worker's own dying words still reach the
+    /// caller. Losing the classification must not lose the evidence too.
+    /// </summary>
+    [Fact]
+    public async Task Without_an_exit_code_the_diagnostic_still_reaches_the_caller()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 16,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var call = client.InvokeAsync(
+            "'dies'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        await process.ExitUnexpectedlyAsync(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure\n",
+            exitCode: null);
+
+        var failure = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => call);
+
+        // No forgeable signal is trusted, so no kind is claimed...
+        Assert.Equal("worker_transport_closed", failure.CauseDetailCode);
+        // ...but the text is still carried, which is what a reader needs.
+        Assert.Equal(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure",
+            failure.WorkerExit?.Diagnostic);
+    }
+
     private static async Task InitializeAsync(
         ProcessSessionWorker client,
         ScriptedProcess process)

@@ -192,11 +192,16 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
         public Stream StandardOutputReader => _pipes.StandardOutput;
         public Stream StandardErrorReader => _pipes.StandardError;
 
-        // The broker's own exit, already awaited for containment. It relays
-        // the worker's status, so a worker that died on a signal reports
-        // 128+signal rather than a code it never chose.
-        public int? ExitCode =>
-            _brokerExit.IsCompletedSuccessfully ? _brokerExit.Result : null;
+        // Always absent on Unix (finding i13-2). The only status observable
+        // here is the broker's, and the broker reports its own containment
+        // outcome, not the worker's: once it reaps the worker it returns a
+        // fixed 64 (ptk_worker_broker.c, monitor_worker). Reporting that as
+        // "the worker's exit code" would make every Unix death claim the same
+        // wrong number, which is worse evidence than none. Relaying the real
+        // status needs a broker protocol change; until then this says nothing
+        // rather than something false, and the retained diagnostic still
+        // carries what the worker managed to say.
+        public int? ExitCode => null;
 
         public Task ContainmentEmpty => _containmentEmpty.Task;
 

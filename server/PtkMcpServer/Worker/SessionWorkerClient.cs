@@ -894,16 +894,51 @@ internal sealed class ProcessSessionWorker : ISessionWorker
     /// </summary>
     private async Task<Exception> WithWorkerExitAsync(Exception exception)
     {
+        // A protocol or process failure already names something specific
+        // ("truncated_frame"); a recorded death cannot improve on it, and
+        // substituting one would trade a precise cause for a vaguer one.
+        if (exception is WorkerProtocolException or WorkerProcessException)
+            return exception;
+
+        // Otherwise a recorded death outranks whatever this caller tripped
+        // over — but only when it actually carries facts. Gating the lookup on
+        // the incoming exception's type meant the call arriving just AFTER a
+        // death got the pre-#13 answer: NextRequestId raises a fresh
+        // IOException once _fatal is faulted, and that type never reached the
+        // lookup, so facts already in hand were discarded (finding i13-3).
+        if (InformativeWorkerExit() is { } recorded)
+            return recorded;
+
         if (exception is not EndOfStreamException and not ObjectDisposedException)
             return exception;
+        // Nothing recorded yet and the transport just ended: the worker may be
+        // dying right now, with the observer moments behind. Wait briefly for
+        // its account rather than reporting a bare transport close.
         await IgnoreFailureAsync(_exitObserved.WaitAsync(DiagnosticDrainGrace))
             .ConfigureAwait(false);
-        if (!_fatal.Task.IsFaulted)
-            return exception;
-        return _fatal.Task.Exception?.InnerExceptions
-            .OfType<WorkerExitException>()
-            .FirstOrDefault() ?? exception;
+        return InformativeWorkerExit() ?? exception;
     }
+
+    /// <summary>
+    /// The recorded worker death, but only when it says something the caller's
+    /// own exception does not. A death carrying no kind, no exit code, and no
+    /// diagnostic adds nothing, and preferring it would overwrite a specific
+    /// detail code — "worker_transport_unavailable" for a call that never
+    /// reached the pipe — with the blanket "worker_transport_closed".
+    /// </summary>
+    private WorkerExitException? InformativeWorkerExit() =>
+        RecordedWorkerExit() is { } exit &&
+            (exit.Kind is not null || exit.ExitCode is not null ||
+                exit.Diagnostic is not null)
+            ? exit
+            : null;
+
+    private WorkerExitException? RecordedWorkerExit() =>
+        _fatal.Task.IsFaulted
+            ? _fatal.Task.Exception?.InnerExceptions
+                .OfType<WorkerExitException>()
+                .FirstOrDefault()
+            : null;
 
     private static async Task IgnoreFailureAsync(Task task)
     {

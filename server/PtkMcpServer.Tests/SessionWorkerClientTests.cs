@@ -957,6 +957,51 @@ public sealed class SessionWorkerClientTests
             failure.WorkerExit?.Diagnostic);
     }
 
+    /// <summary>
+    /// Finding i13-3: the call arriving just AFTER a death used to report
+    /// worker_transport_unavailable with nothing attached, because
+    /// NextRequestId raises a fresh IOException once the death is recorded and
+    /// that type never reached the lookup. PTK knew the cause and said
+    /// nothing.
+    /// </summary>
+    [Fact]
+    public async Task The_call_after_a_death_reports_the_recorded_cause()
+    {
+        var process = new ScriptedProcess();
+        await using var client = new ProcessSessionWorker(
+            process,
+            Guid.NewGuid(),
+            incarnation: 17,
+            Limits);
+        await InitializeAsync(client, process);
+
+        var first = client.InvokeAsync(
+            "'dies'",
+            raw: false,
+            WorkerInvokeRoute.Pwsh,
+            timeoutSeconds: 30,
+            artifactCapture: null,
+            CancellationToken.None);
+        _ = await process.ReadRequestAsync();
+        await process.ExitUnexpectedlyAsync(
+            "ptk_worker_exit kind=runtime_failure detail=runtime_failure\n",
+            exitCode: 84);
+        _ = await Assert.ThrowsAsync<WorkerInvocationException>(() => first);
+
+        // The death is now recorded; this call never reaches the transport.
+        var second = await Assert.ThrowsAsync<WorkerInvocationException>(
+            () => client.InvokeAsync(
+                "'after'",
+                raw: false,
+                WorkerInvokeRoute.Pwsh,
+                timeoutSeconds: 30,
+                artifactCapture: null,
+                CancellationToken.None));
+
+        Assert.Equal("worker_exit_runtime_failure", second.CauseDetailCode);
+        Assert.Equal(84, second.WorkerExit?.ExitCode);
+    }
+
     private static async Task InitializeAsync(
         ProcessSessionWorker client,
         ScriptedProcess process)

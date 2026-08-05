@@ -202,7 +202,14 @@ internal static class ExecutionPlanner
         // function defined by this very script does not exist yet and its name
         // still resolves to the native application (GitHub #37). The submitted
         // AST does show the definition, so it is the authority here.
-        var definedHere = DefinedCommandNames(script);
+        var bindings = DefinedCommandNames(script);
+        if (bindings.BindsUnknownNames)
+        {
+            // The script can bind command names this reader cannot enumerate —
+            // dot-sourcing, Import-Module, Import-Alias, Invoke-Expression.
+            // Any wrapped name might be one of them, so route nothing.
+            return false;
+        }
 
         // Walk in reverse so removing a head token cannot move an earlier one.
         var commandAsts = ast
@@ -235,7 +242,7 @@ internal static class ExecutionPlanner
             {
                 return false;
             }
-            if (definedHere.Contains(wrapped.Value))
+            if (bindings.Names.Contains(BareCommandName(wrapped.Value)))
             {
                 // The caller's own definition wins. Routing here would run the
                 // native binary instead of the command they submitted.
@@ -294,28 +301,84 @@ internal static class ExecutionPlanner
 
 
     /// <summary>
-    /// Cmdlets whose effect is to bind a name to something other than the
-    /// native application of the same name. Matched by their own name, since a
-    /// script that redefines <em>these</em> is already outside what a static
-    /// read can prove.
+    /// Cmdlets that bind an alias whose name appears in the call itself, so a
+    /// static read can name it.
     /// </summary>
-    private static readonly HashSet<string> AliasDefiningCommands = new(
-        [
-            "Set-Alias", "sal",
-            "New-Alias", "nal",
-            "Import-Alias", "ipal",
-        ],
+    private static readonly HashSet<string> NamedAliasCommands = new(
+        ["Set-Alias", "sal", "New-Alias", "nal"],
         StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Every command name the submitted script binds for itself: `function` and
-    /// `filter` declarations at any nesting depth, plus alias creation whose
-    /// name is a readable literal. Conservative in the safe direction — a name
-    /// this cannot read statically is not added, but the wrapped-name check
-    /// that consumes this also requires a literal, so an unreadable definition
-    /// cannot smuggle a routed name past it.
+    /// Commands that can bind command names this reader cannot enumerate:
+    /// the names live in a file or module, not in the submitted text. A script
+    /// using one of these could shadow anything, so nothing in it is routed.
     /// </summary>
-    private static HashSet<string> DefinedCommandNames(string script)
+    private static readonly HashSet<string> OpaqueBindingCommands = new(
+        [
+            "Import-Alias", "ipal",
+            "Import-Module", "ipmo",
+            "Invoke-Expression", "iex",
+            "New-Module", "nmo",
+        ],
+        StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>What the submitted script binds for itself.</summary>
+    /// <param name="Names">Names it binds that can be read statically.</param>
+    /// <param name="BindsUnknownNames">
+    /// True when the script can bind names this reader cannot enumerate —
+    /// dot-sourcing, module import, alias import, <c>Invoke-Expression</c>.
+    /// The caller must decline every rewrite, since any wrapped name might be
+    /// one of them.
+    /// </param>
+    private readonly record struct ScriptBindings(
+        HashSet<string> Names,
+        bool BindsUnknownNames);
+
+    /// <summary>
+    /// Strips what PowerShell strips when it exposes a command name. A
+    /// declaration reads <c>function global:git</c> but the callable name is
+    /// <c>git</c>; a call reads <c>Microsoft.PowerShell.Utility\Set-Alias</c>
+    /// but the cmdlet is <c>Set-Alias</c>. Comparing raw text misses both, so
+    /// both are normalized to the bare name before comparison.
+    /// </summary>
+    private static string BareCommandName(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return name;
+
+        // Module qualification: Module\Command, or a path-qualified script.
+        var separator = name.LastIndexOfAny(['\\', '/']);
+        if (separator >= 0 && separator < name.Length - 1)
+            name = name[(separator + 1)..];
+
+        // Scope qualification on a declaration: global:, script:, local:,
+        // private:, using:. Only a known scope word is stripped — a colon can
+        // legitimately appear in a function name otherwise.
+        var colon = name.IndexOf(':');
+        if (colon > 0)
+        {
+            var scope = name[..colon];
+            if (scope.Equals("global", StringComparison.OrdinalIgnoreCase) ||
+                scope.Equals("script", StringComparison.OrdinalIgnoreCase) ||
+                scope.Equals("local", StringComparison.OrdinalIgnoreCase) ||
+                scope.Equals("private", StringComparison.OrdinalIgnoreCase) ||
+                scope.Equals("using", StringComparison.OrdinalIgnoreCase))
+            {
+                name = name[(colon + 1)..];
+            }
+        }
+
+        return name;
+    }
+
+    /// <summary>
+    /// Every command name the submitted script binds for itself: `function`
+    /// and `filter` declarations at any nesting depth, and alias creation whose
+    /// name is a readable literal — each normalized to the bare name PowerShell
+    /// will actually expose. Where the script can bind names that are not
+    /// readable here at all, it reports that instead, and the caller declines
+    /// wholesale.
+    /// </summary>
+    private static ScriptBindings DefinedCommandNames(string script)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var ast = Parser.ParseInput(script, out _, out var parseErrors);
@@ -323,7 +386,7 @@ internal static class ExecutionPlanner
         {
             // Unparseable submitted text is not routed anyway (the reduction
             // check fails first); returning empty keeps this pure.
-            return names;
+            return new ScriptBindings(names, BindsUnknownNames: false);
         }
 
         foreach (var definition in ast
@@ -331,47 +394,99 @@ internal static class ExecutionPlanner
                      .Cast<FunctionDefinitionAst>())
         {
             if (!string.IsNullOrEmpty(definition.Name))
-                names.Add(definition.Name);
+                names.Add(BareCommandName(definition.Name));
         }
+
+        // Dot-sourcing runs another file's definitions into this scope; the
+        // names it binds are not in this text.
+        var bindsUnknown = ast
+            .FindAll(node => node is CommandAst, searchNestedScriptBlocks: true)
+            .Cast<CommandAst>()
+            .Any(command => command.InvocationOperator == TokenKind.Dot);
 
         foreach (var command in ast
                      .FindAll(node => node is CommandAst, searchNestedScriptBlocks: true)
                      .Cast<CommandAst>())
         {
             if (command.CommandElements.FirstOrDefault() is not
-                StringConstantExpressionAst head ||
-                !AliasDefiningCommands.Contains(head.Value))
+                StringConstantExpressionAst head)
             {
                 continue;
             }
 
-            // -Name <value>, or the first positional argument. Bound
-            // parameters are not resolved here: an alias whose name is not a
-            // readable literal is handled by the caller's literal requirement.
-            var elements = command.CommandElements;
-            for (var index = 1; index < elements.Count; index++)
+            var bare = BareCommandName(head.Value);
+            if (OpaqueBindingCommands.Contains(bare))
             {
-                if (elements[index] is CommandParameterAst parameter)
+                bindsUnknown = true;
+                continue;
+            }
+            if (!NamedAliasCommands.Contains(bare))
+                continue;
+
+            if (TryReadAliasName(command, out var aliasName))
+                names.Add(BareCommandName(aliasName));
+            else
+                bindsUnknown = true;
+        }
+
+        return new ScriptBindings(names, bindsUnknown);
+    }
+
+    /// <summary>
+    /// The alias name from a Set-Alias/New-Alias call: an explicit
+    /// <c>-Name</c>, else the first positional argument. Named parameters
+    /// consume their separated argument, so the value of an unrelated
+    /// parameter is never mistaken for the positional name. Returns false when
+    /// the name is not a readable literal, which the caller treats as an
+    /// unknown binding rather than as no binding.
+    /// </summary>
+    private static bool TryReadAliasName(CommandAst command, out string aliasName)
+    {
+        aliasName = string.Empty;
+        var elements = command.CommandElements;
+        StringConstantExpressionAst? firstPositional = null;
+        var sawUnreadableParameterName = false;
+
+        for (var index = 1; index < elements.Count; index++)
+        {
+            if (elements[index] is CommandParameterAst parameter)
+            {
+                var isName = "Name".StartsWith(
+                    parameter.ParameterName,
+                    StringComparison.OrdinalIgnoreCase);
+
+                // -Name:value binds inline; -Name value takes the next element.
+                CommandElementAst? argument = parameter.Argument;
+                if (argument is null && index + 1 < elements.Count &&
+                    elements[index + 1] is not CommandParameterAst)
                 {
-                    if (!"Name".StartsWith(parameter.ParameterName, StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    var value = parameter.Argument as StringConstantExpressionAst
-                        ?? (index + 1 < elements.Count
-                            ? elements[index + 1] as StringConstantExpressionAst
-                            : null);
-                    if (value is not null) names.Add(value.Value);
-                    continue;
+                    argument = elements[index + 1];
+                    index++; // consumed, so it is not read as positional
                 }
 
-                if (elements[index] is StringConstantExpressionAst positional)
+                if (!isName) continue;
+                if (argument is StringConstantExpressionAst named)
                 {
-                    names.Add(positional.Value);
-                    break;
+                    aliasName = named.Value;
+                    return true;
                 }
+                // An explicit -Name whose value is an expression.
+                sawUnreadableParameterName = true;
+                continue;
+            }
+
+            firstPositional ??= elements[index] as StringConstantExpressionAst;
+            if (firstPositional is null && elements[index] is not CommandParameterAst)
+            {
+                // A positional argument that is not a literal could be the name.
+                sawUnreadableParameterName = true;
             }
         }
 
-        return names;
+        if (sawUnreadableParameterName) return false;
+        if (firstPositional is null) return false;
+        aliasName = firstPositional.Value;
+        return true;
     }
 
     private static ExecutionDomain? ClassifyDomain(

@@ -85,12 +85,76 @@ public sealed class ExecutionPlannerTests
     }
 
     /// <summary>
+    /// codereview round 1 (codex, 2026-08-05) — five HIGH bypasses of the #37
+    /// guard, each proved by the reviewer against the real PowerShell parser:
+    ///
+    /// - `-Value X -Name git` recorded `X`, because a non-Name parameter did
+    ///   not consume its separated argument and that argument was then read as
+    ///   the positional alias name.
+    /// - `function global:git` was stored verbatim, so it never matched the
+    ///   bare `git` that rtk wraps.
+    /// - `Microsoft.PowerShell.Utility\Set-Alias` did not match the alias
+    ///   cmdlet set, which held unqualified names only.
+    /// - `Import-Alias file.csv` recorded the *path* as the bound name; the
+    ///   real alias names live in the file.
+    /// - Dot-sourcing and `Import-Module` bind names that are not in the
+    ///   submitted text at all.
+    /// </summary>
+    [Theory]
+    // Named parameter ordering.
+    [InlineData("Set-Alias -Value Get-Date -Name git; git status",
+                "Set-Alias -Value Get-Date -Name git; rtk git status")]
+    [InlineData("Set-Alias -Name git -Value Get-Date; git status",
+                "Set-Alias -Name git -Value Get-Date; rtk git status")]
+    [InlineData("Set-Alias -Name:git -Value Get-Date; git status",
+                "Set-Alias -Name:git -Value Get-Date; rtk git status")]
+    // Scope-qualified declarations.
+    [InlineData("function global:git { 'MINE' }; git status",
+                "function global:git { 'MINE' }; rtk git status")]
+    [InlineData("function script:git { 'MINE' }; git status",
+                "function script:git { 'MINE' }; rtk git status")]
+    // Module-qualified alias cmdlet.
+    [InlineData("Microsoft.PowerShell.Utility\\Set-Alias git Get-Date; git status",
+                "Microsoft.PowerShell.Utility\\Set-Alias git Get-Date; rtk git status")]
+    // Bindings this reader cannot enumerate: decline wholesale.
+    [InlineData("Import-Alias .\\aliases.csv; git status",
+                "Import-Alias .\\aliases.csv; rtk git status")]
+    [InlineData(". .\\defs.ps1; git status", ". .\\defs.ps1; rtk git status")]
+    [InlineData("Import-Module .\\Tools.psm1; git status",
+                "Import-Module .\\Tools.psm1; rtk git status")]
+    [InlineData("Invoke-Expression $definition; git status",
+                "Invoke-Expression $definition; rtk git status")]
+    // An alias name that is not a readable literal is an unknown binding.
+    [InlineData("Set-Alias -Name $chosen -Value Get-Date; git status",
+                "Set-Alias -Name $chosen -Value Get-Date; rtk git status")]
+    public void A_shadowing_binding_the_reader_cannot_disprove_is_never_routed(
+        string script,
+        string rewritten)
+    {
+        var plan = Plan(
+            script,
+            "auto",
+            RtkPath,
+            Application("git", "/usr/bin/git"),
+            rewrittenScript: rewritten);
+
+        AssertDirect(plan, script, RequestedExecutionRoute.Auto);
+    }
+
+    /// <summary>
     /// The #37 guard must not over-reach: a script that merely mentions a
     /// command name, or defines some unrelated function, still routes.
     /// </summary>
     [Theory]
     [InlineData("git status", "rtk git status")]
     [InlineData("function helper { 'x' }; git status", "function helper { 'x' }; rtk git status")]
+    [InlineData("function global:helper { 'x' }; git status",
+                "function global:helper { 'x' }; rtk git status")]
+    // An alias for something else entirely does not block git.
+    [InlineData("Set-Alias -Name ll -Value Get-ChildItem; git status",
+                "Set-Alias -Name ll -Value Get-ChildItem; rtk git status")]
+    [InlineData("Set-Alias -Value Get-ChildItem -Name ll; git status",
+                "Set-Alias -Value Get-ChildItem -Name ll; rtk git status")]
     public void A_script_defining_an_unrelated_name_still_routes(
         string script,
         string rewritten)

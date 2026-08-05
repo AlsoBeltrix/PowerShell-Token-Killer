@@ -286,6 +286,13 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly Task _standardOutputDrain;
     private readonly Task _standardErrorDrain;
+    // Standard error is retained rather than discarded: the worker's own exit
+    // diagnostic is the only evidence of why it died, and dropping it left
+    // every death reading as an indistinguishable transport failure
+    // (GitHub #13). Standard output keeps discarding — the worker is not
+    // supposed to write there, so retaining it would only buy an unbounded
+    // channel for executed-command output.
+    private readonly WorkerDiagnosticTail _standardErrorTail = new();
     private long _requestId;
     private bool _initialized;
     private bool _stopping;
@@ -309,12 +316,22 @@ internal sealed class ProcessSessionWorker : ISessionWorker
         _reader = new WorkerProtocolReader(process.EventReader);
         _writer = new WorkerProtocolWriter(process.RequestWriter);
         _standardOutputDrain = DrainAsync(process.StandardOutputReader);
-        _standardErrorDrain = DrainAsync(process.StandardErrorReader);
+        _standardErrorDrain =
+            _standardErrorTail.DrainAsync(process.StandardErrorReader);
         _ = IgnoreFailureAsync(_fatal.Task);
         _ = ObserveExitAsync();
     }
 
     public int ProcessId => _process.ProcessId;
+
+    /// <summary>
+    /// The worker's last bounded standard-error line, or <see langword="null"/>
+    /// when it wrote nothing recognizable. Reads whatever has arrived so far;
+    /// callers on the death path await <see cref="_standardErrorDrain"/> first
+    /// so the dying worker's final write is included.
+    /// </summary>
+    internal string? LastStandardError => _standardErrorTail.Text;
+
     public Guid SessionId { get; }
     public long Incarnation { get; }
     public bool IsTransportUsable

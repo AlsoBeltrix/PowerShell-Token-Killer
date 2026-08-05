@@ -25,12 +25,28 @@ short and update it when important repo facts change.
 Review significant code changes with codex (default settings), work GH issues
 periodically. Under it, #13 was closed and #42 filed and planned.
 
-**Everything code-shaped is now owner-gated.** Three plans are drafted and
-awaiting approval — `.agents/plans/issue-42-install-payload-activation.md`,
-`.agents/plans/pre-release-opr-10-opr-53.md`, and the `opr-53` shape
-decision inside the second. No code may be written against any of them until
-they are approved; that is the no-code-without-a-plan invariant, not a
-scheduling choice.
+**Landed under the goal, 2026-08-05.** #13 closed (round-3 verdict
+`accepted`). #42 filed, planned, and its code slices 1, 2, 3, 3b landed with
+guards, plus both codex findings (i42-1 HIGH, i42-2 LOW) fixed. `opr-10`
+fixed and guard-proved. Battery at `eca0891`: server 1,164/1,164, Pester 111
++ 1 skip, dependency audit clean, handshake passed, direct product proof
+17/17 against a complete payload.
+
+**What remains, and why each is stopped:**
+
+1. **#42 slice 4 — close the loop.** Needs this host's nested install
+   repaired and re-verified. Repair means removing `~/.ptk` and reinstalling,
+   which requires killing the running ptk MCP server the working agent is
+   itself connected through. Owner action, or explicit go.
+2. **`opr-53` — needs an owner ruling before implementation.** The finding is
+   re-confirmed live (a script that prints PTK-shaped lines has its forged
+   `[ptk worker] status=` and `recovery=` handle preserved verbatim beside
+   the genuine ones). The choice is (a) escape the reserved grammar inside
+   the text channel — smallest change, but mutates legitimate user output —
+   or (b) return supervisor control information as structured content —
+   larger, touches the tool surface, and also fixes the deferred
+   refusal→`isError` mapping. Recommendation: (b). Plan:
+   `.agents/plans/pre-release-opr-10-opr-53.md`.
 
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
 issues, one codex review per completed fix, maximum two rounds. The backlog
@@ -62,7 +78,16 @@ the same as "nothing queued", and this section exists so the two are never
 conflated again.
 
 1. **#42 — install nests the payload at `~/.ptk/bin/bin`, leaving a stale
-   incomplete server registered (agent-actionable, top of queue).** Filed
+   incomplete server registered. CODE COMPLETE, awaiting slice 4.** Slices 1,
+   2, 3, 3b landed (`8801281`, `b0573ee`, `210f865`, `8a1bf2a`) plus the two
+   codex findings (`044d53b`, `7761b75`). Activation and rollback now share
+   `Assert-PtkInstallPathRemoved` — removal is never treated as proof of
+   removal; the installer compares the installed tree against an index of the
+   staged tree captured before activation; an already-nested root is refused
+   up front; and the release gate materializes a `Process`, which
+   discriminates the two payloads on this host (fails on the truncated one,
+   17/17 on the complete one). Only slice 4 remains: repair this host and
+   verify, which needs the running server killed. Filed
    2026-08-05 from this host's own broken install. `Move-Item` of a directory
    onto a surviving directory nests instead of replacing
    (`scripts/ptk_install_transaction.psm1:279`), so a failed or raced

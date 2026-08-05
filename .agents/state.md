@@ -17,9 +17,20 @@ short and update it when important repo facts change.
 
 - **Known gap, `opr-20`:** its fail-closed half is guarded; its pre-write half is argued from the code path and unguarded. No available test seam reaches the pre-write window (each client owns its writer, the operation lease observes cancellation before the try block, and the stream seam sits downstream of the first-write callback). A vacuous guard was removed rather than shipped.
 
-- **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope.
+- **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope. Both were **re-confirmed live at `c5a0bb2`** on 2026-08-05 and are planned in `.agents/plans/pre-release-opr-10-opr-53.md`: the timeout predicate accepts `1e400`, `1.5`, `0.5` and `86401` where all four should fall back, and a script that prints PTK-shaped lines has its forged `[ptk worker] status=` and `recovery=` handle preserved verbatim beside the genuine ones. `opr-53` carries an owner decision (escape the grammar, or move control information to structured content) and cannot be implemented until it is ruled.
 
 ## Next
+
+**Goal in force (owner, 2026-08-05): finish the app to a 1.0-ready state.**
+Review significant code changes with codex (default settings), work GH issues
+periodically. Under it, #13 was closed and #42 filed and planned.
+
+**Everything code-shaped is now owner-gated.** Three plans are drafted and
+awaiting approval — `.agents/plans/issue-42-install-payload-activation.md`,
+`.agents/plans/pre-release-opr-10-opr-53.md`, and the `opr-53` shape
+decision inside the second. No code may be written against any of them until
+they are approved; that is the no-code-without-a-plan invariant, not a
+scheduling choice.
 
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
 issues, one codex review per completed fix, maximum two rounds. The backlog
@@ -27,6 +38,13 @@ itself is closed — every issue it raised is fixed and closed (#33–#38, #41)
 or filed and blocked on matching hardware (#40); the landed detail is
 rotated to `docs/history/state-archive.md`. The review cadence it set still
 governs the loops that follow it.
+
+**Reviewer dispatch is fixed on this host.** codex is API-only via Portkey;
+there is no `codex login`. Dispatch with
+`codex exec --cd <repo> -s read-only --color never -c 'mcp_servers={}' - < <prompt>`
+— without the MCP override, `codex exec` auto-denies its own configured ptk
+tools and the reviewer burns its budget retrying them. The recurring
+`refresh token was revoked` log line is noise.
 
 **Known follow-up, deliberately deferred:** the refusal → `isError` mapping
 reads the response text, because the tools return `Task<string>` and the

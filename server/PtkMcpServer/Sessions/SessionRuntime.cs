@@ -315,7 +315,7 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
         // Raw count is compatibility telemetry for user-level raw=true calls
         // only. Internal state probes never touch the compatibility flag.
         sb.AppendLine(
-            $"ptk server: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
+            $"ptk {PtkVersion.Value}: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
             $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
         if (audit is not null)
             sb.AppendLine(audit.HealthStatusLine());

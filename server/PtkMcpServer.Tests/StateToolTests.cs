@@ -23,6 +23,31 @@ public sealed class StateToolTests : IDisposable
         _runtime.Dispose();
     }
 
+    /// <summary>
+    /// GitHub #33-#36: every platform report said the same thing — `ptk_state`
+    /// reported the PowerShell engine version but nothing identifying ptk
+    /// itself, and the Unix binaries carry blank file-version fields, so
+    /// testers could not name the build they had exercised.
+    /// </summary>
+    [Fact]
+    public async Task State_reports_the_ptk_build_version()
+    {
+        var state = await _runtime.StateAsync(listAvailable: false, CancellationToken.None);
+
+        var version = System.Reflection.CustomAttributeExtensions
+            .GetCustomAttribute<System.Reflection.AssemblyInformationalVersionAttribute>(
+                typeof(RunspaceHost).Assembly)
+            ?.InformationalVersion;
+        Assert.False(
+            string.IsNullOrWhiteSpace(version),
+            "the build stamps no informational version, so ptk_state has nothing to report");
+
+        Assert.Contains($"ptk {version}:", state, StringComparison.Ordinal);
+        // The engine version is a different fact and must still be there.
+        Assert.Contains("engine:", state, StringComparison.Ordinal);
+        Assert.DoesNotContain("ptk unknown", state, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task State_answers_promptly_with_busy_indicator_during_an_active_call()
     {

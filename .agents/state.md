@@ -22,37 +22,11 @@ short and update it when important repo facts change.
 ## Next
 
 **Working the test-report backlog** (owner, 2026-08-05): fix the reported
-issues, one codex review per completed fix, maximum two rounds.
-
-Fixed: #37 (shadowed-name routing), the version gap, the elision/recovery
-contradiction, the missing effective-route label, refusals arriving as MCP
-success, the misapplied uncertainty rider, the passive object-shaping loss
-(the headline complaint), the lossy-recovery overclaim, a hint for the
-`1>&2` dialect trap, and the bounded-capture prefix claim (#35 F4).
-
-**Object shaping (`b3604f1`, `72a864e`).** A trusted type collapsed to one
-`ToString()`; `Get-Culture` returned `en-US` and nothing else. Scalar
-properties of trusted types are now projected by name. Codex round 1 caught
-a HIGH in that first cut and it was real, reproduced before fixing: the
-getter was called *before* the value was judged, so `[Lazy[string]]` — which
-is `System.Private.CoreLib`, hence trusted — ran the caller's factory
-delegate during capture. Gating now happens on the property's **declared**
-type and declaring container, never on what came back. `Task<T>.Result` is
-the same shape and is denied for the same reason.
-
-Guard rails worth keeping in mind for future work here: the no-user-code
-invariant cannot be enforced after a getter runs, and an over-strict rule is
-its own defect — rejecting all virtual getters removed `CultureInfo.Name`
-and `DisplayName`, the exact values the fix exists to restore.
-
-**Investigated and closed without a code change:** Linux `2>&1` ordering
-(#36). Reproduced correct order on Windows; the reported inversion comes
-from bash block-buffering stdout while stderr is unbuffered, before PTK sees
-either byte. Recorded on the issue.
-
-**Filed, not fixed — needs the matching hardware (#40):** macOS long-pipeline
-worker loss (#35 F2, not reproducible on Linux) and Windows ARM64 MSIX module
-imports denied inside workers (#34 F3).
+issues, one codex review per completed fix, maximum two rounds. The backlog
+itself is closed — every issue it raised is fixed and closed (#33–#38, #41)
+or filed and blocked on matching hardware (#40); the landed detail is
+rotated to `docs/history/state-archive.md`. The review cadence it set still
+governs the loops that follow it.
 
 **Known follow-up, deliberately deferred:** the refusal → `isError` mapping
 reads the response text, because the tools return `Task<string>` and the
@@ -62,44 +36,6 @@ text matching cannot be made airtight, only well-pinned. Every marker the
 matcher accepts is covered by a test, including the false-positive shapes.
 Threading a structured result through the tool surface is the real fix and
 is a larger change than this batch.
-
-**Every issue from the four platform test reports is now fixed, or filed with
-the investigation that could not finish here.** Open issues carrying that
-work:
-
-- **#40** — macOS long-pipeline worker loss and Windows ARM64 MSIX module
-  imports. Both need the matching hardware; neither reproduces here.
-- **#41 fixed and closed (2026-08-05).** The recorded instrumentation probe
-  settled it in one observation: `CopyPassiveInstanceNotes` reaches the
-  nested note, and `TryRenderTrustedText` claims the hollow
-  `System.Management.Automation.PSCustomObject` base object — trusted
-  assembly, empty `ToString()` — returning `''` and discarding the value
-  before any later logic runs. That short-circuit also explains why both
-  earlier compose variants "stayed empty on a verified-current build": a
-  compose branch placed after the trusted-text render is unreachable for
-  this shape. The fix composes a nested custom object's exact
-  `PSNoteProperty` members as `Name=value; Name=value` text **before** the
-  trusted-text render, bounded to 3 object levels (which also terminates
-  self-referencing graphs) and the existing 2048-character render cap. The
-  composed string survives the shaping module end-to-end — the downstream
-  fear recorded in the issue does not reproduce on a fresh build. Guards:
-  the #41 repro (`MARKER` must surface) and the depth bound, both proved
-  failing with the compose branch disabled.
-
-Recurring lesson worth carrying: on this shaper, a stale build tree produces
-convincing wrong answers. Several investigations here chased behaviour that
-had already been fixed. Kill build-tree `PtkMcpServer` processes and rebuild
-before trusting a live probe.
-
-The test-report backlog is complete: every issue it raised is fixed and
-closed (#33–#38, #41) or filed and blocked on matching hardware (#40). (#32,
-the kimi leg, was closed 2026-08-05: it landed at `ad1665e` and the tracker
-was out of sync. The close comment records one deviation from the issue's
-design sketch — no `startupTimeoutMs` is written, and live verification
-passed without it.) One new machine observation from this pass (ptk-session
-`PSModulePath` truncation failing four StateToolTests) is recorded in
-`.agents/machines.md`, not filed as an issue — owner's call whether it is
-product-visible.
 
 ### The queue
 
@@ -126,7 +62,8 @@ conflated again.
    `.agents/plans/issue-13-worker-death-diagnostics.md` (the plan owns the
    detail, do not restate it here). Slices 1-3 landed; codex found three
    defects, all fixed, and its verification pass reopened two of the fixes,
-   both repaired at `e2c2902` (head at handoff: `0c8fa5f`).
+   both repaired at `e2c2902` — still the last code commit as of `78b2dbb`;
+   everything after it is docs and `.gitignore`.
 
    **In flight: the round-2 verdict.** Two dispatches over
    `4f9284f..e2c2902` died without emitting an envelope — both ran out of
@@ -141,9 +78,8 @@ conflated again.
    Fail-closed until an envelope lands: i13-1 and i13-2 are repaired and
    locally guard-proved but NOT reviewer-confirmed.
    `.agents/review/index.md` owns the loop state and the evidence that does
-   exist (full battery green locally, CI green on all six jobs at
-   `e2c2902`, every guard sabotage-proved — including re-running the
-   reviewer's own sabotage for the replaced i13-2 guard).
+   exist; do not copy its counts here. Hosted CI is green on all six jobs at
+   `78b2dbb` (run `31038629493`).
 
    Slice 4 (closing #13) waits on that verdict. Nothing else in the queue
    is blocked by it.
@@ -171,17 +107,6 @@ conflated again.
 Review dispatch remains owner-gated throughout and happens only on the
 owner's explicit word.
 
-Session-close fact (2026-08-05): the #38 and #41 fixes landed **without a
-reviewer dispatch** — codex was undispatchable at the time (its configured
-headroom gateway was not running and the owner was out of frontier-model
-credits), and the owner declined an automatic dispatch for these fixes. Suite
-counts belong to `.agents/repo-guidance.md` §Verification, which also records
-the plain-shell caveat.
-
-Decision 5 — tag `v0.2.0` and publish — remains owner-only, untouched, and is
-now downstream of this backlog. Do not tag or push a `v*` ref without an
-explicit go.
-
 Unqueued candidates — not on the queue above until the owner puts them there,
 in no particular order:
 
@@ -200,127 +125,18 @@ in no particular order:
 
 **Release plan:** `.agents/plans/github-release-packaging.md`, which executes
 Slice 7 of the router plan and supersedes the packaging mechanics of
-`.agents/plans/release-distribution.md`.
+`.agents/plans/release-distribution.md`. The release-packaging plan owns the
+ruled decisions (2, and A–D), the executed slice status, and the proved
+`v0.2.0-rc.2` draft release; do not restate them here. Every slice of it is
+executed. Decision 5 — tag
+and publish — is terminal, owner-only, and the last thing left *in that
+plan*; the queue above, not this line, is the repo's open work. Do not tag or
+push a `v*` ref without an explicit go.
 
-**Decision 2 is RULED — five RIDs** (owner, 2026-08-03): `win-x64`,
-`win-arm64`, `linux-x64`, `linux-arm64`, `osx-arm64`. No `osx-x64`. GitHub
-Actions covers the matrix; each RID builds on its own native runner because
-`Assert-PtkNativeBuildRid` refuses cross-RID layout builds.
-
-**Slice 7.1 is complete (2026-08-04): both Unix HIGH findings are repaired
-and Unix packaging is unblocked.** Selecting Linux and macOS activated two
-findings a Windows-only release would have dodged:
-
-- `opr-15` at `cd00276` — identity observation is now tri-state (exact,
-  confirmed-absent, indeterminate). Previously every query failure read as
-  "process dead", so one transient `/proc` error could release a session
-  alias while an escaped descendant still ran. Indeterminate now fails
-  closed and retries, matching `ProcessGroupExists`.
-- `opr-14` at `67d37dd` — `FD_CLOEXEC` is set with `ioctl(FIOCLEX)` instead
-  of a fixed-signature P/Invoke to variadic `fcntl`, which is wrong on
-  Apple arm64. Also atomic, closing the get/set inheritance window.
-  **`FIOCLEX` differs per platform** (Darwin `0x20006601`, Linux `0x5451`,
-  both verified against xnu and Linux uapi headers) — a shared constant
-  would break Linux.
-
-`opr-14`'s guards skip on Windows, so it was proved on branch
-`ci/opr-14-cloexec`: all six CI jobs green including `macos-latest`, which
-is Apple arm64 — the exact platform the ABI bug affects. Merged fast-forward
-and the branch deleted. The rest of
-`.agents/review/dispositions.md` §"deferred to platform selection" is
-MEDIUM/LOW and does not block.
-
-**Decision A RULED (owner, 2026-08-04): win-arm64 ships with the emulated
-x64 rtk.** rtk v0.44.2 publishes only `rtk-x86_64-pc-windows-msvc.zip`, so
-the RID runs it under Windows ARM64 x64 emulation. CI must prove the
-emulated rtk answers `hook check`, not merely `--version`; the installer
-must fail at install time if it does not.
-
-**Decision B RULED (owner, 2026-08-04): Apache-2.0.** `LICENSE` now exists
-at the repo root; it was previously absent. Slice 7.2 packages it into every
-artifact.
-
-**Slice 7.0 landed at `bf1fc0b` (owner: "yeah fix it").** The object shaper
-recognized six types and returned `[active member not evaluated]` for every
-other one — `Get-Culture` came back with no data on a host with no Outlook
-and no Exchange. GitHub #8 framed this as an Outlook/COM problem; it was not,
-and Decision 3 is **withdrawn as mis-scoped** rather than ruled. Types from
-trusted assemblies (the framework directory plus the two PowerShell
-assemblies) now render via `ToString()`; dynamic and location-less
-assemblies — what `Add-Type` produces — are never trusted, so both
-no-live-getter guards pass unedited. The exception-message gate is widened
-the same way (#8's secondary complaint). Rendering is capped at 2048 chars
-and marked `passive_projection_lossy`, not `active_member_not_evaluated`.
-Do not reopen this as a COM-getter question: executing active getters at
-shaping time stays rejected.
-
-**Routing is not defective — a suspected bug was investigated and closed
-(2026-08-04).** `git ... 2>&1` appeared to fall back to PowerShell. It does
-not: RTK declines `git --version` (nothing to compress) with or without a
-redirection, and rewrites `git status --short` either way. The regression
-that would catch a real redirection gate is pinned at `24eff27`. When
-reproducing shaper behavior, use a bare cmdlet — a native command PTK runs
-directly because the script was prefixed with a cmdlet is a property of the
-call, not of the shaper.
-
-**Decisions C and D RULED (owner, 2026-08-04):** release version `v0.2.0`;
-RTK reaches users by fetch-on-install (installer downloads the matching rtk,
-checksum-verified against rtk's own `checksums.txt`, into `~/.ptk/bin`; an
-rtk already on PATH is used as-is and never touched; a marker file records
-what the installer placed so uninstall removes only that).
-
-**Every slice of the release plan is executed.** 7.2 version/licence
-packaging (`5b19260`, `fb6d951`), 7.3 `.github/workflows/release.yml`
-(`ecc5df4`), 7.4 installers (`141793d`, `eec2ccd`, since consolidated), 7.5
-`server/direct-product-proof.ps1` (`db5601c`).
-
-**One installer: `scripts/install.ps1` (`3109ec1`, 2026-08-04).** Three
-existed. The root `install.ps1`/`install.sh` registered claude only and never
-called `ptk_init.ps1`, so anyone installing from a release never got the
-codex, grok, or agy legs — those legs are written and live-verified, and ran
-only from the dev script. Merged into the dev script, which already had the
-transaction, rollback, ARP entry, harness init, and uninstall; it gained
-`-FromRelease` (download the asset, verify against `SHA256SUMS`), rtk
-resolution before registration, and `-Purge`. Root scripts deleted, net −491
-lines. Modes: `-FromRelease`, bare (build checkout), `-Uninstall [-Purge]`,
-`-LayoutOnly -OutputDir` (release CI). Verified at that commit: server
-1,068/1,068, Pester 84 with 1 platform skip, layout build correct.
-
-Consequence to keep in view: **macOS and Linux now need `pwsh` to install**,
-because `install.sh` is gone. The installed payload still embeds its own
-PowerShell and does not need one. No POSIX bootstrap was written — deliberate
-under the owner's one-installer instruction, not an oversight.
-
-**Per-harness consent landed (2026-08-04, owner-directed: pacman-style).** A
-detection-mode `ptk_init` install asks once: a numbered `Found:` list of
-detected harnesses and a single skip selection (`1,3`; `2-4`; `0`=skip all;
-Enter=install all). Declines and `-SkipAgent` exclusions print a
-manual-setup blurb (the harness's `mcp add` command or config snippet plus
-the re-run command). `-AllAgents` answers yes to everything; a
-non-interactive session wires all with a notice. `-Uninstall`/`-Show` never
-ask. Claude's registration moved from `install.ps1` into the claude leg, so
-one consent covers registration + hook + nudge and leg failure fails the
-install into rollback as before. `install.ps1` gained `-Agent`/`-SkipAgent`/
-`-AllAgents` pass-throughs. Upgrades re-prompt every time — no consent
-store; add one only on evidence. Pester 99 passed, 1 platform skip; the
-skip-filter mutation is caught by the new tests.
-
-**Kimi harness leg landed (2026-08-04).** `ptk_init.ps1` now covers claude,
-codex, grok, agy, and kimi. The kimi leg merges `mcpServers.ptk` into
-`~/.kimi-code/mcp.json` (no scriptable CLI surface exists), installs the same
-`ptk-hook.ps1` as a `[[hooks]]` PreToolUse `matcher = "Bash"` entry in
-`config.toml` (owner-approved in the mandate; kimi's protocol accepts the
-script's stdout deny JSON verbatim), and writes the shared nudge block to
-`~/.kimi-code/AGENTS.md`. Live-verified on this box (docs/harness-support.md):
-a fresh `kimi -p` session was denied on Bash with the ptk guidance and got an
-answer from `ptk_state`.
-
-**Fixture sessions renamed `exchange-*` → `sample-*` (`e2d31db`).** The
-install-time smoke test printed `named worker topology ok: exchange-online
-pid=..., exchange-onprem pid=...` — two processes named after an admin's mail
-infrastructure, during a tool install. Nothing Exchange-related ran; the
-names were flavour resembling ptk's target workflows. The installer now also
-announces the smoke test before running it (local workers, no network).
+Landed release-slice detail (Slices 7.0–7.5, the one-installer
+consolidation, per-harness consent, the kimi leg, the fixture rename, and
+the closed routing investigation) is rotated verbatim to
+`docs/history/state-archive.md`.
 
 **Agent test plan: `docs/testplan.md` (`c73b434`).** ~70 numbered stress
 tests an agent runs against a ptk it is already connected to, filing one
@@ -329,18 +145,6 @@ checkout, no session context, no chat residue. It is a document only — **do
 not run it and do not spawn agents against it** without an explicit owner go.
 Earlier drafts that put this in `.github/workflows/` and a `.agents/` plan
 were removed as wrong-shaped.
-
-**A `v0.2.0-rc.2` draft release exists and is proved** (run `30940515893`,
-head `fb6d951`): five RIDs each built, handshake-smoked, and RTK-gate-proved
-on their own native runner; 16/16 direct product checks against the
-installed win-x64 candidate; Defender scan clean with the payload intact.
-The emulated x64 rtk on `windows-11-arm` answered `hook check`, so Decision
-A is proved rather than assumed. Full evidence is in the plan's status
-table — do not restate it here.
-
-**The only thing left is Decision 5: tag and publish.** That is terminal and
-owner-only. CI assembles drafts; nothing tags a `v*` ref or publishes
-without an explicit separate go.
 
 **Process constraints stay in force** (`.agents/plans/rtk-router-delegation.md`
 §Process constraints): no reviewer invocation without a separate explicit
@@ -377,15 +181,16 @@ record a new gated finding.
   exposed five intermittent fixed-watchdog/PATH failures while a serialized
   control passed. Slice 1a disables default collection parallelism
   (`server/PtkMcpServer.Tests/xunit.runner.json`,
-  `parallelizeTestCollections: false`, re-confirmed present as of `f99a92b`)
+  `parallelizeTestCollections: false`, re-confirmed present as of `78b2dbb`)
   without changing explicit concurrency tests, product deadlines, or
   assertions. This closes the scheduling artifact, not every underlying risk. A
   recurrence of the anchored-evidence publication/removal ordering race or
   `JobManager.Dispose` bounded-observer failure in a serialized run is still a
   real signal, and fixed watchdog sensitivity remains.
 
-  The "hosted-CI evidence is absent" half of this item is falsified as of
-  `a3112f3`: all six CI jobs are green on ubuntu/windows/macos. Suite counts
+  The "hosted-CI evidence is absent" half of this item is falsified, and
+  stays falsified as of `78b2dbb`: all six CI jobs are green on
+  ubuntu/windows/macos. Suite counts
   belong to `.agents/repo-guidance.md` §Verification; the historical
   1,557-test figure this entry used to carry predates the router-delegation
   deletions and is dropped rather than refreshed. Later plan slices and the

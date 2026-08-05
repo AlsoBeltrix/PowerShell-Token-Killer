@@ -5,31 +5,23 @@ entries during a `drift` pass.
 
 ## `nagatha.local` — Michael's Mac
 
-_Installed-state baseline re-verified 2026-07-28 against local `master`
-`14daad6`; this was read-only inventory, not installation or registration
-change._
+_Installed payload re-verified 2026-08-05 with the repo at `78b2dbb`;
+read-only inventory, no installation or registration change._
 
 - The live server runs from `~/.ptk/bin/PtkMcpServer`; installed version is
-  `0.2.0-dev.g6db333c`; its SHA-256 is
-  `e06d25635adcc07deaf6dea82716ce70bf8fa29f5c3e64c7e1756acd562cb0ca`.
-  The connected server process was PID 1435, started 2026-07-28 08:41:16
-  local time from that exact path.
-- Codex's PTK registration is exactly
-  `command = "/Users/michael/.ptk/bin/PtkMcpServer"` with no arguments. The
-  9,824-byte `~/.codex/config.toml` SHA-256 was
-  `bb6a71e1e800fe50840439e4b07fe596af488c8412c66d46987b38c8e2fd3ee2`;
-  the normalized PTK section SHA-256 was
-  `814d6bab2cba1843a716e4b0960fbdb678eba384b7576d2258c153002ec7de5d`.
-- A deterministic inventory of managed installed paths (`bin`, `src`,
-  `scripts`, and `VERSION`) contained 564 files and 38 directories with
-  nothing missing. Sorted type/path/length/Unix-mode/content-hash records had
-  aggregate SHA-256
-  `c646ca4bed255559b2a43c0b0cdaad4cc2b051be6a564e5cd2641d0b62bbb274`.
-- This active installation predates the candidate five-tool named-session
-  runtime: the connected surface exposes the older job API rather than
-  `ptk_output` and `ptk_session`. It is a rollback baseline, not evidence that
-  the current candidate is installed. Candidate canary activation and client
-  restart remain separately authorized deployment work.
+  `0.2.0-dev.g33806a0`, 123,944 bytes, SHA-256
+  `633dfbef35d950ca2411421ce25269de1cbe652014a8d1dc67cd7b1a18cd8ed7`,
+  with five supervisor processes live from that exact path.
+- That installation serves the five-tool named-session surface — this session
+  drove `ptk_invoke`, `ptk_session`, and `ptk_output` against it. The host is
+  no longer on the pre-candidate job API.
+- The installed payload is still behind the repo head; it is a separate
+  artifact from the checkout under test and is not evidence for any checkout
+  commit.
+- The 2026-07-28 `0.2.0-dev.g6db333c` rollback-baseline inventory (installed
+  file/version hashes, the 564-file managed-path digest, and the codex
+  `config.toml` PTK-section hash) described a payload that is no longer
+  installed. Pruned 2026-08-05 as superseded.
 - On 2026-07-11 at plan base `2a83723`, disposable Darwin fork/pipe probes
   proved the audited-session Unix topology at the mid-creation, armed/gated,
   and released-with-descendant barriers. The broker observed supervisor

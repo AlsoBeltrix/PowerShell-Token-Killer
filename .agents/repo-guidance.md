@@ -41,25 +41,25 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-08-04 at `10ac387`, all
+Confirmed automated verification commands (re-run 2026-08-05 at `a2a8a9a`, all
 passing). Counts are volatile — treat them as of that commit and re-verify
 rather than trusting them at a later head.
 
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 104 passed, 1 platform-skipped (PowerShell module/setup suite; requires
-Pester 5 or later). The count rose from 84 with the kimi harness leg, the
-per-harness consent prompt, and the hcc-1..6 review fixes.
+— 107 passed, 1 platform-skipped (PowerShell module/setup suite; requires
+Pester 5 or later). The count rose from 104 with the test-report-backlog
+fixes landed through `008172e` (2026-08-04/05).
 
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 1,068/1,068 passed (C# MCP supervisor, named workers, containment, output,
-and retained administration suite). The count rose from 1,059 with the
-Slice 7.0 shaper guards, the `opr-15` containment guard, and the `opr-14`
-close-on-exec guards; the last of those skip on Windows and are exercised by
-the Linux and macOS CI runners.
+— 1,129/1,129 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite). The count rose from 1,068 with the same
+test-report-backlog fixes (object-shaping guards, the `ptk_state` version
+line, and the shadowed-name routing fix among them; see `.agents/state.md`
+§Now and §Next for the itemized list).
 
 ```
 dotnet test siem/PtkSiem.slnx

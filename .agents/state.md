@@ -5,14 +5,6 @@ short and update it when important repo facts change.
 
 ## Now
 
-- **hcc review loop closed (2026-08-04):** the codex generation pass over
-  the kimi/consent range produced five findings; those plus owner-reported
-  hcc-6 (**install rolled back on claude-less machines** — release-relevant,
-  fixed at `553450c`) are all fixed one-commit-each, guard-proved, and
-  reviewer-verified accepted (hcc-6 at frontier via owner-named codex pair;
-  the claude frontier is undispatchable on this machine — org subscription
-  disabled). Details: `.agents/review/index.md`.
-
 - **RTK is a required dependency (owner, 2026-08-03):** "rtk was never optional. rtk was always stated requirement when I asked for this." PTK is a compression router; the thing it routes to is not optional. A missing RTK is a startup error (exit 78) with an actionable message, never a silent degraded mode. Do not build a without-RTK product tier, capability matrix, or per-call degradation reporting. CI installs rtk on all three platforms.
 
 - **Routing authority: RTK decides (owner, 2026-08-03).** PTK submits the exact submitted text to `rtk hook check --agent ptk`; a rewrite executes, a decline runs the original unchanged. PTK no longer judges eligibility from the PowerShell AST and no longer resolves executables against PATH. Three guards protect the boundary, each mutation-proved: the accepted rewrite binds the startup-pinned executable (a bare `rtk` head would resolve through PATH at run time and could execute a different binary than the one PTK hashed); a rewrite must reduce to the submitted text once `rtk ` prefixes are stripped; and every wrapped name must bind to an `Application` in the session.
@@ -26,40 +18,6 @@ short and update it when important repo facts change.
 - **Known gap, `opr-20`:** its fail-closed half is guarded; its pre-write half is argued from the code path and unguarded. No available test seam reaches the pre-write window (each client owns its writer, the operation lease observes cancellation before the try block, and the stream seam sits downstream of the first-write callback). A vacuous guard was removed rather than shipped.
 
 - **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope.
-
-- **Four platform test reports landed 2026-08-04/05** (#33 Windows x64, #34
-  Windows ARM64, #35 macOS arm64, #36 Arch Linux x64), run against
-  `docs/testplan.md`. All four are now closed: ten findings fixed, three
-  filed as #38/#40/#41. Verified at `008172e`: server 1,129/1,129 (from
-  1,068), Pester 107 with 1 platform skip, working tree clean, master in
-  sync with origin.
-
-  Every fix was mutation-proved and reviewed by codex at defaults, two rounds
-  maximum per the owner's instruction. The reviews found 14 real defects
-  across the rounds — each reproduced before acting — including two the
-  reports never saw: `Lazy<T>` and `ThreadLocal<T>` are trusted-assembly
-  types whose getters run a caller's delegate, and capture was invoking them.
-  The last review returned clean.
-
-- **#37 fixed and closed (`963195d`, `0056128`, `16638e0`).** The rtk rewrite
-  ran the real binary when the submitted script defined a shadowing function
-  in that same submission — the preflight command snapshot is captured before
-  the worker runs, so the function did not exist yet and its name still read
-  as `Application`. The submitted AST is now the authority. macOS caught it;
-  #33 and #34 marked the same test passing because they tested a
-  *pre-existing* function, which the snapshot does see.
-
-  Two codex rounds found **eight** further bypasses of the first fix, all
-  closed: switch parameters consuming the alias name, scope- and
-  module-qualified names, `Import-Alias` recording a path, dot-sourcing and
-  `Import-Module`, `Function:`/`Alias:` provider writes, and unreadable alias
-  names. One predated #37: the binder emitted a double call operator for any
-  rewritten `& git status`, a parse error rather than the command submitted.
-
-- **`ptk_state` reports the build version (`a7624fa`).** Every report hit
-  this: the engine version was shown, nothing identifying ptk, and the Unix
-  binaries carry blank file-version fields, so testers named inferred git
-  SHAs instead. First line now reads `ptk <version>: pid ...`.
 
 - **#38: custom exception types still yield nothing** — not the message, not
   the type name. The obvious repair (read `Exception`'s private `_message`
@@ -334,16 +292,6 @@ record a new gated finding.
   scope by the owner's 2026-07-11 direction. Their older open-decision entry
   remains stale while `.agents/decisions.md` is under hold; the idea plan is
   retained as history/evidence, not current implementation direction.
-- GitHub #8 is an owner field report from 2026-07-23. Its older
-  installed runtime dropped script/lazy/COM values. The replacement server now
-  preserves synthetic EXO-style selected/deserialized values, evaluates an
-  explicitly selected script property exactly once in the user pipeline, and
-  surfaces the tested terminating-error message; it still truthfully labels
-  uninspected active type data as incomplete. Real EXO selected values now pass.
-  Keep #8 open until a real Outlook item retains selected values without extra
-  shaping-time getter execution and a real non-core EXO/Outlook terminating
-  exception returns its exact message. The verified progress and gate are posted
-  on issue #8; Opus accepted holding without a speculative active-getter change.
 - Fable's accepted R0 review noted one non-blocking test-fixture hygiene risk:
   if the testhost dies before its `finally`, the Unix guardian broker fixture's
   TERM-immune paused process group can remain until its fixture guardian is

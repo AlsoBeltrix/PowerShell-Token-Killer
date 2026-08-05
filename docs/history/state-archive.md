@@ -4,6 +4,70 @@ Rotated verbatim from `.agents/state.md` by the `handoff` and `drift`
 operators; current state lives there. Entries below are historical record,
 newest rotation first.
 
+## Rotated 2026-08-05 (drift based on a2a8a9a)
+
+### From `## Now`
+
+- **hcc review loop closed (2026-08-04):** the codex generation pass over
+  the kimi/consent range produced five findings; those plus owner-reported
+  hcc-6 (**install rolled back on claude-less machines** — release-relevant,
+  fixed at `553450c`) are all fixed one-commit-each, guard-proved, and
+  reviewer-verified accepted (hcc-6 at frontier via owner-named codex pair;
+  the claude frontier is undispatchable on this machine — org subscription
+  disabled). Details: `.agents/review/index.md`.
+
+- **Four platform test reports landed 2026-08-04/05** (#33 Windows x64, #34
+  Windows ARM64, #35 macOS arm64, #36 Arch Linux x64), run against
+  `docs/testplan.md`. All four are now closed: ten findings fixed, three
+  filed as #38/#40/#41. Verified at `008172e`: server 1,129/1,129 (from
+  1,068), Pester 107 with 1 platform skip, working tree clean, master in
+  sync with origin.
+
+  Every fix was mutation-proved and reviewed by codex at defaults, two rounds
+  maximum per the owner's instruction. The reviews found 14 real defects
+  across the rounds — each reproduced before acting — including two the
+  reports never saw: `Lazy<T>` and `ThreadLocal<T>` are trusted-assembly
+  types whose getters run a caller's delegate, and capture was invoking them.
+  The last review returned clean.
+
+- **#37 fixed and closed (`963195d`, `0056128`, `16638e0`).** The rtk rewrite
+  ran the real binary when the submitted script defined a shadowing function
+  in that same submission — the preflight command snapshot is captured before
+  the worker runs, so the function did not exist yet and its name still read
+  as `Application`. The submitted AST is now the authority. macOS caught it;
+  #33 and #34 marked the same test passing because they tested a
+  *pre-existing* function, which the snapshot does see.
+
+  Two codex rounds found **eight** further bypasses of the first fix, all
+  closed: switch parameters consuming the alias name, scope- and
+  module-qualified names, `Import-Alias` recording a path, dot-sourcing and
+  `Import-Module`, `Function:`/`Alias:` provider writes, and unreadable alias
+  names. One predated #37: the binder emitted a double call operator for any
+  rewritten `& git status`, a parse error rather than the command submitted.
+
+- **`ptk_state` reports the build version (`a7624fa`).** Every report hit
+  this: the engine version was shown, nothing identifying ptk, and the Unix
+  binaries carry blank file-version fields, so testers named inferred git
+  SHAs instead. First line now reads `ptk <version>: pid ...`.
+
+### From `## Open / Parked`
+
+- GitHub #8 is an owner field report from 2026-07-23. Its older
+  installed runtime dropped script/lazy/COM values. The replacement server now
+  preserves synthetic EXO-style selected/deserialized values, evaluates an
+  explicitly selected script property exactly once in the user pipeline, and
+  surfaces the tested terminating-error message; it still truthfully labels
+  uninspected active type data as incomplete. Real EXO selected values now pass.
+  Keep #8 open until a real Outlook item retains selected values without extra
+  shaping-time getter execution and a real non-core EXO/Outlook terminating
+  exception returns its exact message. The verified progress and gate are posted
+  on issue #8; Opus accepted holding without a speculative active-getter change.
+
+  _Rotation note: falsified — `gh issue view 8` confirms #8 was closed
+  2026-08-05 06:58:47 UTC. The condition this entry was waiting on was met and
+  the issue closed; the parked entry above is preserved verbatim as the
+  evidence trail, not as current status._
+
 ## Rotated 2026-08-04 (drift based on 19201a1)
 
 ### From `## Now`

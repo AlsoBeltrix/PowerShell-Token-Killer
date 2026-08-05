@@ -1450,6 +1450,39 @@ Describe 'development package layout' {
         }
     }
 
+    # Issue #42: Move-Item onto a path that still exists as a directory moves
+    # the source INSIDE it rather than replacing it. When removal of the old
+    # payload does not actually happen, activation silently produced
+    # ~/.ptk/bin/bin and left the previous, incomplete payload registered --
+    # a server that starts, handshakes, and passes the release gate while
+    # missing 185 assemblies. Activation must fail loudly instead.
+    It 'fails activation instead of nesting when the old payload survives removal' {
+        $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
+        Import-Module $transactionModule -Force
+
+        $caseRoot = Join-Path $TestDrive ('install-nest-' + [guid]::NewGuid().ToString('N'))
+        $payload = Join-Path $caseRoot 'home'
+        $staging = Join-Path $caseRoot 'staging'
+        New-Item -ItemType Directory -Path (Join-Path $payload 'bin'), (Join-Path $staging 'bin') -Force |
+            Out-Null
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'old.txt') -Value 'old' -NoNewline
+        Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
+
+        # Stand in for every real cause of a surviving directory -- a running
+        # server holding a handle, an AV scanner, a partial recursive delete.
+        # The transaction must not trust that removal succeeded.
+        Mock -CommandName Remove-PtkInstallPath -ModuleName ptk_install_transaction -MockWith { }
+
+        { Install-PtkStagedPayload `
+                -StagingRoot $staging `
+                -PayloadRoot $payload `
+                -PayloadEntries @('bin') } | Should -Throw
+
+        # The precise damage the issue describes: never a nested payload.
+        Join-Path $payload 'bin' 'bin' | Should -Not -Exist
+        Join-Path $payload 'bin' 'bin' 'new.txt' | Should -Not -Exist
+    }
+
     It 'refuses a cross-RID native package before creating the output directory' {
         $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture

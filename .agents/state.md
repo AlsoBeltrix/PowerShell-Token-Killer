@@ -91,18 +91,52 @@ convincing wrong answers. Several investigations here chased behaviour that
 had already been fixed. Kill build-tree `PtkMcpServer` processes and rebuild
 before trusting a live probe.
 
-**Next action** — none queued: the test-report backlog is complete. Every
-issue it raised is fixed and closed (#33–#38, #41) or filed and blocked on
-matching hardware (#40). Other GitHub issues remain open outside that
-backlog — #7 (Defender, gated on WDSI), #13, #30 — and are not part of it.
-(#32, the kimi leg, was closed 2026-08-05: it landed at `ad1665e` and the
-tracker was out of sync. The close comment records one deviation from the
-issue's design sketch — no `startupTimeoutMs` is written, and live
-verification passed without it.) Remaining work is owner-gated: Decision 5, and any review dispatch, which
-happens only on the owner's explicit word. One new machine observation from
-this pass (ptk-session `PSModulePath` truncation failing four StateToolTests)
-is recorded in `.agents/machines.md`, not filed as an issue — owner's call
-whether it is product-visible.
+The test-report backlog is complete: every issue it raised is fixed and
+closed (#33–#38, #41) or filed and blocked on matching hardware (#40). (#32,
+the kimi leg, was closed 2026-08-05: it landed at `ad1665e` and the tracker
+was out of sync. The close comment records one deviation from the issue's
+design sketch — no `startupTimeoutMs` is written, and live verification
+passed without it.) One new machine observation from this pass (ptk-session
+`PSModulePath` truncation failing four StateToolTests) is recorded in
+`.agents/machines.md`, not filed as an issue — owner's call whether it is
+product-visible.
+
+### The queue
+
+Open work, ordered. An open issue is queued work: "backlog complete" is not
+the same as "nothing queued", and this section exists so the two are never
+conflated again.
+
+1. **#13 — worker death diagnostics (agent-actionable, top of queue).** The
+   owner's 2026-08-04 comment closed the speculative-fix path and named what
+   the next recurrence needs: the worker stderr diagnostic, or the crash
+   event/exit code. PTK currently discards both, so a recurrence is
+   structurally guaranteed to dead-end again. Evidence: worker stdout and
+   stderr are drained into a discard loop
+   (`server/PtkMcpServer/Worker/SessionWorkerClient.cs:311`), and
+   `IWorkerContainedProcess`
+   (`server/PtkMcpServer/Worker/WorkerProcessAuthority.cs:29`) exposes no exit
+   code — while the worker already writes a bounded
+   `ptk_worker_exit kind=… detail=…` line and a distinct exit code per failure
+   class (`server/PtkMcpServer/Worker/WorkerProcessExit.cs:13`). The work is
+   to retain that last bounded stderr line plus the exit code and surface them
+   on the `outcome_unknown` path
+   (`server/PtkMcpServer/Sessions/WorkerSupervisor.cs:314`) instead of
+   dropping them. Needs a plan before code.
+2. **#7 — Defender false positive.** Gated on Microsoft's WDSI verdict
+   (submitted 2026-07-20). No local action until it lands.
+3. **#40 — macOS long-pipeline worker loss; Windows ARM64 MSIX module
+   imports.** Gated on matching hardware; neither reproduces here.
+4. **#30 — on-prem Windows remoting acceptance.** Owner-gated by the issue's
+   own terms: it does not authorize a probe, and needs the owner to name host,
+   auth path, identity, command surface, and cleanup authority first.
+5. **Decision 5 — tag `v0.2.0` and publish.** Terminal and owner-only.
+6. Unqueued candidates below (POSIX bootstrap, smoke-test narrowing, the
+   refused read-only pipeline) are not on this list until the owner puts them
+   there.
+
+Review dispatch remains owner-gated throughout and happens only on the
+owner's explicit word.
 
 Session-close fact (2026-08-05): the #38 and #41 fixes landed **without a
 reviewer dispatch** — codex was undispatchable at the time (its configured
@@ -115,7 +149,8 @@ Decision 5 — tag `v0.2.0` and publish — remains owner-only, untouched, and i
 now downstream of this backlog. Do not tag or push a `v*` ref without an
 explicit go.
 
-Unqueued work that exists if the owner wants it, in no particular order:
+Unqueued candidates — not on the queue above until the owner puts them there,
+in no particular order:
 
 - A POSIX bootstrap so macOS/Linux can install without `pwsh` already
   present.

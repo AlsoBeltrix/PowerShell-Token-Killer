@@ -678,13 +678,19 @@ function Limit-PtcPassthrough {
         [AllowNull()][string]$Text,
         [int]$MaxLines = $script:PtcPassthroughMaxLines,
         [int]$MaxChars = $script:PtcPassthroughMaxChars,
-        # The marker's recovery advice. The default is explicitly unavailable;
-        # callers with a same-invocation artifact (or a job log) pass their
-        # context-specific recovery instruction, so the advice is composed BY the elision
-        # itself and can never be false or missing (sd3-2..sd3-4: two
+        # The marker's recovery advice. Callers with a same-invocation artifact
+        # (or a job log) pass their context-specific recovery instruction, so
+        # the advice is composed BY the elision itself (sd3-2..sd3-4: two
         # downstream inference heuristics both failed - ANSI stripping
         # shortens without eliding, near-boundary elision lengthens).
-        [string]$ElisionHint = 'recovery=unavailable: output capture unavailable; command was not rerun'
+        #
+        # The default states only what this function knows. It used to assert
+        # 'recovery=unavailable', which every caller that had not yet sealed
+        # its artifact then printed as fact - so a response could carry
+        # '[N lines elided - recovery=unavailable ...]' and end with a working
+        # handle, contradicting itself (GitHub #34 F7, #35 F4). A default
+        # cannot know whether recovery exists; it must not claim either way.
+        [string]$ElisionHint = 'see the recovery line at the end of this response'
     )
 
     if ($null -eq $Text) { return '' }

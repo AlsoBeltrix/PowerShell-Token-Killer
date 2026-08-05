@@ -2963,9 +2963,16 @@ public sealed class RunspaceHost : IDisposable
     private static string? RecoveryElisionHint(OutputRecoverySummary? recovery)
     {
         if (recovery is null) return null;
+        // Only a handle that exists NOW may be named. This runs while the
+        // artifact is still being written, so a null handle here does not mean
+        // recovery is unavailable — it means it is not yet known. Asserting
+        // 'recovery=unavailable' from that produced the contradiction testers
+        // reported: the elision marker denied recovery inside a response that
+        // ended by offering a working handle (GitHub #34 F7, #35 F4). Defer to
+        // the response's own recovery line instead of guessing ahead of it.
         return recovery.Handle is { } handle
             ? $"recovery=available: ptk_output handle={handle}"
-            : "recovery=unavailable: output capture unavailable; command was not rerun";
+            : "see the recovery line at the end of this response";
     }
 
     private static OutputArtifactContent CaptureArtifactContent(

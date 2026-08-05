@@ -1552,11 +1552,26 @@ Describe 'Compress-PtcOutput' {
         $lines = 1..1000 | ForEach-Object { "line $_" }
         $result = $lines | Compress-PtcOutput
 
-        $result | Should -Match '\[600 lines elided - recovery=unavailable: output capture unavailable; command was not rerun\]'
+        $result | Should -Match '\[600 lines elided - see the recovery line at the end of this response\]'
         $result | Should -Match 'line 1\b'
         $result | Should -Match 'line 1000'
         $result | Should -Not -Match 'line 500\b'
         @($result -split "`r?`n").Count | Should -Be 401
+    }
+
+    It 'never asserts a recovery verdict the default cannot know' {
+        # GitHub #34 F7 / #35 F4: the default hint claimed
+        # 'recovery=unavailable', so a caller that had not yet sealed its
+        # artifact printed that inside the marker while the same response
+        # ended with a working handle - the two contradicted each other. A
+        # default cannot know whether recovery exists, so it must claim
+        # neither.
+        $lines = 1..1000 | ForEach-Object { "line $_" }
+        $result = $lines | Compress-PtcOutput
+
+        $result | Should -Match 'elided'
+        $result | Should -Not -Match 'recovery=unavailable'
+        $result | Should -Not -Match 'recovery=available'
     }
 
     It 'composes the elision marker with a caller-supplied recovery hint' {
@@ -1574,7 +1589,7 @@ Describe 'Compress-PtcOutput' {
         $big = ('x' * 20000)
         $result = "$big-A", "$big-B", "$big-C" | Compress-PtcOutput
 
-        $result | Should -Match '\[\d+ chars elided - recovery=unavailable: output capture unavailable; command was not rerun\]'
+        $result | Should -Match '\[\d+ chars elided - see the recovery line at the end of this response\]'
         $result.Length | Should -BeLessThan 42000
         $result | Should -Match '^x'
         $result | Should -Match '-C$'
@@ -1584,7 +1599,7 @@ Describe 'Compress-PtcOutput' {
         $lines = 1..1000 | ForEach-Object { "line $_ " + ('y' * 400) }
         $result = $lines | Compress-PtcOutput
 
-        $result | Should -Match '\[\d+ lines and \d+ chars elided - recovery=unavailable: output capture unavailable; command was not rerun\]'
+        $result | Should -Match '\[\d+ lines and \d+ chars elided - see the recovery line at the end of this response\]'
     }
 
     It 'bounds the labeled log-leg fallback too' {
@@ -1593,7 +1608,7 @@ Describe 'Compress-PtcOutput' {
         $result = $lines | Compress-PtcOutput
 
         $result | Should -Match '\[ptk:log rtk not found'
-        $result | Should -Match 'lines elided - recovery=unavailable: output capture unavailable; command was not rerun'
+        $result | Should -Match 'lines elided - see the recovery line at the end of this response'
     }
 
     It 'passes a single string through exactly' {

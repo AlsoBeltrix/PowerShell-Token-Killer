@@ -143,17 +143,21 @@ public sealed class RunspaceHostTests : IDisposable
     /// Judging the returned value cannot undo it; the getter has already run.
     /// The property's declared type and declaring container now gate the call.
     /// </summary>
-    [Fact]
-    public async Task Projection_never_runs_a_deferred_value_getter()
+    [Theory]
+    [InlineData("[Lazy[string]]::new([Func[string]]{ $global:ptkDeferredRan = 1; 'SIDE_EFFECT' })")]
+    // codereview round 2: ThreadLocal is the same shape, and it leaked through
+    // ToString() rather than property projection — the fallback renderer
+    // predates that work and had the same hole.
+    [InlineData("[Threading.ThreadLocal[string]]::new([Func[string]]{ $global:ptkDeferredRan = 1; 'SIDE_EFFECT' })")]
+    public async Task Capture_never_runs_a_deferred_value_factory(string construct)
     {
         var result = await _host.InvokeAsync(
-            "$global:ptkLazyRan = 0; " +
-            "[Lazy[string]]::new([Func[string]]{ $global:ptkLazyRan = 1; 'SIDE_EFFECT' })",
+            $"$global:ptkDeferredRan = 0; {construct}",
             route: "pwsh");
 
         Assert.DoesNotContain("SIDE_EFFECT", result.Output, StringComparison.Ordinal);
 
-        var ran = await _host.InvokeAsync("$global:ptkLazyRan", raw: true, route: "pwsh");
+        var ran = await _host.InvokeAsync("$global:ptkDeferredRan", raw: true, route: "pwsh");
         Assert.Equal("0", ran.Output.Trim());
     }
 

@@ -1834,20 +1834,71 @@ public sealed class RunspaceHost : IDisposable
         }
 
         /// <summary>
-        /// Types whose declaring container makes a getter unsafe to call
-        /// regardless of what it returns: the value is produced on demand, by
-        /// user code or by waiting.
+        /// Exact types whose scalar properties are safe to read during
+        /// capture.
+        ///
+        /// This is an allowlist, and it is deliberate. Two rounds of review
+        /// killed the alternative: "trusted assembly + scalar return type"
+        /// looks like a proof but is not one, because a framework container
+        /// can hold user code behind an ordinary-looking scalar property.
+        /// `Lazy&lt;T&gt;.Value` runs a user factory; `ThreadLocal&lt;T&gt;.Value` does
+        /// too; `Task&lt;T&gt;.Result` blocks the producer callback;
+        /// `ReadOnlyCollection&lt;T&gt;.Count` dispatches into whatever `IList&lt;T&gt;`
+        /// it wraps. Both were reproduced running a caller's delegate during
+        /// output capture. Denying those names one at a time is an endless
+        /// list that is wrong until the next one is found.
+        ///
+        /// So: name the types whose properties are wanted, rather than trying
+        /// to name every type that is dangerous. Anything absent falls through
+        /// to <see cref="TryRenderTrustedText"/>, which calls only
+        /// `ToString()` — a smaller surface, and the behaviour that shipped
+        /// before property projection existed.
+        ///
+        /// Adding a type here is a deliberate act: its scalar properties must
+        /// be plain field reads or cheap computations with no user-supplied
+        /// callback, no I/O, and no blocking.
         /// </summary>
-        private static readonly HashSet<string> DeferredValueTypeNames = new(
-            [
-                "System.Lazy`1",
-                "System.Threading.Tasks.Task",
-                "System.Threading.Tasks.Task`1",
-                "System.Threading.Tasks.ValueTask",
-                "System.Threading.Tasks.ValueTask`1",
-                "System.Func`1",
-            ],
-            StringComparer.Ordinal);
+        private static readonly HashSet<Type> ProjectableTypes =
+        [
+            typeof(System.Globalization.CultureInfo),
+            typeof(TimeZoneInfo),
+            typeof(System.Globalization.RegionInfo),
+            typeof(Version),
+            typeof(System.Net.IPAddress),
+            typeof(System.Reflection.AssemblyName),
+            typeof(OperatingSystem),
+        ];
+
+        /// <summary>
+        /// Containers that produce their value on demand — by running a
+        /// caller-supplied delegate, or by waiting. Reading them, including
+        /// via <c>ToString()</c>, is not a passive act however trusted the
+        /// assembly is.
+        ///
+        /// Unlike the projection allowlist, this must be a denylist: the
+        /// fallback renderer's job is to handle types nobody enumerated, so
+        /// it cannot be restricted to a known set without losing its purpose.
+        /// It is therefore the weaker of the two gates, and that is why
+        /// property projection does not rely on one.
+        /// </summary>
+        private static bool IsDeferredValueContainer(Type type)
+        {
+            var definition = type.IsGenericType
+                ? type.GetGenericTypeDefinition()
+                : type;
+            var name = definition.FullName;
+            if (name is null) return false;
+
+            return name is "System.Lazy`1"
+                or "System.Threading.ThreadLocal`1"
+                or "System.Threading.Tasks.Task"
+                or "System.Threading.Tasks.Task`1"
+                or "System.Threading.Tasks.ValueTask"
+                or "System.Threading.Tasks.ValueTask`1"
+                || typeof(Delegate).IsAssignableFrom(type)
+                // A Task subclass renders the same way.
+                || typeof(System.Threading.Tasks.Task).IsAssignableFrom(type);
+        }
 
         /// <summary>
         /// Whether a property's DECLARED type is one this capture is willing
@@ -1869,39 +1920,19 @@ public sealed class RunspaceHost : IDisposable
         }
 
         /// <summary>
-        /// Whether the getter itself is safe to invoke. A virtual getter can
-        /// be overridden by an untrusted subclass, and a property declared on
-        /// a deferred-value container computes rather than reads.
+        /// Whether the getter itself is safe to invoke. The property must be
+        /// declared by the exact allowlisted type — not merely inherited onto
+        /// it — so a base-class getter on some other type cannot ride along.
         /// </summary>
-        private static bool IsInertGetter(System.Reflection.PropertyInfo property)
+        private static bool IsInertGetter(
+            System.Reflection.PropertyInfo property,
+            Type projectedType)
         {
             var getter = property.GetGetMethod(nonPublic: false);
             if (getter is null) return false;
 
             var declaring = property.DeclaringType;
-            if (declaring is null) return false;
-            if (!IsTrustedRenderingAssembly(declaring.Assembly)) return false;
-
-            // A virtual getter is not itself the risk: an override lives on a
-            // subclass, and a subclass from an untrusted assembly never
-            // reaches here — the caller checks the RUNTIME type's assembly
-            // before any of this. Rejecting virtual getters outright would
-            // exclude Name, DisplayName and LCID on CultureInfo, which are
-            // virtual on an unsealed class and are exactly what this projection
-            // exists to return.
-            //
-            // What matters is the reflected type: if the object's own type is
-            // trusted, the code that will run is trusted, override or not.
-            if (!IsTrustedRenderingAssembly(
-                    (property.ReflectedType ?? declaring).Assembly))
-            {
-                return false;
-            }
-
-            var name = declaring.IsGenericType
-                ? declaring.GetGenericTypeDefinition().FullName
-                : declaring.FullName;
-            return name is null || !DeferredValueTypeNames.Contains(name);
+            return declaring == projectedType;
         }
 
         /// <summary>
@@ -1942,8 +1973,11 @@ public sealed class RunspaceHost : IDisposable
         {
             if (value is null) return false;
 
+            // Exact type, not "assignable to": a subclass could override an
+            // allowlisted type's getter, and its override is not what was
+            // vetted.
             var type = value.GetType();
-            if (!IsTrustedRenderingAssembly(type.Assembly)) return false;
+            if (!ProjectableTypes.Contains(type)) return false;
 
             System.Reflection.PropertyInfo[] properties;
             try
@@ -1988,7 +2022,7 @@ public sealed class RunspaceHost : IDisposable
                 // Verified: a Lazy whose factory set a global had that global
                 // set during capture (codereview HIGH).
                 if (!IsInertScalarPropertyType(property.PropertyType)) continue;
-                if (!IsInertGetter(property)) continue;
+                if (!IsInertGetter(property, type)) continue;
 
                 attempted++;
                 object? raw;
@@ -2033,6 +2067,15 @@ public sealed class RunspaceHost : IDisposable
 
             var type = value.GetType();
             if (!IsTrustedRenderingAssembly(type.Assembly)) return false;
+            // A trusted assembly does not make ToString() inert. Some
+            // framework containers render by computing their contents:
+            // `ThreadLocal<T>.ToString()` invokes the caller's value factory,
+            // and `Lazy<T>` and `Task<T>` are the same shape. Verified — a
+            // ThreadLocal whose factory set a global had it set by ToString()
+            // alone, with no property projection involved (codereview round
+            // 2). This gate predates property projection and had the same
+            // hole.
+            if (IsDeferredValueContainer(type)) return false;
 
             string? rendered;
             try

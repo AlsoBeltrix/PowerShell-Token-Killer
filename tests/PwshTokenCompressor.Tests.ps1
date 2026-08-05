@@ -1515,7 +1515,10 @@ Describe 'development package layout' {
 
         # It must be wired into the real install path, not merely defined:
         # the staged tree is MOVED by activation, so the index has to be
-        # captured before the transaction runs.
+        # captured before the transaction runs. Match the CALL, not the bare
+        # name -- the name also appears in the function declaration above, so
+        # a bare-name search passes even with the call deleted (finding
+        # i42-2).
         $src | Should -Match 'Get-PtkPayloadIndex -Root \$staging'
         $src | Should -Match 'Assert-PtkPayloadComplete'
 
@@ -1597,6 +1600,37 @@ Describe 'development package layout' {
         Set-Content -LiteralPath (Join-Path $innocent 'bin' 'PtkMcpServer.dll') -Value 'x' -NoNewline
         Set-Content -LiteralPath (Join-Path $innocent 'bin' 'bin' 'notes.txt') -Value 'x' -NoNewline
         { & $probe $fn $innocent } | Should -Not -Throw
+    }
+
+    # Finding i42-1 (codex, HIGH): rollback repeats the activation bug. It
+    # removes the target and then copies the snapshot back without checking
+    # the removal took effect, and Copy-Item -Recurse onto a surviving
+    # directory nests just as Move-Item does. The activation guard makes this
+    # MORE reachable, because the condition that trips the guard is the same
+    # condition that defeats the removal here -- so a failed install could
+    # leave the registered payload in a half-state instead of restored.
+    It 'fails rollback loudly rather than nesting when the target survives removal' {
+        $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
+        Import-Module $transactionModule -Force
+
+        $caseRoot = Join-Path $TestDrive ('rollback-nest-' + [guid]::NewGuid().ToString('N'))
+        $payload = Join-Path $caseRoot 'home'
+        $snapshotRoot = Join-Path $caseRoot 'snap'
+        New-Item -ItemType Directory -Path (Join-Path $payload 'bin') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'original.txt') -Value 'original' -NoNewline
+
+        $snapshot = New-PtkInstallSnapshot `
+            -PayloadRoot $payload `
+            -PayloadEntries @('bin') `
+            -RegistrationPaths @() `
+            -SnapshotRoot $snapshotRoot
+
+        Mock -CommandName Remove-PtkInstallPath -ModuleName ptk_install_transaction -MockWith { }
+
+        { Restore-PtkInstallSnapshot -Snapshot $snapshot } | Should -Throw
+
+        # The damage: never a nested restore.
+        Join-Path $payload 'bin' 'bin' | Should -Not -Exist
     }
 
     It 'refuses a cross-RID native package before creating the output directory' {

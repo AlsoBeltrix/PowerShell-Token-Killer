@@ -83,6 +83,27 @@ function Remove-PtkInstallPath {
     }
 }
 
+# Issue #42, finding i42-1: both callers below replace a path by removing it
+# and then writing over it, and BOTH Move-Item and Copy-Item -Recurse move
+# the source INSIDE a destination directory that still exists rather than
+# replacing it. Remove-Item can fail to take effect without throwing -- a
+# running server holding a handle, an AV scanner, a partial recursive delete
+# -- so removal is not proof of removal. Every replacement asserts the path
+# is actually gone first; a survivor is a hard failure, never a silent nest.
+function Assert-PtkInstallPathRemoved {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [Parameter(Mandatory)][string]$Operation
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) { return }
+    throw ("$Operation cannot replace '$Path': it still exists after removal. " +
+        'Refusing to continue, because writing onto a surviving directory would nest ' +
+        'the new content inside the old instead of replacing it. A running ptk server ' +
+        'holding a file handle is the most likely cause: stop every ptk process and ' +
+        'any harness that launched one, then retry.')
+}
+
 function Set-PtkInstallRootAccess {
     param([Parameter(Mandatory)][string]$PayloadRoot)
 
@@ -204,6 +225,7 @@ function Restore-PtkInstallSnapshot {
     foreach ($record in @($Snapshot.Records)) {
         try {
             Remove-PtkInstallPath -Path $record.Path
+            Assert-PtkInstallPathRemoved -Path $record.Path -Operation 'Install rollback'
             if ($record.Fingerprint -ne 'missing') {
                 Copy-PtkInstallPath -Source $record.Backup -Destination $record.Path
             }
@@ -279,22 +301,10 @@ function Install-PtkStagedPayload {
     foreach ($entry in $PayloadEntries) {
         $target = Join-Path $PayloadRoot $entry
         Remove-PtkInstallPath -Path $target
-        # Move-Item onto a path that still exists as a directory moves the
-        # source INSIDE it instead of replacing it (issue #42). Removal can
-        # fail to take effect without throwing - a running server holding a
-        # handle, an AV scanner, a partially completed recursive delete - and
-        # the result was a nested ~/.ptk/bin/bin with the previous, incomplete
-        # payload left registered. That install then starts, handshakes, and
-        # passes the release gate while missing most of its assemblies, so it
-        # must be a loud failure here rather than a silent nest. The caller's
+        # A survivor here nested the new payload inside the old one and left
+        # the previous, incomplete payload registered (#42). The caller's
         # snapshot rollback restores the prior payload.
-        if (Test-Path -LiteralPath $target) {
-            throw ("Install activation cannot replace '$target': it still exists after removal. " +
-                'Refusing to continue, because moving onto a surviving directory would nest the ' +
-                'new payload inside the old one and leave the previous payload registered. ' +
-                'A running ptk server holding a file handle is the most likely cause: stop every ' +
-                'ptk process and any harness that launched one, then reinstall.')
-        }
+        Assert-PtkInstallPathRemoved -Path $target -Operation 'Install activation'
         Move-Item -LiteralPath (Join-Path $StagingRoot $entry) -Destination $target
         $activated++
         if ($FaultAfterEntry -eq $activated) {

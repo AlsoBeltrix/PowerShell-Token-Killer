@@ -227,6 +227,82 @@ function Assert-PtkPayloadIntact {
     throw 'Install incomplete: payload files missing (possible antivirus quarantine).'
 }
 
+# Issue #42: the check above tests five named paths, which a payload missing
+# 185 of its 296 files still passes -- every named file was present. The
+# staged layout is generated in the same run, so the honest question is
+# whether the installed tree matches the tree we just built, and that
+# subsumes the quarantine case above: a quarantined PtkMcpServer.dll is a
+# missing entry like any other.
+#
+# Compared on relative path and length rather than content hash: this runs on
+# every install over ~300 files, the failure being caught is wholesale loss
+# and truncation, and hashing the set is not worth the per-install cost. The
+# server binary's own integrity is already proved by the package smoke test
+# launching it.
+function Get-PtkPayloadIndex {
+    param([Parameter(Mandatory)][string]$Root)
+
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $Root)) { return $map }
+    foreach ($file in Get-ChildItem -LiteralPath $Root -Recurse -File -Force) {
+        $map[[IO.Path]::GetRelativePath($Root, $file.FullName)] = $file.Length
+    }
+    return $map
+}
+
+function Assert-PtkPayloadComplete {
+    param(
+        # Captured before activation: the transaction MOVES the staged tree,
+        # so it no longer exists when the installed payload is validated.
+        [Parameter(Mandatory)][hashtable]$StagedIndex,
+        [Parameter(Mandatory)][string]$InstalledRoot
+    )
+
+    $staged = $StagedIndex
+    $installed = Get-PtkPayloadIndex -Root $InstalledRoot
+
+    $missing = [Collections.Generic.List[string]]::new()
+    $truncated = [Collections.Generic.List[string]]::new()
+    foreach ($relative in $staged.Keys) {
+        if (-not $installed.ContainsKey($relative)) {
+            $missing.Add($relative)
+            continue
+        }
+        if ($installed[$relative] -ne $staged[$relative]) {
+            $truncated.Add(
+                "$relative (expected $($staged[$relative]) bytes, found $($installed[$relative]))")
+        }
+    }
+    if ($missing.Count -eq 0 -and $truncated.Count -eq 0) { return }
+
+    # Bounded: a wholesale loss would otherwise print hundreds of lines.
+    $show = {
+        param($label, $items)
+        if ($items.Count -eq 0) { return @() }
+        $head = @($items | Sort-Object | Select-Object -First 15)
+        $rest = $items.Count - $head.Count
+        @("$label ($($items.Count)):") +
+        ($head | ForEach-Object { "  $_" }) +
+        $(if ($rest -gt 0) { @("  ... and $rest more") } else { @() })
+    }
+
+    $lines = @(
+        "The installed payload does not match the payload staged in this run."
+        (& $show 'Missing from the install' $missing)
+        (& $show 'Wrong size in the install' $truncated)
+        'Installed root: ' + $InstalledRoot
+        'An antivirus quarantine is one known cause: Microsoft Defender has falsely'
+        'detected PtkMcpServer.dll (Trojan:MSIL/AsyncRAT.AB!MTB) and removed it right'
+        'after install. See https://github.com/AlsoBeltrix/PowerShell-Token-Killer/issues/7'
+        'and the runbook .agents/plans/defender-fp-submission.md. Check the Defender'
+        'protection history before restoring anything, and do not add broad exclusions.'
+        'A previous payload left in place at the install root is the other known cause'
+        '(issue #42); stop every ptk process and any harness that launched one, then'
+        'reinstall.'
+    ) | ForEach-Object { $_ }
+    throw ($lines -join [Environment]::NewLine)
+}
+
 # --- release payload -------------------------------------------------------
 # Obtaining the payload is the only thing that differs between installing a
 # published release and building this checkout. Everything downstream -
@@ -765,6 +841,10 @@ Assert-PtkRuntimeNotRunning
                 New-PtkLayout -Destination $staging -TargetRid $targetRid -PayloadVersion $payloadVersion
             }
             Assert-PtkPayloadIntact -Root $staging -TargetRid $targetRid
+            # Activation MOVES the staged entries, so the staged tree is gone
+            # by the time InstalledValidation runs. Record what we built while
+            # it still exists, and compare the install against that (#42).
+            $stagedIndex = Get-PtkPayloadIndex -Root $staging
             Invoke-PtkInstallTransaction `
                 -StagingRoot $staging `
                 -PayloadRoot $ptkHome `
@@ -791,6 +871,8 @@ Assert-PtkRuntimeNotRunning
                     $installedBinary = Join-Path $installedRoot 'bin' (
                         Get-PtkServerBinaryName -TargetRid $targetRid)
                     Assert-PtkPayloadIntact -Root $installedRoot -TargetRid $targetRid
+                    Assert-PtkPayloadComplete `
+                        -StagedIndex $stagedIndex -InstalledRoot $installedRoot
                     Invoke-PtkPackageSmoke -BinaryPath $installedBinary
                 } `
                 -RegistrationCutover {

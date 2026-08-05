@@ -1483,6 +1483,71 @@ Describe 'development package layout' {
         Join-Path $payload 'bin' 'bin' 'new.txt' | Should -Not -Exist
     }
 
+    # Issue #42: Assert-PtkPayloadIntact name-checked five paths, so an
+    # install missing 185 of 296 assemblies passed it -- every named file was
+    # present. Completeness must be judged against the set actually staged in
+    # the same run, not against a hardcoded list that cannot know what
+    # publish emitted.
+    It 'detects an installed payload missing files the staged payload had' {
+        $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
+        $src = Get-Content -LiteralPath $installScript -Raw
+        # Brace-match rather than a lazy regex: both bodies contain nested
+        # closing braces, so '.+?\n\}' stops at the first inner one.
+        $extract = {
+            param($text, $name)
+            $start = $text.IndexOf("function $name")
+            if ($start -lt 0) { return '' }
+            $depth = 0
+            $seen = $false
+            for ($i = $start; $i -lt $text.Length; $i++) {
+                if ($text[$i] -eq '{') { $depth++; $seen = $true }
+                elseif ($text[$i] -eq '}') {
+                    $depth--
+                    if ($seen -and $depth -eq 0) { return $text.Substring($start, $i - $start + 1) }
+                }
+            }
+            return ''
+        }
+        $index = & $extract $src 'Get-PtkPayloadIndex'
+        $fn = & $extract $src 'Assert-PtkPayloadComplete'
+        $index | Should -Not -BeNullOrEmpty -Because 'slice 2 of issue #42 adds this function'
+        $fn | Should -Not -BeNullOrEmpty -Because 'slice 2 of issue #42 adds this function'
+
+        # It must be wired into the real install path, not merely defined:
+        # the staged tree is MOVED by activation, so the index has to be
+        # captured before the transaction runs.
+        $src | Should -Match 'Get-PtkPayloadIndex -Root \$staging'
+        $src | Should -Match 'Assert-PtkPayloadComplete'
+
+        $caseRoot = Join-Path $TestDrive ('payload-complete-' + [guid]::NewGuid().ToString('N'))
+        $staged = Join-Path $caseRoot 'staged'
+        $installed = Join-Path $caseRoot 'installed'
+        foreach ($root in $staged, $installed) {
+            New-Item -ItemType Directory -Path (Join-Path $root 'bin') -Force | Out-Null
+            1..4 | ForEach-Object {
+                Set-Content -LiteralPath (Join-Path $root 'bin' "asm$_.dll") -Value "body$_" -NoNewline
+            }
+        }
+
+        $probe = [scriptblock]::Create(
+            $index + "`n" + $fn +
+            "`n`$i = Get-PtkPayloadIndex -Root '$staged'" +
+            "`nAssert-PtkPayloadComplete -StagedIndex `$i -InstalledRoot '$installed'")
+
+        # Identical trees: no complaint.
+        { & $probe } | Should -Not -Throw
+
+        # The #42 shape: the installed tree quietly loses files.
+        Remove-Item -LiteralPath (Join-Path $installed 'bin' 'asm3.dll') -Force
+        { & $probe } | Should -Throw -ExpectedMessage '*asm3.dll*'
+
+        # Truncation counts too, not just absence.
+        Copy-Item -LiteralPath (Join-Path $staged 'bin' 'asm3.dll') `
+            -Destination (Join-Path $installed 'bin' 'asm3.dll')
+        Set-Content -LiteralPath (Join-Path $installed 'bin' 'asm2.dll') -Value 'x' -NoNewline
+        { & $probe } | Should -Throw -ExpectedMessage '*asm2.dll*'
+    }
+
     It 'refuses a cross-RID native package before creating the output directory' {
         $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture

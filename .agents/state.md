@@ -122,7 +122,9 @@ conflated again.
    to retain that last bounded stderr line plus the exit code and surface them
    on the `outcome_unknown` path
    (`server/PtkMcpServer/Sessions/WorkerSupervisor.cs:314`) instead of
-   dropping them. Needs a plan before code.
+   dropping them. Plan approved and in flight:
+   `.agents/plans/issue-13-worker-death-diagnostics.md` (four slices; the
+   plan owns the detail, do not restate it here).
 2. **#7 — Defender false positive.** Gated on Microsoft's WDSI verdict
    (submitted 2026-07-20). No local action until it lands.
 3. **#40 — macOS long-pipeline worker loss; Windows ARM64 MSIX module

@@ -2400,10 +2400,31 @@ public sealed class RunspaceHost : IDisposable
             }
         }
 
-        private object? PassiveNoteValue(object? value)
+        private object? PassiveNoteValue(object? value) =>
+            PassiveNoteValue(value, depth: 1);
+
+        /// <summary>How many nested custom-object levels are composed into
+        /// text; an object sitting deeper reports the not-expanded marker.
+        /// The bound also terminates self-referencing object graphs.</summary>
+        internal const int MaximumComposedNoteDepth = 3;
+
+        private object? PassiveNoteValue(object? value, int depth)
         {
             var baseObject = value is PSObject wrapped ? wrapped.BaseObject : value;
             if (TryPassiveScalar(baseObject, out var scalar, out _)) return scalar;
+            // A nested [pscustomobject]'s base object is the hollow
+            // PSCustomObject placeholder whose ToString() is empty — its data
+            // lives in the wrapping PSObject's instance notes, so rendering
+            // the placeholder's text replaced the value with an empty string
+            // and the value vanished (GitHub #41). Compose the notes
+            // passively instead, through the same inert instance-member bag
+            // the outer capture already reads.
+            if (value is PSObject noteSource &&
+                baseObject is PSCustomObject &&
+                HasOnlyDefaultCustomObjectTypeNames(noteSource))
+            {
+                return ComposeNestedNotesText(noteSource, depth);
+            }
             // Same reasoning as the projection fallback: a trusted type's text
             // beats "[nested ... not expanded]", which discarded the value.
             if (TryRenderTrustedText(baseObject, out var renderedText))
@@ -2415,6 +2436,71 @@ public sealed class RunspaceHost : IDisposable
             return baseObject is null
                 ? null
                 : $"[nested {baseObject.GetType().FullName ?? "object"} not expanded during passive output capture]";
+        }
+
+        /// <summary>Composes a nested custom object's exact note properties
+        /// as "Name=value; Name=value" text — a passive read of the same
+        /// instance-member bag <see cref="CopyPassiveInstanceNotes"/> uses,
+        /// bounded to <see cref="MaximumComposedNoteDepth"/> levels and to
+        /// <see cref="MaximumRenderedCharacters"/> per composed value.</summary>
+        private string ComposeNestedNotesText(PSObject source, int depth)
+        {
+            _lossyProjection = true;
+            if (depth > MaximumComposedNoteDepth)
+            {
+                _activeMemberOmitted = true;
+                return "[nested object beyond depth 3 not expanded during passive output capture]";
+            }
+
+            object? rawMembers;
+            try { rawMembers = PsObjectInstanceMembers?.GetValue(source); }
+            catch { rawMembers = null; }
+            if (rawMembers is not IEnumerable members)
+            {
+                _activeMemberOmitted = true;
+                return "[nested object members unavailable during passive output capture]";
+            }
+
+            var composed = new StringBuilder();
+            try
+            {
+                foreach (var member in members)
+                {
+                    if (composed.Length > MaximumRenderedCharacters) break;
+                    // Exact type only, same rule as the outer copy: a user
+                    // subclass must not override an apparently passive getter.
+                    if (member?.GetType() == typeof(PSNoteProperty))
+                    {
+                        var note = (PSNoteProperty)member;
+                        var noteValue = PassiveNoteValue(note.Value, depth + 1);
+                        if (composed.Length > 0) composed.Append("; ");
+                        composed.Append(note.Name).Append('=');
+                        if (noteValue is string noteText)
+                        {
+                            composed.Append(noteText);
+                        }
+                        else if (TryPassiveScalar(noteValue, out _, out var scalarText))
+                        {
+                            composed.Append(scalarText);
+                        }
+                    }
+                    else
+                    {
+                        _activeMemberOmitted = true;
+                    }
+                }
+            }
+            catch
+            {
+                _captureFailed = true;
+            }
+
+            if (composed.Length > MaximumRenderedCharacters)
+            {
+                composed.Length = MaximumRenderedCharacters;
+                composed.Append(RenderTruncationMarker);
+            }
+            return composed.ToString();
         }
 
         private void AddTrustedProperty(

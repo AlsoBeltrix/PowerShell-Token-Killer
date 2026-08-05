@@ -1822,3 +1822,19 @@ bytes on `gabrielle` and `altiera`, both of which had PowerShell 7.6.3 but no
   `3ec96bb9fd4f6a007930c92e633501d8d99a7fb02604e26faffa1b2aa355acbd`.
   Process scans found no executable from any validation root; all three remote
   roots and the prefix-checked local transfer root were removed after hashing.
+
+## ptk-session PSModulePath truncation (2026-08-05)
+
+Verification launched from inside a ptk warm session on the owner's Mac can
+inherit a truncated `PSModulePath`. Observed after an MCP server restart
+mid-session: the fresh worker's `PSModulePath` held only the user and
+`/usr/local/share` module directories plus `~/.ptk/bin/Modules`, with no
+`$PSHOME/Modules` entry. Processes spawned by `dotnet test` inherit that,
+and the four StateToolTests module probes fail together (the state banner
+lists no `Microsoft.PowerShell.Utility`) while the same class passes 15/15
+from a plain shell. The same head passed from the pre-restart session, so
+the truncation is a property of how that server instance was launched, not
+of the commit under test. When these four fail together from a ptk session,
+re-run from a plain shell before treating it as a product regression.
+Whether the truncation is product-visible inside `ptk_invoke` child
+processes is undecided — not filed as an issue; owner's call.

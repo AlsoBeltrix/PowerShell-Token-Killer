@@ -120,6 +120,48 @@ public sealed class RunspaceHostTests : IDisposable
     }
 
     /// <summary>
+    /// GitHub #41: a nested [pscustomobject]'s base object is the hollow
+    /// PSCustomObject placeholder whose ToString() is empty, so the trusted
+    /// text render replaced the nested value with an empty string and the
+    /// marker text appeared nowhere — not inline, not in the artifact. The
+    /// nested notes must survive as composed text while sibling scalars keep
+    /// rendering.
+    /// </summary>
+    [Fact]
+    public async Task Nested_custom_object_notes_survive_capture()
+    {
+        var result = await _host.InvokeAsync(
+            "[pscustomobject]@{ Plain = 'flat'; " +
+            "Nested = [pscustomobject]@{ Deep = 'PTK_MARKER_41' } }",
+            route: "pwsh");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Contains("flat", result.Output, StringComparison.Ordinal);
+        Assert.Contains("Deep=PTK_MARKER_41", result.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// GitHub #41, bound half: composition follows nested custom objects
+    /// three levels deep; an object sitting deeper reports the bound instead
+    /// of its contents. The same bound is what terminates self-referencing
+    /// graphs, so it must hold exactly.
+    /// </summary>
+    [Fact]
+    public async Task Nested_composition_stops_at_the_depth_bound()
+    {
+        var result = await _host.InvokeAsync(
+            "[pscustomobject]@{ A = [pscustomobject]@{ B = [pscustomobject]@{ " +
+            "C = [pscustomobject]@{ D = [pscustomobject]@{ E = 'PTK_DEEP_41' } } } } }",
+            route: "pwsh");
+
+        Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+        Assert.Contains("B=", result.Output, StringComparison.Ordinal);
+        Assert.Contains("C=", result.Output, StringComparison.Ordinal);
+        Assert.Contains("beyond depth 3", result.Output, StringComparison.Ordinal);
+        Assert.DoesNotContain("PTK_DEEP_41", result.Output, StringComparison.Ordinal);
+    }
+
+    /// <summary>
     /// Slice 7.0: the shaper recognized six types and returned
     /// "[active member not evaluated]" for every other one, so a plain
     /// framework object came back with no data at all. Outlook and EXO

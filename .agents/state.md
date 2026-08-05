@@ -79,29 +79,35 @@ could not finish here.** Open issues carrying that work:
 
 - **#40** — macOS long-pipeline worker loss and Windows ARM64 MSIX module
   imports. Both need the matching hardware; neither reproduces here.
-- **#41** — nested object values are dropped **during capture**. An earlier
-  reading of this blamed the shaping module and was wrong; the issue carries
-  the retraction. The module renders both a nested PSCustomObject
-  (`@{Deep=MARKER}`) and a pre-composed string correctly on its own, so the
-  value is already gone before it runs. Two `TryRenderNestedNotes` variants
-  on `PassiveNoteValue` were written and reverted — the nested column stayed
-  empty while sibling scalars rendered, on a verified-current build. Next
-  step is to instrument `PassiveNoteValue` and see what it receives and
-  returns, rather than inferring from rendered output as both attempts did.
+- **#41 fixed and closed (2026-08-05).** The recorded instrumentation probe
+  settled it in one observation: `CopyPassiveInstanceNotes` reaches the
+  nested note, and `TryRenderTrustedText` claims the hollow
+  `System.Management.Automation.PSCustomObject` base object — trusted
+  assembly, empty `ToString()` — returning `''` and discarding the value
+  before any later logic runs. That short-circuit also explains why both
+  earlier compose variants "stayed empty on a verified-current build": a
+  compose branch placed after the trusted-text render is unreachable for
+  this shape. The fix composes a nested custom object's exact
+  `PSNoteProperty` members as `Name=value; Name=value` text **before** the
+  trusted-text render, bounded to 3 object levels (which also terminates
+  self-referencing graphs) and the existing 2048-character render cap. The
+  composed string survives the shaping module end-to-end — the downstream
+  fear recorded in the issue does not reproduce on a fresh build. Guards:
+  the #41 repro (`MARKER` must surface) and the depth bound, both proved
+  failing with the compose branch disabled.
 
 Recurring lesson worth carrying: on this shaper, a stale build tree produces
 convincing wrong answers. Several investigations here chased behaviour that
 had already been fixed. Kill build-tree `PtkMcpServer` processes and rebuild
 before trusting a live probe.
 
-**Next action** — the one unanswered question, and the only queued work:
-instrument `PassiveNoteValue` in `BoundedPassiveOutputCapture` to log what it
-receives and returns for a nested note, and settle whether it is reached at
-all for `[pscustomobject]@{ Nested = [pscustomobject]@{ Deep = 'MARKER' } }`.
-Two attempts inferred the answer from rendered output and both were wrong;
-this needs direct observation. Everything else on the backlog is either
-landed or blocked on hardware (#40); the #38 ruling landed 2026-08-05 and
-its fix is in.
+**Next action** — none queued: the test-report backlog is complete. Every
+reported issue is fixed and closed (#33–#38, #41) or filed and blocked on
+matching hardware (#40). Remaining work is owner-gated: Decision 5, and any
+review dispatch, which happens only on the owner's explicit word. One new
+machine observation from this pass (ptk-session `PSModulePath` truncation
+failing four StateToolTests) is recorded in `.agents/machines.md`, not filed
+as an issue — owner's call whether it is product-visible.
 
 Decision 5 — tag `v0.2.0` and publish — is still owner-only and untouched.
 

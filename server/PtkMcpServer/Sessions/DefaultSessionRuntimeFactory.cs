@@ -1,3 +1,6 @@
+using System.Globalization;
+using PtkMcpServer.Worker;
+
 namespace PtkMcpServer.Sessions;
 
 /// <summary>
@@ -35,10 +38,35 @@ internal static class DefaultSessionRuntimeFactory
         }
     }
 
+    /// <summary>
+    /// Reads a configured timeout, falling back unless the value is one the
+    /// whole pipeline will actually accept.
+    /// </summary>
+    /// <remarks>
+    /// Finding opr-10. The predicate was <c>seconds &gt; 0</c>, which is not
+    /// the real contract and let three classes of value through to throw
+    /// later: an overflowing exponent parses to positive infinity and throws
+    /// in <see cref="TimeSpan.FromSeconds"/>; a fractional or sub-second
+    /// value converts fine and then throws in
+    /// <c>WorkerOperationProtocol.CreateLimits</c>, which requires whole
+    /// seconds; and a value past
+    /// <c>WorkerOperationProtocol.MaximumTimeoutSeconds</c> throws there too.
+    /// Supervisor mode reads both variables before constructing the MCP
+    /// server, so an operator typo produced an unhandled startup exception
+    /// and no handshake rather than the documented fallback. Validate against
+    /// the downstream contract here, at the one place the value enters.
+    /// </remarks>
     private static TimeSpan ReadPositiveSeconds(string variable, double fallbackSeconds) =>
         TimeSpan.FromSeconds(
-            double.TryParse(Environment.GetEnvironmentVariable(variable), out var seconds) &&
-            seconds > 0
+            double.TryParse(
+                Environment.GetEnvironmentVariable(variable),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out var seconds) &&
+            double.IsFinite(seconds) &&
+            Math.Floor(seconds) == seconds &&
+            seconds >= 1 &&
+            seconds <= WorkerOperationProtocol.MaximumTimeoutSeconds
                 ? seconds
                 : fallbackSeconds);
 }

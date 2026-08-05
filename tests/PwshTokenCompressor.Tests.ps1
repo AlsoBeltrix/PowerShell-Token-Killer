@@ -1139,15 +1139,24 @@ Describe 'redirect hook and installer' {
                 # answered it blind. Mechanism: piping a native child makes
                 # pwsh assemble its stdout line-by-line, and the prompt is a
                 # PARTIAL line - held until a newline or the child's exit.
-                # A pty is required to reproduce the interactive condition,
-                # which Pester cannot allocate; the manual pty-probe proof is
-                # recorded in the finding doc. This test pins the mechanism
-                # structurally: the harness-init invocation must not pipe.
+                # TWO pipelines were in the path: install.ps1's own Out-Host
+                # (first fix) and the transaction module's cutover | Out-Null
+                # (reopen - with the inner pipe gone, the outer one captured
+                # the child instead). A pty is required to reproduce the
+                # interactive condition, which Pester cannot allocate; the
+                # module-level pty-probe proof (stub child printing a
+                # partial-line prompt through the real
+                # Invoke-PtkInstallTransaction: invisible with the pipe,
+                # visible at ~0.5s without) is recorded in the finding doc.
+                # This test pins the mechanism structurally.
                 $install = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1') -Raw
                 $fn = [regex]::Match($install, '(?s)function Invoke-PtkHarnessInitialization.+?\n\}').Value
                 $fn | Should -Not -BeNullOrEmpty
                 $code = ($fn -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
                 $code | Should -Not -Match 'Out-Host'
+
+                $txn = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1') -Raw
+                $txn | Should -Not -Match '\$RegistrationCutover\s*\|'
             }
 
             It '-Agent and -SkipAgent together are rejected' {

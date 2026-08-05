@@ -357,7 +357,12 @@ function Invoke-PtkInstallTransaction {
             -PayloadEntries $PayloadEntries `
             -FaultAfterEntry $ActivationFaultAfterEntry
         & $InstalledValidation $PayloadRoot | Out-Null
-        & $RegistrationCutover | Out-Null
+        # NOT piped (hcc-7): the cutover's harness-init child is a native
+        # command whose stdout must inherit the console - a pipeline here
+        # makes pwsh assemble that output line-by-line, and the child's
+        # newline-less consent prompt would render only after the user
+        # answered it. The cutover emits nothing else material.
+        & $RegistrationCutover
     }
     catch {
         $installFailure = $_

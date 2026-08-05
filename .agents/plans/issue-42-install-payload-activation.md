@@ -124,6 +124,29 @@ more than a refusal.
 Guard: a test constructing a nested layout and asserting the chosen
 behaviour. Prove red first.
 
+### Slice 3b — the release gate must not pass on a payload this incomplete
+
+Confirmed 2026-08-05: `server/direct-product-proof.ps1` returns
+`DIRECT PROOF PASSED: 16 checks` against the broken registered payload on
+this host, including `renders a trusted type instead of dropping it`. That
+check uses `Get-Culture` (`:119`), and `CultureInfo` does not need any of
+the missing assemblies. `server/test-handshake.ps1 -UseRegistrationCommand`
+passes too.
+
+`.agents/repo-guidance.md` §Verification names the direct product proof as
+the release gate for a packaged artifact, so as it stands that gate would
+sign off on an artifact carrying this defect.
+
+Add a check exercising a type that needs the wider assembly set — a
+`Get-Process`-shaped projection is the obvious one, since that is what
+fails. This is a narrow fix for one assembly and does not replace slice 2;
+land it with slice 2, since both ask the same question at different
+boundaries.
+
+Guard: the new check must fail against the nested/truncated payload and
+pass against a correct one. Both payloads exist on this host right now, so
+prove it against each rather than by simulation.
+
 ### Slice 4 — close the loop
 
 Repair this host's own install, confirm `Get-Process`, `Get-Service`, and

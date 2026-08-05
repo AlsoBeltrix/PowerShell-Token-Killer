@@ -68,7 +68,33 @@ issues, one codex review per completed fix, maximum two rounds.
 
 Done so far: #37 (shadowed-name routing), the version gap, the
 elision/recovery contradiction, the missing effective-route label, refusals
-arriving as MCP success, and the misapplied uncertainty rider.
+arriving as MCP success, the misapplied uncertainty rider, the passive
+object-shaping loss (the headline complaint), the lossy-recovery overclaim,
+and a hint for the `1>&2` dialect trap.
+
+**Object shaping (`b3604f1`, `72a864e`).** A trusted type collapsed to one
+`ToString()`; `Get-Culture` returned `en-US` and nothing else. Scalar
+properties of trusted types are now projected by name. Codex round 1 caught
+a HIGH in that first cut and it was real, reproduced before fixing: the
+getter was called *before* the value was judged, so `[Lazy[string]]` — which
+is `System.Private.CoreLib`, hence trusted — ran the caller's factory
+delegate during capture. Gating now happens on the property's **declared**
+type and declaring container, never on what came back. `Task<T>.Result` is
+the same shape and is denied for the same reason.
+
+Guard rails worth keeping in mind for future work here: the no-user-code
+invariant cannot be enforced after a getter runs, and an over-strict rule is
+its own defect — rejecting all virtual getters removed `CultureInfo.Name`
+and `DisplayName`, the exact values the fix exists to restore.
+
+**Investigated and closed without a code change:** Linux `2>&1` ordering
+(#36). Reproduced correct order on Windows; the reported inversion comes
+from bash block-buffering stdout while stderr is unbuffered, before PTK sees
+either byte. Recorded on the issue.
+
+**Filed, not fixed — needs the matching hardware (#40):** macOS long-pipeline
+worker loss (#35 F2, not reproducible on Linux) and Windows ARM64 MSIX module
+imports denied inside workers (#34 F3).
 
 **Known follow-up, deliberately deferred:** the refusal → `isError` mapping
 reads the response text, because the tools return `Task<string>` and the
@@ -79,26 +105,20 @@ matcher accepts is covered by a test, including the false-positive shapes.
 Threading a structured result through the tool surface is the real fix and
 is a larger change than this batch.
 
-Remaining, roughly by weight:
+Remaining:
 
-1. **Passive object shaping** — the dominant complaint in all four reports.
-   `Get-Culture` renders `en-US` and nothing else; #34 quantified 0 of 21
-   CultureInfo properties, 0 of 7 TimeZoneInfo, 7 of 69 for a Process, and
-   `Get-Service | Select -First 5` returning five copies of the type name.
-   `Select-Object` is a full workaround and nothing says so.
-2. **`recovery=available` that recovers nothing** — for a lossy projection
-   the handle stores the same reduced fragment (`complete=false`), so the
-   advertised recovery cannot exist. Worst on nested graphs (#34 F2: the
-   entire stored capture is 105 bytes of the table already shown) and on a
-   1 MB `ToString()` where ~1.1 MB survives nowhere.
-3. **The retained window is a head-only prefix** while the inline view shows
+1. **The retained window is a head-only prefix** while the inline view shows
    head+tail, implying the end is recoverable when it is not (#35 F4). The
-   marker's contradictory wording is fixed; the prefix-vs-window claim is
-   not.
-4. Platform-specific: macOS 2-minute pipeline dies at the MCP layer and the
-   worker is lost (#35 F2, Linux ran the same test fine); Windows ARM64 MSIX
-   module imports fail `Access is denied` inside workers (#34 F3); Linux
-   `2>&1` reverses stdout/stderr ordering (#36).
+   marker's contradictory wording is fixed; this claim is not. A caller who
+   trusts the inline shape will look for the tail in the artifact and not
+   find it.
+2. **Nested objects still collapse.** Projection reaches one level: a
+   property whose value is another object is not a scalar, so it is skipped.
+   `[pscustomobject]@{ L1 = [pscustomobject]@{ L2 = 'deep' } }` still shows
+   only `L1`. Bounded-depth projection is the obvious next step and was not
+   attempted here — the getter-safety work had to land first.
+3. **`#40`** — the two platform findings, which need macOS and Windows ARM64
+   hosts respectively.
 
 Decision 5 — tag `v0.2.0` and publish — remains owner-only and is now
 downstream of this backlog. Do not tag or push a `v*` ref without an explicit

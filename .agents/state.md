@@ -27,12 +27,76 @@ short and update it when important repo facts change.
 
 - **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope.
 
+- **Four platform test reports landed 2026-08-04/05** (#33 Windows x64, #34
+  Windows ARM64, #35 macOS arm64, #36 Arch Linux x64), run against
+  `docs/testplan.md`. They agree on more than they disagree; the shaping
+  cluster below is the dominant complaint.
+
+- **#37 fixed and closed (`963195d`, `0056128`, `16638e0`).** The rtk rewrite
+  ran the real binary when the submitted script defined a shadowing function
+  in that same submission — the preflight command snapshot is captured before
+  the worker runs, so the function did not exist yet and its name still read
+  as `Application`. The submitted AST is now the authority. macOS caught it;
+  #33 and #34 marked the same test passing because they tested a
+  *pre-existing* function, which the snapshot does see.
+
+  Two codex rounds found **eight** further bypasses of the first fix, all
+  closed: switch parameters consuming the alias name, scope- and
+  module-qualified names, `Import-Alias` recording a path, dot-sourcing and
+  `Import-Module`, `Function:`/`Alias:` provider writes, and unreadable alias
+  names. One predated #37: the binder emitted a double call operator for any
+  rewritten `& git status`, a parse error rather than the command submitted.
+
+- **`ptk_state` reports the build version (`a7624fa`).** Every report hit
+  this: the engine version was shown, nothing identifying ptk, and the Unix
+  binaries carry blank file-version fields, so testers named inferred git
+  SHAs instead. First line now reads `ptk <version>: pid ...`.
+
+- **#38: custom exception types still yield nothing** — not the message, not
+  the type name. The obvious repair (read `Exception`'s private `_message`
+  field rather than the overridable `Message` property) was implemented and
+  **reverted**: its own guard showed `Message` is already called twice by
+  PowerShell's error-record construction before capture sees it. So the
+  "capture never runs user code" invariant is already weaker than documented
+  for thrown exceptions. Whether that is inside or outside PTK's boundary is
+  a product question, filed rather than guessed.
+
 ## Next
 
-**Nothing is queued.** The release plan is fully executed and the candidate
-is proved. Decision 5 — tag `v0.2.0` and publish — is the only remaining
-gate, and it is owner-only. Do not tag, publish, or push a `v*` ref without
-an explicit go.
+**Working the test-report backlog** (owner, 2026-08-05): fix the reported
+issues, one codex review per completed fix, maximum two rounds. #37 and the
+version gap are done. Remaining, roughly by weight:
+
+1. **Passive object shaping** — the dominant complaint in all four reports.
+   `Get-Culture` renders `en-US` and nothing else; #34 quantified 0 of 21
+   CultureInfo properties, 0 of 7 TimeZoneInfo, 7 of 69 for a Process, and
+   `Get-Service | Select -First 5` returning five copies of the type name.
+   `Select-Object` is a full workaround and nothing says so.
+2. **`recovery=available` that recovers nothing** — for a lossy projection
+   the handle stores the same reduced fragment (`complete=false`), so the
+   advertised recovery cannot exist. Worst on nested graphs (#34 F2: the
+   entire stored capture is 105 bytes of the table already shown) and on a
+   1 MB `ToString()` where ~1.1 MB survives nowhere.
+3. **Contradictory elision marker** — `[N lines elided - recovery=unavailable
+   ...]` in the same response that ends `recovery=available: handle=...`, and
+   the retained window is a head-only prefix while the inline view implies
+   head+tail.
+4. **`route=auto` never labels its effective route**, though the description
+   says a decline is labeled; you cannot tell which route ran.
+5. **`IsError=false` on every refusal** (#34) — session_not_found,
+   capacity_exceeded, recovering, handle_not_found all arrive as MCP success;
+   a client trusting `isError` treats them as having worked.
+6. **`outcome may be unknown` on failures whose outcome is known** (#35 F6) —
+   a parse error executed nothing; the rider teaches distrust where trust is
+   deserved.
+7. Platform-specific: macOS 2-minute pipeline dies at the MCP layer and the
+   worker is lost (#35 F2, Linux ran the same test fine); Windows ARM64 MSIX
+   module imports fail `Access is denied` inside workers (#34 F3); Linux
+   `2>&1` reverses stdout/stderr ordering (#36).
+
+Decision 5 — tag `v0.2.0` and publish — remains owner-only and is now
+downstream of this backlog. Do not tag or push a `v*` ref without an explicit
+go.
 
 Unqueued work that exists if the owner wants it, in no particular order:
 

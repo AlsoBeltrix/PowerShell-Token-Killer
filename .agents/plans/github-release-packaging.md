@@ -21,10 +21,28 @@ without a separate explicit owner go.
 | 7.4 installers | `141793d`, `eec2ccd` |
 | 7.5 direct proof | `db5601c` |
 
-**All slices are executed.** The candidate is built and proved; only
-Decision 5 remains.
+**All slices are executed, but the recorded proof below is against
+`fb6d951` and is STALE.** As of `935b8b2` there are ~50 code commits since
+that head, including the whole install rewrite (#42) and the tool-surface
+change (`opr-53`). Slice 7.5 must be re-run per RID before publishing.
 
-Evidence, `v0.2.0-rc.2` draft (run `30940515893`, head `fb6d951`):
+**Slice 7.5 re-run status at `935b8b2`:**
+
+| RID | Status |
+|-----|--------|
+| win-x64 | **PASSED 2026-08-06 — 22/22**, real install into an isolated home, including the Defender payload scan and the uninstall check. Full battery green (server 1,185, Pester 114+1 skip, SIEM 226/247 for this host's symlink privilege, deps clean, handshake). |
+| win-arm64 | pending — needs that hardware |
+| linux-x64 | pending |
+| linux-arm64 | pending |
+| osx-arm64 | pending |
+
+Three of the plan's 13 checks were hand-run and are now automated into
+`server/direct-product-proof.ps1` (`bc2091c`, `c9598d2`, `935b8b2`): check 10
+uninstall (opt-in via `-UninstallHome`), check 13 `ls` alias plus
+`PSModuleAutoloadingPreference`, and the Windows Defender payload scan. A
+platform leg is now one command, not a manual checklist.
+
+Evidence, `v0.2.0-rc.2` draft (run `30940515893`, head `fb6d951`) — historical:
 
 - Five RIDs built on their own native runners, all six jobs green. Each
   artifact was handshake-smoke-tested and had its RTK startup gate proved on

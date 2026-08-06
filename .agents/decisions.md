@@ -34,6 +34,41 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-08-06): PTK's own verdict travels as structured data, never as text
+
+**Status:** Active — ruled by the owner on 2026-08-06 (finding `opr-53`,
+option (b) over option (a)).
+
+Supervisor status and recovery information must not share a channel with
+worker output. A script that printed `[ptk worker] status=refused ...` or a
+fake `recovery=available: ptk_output handle=...` had those lines preserved
+verbatim beside PTK's genuine ones, indistinguishable to the model reading
+them — a forged non-start invites resubmitting an already-executed mutating
+command.
+
+- PTK's decisions travel in the MCP protocol's `structuredContent`
+  (`disposition`, `executed`, `safe_to_resubmit`, `detail`) and `isError`,
+  which worker output cannot reach. The four session tools return
+  `CallToolResult`; `ptk_output` still returns a string.
+- **The response text is never escaped, framed, or rewritten to make the
+  distinction.** Escaping mutates legitimate user output, and any escaping
+  scheme is simply another grammar to forge. Text stays byte-for-byte.
+- Only a **proved** non-start sets `isError` or `safe_to_resubmit`. An
+  unknown outcome is not a non-start; saying "nothing ran" about work that
+  may have run is the hazard this decision exists to remove.
+- When adding a disposition at a new site, enumerate every producing path
+  and ask of each whether the work had already begun. `NamedSessionException`
+  is not uniformly a non-start (`descendants_unknown` is raised after the
+  close acted), and a normal return is not uniformly a completion
+  (`WorkerResultStatus.Refused` comes back without throwing).
+
+This closes the deferred refusal→`isError` follow-up: `SupervisorCallFilter`
+no longer re-derives a verdict from response text for these tools.
+
+Landed at `11eafee`, `c40404a`, `18d76e8`. Detail:
+`.agents/review/findings/opr-53.md`; review lessons:
+`.agents/review/index.md` §o53.
+
 ### ACTIVE (2026-08-05): The capture invariant covers PTK's capture, not PowerShell's engine
 
 **Status:** Active — ruled by the owner on 2026-08-05 (GitHub #38).

@@ -1,9 +1,20 @@
 # Plan: the two pre-release findings — `opr-10` and `opr-53`
 
-Status: DRAFT, awaiting owner approval.
-Both are named in `.agents/review/dispositions.md` §"remaining, not blocking"
-as deserving a second look before release. Neither is in the router plan's
-scope, which is why both are still open.
+Status: **EXECUTED AND CLOSED 2026-08-06.** Both findings are fixed,
+guard-proved, codex-reviewed, and recorded in
+`.agents/review/findings/opr-10.md` and `opr-53.md`. Retained as the record
+of what was decided and why; not current work.
+
+- `opr-10` — `eca0891` (finite, whole, 1..86400) and `da62268` (the
+  default/maximum pair, which each value passing individually did not
+  cover). Codex finding `o10-1` duplicated the pair defect independently.
+- `opr-53` — owner ruled **option (b), structured content**, on 2026-08-06.
+  Landed at `11eafee`, with `c40404a` and `18d76e8` fixing two follow-on
+  defects where PTK itself stated a false verdict in the new trusted
+  channel. Proved on the wire against a real built server.
+
+The open question below — which shape to take for `opr-53` — is the one the
+owner ruled. Option (a) was not taken.
 
 Both were re-confirmed live on 2026-08-05 at `c5a0bb2`; the evidence is
 below, not inherited from the finding text.

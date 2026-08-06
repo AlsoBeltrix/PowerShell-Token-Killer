@@ -127,6 +127,27 @@ jobs:
           if (-not $IsWindows) { chmod +x $exe }
           pwsh -NoProfile -File server/test-handshake.ps1 -ServerCommand (Resolve-Path $exe)
 
+      # The handshake proves the transport; this proves the product contract
+      # on the exact bits being archived. Slice 7.5 previously required a
+      # hand-run pass on one clean host per RID, which meant five machines
+      # and a manual checklist. Every RID already builds on its own native
+      # runner here, so run the gate where the artifact is made: a release
+      # cannot now be drafted from an artifact that fails its own contract.
+      #
+      # Not the uninstall check: -UninstallHome needs an installed home, and
+      # this stage has a layout rather than an install. That leg stays with
+      # the operator's per-host pass.
+      - name: Prove the product contract on the packaged bits
+        shell: pwsh
+        run: |
+          $exe = if ('${{ matrix.rid }}'.StartsWith('win-')) {
+            'out/ptk/bin/PtkMcpServer.exe'
+          } else {
+            'out/ptk/bin/PtkMcpServer'
+          }
+          pwsh -NoProfile -File server/direct-product-proof.ps1 `
+            -ServerPath (Resolve-Path $exe)
+
       # The startup gate is a product contract: no RTK means a clear refusal,
       # never a half-working server. Proven against the packaged bits.
       - name: Prove the RTK startup gate

@@ -54,9 +54,32 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
                 timeoutSeconds,
                 outputStore,
                 cancellationToken).ConfigureAwait(false);
-            // The script ran. What it concluded is its own business: a
-            // failing script is still a successful call.
-            return ToolOutcome.Completed(FormatInvocation(invocation));
+            // A normal return is not automatically a completed one. The
+            // worker reports its own disposition in the result status, and a
+            // NotStarted invocation comes back here as Refused rather than as
+            // an exception (WorkerSession.MapInvokeResult) — a pre-execution
+            // refusal such as the trusted-preflight one. Labelling that
+            // "completed/executed=true" is exactly the lie opr-53 removes,
+            // just told by PTK instead of by a script (finding o53-1).
+            //
+            // A script that ran and threw is still a completed call: what it
+            // concluded is its own business.
+            return new ToolOutcome(
+                FormatInvocation(invocation),
+                invocation.Result.Status switch
+                {
+                    WorkerResultStatus.Refused => ToolDisposition.NotStarted,
+                    // Canceled and TimedOut both stopped work that had already
+                    // started; neither is safe to blind-retry.
+                    WorkerResultStatus.Canceled => ToolDisposition.OutcomeUnknown,
+                    WorkerResultStatus.TimedOut => ToolDisposition.OutcomeUnknown,
+                    WorkerResultStatus.Failed =>
+                        invocation.Result.DetailCode == "outcome_unknown"
+                            ? ToolDisposition.OutcomeUnknown
+                            : ToolDisposition.Completed,
+                    _ => ToolDisposition.Completed,
+                },
+                invocation.Result.DetailCode);
         }
         catch (NamedSessionException exception)
         {

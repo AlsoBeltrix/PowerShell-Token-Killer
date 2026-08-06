@@ -1,5 +1,30 @@
 # Review status
 
+## Closed — o53 (opr-53 forgeable control lines, 2026-08-06)
+
+Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,
+over `d440234..11eafee`. Verdict `findings` (2), capability_ok true, SHAs
+pinned and matched.
+
+| ID     | Severity | Impact (one line)                                        | Status |
+|--------|----------|----------------------------------------------------------|--------|
+| o53-1  | MEDIUM   | a worker-reported non-start was reported as `executed=true` | `[x]` (fixed `18d76e8`) |
+| o53-2  | HIGH     | a close that had already acted was reported `safe_to_resubmit=true` | `[x]` (fixed `c40404a`) |
+
+o53-2 was found independently by the working agent while the review was in
+flight and fixed before the verdict arrived; codex reached the same
+conclusion by a different route (`CloseAsync` starts the transition before
+its completion task can fault).
+
+**Durable lesson.** Both findings are the same mistake as the original
+finding, one layer in: opr-53 was about a *script* being able to state a
+false verdict, and both follow-ons were *PTK* stating a false verdict in the
+new channel a client is told to trust. Moving a claim into a trusted channel
+raises the cost of getting it wrong. When adding a structured
+disposition, enumerate every site that produces it and ask of each: had the
+work already begun? `NamedSessionException` is not uniformly a non-start,
+and a normal return is not uniformly a completion.
+
 ## Closed — o10 (opr-10 timeout validation, 2026-08-05)
 
 Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,

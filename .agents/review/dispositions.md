@@ -115,7 +115,16 @@ summary registry race), `opr-52` (LOW, terminal diagnostic collapse),
 `opr-53` (MEDIUM), `opr-54` (LOW) — worker text forging supervisor
 directives, and `opr-59` (LOW, false `(no captured bytes)` marker).
 
-Two deserve a second look before release even though they do not block:
+~~Two deserve a second look before release even though they do not block:
 `opr-10` terminates the supervisor before the MCP handshake on a malformed
 timeout value, and `opr-53` lets worker output forge PTK-authored control
-lines. Both are cheap; neither is in this plan's scope.
+lines. Both are cheap; neither is in this plan's scope.~~
+
+**Both fixed 2026-08-06.** `opr-10` at `eca0891` and `da62268` (the value and
+the default/maximum pair); `opr-53` at `11eafee`, `c40404a`, and `18d76e8`
+(structured content, on the owner's ruling). Neither is cheap in retrospect:
+each turned up a second defect of the same kind once the first was fixed —
+the timeout pair, and two mis-stated dispositions. Per-finding detail lives
+in `.agents/review/findings/opr-10.md` and `opr-53.md`. The count in this
+section's heading still includes them as historical entries; they are no
+longer open.

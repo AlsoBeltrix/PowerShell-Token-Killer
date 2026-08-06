@@ -73,9 +73,25 @@ refuses to install over it and says how to repair. Repair means closing every
 ptk process (including the server the working agent runs through) and
 reinstalling: owner action.
 
-**What remains:**
+**`opr-53` is FIXED (owner ruled option (b), 2026-08-06).** PTK's own
+verdict now travels in the protocol's `structuredContent` (`disposition`,
+`executed`, `safe_to_resubmit`, `detail`) and `isError`, which worker output
+cannot reach; the response text is unchanged byte-for-byte. The four session
+tools return `CallToolResult`; `ptk_output` still returns a string and keeps
+the text matcher. This also closed the deferred refusal→`isError` follow-up.
+Commits `11eafee`, `c40404a`, `18d76e8`. Two follow-on defects were found in
+the same effort, one by self-review and one by codex — both were PTK stating
+a *false* verdict in the new trusted channel, which is the same mistake as
+the original finding one layer in. `.agents/review/index.md` §o53 owns that
+lesson.
 
-1. **`opr-53` — needs an owner ruling before implementation.** The finding is
+**No known code work remains.** Every open GitHub issue is gated on
+hardware (#40), the owner (#30), or Microsoft (#7). Decision 5 — tag
+`v0.2.0` and publish — is terminal and owner-only.
+
+**Historical, for the record:**
+
+1. **`opr-53` — needed an owner ruling before implementation.** The finding was
    re-confirmed live (a script that prints PTK-shaped lines has its forged
    `[ptk worker] status=` and `recovery=` handle preserved verbatim beside
    the genuine ones). The choice is (a) escape the reserved grammar inside

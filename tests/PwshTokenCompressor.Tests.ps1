@@ -1656,7 +1656,11 @@ Describe 'development package layout' {
     # rollback could not restore under the same lock. Destroying the live
     # payload before knowing the replacement can land is the actual hazard.
     # Rename aside first: a lock fails the rename, which destroys nothing.
-    It 'does not destroy the existing payload when it cannot be replaced' {
+    # Windows-only: POSIX lets you rename and unlink a file that is open, so
+    # an open handle does not block the replacement there and there is no
+    # failure to survive. The behaviour under test is real on Windows, which
+    # is where the defect was found.
+    It 'does not destroy the existing payload when it cannot be replaced' -Skip:(-not $IsWindows) {
         $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
         Import-Module $transactionModule -Force
 
@@ -1704,25 +1708,20 @@ Describe 'development package layout' {
         Import-Module $transactionModule -Force
 
         $caseRoot = Join-Path $TestDrive ('merge-nest-' + [guid]::NewGuid().ToString('N'))
-        $payload = Join-Path $caseRoot 'home'
-        $staging = Join-Path $caseRoot 'staging'
-        # A locale subdirectory on both sides, like the real payload.
-        New-Item -ItemType Directory -Path (Join-Path $payload 'bin' 'cs'), (Join-Path $staging 'bin') -Force |
-            Out-Null
-        Set-Content -LiteralPath (Join-Path $payload 'bin' 'cs' 'strings.txt') -Value 'cs' -NoNewline
-        Set-Content -LiteralPath (Join-Path $payload 'bin' 'locked.txt') -Value 'locked' -NoNewline
-        Set-Content -LiteralPath (Join-Path $payload 'bin' 'plain.txt') -Value 'plain' -NoNewline
-        Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
 
         # The helper itself, called the way rollback calls it: the destination
         # subdirectory SURVIVED a partial delete, so the merge must fold into
         # it rather than copy the source container inside it. Driving this
         # only through activation hides the defect, because activation's undo
-        # happens to meet an empty destination.
+        # happens to meet an empty destination -- the first version of this
+        # guard passed against the broken code for exactly that reason.
+        # Platform-independent: it is Copy-Item's semantics under test, not
+        # file locking.
         $direct = Join-Path $caseRoot 'direct'
         New-Item -ItemType Directory -Path (Join-Path $direct 'backup' 'cs'), (Join-Path $direct 'live' 'cs') -Force |
             Out-Null
         Set-Content -LiteralPath (Join-Path $direct 'backup' 'cs' 'a.txt') -Value 'a' -NoNewline
+        Set-Content -LiteralPath (Join-Path $direct 'backup' 'top.txt') -Value 'top' -NoNewline
         Set-Content -LiteralPath (Join-Path $direct 'live' 'cs' 'survivor.txt') -Value 's' -NoNewline
         & (Get-Module ptk_install_transaction) {
             param($s, $d) Restore-PtkInstallPathContents -Source $s -Destination $d
@@ -1731,6 +1730,25 @@ Describe 'development package layout' {
         Join-Path $direct 'live' 'cs' 'cs' | Should -Not -Exist
         Join-Path $direct 'live' 'cs' 'a.txt' | Should -Exist
         Join-Path $direct 'live' 'cs' 'survivor.txt' | Should -Exist
+        Join-Path $direct 'live' 'top.txt' | Should -Exist
+    }
+
+    # Windows-only, for the same reason as the activation-lock test above: an
+    # open handle does not block replacement on POSIX.
+    It 'restores subdirectories in place when a locked file blocks the swap' -Skip:(-not $IsWindows) {
+        $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
+        Import-Module $transactionModule -Force
+
+        $caseRoot = Join-Path $TestDrive ('merge-lock-' + [guid]::NewGuid().ToString('N'))
+        $payload = Join-Path $caseRoot 'home'
+        $staging = Join-Path $caseRoot 'staging'
+        # A locale subdirectory, like the real payload.
+        New-Item -ItemType Directory -Path (Join-Path $payload 'bin' 'cs'), (Join-Path $staging 'bin') -Force |
+            Out-Null
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'cs' 'strings.txt') -Value 'cs' -NoNewline
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'locked.txt') -Value 'locked' -NoNewline
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'plain.txt') -Value 'plain' -NoNewline
+        Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
 
         $handle = [IO.File]::Open(
             (Join-Path $payload 'bin' 'locked.txt'),

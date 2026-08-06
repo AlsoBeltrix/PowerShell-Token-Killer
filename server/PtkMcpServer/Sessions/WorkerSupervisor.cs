@@ -35,7 +35,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
 
     internal NamedSessionSupervisor NamedSessions => _sessions;
 
-    async Task<string> ISessionOperations.InvokeAsync(
+    async Task<ToolOutcome> ISessionOperations.InvokeAsync(
         string script,
         CancellationToken cancellationToken,
         bool raw,
@@ -54,7 +54,9 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
                 timeoutSeconds,
                 outputStore,
                 cancellationToken).ConfigureAwait(false);
-            return FormatInvocation(invocation);
+            // The script ran. What it concluded is its own business: a
+            // failing script is still a successful call.
+            return ToolOutcome.Completed(FormatInvocation(invocation));
         }
         catch (NamedSessionException exception)
         {
@@ -66,7 +68,14 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         }
         catch (WorkerInvocationException exception)
         {
-            return FormatInvocationFailure(session, exception);
+            // The one place the distinction really bites: a proved non-start
+            // is safe to resubmit and an unknown outcome is emphatically not.
+            return new ToolOutcome(
+                FormatInvocationFailure(session, exception),
+                exception.Disposition == WorkerInvocationDisposition.NotStarted
+                    ? ToolDisposition.NotStarted
+                    : ToolDisposition.OutcomeUnknown,
+                exception.CauseDetailCode);
         }
         catch (WorkerProcessException exception)
         {
@@ -78,7 +87,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         }
     }
 
-    async Task<string> ISessionOperations.StateAsync(
+    async Task<ToolOutcome> ISessionOperations.StateAsync(
         bool listAvailable,
         string session,
         CancellationToken cancellationToken)
@@ -113,7 +122,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
                     .Append(workerState.DetailCode ?? "state_unavailable")
                     .Append(')');
             }
-            return sb.ToString().TrimEnd();
+            return ToolOutcome.Completed(sb.ToString().TrimEnd());
         }
         catch (NamedSessionException exception)
         {
@@ -129,7 +138,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         }
     }
 
-    async Task<string> ISessionOperations.ResetAsync(
+    async Task<ToolOutcome> ISessionOperations.ResetAsync(
         string session,
         CancellationToken cancellationToken)
     {
@@ -143,7 +152,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             AppendSnapshot(sb, snapshot);
             sb.AppendLine();
             sb.Append("warm state was discarded only for this session.");
-            return sb.ToString();
+            return ToolOutcome.Completed(sb.ToString());
         }
         catch (NamedSessionException exception)
         {
@@ -155,7 +164,7 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         }
     }
 
-    async Task<string> ISessionOperations.SessionAsync(
+    async Task<ToolOutcome> ISessionOperations.SessionAsync(
         string action,
         string? name,
         CancellationToken cancellationToken)
@@ -168,34 +177,40 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
                 case "list":
                     if (name is not null)
                     {
-                        return "[ptk session] refused detail=unexpected_session_name; " +
-                            "omit name when action=list.";
+                        return Refused(
+                            "[ptk session] refused detail=unexpected_session_name; " +
+                            "omit name when action=list.",
+                            "unexpected_session_name");
                     }
-                    return FormatList(_sessions.List());
+                    return ToolOutcome.Completed(FormatList(_sessions.List()));
                 case "open":
                     if (name is null)
                         return MissingName(action);
                     if (name == NamedSessionSupervisor.DefaultName)
                     {
-                        return "[ptk session] refused session=default " +
+                        return Refused(
+                            "[ptk session] refused session=default " +
                             "detail=default_session_exists; default is lazy and " +
-                            "already belongs to this connection.";
+                            "already belongs to this connection.",
+                            "default_session_exists");
                     }
-                    return FormatTransition(
+                    return ToolOutcome.Completed(FormatTransition(
                         "opened",
                         await _sessions.OpenAsync(
                             name,
-                            cancellationToken).ConfigureAwait(false));
+                            cancellationToken).ConfigureAwait(false)));
                 case "close":
                     if (name is null)
                         return MissingName(action);
                     await _sessions.CloseAsync(
                         name,
                         cancellationToken).ConfigureAwait(false);
-                    return $"[ptk session] closed session={name}";
+                    return ToolOutcome.Completed($"[ptk session] closed session={name}");
                 default:
-                    return "[ptk session] refused detail=invalid_action; " +
-                        "use list | open | close.";
+                    return Refused(
+                        "[ptk session] refused detail=invalid_action; " +
+                        "use list | open | close.",
+                        "invalid_action");
             }
         }
         catch (NamedSessionException exception)
@@ -416,21 +431,34 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             .Append(snapshot.ResetRequired ? "true" : "false");
     }
 
-    private static string MissingName(string action) =>
-        $"[ptk session] refused action={action} detail=session_name_required; " +
-        "name is required.";
+    // Each of these carries PTK's own verdict alongside its text (opr-53).
+    // The wording is unchanged; what is new is that the disposition travels
+    // as data, so a caller never has to infer it from text a script can
+    // imitate.
+    private static ToolOutcome MissingName(string action) =>
+        new($"[ptk session] refused action={action} detail=session_name_required; " +
+            "name is required.",
+            ToolDisposition.NotStarted,
+            "session_name_required");
 
-    private static string Refused(
+    private static ToolOutcome Refused(
         string operation,
         string? session,
         NamedSessionException exception) =>
-        $"[ptk {operation}] refused session={session ?? "none"} " +
-        $"detail={exception.DetailCode}; {exception.Message} Nothing was executed.";
+        new($"[ptk {operation}] refused session={session ?? "none"} " +
+            $"detail={exception.DetailCode}; {exception.Message} Nothing was executed.",
+            ToolDisposition.NotStarted,
+            exception.DetailCode);
 
-    private static string Failed(
+    private static ToolOutcome Refused(string text, string detailCode) =>
+        new(text, ToolDisposition.NotStarted, detailCode);
+
+    private static ToolOutcome Failed(
         string operation,
         string? session,
         string detailCode) =>
-        $"[ptk {operation}] failed session={session ?? "none"} " +
-        $"detail={detailCode}; no operation was retried.";
+        new($"[ptk {operation}] failed session={session ?? "none"} " +
+            $"detail={detailCode}; no operation was retried.",
+            ToolDisposition.Failed,
+            detailCode);
 }

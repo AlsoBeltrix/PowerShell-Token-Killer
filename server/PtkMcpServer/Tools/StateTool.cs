@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Sessions;
 
@@ -15,7 +16,7 @@ public static class StateTool
         "a cold session. While that session is busy it returns prompt supervisor-local " +
         "facts and marks runspace details unavailable instead of queueing. Set " +
         "listAvailable to enumerate installed modules when the selected worker is idle.")]
-    public static Task<string> State(
+    public static async Task<CallToolResult> State(
         ISessionOperations runtime,
         [Description("Also enumerate every installed module instead of only loaded ones.")]
         bool listAvailable = false,
@@ -26,8 +27,8 @@ public static class StateTool
         [MaxLength(64)]
         string session = NamedSessionSupervisor.DefaultName,
         CancellationToken cancellationToken = default)
-        => runtime.StateAsync(
+        => (await runtime.StateAsync(
             listAvailable,
             session,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false)).ToCallToolResult();
 }

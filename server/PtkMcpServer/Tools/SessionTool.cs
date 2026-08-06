@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Sessions;
 
@@ -17,7 +18,7 @@ public static class SessionTool
         "worker containment is proved empty. The lazy default session exists for the " +
         "connection lifetime and cannot be closed. At most eight sessions, including " +
         "default, may be open.")]
-    public static Task<string> Session(
+    public static async Task<CallToolResult> Session(
         ISessionOperations runtime,
         [Description("list | open | close")]
         [AllowedValues("list", "open", "close")]
@@ -29,5 +30,6 @@ public static class SessionTool
         [MaxLength(64)]
         string? name = null,
         CancellationToken cancellationToken = default)
-        => runtime.SessionAsync(action, name, cancellationToken);
+        => (await runtime.SessionAsync(action, name, cancellationToken)
+            .ConfigureAwait(false)).ToCallToolResult();
 }

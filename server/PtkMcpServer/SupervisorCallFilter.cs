@@ -59,6 +59,13 @@ internal static class SupervisorCallFilter
     {
         if (result.IsError == true) return result;
 
+        // opr-53: a tool that reports its own disposition has already spoken,
+        // and it knows what happened rather than inferring it. Never re-derive
+        // a verdict from text for those — the whole point is that worker
+        // output cannot reach this channel, and text matching would let it
+        // back in. A structured result that is not an error is not an error.
+        if (result.StructuredContent is not null) return result;
+
         var text = result.Content?
             .OfType<TextContentBlock>()
             .FirstOrDefault()?.Text;
@@ -85,11 +92,14 @@ internal static class SupervisorCallFilter
     ///   were convenient: `status=not_started` from the supervisor and
     ///   `state=not_found` from the output store were both missed.
     ///
-    /// This reads text because the tools return <c>Task&lt;string&gt;</c> and
-    /// the structured disposition is flattened before this point. Carrying the
-    /// outcome through as data is the better shape and is recorded as
-    /// follow-up in the commit; matching the server's own emitted markers is
-    /// the honest interim, and every marker below is pinned by a test.
+    /// This path now covers only <c>ptk_output</c>, which still returns a
+    /// bare string. The four session tools carry a
+    /// <see cref="Sessions.ToolOutcome"/> and are answered above without
+    /// looking at text at all (opr-53) — that was the deferred follow-up this
+    /// comment used to promise. <c>ptk_output</c> never renders worker output
+    /// as its own status line, so text matching there cannot be fooled by a
+    /// script the way the invoke channel could; every marker below is still
+    /// pinned by a test.
     /// </summary>
     private static bool IsRefusalText(string text)
     {

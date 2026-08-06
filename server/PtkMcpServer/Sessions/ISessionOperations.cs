@@ -7,7 +7,7 @@ namespace PtkMcpServer.Sessions;
 /// </summary>
 public interface ISessionOperations
 {
-    Task<string> InvokeAsync(
+    Task<ToolOutcome>InvokeAsync(
         string script,
         CancellationToken cancellationToken,
         bool raw,
@@ -16,16 +16,16 @@ public interface ISessionOperations
         string session,
         OutputStore? outputStore);
 
-    Task<string> StateAsync(
+    Task<ToolOutcome>StateAsync(
         bool listAvailable,
         string session,
         CancellationToken cancellationToken);
 
-    Task<string> ResetAsync(
+    Task<ToolOutcome>ResetAsync(
         string session,
         CancellationToken cancellationToken);
 
-    Task<string> SessionAsync(
+    Task<ToolOutcome>SessionAsync(
         string action,
         string? name,
         CancellationToken cancellationToken);

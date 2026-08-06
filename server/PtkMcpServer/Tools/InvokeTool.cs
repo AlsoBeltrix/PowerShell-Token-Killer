@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Sessions;
 
@@ -25,7 +26,7 @@ public static class InvokeTool
         "does not change routing, capture, or shaping. timeoutSeconds is one total " +
         "wall-clock budget including same-session queue wait; an execution overrun " +
         "replaces only that worker and loses only that session's warm state.")]
-    public static Task<string> Invoke(
+    public static async Task<CallToolResult> Invoke(
         ISessionOperations runtime,
         [Description("The command to execute: a PowerShell script or a native command line (git, npm, ...).")] string script,
         CancellationToken cancellationToken,
@@ -59,12 +60,12 @@ public static class InvokeTool
         [MaxLength(64)]
         string session = NamedSessionSupervisor.DefaultName,
         OutputStore? outputStore = null)
-        => runtime.InvokeAsync(
+        => (await runtime.InvokeAsync(
             script,
             cancellationToken,
             raw,
             route,
             timeoutSeconds,
             session,
-            outputStore);
+            outputStore).ConfigureAwait(false)).ToCallToolResult();
 }

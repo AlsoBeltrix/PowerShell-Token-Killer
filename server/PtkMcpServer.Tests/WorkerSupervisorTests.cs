@@ -1,3 +1,4 @@
+using ModelContextProtocol.Protocol;
 using PtkMcpServer.Sessions;
 using PtkMcpServer.Tools;
 using PtkMcpServer.Worker;
@@ -150,7 +151,7 @@ public sealed class WorkerSupervisorTests
                 containmentGrace: TimeSpan.FromSeconds(1)));
         _ = await supervisor.NamedSessions.OpenAsync(session);
 
-        return await InvokeTool.Invoke(
+        var result = await InvokeTool.Invoke(
             supervisor,
             "'never returns'",
             CancellationToken.None,
@@ -159,6 +160,17 @@ public sealed class WorkerSupervisorTests
             timeoutSeconds: 30,
             session: session,
             outputStore: null);
+
+        // opr-53: the same verdict the text states must also arrive as data,
+        // and only a proved non-start may set the protocol's error flag. An
+        // unknown outcome must not, or a caller reads "nothing ran" and
+        // resubmits work that may already have executed.
+        Assert.Equal(
+            disposition == WorkerInvocationDisposition.NotStarted ? true : null,
+            result.IsError);
+        Assert.NotNull(result.StructuredContent);
+
+        return Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text;
     }
 
     private sealed class FailingWorkerFactory(

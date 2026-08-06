@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Sessions;
 
@@ -15,7 +16,7 @@ public static class ResetTool
         "directory, environment drift, and live connections. It never resets another " +
         "session and refuses while the selected session is busy or old containment is " +
         "unconfirmed.")]
-    public static Task<string> Reset(
+    public static async Task<CallToolResult> Reset(
         ISessionOperations runtime,
         [Description(
             "Connection-local session to reset. Unknown or closed names never fall " +
@@ -24,5 +25,6 @@ public static class ResetTool
         [MaxLength(64)]
         string session = NamedSessionSupervisor.DefaultName,
         CancellationToken cancellationToken = default)
-        => runtime.ResetAsync(session, cancellationToken);
+        => (await runtime.ResetAsync(session, cancellationToken)
+            .ConfigureAwait(false)).ToCallToolResult();
 }

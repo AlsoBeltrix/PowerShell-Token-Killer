@@ -91,6 +91,39 @@ public sealed class ToolOutcomeTests
     }
 
     /// <summary>
+    /// A refusal raised AFTER the operation began must not claim it is safe
+    /// to resubmit. Close and reset raise <c>descendants_unknown</c> once
+    /// containment could not be confirmed, which is after the worker was
+    /// acted on — telling a caller "nothing ran" there invites repeating an
+    /// operation whose effects already landed, which is the very hazard
+    /// opr-53 is about.
+    /// </summary>
+    [Theory]
+    [InlineData("descendants_unknown", "outcome_unknown", false, null)]
+    [InlineData("session_not_found", "not_started", true, true)]
+    [InlineData("session_busy", "not_started", true, true)]
+    public void A_refusal_after_the_work_began_is_not_safe_to_resubmit(
+        string detailCode,
+        string expectedDisposition,
+        bool expectedSafeToResubmit,
+        bool? expectedIsError)
+    {
+        var outcome = WorkerSupervisor.RefusedForTests(
+            "session", "alpha", detailCode, "Containment is unconfirmed.");
+        var result = outcome.ToCallToolResult();
+
+        var structured = Structured(result);
+        Assert.Equal(expectedDisposition, (string?)structured["disposition"]);
+        Assert.Equal(expectedSafeToResubmit, (bool?)structured["safe_to_resubmit"]);
+        Assert.Equal(expectedIsError, result.IsError);
+
+        // The text must not contradict the structured verdict.
+        Assert.Equal(
+            expectedSafeToResubmit,
+            outcome.Text.Contains("Nothing was executed.", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Round-trips the structured payload through JSON, so the assertions
     /// check what a client actually receives on the wire rather than an
     /// in-process object a client never sees.

@@ -243,6 +243,13 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
     internal static string FormatInvocationForTests(NamedSessionInvokeResult invocation) =>
         FormatInvocation(invocation);
 
+    internal static ToolOutcome RefusedForTests(
+        string operation,
+        string? session,
+        string detailCode,
+        string message) =>
+        Refused(operation, session, new NamedSessionException(detailCode, message));
+
     private static string FormatInvocation(NamedSessionInvokeResult invocation)
     {
         var sb = new StringBuilder(invocation.Result.Text.TrimEnd());
@@ -441,14 +448,44 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             ToolDisposition.NotStarted,
             "session_name_required");
 
+    /// <summary>
+    /// Detail codes a <see cref="NamedSessionException"/> can carry that do
+    /// NOT mean "nothing happened".
+    /// </summary>
+    /// <remarks>
+    /// Most of these are raised before anything is touched — an unknown name,
+    /// a busy session, a bad name — and for those "Nothing was executed" and
+    /// <c>safe_to_resubmit</c> are both true. <c>descendants_unknown</c> is
+    /// different: close and reset raise it AFTER acting on the worker, when
+    /// containment could not be confirmed
+    /// (<c>NamedSessionSupervisor.CloseSlotAsync</c>). Reporting that as a
+    /// proved non-start would invite a caller to retry an operation whose
+    /// effects already landed — the same resubmission hazard opr-53 is about,
+    /// arriving through the structured channel this time.
+    /// </remarks>
+    private static readonly HashSet<string> StartedDetailCodes =
+        new(["descendants_unknown"], StringComparer.Ordinal);
+
     private static ToolOutcome Refused(
         string operation,
         string? session,
-        NamedSessionException exception) =>
-        new($"[ptk {operation}] refused session={session ?? "none"} " +
-            $"detail={exception.DetailCode}; {exception.Message} Nothing was executed.",
-            ToolDisposition.NotStarted,
+        NamedSessionException exception)
+    {
+        var started = StartedDetailCodes.Contains(exception.DetailCode);
+        // The trailing claim has to match the disposition. "Nothing was
+        // executed" was already wrong for descendants_unknown before this
+        // change; now that the same judgement drives safe_to_resubmit, a
+        // contradiction between the two channels would be worse than either
+        // being wrong alone.
+        return new ToolOutcome(
+            $"[ptk {operation}] refused session={session ?? "none"} " +
+            $"detail={exception.DetailCode}; {exception.Message} " +
+            (started
+                ? "The operation had already begun; do not assume it did nothing."
+                : "Nothing was executed."),
+            started ? ToolDisposition.OutcomeUnknown : ToolDisposition.NotStarted,
             exception.DetailCode);
+    }
 
     private static ToolOutcome Refused(string text, string detailCode) =>
         new(text, ToolDisposition.NotStarted, detailCode);

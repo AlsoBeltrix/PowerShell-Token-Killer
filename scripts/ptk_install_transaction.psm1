@@ -90,8 +90,18 @@ function Restore-PtkInstallPathContents {
     }
     New-Item -ItemType Directory -Path $Destination -Force | Out-Null
     foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
-        Copy-Item -LiteralPath $child.FullName `
-            -Destination (Join-Path $Destination $child.Name) -Recurse -Force
+        $childDestination = Join-Path $Destination $child.Name
+        # Recurse rather than Copy-Item -Recurse: copying a directory onto an
+        # existing same-named directory puts the source INSIDE it
+        # (dst\cs\cs), which is the defect this whole change removes, one
+        # level down (finding i42b-1). The payload has locale subdirectories,
+        # so a surviving destination child is the normal case here.
+        if ($child.PSIsContainer) {
+            Restore-PtkInstallPathContents `
+                -Source $child.FullName -Destination $childDestination
+            continue
+        }
+        Copy-Item -LiteralPath $child.FullName -Destination $childDestination -Force
     }
 }
 

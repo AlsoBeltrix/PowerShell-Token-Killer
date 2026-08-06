@@ -1692,6 +1692,68 @@ Describe 'development package layout' {
         }
     }
 
+    # Finding i42b-1 (codex, HIGH): the merge helper itself nested. It copied
+    # each child with Copy-Item -Recurse, and copying a DIRECTORY onto an
+    # existing same-named directory puts the source inside it (dst\cs\cs) --
+    # the identical defect this whole change exists to remove, one level
+    # down. The payload here has subdirectories (cs, de, ja, ...), so this is
+    # the normal case, not an edge case. Worse, activation would then delete
+    # the aside and report "the existing payload is intact" after nesting it.
+    It 'merges a restored payload without nesting its subdirectories' {
+        $transactionModule = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_install_transaction.psm1'
+        Import-Module $transactionModule -Force
+
+        $caseRoot = Join-Path $TestDrive ('merge-nest-' + [guid]::NewGuid().ToString('N'))
+        $payload = Join-Path $caseRoot 'home'
+        $staging = Join-Path $caseRoot 'staging'
+        # A locale subdirectory on both sides, like the real payload.
+        New-Item -ItemType Directory -Path (Join-Path $payload 'bin' 'cs'), (Join-Path $staging 'bin') -Force |
+            Out-Null
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'cs' 'strings.txt') -Value 'cs' -NoNewline
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'locked.txt') -Value 'locked' -NoNewline
+        Set-Content -LiteralPath (Join-Path $payload 'bin' 'plain.txt') -Value 'plain' -NoNewline
+        Set-Content -LiteralPath (Join-Path $staging 'bin' 'new.txt') -Value 'new' -NoNewline
+
+        # The helper itself, called the way rollback calls it: the destination
+        # subdirectory SURVIVED a partial delete, so the merge must fold into
+        # it rather than copy the source container inside it. Driving this
+        # only through activation hides the defect, because activation's undo
+        # happens to meet an empty destination.
+        $direct = Join-Path $caseRoot 'direct'
+        New-Item -ItemType Directory -Path (Join-Path $direct 'backup' 'cs'), (Join-Path $direct 'live' 'cs') -Force |
+            Out-Null
+        Set-Content -LiteralPath (Join-Path $direct 'backup' 'cs' 'a.txt') -Value 'a' -NoNewline
+        Set-Content -LiteralPath (Join-Path $direct 'live' 'cs' 'survivor.txt') -Value 's' -NoNewline
+        & (Get-Module ptk_install_transaction) {
+            param($s, $d) Restore-PtkInstallPathContents -Source $s -Destination $d
+        } (Join-Path $direct 'backup') (Join-Path $direct 'live')
+
+        Join-Path $direct 'live' 'cs' 'cs' | Should -Not -Exist
+        Join-Path $direct 'live' 'cs' 'a.txt' | Should -Exist
+        Join-Path $direct 'live' 'cs' 'survivor.txt' | Should -Exist
+
+        $handle = [IO.File]::Open(
+            (Join-Path $payload 'bin' 'locked.txt'),
+            [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        try {
+            { Install-PtkStagedPayload `
+                    -StagingRoot $staging `
+                    -PayloadRoot $payload `
+                    -PayloadEntries @('bin') } | Should -Throw
+
+            # The subdirectory must come back in place, never one level deeper.
+            Join-Path $payload 'bin' 'cs' 'cs' | Should -Not -Exist
+            Join-Path $payload 'bin' 'cs' 'strings.txt' | Should -Exist
+            Get-Content -LiteralPath (Join-Path $payload 'bin' 'cs' 'strings.txt') -Raw |
+                Should -BeExactly 'cs'
+            Join-Path $payload 'bin' 'plain.txt' | Should -Exist
+            Join-Path $payload 'bin' 'locked.txt' | Should -Exist
+        }
+        finally {
+            $handle.Close()
+        }
+    }
+
     It 'refuses a cross-RID native package before creating the output directory' {
         $installScript = Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1'
         $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture

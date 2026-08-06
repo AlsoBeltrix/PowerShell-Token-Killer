@@ -5,6 +5,46 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Handoff 2026-08-06, head `46f8254`. Owner ruled the next release is
+`v0.2.0` (not 1.0).**
+
+In flight: **one owner decision, nothing half-done.** The tree is clean, all
+work is committed and pushed, CI was green on all six jobs at `7cd4972`.
+
+**Awaiting the owner's go:** run `release.yml` via `workflow_dispatch` with
+version `0.2.0-rc.3`. That builds all five RIDs on native runners, runs the
+new per-RID product-contract gate, and assembles a **draft** only — no tag,
+nothing published. It is the cheapest way to close the four Slice 7.5 legs
+this host has no hardware for. The dispatch is outward-facing, hence gated.
+
+**What closed this session (release-gate work, after `opr-53`):**
+
+- Slice 7.5's three hand-run checks are automated into
+  `server/direct-product-proof.ps1`: check 10 uninstall (opt-in
+  `-UninstallHome`, refuses unless the home contains the server under proof),
+  check 13 `ls` alias + `PSModuleAutoloadingPreference=None`, and the Windows
+  Defender payload scan. All three guard-proved by sabotage.
+- **win-x64 Slice 7.5 re-run PASSED 22/22** at `935b8b2` against a real
+  install into an isolated home, plus the full battery.
+- `release.yml` now runs the product proof on every packaged RID before
+  archiving (`46f8254`), so a release cannot be drafted from an artifact that
+  fails its own contract. **Untested until the workflow actually runs** —
+  that is what the dispatch above would prove.
+- Recorded that the plan's "all slices executed" was stale by ~50 commits;
+  `.agents/plans/github-release-packaging.md` now carries a per-RID table.
+
+**Do not tag or push a `v*` ref without an explicit go.** The owner named the
+version, not the tag.
+
+**Caution, this host:** an EICAR control file written during a #7 scan check
+tripped Defender and left a "Threat blocked" entry in the owner's Protection
+history on a domain-joined machine (2026-08-06 10:07). It was the standard
+harmless AV test string, removed automatically, nothing else touched — but it
+may draw a security review. **Never write scanner-triggering test files
+here.** The release gate's Defender check deliberately writes no EICAR and
+judges by payload survival instead.
+
+
 - **RTK is a required dependency (owner, 2026-08-03):** "rtk was never optional. rtk was always stated requirement when I asked for this." PTK is a compression router; the thing it routes to is not optional. A missing RTK is a startup error (exit 78) with an actionable message, never a silent degraded mode. Do not build a without-RTK product tier, capability matrix, or per-call degradation reporting. CI installs rtk on all three platforms.
 
 - **Routing authority: RTK decides (owner, 2026-08-03).** PTK submits the exact submitted text to `rtk hook check --agent ptk`; a rewrite executes, a decline runs the original unchanged. PTK no longer judges eligibility from the PowerShell AST and no longer resolves executables against PATH. Three guards protect the boundary, each mutation-proved: the accepted rewrite binds the startup-pinned executable (a bare `rtk` head would resolve through PATH at run time and could execute a different binary than the one PTK hashed); a rewrite must reduce to the submitted text once `rtk ` prefixes are stripped; and every wrapped name must bind to an `Application` in the session.
@@ -88,6 +128,12 @@ lesson.
 **No known code work remains.** Every open GitHub issue is gated on
 hardware (#40), the owner (#30), or Microsoft (#7). Decision 5 — tag
 `v0.2.0` and publish — is terminal and owner-only.
+
+**Next action:** get the owner's go for the `workflow_dispatch`
+(`0.2.0-rc.3`) described in `## Now`. If it passes, four of the five Slice
+7.5 legs close and only the tag and publish remain. If it fails, the failure
+is in the new per-RID gate step (`46f8254`) or in a platform the win-x64 leg
+could not exercise — read that job's log first, not the product.
 
 **Historical, for the record:**
 

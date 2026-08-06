@@ -41,6 +41,23 @@ to the sandbox and does not see the live servers. **Use this technique for
 any future install-path work** — it is the difference between simulating the
 defect and reproducing it.
 
+**Two durable lessons from this issue, both earned the hard way:**
+
+- **`Copy-Item -Recurse` and `Move-Item -Force` both put a directory *inside*
+  an existing same-named directory.** Neither is a safe way to replace a
+  directory. Only an explicit recursive merge, or a rename onto a
+  proven-absent path, is. This single mistake produced the original bug and
+  then reappeared inside two successive fixes for it (i42-1, i42b-1).
+- **A guard for a merge must supply a destination that already contains a
+  same-named child.** The first guard written for i42b-1 passed against the
+  broken code, because driving the merge through activation meets an empty
+  destination. Test the helper the way the failing caller calls it.
+- **File-lock behaviour is Windows-only.** POSIX renames and unlinks open
+  files happily, so a test that asserts a throw under an open handle fails on
+  ubuntu/macOS. CI caught two such tests that passed locally; they are now
+  `-Skip:(-not $IsWindows)`, with the platform-independent half split out so
+  it still runs everywhere.
+
 Doing so found three further defects the unit tests could not see, all fixed
 in `1ff20c8`: activation deleted in place (destroying the payload before
 discovering a lock), the undo used `Move-Item -Force` (which nests a

@@ -19,7 +19,14 @@ pwsh -File server/direct-product-proof.ps1 -ServerPath ~/.ptk/bin/PtkMcpServer.e
 [CmdletBinding()]
 param(
     [Parameter(Mandatory)][string]$ServerPath,
-    [int]$TimeoutSec = 120
+    [int]$TimeoutSec = 120,
+
+    # Slice 7.5 check 10 — uninstall, and prove the installed launch path is
+    # gone. Destructive, so it is opt-in and takes the home to remove
+    # explicitly rather than inferring one: a proof script must never be able
+    # to delete the operator's real ~/.ptk by default. Pass the same throwaway
+    # home the candidate was installed into.
+    [string]$UninstallHome
 )
 
 $ErrorActionPreference = 'Stop'
@@ -173,6 +180,27 @@ try {
     # 11. a compound native command routes through RTK
     $compound = InvokeTool -Script 'git --no-pager log --oneline -3 && git status --short'
     Report 'routes a compound native command' ($compound -notmatch 'ERROR:') ($compound -split "`n")[0]
+
+    # 13 (plan Slice 7.5): a fresh session exposes the shipped `ls` alias and
+    # autoloads no user module. PSModuleAutoloadingPreference=None is what
+    # keeps two sessions on one machine from diverging by whatever was
+    # invoked first; a regression here is silent and only shows up as
+    # inconsistent behaviour much later.
+    # An alias, not a function shadowing it: an autoloaded user function does
+    # NOT override a built-in alias, so a bare "ls resolves" test would pass
+    # in a session that had already drifted.
+    $alias = InvokeTool -Script @'
+$c = Get-Command ls
+"{0}|{1}|{2}" -f $c.CommandType, $c.Definition, $c.ResolvedCommand.Source
+'@
+    Report 'exposes the shipped ls alias' `
+        ($alias -match 'Alias\|Get-ChildItem\|Microsoft\.PowerShell\.Management') `
+        ($alias -split "`n")[0]
+
+    # Compared as a string: the preference is an enum the shaper renders as
+    # an object, so a naive -match on the raw response reads the type name.
+    $autoload = InvokeTool -Script '"pref=[$PSModuleAutoloadingPreference]"'
+    Report 'autoloads no user module' ($autoload -match 'pref=\[None\]') ($autoload -split "`n")[0]
 }
 finally {
     try { $stdin.Close() } catch { }
@@ -191,6 +219,59 @@ $gateText = $gp.StandardError.ReadToEnd()
 if (-not $gp.WaitForExit(60000)) { $gp.Kill($true) }
 Report 'refuses to start without RTK (exit 78)' ($gp.ExitCode -eq 78) "exit=$($gp.ExitCode)"
 Report 'refusal names PTK_RTK_PATH' ($gateText -match 'PTK_RTK_PATH')
+
+# 10 (plan Slice 7.5): uninstall, and prove the installed launch path is gone.
+# Runs last because it removes the thing every check above needs. The install
+# transaction was rewritten wholesale for issue #42 and had no uninstall guard
+# at all, which is exactly the code least safe to leave hand-checked.
+if ($UninstallHome) {
+    $home_ = [IO.Path]::GetFullPath($UninstallHome)
+    $server_ = [IO.Path]::GetFullPath((Resolve-Path $ServerPath))
+    if (-not $server_.StartsWith($home_, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to uninstall '$home_': it does not contain the server under proof ($server_)."
+    }
+    $installer = Join-Path $home_ 'scripts' 'install.ps1'
+    if (-not (Test-Path -LiteralPath $installer)) {
+        throw "Refusing to uninstall: no installed scripts/install.ps1 under '$home_'."
+    }
+
+    # The proof's own server holds an open handle on the binary, and on
+    # Windows that makes the payload delete fail while the installer still
+    # reports success. Wait for the process this script started to be gone
+    # before judging the uninstall, or the check measures our own lock rather
+    # than the product.
+    foreach ($p in @($server) + @($gp)) {
+        if ($p -and -not $p.HasExited) {
+            try { $p.Kill($true) } catch { }
+        }
+        if ($p) { try { $null = $p.WaitForExit(30000) } catch { } }
+    }
+    Start-Sleep -Seconds 2
+
+    # The installer resolves its home from $HOME. On Windows PowerShell
+    # derives $HOME from HOMEDRIVE+HOMEPATH, not USERPROFILE, so setting
+    # USERPROFILE alone silently leaves the child pointed at the real home
+    # and the uninstall no-ops against a payload that is not there.
+    $parent_ = Split-Path -Parent $home_
+    $env_ = @{ USERPROFILE = $parent_; HOME = $parent_ }
+    if ($IsWindows) {
+        $env_['HOMEDRIVE'] = [IO.Path]::GetPathRoot($parent_).TrimEnd('\')
+        $env_['HOMEPATH'] = $parent_.Substring($env_['HOMEDRIVE'].Length)
+    }
+    $psiU = [Diagnostics.ProcessStartInfo]::new([Environment]::ProcessPath)
+    foreach ($a in '-NoProfile', '-File', $installer, '-Uninstall') { $psiU.ArgumentList.Add($a) }
+    foreach ($k in $env_.Keys) { $psiU.EnvironmentVariables[$k] = $env_[$k] }
+    $psiU.UseShellExecute = $false
+    $psiU.RedirectStandardOutput = $true
+    $psiU.RedirectStandardError = $true
+    $pu = [Diagnostics.Process]::Start($psiU)
+    $uOut = $pu.StandardOutput.ReadToEnd() + $pu.StandardError.ReadToEnd()
+    if (-not $pu.WaitForExit(180000)) { $pu.Kill($true) }
+
+    Report 'uninstall completes' ($pu.ExitCode -eq 0) "exit=$($pu.ExitCode)"
+    Report 'uninstall removes the installed launch path' `
+        (-not (Test-Path -LiteralPath $server_)) $server_
+}
 
 Write-Host ''
 if ($script:failures.Count -gt 0) {

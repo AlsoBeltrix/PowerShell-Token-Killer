@@ -18,6 +18,28 @@ trigger (`PTK_MAX_CALL_TIMEOUT_SECONDS=100` with the call timeout unset,
 so the 300 default exceeds it), which is now a pinned theory case. Guard
 proved: three cases fail with the pair logic reverted.
 
+## Closed — i42b (install payload survival, 2026-08-05)
+
+Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,
+over `7761b75..1ff20c8`. Verdict `findings` (1), capability_ok true, SHAs
+pinned and matched.
+
+| ID      | Severity | Impact (one line)                                       | Status |
+|---------|----------|----------------------------------------------------------|--------|
+| i42b-1  | HIGH     | the merge helper nested subdirectories, and activation then claimed the payload was intact | `[x]` (fixed `5d866b1`) |
+
+**Durable lesson, third occurrence in one issue.** Every finding on #42 was
+the fix reintroducing the defect somewhere the previous test did not look:
+i42-1 in rollback, i42b-1 inside the merge helper written to fix i42-1.
+`Copy-Item -Recurse` and `Move-Item -Force` both put a directory *inside* an
+existing same-named directory. Neither is a safe way to replace a directory;
+only an explicit recursive merge, or a rename onto a proven-absent path, is.
+
+The first guard written for i42b-1 **passed against the broken code**,
+because driving the merge through activation meets an empty destination.
+A guard for a merge must supply a destination that already contains a
+same-named child, which is what rollback actually does.
+
 ## Closed — i42 (install payload activation, 2026-08-05)
 
 Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,

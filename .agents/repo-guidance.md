@@ -88,13 +88,28 @@ changes.
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
 ```
-— 16/16 checks against an **installed** candidate, not a checkout: the five
-tools, warm named sessions, object compression, trusted-type rendering, text
-preservation, `ptk_output` recovery, timeout recovery, reset/close, compound
-native routing, and the RTK startup gate (exit 78 naming `PTK_RTK_PATH`).
+— 20/20 on Windows (19 elsewhere; the extra one is the Defender payload
+scan) against an **installed** candidate, not a checkout: the five
+tools, warm named sessions, object compression, trusted-type rendering, a
+type needing the wider assembly set (#42), text preservation, `ptk_output`
+recovery, timeout recovery, reset/close, compound native routing, the fresh
+session's `ls` alias and `PSModuleAutoloadingPreference=None`, and the RTK
+startup gate (exit 78 naming `PTK_RTK_PATH`). On Windows it also scans the
+packaged bits with Defender and asserts the payload survives — quarantine of
+the supported Windows artifact is a release blocker independent of #7's WDSI
+verdict. It writes no EICAR control: a release gate must not manufacture
+antivirus detections on the operator's machine.
 This is the release gate for a packaged artifact; the handshake proves the
 transport, this proves the product contract. Run it per selected platform
 before publishing.
+
+Add `-UninstallHome <installed-root>` to also run the plan's uninstall check
+(21 checks). It is destructive and opt-in, refuses unless that root contains
+the server under proof, and must be pointed at a throwaway home — never the
+operator's real `~/.ptk`. Install into an isolated home by setting
+`USERPROFILE`, `HOME`, `HOMEDRIVE` and `HOMEPATH` on the child process;
+`$HOME` itself is read-only, and on Windows PowerShell derives it from
+`HOMEDRIVE`+`HOMEPATH`, not `USERPROFILE`.
 
 Release artifacts are built by `.github/workflows/release.yml` on a `v*` tag
 or `workflow_dispatch`. It builds each of the five RIDs on its own native

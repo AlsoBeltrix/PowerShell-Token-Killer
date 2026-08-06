@@ -273,6 +273,33 @@ if ($UninstallHome) {
         (-not (Test-Path -LiteralPath $server_)) $server_
 }
 
+# Plan Slice 7.5, Windows leg: scan the exact packaged bits with current
+# Defender. GitHub #7's false positive on PtkMcpServer.dll is unresolved
+# pending Microsoft's WDSI verdict, and quarantine of the supported Windows
+# artifact is a release blocker in its own right — independent of that
+# verdict, because a quarantined artifact cannot launch after install.
+#
+# Judged by whether the payload SURVIVES, not by the scanner's summary text:
+# quarantine is the failure that matters. No EICAR control is written here —
+# a release gate must not manufacture antivirus detections on the operator's
+# machine.
+if ($IsWindows) {
+    $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+    $binDir = Split-Path -Parent (Resolve-Path $ServerPath)
+    if (Test-Path -LiteralPath $mp) {
+        $before = @(Get-ChildItem -LiteralPath $binDir -File -Force).Count
+        & $mp -Scan -ScanType 3 -File $binDir 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        $after = @(Get-ChildItem -LiteralPath $binDir -File -Force -ErrorAction SilentlyContinue).Count
+        Report 'Defender leaves the packaged payload intact (#7)' `
+            (($after -eq $before) -and (Test-Path -LiteralPath $ServerPath)) `
+            "files before=$before after=$after"
+    }
+    else {
+        Write-Host '  skip Defender scan -- MpCmdRun.exe not present'
+    }
+}
+
 Write-Host ''
 if ($script:failures.Count -gt 0) {
     Write-Host ("DIRECT PROOF FAILED: {0} of {1} checks" -f $script:failures.Count, $script:checks)

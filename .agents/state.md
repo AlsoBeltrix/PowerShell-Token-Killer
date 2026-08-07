@@ -125,17 +125,17 @@ a *false* verdict in the new trusted channel, which is the same mistake as
 the original finding one layer in. `.agents/review/index.md` §o53 owns that
 lesson.
 
-**Active review loop (2026-08-06): `.agents/review/index.md` §r806 — all
-five fixes LANDED on the owner's go**, one commit per finding, each
+**Review loop r806 is CLOSED (2026-08-07): all five fixes landed,
+battery-verified, and verification-accepted.** One commit per finding, each
 sabotage-proved: r806-3 `adb9f7a`, r806-4 `49a5cc7`, r806-1 `024fa66`,
 r806-2 `9d8aec7`, r806-5 `5862041`. Battery green at `5862041` (server
 1,191/1,191, Pester 112+3 skip, SIEM 247/247, audit clean, handshake
-passed). Open on this loop: reviewer verification of the five fixes is NOT
-dispatched — owner-gated; r806-3 is HIGH, so T2 routes its verification to
-frontier if dispatched. The r806-4 fix has a consequence for the rc: a
-hosted Windows runner that cannot complete a Defender scan now fails the
-per-RID gate visibly (by design); adapting the workflow or runner is an
-owner call.
+passed). Verification was one owner-directed batch dispatch (frontier,
+esc:T2) — all five accepted, guard_confirmed true;
+`.agents/review/index.md` §r806 owns the record. The r806-4 fix has a
+consequence for the rc: a hosted Windows runner that cannot complete a
+Defender scan now fails the per-RID gate visibly (by design); adapting the
+workflow or runner is an owner call if it fires.
 
 Otherwise every open GitHub issue is gated on hardware (#40), the owner
 (#30), or Microsoft (#7). Decision 5 — tag `v0.2.0` and publish — is

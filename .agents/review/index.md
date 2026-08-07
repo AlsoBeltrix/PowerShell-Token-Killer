@@ -1,6 +1,6 @@
 # Review status
 
-## Open — r806 (owner-requested pass over the day's commits, 2026-08-06)
+## Closed — r806 (owner-requested pass over the day's commits, 2026-08-06)
 
 Generation pass: codex-cli 0.146.1, `codex/gpt-5.6-sol/high/standard`, over
 `d440234..32c444d` (all eleven 2026-08-06 commits: the three opr-53
@@ -12,22 +12,40 @@ at intake and admitted; none declined.
 
 | ID     | Severity | Impact (one line)                                        | Status | Reviewer |
 |--------|----------|-----------------------------------------------------------|--------|----------|
-| r806-1 | MEDIUM   | a preflight containment refusal (nothing executed) reports `executed=true`/`outcome_unknown` | `[~]` fixed `024fa66` | codex/gpt-5.6-sol/high/std |
-| r806-2 | MEDIUM   | a failed replacement start reports a warm-state-destroying reset as `not_started`/`safe_to_resubmit=true` | `[~]` fixed `9d8aec7` | codex/gpt-5.6-sol/high/std |
-| r806-3 | HIGH     | the opt-in destructive uninstall's refusal passes a sibling-prefixed home and removes the wrong install | `[~]` fixed `adb9f7a` | codex/gpt-5.6-sol/high/std |
-| r806-4 | MEDIUM   | the Defender release gate passes when the scan never ran (absent or failing MpCmdRun) | `[~]` fixed `49a5cc7` | codex/gpt-5.6-sol/high/std |
-| r806-5 | MEDIUM   | invoke's Failed fallback reports scheduler/machinery failures as `completed` while its own text says `status=failed` | `[~]` fixed `5862041` | claude/fable-5/self-review |
+| r806-1 | MEDIUM   | a preflight containment refusal (nothing executed) reports `executed=true`/`outcome_unknown` | `[x]` fixed `024fa66`, accepted | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| r806-2 | MEDIUM   | a failed replacement start reports a warm-state-destroying reset as `not_started`/`safe_to_resubmit=true` | `[x]` fixed `9d8aec7`, accepted | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| r806-3 | HIGH     | the opt-in destructive uninstall's refusal passes a sibling-prefixed home and removes the wrong install | `[x]` fixed `adb9f7a`, accepted | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| r806-4 | MEDIUM   | the Defender release gate passes when the scan never ran (absent or failing MpCmdRun) | `[x]` fixed `49a5cc7`, accepted | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| r806-5 | MEDIUM   | invoke's Failed fallback reports scheduler/machinery failures as `completed` while its own text says `status=failed` | `[x]` fixed `5862041`, accepted | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
 | r806-d1..d4 | — | declined at intake with reasons: `.agents/review/r806-self.contested.md` | `[-]` | claude/fable-5/self-review |
 
 All five fixes landed 2026-08-06 (owner go), one commit per finding, each
 guard-proved by sabotage (the exact old behavior restored temporarily fails
 exactly the new assertions). Battery at `5862041`: server 1,191/1,191,
 Pester 112 + 3 platform-skipped, SIEM 247/247, dependency audit clean,
-handshake passed. `[~]` = reviewer verification not yet dispatched — review
-dispatch stays owner-gated. Note for the rc: the r806-4 fix means the
-per-RID gate's Windows Defender leg now fails visibly on a runner that
-cannot complete a scan; that is the gate working, and whether to adapt the
-workflow or the runner is an owner call recorded in the finding.
+handshake passed.
+
+**Verification (2026-08-07 04:06 UTC): one batch dispatch, all five
+accepted, guard_confirmed true on every finding.** The batch shape was the
+owner's explicit instruction ("one total codex review, make it count",
+2026-08-06) — a recorded owner-directed deviation from per-finding
+dispatch. Routed frontier under T2 (r806-3 HIGH): codex-cli 0.146.1,
+`codex/gpt-5.6-sol/xhigh/frontier`, workspace-write in an
+orchestrator-created disposable worktree, pins `2756767..5862041` matched,
+capability_ok true. The reviewer independently re-ran every guard proof
+(revert → named guards fail → restore → 21/21 pass; predicate re-runs for
+the two script findings). ~3.94M input tokens (3.78M cached), 14.9k output.
+Environment notes, recorded not invalidating: `git checkout` restoration
+was blocked inside the disposable worktree (index metadata under the
+read-only canonical `.git`), so the reviewer restored via apply_patch and
+proved byte-exactness with `git diff --exit-code` before each passing run;
+github.com DNS was unreachable from the sandbox, so remote freshness was
+not checked there (checked clean by the orchestrator).
+
+Note for the rc: the r806-4 fix means the per-RID gate's Windows Defender
+leg now fails visibly on a runner that cannot complete a scan; that is the
+gate working, and whether to adapt the workflow or the runner is an owner
+call recorded in the finding.
 
 **Second pass, same range (owner-requested, 2026-08-06):** the working agent
 re-reviewed the range itself (single-agent mode) after the codex dispatch —

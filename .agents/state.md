@@ -45,18 +45,20 @@ shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
 because `gh` defaults to the `github` remote — run canceled, `-R` rule
 recorded in repo-guidance §Remotes.
 
-**Decision 5, tag half DONE on the owner's "ship" (2026-08-07): `v0.2.0`
-tagged at `3a9cbeb`, tag run `31197966252` green on all five RIDs, draft
-assembled. The publish half — making the draft public — awaits the owner's
-final word, per the ship path the owner approved.** After publish: the
-stale `v0.2.0-rc.2`/`rc.3` drafts can be deleted on the owner's go, and
-the first post-release slice is macOS Developer ID signing + notarization
-(the owner now has an Apple developer account; needs their cert +
-CI secrets, then the osx-arm64 release job gains the signing step —
-recommended, not required for function: script installs never quarantine,
-and .NET ad-hoc signing already satisfies Apple Silicon). #43 is CLOSED
-2026-08-07 on the owner's verification: the install completes on the
-reporting Server 2019 host from master at head.**
+**Decision 5 is EXECUTED IN FULL. PTK v0.2.0 was PUBLISHED 2026-08-07
+16:35 UTC on the owner's explicit two-step go ("ship" → tag; "go" →
+publish):**
+https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/tag/v0.2.0
+— tagged at `3a9cbeb`, tag run `31197966252` green on all five RIDs, five
+artifacts + SHA256SUMS, marked Latest. The stale `v0.2.0-rc.2`/`rc.3`
+drafts were deleted on the same go. First post-release slice, queued but
+not started: macOS Developer ID signing + notarization (the owner now has
+an Apple developer account; blocked on their cert + CI secrets, then the
+osx-arm64 release job gains the signing step — recommended, not required
+for function: script installs never quarantine, and .NET ad-hoc signing
+already satisfies Apple Silicon). #43 is CLOSED 2026-08-07 on the owner's
+verification: the install completes on the reporting Server 2019 host
+from master at head.**
 
 **#43 (filed by the owner 2026-08-07, verified against the code the same
 day): install fails on Windows Server 2019 because the handshake's

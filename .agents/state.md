@@ -18,9 +18,11 @@ a full `text` mirror; the call filter's text matcher is gated to
 Guard-proved by two sabotages; finding record
 `.agents/review/findings/o53-3.md`. **This host's `~/.ptk` was repaired by
 the owner the same day** (killed all ptk processes, reinstalled) — the old
-nested-payload caveat is history. Rendering confirmation needs one MCP
-reconnect after the owner reinstalls the fixed build. The rc.3 draft also
-predates this fix — a fresh draft is needed before tagging.
+nested-payload caveat is history. **CONFIRMED live 2026-08-07 after the
+owner reinstalled the fixed build and reconnected:** completed calls show
+full output and recovery handles again; a refusal renders as a flagged
+error with its complete reason. The rc.3 draft predates this fix — a fresh
+draft (or the tag itself, which builds from its own commit) picks it up.
 
 **Handoff 2026-08-06, head `46f8254`. Owner ruled the next release is
 `v0.2.0` (not 1.0).**

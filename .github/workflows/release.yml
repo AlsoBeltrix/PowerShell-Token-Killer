@@ -44,6 +44,12 @@ jobs:
             os: macos-latest
             archive: tar
     runs-on: ${{ matrix.os }}
+    # A hung runner should cost minutes, not the six-hour default: rc.3's
+    # osx leg signed successfully and then hung inside the smoke test for
+    # ~40 minutes until the runner was reaped, with no code change on that
+    # platform since its clean pass. Notarization legitimately waits on
+    # Apple, so the bound stays generous.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 

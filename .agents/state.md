@@ -37,11 +37,19 @@ documents exactly that (`SecureAuditStorage.cs:176-179`) and gates its own
 namespace check off Windows, but the test helper asserts raw counts
 (`server/test-handshake.ps1:185`, used at `:601`/`:728`/`:822`). A
 test-gate portability defect, not a product regression — the issue itself
-proves containment holds on that host. Secondary: `scripts/install.ps1:740`
-throws away the handshake's failing line. Verification constraint: neither
-this macOS host nor CI's `windows-latest` (Server 2022, POSIX-delete
-default) reproduces classic delete-pending — the end-to-end proof is an
-install re-run on the reporting Server 2019 host, an owner action.
+proves containment holds on that host. Secondary: the installer threw away
+the handshake's failing line. **Both halves FIXED 2026-08-07 under the
+owner's blanket fix authorization** (recorded in repo-guidance §Earned
+Practices): `4de1c89` (the live-root assertion probes artifact names on
+Windows — access-denied means delete-pending and is excluded, anything
+else still counts; POSIX and all post-exit checks unchanged) and `b811f05`
+(the installer tees the handshake and carries its last 25 lines in the
+thrown error). Proved here: probe classification for all three outcome
+classes, both scripts parse, tee preserves the exit code, and the full
+handshake passes on macOS. **The issue stays open pending the one proof
+this repo cannot run: an install re-run on the reporting Server 2019 host
+(owner action) — classic delete-pending semantics exist nowhere else we
+can reach** (CI's `windows-latest` is Server 2022, POSIX-delete default).
 
 **What closed this session (release-gate work, after `opr-53`):**
 

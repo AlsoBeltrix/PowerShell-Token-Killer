@@ -119,11 +119,13 @@ half was already honored by the call filter's linked token. Battery
 next release. Live confirmation rides the next naturally long call
 through an installed build.
 
-**`v0.2.1` DRAFT is built and green (run `31224619531`, tag at
-`3f35774`): the first fully signed release** — Windows Authenticode on
-both RIDs, macOS signed + notarized, all gates on signed bits. Carries
-the #43 install fixes and the o53-3 output fix. Publish is the owner's
-word.
+**`v0.2.1` DRAFT is built and green — RECUT on the owner's word at
+`0b43ea9` (run `31225914784`) so it carries #44 too: the first fully
+signed release** — Windows Authenticode on both RIDs, macOS signed +
+notarized, all gates on signed bits. Carries the #43 install fixes, the
+o53-3 output fix, and the #44 heartbeat. The first tag (at `3f35774`,
+never published) was deleted and re-pointed on the owner's explicit
+recut instruction. Publish is the owner's word.
 
 **#30's on-prem Exchange leg is SCHEDULED (2026-08-07): the owner will run
 it on an Exchange-capable machine this repo cannot reach.** The owner-run

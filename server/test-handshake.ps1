@@ -216,6 +216,36 @@ function Assert-LiveOutputRoot {
     }
     $rootFiles = @(
         Get-ChildItem -LiteralPath $serverRoot.FullName -Recurse -Force -File)
+    if ($IsWindows) {
+        # The store unlinks every artifact while its write handle stays
+        # open, and a classic NTFS delete stays pending -- name still
+        # enumerable -- until that handle closes. The product documents that
+        # namespace disappearance is not a valid success test on Windows
+        # (SecureAuditStorage.DeleteRetainedProtectedFile); this live-root
+        # assertion must honor the same rule. Probe each artifact name: a
+        # delete-pending entry refuses to open with access-denied and is no
+        # live link, while one that opens -- or fails any other way, such as
+        # a sharing violation -- is a real stray and still counts. Server
+        # 2019 fails the raw count deterministically; Server 2022's
+        # POSIX-delete default hides it (GitHub #43). The post-exit checks
+        # below run after handles close and keep asserting true
+        # disappearance on every platform.
+        $rootFiles = @($rootFiles | Where-Object {
+            if ($_.Name -notlike 'artifact-*.out') { return $true }
+            try {
+                ([System.IO.File]::Open(
+                    $_.FullName,
+                    [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::Read,
+                    [System.IO.FileShare]::ReadWrite -bor
+                        [System.IO.FileShare]::Delete)).Dispose()
+                return $true
+            }
+            catch [System.UnauthorizedAccessException] { return $false }
+            catch [System.IO.FileNotFoundException] { return $false }
+            catch { return $true }
+        })
+    }
     $ownerMarkers = @($rootFiles | Where-Object Name -CEQ 'owner.v1.json')
     $namedArtifacts = @($rootFiles | Where-Object Name -Like 'artifact-*.out')
     if ($rootFiles.Count -ne 1 -or

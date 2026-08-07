@@ -152,6 +152,11 @@ here:
   (`http://q:3000/michael/Powershell-Token-Killer`, LAN forge), and
   `personal` (`roethlar/-PowerShell-Token-Killer`).
 
+- **`gh` resolves its default repo to the `github` fork remote when that
+  remote exists** (observed 2026-08-07: a `gh workflow run` landed on
+  `roethlar/…` instead of canonical and had to be canceled). Always pass
+  `-R AlsoBeltrix/PowerShell-Token-Killer` explicitly for `gh` operations.
+
 Push policy stays in `.agents/push-policy.md`, not here.
 
 ## Earned Practices

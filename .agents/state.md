@@ -11,11 +11,18 @@ short and update it when important repo facts change.
 In flight: **one owner decision, nothing half-done.** The tree is clean, all
 work is committed and pushed, CI was green on all six jobs at `7cd4972`.
 
-**Awaiting the owner's go:** run `release.yml` via `workflow_dispatch` with
-version `0.2.0-rc.3`. That builds all five RIDs on native runners, runs the
-new per-RID product-contract gate, and assembles a **draft** only — no tag,
-nothing published. It is the cheapest way to close the four Slice 7.5 legs
-this host has no hardware for. The dispatch is outward-facing, hence gated.
+**The rc.3 dispatch ran on the owner's go (2026-08-07, run `31184268679`
+on canonical).** Result: both Windows legs PASSED the full per-RID gate —
+including the hardened Defender leg, so hosted runners can scan — and all
+three POSIX legs failed on exactly one check: the proof's check 13 asserted
+the Windows-only `ls → Get-ChildItem` alias unconditionally, and POSIX
+PowerShell deliberately ships no `ls` alias (a clean session binds the
+native `/usr/bin/ls`). A check defect, not a product defect; the gate
+correctly skipped the draft. Fixed platform-conditionally in the proof
+(POSIX asserts the native-application binding), proved locally against both
+observed shapes, and re-dispatched. An earlier dispatch mistakenly landed
+on the `roethlar` fork because `gh` defaults to the `github` remote — run
+canceled, `-R` rule recorded in repo-guidance §Remotes.
 
 **What closed this session (release-gate work, after `opr-53`):**
 

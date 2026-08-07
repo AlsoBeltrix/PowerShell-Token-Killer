@@ -50,6 +50,12 @@ handshake passes on macOS. **The issue stays open pending the one proof
 this repo cannot run: an install re-run on the reporting Server 2019 host
 (owner action) — classic delete-pending semantics exist nowhere else we
 can reach** (CI's `windows-latest` is Server 2022, POSIX-delete default).
+Trap: the `v0.2.0-rc.3` draft was assembled at `9e1790e`, before these
+fixes — a `-FromRelease` install of rc.3 on that host still carries the
+old gate and will still fail. Re-test from the repo at head (or cut a
+fresh rc if a release-artifact test is wanted there). The eventual
+`v0.2.0` tag builds from its own commit, so tagging at/after `b811f05`
+picks the fixes up automatically.
 
 **What closed this session (release-gate work, after `opr-53`):**
 

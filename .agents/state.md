@@ -51,14 +51,34 @@ publish):**
 https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/tag/v0.2.0
 — tagged at `3a9cbeb`, tag run `31197966252` green on all five RIDs, five
 artifacts + SHA256SUMS, marked Latest. The stale `v0.2.0-rc.2`/`rc.3`
-drafts were deleted on the same go. First post-release slice, queued but
-not started: macOS Developer ID signing + notarization (the owner now has
-an Apple developer account; blocked on their cert + CI secrets, then the
-osx-arm64 release job gains the signing step — recommended, not required
-for function: script installs never quarantine, and .NET ad-hoc signing
-already satisfies Apple Silicon). #43 is CLOSED 2026-08-07 on the owner's
+drafts were deleted on the same go. First post-release effort, queued: **artifact signing on both
+platforms** (owner direction 2026-08-07, "get cert … pass smartscreen and
+defender").
+- macOS: Developer ID signing + notarization — the owner has an Apple
+  developer account; blocked on their cert + CI secrets, then the
+  osx-arm64 release job gains the signing step. Not required for function
+  (script installs never quarantine; .NET ad-hoc signing satisfies Apple
+  Silicon) — it removes the browser-download Gatekeeper block.
+- Windows: Authenticode signing for SmartScreen reputation and heuristic
+  false-positive hardening. Awaiting the owner's choice of signing path
+  (Azure Trusted Signing recommended vs. classic CA cert); then the win
+  jobs sign PtkMcpServer.exe/PtkWorkerBroker.exe/shipped DLLs before
+  archiving.
+**#7 is CLOSED 2026-08-07 on observed behavior:** current definitions no
+longer flag the DLL — the v0.2.0 tag run's hardened Defender gate
+(scan-completes + payload-survival, both Windows runners, exact shipped
+bits) plus repeated clean Server 2019 installs. No explicit WDSI verdict
+email ever arrived; the quarantine-detection mitigation (`51ce880`) stays
+shipped, and the per-RID gate re-proves survival on every future Windows
+artifact. #43 is CLOSED 2026-08-07 on the owner's
 verification: the install completes on the reporting Server 2019 host
 from master at head.**
+
+**#30's on-prem Exchange leg is SCHEDULED (2026-08-07): the owner will run
+it on an Exchange-capable machine this repo cannot reach.** The owner-run
+procedure is `docs/exchange-onprem-acceptance.md` — setup, a paste-block
+for the agent on that box, and the pass criteria. #30 closes on its
+results; bad rendering becomes its own finding.
 
 **#43 (filed by the owner 2026-08-07, verified against the code the same
 day): install fails on Windows Server 2019 because the handshake's

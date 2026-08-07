@@ -125,16 +125,17 @@ a *false* verdict in the new trusted channel, which is the same mistake as
 the original finding one layer in. `.agents/review/index.md` §o53 owns that
 lesson.
 
-**Active review loop (2026-08-06): `.agents/review/index.md` §r806.** The
-owner-requested codereview pass over the day's commits admitted five
-findings, reopening code work: r806-1/-2 (false structured verdicts on the
-preflight-refusal and failed-replacement-reset paths — the o53 lesson at two
-more sites), r806-3 (the uninstall refusal accepts sibling-prefixed homes),
-r806-4 (the Defender release-gate leg passes when no scan ran), and r806-5
-(the working agent's own second pass over the same range: invoke's Failed
-fallback reports scheduler/machinery failures as `completed`). r806-3
-and r806-4 bear on the pending `0.2.0-rc.3` dispatch — fixing them first is
-recommended so the rc proves a non-vacuous gate. Fixes await the owner's go.
+**Active review loop (2026-08-06): `.agents/review/index.md` §r806 — all
+five fixes LANDED on the owner's go**, one commit per finding, each
+sabotage-proved: r806-3 `adb9f7a`, r806-4 `49a5cc7`, r806-1 `024fa66`,
+r806-2 `9d8aec7`, r806-5 `5862041`. Battery green at `5862041` (server
+1,191/1,191, Pester 112+3 skip, SIEM 247/247, audit clean, handshake
+passed). Open on this loop: reviewer verification of the five fixes is NOT
+dispatched — owner-gated; r806-3 is HIGH, so T2 routes its verification to
+frontier if dispatched. The r806-4 fix has a consequence for the rc: a
+hosted Windows runner that cannot complete a Defender scan now fails the
+per-RID gate visibly (by design); adapting the workflow or runner is an
+owner call.
 
 Otherwise every open GitHub issue is gated on hardware (#40), the owner
 (#30), or Microsoft (#7). Decision 5 — tag `v0.2.0` and publish — is

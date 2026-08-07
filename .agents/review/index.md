@@ -12,12 +12,22 @@ at intake and admitted; none declined.
 
 | ID     | Severity | Impact (one line)                                        | Status | Reviewer |
 |--------|----------|-----------------------------------------------------------|--------|----------|
-| r806-1 | MEDIUM   | a preflight containment refusal (nothing executed) reports `executed=true`/`outcome_unknown` | `[ ]` | codex/gpt-5.6-sol/high/std |
-| r806-2 | MEDIUM   | a failed replacement start reports a warm-state-destroying reset as `not_started`/`safe_to_resubmit=true` | `[ ]` | codex/gpt-5.6-sol/high/std |
-| r806-3 | HIGH     | the opt-in destructive uninstall's refusal passes a sibling-prefixed home and removes the wrong install | `[ ]` | codex/gpt-5.6-sol/high/std |
-| r806-4 | MEDIUM   | the Defender release gate passes when the scan never ran (absent or failing MpCmdRun) | `[ ]` | codex/gpt-5.6-sol/high/std |
-| r806-5 | MEDIUM   | invoke's Failed fallback reports scheduler/machinery failures as `completed` while its own text says `status=failed` | `[ ]` | claude/fable-5/self-review |
+| r806-1 | MEDIUM   | a preflight containment refusal (nothing executed) reports `executed=true`/`outcome_unknown` | `[~]` fixed `024fa66` | codex/gpt-5.6-sol/high/std |
+| r806-2 | MEDIUM   | a failed replacement start reports a warm-state-destroying reset as `not_started`/`safe_to_resubmit=true` | `[~]` fixed `9d8aec7` | codex/gpt-5.6-sol/high/std |
+| r806-3 | HIGH     | the opt-in destructive uninstall's refusal passes a sibling-prefixed home and removes the wrong install | `[~]` fixed `adb9f7a` | codex/gpt-5.6-sol/high/std |
+| r806-4 | MEDIUM   | the Defender release gate passes when the scan never ran (absent or failing MpCmdRun) | `[~]` fixed `49a5cc7` | codex/gpt-5.6-sol/high/std |
+| r806-5 | MEDIUM   | invoke's Failed fallback reports scheduler/machinery failures as `completed` while its own text says `status=failed` | `[~]` fixed `5862041` | claude/fable-5/self-review |
 | r806-d1..d4 | — | declined at intake with reasons: `.agents/review/r806-self.contested.md` | `[-]` | claude/fable-5/self-review |
+
+All five fixes landed 2026-08-06 (owner go), one commit per finding, each
+guard-proved by sabotage (the exact old behavior restored temporarily fails
+exactly the new assertions). Battery at `5862041`: server 1,191/1,191,
+Pester 112 + 3 platform-skipped, SIEM 247/247, dependency audit clean,
+handshake passed. `[~]` = reviewer verification not yet dispatched — review
+dispatch stays owner-gated. Note for the rc: the r806-4 fix means the
+per-RID gate's Windows Defender leg now fails visibly on a runner that
+cannot complete a scan; that is the gate working, and whether to adapt the
+workflow or the runner is an owner call recorded in the finding.
 
 **Second pass, same range (owner-requested, 2026-08-06):** the working agent
 re-reviewed the range itself (single-agent mode) after the codex dispatch —

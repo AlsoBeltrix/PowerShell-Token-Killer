@@ -54,7 +54,17 @@ artifacts + SHA256SUMS, marked Latest. The stale `v0.2.0-rc.2`/`rc.3`
 drafts were deleted on the same go. First post-release effort, in flight: **artifact signing on both
 platforms** (owner direction 2026-08-07, "get cert … pass smartscreen and
 defender").
-- macOS: **wired 2026-08-07.** The owner's Developer ID identity
+- macOS: **DONE — proven end-to-end 2026-08-07.** Run `31205119195`
+  (`0.2.1-rc.2` dispatch, head `47095f2`): all 18 Mach-Os signed with the
+  owner's Developer ID (log asserts `Authority=Developer ID Application:
+  MICHAEL COELHO`), every gate passed on the signed hardened bits (the
+  entitlements keep the JITting runtime alive), and Apple notarization
+  returned `status: Accepted` (submission `f0ac18a9-…`). The first attempt
+  (`31204854349`) failed only on the authority grep (`-dv` prints no
+  Authority lines; needs `-dvv`), fixed at `47095f2`. The `0.2.1-rc.2`
+  draft on GitHub is proof-run debris, harmless, deletable at will. Every
+  future `v*` tag ships signed+notarized macOS artifacts automatically.
+  Historical wiring detail below. The owner's Developer ID identity
   ("Developer ID Application: MICHAEL COELHO (27R2KCAHN7)", SHA1
   `38549307…`) is verified against the exported `.p12`
   (`~/Dev/certs/songr-developer-id.p12` — one identity signs all the

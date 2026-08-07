@@ -161,6 +161,16 @@ Push policy stays in `.agents/push-policy.md`, not here.
 
 ## Earned Practices
 
+- **Known-broken means pre-authorized (owner, 2026-08-07, blanket).** The
+  owner's words: "assume that if it's broken and we all know it's broken
+  that I need it fixed. don't make me sign off on every fix. blanket: FIX
+  IT." A diagnosed and verified defect needs no per-fix owner go — fix it,
+  guard it, commit it, record it, in the same motion. Still separately
+  gated: tags/publishes and other outward-facing release actions, scope
+  beyond the repair, and fixes that fork an undecided design. Reviewer
+  dispatch is likewise not implied by a fix; it happens on the owner's
+  word or an explicitly recorded cadence.
+
 - **Agent experience leads on model-facing guidance text (owner,
   2026-07-10, sd3-1 adjudication).** ptk's model-visible wording — tool
   descriptions, in-band markers, nudge text, refusal guidance — is

@@ -50,8 +50,19 @@ public enum ToolDisposition
 /// This also removes the text-matching in
 /// <see cref="SupervisorCallFilter"/>: the refusal→<c>isError</c> mapping
 /// used to re-derive from the response text what the supervisor already knew,
-/// which was recorded as deliberately deferred follow-up. It now reads the
-/// disposition directly.
+/// which was recorded as deliberately deferred follow-up. The filter now
+/// leaves every session-tool response alone by tool name (o53-3) — the
+/// verdict, when there is one, is authored here.
+///
+/// Amendment o53-3 (2026-08-07, agent-experience call under the delegated
+/// model-facing-guidance practice): structured content rides only the
+/// responses where PTK has a verdict beyond "the work ran". Clients were
+/// observed rendering <c>structuredContent</c> INSTEAD of the content
+/// blocks, which made every completed call's output invisible in the
+/// primary harness; a completed call is therefore bare text again, absence
+/// of structured content is itself the completed verdict, and the
+/// non-completed verdict object carries a <c>text</c> mirror so those same
+/// clients still see the refusal text and any recovery handle in it.
 /// </remarks>
 public sealed record ToolOutcome(string Text, ToolDisposition Disposition, string? DetailCode = null)
 {
@@ -69,15 +80,32 @@ public sealed record ToolOutcome(string Text, ToolDisposition Disposition, strin
 
     internal CallToolResult ToCallToolResult()
     {
+        // The ordinary case is bare text, exactly as before opr-53. Some
+        // clients render structuredContent INSTEAD of the content blocks
+        // (Claude Code, observed 2026-08-07 — o53-3), and a completed call
+        // whose compressed output is replaced by a three-field verdict is a
+        // broken product in the harness it exists for. Absence IS the
+        // completed verdict: worker output can no more add a structured
+        // field than remove one, so a script printing a fake refusal cannot
+        // un-complete a call. A client that wants PTK's verdict reads
+        // structuredContent when present and treats its absence as "the
+        // work ran; this text is its output."
+        if (Disposition == ToolDisposition.Completed)
+        {
+            return new CallToolResult
+            {
+                Content = [new TextContentBlock { Text = Text }],
+            };
+        }
+
         var structured = new JsonObject
         {
             ["disposition"] = Disposition switch
             {
-                ToolDisposition.Completed => "completed",
                 ToolDisposition.NotStarted => "not_started",
                 ToolDisposition.OutcomeUnknown => "outcome_unknown",
                 ToolDisposition.Failed => "failed",
-                _ => "completed",
+                _ => throw new ArgumentOutOfRangeException(nameof(Disposition)),
             },
             // Says plainly what a caller most needs and most easily gets
             // wrong: whether resubmitting is safe. Only a proved non-start
@@ -87,6 +115,12 @@ public sealed record ToolOutcome(string Text, ToolDisposition Disposition, strin
         };
         if (DetailCode is not null)
             structured["detail"] = DetailCode;
+        // The clients that replace content with structuredContent would
+        // otherwise hide the refusal text and any recovery handle it
+        // carries, so the text travels inside the verdict too. It is
+        // worker-tainted by definition — the verdict fields above, never
+        // this text, are the trustworthy half.
+        structured["text"] = Text;
 
         return new CallToolResult
         {

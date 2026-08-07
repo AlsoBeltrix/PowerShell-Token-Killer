@@ -37,12 +37,14 @@ public sealed class ToolOutcomeTests
             forged,
             Assert.IsType<TextContentBlock>(Assert.Single(result.Content)).Text);
 
-        // And the verdict disagrees with the forgery.
+        // And the verdict disagrees with the forgery: a completed call
+        // carries NO structured content — absence is the completed verdict,
+        // and worker output cannot add a structured field (o53-3). Clients
+        // that render structuredContent instead of text therefore see the
+        // real output here, and a forged refusal cannot conjure the fields
+        // a genuine refusal carries.
         Assert.Null(result.IsError);
-        var structured = Structured(result);
-        Assert.Equal("completed", (string?)structured["disposition"]);
-        Assert.True((bool?)structured["executed"]);
-        Assert.False((bool?)structured["safe_to_resubmit"]);
+        Assert.Null(result.StructuredContent);
     }
 
     /// <summary>
@@ -68,27 +70,37 @@ public sealed class ToolOutcomeTests
     /// <summary>
     /// An unknown outcome is not a proved non-start. Reporting it as an error
     /// would tell a caller nothing ran, which is exactly the resubmission
-    /// hazard this finding is about.
+    /// hazard this finding is about. A completed call carries no structured
+    /// verdict at all (o53-3): clients that prefer structuredContent over
+    /// text would otherwise hide the output of every ordinary call.
     /// </summary>
     [Theory]
-    [InlineData(ToolDisposition.Completed, "completed", true, false, null)]
+    [InlineData(ToolDisposition.Completed, null, true, false, null)]
     [InlineData(ToolDisposition.NotStarted, "not_started", false, true, true)]
     [InlineData(ToolDisposition.OutcomeUnknown, "outcome_unknown", true, false, null)]
     [InlineData(ToolDisposition.Failed, "failed", true, false, null)]
     public void Each_disposition_reports_execution_and_resubmission_honestly(
         ToolDisposition disposition,
-        string expectedName,
+        string? expectedName,
         bool expectedExecuted,
         bool expectedSafeToResubmit,
         bool? expectedIsError)
     {
         var result = new ToolOutcome("text", disposition).ToCallToolResult();
 
+        Assert.Equal(expectedIsError, result.IsError);
+        if (expectedName is null)
+        {
+            Assert.Null(result.StructuredContent);
+            return;
+        }
         var structured = Structured(result);
         Assert.Equal(expectedName, (string?)structured["disposition"]);
         Assert.Equal(expectedExecuted, (bool?)structured["executed"]);
         Assert.Equal(expectedSafeToResubmit, (bool?)structured["safe_to_resubmit"]);
-        Assert.Equal(expectedIsError, result.IsError);
+        // The mirror that keeps refusal text and recovery handles visible to
+        // clients that render structuredContent instead of the text blocks.
+        Assert.Equal("text", (string?)structured["text"]);
     }
 
     /// <summary>
@@ -120,6 +132,10 @@ public sealed class ToolOutcomeTests
         Assert.Equal(expectedDisposition, (string?)structured["disposition"]);
         Assert.Equal(expectedSafeToResubmit, (bool?)structured["safe_to_resubmit"]);
         Assert.Equal(expectedIsError, result.IsError);
+        // The full response text rides inside the verdict (o53-3), so
+        // clients that render structuredContent instead of text still see
+        // the refusal reason.
+        Assert.Equal(outcome.Text, (string?)structured["text"]);
 
         // The text must not contradict the structured verdict.
         Assert.Equal(
@@ -171,12 +187,20 @@ public sealed class ToolOutcomeTests
         var outcome = await operations.InvokeAsync(
             "'x'", CancellationToken.None, false, "pwsh", 30,
             NamedSessionSupervisor.DefaultName, null);
-        var structured = Structured(outcome.ToCallToolResult());
+        var result = outcome.ToCallToolResult();
 
+        Assert.Equal(expectedIsError, result.IsError);
+        if (expectedDisposition == "completed")
+        {
+            // o53-3: completed calls carry no structured verdict, so clients
+            // that render structuredContent instead of text see the output.
+            Assert.Null(result.StructuredContent);
+            return;
+        }
+        var structured = Structured(result);
         Assert.Equal(expectedDisposition, (string?)structured["disposition"]);
         Assert.Equal(expectedExecuted, (bool?)structured["executed"]);
         Assert.Equal(expectedSafeToResubmit, (bool?)structured["safe_to_resubmit"]);
-        Assert.Equal(expectedIsError, outcome.ToCallToolResult().IsError);
     }
 
     /// <summary>

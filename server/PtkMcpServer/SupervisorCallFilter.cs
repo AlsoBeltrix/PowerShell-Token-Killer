@@ -35,7 +35,7 @@ internal static class SupervisorCallFilter
             {
                 var result = await next(request, callCancellation).ConfigureAwait(false)
                     ?? throw new InvalidOperationException("The MCP tool returned no result.");
-                return MarkRefusalAsError(result);
+                return MarkRefusalAsError(request.Params?.Name, result);
             }
         };
 
@@ -52,19 +52,26 @@ internal static class SupervisorCallFilter
     /// A refusal is recognized by the in-band marker the tools already emit;
     /// the text is left exactly as it was, so nothing that parses it breaks.
     /// </summary>
-    internal static CallToolResult MarkRefusalAsErrorForTests(CallToolResult result) =>
-        MarkRefusalAsError(result);
+    internal static CallToolResult MarkRefusalAsErrorForTests(
+        string? toolName,
+        CallToolResult result) =>
+        MarkRefusalAsError(toolName, result);
 
-    private static CallToolResult MarkRefusalAsError(CallToolResult result)
+    private static CallToolResult MarkRefusalAsError(string? toolName, CallToolResult result)
     {
         if (result.IsError == true) return result;
 
-        // opr-53: a tool that reports its own disposition has already spoken,
-        // and it knows what happened rather than inferring it. Never re-derive
-        // a verdict from text for those — the whole point is that worker
-        // output cannot reach this channel, and text matching would let it
-        // back in. A structured result that is not an error is not an error.
-        if (result.StructuredContent is not null) return result;
+        // opr-53/o53-3: the session tools author their own verdict
+        // (ToolOutcome) — and their completed responses deliberately carry
+        // no structured marker, because clients that prefer structured
+        // content over text would hide the output. The gate is therefore
+        // the tool's identity, never the response shape: matching a session
+        // tool's text would let worker output forge the error flag back
+        // into the channel opr-53 removed it from. Text matching exists
+        // only for ptk_output, the one tool that still returns a bare
+        // string, and ptk_output never renders worker output as its own
+        // status line.
+        if (toolName != "ptk_output") return result;
 
         var text = result.Content?
             .OfType<TextContentBlock>()
@@ -92,14 +99,14 @@ internal static class SupervisorCallFilter
     ///   were convenient: `status=not_started` from the supervisor and
     ///   `state=not_found` from the output store were both missed.
     ///
-    /// This path now covers only <c>ptk_output</c>, which still returns a
-    /// bare string. The four session tools carry a
-    /// <see cref="Sessions.ToolOutcome"/> and are answered above without
-    /// looking at text at all (opr-53) — that was the deferred follow-up this
-    /// comment used to promise. <c>ptk_output</c> never renders worker output
-    /// as its own status line, so text matching there cannot be fooled by a
-    /// script the way the invoke channel could; every marker below is still
-    /// pinned by a test.
+    /// This path covers only <c>ptk_output</c>, which still returns a bare
+    /// string — enforced by tool name above, since the four session tools
+    /// carry a <see cref="Sessions.ToolOutcome"/> verdict and their
+    /// completed responses intentionally have no structured marker to
+    /// recognize them by (opr-53, amended by o53-3). <c>ptk_output</c>
+    /// never renders worker output as its own status line, so text matching
+    /// there cannot be fooled by a script the way the invoke channel could;
+    /// every marker below is still pinned by a test.
     /// </summary>
     private static bool IsRefusalText(string text)
     {

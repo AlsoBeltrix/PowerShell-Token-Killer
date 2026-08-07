@@ -26,15 +26,27 @@ without a separate explicit owner go.
 that head, including the whole install rewrite (#42) and the tool-surface
 change (`opr-53`). Slice 7.5 must be re-run per RID before publishing.
 
-**Slice 7.5 re-run status at `935b8b2`:**
+**Slice 7.5 re-run status (all legs CLOSED at `9e1790e`, rc.3 run
+`31184671731`, 2026-08-07):**
 
 | RID | Status |
 |-----|--------|
-| win-x64 | **PASSED 2026-08-06 — 22/22**, real install into an isolated home, including the Defender payload scan and the uninstall check. Full battery green (server 1,185, Pester 114+1 skip, SIEM 226/247 for this host's symlink privilege, deps clean, handshake). |
-| win-arm64 | pending — needs that hardware |
-| linux-x64 | pending |
-| linux-arm64 | pending |
-| osx-arm64 | pending |
+| win-x64 | **PASSED 2026-08-06 — 22/22** by hand at `935b8b2` (real install into an isolated home, Defender + uninstall checks, full battery green), and again in CI at `9e1790e` including the hardened scan-completes check (r806-4). |
+| win-arm64 | **PASSED 2026-08-07 in CI** (run `31184671731`, head `9e1790e`) — full per-RID gate on the native runner, Defender legs included. |
+| linux-x64 | **PASSED 2026-08-07 in CI** (same run). First POSIX run of the gate; see note below on check 13. |
+| linux-arm64 | **PASSED 2026-08-07 in CI** (same run). |
+| osx-arm64 | **PASSED 2026-08-07 in CI** (same run). |
+
+The uninstall leg (`-UninstallHome`) stays outside CI by design — it needs an
+installed home, and the workflow stage has a layout. It was exercised on the
+win-x64 hand-run above.
+
+First rc.3 dispatch (run `31184229338`→canceled-fork, then `31184268679` on
+canonical, head `587b6e5`): both Windows legs passed; all three POSIX legs
+failed on one check — the proof's check 13 asserted the Windows-only `ls`
+alias unconditionally, and POSIX PowerShell ships none. The gate skipped the
+draft, which is the gate working. Fixed platform-conditionally at `ccd6d1d`;
+the re-run above went five-for-five and assembled the `v0.2.0-rc.3` draft.
 
 Three of the plan's 13 checks were hand-run and are now automated into
 `server/direct-product-proof.ps1` (`bc2091c`, `c9598d2`, `935b8b2`): check 10

@@ -11,18 +11,23 @@ short and update it when important repo facts change.
 In flight: **one owner decision, nothing half-done.** The tree is clean, all
 work is committed and pushed, CI was green on all six jobs at `7cd4972`.
 
-**The rc.3 dispatch ran on the owner's go (2026-08-07, run `31184268679`
-on canonical).** Result: both Windows legs PASSED the full per-RID gate —
-including the hardened Defender leg, so hosted runners can scan — and all
-three POSIX legs failed on exactly one check: the proof's check 13 asserted
-the Windows-only `ls → Get-ChildItem` alias unconditionally, and POSIX
-PowerShell deliberately ships no `ls` alias (a clean session binds the
-native `/usr/bin/ls`). A check defect, not a product defect; the gate
-correctly skipped the draft. Fixed platform-conditionally in the proof
-(POSIX asserts the native-application binding), proved locally against both
-observed shapes, and re-dispatched. An earlier dispatch mistakenly landed
-on the `roethlar` fork because `gh` defaults to the `github` remote — run
-canceled, `-R` rule recorded in repo-guidance §Remotes.
+**rc.3 is GREEN: the re-run (`31184671731`, head `9e1790e`) passed all
+five RIDs and assembled the `v0.2.0-rc.3` draft.** Slice 7.5 is closed on
+every leg; the per-RID table in
+`.agents/plans/github-release-packaging.md` owns the record. The first
+dispatch (`31184268679`, head `587b6e5`) proved the gate real: both
+Windows legs passed — including the hardened Defender scan-completes
+check, so hosted runners can scan — and the three POSIX legs correctly
+blocked the draft over the proof's check 13, which asserted the
+Windows-only `ls` alias unconditionally (POSIX ships none; a clean session
+binds the native `/usr/bin/ls`). Check defect, not product defect; fixed
+platform-conditionally at `ccd6d1d`, proved locally against both observed
+shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
+because `gh` defaults to the `github` remote — run canceled, `-R` rule
+recorded in repo-guidance §Remotes.
+
+**Only Decision 5 remains: tag `v0.2.0` and publish — terminal and
+owner-only.** Do not tag or push a `v*` ref without an explicit go.
 
 **What closed this session (release-gate work, after `opr-53`):**
 

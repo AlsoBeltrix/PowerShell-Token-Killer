@@ -116,6 +116,56 @@ jobs:
             -Rid ${{ matrix.rid }} `
             -Version ${{ steps.version.outputs.version }}
 
+      # Every Mach-O in the payload is Developer ID-signed with hardened
+      # runtime BEFORE any gate runs, so the smoke test and product proof
+      # below exercise the exact signed bits that ship — including that the
+      # entitlements keep the JITting .NET runtime alive under hardening.
+      # The identity lives only in a throwaway keychain; Apple's G2
+      # intermediate is imported alongside it because codesign refuses an
+      # identity whose chain cannot validate (the exact failure first hit on
+      # the dev machine).
+      - name: Sign the macOS payload
+        if: startsWith(matrix.rid, 'osx-')
+        shell: bash
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$MACOS_CERT_P12_BASE64" ]; then
+            echo "MACOS_CERT_P12_BASE64 secret is missing; macOS release artifacts must be signed" >&2
+            exit 1
+          fi
+          KC="$RUNNER_TEMP/ptk-sign.keychain-db"
+          KCPW=$(uuidgen)
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          echo "$MACOS_CERT_P12_BASE64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$MACOS_CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          curl -sSL -o "$RUNNER_TEMP/DeveloperIDG2CA.cer" https://www.apple.com/certificateauthority/DeveloperIDG2CA.cer
+          security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KCPW" "$KC" > /dev/null
+          security list-keychains -d user -s "$KC" login.keychain
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | awk 'NR==1 {print $2}')
+          if [ -z "$IDENTITY" ]; then
+            echo "no valid signing identity found in the imported certificate" >&2
+            exit 1
+          fi
+          find out/ptk/bin -type f -print0 | while IFS= read -r -d '' f; do
+            t=$(file -b "$f")
+            case "$t" in
+              *Mach-O*executable*)
+                codesign --force --sign "$IDENTITY" --timestamp --options runtime \
+                  --entitlements server/macos-signing-entitlements.plist "$f" ;;
+              *Mach-O*)
+                codesign --force --sign "$IDENTITY" --timestamp --options runtime "$f" ;;
+            esac
+          done
+          codesign --verify --strict -v out/ptk/bin/PtkMcpServer
+          codesign -dv out/ptk/bin/PtkMcpServer 2>&1 | grep "Developer ID Application"
+
       - name: Smoke-test the packaged server
         shell: pwsh
         run: |
@@ -185,6 +235,45 @@ jobs:
             throw "refusal message did not name PTK_RTK_PATH. stderr: $text"
           }
           Write-Host "Startup gate ok: exit 78, message names PTK_RTK_PATH"
+
+      # Notarization is Apple's malware-scan-and-ticket service; Gatekeeper
+      # consults it online when a user runs a browser-downloaded copy. Bare
+      # executables in a tarball cannot carry a stapled ticket, so acceptance
+      # is recorded on Apple's side — the zip below exists only as the
+      # submission envelope and is discarded. notarytool's exit code does not
+      # reliably reflect the verdict, so acceptance is asserted from the
+      # output and the failure log is fetched when it is anything else.
+      - name: Notarize the macOS payload
+        if: startsWith(matrix.rid, 'osx-')
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "$APPLE_ID" ]; then
+            echo "APPLE_ID secret is missing; the macOS release artifact must be notarized" >&2
+            exit 1
+          fi
+          ditto -c -k --keepParent out/ptk "$RUNNER_TEMP/ptk-notarize.zip"
+          SUBMIT_OUT=$(xcrun notarytool submit "$RUNNER_TEMP/ptk-notarize.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait --timeout 30m 2>&1) || true
+          echo "$SUBMIT_OUT"
+          if ! echo "$SUBMIT_OUT" | grep -q 'status: Accepted'; then
+            SUBMISSION_ID=$(echo "$SUBMIT_OUT" | awk '/^  id: / {print $2; exit}')
+            if [ -n "$SUBMISSION_ID" ]; then
+              xcrun notarytool log "$SUBMISSION_ID" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID" || true
+            fi
+            echo "notarization was not accepted" >&2
+            exit 1
+          fi
 
       - name: Archive
         id: archive

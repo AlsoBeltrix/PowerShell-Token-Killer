@@ -51,14 +51,25 @@ publish):**
 https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/tag/v0.2.0
 — tagged at `3a9cbeb`, tag run `31197966252` green on all five RIDs, five
 artifacts + SHA256SUMS, marked Latest. The stale `v0.2.0-rc.2`/`rc.3`
-drafts were deleted on the same go. First post-release effort, queued: **artifact signing on both
+drafts were deleted on the same go. First post-release effort, in flight: **artifact signing on both
 platforms** (owner direction 2026-08-07, "get cert … pass smartscreen and
 defender").
-- macOS: Developer ID signing + notarization — the owner has an Apple
-  developer account; blocked on their cert + CI secrets, then the
-  osx-arm64 release job gains the signing step. Not required for function
-  (script installs never quarantine; .NET ad-hoc signing satisfies Apple
-  Silicon) — it removes the browser-download Gatekeeper block.
+- macOS: **wired 2026-08-07.** The owner's Developer ID identity
+  ("Developer ID Application: MICHAEL COELHO (27R2KCAHN7)", SHA1
+  `38549307…`) is verified against the exported `.p12`
+  (`~/Dev/certs/songr-developer-id.p12` — one identity signs all the
+  owner's apps; the songr naming is cosmetic). Four secrets are set on
+  canonical (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`,
+  `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`); **`APPLE_ID` (the
+  owner's Apple-account email) is the one missing piece**, then a
+  dispatch proves sign+notarize end-to-end. The release workflow signs
+  every Mach-O before the gates (so the gates exercise signed bits, incl.
+  that the .NET entitlements keep the hardened runtime alive) and
+  notarizes after them, asserting `status: Accepted` from output because
+  notarytool's exit code is unreliable. Local-machine lesson recorded: a
+  Developer ID identity is invalid to codesign until Apple's G2
+  intermediate is present — the CI step imports it into its throwaway
+  keychain for that reason.
 - Windows: Authenticode signing for SmartScreen reputation and heuristic
   false-positive hardening. Awaiting the owner's choice of signing path
   (Azure Trusted Signing recommended vs. classic CA cert); then the win

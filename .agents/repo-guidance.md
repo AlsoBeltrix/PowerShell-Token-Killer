@@ -118,7 +118,15 @@ throwaway home — never the operator's real `~/.ptk`. Install into an isolated 
 Release artifacts are built by `.github/workflows/release.yml` on a `v*` tag
 or `workflow_dispatch`. It builds each of the five RIDs on its own native
 runner, smoke-tests and RTK-gate-proves every artifact there, and assembles a
-**draft** release only — publishing is an owner action. There is one public
+**draft** release only — publishing is an owner action. The osx-arm64 leg
+additionally Developer ID-signs every Mach-O (hardened runtime; executables
+get `server/macos-signing-entitlements.plist` — the JITting .NET runtime
+dies under hardening without it) **before** the gates run, then notarizes
+the payload after them; both steps fail closed when the five signing
+secrets (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `APPLE_ID`,
+`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) are absent. Bare
+executables in a tarball cannot carry a stapled ticket, so notarization
+acceptance lives on Apple's side and Gatekeeper checks it online. There is one public
 installer, `scripts/install.ps1` (`3109ec1`, 2026-08-04); the former root
 `install.ps1`/`install.sh` pair was consolidated into it and deleted.
 

@@ -73,10 +73,22 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
                     // started; neither is safe to blind-retry.
                     WorkerResultStatus.Canceled => ToolDisposition.OutcomeUnknown,
                     WorkerResultStatus.TimedOut => ToolDisposition.OutcomeUnknown,
-                    WorkerResultStatus.Failed =>
-                        invocation.Result.DetailCode == "outcome_unknown"
-                            ? ToolDisposition.OutcomeUnknown
-                            : ToolDisposition.Completed,
+                    WorkerResultStatus.Failed => invocation.Result.DetailCode switch
+                    {
+                        "outcome_unknown" => ToolDisposition.OutcomeUnknown,
+                        // A script that ran and threw is a completed call:
+                        // what it concluded is its own business.
+                        "execution_failed" => ToolDisposition.Completed,
+                        // operation_failed, invalid_operation_result, and
+                        // any detail a future producer invents reach here
+                        // from the scheduler's defensive paths, where the
+                        // failure can predate the pipeline ever starting.
+                        // PTK cannot show the work ran, so fail toward
+                        // uncertainty — the old fallback claimed completed
+                        // while the text of the same response said
+                        // status=failed (r806-5).
+                        _ => ToolDisposition.OutcomeUnknown,
+                    },
                     _ => ToolDisposition.Completed,
                 },
                 invocation.Result.DetailCode);

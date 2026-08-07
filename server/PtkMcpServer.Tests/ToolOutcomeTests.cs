@@ -143,6 +143,14 @@ public sealed class ToolOutcomeTests
     [InlineData(nameof(WorkerResultStatus.Failed), "outcome_unknown", "outcome_unknown", true, false, null)]
     // A script that ran and threw is a completed call whatever it concluded.
     [InlineData(nameof(WorkerResultStatus.Failed), "execution_failed", "completed", true, false, null)]
+    // r806-5: scheduler-level failures are not script conclusions — the
+    // exception can predate the pipeline ever starting, so claiming
+    // completed contradicts the same response's status=failed text. Every
+    // Failed detail outside the enumerated two maps to outcome_unknown,
+    // including details no current producer emits.
+    [InlineData(nameof(WorkerResultStatus.Failed), "operation_failed", "outcome_unknown", true, false, null)]
+    [InlineData(nameof(WorkerResultStatus.Failed), "invalid_operation_result", "outcome_unknown", true, false, null)]
+    [InlineData(nameof(WorkerResultStatus.Failed), "detail_no_producer_emits_yet", "outcome_unknown", true, false, null)]
     public async Task A_worker_reported_non_start_is_not_reported_as_executed(
         // Passed by name: WorkerResultStatus is internal, so a public test
         // signature cannot name it directly.

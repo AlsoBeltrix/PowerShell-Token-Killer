@@ -93,24 +93,27 @@ public sealed class ToolOutcomeTests
 
     /// <summary>
     /// A refusal raised AFTER the operation began must not claim it is safe
-    /// to resubmit. Close and reset raise <c>descendants_unknown</c> once
-    /// containment could not be confirmed, which is after the worker was
-    /// acted on — telling a caller "nothing ran" there invites repeating an
-    /// operation whose effects already landed, which is the very hazard
-    /// opr-53 is about.
+    /// to resubmit — and a preflight refusal that touched nothing must not
+    /// claim the operation began. The stage travels on the exception, never
+    /// classified from the detail string: <c>descendants_unknown</c> is
+    /// raised at both stages, so the same detail must map both ways
+    /// (r806-1).
     /// </summary>
     [Theory]
-    [InlineData("descendants_unknown", "outcome_unknown", false, null)]
-    [InlineData("session_not_found", "not_started", true, true)]
-    [InlineData("session_busy", "not_started", true, true)]
+    [InlineData("descendants_unknown", true, "outcome_unknown", false, null)]
+    [InlineData("descendants_unknown", false, "not_started", true, true)]
+    [InlineData("session_not_found", false, "not_started", true, true)]
+    [InlineData("session_busy", false, "not_started", true, true)]
     public void A_refusal_after_the_work_began_is_not_safe_to_resubmit(
         string detailCode,
+        bool operationBegan,
         string expectedDisposition,
         bool expectedSafeToResubmit,
         bool? expectedIsError)
     {
         var outcome = WorkerSupervisor.RefusedForTests(
-            "session", "alpha", detailCode, "Containment is unconfirmed.");
+            "session", "alpha", detailCode, "Containment is unconfirmed.",
+            operationBegan);
         var result = outcome.ToCallToolResult();
 
         var structured = Structured(result);
@@ -169,6 +172,52 @@ public sealed class ToolOutcomeTests
     }
 
     /// <summary>
+    /// Finding r806-1, end to end: after a reset leaves containment
+    /// unconfirmed, the NEXT reset stops at the trusted preflight having
+    /// touched nothing. Reporting that preflight refusal as
+    /// "executed/outcome unknown" denies the caller a retry that is actually
+    /// safe — PTK stating a false verdict in the channel a client is told to
+    /// trust. The post-action refusal one call earlier must keep reporting
+    /// outcome_unknown; only the stage differs, the detail code is the same.
+    /// </summary>
+    [Fact]
+    public async Task A_preflight_containment_refusal_is_a_proved_non_start()
+    {
+        var operations = (ISessionOperations)new WorkerSupervisor(
+            new NamedSessionSupervisor(
+                () => new StatusWorkerFactory(
+                    WorkerResultStatus.Completed,
+                    detailCode: null,
+                    containmentUnconfirmedOnStop: true),
+                startupTimeout: TimeSpan.FromSeconds(5),
+                containmentGrace: TimeSpan.FromSeconds(1)));
+
+        _ = await operations.InvokeAsync(
+            "'x'", CancellationToken.None, false, "pwsh", 30,
+            NamedSessionSupervisor.DefaultName, null);
+
+        // The reset stops the worker and containment comes back unconfirmed:
+        // this operation acted, so outcome_unknown is the truth.
+        var acted = await operations.ResetAsync(
+            NamedSessionSupervisor.DefaultName, CancellationToken.None);
+        var actedStructured = Structured(acted.ToCallToolResult());
+        Assert.Equal("outcome_unknown", (string?)actedStructured["disposition"]);
+        Assert.Equal("descendants_unknown", (string?)actedStructured["detail"]);
+
+        // The next reset is refused by the preflight before anything is
+        // touched: a proved non-start, safe to resubmit.
+        var preflight = await operations.ResetAsync(
+            NamedSessionSupervisor.DefaultName, CancellationToken.None);
+        var result = preflight.ToCallToolResult();
+        var structured = Structured(result);
+        Assert.Equal("descendants_unknown", (string?)structured["detail"]);
+        Assert.Equal("not_started", (string?)structured["disposition"]);
+        Assert.False((bool?)structured["executed"]);
+        Assert.True((bool?)structured["safe_to_resubmit"]);
+        Assert.True(result.IsError);
+    }
+
+    /// <summary>
     /// Round-trips the structured payload through JSON, so the assertions
     /// check what a client actually receives on the wire rather than an
     /// in-process object a client never sees.
@@ -182,7 +231,8 @@ public sealed class ToolOutcomeTests
     /// <summary>A worker that returns one chosen result status normally.</summary>
     private sealed class StatusWorkerFactory(
         WorkerResultStatus status,
-        string? detailCode) : ISessionWorkerFactory
+        string? detailCode,
+        bool containmentUnconfirmedOnStop = false) : ISessionWorkerFactory
     {
         public Task<ISessionWorker> StartAsync(
             Guid sessionId,
@@ -190,16 +240,24 @@ public sealed class ToolOutcomeTests
             DateTimeOffset deadlineUtc,
             CancellationToken cancellationToken) =>
             Task.FromResult<ISessionWorker>(
-                new StatusWorker(sessionId, incarnation, status, detailCode));
+                new StatusWorker(
+                    sessionId,
+                    incarnation,
+                    status,
+                    detailCode,
+                    containmentUnconfirmedOnStop));
     }
 
     private sealed class StatusWorker(
         Guid sessionId,
         long incarnation,
         WorkerResultStatus status,
-        string? detailCode) : ISessionWorker
+        string? detailCode,
+        bool containmentUnconfirmedOnStop = false) : ISessionWorker
     {
         private readonly TaskCompletionSource _fatal =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _containment =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public int ProcessId => 47101;
@@ -207,7 +265,9 @@ public sealed class ToolOutcomeTests
         public long Incarnation => incarnation;
         public bool IsTransportUsable => true;
         public Task Fatal => _fatal.Task;
-        public Task ContainmentEmpty => Task.CompletedTask;
+        public Task ContainmentEmpty => containmentUnconfirmedOnStop
+            ? _containment.Task
+            : Task.CompletedTask;
 
         public Task<SessionWorkerInvocation> InvokeAsync(
             string script,
@@ -239,7 +299,9 @@ public sealed class ToolOutcomeTests
         public Task<WorkerContainmentResult> StopAsync(
             WorkerContainmentReason reason,
             CancellationToken cancellationToken) =>
-            Task.FromResult(WorkerContainmentResult.Confirmed());
+            Task.FromResult(containmentUnconfirmedOnStop
+                ? WorkerContainmentResult.Unknown("descendants_unknown")
+                : WorkerContainmentResult.Confirmed());
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }

@@ -30,13 +30,28 @@ internal sealed record NamedSessionInvokeResult(
 
 internal sealed class NamedSessionException : InvalidOperationException
 {
-    internal NamedSessionException(string detailCode, string message)
+    internal NamedSessionException(
+        string detailCode,
+        string message,
+        bool operationBegan = false)
         : base(message)
     {
         DetailCode = detailCode;
+        OperationBegan = operationBegan;
     }
 
     internal string DetailCode { get; }
+
+    /// <summary>
+    /// True when the refused operation had already acted on the worker
+    /// before failing. Carried as data because the detail code cannot say:
+    /// <c>descendants_unknown</c> is raised both after a stop left
+    /// containment unconfirmed (the operation began) and by the preflight
+    /// that refuses the NEXT operation before it touches anything (a proved
+    /// non-start) — classifying by detail string reported the preflight
+    /// refusal as an operation that began (r806-1).
+    /// </summary>
+    internal bool OperationBegan { get; }
 }
 
 /// <summary>
@@ -764,7 +779,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             completion.TrySetException(
                 new NamedSessionException(
                     "descendants_unknown",
-                    $"Session '{slot.Name}' containment is unconfirmed."));
+                    $"Session '{slot.Name}' containment is unconfirmed.",
+                    operationBegan: true));
             return false;
         }
 

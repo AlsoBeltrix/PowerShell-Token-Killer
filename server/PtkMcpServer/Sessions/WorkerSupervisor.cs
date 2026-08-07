@@ -270,8 +270,12 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         string operation,
         string? session,
         string detailCode,
-        string message) =>
-        Refused(operation, session, new NamedSessionException(detailCode, message));
+        string message,
+        bool operationBegan = false) =>
+        Refused(
+            operation,
+            session,
+            new NamedSessionException(detailCode, message, operationBegan));
 
     private static string FormatInvocation(NamedSessionInvokeResult invocation)
     {
@@ -471,30 +475,20 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             ToolDisposition.NotStarted,
             "session_name_required");
 
-    /// <summary>
-    /// Detail codes a <see cref="NamedSessionException"/> can carry that do
-    /// NOT mean "nothing happened".
-    /// </summary>
-    /// <remarks>
-    /// Most of these are raised before anything is touched — an unknown name,
-    /// a busy session, a bad name — and for those "Nothing was executed" and
-    /// <c>safe_to_resubmit</c> are both true. <c>descendants_unknown</c> is
-    /// different: close and reset raise it AFTER acting on the worker, when
-    /// containment could not be confirmed
-    /// (<c>NamedSessionSupervisor.CloseSlotAsync</c>). Reporting that as a
-    /// proved non-start would invite a caller to retry an operation whose
-    /// effects already landed — the same resubmission hazard opr-53 is about,
-    /// arriving through the structured channel this time.
-    /// </remarks>
-    private static readonly HashSet<string> StartedDetailCodes =
-        new(["descendants_unknown"], StringComparer.Ordinal);
-
     private static ToolOutcome Refused(
         string operation,
         string? session,
         NamedSessionException exception)
     {
-        var started = StartedDetailCodes.Contains(exception.DetailCode);
+        // Whether the refused operation had already acted on the worker is
+        // carried on the exception by its throw site, never classified from
+        // the detail string: `descendants_unknown` is raised both after a
+        // stop left containment unconfirmed (the operation began) and by the
+        // preflight that refuses the NEXT operation before it touches
+        // anything (a proved non-start). A detail-code set reported the
+        // preflight refusal as "already begun" — a false verdict in the
+        // trusted channel, the opr-53 hazard again (r806-1).
+        var started = exception.OperationBegan;
         // The trailing claim has to match the disposition. "Nothing was
         // executed" was already wrong for descendants_unknown before this
         // change; now that the same judgement drives safe_to_resubmit, a

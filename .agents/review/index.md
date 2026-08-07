@@ -64,7 +64,20 @@ data. r806-3 and r806-4 sit in the release gate itself and bear on the
 pending `0.2.0-rc.3` dispatch: -3 is the destructive-refusal boundary, -4
 means the new per-RID gate's Windows Defender leg can pass vacuously.
 
-## Closed — o53 (opr-53 forgeable control lines, 2026-08-06)
+## Closed — o53 (opr-53 forgeable control lines, 2026-08-06; o53-3 added 2026-08-07)
+
+**o53-3 (HIGH, field-reported + reproduced firsthand 2026-08-07):** clients
+that prefer `structuredContent` over text — Claude Code, the primary
+harness — rendered every completed call as the three-field verdict JSON,
+hiding all output and recovery handles. Fixed same day under the owner's
+delegated design call: completed responses are bare text again (absence is
+the completed verdict), non-completed responses keep the verdict plus a
+`text` mirror, and the call filter's text matcher is gated to `ptk_output`
+by tool identity. Detail and guard proofs:
+`.agents/review/findings/o53-3.md`. The durable lesson extends the o53
+record: a trusted channel is only trustworthy if the primary consumer can
+still see the product around it — verify new protocol surfaces against the
+real harnesses that read them, not only against the wire.
 
 Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,
 over `d440234..11eafee`. Verdict `findings` (2), capability_ok true, SHAs

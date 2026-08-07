@@ -5,6 +5,23 @@ short and update it when important repo facts change.
 
 ## Now
 
+**o53-3 (HIGH, 2026-08-07): the opr-53 structured verdict hid all output in
+Claude Code.** Field-reported ("returns output only via handles now") and
+reproduced firsthand: CC renders `structuredContent` INSTEAD of text, so
+every completed `ptk_invoke` showed only the verdict JSON — no output, no
+recovery handles. Fixed same day under the owner's explicitly delegated
+design call ("This is consumed by agents. You're an agent. What do YOU
+need?"): completed responses are bare text again and absence is the
+completed verdict; non-completed responses keep the structured verdict plus
+a full `text` mirror; the call filter's text matcher is gated to
+`ptk_output` by tool identity so worker text cannot forge `isError` back.
+Guard-proved by two sabotages; finding record
+`.agents/review/findings/o53-3.md`. **This host's `~/.ptk` was repaired by
+the owner the same day** (killed all ptk processes, reinstalled) — the old
+nested-payload caveat is history. Rendering confirmation needs one MCP
+reconnect after the owner reinstalls the fixed build. The rc.3 draft also
+predates this fix — a fresh draft is needed before tagging.
+
 **Handoff 2026-08-06, head `46f8254`. Owner ruled the next release is
 `v0.2.0` (not 1.0).**
 

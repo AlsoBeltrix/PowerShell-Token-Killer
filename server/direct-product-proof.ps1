@@ -193,9 +193,22 @@ try {
 $c = Get-Command ls
 "{0}|{1}|{2}" -f $c.CommandType, $c.Definition, $c.ResolvedCommand.Source
 '@
-    Report 'exposes the shipped ls alias' `
-        ($alias -match 'Alias\|Get-ChildItem\|Microsoft\.PowerShell\.Management') `
-        ($alias -split "`n")[0]
+    if ($IsWindows) {
+        Report 'exposes the shipped ls alias' `
+            ($alias -match 'Alias\|Get-ChildItem\|Microsoft\.PowerShell\.Management') `
+            ($alias -split "`n")[0]
+    }
+    else {
+        # POSIX PowerShell deliberately ships no ls alias: a clean session
+        # binds ls to the native application, and an alias or function here
+        # means the session drifted. The unconditional Windows assertion
+        # above failed all three POSIX legs of the first per-RID gate run
+        # (rc.3, run 31184268679) -- the check was authored on the win-x64
+        # leg and had never executed on POSIX.
+        Report 'binds ls to the native ls application' `
+            ($alias -match 'Application\|/(usr/)?bin/ls\|') `
+            ($alias -split "`n")[0]
+    }
 
     # Compared as a string: the preference is an enum the shaper renders as
     # an object, so a naive -match on the raw response reads the type name.

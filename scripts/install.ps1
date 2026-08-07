@@ -733,12 +733,20 @@ function Invoke-PtkPackageSmoke {
     Write-Host ('  Local smoke test: starts the packaged server and two throwaway ' +
         'PowerShell worker processes to prove session isolation. No network, no ' +
         'external services.')
-    & ([Environment]::ProcessPath) -NoProfile -File $handshake `
+    # Tee rather than pipe straight to Out-Host: on failure the child's
+    # diagnosis (the HANDSHAKE FAILED: line, server stderr) must travel in
+    # the thrown error. A -FromRelease rollback removes the staged tree, so
+    # an error that names only the binary path leaves nothing to re-test by
+    # hand (GitHub #43, secondary).
+    $handshakeOutput = & ([Environment]::ProcessPath) -NoProfile -File $handshake `
         -ServerCommand $BinaryPath `
-        -TimeoutSec 90 |
-        Out-Host
+        -TimeoutSec 90 2>&1 |
+        ForEach-Object { $_ | Out-Host; $_ }
     if ($LASTEXITCODE -ne 0) {
-        throw "Package handshake failed for $BinaryPath"
+        $tail = @($handshakeOutput |
+            ForEach-Object { "$_" } |
+            Select-Object -Last 25) -join "`n"
+        throw "Package handshake failed for ${BinaryPath}:`n$tail"
     }
 }
 

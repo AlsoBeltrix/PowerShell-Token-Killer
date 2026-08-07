@@ -126,7 +126,14 @@ the payload after them; both steps fail closed when the five signing
 secrets (`MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `APPLE_ID`,
 `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) are absent. Bare
 executables in a tarball cannot carry a stapled ticket, so notarization
-acceptance lives on Apple's side and Gatekeeper checks it online. There is one public
+acceptance lives on Apple's side and Gatekeeper checks it online. Both
+`win-x64` and `win-arm64` legs Azure Trusted Signing-sign every `.exe`/
+`.dll` before the gates run, via the `github-signing` app registration
+(client-secret auth, no OIDC step; scoped to only the Certificate Profile
+Signer role on the signing account) and the `public-trust` certificate
+profile under account `roethlar-app-signing`
+(`AZURE_TENANT_ID`/`AZURE_CLIENT_ID`/`AZURE_CLIENT_SECRET`/
+`AZURE_SIGNING_ENDPOINT`/`AZURE_SIGNING_ACCOUNT` secrets). There is one public
 installer, `scripts/install.ps1` (`3109ec1`, 2026-08-04); the former root
 `install.ps1`/`install.sh` pair was consolidated into it and deleted.
 

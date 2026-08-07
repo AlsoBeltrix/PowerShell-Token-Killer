@@ -54,8 +54,16 @@ Trap: the `v0.2.0-rc.3` draft was assembled at `9e1790e`, before these
 fixes — a `-FromRelease` install of rc.3 on that host still carries the
 old gate and will still fail. Re-test from the repo at head (or cut a
 fresh rc if a release-artifact test is wanted there). The eventual
-`v0.2.0` tag builds from its own commit, so tagging at/after `b811f05`
+`v0.2.0` tag builds from its own commit, so tagging at/after `a0a2517`
 picks the fixes up automatically.
+Round 2 (2026-08-07): the owner's re-run from head passed every
+previously failing gate — first fix confirmed on real classic-delete
+NTFS — then failed the hard-kill leg's OWN raw live artifact count,
+a fourth site the first sweep missed. Fixed in `a0a2517`: the probe is
+now one helper (`Test-LiveArtifactEntry`) used by both live-phase
+counts; a full-script sweep shows no other artifact-name counts except
+the two post-exit ones, raw on purpose. Still open pending one more
+Server 2019 install run from `a0a2517`+.
 
 **What closed this session (release-gate work, after `opr-53`):**
 

@@ -95,6 +95,14 @@ artifact. #43 is CLOSED 2026-08-07 on the owner's
 verification: the install completes on the reporting Server 2019 host
 from master at head.**
 
+**#44 (filed 2026-08-07, from live failure):** long silent `ptk_invoke`
+calls die at the *client's* MCP idle timeout (no progress heartbeat from
+ptk, so `timeoutSeconds` is silently capped by the harness), and the
+abandoned call keeps the worker busy, wedging the session queue. Fix
+direction in the issue: periodic MCP progress notifications during
+execution + honoring client cancellation. Queued behind the signing
+effort. Not rtk-related.
+
 **#30's on-prem Exchange leg is SCHEDULED (2026-08-07): the owner will run
 it on an Exchange-capable machine this repo cannot reach.** The owner-run
 procedure is `docs/exchange-onprem-acceptance.md` — setup, a paste-block

@@ -218,6 +218,37 @@ public sealed class ToolOutcomeTests
     }
 
     /// <summary>
+    /// Finding r806-2: a reset stops the old worker and destroys warm state
+    /// BEFORE starting its replacement. When the replacement fails to start,
+    /// reporting the reset as a non-start tells the caller its warm state
+    /// survives and a blind retry is safe — false on both counts, in the
+    /// trusted channel.
+    /// </summary>
+    [Fact]
+    public async Task A_failed_replacement_start_is_not_reported_as_a_non_start()
+    {
+        var operations = (ISessionOperations)new WorkerSupervisor(
+            new NamedSessionSupervisor(
+                () => new FailingSecondStartFactory(),
+                startupTimeout: TimeSpan.FromSeconds(5),
+                containmentGrace: TimeSpan.FromSeconds(1)));
+
+        _ = await operations.InvokeAsync(
+            "'x'", CancellationToken.None, false, "pwsh", 30,
+            NamedSessionSupervisor.DefaultName, null);
+
+        var outcome = await operations.ResetAsync(
+            NamedSessionSupervisor.DefaultName, CancellationToken.None);
+        var result = outcome.ToCallToolResult();
+        var structured = Structured(result);
+        Assert.Equal("worker_start_failed", (string?)structured["detail"]);
+        Assert.Equal("outcome_unknown", (string?)structured["disposition"]);
+        Assert.True((bool?)structured["executed"]);
+        Assert.False((bool?)structured["safe_to_resubmit"]);
+        Assert.Null(result.IsError);
+    }
+
+    /// <summary>
     /// Round-trips the structured payload through JSON, so the assertions
     /// check what a client actually receives on the wire rather than an
     /// in-process object a client never sees.
@@ -226,6 +257,30 @@ public sealed class ToolOutcomeTests
     {
         var element = Assert.NotNull(result.StructuredContent);
         return Assert.IsType<JsonObject>(JsonNode.Parse(element.GetRawText()));
+    }
+
+    /// <summary>
+    /// First start yields a healthy worker whose stop confirms containment;
+    /// every later start throws — the reset's replacement-start failure.
+    /// </summary>
+    private sealed class FailingSecondStartFactory : ISessionWorkerFactory
+    {
+        private int _starts;
+
+        public Task<ISessionWorker> StartAsync(
+            Guid sessionId,
+            long incarnation,
+            DateTimeOffset deadlineUtc,
+            CancellationToken cancellationToken) =>
+            Interlocked.Increment(ref _starts) == 1
+                ? Task.FromResult<ISessionWorker>(
+                    new StatusWorker(
+                        sessionId,
+                        incarnation,
+                        WorkerResultStatus.Completed,
+                        detailCode: null))
+                : throw new InvalidOperationException(
+                    "The replacement worker did not start.");
     }
 
     /// <summary>A worker that returns one chosen result status normally.</summary>

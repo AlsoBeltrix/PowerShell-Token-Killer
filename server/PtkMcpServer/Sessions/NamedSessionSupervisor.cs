@@ -534,7 +534,12 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
         long incarnation,
         TaskCompletionSource<NamedSessionSnapshot> completion,
         bool removeOnPrelaunchFailure,
-        bool clearFailureOnSuccess)
+        bool clearFailureOnSuccess,
+        // True when this start replaces a worker the same operation already
+        // stopped (reset/recovery): a failure here must not surface as a
+        // non-start, because the operation's destructive half has landed
+        // (r806-2). A cold open passes false — nothing ran, retry is safe.
+        bool operationBegan = false)
     {
         ISessionWorker? worker = null;
         try
@@ -586,7 +591,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
                 completion.TrySetException(
                     new NamedSessionException(
                         "stale_session_transition",
-                        "A late worker start cannot mutate a replaced session."));
+                        "A late worker start cannot mutate a replaced session.",
+                        operationBegan));
                 return;
             }
 
@@ -631,7 +637,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             completion.TrySetException(
                 new NamedSessionException(
                     StartFailureCode(exception),
-                    $"Session '{slot.Name}' did not start."));
+                    $"Session '{slot.Name}' did not start.",
+                    operationBegan));
         }
         finally
         {
@@ -669,7 +676,8 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
                 completion.TrySetException(
                     new NamedSessionException(
                         "stale_session_transition",
-                        "A stale reset cannot replace a newer session."));
+                        "A stale reset cannot replace a newer session.",
+                        operationBegan: true));
                 return;
             }
             slot.Worker = null;
@@ -684,7 +692,10 @@ internal sealed class NamedSessionSupervisor : IAsyncDisposable
             completion,
             removeOnPrelaunchFailure: false,
             clearFailureOnSuccess:
-                reason == WorkerContainmentReason.Reset).ConfigureAwait(false);
+                reason == WorkerContainmentReason.Reset,
+            // The old worker is already stopped and warm state is gone: a
+            // replacement-start failure is not a non-start of the reset.
+            operationBegan: true).ConfigureAwait(false);
     }
 
     private async Task RecoverSlotAsync(

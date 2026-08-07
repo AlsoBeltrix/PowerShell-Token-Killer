@@ -26,8 +26,22 @@ shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
 because `gh` defaults to the `github` remote — run canceled, `-R` rule
 recorded in repo-guidance §Remotes.
 
-**Only Decision 5 remains: tag `v0.2.0` and publish — terminal and
-owner-only.** Do not tag or push a `v*` ref without an explicit go.
+**Remaining: Decision 5 (tag `v0.2.0` and publish — terminal, owner-only;
+never tag or push a `v*` ref without an explicit go) and the new #43.**
+
+**#43 (filed by the owner 2026-08-07, verified against the code the same
+day): install fails on Windows Server 2019 because the handshake's
+`Assert-LiveOutputRoot` counts a delete-pending artifact name.** Classic
+NTFS keeps a deleted-but-open name enumerable; the product primitive
+documents exactly that (`SecureAuditStorage.cs:176-179`) and gates its own
+namespace check off Windows, but the test helper asserts raw counts
+(`server/test-handshake.ps1:185`, used at `:601`/`:728`/`:822`). A
+test-gate portability defect, not a product regression — the issue itself
+proves containment holds on that host. Secondary: `scripts/install.ps1:740`
+throws away the handshake's failing line. Verification constraint: neither
+this macOS host nor CI's `windows-latest` (Server 2022, POSIX-delete
+default) reproduces classic delete-pending — the end-to-end proof is an
+install re-run on the reporting Server 2019 host, an owner action.
 
 **What closed this session (release-gate work, after `opr-53`):**
 

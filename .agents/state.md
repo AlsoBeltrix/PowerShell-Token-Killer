@@ -125,9 +125,18 @@ a *false* verdict in the new trusted channel, which is the same mistake as
 the original finding one layer in. `.agents/review/index.md` §o53 owns that
 lesson.
 
-**No known code work remains.** Every open GitHub issue is gated on
-hardware (#40), the owner (#30), or Microsoft (#7). Decision 5 — tag
-`v0.2.0` and publish — is terminal and owner-only.
+**Active review loop (2026-08-06): `.agents/review/index.md` §r806.** The
+owner-requested codereview pass over the day's commits admitted four
+findings, reopening code work: r806-1/-2 (false structured verdicts on the
+preflight-refusal and failed-replacement-reset paths — the o53 lesson at two
+more sites), r806-3 (the uninstall refusal accepts sibling-prefixed homes),
+and r806-4 (the Defender release-gate leg passes when no scan ran). r806-3
+and r806-4 bear on the pending `0.2.0-rc.3` dispatch — fixing them first is
+recommended so the rc proves a non-vacuous gate. Fixes await the owner's go.
+
+Otherwise every open GitHub issue is gated on hardware (#40), the owner
+(#30), or Microsoft (#7). Decision 5 — tag `v0.2.0` and publish — is
+terminal and owner-only.
 
 **Next action:** get the owner's go for the `workflow_dispatch`
 (`0.2.0-rc.3`) described in `## Now`. If it passes, four of the five Slice

@@ -1,5 +1,29 @@
 # Review status
 
+## Open — r806 (owner-requested pass over the day's commits, 2026-08-06)
+
+Generation pass: codex-cli 0.146.1, `codex/gpt-5.6-sol/high/standard`, over
+`d440234..32c444d` (all eleven 2026-08-06 commits: the three opr-53
+structured-verdict fixes, the release-gate automation, and the per-RID CI
+gate). Verdict `findings` (4), capability_ok true, SHAs pinned and matched.
+Dispatched with the recorded `-c 'mcp_servers={}'` recipe; 2.36M input tokens
+(2.21M cached), 15.4k output. All four candidates verified against the code
+at intake and admitted; none declined.
+
+| ID     | Severity | Impact (one line)                                        | Status | Reviewer |
+|--------|----------|-----------------------------------------------------------|--------|----------|
+| r806-1 | MEDIUM   | a preflight containment refusal (nothing executed) reports `executed=true`/`outcome_unknown` | `[ ]` | codex/gpt-5.6-sol/high/std |
+| r806-2 | MEDIUM   | a failed replacement start reports a warm-state-destroying reset as `not_started`/`safe_to_resubmit=true` | `[ ]` | codex/gpt-5.6-sol/high/std |
+| r806-3 | HIGH     | the opt-in destructive uninstall's refusal passes a sibling-prefixed home and removes the wrong install | `[ ]` | codex/gpt-5.6-sol/high/std |
+| r806-4 | MEDIUM   | the Defender release gate passes when the scan never ran (absent or failing MpCmdRun) | `[ ]` | codex/gpt-5.6-sol/high/std |
+
+r806-1 and r806-2 are the o53 lesson recurring at a third and fourth site:
+PTK stating a false verdict in the trusted structured channel because
+execution stage is inferred from a shared detail string instead of carried as
+data. r806-3 and r806-4 sit in the release gate itself and bear on the
+pending `0.2.0-rc.3` dispatch: -3 is the destructive-refusal boundary, -4
+means the new per-RID gate's Windows Defender leg can pass vacuously.
+
 ## Closed — o53 (opr-53 forgeable control lines, 2026-08-06)
 
 Generation pass: codex-cli 0.146.0, `codex/@azure-openai-eus2-global/gpt-5.5-dzs/xhigh`,

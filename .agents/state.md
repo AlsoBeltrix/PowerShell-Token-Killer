@@ -45,8 +45,10 @@ shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
 because `gh` defaults to the `github` remote — run canceled, `-R` rule
 recorded in repo-guidance §Remotes.
 
-**Remaining: Decision 5 (tag `v0.2.0` and publish — terminal, owner-only;
-never tag or push a `v*` ref without an explicit go) and the new #43.**
+**Remaining: Decision 5 only (tag `v0.2.0` and publish — terminal,
+owner-only; never tag or push a `v*` ref without an explicit go). #43 is
+CLOSED 2026-08-07 on the owner's verification: the install completes on the
+reporting Server 2019 host from master at head.**
 
 **#43 (filed by the owner 2026-08-07, verified against the code the same
 day): install fails on Windows Server 2019 because the handshake's

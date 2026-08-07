@@ -254,8 +254,23 @@ if ($IsWindows) {
 if ($UninstallHome) {
     $home_ = [IO.Path]::GetFullPath($UninstallHome)
     $server_ = [IO.Path]::GetFullPath((Resolve-Path $ServerPath))
-    if (-not $server_.StartsWith($home_, [StringComparison]::OrdinalIgnoreCase)) {
+    # Containment is a path-component test, not a string-prefix test: a
+    # sibling '/proof/.ptk-old/bin' starts with the string '/proof/.ptk' yet
+    # is not inside it, and a prefix check would let this destructive step
+    # uninstall a home that does not contain the server under proof
+    # (r806-3). GetRelativePath also compares with the platform's own case
+    # sensitivity, where OrdinalIgnoreCase over-matched on POSIX.
+    $rel_ = [IO.Path]::GetRelativePath($home_, $server_)
+    if ([IO.Path]::IsPathRooted($rel_) -or $rel_ -eq '..' -or
+        $rel_.StartsWith('..' + [IO.Path]::DirectorySeparatorChar)) {
         throw "Refusing to uninstall '$home_': it does not contain the server under proof ($server_)."
+    }
+    # The child below derives HOME from this path's parent and the installer
+    # always targets $HOME/.ptk, so a home not literally named '.ptk' would
+    # aim the uninstall at a different directory than the one just validated.
+    if ((Split-Path -Leaf $home_) -ne '.ptk') {
+        throw "Refusing to uninstall '$home_': the installer targets " +
+            "`$HOME/.ptk, so the home under proof must be a directory named '.ptk'."
     }
     $installer = Join-Path $home_ 'scripts' 'install.ps1'
     if (-not (Test-Path -LiteralPath $installer)) {

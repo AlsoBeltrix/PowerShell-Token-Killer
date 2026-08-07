@@ -105,8 +105,9 @@ before publishing.
 
 Add `-UninstallHome <installed-root>` to also run the plan's uninstall check
 (21 checks). It is destructive and opt-in, refuses unless that root contains
-the server under proof, and must be pointed at a throwaway home — never the
-operator's real `~/.ptk`. Install into an isolated home by setting
+the server under proof (a path-component test, and the root must be a
+directory literally named `.ptk` — r806-3), and must be pointed at a
+throwaway home — never the operator's real `~/.ptk`. Install into an isolated home by setting
 `USERPROFILE`, `HOME`, `HOMEDRIVE` and `HOMEPATH` on the child process;
 `$HOME` itself is read-only, and on Windows PowerShell derives it from
 `HOMEDRIVE`+`HOMEPATH`, not `USERPROFILE`.

@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Sessions;
@@ -59,13 +60,19 @@ public static class InvokeTool
         [RegularExpression("^[a-z0-9][a-z0-9._-]{0,63}$")]
         [MaxLength(64)]
         string session = NamedSessionSupervisor.DefaultName,
-        OutputStore? outputStore = null)
-        => (await runtime.InvokeAsync(
-            script,
-            cancellationToken,
-            raw,
-            route,
-            timeoutSeconds,
-            session,
-            outputStore).ConfigureAwait(false)).ToCallToolResult();
+        OutputStore? outputStore = null,
+        // SDK-injected when the client supplied a progressToken; never part
+        // of the tool's argument schema. The heartbeat keeps a long call
+        // alive past client idle timeouts (#44).
+        IProgress<ProgressNotificationValue>? progress = null)
+        => (await ToolHeartbeat.KeepAliveAsync(
+            runtime.InvokeAsync(
+                script,
+                cancellationToken,
+                raw,
+                route,
+                timeoutSeconds,
+                session,
+                outputStore),
+            progress ?? ToolHeartbeat.NoProgress.Instance).ConfigureAwait(false)).ToCallToolResult();
 }

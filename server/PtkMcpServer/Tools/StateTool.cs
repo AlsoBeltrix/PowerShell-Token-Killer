@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
+using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using PtkMcpServer.Sessions;
@@ -26,9 +27,15 @@ public static class StateTool
         [RegularExpression("^[a-z0-9][a-z0-9._-]{0,63}$")]
         [MaxLength(64)]
         string session = NamedSessionSupervisor.DefaultName,
-        CancellationToken cancellationToken = default)
-        => (await runtime.StateAsync(
-            listAvailable,
-            session,
-            cancellationToken).ConfigureAwait(false)).ToCallToolResult();
+        CancellationToken cancellationToken = default,
+        // SDK-injected when the client supplied a progressToken; never part
+        // of the tool's argument schema (#44).
+        IProgress<ProgressNotificationValue>? progress = null)
+        => (await ToolHeartbeat.KeepAliveAsync(
+            runtime.StateAsync(
+                listAvailable,
+                session,
+                cancellationToken),
+            progress ?? ToolHeartbeat.NoProgress.Instance)
+            .ConfigureAwait(false)).ToCallToolResult();
 }

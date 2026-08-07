@@ -125,17 +125,19 @@ public sealed class RawUsageTests : IDisposable
                 parameter => parameter.ParameterType == typeof(RawUsageCounter));
         }
 
+        // `progress` is the SDK-injected heartbeat channel (#44) — protocol
+        // infrastructure like cancellationToken, not worker surface.
         Assert.Equal(
-            "runtime,script,cancellationToken,raw,route,timeoutSeconds,session,outputStore",
+            "runtime,script,cancellationToken,raw,route,timeoutSeconds,session,outputStore,progress",
             ParameterNames(sessionMethods[0]));
         Assert.Equal(
-            "runtime,listAvailable,session,cancellationToken",
+            "runtime,listAvailable,session,cancellationToken,progress",
             ParameterNames(sessionMethods[1]));
         Assert.Equal(
-            "runtime,session,cancellationToken",
+            "runtime,session,cancellationToken,progress",
             ParameterNames(sessionMethods[2]));
         Assert.Equal(
-            "runtime,action,name,cancellationToken",
+            "runtime,action,name,cancellationToken,progress",
             ParameterNames(sessionMethods[3]));
 
         Assert.Equal(false, Parameter(sessionMethods[0], "raw").DefaultValue);

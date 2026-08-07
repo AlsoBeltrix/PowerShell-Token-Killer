@@ -3,6 +3,29 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `10.1.10.212` — Michael's Windows 11 ARM64 VM (added 2026-08-07)
+
+The bench that closed the Windows half of GitHub #40. Reachable from the Mac
+as `ssh michael@10.1.10.212` (key auth, no password prompt); git works there
+too. **`scp` needs `-O`** — the default SFTP protocol fails against this
+host's OpenSSH with `write remote ... Failure`, while legacy-protocol scp
+succeeds.
+
+- Windows 11 ARM64, 10.0.26100.0. `whoami` is `michael`; ssh sessions land
+  elevated (High Mandatory Level, `IsInRole(Administrator)` true).
+- **PowerShell 7.6.4 is Store/MSIX-installed**
+  (`Microsoft.PowerShell_7.6.4.0_arm64__8wekyb3d8bbwe`), which is the whole
+  reason it reproduces #40 — a non-MSIX PowerShell would not. `pwsh` resolves
+  to `...\AppData\Local\Microsoft\WindowsApps\pwsh.exe`.
+- Default ssh shell is `cmd.exe` (no `DefaultShell` registry value), so
+  remote commands are cmd syntax unless `pwsh -File` is invoked explicitly.
+- Bench layout under `C:\Users\michael\ptk40`: the published `v0.2.1`
+  win-arm64 artifact under `ptk\`, rtk 0.45.0 in `~\.local\bin`. Installing
+  and running that artifact here doubles as end-user validation of the
+  signed win-arm64 build.
+- The packaged layout ships **no `$PSHOME\Modules` directory** — worker
+  module resolution depends entirely on the inherited `PSModulePath`.
+
 ## `nagatha.local` — Michael's Mac
 
 _Installed payload re-verified 2026-08-05 with the repo at `78b2dbb`;

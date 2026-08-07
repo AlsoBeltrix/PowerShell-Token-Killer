@@ -129,6 +129,26 @@ recut instruction. **PUBLISHED 2026-08-07 23:22 UTC on the owner's word —
 now Latest:**
 https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/tag/v0.2.1
 
+**#40's Windows ARM64 leg is ROOT-CAUSED (2026-08-07), and it is not a ptk
+defect.** Reproduced on the owner's new Windows 11 ARM64 VM
+(`.agents/machines.md` §`10.1.10.212`) against the published `v0.2.1`
+artifact. Both hypotheses in the issue — containment Job Object, worker
+token — are **falsified with evidence**: worker and control have identical
+integrity, elevation, and file/directory access, and the worker can read
+the very bytes it is denied. The denial is specific to assembly/image
+loading from the MSIX package tree by a non-packaged CoreCLR host; the same
+module copied to an ordinary directory imports fine in the worker. Two
+supporting facts: ptk ships no `$PSHOME\Modules`, and the worker retains
+the inherited `PSModulePath`, which on a Store-installed host points into
+the package. **Not ARM64-specific** — the same should occur on x64 Windows
+with a Store-installed PowerShell. Workaround (proved): use the MSI/winget
+PowerShell, or relocate the affected modules. The issue comment carries the
+evidence table and a product recommendation (document it, plus make the
+failure legible); **the fix choice is an open owner decision**, deliberately
+not taken unilaterally since no ptk defect is established. The macOS half of
+#40 remains open and may already be fixed by #44 — it needs one
+reinstall-from-head plus reconnect on the Mac to retest the 120-tick repro.
+
 **#30's on-prem Exchange leg is SCHEDULED (2026-08-07): the owner will run
 it on an Exchange-capable machine this repo cannot reach.** The owner-run
 procedure is `docs/exchange-onprem-acceptance.md` — setup, a paste-block

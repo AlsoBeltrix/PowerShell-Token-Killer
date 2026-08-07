@@ -126,11 +126,13 @@ the original finding one layer in. `.agents/review/index.md` §o53 owns that
 lesson.
 
 **Active review loop (2026-08-06): `.agents/review/index.md` §r806.** The
-owner-requested codereview pass over the day's commits admitted four
+owner-requested codereview pass over the day's commits admitted five
 findings, reopening code work: r806-1/-2 (false structured verdicts on the
 preflight-refusal and failed-replacement-reset paths — the o53 lesson at two
 more sites), r806-3 (the uninstall refusal accepts sibling-prefixed homes),
-and r806-4 (the Defender release-gate leg passes when no scan ran). r806-3
+r806-4 (the Defender release-gate leg passes when no scan ran), and r806-5
+(the working agent's own second pass over the same range: invoke's Failed
+fallback reports scheduler/machinery failures as `completed`). r806-3
 and r806-4 bear on the pending `0.2.0-rc.3` dispatch — fixing them first is
 recommended so the rc proves a non-vacuous gate. Fixes await the owner's go.
 

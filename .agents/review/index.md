@@ -16,6 +16,18 @@ at intake and admitted; none declined.
 | r806-2 | MEDIUM   | a failed replacement start reports a warm-state-destroying reset as `not_started`/`safe_to_resubmit=true` | `[ ]` | codex/gpt-5.6-sol/high/std |
 | r806-3 | HIGH     | the opt-in destructive uninstall's refusal passes a sibling-prefixed home and removes the wrong install | `[ ]` | codex/gpt-5.6-sol/high/std |
 | r806-4 | MEDIUM   | the Defender release gate passes when the scan never ran (absent or failing MpCmdRun) | `[ ]` | codex/gpt-5.6-sol/high/std |
+| r806-5 | MEDIUM   | invoke's Failed fallback reports scheduler/machinery failures as `completed` while its own text says `status=failed` | `[ ]` | claude/fable-5/self-review |
+| r806-d1..d4 | — | declined at intake with reasons: `.agents/review/r806-self.contested.md` | `[-]` | claude/fable-5/self-review |
+
+**Second pass, same range (owner-requested, 2026-08-06):** the working agent
+re-reviewed the range itself (single-agent mode) after the codex dispatch —
+exact sources at head, not the diff alone. It independently confirmed all
+four codex findings (r806-4 is the *expected* state on GitHub's Windows
+runners, where `MpCmdRun.exe` exists but Defender's service is typically
+disabled), admitted one finding codex missed (r806-5, verified against the
+producers in `WorkerOperationScheduler`/`RunspaceHost` and the pinned test
+at `ToolOutcomeTests.cs:142`), and declined four candidates with recorded
+reasons.
 
 r806-1 and r806-2 are the o53 lesson recurring at a third and fourth site:
 PTK stating a false verdict in the trusted structured channel because

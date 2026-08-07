@@ -164,7 +164,10 @@ jobs:
             esac
           done
           codesign --verify --strict -v out/ptk/bin/PtkMcpServer
-          codesign -dv out/ptk/bin/PtkMcpServer 2>&1 | grep "Developer ID Application"
+          # -dvv, not -dv: the Authority= lines only appear at the second
+          # verbosity level, and this grep asserting on absent output failed
+          # an otherwise fully successful first signing run.
+          codesign -dvv out/ptk/bin/PtkMcpServer 2>&1 | grep "Authority=Developer ID Application"
 
       - name: Smoke-test the packaged server
         shell: pwsh

@@ -233,9 +233,22 @@ Report 'refusal names PTK_RTK_PATH' ($gateText -match 'PTK_RTK_PATH')
 if ($IsWindows) {
     $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
     $binDir = Split-Path -Parent (Resolve-Path $ServerPath)
+    # The gate must prove a scan happened, not merely that nothing was
+    # quarantined: an absent or failing scanner leaves the payload trivially
+    # "intact", and the survival check alone would pass without anything
+    # having been scanned (r806-4). MpCmdRun exit 0 is a clean verdict and 2
+    # is a threat verdict -- both mean the scan completed and the survival
+    # check below judges the outcome; any other exit, or no MpCmdRun.exe at
+    # all, fails the gate on the one platform whose artifact claims Defender
+    # proof.
     if (Test-Path -LiteralPath $mp) {
         $before = @(Get-ChildItem -LiteralPath $binDir -File -Force).Count
-        & $mp -Scan -ScanType 3 -File $binDir 2>&1 | Out-Null
+        $scanOut = & $mp -Scan -ScanType 3 -File $binDir 2>&1 | Out-String
+        $scanExit = $LASTEXITCODE
+        $scanTail = ($scanOut -split "`r?`n" | Where-Object { $_.Trim() } |
+            Select-Object -Last 1)
+        Report 'Defender scan completes (#7)' ($scanExit -in 0, 2) `
+            "exit=$scanExit $scanTail"
         Start-Sleep -Seconds 2
         $after = @(Get-ChildItem -LiteralPath $binDir -File -Force -ErrorAction SilentlyContinue).Count
         Report 'Defender leaves the packaged payload intact (#7)' `
@@ -243,7 +256,7 @@ if ($IsWindows) {
             "files before=$before after=$after"
     }
     else {
-        Write-Host '  skip Defender scan -- MpCmdRun.exe not present'
+        Report 'Defender scan completes (#7)' $false 'MpCmdRun.exe not present'
     }
 }
 

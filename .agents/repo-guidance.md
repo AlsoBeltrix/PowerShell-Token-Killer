@@ -88,14 +88,17 @@ changes.
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
 ```
-— 20/20 on Windows (19 elsewhere; the extra one is the Defender payload
-scan) against an **installed** candidate, not a checkout: the five
+— 21/21 on Windows (19 elsewhere; the extra two are the Defender
+scan-completion and payload-survival checks, r806-4) against an
+**installed** candidate, not a checkout: the five
 tools, warm named sessions, object compression, trusted-type rendering, a
 type needing the wider assembly set (#42), text preservation, `ptk_output`
 recovery, timeout recovery, reset/close, compound native routing, the fresh
 session's `ls` alias and `PSModuleAutoloadingPreference=None`, and the RTK
 startup gate (exit 78 naming `PTK_RTK_PATH`). On Windows it also scans the
-packaged bits with Defender and asserts the payload survives — quarantine of
+packaged bits with Defender, asserting both that the scan completed (exit 0
+or 2; an absent or failing scanner fails the gate — r806-4) and that the
+payload survives — quarantine of
 the supported Windows artifact is a release blocker independent of #7's WDSI
 verdict. It writes no EICAR control: a release gate must not manufacture
 antivirus detections on the operator's machine.
@@ -104,7 +107,7 @@ transport, this proves the product contract. Run it per selected platform
 before publishing.
 
 Add `-UninstallHome <installed-root>` to also run the plan's uninstall check
-(21 checks). It is destructive and opt-in, refuses unless that root contains
+(two further checks). It is destructive and opt-in, refuses unless that root contains
 the server under proof (a path-component test, and the root must be a
 directory literally named `.ptk` — r806-3), and must be pointed at a
 throwaway home — never the operator's real `~/.ptk`. Install into an isolated home by setting

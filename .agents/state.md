@@ -80,11 +80,22 @@ defender").
   Developer ID identity is invalid to codesign until Apple's G2
   intermediate is present — the CI step imports it into its throwaway
   keychain for that reason.
-- Windows: Authenticode signing for SmartScreen reputation and heuristic
-  false-positive hardening. Awaiting the owner's choice of signing path
-  (Azure Trusted Signing recommended vs. classic CA cert); then the win
-  jobs sign PtkMcpServer.exe/PtkWorkerBroker.exe/shipped DLLs before
-  archiving.
+- Windows: **DONE — proven end-to-end 2026-08-07.** Run `31221274583`
+  (`0.2.1-rc.4`, head `ebd80c6`): both Windows RIDs signed every
+  `.exe`/`.dll` via Azure Trusted Signing (account
+  `roethlar-app-signing`, profile `public-trust`, `github-signing` app
+  registration, secrets `AZURE_*`) and passed all gates on the signed
+  bits; draft assembled, all six jobs green. Two failures on the way,
+  both diagnosed and fixed: win-arm64 needed an x64 .NET runtime for the
+  x64-only C++/CLI signing dlib (`4ac8312` — verified against the
+  1.0.95 package: no arm64 build exists), and rc.3's osx leg was a hung
+  runner mid-smoke-test (flake — signed fine, passed clean in rc.4; jobs
+  now bounded at 45 min, `ebd80c6`). **The published `v0.2.0` artifacts
+  predate all signing** — the next tag ships signed+notarized bits on
+  every platform automatically; master also carries the user-facing #43
+  and o53-3 fixes, so a `v0.2.1` is genuinely warranted whenever the
+  owner says ship. The `0.2.1-rc.2`/`rc.4` drafts are proof-run debris,
+  deletable at will.
 **#7 is CLOSED 2026-08-07 on observed behavior:** current definitions no
 longer flag the DLL — the v0.2.0 tag run's hardened Defender gate
 (scan-completes + payload-survival, both Windows runners, exact shipped

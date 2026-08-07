@@ -134,6 +134,26 @@ jobs:
       # on win-arm64 too: the action is a PowerShell module invocation, no
       # native x64-only tooling, and win-arm64 already runs the x64 RTK
       # binary under emulation without issue.
+      # The Trusted Signing dlib is C++/CLI and ships x64/x86 only (no arm64
+      # build exists in Microsoft.Trusted.Signing.Client), so on this runner
+      # it executes under x64 emulation and needs an x64 .NET runtime the
+      # arm64 image does not carry — without one, signtool dies with a bare
+      # exit 3 before ever reaching the service. Proved by the rc.3 split:
+      # win-x64 signed cleanly with identical credentials while win-arm64
+      # failed in two seconds. net8.0, rollForward Major, per the dlib's own
+      # runtimeconfig; DOTNET_ROOT_X64 is where an x64 host process on arm64
+      # Windows probes for its runtime.
+      - name: Install the x64 .NET runtime the signing dlib needs (arm64)
+        if: matrix.rid == 'win-arm64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $script = Join-Path ([IO.Path]::GetTempPath()) 'dotnet-install.ps1'
+          Invoke-WebRequest -Uri 'https://dot.net/v1/dotnet-install.ps1' -OutFile $script
+          & $script -Runtime dotnet -Channel 8.0 -Architecture x64 `
+            -InstallDir 'C:\Program Files\dotnet\x64'
+          "DOTNET_ROOT_X64=C:\Program Files\dotnet\x64" >> $env:GITHUB_ENV
+
       - name: Sign the Windows payload
         if: startsWith(matrix.rid, 'win-')
         uses: azure/trusted-signing-action@v0.5.9

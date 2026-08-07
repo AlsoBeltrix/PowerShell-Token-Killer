@@ -45,9 +45,17 @@ shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
 because `gh` defaults to the `github` remote — run canceled, `-R` rule
 recorded in repo-guidance §Remotes.
 
-**Remaining: Decision 5 only (tag `v0.2.0` and publish — terminal,
-owner-only; never tag or push a `v*` ref without an explicit go). #43 is
-CLOSED 2026-08-07 on the owner's verification: the install completes on the
+**Decision 5, tag half DONE on the owner's "ship" (2026-08-07): `v0.2.0`
+tagged at `3a9cbeb`, tag run `31197966252` green on all five RIDs, draft
+assembled. The publish half — making the draft public — awaits the owner's
+final word, per the ship path the owner approved.** After publish: the
+stale `v0.2.0-rc.2`/`rc.3` drafts can be deleted on the owner's go, and
+the first post-release slice is macOS Developer ID signing + notarization
+(the owner now has an Apple developer account; needs their cert +
+CI secrets, then the osx-arm64 release job gains the signing step —
+recommended, not required for function: script installs never quarantine,
+and .NET ad-hoc signing already satisfies Apple Silicon). #43 is CLOSED
+2026-08-07 on the owner's verification: the install completes on the
 reporting Server 2019 host from master at head.**
 
 **#43 (filed by the owner 2026-08-07, verified against the code the same

@@ -17,8 +17,16 @@ ARM VM.
   under `...\WinGet\Packages\rtk-ai.rtk_Microsoft.Winget.Source_*\rtk.exe`
   (rtk 0.44.2; `hook check` answers correctly when invoked on the target).
 - State as of 2026-08-07: installed payload `0.2.0-dev.gecd3a4c`, 296 bin
-  files, server present, no running processes, no stale
-  `ptk-stage-*`/`ptk-snapshot-*` in TEMP, 538 GB free on C:.
+  files, server present, no stale `ptk-stage-*`/`ptk-snapshot-*` in TEMP,
+  538 GB free on C:. ("No running processes" held only for that SSH probe:
+  whenever a harness session on the box has ptk connected, its
+  `PtkMcpServer` supervisor+worker are alive and `scripts/install.ps1`
+  refuses to install — reproduced locally 2026-08-07; write-up in
+  `.agents/state.md` §Now.)
+- Local interactive shells are non-elevated as expected (`elevated=False`
+  as `NETWATCH-01\michael`). This host *is* `NETWATCH-01` —
+  `netwatch-01.internal` resolves to this address — so the separate
+  `NETWATCH-01` section below describes the same machine.
 
 **Two SSH-only blockers make this host unusable for reproducing installs
 remotely — both are artifacts of the access path, not product defects:**

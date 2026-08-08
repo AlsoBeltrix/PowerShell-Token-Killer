@@ -5,32 +5,38 @@ short and update it when important repo facts change.
 
 ## Now
 
-**HANDOFF 2026-08-07, head `d2307b1` + this commit. Resume on the Windows
-x64 box (`10.1.10.173`, repo at `F:\dev\PowerShell-Token-Killer`).**
+**RESOLVED 2026-08-07, on the box in a local non-elevated shell: the
+`10.1.10.173` install failure is the installer's live-server refusal,
+reproduced verbatim (exit 1).** `scripts/install.ps1` threw at the
+line-181 guard:
 
-**In flight: an unreproduced install failure the owner reported on that
-host. The blocking unknown is the owner's actual error text — it has not
-been seen yet.** Do not guess at a fix; get the error first.
+> PTK process(es) from C:\Users\michael\.ptk are running (PID 6864, 7628;
+> name(s) PtkMcpServer). Stop all PTK processes or restart the harness
+> session, then re-run.
 
-What is already established (details, including every measured value, in
-`.agents/machines.md` §`10.1.10.173` — do not restate them here):
+Both PIDs were the reproducing session's own ptk plumbing — `$PID` inside
+the ptk worker matched 6864, whose parent was 7628, the session's MCP
+supervisor. So on this box any install attempted while a harness session
+has ptk connected self-blocks by design, including an install the agent
+itself asked the owner to run. Neither SSH blocker was involved (the
+local shell confirmed `elevated=False`). Not an installer defect: the
+message is accurate and names both remedies. Whether the owner's original
+failure was this same refusal is unconfirmed — their error text never
+arrived — but it is the only failure a local run hits here, given the
+otherwise-healthy machine state. Owner call whether refusal-only is
+acceptable UX for agent-driven installs. Full raw log:
+`$env:TEMP\ptk-install.log` (host-local).
 
-- The machine's state is healthy: complete 296-file payload
-  `0.2.0-dev.gecd3a4c`, rtk 0.44.2 functional, repo clean, ample disk, no
-  stale staging or running processes.
-- **Two blockers stopped remote reproduction, and both are SSH artifacts,
-  not product defects** — the session is elevated (installer refuses by
-  design) and remote-to-local symlink evaluation is disabled (so the winget
-  rtk shim is untraversable over SSH, while rtk's real target works). A
-  local interactive shell on that box hits neither.
-- Because of that, **an SSH session cannot faithfully reproduce this
-  install.** Resume the work *on* the box, in a local shell.
-
-The owner was asked for either the error text or the output of:
-`pwsh -NoProfile -File F:\dev\PowerShell-Token-Killer\scripts\install.ps1 *>&1 | Tee-Object $env:TEMP\ptk-install.log`
-and was asked whether their terminal is elevated — if it is, blocker 1 is
-also their failure, and the finding becomes that the refusal message is
-correct but not discoverable enough.
+**Observed during the reproduction, unfiled candidate defect: run
+through `ptk_invoke`, the same failing install showed no error text at
+all** — seven lines of `@{Value=[active member not evaluated]}` plus
+`[ptk:capture incomplete reason=active_member_not_evaluated]`; only the
+exit code survived, and the refusal text above had to be recovered from
+the tee'd log on disk. The `*>&1` merge wraps the child's stderr lines
+in ErrorRecords the capture shaper declines to evaluate. That violates
+"compressed output preserves errors, exit codes, structure" (same
+field-reported class as o53-3). Diagnosis not started; candidate for the
+blanket fix authorization once diagnosed and verified.
 
 **Also open, unrelated and owner-gated: D1 of
 `.agents/plans/package-manager-distribution.md`** (the shape of the `ptk`

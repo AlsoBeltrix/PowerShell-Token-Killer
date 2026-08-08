@@ -242,10 +242,10 @@ elevated still launches PTK elevated.
 
 ## Installation
 
-### v0.2.0 public install
+### Public install
 
-Installs self-contained binaries without cloning this repository or requiring
-the .NET SDK:
+Installs self-contained, **signed** binaries without cloning this repository
+or requiring the .NET SDK:
 
 ```powershell
 pwsh -File scripts/install.ps1 -FromRelease
@@ -253,7 +253,7 @@ pwsh -File scripts/install.ps1 -FromRelease
 
 One installer, `scripts/install.ps1`, on every platform. It needs PowerShell 7,
 which is also what ptk runs. `-FromRelease` takes the latest published release
-(`-Version 0.2.0` pins one); without it, the installer builds this checkout,
+(`-Version 0.2.1` pins one); without it, the installer builds this checkout,
 which additionally needs the .NET SDK. Everything after the payload is
 obtained is identical either way.
 
@@ -286,9 +286,28 @@ The installed payload is self-contained: the server embeds its own PowerShell
 engine and does not need one installed to run. Winget packaging is a
 post-v0.2.0 follow-up, not a currently working install path.
 
-The v0.2.0 binaries are not publisher-signed or Apple-notarized. The installer
-is the tested install route; browser-downloaded or repackaged archives may
-trigger SmartScreen or Gatekeeper warnings.
+### Signing
+
+Release binaries are signed, from v0.2.1 onward:
+
+- **Windows** assets are Authenticode-signed with Azure Trusted Signing and
+  countersigned by a timestamp authority, so signatures stay valid after the
+  signing certificate expires. Verified on a published asset:
+  `Get-AuthenticodeSignature` reports `Status=Valid`, issued by
+  `Microsoft ID Verified CS EOC CA 03`.
+- **macOS** assets are Developer ID-signed with hardened runtime and
+  notarized with Apple. Verified on a published asset: `codesign --verify
+  --strict` passes with the `Developer ID Application → Developer ID
+  Certification Authority → Apple Root CA` chain and a timestamp. A bare
+  CLI binary cannot carry a stapled notarization ticket, so Gatekeeper
+  checks acceptance online; `spctl -t exec` declines to assess it as an
+  "app", which is expected and not a signing failure.
+
+`-FromRelease` preserves those signatures: it verifies the asset against
+`SHA256SUMS`, extracts it byte-for-byte, and never rewrites a binary.
+**Binaries you build yourself are unsigned**, which is expected for the
+from-source path below and may prompt SmartScreen if you move them between
+machines. v0.2.0 predates signing entirely.
 
 ### Installing from source
 

@@ -45,6 +45,19 @@ shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
 because `gh` defaults to the `github` remote — run canceled, `-R` rule
 recorded in repo-guidance §Remotes.
 
+**Signing reaches users through `-FromRelease`, proved end-to-end
+2026-08-07.** The README's public install path downloads the release asset
+(the no-flag path builds the checkout and is inherently unsigned — a
+developer path). Signatures survive download+extract+stage, verified on the
+*published* v0.2.1 assets, not on build output: win-arm64 on the VM reports
+`Get-AuthenticodeSignature Status=Valid`, signer `CN=Michael Coelho`, issuer
+`Microsoft ID Verified CS EOC CA 03`, timestamped; osx-arm64 on the Mac
+passes `codesign --verify --strict` with the full Developer ID → Apple Root
+chain and a timestamp. `spctl -t exec` on a bare CLI reports "does not seem
+to be an app" — expected, not a failure. README §Signing now states this;
+its previous "the v0.2.0 binaries are not publisher-signed or
+Apple-notarized" was true when written and became false at v0.2.1.
+
 **Decision 5 is EXECUTED IN FULL. PTK v0.2.0 was PUBLISHED 2026-08-07
 16:35 UTC on the owner's explicit two-step go ("ship" → tag; "go" →
 publish):**

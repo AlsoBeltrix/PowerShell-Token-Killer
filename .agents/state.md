@@ -144,7 +144,19 @@ the inherited `PSModulePath`, which on a Store-installed host points into
 the package. **Not ARM64-specific** — the same should occur on x64 Windows
 with a Store-installed PowerShell. Workaround (proved): use the MSI/winget
 PowerShell, or relocate the affected modules. The issue comment carries the
-evidence table. **Owner chose document+explain (2026-08-07):** shipped as a
+evidence table. **Owner field correction, same day: the VM's MSIX PowerShell
+came from `winget`, not the Store** — `winget show Microsoft.PowerShell` on
+ARM64 resolves to `Installer Type: msix` and `--installer-type msi` is
+refused (`No applicable installer found`), while the same command on x64
+installs the MSI. So **ARM64's default, recommended install path reproduces
+this**, which makes the finding considerably more important than
+"Store-installed users" implied, and made the first draft of the guidance
+(«use winget instead of the Store») actively wrong. Corrected in the hint,
+README, and machines record; a test now pins that the hint never reads as
+"use winget instead". Lesson: do not infer an install method from a package
+format.
+
+**Owner chose document+explain (2026-08-07):** shipped as a
 `[ptk hint]` on the exact failure signature (assembly load + access denied +
 a `WindowsApps` path, all three required, path matched case-insensitively
 because the bench reported it lowercased) naming the cause and both fixes,

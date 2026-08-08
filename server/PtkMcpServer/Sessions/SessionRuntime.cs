@@ -232,28 +232,34 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
                     "bash -lc '...'.");
             }
 
-            // A module whose DLL lives inside a Microsoft Store (MSIX)
-            // PowerShell package fails here with a bare "Access is denied",
-            // which reads like a permission problem the caller could fix by
-            // elevating — it is not. Proved on a Windows 11 ARM64 bench
-            // (GitHub #40): the worker holds the same token, integrity, and
-            // elevation as an ordinary shell, opens the very file, and lists
-            // its directory; only the code load is refused, because ptk's
-            // worker runs its own PowerShell runtime and is not part of that
-            // package. The same module copied elsewhere imports fine, which
-            // is the fix worth naming.
+            // A module whose DLL lives inside an MSIX PowerShell package
+            // fails here with a bare "Access is denied", which reads like a
+            // permission problem the caller could fix by elevating — it is
+            // not. Proved on a Windows 11 ARM64 bench (GitHub #40): the
+            // worker holds the same token, integrity, and elevation as an
+            // ordinary shell, opens the very file, and lists its directory;
+            // only the code load is refused, because ptk's worker runs its
+            // own PowerShell runtime and is not part of that package.
+            //
+            // Naming winget as the fix would be wrong and was corrected
+            // before release: on ARM64 `winget install Microsoft.PowerShell`
+            // IS the msixbundle, and `--installer-type msi` is refused with
+            // "No applicable installer found". So the ARM64 default install
+            // path produces this, and only the standalone MSI escapes it.
             if (result.Errors.Any(IsMsixAssemblyDenial))
             {
                 sb.AppendLine(
-                    "[ptk hint] That module's DLL lives inside a Microsoft Store " +
-                    "(MSIX) PowerShell package. ptk's worker runs its own " +
-                    "PowerShell runtime, and Windows refuses to load code out of " +
-                    "another package's tree — this is not a permissions problem " +
-                    "and elevating will not change it. Script-only modules there " +
-                    "still import. To use this module, install PowerShell 7 from " +
-                    "the MSI/winget package instead of the Store, or copy the " +
-                    "module directory somewhere ordinary and put that path on " +
-                    "PSModulePath.");
+                    "[ptk hint] That module's DLL lives inside an MSIX PowerShell " +
+                    "package — which is what `winget install Microsoft.PowerShell` " +
+                    "installs on Windows ARM64, and what the Microsoft Store ships " +
+                    "everywhere. ptk's worker runs its own PowerShell runtime, and " +
+                    "Windows refuses to load code out of a package it is not part " +
+                    "of: this is not a permissions problem and elevating will not " +
+                    "change it. Script-only modules there still import. Fixes: " +
+                    "install the standalone MSI (PowerShell-<version>-win-arm64.msi " +
+                    "from the PowerShell GitHub releases — winget cannot select it " +
+                    "on ARM64), or copy the module directory somewhere ordinary and " +
+                    "put that path on PSModulePath.");
             }
         }
 

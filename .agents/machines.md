@@ -13,10 +13,17 @@ succeeds.
 
 - Windows 11 ARM64, 10.0.26100.0. `whoami` is `michael`; ssh sessions land
   elevated (High Mandatory Level, `IsInRole(Administrator)` true).
-- **PowerShell 7.6.4 is Store/MSIX-installed**
-  (`Microsoft.PowerShell_7.6.4.0_arm64__8wekyb3d8bbwe`), which is the whole
-  reason it reproduces #40 — a non-MSIX PowerShell would not. `pwsh` resolves
-  to `...\AppData\Local\Microsoft\WindowsApps\pwsh.exe`.
+- **PowerShell 7.6.4 is MSIX-packaged
+  (`Microsoft.PowerShell_7.6.4.0_arm64__8wekyb3d8bbwe`) — installed by
+  `winget`, not the Store.** `winget list` reports source `winget`, and
+  `winget show Microsoft.PowerShell` on this host resolves to
+  `Installer Type: msix` (`PowerShell-7.6.4.msixbundle`);
+  `--installer-type msi` is refused with `No applicable installer found`,
+  even though upstream publishes `PowerShell-7.6.4-win-arm64.msi`. This is
+  the whole reason the host reproduces #40, and it means **ARM64's default
+  winget install path reproduces it** — the owner's x64 machines, installed
+  by the same command, get the MSI and do not. `pwsh` resolves to
+  `...\AppData\Local\Microsoft\WindowsApps\pwsh.exe`.
 - Default ssh shell is `cmd.exe` (no `DefaultShell` registry value), so
   remote commands are cmd syntax unless `pwsh -File` is invoked explicitly.
 - Bench layout under `C:\Users\michael\ptk40`: the published `v0.2.1`

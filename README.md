@@ -334,13 +334,21 @@ quarantine, restore the file only if you built it yourself from a checkout
 you trust, and prefer a narrow, temporary exclusion for `~/.ptk/bin` over any
 broad one — remove it once Microsoft ships corrected security intelligence.
 
-### Store-installed PowerShell hides its modules from ptk (issue #40)
+### MSIX-packaged PowerShell hides its modules from ptk (issue #40)
 
-If you installed PowerShell 7 from the Microsoft Store, importing some
-modules inside a ptk session fails with `Could not load file or assembly
-'...\WindowsApps\...'. Access is denied.` — typically `PSReadLine`,
-`Microsoft.PowerShell.ThreadJob`, `PackageManagement`, `PowerShellGet`, and
+**Windows ARM64 users hit this on the default install path.** If PowerShell 7
+came from an MSIX package, importing some modules inside a ptk session fails
+with `Could not load file or assembly '...\WindowsApps\...'. Access is
+denied.` — typically `PSReadLine`, `Microsoft.PowerShell.ThreadJob`,
+`PackageManagement`, `PowerShellGet`, and
 `Microsoft.PowerShell.PSResourceGet`.
+
+You get an MSIX PowerShell from the Microsoft Store on any architecture, and
+— less obviously — from `winget install Microsoft.PowerShell` **on ARM64**,
+where the winget manifest offers only `PowerShell-<version>.msixbundle`.
+On x64 the same winget command installs the MSI and is unaffected, which is
+why one machine can hit this while another, installed "the same way", does
+not.
 
 **This is not a permissions problem, and elevating will not fix it.** ptk's
 worker runs its own bundled PowerShell runtime, and Windows will not let a
@@ -354,8 +362,12 @@ live in the runtime ptk ships rather than in any module tree.
 
 Two fixes, either one sufficient:
 
-- Install PowerShell 7 from its MSI or via `winget install
-  Microsoft.PowerShell` instead of the Store. This is the durable answer.
+- Install the **standalone MSI** — `PowerShell-<version>-win-arm64.msi` (or
+  `-win-x64.msi`) from the
+  [PowerShell releases](https://github.com/PowerShell/PowerShell/releases).
+  This is the durable answer. Note that winget cannot do it for you on
+  ARM64: `winget install Microsoft.PowerShell --installer-type msi` is
+  refused with `No applicable installer found`.
 - Or copy the module directory somewhere ordinary and add that path to
   `PSModulePath`.
 

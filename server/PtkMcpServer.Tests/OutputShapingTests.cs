@@ -172,12 +172,16 @@ public sealed class OutputShapingTests : IDisposable
             CancellationToken.None);
 
         Assert.Contains("[ptk hint]", result, StringComparison.Ordinal);
-        Assert.Contains("Microsoft Store", result, StringComparison.Ordinal);
+        Assert.Contains("MSIX", result, StringComparison.Ordinal);
         // The two things a caller can actually act on, and the one thing
         // that will waste their time if it is not ruled out.
-        Assert.Contains("MSI/winget", result, StringComparison.Ordinal);
+        Assert.Contains("standalone MSI", result, StringComparison.Ordinal);
         Assert.Contains("PSModulePath", result, StringComparison.Ordinal);
         Assert.Contains("not a permissions problem", result, StringComparison.Ordinal);
+        // The correction that cost a wrong first draft: winget is the cause
+        // on ARM64, not the cure, so the hint must never read as "use
+        // winget instead" (owner field report, 2026-08-07).
+        Assert.Contains("winget cannot select it", result, StringComparison.Ordinal);
     }
 
     /// <summary>

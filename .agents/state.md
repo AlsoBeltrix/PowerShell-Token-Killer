@@ -35,13 +35,20 @@ proven fail-before/pass-after on this box; pre-fix HEAD also reproduced
 the owner's exact handshake stderr here, and the post-fix battery and
 handshake results are recorded in this commit's message.
 
-**Until a new release ships, v0.2.1 artifacts carry the defect, so
-`-FromRelease` keeps failing on any Windows box whose only rtk is
-winget's.** Cutting a release is owner-gated. Owner paths today:
-source-mode `scripts/install.ps1` from this fixed checkout (ptk sessions
-closed, per leg 1), or `-FromRelease` with `PTK_RTK_PATH` set to the
-resolved winget target (`…\WinGet\Packages\rtk-ai.rtk_…\rtk.exe`, not
-the `Links` shim).
+**v0.2.2 shipped the fix: published 2026-08-08 04:39 UTC on the owner's
+explicit go, tagged at `5f76583`, run `31239078883` green on all five
+RIDs, marked Latest.** The release also carries #40's Store-package
+module diagnostics — the only other product change aboard. Pending
+confirmation: the owner's unmodified `-FromRelease` install test on
+`10.1.10.173`, with ptk-connected sessions closed/idle during it (leg 1).
+That run's first attempt failed only its osx-arm64 leg on a
+notarization-check flake: the `--wait` poll stream died on a transient
+HTTP timeout after Apple had already accepted the submission, and the
+acceptance check grepped only that stream. Fixed forward at `648d264` —
+a missing acceptance now re-reads the authoritative `notarytool info`
+before the step fails (`bash -n` verified; end-to-end proof rides the
+next `v*` tag). The published draft came from a clean re-run of that
+leg.
 
 **Observed during the reproduction, unfiled candidate defect: run
 through `ptk_invoke`, the same failing install showed no error text at

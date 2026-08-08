@@ -129,7 +129,8 @@ recut instruction. **PUBLISHED 2026-08-07 23:22 UTC on the owner's word —
 now Latest:**
 https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/tag/v0.2.1
 
-**#40's Windows ARM64 leg is ROOT-CAUSED (2026-08-07), and it is not a ptk
+**#40 is CLOSED (2026-08-07, both legs; fix `3bbe15d`). Only #30 remains
+open on the tracker.** Its Windows ARM64 leg is root-caused and is not a ptk
 defect.** Reproduced on the owner's new Windows 11 ARM64 VM
 (`.agents/machines.md` §`10.1.10.212`) against the published `v0.2.1`
 artifact. Both hypotheses in the issue — containment Job Object, worker

@@ -27,6 +27,11 @@ ARM VM.
   as `NETWATCH-01\michael`). This host *is* `NETWATCH-01` —
   `netwatch-01.internal` resolves to this address — so the separate
   `NETWATCH-01` section below describes the same machine.
+- The install failure's second leg was product, not host: the v0.2.1 RTK
+  startup gate rejected the winget symlink shim (link-length-zero bound,
+  fixed in-repo — `.agents/state.md` §Now). The shim itself is healthy
+  locally: `rtk --version` returns 0.44.2 through the link, whose target
+  `…\WinGet\Packages\rtk-ai.rtk_…\rtk.exe` is a real 9.1 MB file.
 
 **Two SSH-only blockers make this host unusable for reproducing installs
 remotely — both are artifacts of the access path, not product defects:**

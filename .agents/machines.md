@@ -3,6 +3,44 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `10.1.10.173` — Michael's Windows x64 dev machine (added 2026-08-07)
+
+Repo lives at `F:\dev\PowerShell-Token-Killer`. Reachable as
+`ssh michael@10.1.10.173` (key auth); **`scp` needs `-O`**, same as the
+ARM VM.
+
+- Windows x64 (AMD64), 10.0.26200.0. PowerShell 7 is a **normal MSI
+  install** at `c:\program files\powershell\7\pwsh.exe` — no MSIX package,
+  so GitHub #40 does not apply here.
+- rtk is winget-installed and reached through a **0-byte symlink shim** at
+  `~\AppData\Local\Microsoft\WinGet\Links\rtk.exe` → the real 9.1 MB binary
+  under `...\WinGet\Packages\rtk-ai.rtk_Microsoft.Winget.Source_*\rtk.exe`
+  (rtk 0.44.2; `hook check` answers correctly when invoked on the target).
+- State as of 2026-08-07: installed payload `0.2.0-dev.gecd3a4c`, 296 bin
+  files, server present, no running processes, no stale
+  `ptk-stage-*`/`ptk-snapshot-*` in TEMP, 538 GB free on C:.
+
+**Two SSH-only blockers make this host unusable for reproducing installs
+remotely — both are artifacts of the access path, not product defects:**
+
+1. **SSH sessions land elevated** (High Mandatory Level,
+   `IsInRole(Administrator)` true), and `scripts/install.ps1:154` refuses to
+   run elevated by design. An interactive local shell gets a filtered token
+   and is unaffected.
+2. **`fsutil behavior query SymlinkEvaluation` reports
+   `Remote-to-local: DISABLED`** (the Windows default), so the winget rtk
+   *shim* cannot be traversed from an SSH session: `&` fails with
+   `StandardOutputEncoding is only supported when standard output is
+   redirected` and `Start-Process` with `The path cannot be traversed
+   because it contains an untrusted mount point`. Proved to be the symlink
+   hop and not rtk: `git --version` succeeds in the same session with the
+   same redirection, and rtk's **real target** path runs fine
+   (`rtk 0.44.2`, `hook check` → `rtk git status --short`).
+
+To drive an install here, run it in a local interactive shell on the box,
+or set `PTK_RTK_PATH` to rtk's real target to sidestep blocker 2 — blocker
+1 has no remote workaround short of a scheduled task with a filtered token.
+
 ## `10.1.10.212` — Michael's Windows 11 ARM64 VM (added 2026-08-07)
 
 The bench that closed the Windows half of GitHub #40. Reachable from the Mac

@@ -5,6 +5,39 @@ short and update it when important repo facts change.
 
 ## Now
 
+**HANDOFF 2026-08-07, head `d2307b1` + this commit. Resume on the Windows
+x64 box (`10.1.10.173`, repo at `F:\dev\PowerShell-Token-Killer`).**
+
+**In flight: an unreproduced install failure the owner reported on that
+host. The blocking unknown is the owner's actual error text — it has not
+been seen yet.** Do not guess at a fix; get the error first.
+
+What is already established (details, including every measured value, in
+`.agents/machines.md` §`10.1.10.173` — do not restate them here):
+
+- The machine's state is healthy: complete 296-file payload
+  `0.2.0-dev.gecd3a4c`, rtk 0.44.2 functional, repo clean, ample disk, no
+  stale staging or running processes.
+- **Two blockers stopped remote reproduction, and both are SSH artifacts,
+  not product defects** — the session is elevated (installer refuses by
+  design) and remote-to-local symlink evaluation is disabled (so the winget
+  rtk shim is untraversable over SSH, while rtk's real target works). A
+  local interactive shell on that box hits neither.
+- Because of that, **an SSH session cannot faithfully reproduce this
+  install.** Resume the work *on* the box, in a local shell.
+
+The owner was asked for either the error text or the output of:
+`pwsh -NoProfile -File F:\dev\PowerShell-Token-Killer\scripts\install.ps1 *>&1 | Tee-Object $env:TEMP\ptk-install.log`
+and was asked whether their terminal is elevated — if it is, blocker 1 is
+also their failure, and the finding becomes that the refusal message is
+correct but not discoverable enough.
+
+**Also open, unrelated and owner-gated: D1 of
+`.agents/plans/package-manager-distribution.md`** (the shape of the `ptk`
+CLI entry point). The plan is DRAFT, no slice approved, and every slice is
+gated behind D1. The recommendation put to the owner was option (a), verb
+the existing binary.
+
 **o53-3 (HIGH, 2026-08-07): the opr-53 structured verdict hid all output in
 Claude Code.** Field-reported ("returns output only via handles now") and
 reproduced firsthand: CC renders `structuredContent` INSTEAD of text, so

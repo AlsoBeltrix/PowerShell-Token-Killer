@@ -45,6 +45,18 @@ shapes. An earlier dispatch mistakenly landed on the `roethlar` fork
 because `gh` defaults to the `github` remote — run canceled, `-R` rule
 recorded in repo-guidance §Remotes.
 
+**Package-manager distribution is PLANNED, not started (2026-08-07):**
+`.agents/plans/package-manager-distribution.md` (DRAFT). Owner asked for "a
+real binary release so people don't have to clone the repo" plus winget,
+brew, AUR "and any other package managers that make sense". The plan owns
+the detail; do not restate it here. Two verified facts drive it: **there is
+no `ptk` command on PATH at all** (the installer creates no shim; harnesses
+get absolute `~/.ptk/bin/PtkMcpServer` paths, and the binary has no CLI
+verbs), and **the documented public install is circular** — the README says
+"without cloning this repository" then tells the user to run
+`scripts/install.ps1`, which only exists in a clone. D1 (the shape of the
+`ptk` entry point) blocks every slice and is with the owner.
+
 **Signing reaches users through `-FromRelease`, proved end-to-end
 2026-08-07.** The README's public install path downloads the release asset
 (the no-flag path builds the checkout and is inherently unsigned — a

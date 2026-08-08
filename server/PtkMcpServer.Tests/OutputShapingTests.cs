@@ -148,6 +148,70 @@ public sealed class OutputShapingTests : IDisposable
     }
 
     /// <summary>
+    /// GitHub #40: a module whose DLL lives in a Microsoft Store (MSIX)
+    /// PowerShell package fails in the worker with a bare "Access is denied",
+    /// which reads like a permission problem a caller could fix by elevating.
+    /// It is not: the bench proved identical token, integrity, and elevation,
+    /// with the file readable and the directory listable — only the code load
+    /// is refused. The error strings below are verbatim from that bench,
+    /// including its lowercased path, which is why the match is
+    /// case-insensitive.
+    /// </summary>
+    [Theory]
+    [InlineData(
+        @"Could not load file or assembly 'C:\program files\windowsapps\microsoft.powershell_7.6.4.0_arm64__8wekyb3d8bbwe\Modules\PSReadLine\Microsoft.PowerShell.PSReadLine.dll'. Access is denied.")]
+    [InlineData(
+        @"Could not load file or assembly 'C:\Program Files\WindowsApps\microsoft.powershell_7.6.4.0_arm64__8wekyb3d8bbwe\Modules\PackageManagement\coreclr\netstandard2.0\Microsoft.PackageManagement.dll'. Access is denied.")]
+    public async Task An_msix_package_code_load_denial_names_its_real_cause(
+        string denial)
+    {
+        using var runtime = new SessionRuntime(_host, new RawUsageCounter());
+
+        var result = await runtime.InvokeAsync(
+            "Write-Error " + Quote(denial),
+            CancellationToken.None);
+
+        Assert.Contains("[ptk hint]", result, StringComparison.Ordinal);
+        Assert.Contains("Microsoft Store", result, StringComparison.Ordinal);
+        // The two things a caller can actually act on, and the one thing
+        // that will waste their time if it is not ruled out.
+        Assert.Contains("MSI/winget", result, StringComparison.Ordinal);
+        Assert.Contains("PSModulePath", result, StringComparison.Ordinal);
+        Assert.Contains("not a permissions problem", result, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The hint must stay rare: an ordinary access-denied, or a script whose
+    /// own output merely mentions the package tree, must keep its plain
+    /// error. All three markers are required together.
+    /// </summary>
+    [Theory]
+    // A genuine permission failure on a path the worker really cannot reach.
+    [InlineData(@"Access to the path 'C:\Windows\System32\config\SAM' is denied.")]
+    // An assembly load that failed for an unrelated reason.
+    [InlineData(@"Could not load file or assembly 'Foo.dll'. The system cannot find the file specified.")]
+    // A script echoing the package path is not PTK's diagnosis to make.
+    [InlineData(@"my script says C:\Program Files\WindowsApps\ is interesting")]
+    // A package-tree load that failed for a DIFFERENT reason must keep its
+    // own error: this hint asserts a specific cause and would misdiagnose.
+    [InlineData(@"Could not load file or assembly 'C:\Program Files\WindowsApps\pkg\Foo.dll'. The system cannot find the file specified.")]
+    public async Task An_unrelated_error_does_not_summon_the_msix_hint(
+        string unrelated)
+    {
+        using var runtime = new SessionRuntime(_host, new RawUsageCounter());
+
+        var result = await runtime.InvokeAsync(
+            "Write-Error " + Quote(unrelated),
+            CancellationToken.None);
+
+        Assert.Contains("[errors]", result, StringComparison.Ordinal);
+        Assert.DoesNotContain("[ptk hint]", result, StringComparison.Ordinal);
+    }
+
+    private static string Quote(string value) =>
+        "'" + value.Replace("'", "''", StringComparison.Ordinal) + "'";
+
+    /// <summary>
     /// GitHub #35 F4: when the capture bound is hit the retained window is the
     /// FIRST N items — but the inline view shows a head and a tail, so a
     /// reader assumes the end is recoverable. It is not: the tail was never

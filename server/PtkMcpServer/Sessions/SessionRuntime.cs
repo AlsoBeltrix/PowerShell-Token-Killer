@@ -231,6 +231,30 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
                     "argument (cmd /c \"... 1>&2\"), or run the line through " +
                     "bash -lc '...'.");
             }
+
+            // A module whose DLL lives inside a Microsoft Store (MSIX)
+            // PowerShell package fails here with a bare "Access is denied",
+            // which reads like a permission problem the caller could fix by
+            // elevating — it is not. Proved on a Windows 11 ARM64 bench
+            // (GitHub #40): the worker holds the same token, integrity, and
+            // elevation as an ordinary shell, opens the very file, and lists
+            // its directory; only the code load is refused, because ptk's
+            // worker runs its own PowerShell runtime and is not part of that
+            // package. The same module copied elsewhere imports fine, which
+            // is the fix worth naming.
+            if (result.Errors.Any(IsMsixAssemblyDenial))
+            {
+                sb.AppendLine(
+                    "[ptk hint] That module's DLL lives inside a Microsoft Store " +
+                    "(MSIX) PowerShell package. ptk's worker runs its own " +
+                    "PowerShell runtime, and Windows refuses to load code out of " +
+                    "another package's tree — this is not a permissions problem " +
+                    "and elevating will not change it. Script-only modules there " +
+                    "still import. To use this module, install PowerShell 7 from " +
+                    "the MSI/winget package instead of the Store, or copy the " +
+                    "module directory somewhere ordinary and put that path on " +
+                    "PSModulePath.");
+            }
         }
 
         if (result.Warnings.Length > 0)
@@ -283,6 +307,22 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
             "rtk" => "rtk",
             _ => "auto",
         };
+
+    /// <summary>
+    /// A code load refused out of an MSIX package tree (GitHub #40). All
+    /// three parts are required: an ordinary access-denied on a file the
+    /// worker could genuinely not reach must keep its plain error, and a
+    /// user's own text mentioning WindowsApps must not summon the hint.
+    /// The path is matched case-insensitively because the runtime reports
+    /// it lowercased on some hosts and cased on others — both observed in
+    /// the same run on the bench.
+    /// </summary>
+    private static bool IsMsixAssemblyDenial(string error) =>
+        error.Contains("Could not load file or assembly", StringComparison.Ordinal) &&
+        error.Contains("Access is denied", StringComparison.Ordinal) &&
+        error.Contains(
+            "\\WindowsApps\\",
+            StringComparison.OrdinalIgnoreCase);
 
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or

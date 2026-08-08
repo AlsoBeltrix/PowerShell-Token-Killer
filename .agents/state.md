@@ -143,11 +143,25 @@ the inherited `PSModulePath`, which on a Store-installed host points into
 the package. **Not ARM64-specific** — the same should occur on x64 Windows
 with a Store-installed PowerShell. Workaround (proved): use the MSI/winget
 PowerShell, or relocate the affected modules. The issue comment carries the
-evidence table and a product recommendation (document it, plus make the
-failure legible); **the fix choice is an open owner decision**, deliberately
-not taken unilaterally since no ptk defect is established. The macOS half of
-#40 remains open and may already be fixed by #44 — it needs one
-reinstall-from-head plus reconnect on the Mac to retest the 120-tick repro.
+evidence table. **Owner chose document+explain (2026-08-07):** shipped as a
+`[ptk hint]` on the exact failure signature (assembly load + access denied +
+a `WindowsApps` path, all three required, path matched case-insensitively
+because the bench reported it lowercased) naming the cause and both fixes,
+plus a README section. Guard-proved in both directions by sabotage: a
+case-sensitive match drops the real bench string, and dropping the
+cause marker misfires on an unrelated package-tree load. Filtering MSIX
+paths out of `PSModulePath` was considered and rejected — script modules
+there load fine and would be lost.
+
+**#40's macOS half NO LONGER REPRODUCES (2026-08-07).** The report's exact
+120-tick / `timeoutSeconds=150` pipeline ran to completion through this
+harness against a head build (`0.2.0-dev.g2b9ef73`): all 120 ticks present,
+no `-32001`, and `ptk_state` immediately after showed
+`warm_state_lost=false last_failure=none` — the opposite of the report's
+`warm_state_lost=true last_failure=worker_lost`. **Attribution to #44 is
+plausible but NOT isolated:** the original report came from a different
+harness, and no A/B against a pre-#44 build in this harness was run, so
+"the heartbeat fixed it" stays an inference, not a proof.
 
 **#30's on-prem Exchange leg is SCHEDULED (2026-08-07): the owner will run
 it on an Exchange-capable machine this repo cannot reach.** The owner-run

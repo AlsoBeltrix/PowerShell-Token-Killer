@@ -334,6 +334,34 @@ quarantine, restore the file only if you built it yourself from a checkout
 you trust, and prefer a narrow, temporary exclusion for `~/.ptk/bin` over any
 broad one — remove it once Microsoft ships corrected security intelligence.
 
+### Store-installed PowerShell hides its modules from ptk (issue #40)
+
+If you installed PowerShell 7 from the Microsoft Store, importing some
+modules inside a ptk session fails with `Could not load file or assembly
+'...\WindowsApps\...'. Access is denied.` — typically `PSReadLine`,
+`Microsoft.PowerShell.ThreadJob`, `PackageManagement`, `PowerShellGet`, and
+`Microsoft.PowerShell.PSResourceGet`.
+
+**This is not a permissions problem, and elevating will not fix it.** ptk's
+worker runs its own bundled PowerShell runtime, and Windows will not let a
+process load executable code out of an MSIX package it is not part of.
+Measured on a Windows 11 ARM64 bench: the worker holds the same token,
+integrity level, and elevation as an ordinary shell, opens the very DLL
+file, and lists its directory — only the code load is refused. The same
+module copied to an ordinary directory imports fine. Script-only modules
+under the package tree are unaffected, and so are ptk's core cmdlets, which
+live in the runtime ptk ships rather than in any module tree.
+
+Two fixes, either one sufficient:
+
+- Install PowerShell 7 from its MSI or via `winget install
+  Microsoft.PowerShell` instead of the Store. This is the durable answer.
+- Or copy the module directory somewhere ordinary and add that path to
+  `PSModulePath`.
+
+ptk detects this exact failure and prints a `[ptk hint]` naming the cause
+and both fixes, so you do not have to recognize it from the raw .NET error.
+
 ## RTK Integration
 
 [RTK](https://github.com/rtk-ai/rtk), the Rust Token Killer, owns native-command

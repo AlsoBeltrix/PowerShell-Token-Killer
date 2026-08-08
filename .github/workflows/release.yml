@@ -298,7 +298,11 @@ jobs:
       # is recorded on Apple's side — the zip below exists only as the
       # submission envelope and is discarded. notarytool's exit code does not
       # reliably reflect the verdict, so acceptance is asserted from the
-      # output and the failure log is fetched when it is anything else.
+      # output — and the --wait poll stream itself can drop on a transient
+      # network error after Apple has already accepted (v0.2.2 first run),
+      # so a missing acceptance is re-read from the authoritative
+      # `notarytool info` before the failure log is fetched and the step
+      # declares failure.
       - name: Notarize the macOS payload
         if: startsWith(matrix.rid, 'osx-')
         shell: bash
@@ -321,14 +325,24 @@ jobs:
           echo "$SUBMIT_OUT"
           if ! echo "$SUBMIT_OUT" | grep -q 'status: Accepted'; then
             SUBMISSION_ID=$(echo "$SUBMIT_OUT" | awk '/^  id: / {print $2; exit}')
+            INFO_OUT=''
             if [ -n "$SUBMISSION_ID" ]; then
-              xcrun notarytool log "$SUBMISSION_ID" \
+              INFO_OUT=$(xcrun notarytool info "$SUBMISSION_ID" \
                 --apple-id "$APPLE_ID" \
                 --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                --team-id "$APPLE_TEAM_ID" || true
+                --team-id "$APPLE_TEAM_ID" 2>&1) || true
+              echo "$INFO_OUT"
             fi
-            echo "notarization was not accepted" >&2
-            exit 1
+            if ! echo "$INFO_OUT" | grep -q 'status: Accepted'; then
+              if [ -n "$SUBMISSION_ID" ]; then
+                xcrun notarytool log "$SUBMISSION_ID" \
+                  --apple-id "$APPLE_ID" \
+                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                  --team-id "$APPLE_TEAM_ID" || true
+              fi
+              echo "notarization was not accepted" >&2
+              exit 1
+            fi
           fi
 
       - name: Archive

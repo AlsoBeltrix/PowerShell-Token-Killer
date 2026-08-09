@@ -467,7 +467,7 @@ conflated again.
    2026-08-05 from this host's own broken install. `Move-Item` of a directory
    onto a surviving directory nests instead of replacing
    (`scripts/ptk_install_transaction.psm1:279`), so a failed or raced
-   `Remove-PtkInstallPath` silently produces `bin/bin/` and leaves the old
+   `Remove-PtkInstallPath` silently produces `bin/bin/` and leaves the old <!-- lint: allow (runtime nested directory created by bug, not a repo path) -->
    payload registered. Here that is 111 files against a correct publish's 296
    — 185 missing, including `System.Collections.NonGeneric.dll` and
    `Microsoft.PowerShell.SDK.dll`. `Assert-PtkPayloadIntact`

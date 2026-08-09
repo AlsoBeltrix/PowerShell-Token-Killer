@@ -1828,7 +1828,7 @@ SIEM 247/247 where symlink creation is permitted.
   immediately before termination as `PtkMcpServer.exe` under the exact
   user-scoped installed `bin` path; both were stopped and no process from that
   payload root remained before activation.
-- Default `scripts/dev-install.ps1` installed exact repository head `12e1ff5` as
+- Default `scripts/install.ps1` installed exact repository head `12e1ff5` as
   `0.2.0-dev.g12e1ff5`. Staged and activated package validation each passed the
   complete five-tool named-session handshake. The installed executable SHA-256
   is `65d2c4ef7eb62384240c1ab0ca151d00b018f4f03571d0d4edaf9815125484de`;

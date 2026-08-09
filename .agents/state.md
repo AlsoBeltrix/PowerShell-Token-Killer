@@ -5,27 +5,50 @@ short and update it when important repo facts change.
 
 ## Now
 
-**RESOLVED 2026-08-07, on the box in a local non-elevated shell: the
-`10.1.10.173` install failure is the installer's live-server refusal,
-reproduced verbatim (exit 1).** `scripts/install.ps1` threw at the
-line-181 guard:
+**The `10.1.10.173` install failure had two legs; both are explained and
+the product one is fixed (2026-08-07/08).**
 
-> PTK process(es) from C:\Users\michael\.ptk are running (PID 6864, 7628;
-> name(s) PtkMcpServer). Stop all PTK processes or restart the harness
-> session, then re-run.
+Leg 1 — by design, resolved first: with any harness session's ptk
+connected, `scripts/install.ps1` refuses at its line-181 live-process
+guard; the named PIDs were the working session's own MCP supervisor and
+worker (`$PID` match confirmed). Any agent-driven install self-blocks
+this way. Note the harness auto-restarts the MCP server, so killing
+`PtkMcpServer` helps only until the next ptk tool call — close or idle
+ptk-connected sessions for the duration of an install.
 
-Both PIDs were the reproducing session's own ptk plumbing — `$PID` inside
-the ptk worker matched 6864, whose parent was 7628, the session's MCP
-supervisor. So on this box any install attempted while a harness session
-has ptk connected self-blocks by design, including an install the agent
-itself asked the owner to run. Neither SSH blocker was involved (the
-local shell confirmed `elevated=False`). Not an installer defect: the
-message is accurate and names both remedies. Whether the owner's original
-failure was this same refusal is unconfirmed — their error text never
-arrived — but it is the only failure a local run hits here, given the
-otherwise-healthy machine state. Owner call whether refusal-only is
-acceptable UX for agent-driven installs. Full raw log:
-`$env:TEMP\ptk-install.log` (host-local).
+Leg 2 — product defect, fixed in this commit: the owner's local
+`-FromRelease -AllAgents` re-run (after stopping ptk processes)
+downloaded v0.2.1 and failed the package smoke with "PTK requires RTK …
+could not find it" while `rtk` 0.44.2 ran fine on PATH. Cause: winget
+exposes rtk as a `WinGet\Links` symlink; a Windows symlink reports its
+own `FileInfo.Length` as 0; and `ExecutableFileIdentity.TryCapture`
+bounded the length *before* resolving the link, so the RTK startup gate
+(added 2026-08-03, `e6e718d`) rejected every winget-installed rtk on
+Windows — a `PTK_RTK_PATH` pointed at the shim failed identically.
+Running sessions kept working because the installed `0.2.0-dev.gecd3a4c`
+build predates the gate entirely (`RtkDependency.cs` absent at that
+commit); CI never caught it because its Windows leg extracts rtk as a
+plain exe, never a symlink. Fix: bound the resolved target, never the
+link. Guard:
+`RtkDependencyTests.A_symlinked_configured_executable_resolves_through_its_target`,
+proven fail-before/pass-after on this box; pre-fix HEAD also reproduced
+the owner's exact handshake stderr here, and the post-fix battery and
+handshake results are recorded in this commit's message.
+
+**v0.2.2 shipped the fix: published 2026-08-08 04:39 UTC on the owner's
+explicit go, tagged at `5f76583`, run `31239078883` green on all five
+RIDs, marked Latest.** The release also carries #40's Store-package
+module diagnostics — the only other product change aboard. Pending
+confirmation: the owner's unmodified `-FromRelease` install test on
+`10.1.10.173`, with ptk-connected sessions closed/idle during it (leg 1).
+That run's first attempt failed only its osx-arm64 leg on a
+notarization-check flake: the `--wait` poll stream died on a transient
+HTTP timeout after Apple had already accepted the submission, and the
+acceptance check grepped only that stream. Fixed forward at `648d264` —
+a missing acceptance now re-reads the authoritative `notarytool info`
+before the step fails (`bash -n` verified; end-to-end proof rides the
+next `v*` tag). The published draft came from a clean re-run of that
+leg.
 
 **Observed during the reproduction, unfiled candidate defect: run
 through `ptk_invoke`, the same failing install showed no error text at

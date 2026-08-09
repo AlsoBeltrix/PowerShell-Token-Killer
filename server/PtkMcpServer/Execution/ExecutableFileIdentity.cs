@@ -43,18 +43,21 @@ internal sealed record ExecutableFileIdentity
         {
             var fullPath = Path.GetFullPath(path);
             var file = new FileInfo(fullPath);
-            if (!file.Exists || file.Length is <= 0 or > MaximumExecutableBytes)
-                return null;
+            if (!file.Exists) return null;
 
+            // Size bounds bind the resolved target, never the link itself: a
+            // Windows symlink reports its own length as zero (and winget
+            // exposes portable tools as exactly such links), so a bound
+            // checked before resolution rejects every symlinked executable.
             var target = file.ResolveLinkTarget(returnFinalTarget: true);
             if (target is not null)
             {
                 fullPath = Path.GetFullPath(target.FullName);
                 file = new FileInfo(fullPath);
-                if (!file.Exists || file.Length is <= 0 or > MaximumExecutableBytes)
-                    return null;
+                if (!file.Exists) return null;
             }
             if (file.LinkTarget is not null) return null;
+            if (file.Length is <= 0 or > MaximumExecutableBytes) return null;
             var expectedLength = file.Length;
             BeforeHashForTests?.Invoke(fullPath);
 

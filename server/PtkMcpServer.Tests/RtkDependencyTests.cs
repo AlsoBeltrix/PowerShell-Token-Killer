@@ -78,6 +78,39 @@ public sealed class RtkDependencyTests : IDisposable
         Assert.Null(RtkDependency.ResolveExecutablePath());
     }
 
+    /// <summary>
+    /// The winget-shim regression: package managers expose portable tools as
+    /// symlinks (winget's Links directory), and on Windows a symlink reports
+    /// its own length as zero. A size bound checked against the link before
+    /// resolution rejected every such rtk install, and the startup gate then
+    /// refused a machine whose rtk on PATH ran perfectly. Bounds must bind
+    /// the resolved target. Hosts that forbid symlink creation cannot
+    /// exercise this and pass vacuously.
+    /// </summary>
+    [Fact]
+    public void A_symlinked_configured_executable_resolves_through_its_target()
+    {
+        var target = Path.Combine(NewDirectory(), "rtk-real");
+        File.WriteAllText(target, "fixture");
+        var link = Path.Combine(NewDirectory(), "rtk-link");
+        try
+        {
+            File.CreateSymbolicLink(link, target);
+        }
+        catch (Exception exception) when (
+            exception is UnauthorizedAccessException or IOException)
+        {
+            return;
+        }
+
+        Environment.SetEnvironmentVariable(RtkDependency.EnvironmentVariable, link);
+
+        var resolved = RtkDependency.ResolveExecutablePath();
+
+        Assert.NotNull(resolved);
+        Assert.Equal(Path.GetFullPath(target), resolved);
+    }
+
     [Fact]
     public void A_capturable_configured_file_resolves_to_its_full_path()
     {

@@ -1,5 +1,36 @@
 # Review status
 
+## Open — oar1 (openreview, audit-restoration plan, 2026-08-10)
+
+openreview codex (gpt-5.6-sol @ high, standard-confirmed) over
+`9163ea0..f4e1738`: **replace**. Owner named "codex (default)", a
+recorded owner-directed deviation from openreview's fixed
+frontier-at-max routing. codex-cli 0.146.1, `-c 'mcp_servers={}'`
+recipe, read-only sandbox, ~100.6k tokens; capability_ok true, SHAs
+pinned and matched; `material_changes` non-empty as the verdict
+requires. Verdict artifact retained in the session scratchpad; the
+substance is recorded here.
+
+Reviewer's recommended approach (design judgment, owner rules): keep
+the producer's append-only journal as the sole local authority and
+execution gate; expose it through a loopback management UI that also
+shows export lag; export asynchronously to an **optional** authenticated
+remote receiver via endpoint-plus-pairing enrollment; the receiver
+serves remote custody/query/alerts and requires proven bounded
+retention before deployment. Material changes awaiting owner rulings:
+(1) journal-backed local UI instead of a mandatory local receiver;
+(2) R1 gains a secure endpoint-plus-enrollment design reconciling the
+mTLS/separate-principal/separate-product contracts; (3) receiver
+retention enforcement becomes a deployment/packaging prerequisite;
+(4) state.md Q1 staleness — fixed at intake (LOW, blanket).
+
+| ID | Severity | Impact (one line) | Status | Reviewer |
+|----|----------|-------------------|--------|----------|
+| oar1-1 | HIGH | plan makes the retention-unenforced receiver (rbc-11) the default destination in every install; unbounded growth ends in disk-full execution blocks | `[ ]` admitted; plan revision gated on owner ruling 1/3 | codex/gpt-5.6-sol/high/standard |
+| oar1-2 | HIGH | "one endpoint, no certificate ceremony" conflicts with the receiver's frozen client-cert-required contract; naive implementation invites unauthenticated custody | `[ ]` admitted; plan revision gated on owner ruling 2 | codex/gpt-5.6-sol/high/standard |
+| oar1-3 | MEDIUM | the promised log GUI reads the receiver DB, which goes blind exactly during exporter/receiver failure | `[ ]` admitted; resolved by ruling 1 if adopted | codex/gpt-5.6-sol/high/standard |
+| oar1-4 | LOW | state.md still presented settled Q1 as the next open design question | `[x]` fixed at intake (same commit) | codex/gpt-5.6-sol/high/standard |
+
 ## Closed — r806 (owner-requested pass over the day's commits, 2026-08-06)
 
 Generation pass: codex-cli 0.146.1, `codex/gpt-5.6-sol/high/standard`, over

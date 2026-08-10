@@ -25,8 +25,12 @@ touched. **The owner ruled the shape the same day:** "this was part of the desig
 from step 0, and it was all supposed to be built with auditing
 integrated at a base level and non-bypassable. that's what it needs to
 be." Plan of record for the restoration:
-`.agents/plans/audit-restoration.md` (DRAFT — R0 owner approval is the
-next gate; Q1, the anchor scope, is the first design question).
+`.agents/plans/audit-restoration.md` (DRAFT). The anchor question is
+settled by owner rulings recorded in the plan: local durable logging is
+the only execution gate; SIEM export is asynchronous and never gates.
+An openreview pass (oar1, `.agents/review/index.md`) returned `replace`
+with three design rulings pending with the owner; R0 plan approval
+follows those rulings.
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`

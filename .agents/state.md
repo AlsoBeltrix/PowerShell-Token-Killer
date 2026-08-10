@@ -5,6 +5,25 @@ short and update it when important repo facts change.
 
 ## Now
 
+**OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
+removal was never consciously owner-approved.** The owner's words: "I
+never consciously removed SIEM output. that's a p0 requirement." The
+2026-07-27 delegated settlement of salvage decision 4
+(`.agents/decisions.md:624`, executed at `ddbb908`) removed the anchored
+OTLP exporter under a "stop asking low-level technical questions"
+delegation — a product-scope call misclassified as an engineering
+choice. That settlement is countermanded as authority: "never restore
+the producer" notes elsewhere in this file and in the decisions log are
+void as prohibitions, though the engineering lessons stand (the old
+design gated execution on audit health — an availability conflict — and
+its Grpc.Tools protobuf path broke ARM64 Linux builds; the salvage plan
+itself directed any future exporter be an explicit opt-in mode or
+sidecar with its own availability contract). The full producer exists in
+history at `ddbb908^` (exporter, spool pump, mapper, conformance suite,
+fake receiver); the `siem/` receiver and its 247-test suite were never
+touched. Restoration shape is with the owner; a decisions.md entry
+should be landed per the hold protocol when ruled.
+
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`
 call with `Set-Location`, treating the warm runspace as stateless. Root

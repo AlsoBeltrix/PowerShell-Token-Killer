@@ -116,7 +116,7 @@ load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
 **cr3-2 was reopened SIX times, each for a real silent-loss path. All
-six are fixed; DETECTION WORK IS HALTED at `<head>` by the stopping rule
+six are fixed; DETECTION WORK IS HALTED at `a330279` by the stopping rule
 set before round six, and the class is handed to R3d.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail

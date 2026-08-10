@@ -1,6 +1,15 @@
 # Review status
 
-## Open — oar1 (openreview, audit-restoration plan, 2026-08-10)
+## Closed — oar1 (openreview, audit-restoration plan, 2026-08-10)
+
+**Rulings resolved same day, all three in the reviewer's favor with one
+owner amendment:** (1) adopted — journal-backed local UI, receiver
+optional ("fallback should act exactly like real SIEM"); (2) superseded
+in the better direction — no pairing/enrollment machinery at all; the
+receiver issues a token like a real SIEM and shares the one
+endpoint+credential exporter contract; (3) adopted — rbc-11 retention
+enforcement rides the blanket fix authorization before the receiver
+ships. The plan's "Shape of record" section owns the adopted design.
 
 openreview codex (gpt-5.6-sol @ high, standard-confirmed) over
 `9163ea0..f4e1738`: **replace**. Owner named "codex (default)", a

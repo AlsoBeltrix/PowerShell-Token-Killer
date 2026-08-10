@@ -28,9 +28,11 @@ be." Plan of record for the restoration:
 `.agents/plans/audit-restoration.md` (DRAFT). The anchor question is
 settled by owner rulings recorded in the plan: local durable logging is
 the only execution gate; SIEM export is asynchronous and never gates.
-An openreview pass (oar1, `.agents/review/index.md`) returned `replace`
-with three design rulings pending with the owner; R0 plan approval
-follows those rulings.
+An openreview pass (oar1, `.agents/review/index.md`) returned `replace`;
+all rulings resolved same day (journal-backed local UI; one
+endpoint+token exporter contract for Splunk/Sentinel/OTLP/receiver
+alike, no pairing machinery; receiver retention fixed before shipping).
+R0 plan approval is the sole remaining gate before R1 discovery.
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`

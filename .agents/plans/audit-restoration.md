@@ -24,9 +24,11 @@ word, every prior instruction to keep the audit producer removed
   this mandate — fail-closed is the requirement, and the engineering
   duty is a reliable audit path with actionable failure modes, never an
   optional one.
-- SIEM export is the custody leg and is P0. The `siem/` receiver
-  (S1–S3+S3H landed, 247 tests, untouched by the removal) is the
-  destination; the producer must come back.
+- SIEM export is the custody leg and is P0. External SIEMs (Splunk,
+  Sentinel, any OTLP collector) are first-class destinations; the
+  `siem/` receiver (S1–S3+S3H landed, 247 tests, untouched by the
+  removal) is the fallback for environments with no external SIEM. The
+  producer must come back.
 
 ## Inventory — everything is recoverable at `ddbb908^`
 
@@ -105,9 +107,15 @@ settings page where this can be configured."
    (Slack/email/pager); (d) in-session: `ptk_state` reports audit
    health and subsequent `ptk_invoke` responses carry a bounded
    one-line notice (the `[ptk hint]` mechanism).
-4. **Dead-simple SIEM connection configuration.** One endpoint setting,
-   not a certificate ceremony. The S2 mTLS surface stays available for
-   hardened deployments but must not be the price of entry.
+4. **Dead-simple SIEM connection configuration: one endpoint + one
+   credential, identical for every destination.** Splunk HEC, Sentinel
+   Logs Ingestion, a generic OTLP collector, and the PTK fallback
+   receiver are all configured the same way. **No pairing/enrollment
+   machinery** (owner ruling, 2026-08-10: "fallback should act exactly
+   like real SIEM, not require its own machinery") — the receiver
+   issues a token at setup exactly as a real SIEM does; token auth is
+   its default entry path, with the S2 mTLS surface remaining an
+   optional hardened configuration.
 5. **Web GUI to see the logs.**
 6. **Web settings page** where the SIEM connection (and audit settings)
    are configured.
@@ -120,21 +128,34 @@ settings page where this can be configured."
 The former Q2 (wire encoding) and Q3 (S4 fixture scope) are engineering
 calls, settled inside R1 with recorded evidence — not owner questions.
 
-## Recommended shape (validated in R1 before any production code)
+## Shape of record (oar1 verdict adopted with owner amendments,
+2026-08-10)
 
-One log store and one web surface, not two: the `siem/` receiver — the
-only component with a durable store (S1–S3+S3H, 247 tests) and a planned
-dashboard (S5) — becomes the log destination in every deployment.
-A default install runs it locally on loopback with zero-config
-(auto-provisioned, no operator ceremony); "connecting a SIEM" means
-pointing the settings page at a remote receiver instead. The web GUI is
-the receiver's dashboard (S5) plus a settings page (new). PTK's producer
-(restored from `ddbb908^`) writes the local log of record fail-closed,
-and the exporter drains it to the receiver asynchronously — contract
-rule 2: export never gates execution, local logging never stops. R1
-must validate the local-receiver lifecycle (who starts it, crash
-behavior — which per rule 3 must never be globally terminal) before
-this shape is confirmed.
+The openreview pass (oar1, `.agents/review/index.md`) returned
+`replace`; the owner's subsequent rulings adopted its shape with one
+amendment (token auth, not pairing):
+
+- **The producer's append-only local journal is the sole local
+  authority and the only execution gate** (restored from `ddbb908^`,
+  re-seated in the current topology).
+- **A loopback web UI reads that journal directly** — logs, quarantine
+  evidence, export lag/health, and the settings page. It works
+  identically with no SIEM, an unreachable SIEM, or a healthy SIEM,
+  because it never depends on export having succeeded (oar1-3).
+- **Export is one contract, many destinations:** drain the journal
+  asynchronously, deliver at-least-once, track acknowledgment; each
+  destination is a thin adapter over endpoint + credential — Splunk
+  HEC, Sentinel Logs Ingestion, generic OTLP, PTK receiver. Export
+  never gates execution.
+- **The `siem/` receiver is the fallback destination for environments
+  with no external SIEM** (owner scope clarification, 2026-08-10) — a
+  separately installed product, exactly as originally decided, reached
+  through the same exporter contract as every real SIEM. Its dashboard
+  (mini-SIEM S5) serves centralized viewing in those environments and
+  stays under the mini-SIEM plan's authority. Its retention
+  enforcement gap (rbc-11, known MAJOR) is a diagnosed defect fixed
+  under the blanket authorization before any slice ships or documents
+  deploying it (oar1-1).
 
 ## Slices (each needs its own explicit go)
 
@@ -143,21 +164,26 @@ this shape is confirmed.
 - **R1 — Discovery, no production code.** Diff the `ddbb908^` audit
   surface against the current topology; produce the re-seating design;
   settle encoding (protobuf vs OTLP/HTTP JSON) and the S4 fixture
-  regating with evidence; validate the local-receiver shape above.
-- **R2 — Local mandatory audit.** Admission gate + evidence + retention,
-  fail-closed, in the current worker topology; actionable failure
-  diagnostics; flip the handshake/product-proof audit assertions.
-- **R3 — Export leg.** Spool, exporter, mapper, acknowledgment gating;
-  the dead-simple connection setting.
-- **R4 — Web surface.** Receiver dashboard (mini-SIEM S5 executed under
-  that plan's authority) + the settings page; the end-to-end "open a
-  browser, see the logs" proof.
-- **R5 — Conformance + alerts.** Producer-to-SIEM conformance and the
-  golden-fixture serializer (unblocks mini-SIEM S4); S6 alerts as
-  scheduled by the mini-SIEM plan.
+  regating with evidence; design the destination-adapter contract and
+  the receiver's token-auth mode.
+- **R2 — Local mandatory audit.** Journal + admission gate + retention,
+  fail-closed, in the current worker topology; quarantine-and-continue
+  per contract rule 3; flip the handshake/product-proof audit
+  assertions.
+- **R3 — Export leg.** Journal drain, at-least-once delivery,
+  acknowledgment cursor; destination adapters (Splunk HEC, Sentinel,
+  OTLP, PTK receiver); receiver token auth; rbc-11 retention
+  enforcement in the receiver.
+- **R4 — Web surface.** The loopback journal UI: log view, quarantine
+  evidence, export health, settings page (endpoint + credential per
+  destination); the end-to-end "open a browser, see the logs" proof.
+- **R5 — Conformance + fallback product.** Producer-to-destination
+  conformance and the golden-fixture serializer (unblocks mini-SIEM
+  S4); receiver dashboard/alerts (S5/S6) as scheduled by the mini-SIEM
+  plan for no-SIEM environments.
 - **R6 — CI, docs, packaging, release gates.** CI legs,
-  `AUDIT-EXPORT.md`, READMEs, installer wiring for the local receiver,
-  release-gate updates.
+  `AUDIT-EXPORT.md`, READMEs, receiver signing through the existing
+  release legs (contract rule 7), release-gate updates.
 
 ## Verification
 

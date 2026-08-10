@@ -115,8 +115,9 @@ live-tail read is NOT fixed — the writer's `FileShare.None` is
 load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
-**cr3-2 was reopened FIVE times, each time for a real silent-loss path;
-the fifth repair is landed at `449cea2` and awaits verification.**
+**cr3-2 was reopened SIX times, each for a real silent-loss path. All
+six are fixed; DETECTION WORK IS HALTED at `<head>` by the stopping rule
+set before round six, and the class is handed to R3d.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file
@@ -534,11 +535,14 @@ judges by payload survival instead.
 
 ## Next
 
-**Immediate (audit restoration): await the cr3-2 round-6 verdict**
-(codex, base `b23499b`, head `449cea2`). Five rounds have each found a
-real path; if round six finds another, consider halting detection work
-and going straight to R3d, whose acknowledgment-aware retention removes
-the class rather than detecting it. Then, in order: **R3d** (acknowledgment-aware
+**Immediate: R3d.** The cr3-2 detection loop is deliberately closed
+(round 6 found a corrupt-ledger path — fixed, guard-proved locally, and
+the only cr3-2 repair not independently verified, by choice). Six rounds
+each finding a real path is the argument for R3d's
+**acknowledgment-aware journal retention**: stop deleting undelivered
+records, and the class disappears rather than needing ever-finer
+detection. R3d also owes the coordinated live-tail read (cr3-1). Then,
+in order: **R3d** (acknowledgment-aware
 retention + coordinated live-tail read), **R3c** (receiver token auth +
 JSON ingest), **R4** (the loopback web GUI + settings page — the slice
 that finally lets the owner SEE the logs), R5 conformance/alerts, R6

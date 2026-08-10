@@ -42,6 +42,54 @@ internal sealed class AuditExportGapStore
             return ReadLocked();
     }
 
+    /// <summary>
+    /// Reads the ledger, distinguishing ABSENT from CORRUPT. Silently
+    /// treating an unreadable ledger as absent disabled loss detection
+    /// exactly like a fresh install (cr3-2 round 6) — and detectable
+    /// corruption is not the accepted whole-root-deletion limit. A corrupt
+    /// ledger is quarantined as evidence, replaced, and reported, the same
+    /// contract rule 3 pattern the host identity uses.
+    /// </summary>
+    internal AuditExportGapRecord ReadOrQuarantine(out bool wasCorrupt)
+    {
+        lock (_gate)
+        {
+            wasCorrupt = false;
+            if (!File.Exists(_path)) return AuditExportGapRecord.Empty;
+            try
+            {
+                return ReadStrictLocked();
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                wasCorrupt = true;
+                QuarantineLocked(exception);
+                return AuditExportGapRecord.Empty;
+            }
+        }
+    }
+
+    private void QuarantineLocked(Exception failure)
+    {
+        try
+        {
+            var quarantineDirectory = SecureAuditStorage.PrepareRoot(
+                Path.Combine(_directory, "quarantine"));
+            var target = Path.Combine(
+                quarantineDirectory,
+                $"{FileName}.{DateTimeOffset.UtcNow:yyyyMMddTHHmmssfffZ}.{Guid.NewGuid():N}");
+            File.Move(_path, target);
+            Console.Error.WriteLine(
+                $"[ptk audit] quarantined an unreadable export ledger to '{target}' " +
+                $"({failure.Message}); export loss detection restarts without its prior memory.");
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Even failing to quarantine must not stop delivery; the caller
+            // still raises the unverified-boundary signal.
+        }
+    }
+
     /// <summary>Durably remembers the last delivered chain position, so a
     /// lost or corrupted cursor does not erase boot memory.</summary>
     internal void RecordChainPosition(
@@ -102,13 +150,28 @@ internal sealed class AuditExportGapStore
         try
         {
             if (!File.Exists(_path)) return AuditExportGapRecord.Empty;
+            return ReadStrictLocked();
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return AuditExportGapRecord.Empty;
+        }
+    }
+
+    /// <summary>Reads the ledger, throwing on anything unreadable so the
+    /// caller can tell corruption from absence.</summary>
+    private AuditExportGapRecord ReadStrictLocked()
+    {
+        {
             var bytes = SecureAuditStorage.ReadProtectedFile(
                 _path,
                 MaximumFileBytes,
                 requireProtectedParent: false,
                 verifyWithoutMutation: true);
-            var file = JsonSerializer.Deserialize<GapFile>(bytes);
-            if (file is null || file.Count < 0) return AuditExportGapRecord.Empty;
+            var file = JsonSerializer.Deserialize<GapFile>(bytes)
+                ?? throw new InvalidDataException("The export ledger is empty.");
+            if (file.Count < 0)
+                throw new InvalidDataException("The export ledger count is negative.");
             return new AuditExportGapRecord(
                 file.Count,
                 file.Segments ?? [],
@@ -116,10 +179,6 @@ internal sealed class AuditExportGapStore
                 file.LastSupervisorBootId,
                 file.LastSequence,
                 file.LastWasLifecycleTerminal);
-        }
-        catch (Exception exception) when (!IsFatal(exception))
-        {
-            return AuditExportGapRecord.Empty;
         }
     }
 

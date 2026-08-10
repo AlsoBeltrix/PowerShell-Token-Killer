@@ -544,6 +544,66 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_corrupt_ledger_is_quarantined_and_reported_not_read_as_absent()
+    {
+        // cr3-2 round 6: an unreadable-but-present ledger silently became
+        // "no memory", disabling loss detection exactly like a fresh
+        // install. Detectable corruption is not the accepted
+        // whole-root-deletion limit.
+        var root = NewRoot("export-corrupt-ledger");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var oldBoot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var first = WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(oldBoot, sequence: 1),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using (var service = NewService(
+            options,
+            receiver,
+            cursorStore,
+            new AuditExportHealth()))
+        {
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        }
+
+        // Cursor lost AND the ledger corrupted, then the old boot (with its
+        // undelivered tail) is erased and a new boot starts clean.
+        File.Delete(cursorStore.CursorPath);
+        var ledgerPath = Path.Combine(root, AuditExportGapStore.FileName);
+        Assert.True(File.Exists(ledgerPath), "the durable ledger was never written");
+        File.WriteAllText(ledgerPath, "{ this is not valid json");
+        File.Delete(first);
+        WriteSegment(options, index: 1, records:
+        [
+            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+        ]);
+
+        var health = new AuditExportHealth();
+        await using var restarted = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(1, await restarted.DrainOnceAsync(CancellationToken.None));
+
+        // Losing the proof is itself reportable, and the corrupt artifact is
+        // preserved as evidence rather than deleted.
+        Assert.Contains(
+            "unverified_boot_boundaries",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+        var quarantined = Directory.GetFiles(
+            Path.Combine(root, "quarantine"),
+            AuditExportGapStore.FileName + "*");
+        var artifact = Assert.Single(quarantined);
+        Assert.Equal("{ this is not valid json", File.ReadAllText(artifact));
+    }
+
+    [Fact]
     public async Task A_first_run_from_the_start_of_a_chain_raises_nothing()
     {
         // The no-alarm half: an ordinary first run whose oldest surviving

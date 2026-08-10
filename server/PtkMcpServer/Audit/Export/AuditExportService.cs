@@ -469,7 +469,14 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     {
         if (cursor.LastSupervisorBootId is not null && cursor.LastSequence > 0)
             return cursor;
-        var ledger = _gapStore.Read();
+        var ledger = _gapStore.ReadOrQuarantine(out var ledgerWasCorrupt);
+        if (ledgerWasCorrupt)
+        {
+            // Memory was destroyed by something other than an operator
+            // wiping the audit root, so prior delivery cannot be proved and
+            // the loss of that proof is itself reportable (cr3-2 round 6).
+            _health.RecordUnverifiedBootBoundary("ledger-unreadable", 0);
+        }
         if (ledger.LastSupervisorBootId is null || ledger.LastSequence <= 0)
             return cursor;
         return cursor with

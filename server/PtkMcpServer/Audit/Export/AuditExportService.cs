@@ -124,7 +124,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 // between the last delivered one and this one were removed
                 // before delivery, whatever retention or rotation did to the
                 // segments (cr3-2, both verification rounds).
-                DetectSequenceGap(cursor, batch[0]);
+                DetectSequenceGap(EffectivePriorPosition(cursor), batch[0]);
 
                 var result = await _destination
                     .DeliverAsync(batch, cancellationToken)
@@ -164,6 +164,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     chainSequence ?? cursor.LastSequence,
                     chainBootId is null ? cursor.LastWasLifecycleTerminal : chainTerminal);
                 _cursorStore.TryWrite(cursor);
+                // Mirrored into the durable ledger so losing the cursor does
+                // not erase boot memory (cr3-2 round 5).
+                _gapStore.RecordChainPosition(
+                    cursor.LastSupervisorBootId,
+                    cursor.LastSequence,
+                    cursor.LastWasLifecycleTerminal);
             }
         }
 
@@ -451,6 +457,27 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 cursor.LastSupervisorBootId,
                 cursor.LastSequence);
         }
+    }
+
+    /// <summary>
+    /// The prior chain position to compare against: the cursor when it has
+    /// one, otherwise the durable ledger. A cursor that is missing or
+    /// corrupted reads as "start", and without this fallback an erased boot's
+    /// undelivered tail left no trace at all (cr3-2 round 5).
+    /// </summary>
+    private AuditExportCursor EffectivePriorPosition(AuditExportCursor cursor)
+    {
+        if (cursor.LastSupervisorBootId is not null && cursor.LastSequence > 0)
+            return cursor;
+        var ledger = _gapStore.Read();
+        if (ledger.LastSupervisorBootId is null || ledger.LastSequence <= 0)
+            return cursor;
+        return cursor with
+        {
+            LastSupervisorBootId = ledger.LastSupervisorBootId,
+            LastSequence = ledger.LastSequence,
+            LastWasLifecycleTerminal = ledger.LastWasLifecycleTerminal,
+        };
     }
 
     private void RecordGap(string gapKey, long missingRecords)

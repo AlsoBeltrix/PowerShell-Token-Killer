@@ -491,6 +491,59 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task An_erased_boot_survives_cursor_loss_as_an_unverified_boundary()
+    {
+        // cr3-2 round 5: with the cursor lost, retention erasing an old boot
+        // (delivered sequence 1, undelivered 2-3) and a restart whose new
+        // boot begins cleanly at 1 reported healthy — the memory boundary
+        // detection depends on lived only on the cursor. The durable ledger
+        // now keeps it.
+        var root = NewRoot("export-erased-boot");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var oldBoot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var first = WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(oldBoot, sequence: 1),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using (var service = NewService(
+            options,
+            receiver,
+            cursorStore,
+            new AuditExportHealth()))
+        {
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        }
+
+        // The cursor is lost, the old boot's segments (including its
+        // undelivered sequences 2-3) are erased, and a new boot starts clean.
+        File.Delete(cursorStore.CursorPath);
+        File.Delete(first);
+        WriteSegment(options, index: 1, records:
+        [
+            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+        ]);
+
+        var health = new AuditExportHealth();
+        await using var restarted = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(1, await restarted.DrainOnceAsync(CancellationToken.None));
+
+        // The old boot never delivered a terminal, so its tail cannot be
+        // proved delivered: suspicion, reported.
+        Assert.Contains(
+            "unverified_boot_boundaries=1",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_first_run_from_the_start_of_a_chain_raises_nothing()
     {
         // The no-alarm half: an ordinary first run whose oldest surviving

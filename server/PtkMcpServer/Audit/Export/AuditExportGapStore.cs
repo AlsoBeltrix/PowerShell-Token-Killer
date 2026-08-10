@@ -4,9 +4,15 @@ using System.Text.Json.Serialization;
 namespace PtkMcpServer.Audit.Export;
 
 /// <summary>
-/// Durable record of audit records that were removed locally before they
-/// were delivered — permanently lost custody at the destination. Keyed by
-/// the missing chain range so the same gap is never counted twice.
+/// Durable export ledger: audit records removed locally before delivery
+/// (permanently lost custody, keyed by missing chain range so a gap is never
+/// counted twice), PLUS the last delivered chain position.
+///
+/// The chain position lives here, not only on the cursor, because losing the
+/// cursor must not erase the memory boundary detection depends on: with a
+/// lost cursor, an erased old boot's undelivered tail was invisible (cr3-2
+/// round 5). Total loss of this file too — deleting the audit root — is
+/// undetectable by construction and is an accepted, documented limit.
 ///
 /// This is on disk, not in memory, because a gap is evidence: process-local
 /// state would erase the only trace of the loss at the next restart (cr3-2
@@ -36,6 +42,32 @@ internal sealed class AuditExportGapStore
             return ReadLocked();
     }
 
+    /// <summary>Durably remembers the last delivered chain position, so a
+    /// lost or corrupted cursor does not erase boot memory.</summary>
+    internal void RecordChainPosition(
+        string? supervisorBootId,
+        long sequence,
+        bool wasLifecycleTerminal)
+    {
+        if (string.IsNullOrWhiteSpace(supervisorBootId) || sequence <= 0) return;
+        lock (_gate)
+        {
+            var current = ReadLocked();
+            if (string.Equals(current.LastSupervisorBootId, supervisorBootId, StringComparison.Ordinal) &&
+                current.LastSequence == sequence &&
+                current.LastWasLifecycleTerminal == wasLifecycleTerminal)
+            {
+                return;
+            }
+            TryWriteLocked(current with
+            {
+                LastSupervisorBootId = supervisorBootId,
+                LastSequence = sequence,
+                LastWasLifecycleTerminal = wasLifecycleTerminal,
+            });
+        }
+    }
+
     /// <summary>
     /// Records one lost segment. Returns the resulting durable record. A
     /// segment already recorded is not counted twice, so a repeating drain
@@ -54,10 +86,12 @@ internal sealed class AuditExportGapStore
                 .Append(gapKey)
                 .TakeLast(MaximumRetainedSegments)
                 .ToArray();
-            var updated = new AuditExportGapRecord(
-                current.Count + 1,
-                keys,
-                current.MissingRecords + Math.Max(0, missingRecords));
+            var updated = current with
+            {
+                Count = current.Count + 1,
+                Segments = keys,
+                MissingRecords = current.MissingRecords + Math.Max(0, missingRecords),
+            };
             TryWriteLocked(updated);
             return updated;
         }
@@ -78,7 +112,10 @@ internal sealed class AuditExportGapStore
             return new AuditExportGapRecord(
                 file.Count,
                 file.Segments ?? [],
-                file.MissingRecords);
+                file.MissingRecords,
+                file.LastSupervisorBootId,
+                file.LastSequence,
+                file.LastWasLifecycleTerminal);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -98,6 +135,9 @@ internal sealed class AuditExportGapStore
                 Count = record.Count,
                 Segments = record.Segments.ToArray(),
                 MissingRecords = record.MissingRecords,
+                LastSupervisorBootId = record.LastSupervisorBootId,
+                LastSequence = record.LastSequence,
+                LastWasLifecycleTerminal = record.LastWasLifecycleTerminal,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -123,6 +163,9 @@ internal sealed class AuditExportGapStore
         [JsonPropertyName("count")] public long Count { get; set; }
         [JsonPropertyName("segments")] public string[]? Segments { get; set; }
         [JsonPropertyName("missing_records")] public long MissingRecords { get; set; }
+        [JsonPropertyName("last_boot")] public string? LastSupervisorBootId { get; set; }
+        [JsonPropertyName("last_sequence")] public long LastSequence { get; set; }
+        [JsonPropertyName("last_terminal")] public bool LastWasLifecycleTerminal { get; set; }
     }
 }
 
@@ -131,7 +174,10 @@ internal sealed class AuditExportGapStore
 internal sealed record AuditExportGapRecord(
     long Count,
     IReadOnlyList<string> Segments,
-    long MissingRecords = 0)
+    long MissingRecords = 0,
+    string? LastSupervisorBootId = null,
+    long LastSequence = 0,
+    bool LastWasLifecycleTerminal = false)
 {
     internal static AuditExportGapRecord Empty { get; } = new(0, []);
 }

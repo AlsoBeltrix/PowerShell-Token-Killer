@@ -18,8 +18,8 @@ word, every prior instruction to keep the audit producer removed
 
 - Audit is core architecture, not a mode. Effectful invocations produce
   durable audit evidence; no configuration disables it.
-- Non-bypassable means fail-closed: when the audit path cannot record,
-  execution does not proceed. The salvage plan's "availability conflict"
+- Non-bypassable means fail-closed: when the audit path cannot record
+  locally, execution does not proceed. The salvage plan's "availability conflict"
   framing (`production-reliability-salvage.md` §Audit) is inverted by
   this mandate — fail-closed is the requirement, and the engineering
   duty is a reliable audit path with actionable failure modes, never an
@@ -50,8 +50,10 @@ it).
    pre-generated protobuf code, or a real-hardware toolchain fix. Ruled
    in R1 with evidence (Q2).
 2. **Audit-root/startup incidents**: an unknown artifact under the audit
-   root used to refuse startup with poor diagnosability. Fail-closed
-   stays; the failure must name itself and its repair path.
+   root used to refuse startup with poor diagnosability. Contract rule 3
+   replaces that behavior: quarantine the artifact as evidence, report
+   loudly, continue in clean storage; any residual hard failure must
+   name itself and its repair path. Only local write inability blocks.
 3. **Topology drift**: the deleted code predates the salvage topology
    (supervisor + named contained workers, `opr-53` structured verdicts,
    heartbeats). The gate is re-seated in the current architecture, not
@@ -77,20 +79,37 @@ siem connected, it needs to log there. there needs be dead-simple way
 configure SIEM connection. we need WEB GUI see the logs. we need web
 settings page where this can be configured."
 
-1. **PTK always logs.** Durable, non-bypassable: cannot record → does
-   not execute.
-2. **SIEM connected → logs flow there** with durable acknowledgment.
-3. **Dead-simple SIEM connection configuration.** One endpoint setting,
+1. **PTK always logs locally.** Durable, non-bypassable: cannot record
+   locally → does not execute. Local logging is the *only* execution
+   gate.
+2. **SIEM connected → logs flow there too, never instead.** Export
+   drains the local log asynchronously, at-least-once, with
+   acknowledgment tracked for custody — and it never gates execution.
+   Owner ruling (2026-08-10): "SIEM connected != stop logging locally.
+   some idiot rebooting splunk server shouldn't crash every coding
+   session in company." A receiver outage means the spool catches up
+   later; the only way an outage ever blocks execution is indirectly,
+   if the disk genuinely fills (rule 1).
+3. **A fuckup cannot be globally terminal** (owner ruling, 2026-08-10).
+   Corrupt, half-written, or foreign artifacts in the audit store are
+   quarantined in place as evidence, reported loudly, and logging
+   continues in clean storage. Refusing to start over one bad file —
+   the old behavior — is forbidden. Only genuine inability to write
+   locally (disk full, permissions gone) blocks.
+4. **Dead-simple SIEM connection configuration.** One endpoint setting,
    not a certificate ceremony. The S2 mTLS surface stays available for
    hardened deployments but must not be the price of entry.
-4. **Web GUI to see the logs.**
-5. **Web settings page** where the SIEM connection (and audit settings)
+5. **Web GUI to see the logs.**
+6. **Web settings page** where the SIEM connection (and audit settings)
    are configured.
+7. **The receiver ships signed like the server** (owner, 2026-08-10):
+   Azure Trusted Signing on both Windows RIDs, Developer ID +
+   notarization on macOS, through the existing `release.yml` signing
+   legs. (Defender's only historical hit was the unsigned server
+   executable — #7 — and signing resolved that class.)
 
-This resolves former Q1 as: local logging always-on; export joins the
-gate when a receiver is configured. The former Q2 (wire encoding) and
-Q3 (S4 fixture scope) are engineering calls, settled inside R1 with
-recorded evidence — not owner questions.
+The former Q2 (wire encoding) and Q3 (S4 fixture scope) are engineering
+calls, settled inside R1 with recorded evidence — not owner questions.
 
 ## Recommended shape (validated in R1 before any production code)
 
@@ -101,10 +120,12 @@ A default install runs it locally on loopback with zero-config
 (auto-provisioned, no operator ceremony); "connecting a SIEM" means
 pointing the settings page at a remote receiver instead. The web GUI is
 the receiver's dashboard (S5) plus a settings page (new). PTK's producer
-(restored from `ddbb908^`) spools locally and exports with
-acknowledgment; fail-closed per the mandate. R1 must validate the
-local-receiver lifecycle (who starts it, crash behavior under the
-fail-closed rule) before this shape is confirmed.
+(restored from `ddbb908^`) writes the local log of record fail-closed,
+and the exporter drains it to the receiver asynchronously — contract
+rule 2: export never gates execution, local logging never stops. R1
+must validate the local-receiver lifecycle (who starts it, crash
+behavior — which per rule 3 must never be globally terminal) before
+this shape is confirmed.
 
 ## Slices (each needs its own explicit go)
 

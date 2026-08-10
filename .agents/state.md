@@ -5,6 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Hook anchor advice fixed (2026-08-10, owner report, blanket fix
+authorization).** The owner observed agents prefixing every `ptk_invoke`
+call with `Set-Location`, treating the warm runspace as stateless. Root
+cause: `scripts/ptk-hook.ps1`'s deny guidance said unconditionally "anchor
+the command: prefix it with: Set-Location '<cwd>';" — models complied on
+the replay and then generalized the prefix to every call they composed.
+The advice is now conditional and once-only ("if this session is not
+already there … once set, do not re-anchor later calls"); the cwd test
+pins the new phrasing and rejects the old imperative, proven
+fail-before/pass-after. Note the fix reaches users through the *installed*
+hook — `~/.claude` hooks on existing installs carry the old wording until
+reinstalled/re-inited.
+
 **The `10.1.10.173` install failure had two legs; both are explained and
 the product one is fixed (2026-08-07/08).**
 

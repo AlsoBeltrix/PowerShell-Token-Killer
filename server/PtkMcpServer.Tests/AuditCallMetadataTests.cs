@@ -269,7 +269,7 @@ public sealed class AuditCallMetadataTests
             protector,
             "secret-pattern");
         AssertOutputRejected(
-            Call("ptk_output", ("handle", "h"), ("action", "status"), ("offset", 0L)),
+            Call("ptk_output", ("handle", "h"), ("action", "status"), ("offset", 5L)),
             "inapplicable argument",
             protector);
         AssertOutputRejected(
@@ -278,7 +278,7 @@ public sealed class AuditCallMetadataTests
             protector,
             "secret-handle");
         AssertOutputRejected(
-            Call("ptk_output", ("action", "list"), ("offset", 0L)),
+            Call("ptk_output", ("action", "list"), ("offset", 1L)),
             "inapplicable argument",
             protector);
         AssertOutputRejected(
@@ -303,6 +303,59 @@ public sealed class AuditCallMetadataTests
             "unknown argument field",
             protector,
             "Remove-Item secret");
+    }
+
+    [Fact]
+    public void Output_capture_accepts_explicitly_serialized_defaults()
+    {
+        // cr2-3: a client that serializes optional defaults sends exactly the
+        // values the advertised tool contract accepts; audit admission must
+        // not narrow the published MCP schema by rejecting key presence.
+        using var protector = new AuditOutputRequestProtector(new byte[32]);
+        Assert.True(Capture(
+            Call(
+                "ptk_output",
+                ("action", "list"),
+                ("handle", null),
+                ("offset", 0L),
+                ("maxBytes", (long)OutputStore.DefaultReadBytes),
+                ("pattern", null),
+                ("session", null)),
+            new(),
+            out var list,
+            out _,
+            out var listFailure,
+            protector));
+        Assert.Null(listFailure);
+        Assert.Equal("list", list!.Request.Action);
+        Assert.Null(list.Request.SessionRequested);
+
+        Assert.True(Capture(
+            Call(
+                "ptk_output",
+                ("action", "status"),
+                ("handle", "h"),
+                ("offset", 0L),
+                ("maxBytes", (long)OutputStore.DefaultReadBytes),
+                ("pattern", null),
+                ("session", null)),
+            new(),
+            out var status,
+            out _,
+            out var statusFailure,
+            protector));
+        Assert.Null(statusFailure);
+        Assert.Equal("status", status!.Request.Action);
+
+        Assert.True(Capture(
+            Call("ptk_output", ("handle", "h"), ("pattern", null)),
+            new(),
+            out var read,
+            out _,
+            out var readFailure,
+            protector));
+        Assert.Null(readFailure);
+        Assert.Equal("read", read!.Request.Action);
     }
 
     [Fact]

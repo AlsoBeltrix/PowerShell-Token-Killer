@@ -314,10 +314,15 @@ internal static class AuditCallMetadataCapture
 
         if (action == "list")
         {
-            if (arguments.ContainsKey("handle") ||
-                arguments.ContainsKey("offset") ||
-                arguments.ContainsKey("maxBytes") ||
-                arguments.ContainsKey("pattern"))
+            // Mirror the tool's own semantics (OutputTool's list branch):
+            // the schema's defaults are acceptable as explicit values, and
+            // only a NON-default inapplicable value is rejected. Rejecting
+            // on key presence narrowed the published MCP contract for
+            // clients that serialize optional defaults (cr2-3).
+            if (!IsAbsentOrNull(arguments, "handle") ||
+                !IsAbsentOrDefaultNumber(arguments, "offset", 0) ||
+                !IsAbsentOrDefaultNumber(arguments, "maxBytes", OutputStore.DefaultReadBytes) ||
+                !IsAbsentOrNull(arguments, "pattern"))
             {
                 return Fail("audit_boundary_invalid: ptk_output list contains an inapplicable argument", out failure);
             }
@@ -351,7 +356,7 @@ internal static class AuditCallMetadataCapture
             return true;
         }
 
-        if (arguments.ContainsKey("session"))
+        if (!IsAbsentOrNull(arguments, "session"))
             return Fail("audit_boundary_invalid: ptk_output action contains an inapplicable session", out failure);
         if (protector is null)
             return Fail("audit_boundary_invalid: output request protection is unavailable", out failure);
@@ -398,16 +403,20 @@ internal static class AuditCallMetadataCapture
 
         if (action == "status")
         {
-            if (arguments.ContainsKey("offset") ||
-                arguments.ContainsKey("maxBytes") ||
-                arguments.ContainsKey("pattern"))
+            // Same default-tolerant rule as the list branch (cr2-3): the
+            // audit boundary stays stricter than the tool (which ignores
+            // these fields for status) by rejecting non-default values,
+            // but never rejects the schema's own defaults.
+            if (!IsAbsentOrDefaultNumber(arguments, "offset", 0) ||
+                !IsAbsentOrDefaultNumber(arguments, "maxBytes", OutputStore.DefaultReadBytes) ||
+                !IsAbsentOrNull(arguments, "pattern"))
             {
                 return Fail("audit_boundary_invalid: ptk_output status contains an inapplicable argument", out failure);
             }
         }
         else if (action == "read")
         {
-            if (arguments.ContainsKey("pattern"))
+            if (!IsAbsentOrNull(arguments, "pattern"))
                 return Fail("audit_boundary_invalid: ptk_output read contains an inapplicable argument", out failure);
         }
         else
@@ -707,4 +716,20 @@ internal static class AuditCallMetadataCapture
         failure = message;
         return false;
     }
+
+    private static bool IsAbsentOrNull(
+        IDictionary<string, JsonElement> arguments,
+        string name) =>
+        !arguments.TryGetValue(name, out var value) ||
+        value.ValueKind == JsonValueKind.Null;
+
+    private static bool IsAbsentOrDefaultNumber(
+        IDictionary<string, JsonElement> arguments,
+        string name,
+        long defaultValue) =>
+        !arguments.TryGetValue(name, out var value) ||
+        value.ValueKind == JsonValueKind.Null ||
+        (value.ValueKind == JsonValueKind.Number &&
+         value.TryGetInt64(out var number) &&
+         number == defaultValue);
 }

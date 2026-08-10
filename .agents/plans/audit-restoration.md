@@ -1,7 +1,9 @@
 # Plan: base-level non-bypassable audit restoration
 
-**Status: DRAFT 2026-08-10 — design mandate ruled by the owner; no slice
-approved, no code authorized.** This plan supersedes, on the owner's
+**Status: APPROVED 2026-08-10 (R0 executed — owner word "approved" after
+the oar1 rulings resolved). R1 discovery authorized; implementation
+slices R2+ still need their own go. The decisions.md entry remains
+owner-landed per the hold protocol.** This plan supersedes, on the owner's
 word, every prior instruction to keep the audit producer removed
 (salvage decision 4, `.agents/decisions.md:624`, executed at `ddbb908`).
 `.agents/state.md` §Now owns the correction record.

@@ -115,21 +115,25 @@ live-tail read is NOT fixed — the writer's `FileShare.None` is
 load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
-**cr3-2 has been reopened FOUR times, each time for a real silent-loss
-path, and round five is dispatched (base `66c2635`, head `b23499b`).**
+**cr3-2 was reopened FIVE times, each time for a real silent-loss path;
+the fifth repair is landed at `449cea2` and awaits verification.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file
 proved transient (round 2: append→rotate→delete between drains), boot
 changes bypassed comparison entirely (round 3: new-boot prefix and
 old-boot suffix), and a cursor-less first read inspected nothing
-(round 4). Detection now rests on the records' own per-boot contiguous
+(round 4), and boot memory living only on the cursor meant losing the
+cursor hid an erased boot's undelivered tail (round 5 — closed by
+mirroring the chain position into the durable ledger). Detection now
+rests on the records' own per-boot contiguous
 `sequence` with `producer.supervisor_boot_id`, plus a deliberate
 proved/unverified split: `EXPORT_GAPS` means records provably lost,
 while an old boot ending without its `server.stopped` terminal raises
 `unverified_boot_boundaries` instead — suspicion never counted as
-proof. Known limitation: an unparseable record contributes nothing to
-detection. **Durable lesson: a guard must assert only through surface
+proof. Two accepted limits, documented not papered over: an unparseable record
+contributes nothing to detection, and destroying the audit root
+(ledger included) leaves nothing knowable about prior delivery. **Durable lesson: a guard must assert only through surface
 that exists in the OLD revision — twice a "proof" reverted into a
 compile error, which proves nothing.**
 
@@ -530,10 +534,11 @@ judges by payload survival instead.
 
 ## Next
 
-**Immediate (audit restoration): await the cr3-2 round-5 verdict**
-(codex, base `66c2635`, head `b23499b`; it was also asked to hunt for
-any remaining silent-loss path or state that detection is complete for
-parseable records). Then, in order: **R3d** (acknowledgment-aware
+**Immediate (audit restoration): await the cr3-2 round-6 verdict**
+(codex, base `b23499b`, head `449cea2`). Five rounds have each found a
+real path; if round six finds another, consider halting detection work
+and going straight to R3d, whose acknowledgment-aware retention removes
+the class rather than detecting it. Then, in order: **R3d** (acknowledgment-aware
 retention + coordinated live-tail read), **R3c** (receiver token auth +
 JSON ingest), **R4** (the loopback web GUI + settings page — the slice
 that finally lets the owner SEE the logs), R5 conformance/alerts, R6

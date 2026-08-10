@@ -460,6 +460,66 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_first_run_starting_above_sequence_one_reports_the_lost_prefix()
+    {
+        // cr3-2 round 4: with no cursor yet -- a first run, or a cursor lost
+        // or corrupted -- the first record was never inspected, so an outage
+        // plus retention could leave the exporter starting mid-chain with no
+        // signal. Every chain starts at 1.
+        var root = NewRoot("export-first-run-gap");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        // Sequences 1-4 were deleted before this exporter ever ran.
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 5),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        var line = health.Snapshot().StatusLine();
+        Assert.Contains("EXPORT_GAPS=1", line, StringComparison.Ordinal);
+        Assert.Contains("missing_records=4", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_first_run_from_the_start_of_a_chain_raises_nothing()
+    {
+        // The no-alarm half: an ordinary first run whose oldest surviving
+        // record IS sequence 1 has lost nothing.
+        var root = NewRoot("export-first-run-clean");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 1),
+            ChainRecord(boot, sequence: 2),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            "EXPORT_GAPS",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_clean_boot_boundary_at_sequence_one_raises_nothing()
     {
         // Each supervisor boot owns its own chain from 1. When the previous

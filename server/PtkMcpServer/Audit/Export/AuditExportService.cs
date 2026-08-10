@@ -406,9 +406,20 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     /// </summary>
     private void DetectSequenceGap(AuditExportCursor cursor, string nextRecord)
     {
-        if (cursor.LastSupervisorBootId is null || cursor.LastSequence <= 0) return;
         var (bootId, sequence, _) = ChainPosition(nextRecord);
         if (bootId is null || sequence is null) return;
+
+        // No prior position — a first run, or a cursor that was lost or
+        // unreadable — must still inspect the first record. Skipping it let
+        // an outage plus retention leave the exporter starting above
+        // sequence 1 with no signal at all (cr3-2 round 4). Every chain
+        // starts at 1, so a higher first record proves its prefix is gone.
+        if (cursor.LastSupervisorBootId is null || cursor.LastSequence <= 0)
+        {
+            if (sequence > 1)
+                RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
+            return;
+        }
 
         if (string.Equals(bootId, cursor.LastSupervisorBootId, StringComparison.Ordinal))
         {

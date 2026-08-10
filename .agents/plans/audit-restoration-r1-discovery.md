@@ -63,7 +63,19 @@ execution (rule 2 now forbids export from gating).
   event, and startup proceeds on clean storage. Only local write
   inability blocks.
 
-## 3. Encoding decision (settled with evidence)
+## 3. Encoding decision (settled with evidence — AMENDED at R3)
+
+**Amendment 2026-08-10 (R3a, `836cbb7`): the producer sends OTLP/HTTP
+JSON; nothing is vendored and `Grpc.Tools` never enters PTK.** JSON is a
+standard OTLP encoding, so generic collectors, Splunk, and Sentinel are
+reached with one adapter shape and zero codegen — strictly less
+machinery than vendoring generated protobuf, with the same ARM64
+outcome. Consequence, recorded honestly: the `siem/` receiver still
+parses protobuf only, so reaching it needs its JSON ingest path (R3c);
+the receiver keeps `Grpc.Tools` for that parser until then. The original
+vendoring analysis below is retained as the reasoning it amends.
+
+### Original decision (superseded above)
 
 **Vendor the generated protobuf C# and drop `Grpc.Tools` from both
 projects.** Evidence: the recorded ARM64 Linux blocker is a

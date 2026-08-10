@@ -77,8 +77,35 @@ carrying the schema's own defaults), cr2-4 MEDIUM (quarantines were
 stderr-only, absent from the journal — the plan's rule-3 reporting
 surface (a)). `.agents/review/index.md` §cr2 owns the record. Battery at
 `98083cc`: server 1,220/1,220 from a plain shell, Pester 112 + 3
-skipped. **Next gate: owner go for R3** (export leg: spool, exporter,
-destination adapters, receiver token auth, rbc-11 retention).
+skipped.
+
+**R3 EXECUTED 2026-08-10 (owner go), in two commits — PTK now exports to
+a real SIEM.** R3a (`836cbb7`): one export contract with thin
+destination adapters (endpoint + credential; Splunk HEC, any OTLP/HTTP
+collector, and the PTK receiver configured identically), a background
+service draining the JSONL spool at least once behind a durable cursor,
+health in `ptk_state`. Two design calls, both recorded: the anchored
+ack-gating machinery deleted at `ddbb908` is deliberately NOT restored
+(it gated execution on delivery acknowledgment, which contract rule 2
+forbids), and **OTLP/HTTP JSON replaces protobuf, amending R1's
+vendor-the-generated-code decision** — no protoc/Grpc.Tools path at all
+on the producer, which kills the recorded ARM64 Linux build blocker
+while staying a standard OTLP encoding. Plaintext HTTP is accepted only
+for loopback; credentials never reach journal, logs, or `ptk_state`.
+The load-bearing guard is end-to-end: with the SIEM endpoint a closed
+port, invokes still execute, health shows the outage, records stay
+journaled. R3b (`af8a229`): rbc-11 CLOSED — receiver retention is
+enforced by a background sweep that never touches custody receipts or
+chain heads; the README's "do not deploy" warning is replaced by the
+retention contract. Battery: server 1,236/1,236, SIEM 252/252,
+handshake PASSED.
+
+**R3c is the honest remainder, not yet started:** the receiver still
+ingests protobuf over mTLS only, so PTK's own exporter cannot reach the
+fallback receiver yet (Splunk/Sentinel/any OTLP collector work today).
+R3c is the receiver's token-auth + OTLP-JSON ingest path — it touches
+the mTLS security boundary that 247 receiver tests pin, which is why it
+is its own slice rather than bolted onto R3.
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`

@@ -11,17 +11,22 @@ namespace PtkMcpServer.Sessions;
 internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
 {
     private readonly NamedSessionSupervisor _sessions;
+    private readonly Func<string>? _auditStateText;
     private int _disposed;
 
-    internal WorkerSupervisor(NamedSessionSupervisor sessions)
+    internal WorkerSupervisor(
+        NamedSessionSupervisor sessions,
+        Func<string>? auditStateText = null)
     {
         _sessions = sessions ??
             throw new ArgumentNullException(nameof(sessions));
+        _auditStateText = auditStateText;
     }
 
     internal static WorkerSupervisor CreateDefault(
         TimeSpan callTimeout,
-        TimeSpan maxCallTimeout)
+        TimeSpan maxCallTimeout,
+        Func<string>? auditStateText = null)
     {
         var limits = WorkerOperationProtocol.CreateLimits(
             callTimeout,
@@ -30,7 +35,8 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             new NamedSessionSupervisor(
                 () => ProcessSessionWorkerFactory.CreateDefault(limits),
                 startupTimeout: TimeSpan.FromSeconds(30),
-                containmentGrace: TimeSpan.FromSeconds(10)));
+                containmentGrace: TimeSpan.FromSeconds(10)),
+            auditStateText);
     }
 
     internal NamedSessionSupervisor NamedSessions => _sessions;
@@ -145,7 +151,10 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             sb.AppendLine();
             AppendSnapshot(sb, snapshot);
             sb.AppendLine();
-            sb.AppendLine("audit: disabled");
+            // Production supplies real audit health (audit-restoration R2);
+            // a bare supervisor (tests, fixtures) states the truth for a
+            // composition with no audit gate.
+            sb.AppendLine(_auditStateText?.Invoke() ?? "audit: disabled");
             if (workerState.Available)
             {
                 var text = workerState.Text.TrimEnd();

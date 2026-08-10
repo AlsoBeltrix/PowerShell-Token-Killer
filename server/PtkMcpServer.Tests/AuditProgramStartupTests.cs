@@ -18,8 +18,16 @@ public sealed class AuditProgramStartupTests : IDisposable
     }
 
     [Fact]
-    public async Task Unwritable_audit_root_does_not_block_invoke_and_state_reports_disabled()
+    public async Task Unwritable_audit_root_refuses_every_invoke_fail_closed()
     {
+        // Audit is base-level and non-bypassable (audit-restoration R2):
+        // when the journal cannot record, nothing executes. The transport
+        // stays up so the refusal and the emergency diagnosis are
+        // observable, and admission retries initialization on later calls —
+        // a repaired root heals without a restart (contract rule 3: not
+        // globally terminal, but never a silent bypass either). The
+        // pre-restoration expectation — execute anyway and report
+        // "audit: disabled" — is the removed behavior this test now forbids.
         var auditRoot = NewBlockedAuditRoot();
         using var process = StartServer(auditRoot);
         var stderr = process.StandardError.ReadToEndAsync();
@@ -27,20 +35,66 @@ public sealed class AuditProgramStartupTests : IDisposable
         {
             await SendAsync(
                 process,
-                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-independent-startup-test","version":"1"}}}""");
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-blocked-startup-test","version":"1"}}}""");
             _ = await ReadResponseAsync(process, 1);
             await SendAsync(
                 process,
                 """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
             await SendAsync(
                 process,
-                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_invoke","arguments":{"script":"'audit-independent-effect'","route":"pwsh"}}}""");
+                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_invoke","arguments":{"script":"'unrecorded-effect'","route":"pwsh"}}}""");
+            var invoke = (await ReadResponseAsync(process, 2)).GetProperty("result");
+            Assert.True(
+                invoke.TryGetProperty("isError", out var invokeError) &&
+                invokeError.GetBoolean());
+            var refusal = invoke.GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("[operation not started]", refusal, StringComparison.Ordinal);
+            Assert.DoesNotContain("unrecorded-effect", refusal, StringComparison.Ordinal);
+
+            // The emergency state names the failure class instead of
+            // executing anything (diagnosability, contract rule 3).
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ptk_state","arguments":{}}}""");
+            var state = (await ReadResponseAsync(process, 3)).GetProperty("result");
+            var text = state.GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("audit=unavailable", text, StringComparison.Ordinal);
+            Assert.Contains("unrecorded=true", text, StringComparison.Ordinal);
+            Assert.Contains("failure_class=", text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch { /* Preserve the test assertion. */ }
+            _ = await stderr;
+        }
+    }
+
+    [Fact]
+    public async Task A_healthy_audit_root_serves_and_journals_the_invoke()
+    {
+        var auditRoot = NewRoot("healthy-audit");
+        using var process = StartServer(auditRoot);
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-startup-test","version":"1"}}}""");
+            _ = await ReadResponseAsync(process, 1);
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_invoke","arguments":{"script":"'audited-effect'","route":"pwsh"}}}""");
             var invoke = (await ReadResponseAsync(process, 2)).GetProperty("result");
             Assert.False(
                 invoke.TryGetProperty("isError", out var invokeError) &&
                 invokeError.GetBoolean());
             Assert.Contains(
-                "audit-independent-effect",
+                "audited-effect",
                 invoke.GetProperty("content")[0].GetProperty("text").GetString(),
                 StringComparison.Ordinal);
 
@@ -48,12 +102,20 @@ public sealed class AuditProgramStartupTests : IDisposable
                 process,
                 """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ptk_state","arguments":{}}}""");
             var state = (await ReadResponseAsync(process, 3)).GetProperty("result");
-            Assert.False(
-                state.TryGetProperty("isError", out var stateError) &&
-                stateError.GetBoolean());
             var text = state.GetProperty("content")[0].GetProperty("text").GetString()!;
-            Assert.Contains("audit: disabled", text, StringComparison.Ordinal);
-            Assert.DoesNotContain("audit exporter:", text, StringComparison.Ordinal);
+            Assert.Contains("audit: healthy mode=local-only", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("audit: disabled", text, StringComparison.Ordinal);
+
+            // The journal is real: the served invoke left durable artifacts
+            // under the configured root (host identity plus journal bytes).
+            var artifacts = Directory.GetFiles(
+                auditRoot,
+                "*",
+                SearchOption.AllDirectories);
+            Assert.NotEmpty(artifacts);
+            Assert.Contains(
+                artifacts,
+                file => new FileInfo(file).Length > 0);
         }
         finally
         {

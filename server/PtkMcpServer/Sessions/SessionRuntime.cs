@@ -413,10 +413,11 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
         sb.AppendLine(
             $"ptk {PtkVersion.Value}: pid {Environment.ProcessId}, up {FormatUptime(DateTimeOffset.UtcNow - host.StartedUtc)}, " +
             $"shaping {(host.ModuleLoaded ? "on" : "off")}, raw calls this session: {rawUsage.Count}");
+        // Audit health reporting is supervisor-owned (audit-restoration R2):
+        // the supervisor's state line is authoritative, and a runtime without
+        // a per-call audit context must not assert a product-level claim.
         if (audit is not null)
             sb.AppendLine(audit.HealthStatusLine());
-        else
-            sb.AppendLine("audit: disabled");
         var busyLineEmitted = false;
         if (result is null)
         {

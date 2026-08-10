@@ -379,11 +379,11 @@ try {
     if ($coldState.isError -or
         $coldStateText -notmatch '(?m)^ptk supervisor: pid=\d+ sessions=1/8\r?$' -or
         $coldStateText -notmatch '(?m)^session=default state=cold worker_pid=none active=false ' -or
-        $coldStateText -notmatch '(?m)^audit: disabled\r?$' -or
+        $coldStateText -notmatch '(?m)^audit: healthy mode=local-only\r?$' -or
         $coldStateText -notmatch 'runspace: unavailable \(detail=session_cold\)') {
         throw "cold default ptk_state returned unexpected text: '$coldStateText'"
     }
-    Write-Host 'ptk_state ok: default remained cold and audit is disabled'
+    Write-Host 'ptk_state ok: default remained cold and audit is healthy local-only'
 
     Send-Rpc @{
         jsonrpc = '2.0'; id = 4; method = 'tools/call'
@@ -657,12 +657,22 @@ finally {
     else {
         'server process remained alive after bounded shutdown attempts'
     }
-    if (Test-Path -LiteralPath $auditRoot) {
-        Write-Host 'AUDIT DISABLEMENT VERIFICATION FAILED: the runtime created the configured audit root.'
+    # Audit is base-level and non-bypassable (audit-restoration R2): the
+    # runtime must have journaled this session's calls under the configured
+    # root. The pre-restoration check asserted the exact opposite.
+    $auditArtifacts = if (Test-Path -LiteralPath $auditRoot) {
+        @(Get-ChildItem -LiteralPath $auditRoot -Recurse -Force -File |
+            Where-Object Length -gt 0)
+    }
+    else {
+        @()
+    }
+    if ($auditArtifacts.Count -eq 0) {
+        Write-Host 'AUDIT JOURNALING VERIFICATION FAILED: the runtime journaled nothing under the configured audit root.'
         $failed = $true
     }
     else {
-        Write-Host 'audit disablement ok: runtime created no audit or exact-script storage'
+        Write-Host "audit journaling ok: $($auditArtifacts.Count) nonempty artifact(s) under the configured root"
     }
     if ($mainExitedGracefully) {
         try {
@@ -694,7 +704,9 @@ finally {
     }
 }
 
-# A broken legacy audit root must not affect ordinary execution.
+# A broken audit root refuses execution fail-closed while keeping the
+# transport, refusal text, and emergency diagnosis observable
+# (audit-restoration R2; the pre-restoration leg asserted the opposite).
 if (-not $failed) {
     $diagnosticParent = Join-Path (
         [Environment]::GetFolderPath([Environment+SpecialFolder]::UserProfile)) (
@@ -735,14 +747,14 @@ if (-not $failed) {
             params = @{ name = 'ptk_state'; arguments = @{} }
         }
         $diagnosticState = (Read-RpcResponse -Id 103).result.content[0].text
-        if ($diagnosticState -notmatch '(?m)^ptk supervisor: pid=\d+ sessions=1/8\r?$' -or
-            $diagnosticState -notmatch '(?m)^session=default state=cold worker_pid=none ' -or
-            $diagnosticState -notmatch '(?m)^audit: disabled\r?$') {
-            throw "audit-independent ptk_state omitted expected state: '$diagnosticState'"
+        if ($diagnosticState -notmatch 'audit=unavailable' -or
+            $diagnosticState -notmatch 'unrecorded=true' -or
+            $diagnosticState -notmatch 'failure_class=') {
+            throw "blocked-audit ptk_state omitted the emergency diagnosis: '$diagnosticState'"
         }
 
         $literalMarker = "'" + $marker.Replace("'", "''") + "'"
-        $effectToken = 'audit-independent-effect'
+        $effectToken = 'audit-blocked-effect'
         Send-Rpc @{
             jsonrpc = '2.0'; id = 104; method = 'tools/call'
             params = @{
@@ -754,13 +766,17 @@ if (-not $failed) {
             }
         }
         $diagnosticInvoke = (Read-RpcResponse -Id 104).result
-        if ($diagnosticInvoke.isError -or
-            $diagnosticInvoke.content[0].text -notmatch $effectToken -or
-            -not (Test-Path -LiteralPath $marker)) {
-            throw 'unwritable legacy audit root blocked a valid invoke'
+        if (-not $diagnosticInvoke.isError) {
+            throw 'an unwritable audit root did not flag the invoke as an error'
         }
-        Assert-LiveOutputRoot -Parent $diagnosticOutputParent -Label 'audit-independent server'
-        Write-Host 'audit independence ok: unwritable legacy root did not block state or execution'
+        if ($diagnosticInvoke.content[0].text -match $effectToken -or
+            (Test-Path -LiteralPath $marker)) {
+            throw 'an unwritable audit root allowed an unrecorded effect to run'
+        }
+        if ($diagnosticInvoke.content[0].text -notmatch '\[operation not started\]') {
+            throw "the fail-closed refusal lost its diagnostic text: '$($diagnosticInvoke.content[0].text)'"
+        }
+        Write-Host 'audit fail-closed ok: unwritable root refused execution and reported the emergency state'
     }
     catch {
         Write-Host "DIAGNOSTIC HANDSHAKE FAILED: $_"

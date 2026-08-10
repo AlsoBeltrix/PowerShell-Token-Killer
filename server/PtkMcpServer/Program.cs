@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using PtkMcpServer;
+using PtkMcpServer.Audit;
 using PtkMcpServer.Sessions;
 using PtkMcpServer.Worker;
 
@@ -33,11 +34,51 @@ builder.Logging.AddConsole(o => o.LogToStandardErrorThreshold = LogLevel.Trace);
 var callTimeout = DefaultSessionRuntimeFactory.ReadCallTimeout();
 var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
 
+// Audit is mandatory and startup-frozen: base-level, non-bypassable local
+// logging (audit-restoration R2). The export leg returns in R3; local write
+// inability is the only execution gate.
+using var auditStartup = AuditStartupConfiguration.LoadFromEnvironment();
+using var outputRequestProtector = new AuditOutputRequestProtector();
+var producerVersion =
+    typeof(RunspaceHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+builder.Services.AddSingleton(auditStartup.AuditOptions);
+builder.Services.AddSingleton(
+    sp => new AuditHealth(sp.GetRequiredService<AuditOptions>()));
+builder.Services.AddSingleton(sp => new ScriptEvidenceStoreProvider(
+    sp.GetRequiredService<AuditOptions>()));
+builder.Services.AddScoped<AuditCallContextAccessor>();
+builder.Services.AddSingleton(sp => new AuditRuntimeGate(
+    sp.GetRequiredService<AuditOptions>(),
+    sp.GetRequiredService<AuditHealth>(),
+    sp.GetRequiredService<ScriptEvidenceStoreProvider>(),
+    producerVersion));
+// The gate's hosted service is registered before the supervisor lifecycle so
+// audit startup is durable before any session infrastructure starts.
+builder.Services.AddSingleton<IHostedService>(
+    sp => sp.GetRequiredService<AuditRuntimeGate>());
+
 // One supervisor owns this MCP connection's bounded worker/session registry.
-// Submitted scripts execute only in contained worker processes.
+// Submitted scripts execute only in contained worker processes. Constructing
+// the supervisor spawns nothing; ordering does the audit gating — the gate's
+// hosted service starts first, so a failed audit startup aborts the host
+// before the supervisor lifecycle or the MCP transport ever start, and the
+// audit call filter refuses any call that is not admitted to the journal.
 builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
-builder.Services.AddSingleton(_ =>
-    WorkerSupervisor.CreateDefault(callTimeout, maxCallTimeout));
+builder.Services.AddSingleton(sp =>
+{
+    var health = sp.GetRequiredService<AuditHealth>();
+    return WorkerSupervisor.CreateDefault(callTimeout, maxCallTimeout, () =>
+    {
+        var snapshot = health.Snapshot();
+        var mode = snapshot.ProtectionMode == AuditProtectionMode.LocalOnly
+            ? "local-only"
+            : "anchored";
+        var state = snapshot.State.ToString().ToLowerInvariant();
+        return snapshot.FailureClass is null
+            ? $"audit: {state} mode={mode}"
+            : $"audit: {state} mode={mode} failure_class={snapshot.FailureClass}";
+    });
+});
 builder.Services.AddSingleton<ISessionOperations>(
     sp => sp.GetRequiredService<WorkerSupervisor>());
 builder.Services.AddSingleton(sp => new SupervisorLifecycle(
@@ -55,7 +96,16 @@ builder.Services
     .AddMcpServer(options => options.ScopeRequests = true)
     .WithStreamServerTransport(mcpIn, mcpOut)
     .WithRequestFilters(filters =>
-        filters.AddCallToolFilter(SupervisorCallFilter.Create()))
+    {
+        // Audit admission is the outermost tools/call boundary: nothing is
+        // dispatched unrecorded. The supervisor disposition filter stays
+        // inner so audit observes the final shaped result.
+        filters.AddCallToolFilter(AuditCallFilter.Create(
+            callTimeout,
+            maxCallTimeout,
+            outputRequestProtector));
+        filters.AddCallToolFilter(SupervisorCallFilter.Create());
+    })
     .WithToolsFromAssembly();
 
 await builder.Build().RunAsync();

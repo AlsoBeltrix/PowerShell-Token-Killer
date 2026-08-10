@@ -100,12 +100,48 @@ chain heads; the README's "do not deploy" warning is replaced by the
 retention contract. Battery: server 1,236/1,236, SIEM 252/252,
 handshake PASSED.
 
-**R3c is the honest remainder, not yet started:** the receiver still
-ingests protobuf over mTLS only, so PTK's own exporter cannot reach the
-fallback receiver yet (Splunk/Sentinel/any OTLP collector work today).
-R3c is the receiver's token-auth + OTLP-JSON ingest path — it touches
-the mTLS security boundary that 247 receiver tests pin, which is why it
-is its own slice rather than bolted onto R3.
+**R3 was codereviewed (cr3): five findings, four CLOSED, one in its
+fifth verification round — as of `b23499b`.** codex found five defects
+over `1a7a71f..98a3625`. Closed: cr3-5 (transient 408 skipped whole
+batches; now retried, and a refused batch is isolated record-by-record),
+cr3-3 and cr3-4 (receiver retention held the ingest writer lock across
+its whole sweep; and measured freed-but-unreclaimed pages, deleting
+fresh in-window records) — both accepted only after a **pin correction**
+(round 2 reported "no bite" because the dispatch named a base at which
+those fixes had already landed; the correct base is `98a3625`).
+cr3-1 is accepted as PARTIAL by design: read failures are now visible
+(`export.segment_unreadable`) instead of silently "healthy", but the
+live-tail read is NOT fixed — the writer's `FileShare.None` is
+load-bearing (`IsLockedSegment` classifies live vs closed by
+openability), so the coordinated-reader fix is R3d.
+
+**cr3-2 has been reopened FOUR times, each time for a real silent-loss
+path, and round five is dispatched (base `66c2635`, head `b23499b`).**
+The arc, worth knowing before touching this code: file bookkeeping could
+not distinguish "deleted after delivery" from "deleted with a tail
+outstanding" (round 1: false alarms + process-local state), end-of-file
+proved transient (round 2: append→rotate→delete between drains), boot
+changes bypassed comparison entirely (round 3: new-boot prefix and
+old-boot suffix), and a cursor-less first read inspected nothing
+(round 4). Detection now rests on the records' own per-boot contiguous
+`sequence` with `producer.supervisor_boot_id`, plus a deliberate
+proved/unverified split: `EXPORT_GAPS` means records provably lost,
+while an old boot ending without its `server.stopped` terminal raises
+`unverified_boot_boundaries` instead — suspicion never counted as
+proof. Known limitation: an unparseable record contributes nothing to
+detection. **Durable lesson: a guard must assert only through surface
+that exists in the OLD revision — twice a "proof" reverted into a
+compile error, which proves nothing.**
+
+**R3c and R3d are the honest remainder, neither started.** R3c: the
+receiver still ingests protobuf over mTLS only, so PTK reaches Splunk,
+Sentinel and any OTLP collector today but NOT its own fallback receiver;
+it needs a token-auth + OTLP-JSON ingest path, and that touches the mTLS
+boundary 255 receiver tests pin. R3d: the coordinated live-tail read
+(cr3-1) and **acknowledgment-aware journal retention** (cr3-2's complete
+fix) — four reopens argue that not deleting undelivered records beats
+detecting the loss afterwards; detection should become the backstop, not
+the primary defense.
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`
@@ -493,6 +529,16 @@ judges by payload survival instead.
 - **Two non-blocking findings are worth a look before release** — named and explained at the end of `.agents/review/dispositions.md` §"remaining, not blocking", which owns that call. Both are cheap and outside the router plan's scope. Both were **re-confirmed live at `c5a0bb2`** on 2026-08-05 and are planned in `.agents/plans/pre-release-opr-10-opr-53.md`: the timeout predicate accepts `1e400`, `1.5`, `0.5` and `86401` where all four should fall back, and a script that prints PTK-shaped lines has its forged `[ptk worker] status=` and `recovery=` handle preserved verbatim beside the genuine ones. `opr-53` carries an owner decision (escape the grammar, or move control information to structured content) and cannot be implemented until it is ruled.
 
 ## Next
+
+**Immediate (audit restoration): await the cr3-2 round-5 verdict**
+(codex, base `66c2635`, head `b23499b`; it was also asked to hunt for
+any remaining silent-loss path or state that detection is complete for
+parseable records). Then, in order: **R3d** (acknowledgment-aware
+retention + coordinated live-tail read), **R3c** (receiver token auth +
+JSON ingest), **R4** (the loopback web GUI + settings page — the slice
+that finally lets the owner SEE the logs), R5 conformance/alerts, R6
+CI/docs/packaging. Plan: `.agents/plans/audit-restoration.md`;
+R1 discovery record alongside it.
 
 **Goal in force (owner, 2026-08-05): finish the app to a 1.0-ready state.**
 Review significant code changes with codex (default settings), work GH issues

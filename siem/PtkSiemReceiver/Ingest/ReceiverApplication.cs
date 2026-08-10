@@ -152,6 +152,14 @@ internal static class ReceiverApplication
                     builder.Services.AddSingleton(committer!);
                 }
                 builder.Services.AddHostedService<ReceiverLifecycleService>();
+                // Retention is enforced, not merely configured (rbc-11).
+                builder.Services.AddHostedService(serviceProvider =>
+                    new PtkSiemReceiver.Storage.RetentionService(
+                        serviceProvider.GetRequiredService<SiemReceiverOptions>(),
+                        serviceProvider.GetRequiredService<IIngestCommitter>(),
+                        serviceProvider.GetRequiredService<
+                            ILogger<PtkSiemReceiver.Storage.RetentionService>>(),
+                        timeProvider: serviceProvider.GetRequiredService<TimeProvider>()));
 
                 application = builder.Build();
                 // Ensure the container owns all captured disposable singletons.

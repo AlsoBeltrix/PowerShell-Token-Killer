@@ -1,54 +1,64 @@
-# rbc-11: SIEM receiver has no retention enforcement on master
+# rbc-11: SIEM receiver parses retention options but never enforces them
 
-**Severity**: MAJOR
-**Status**: Triaged 2026-07-19 — confirmed (retention options parsed in `SiemReceiverConfiguration.cs:59-60,93-95`, referenced nowhere else on master). Deferred: gated on the S3H `plan/mini-siem-storage-hardening` land/park decision. Interim deployment warning landed in `siem/PtkSiemReceiver/README.md` and the gate recorded in `.agents/decisions.md` (2026-07-19, rbc-batch branch); docs follow-up complete.
-**Source**: read-only codebase review 2026-07-17, head `f6a2caa`
-**Files**: `siem/PtkSiemReceiver/Configuration/SiemReceiverConfiguration.cs:271-284`,
-`siem/PtkSiemReceiver/Storage/SqliteIngestStore.cs` (no enforcement)
+Severity: MAJOR. Source: rbc review batch, 2026-07-19. Status: CLOSED
+(fixed 2026-08-10 under the blanket fix authorization, in the
+audit-restoration R3 slice; oar1-1 made it a prerequisite for any slice
+that ships or documents deploying the receiver).
 
 ## Evidence
 
-`RetentionMaxAgeDays` and `RetentionMaxTotalBytes` are parsed,
-validated, and stored in `SiemReceiverOptions` but are never referenced
-by any code on master. The `events`, `quarantine`, and `custody` tables
-(which store full `raw_request` BLOBs up to `MaxRequestBytes` each)
-grow without bound.
-
-The repo's `.agents/state.md` records that S3H (storage hardening) is
-on an isolated branch `plan/mini-siem-storage-hardening` and is not on
-master. This finding is expected for the current scope — but a deployed
-master build has no protection against disk exhaustion.
+`siem/PtkSiemReceiver/Configuration/SiemReceiverConfiguration.cs` parsed
+and validated `RetentionMaxAgeDays` / `RetentionMaxTotalBytes`, and no
+code on `master` ever applied them — a grep for a retention service
+returned nothing. `events`, `quarantine`, and `custody` store full
+`raw_request` BLOBs, so the store grew without bound.
 
 ## Predicted observable failure
 
-A malicious or misbehaving authenticated client fills the disk by
-sending many large OTLP requests. The `events` table grows without
-bound; once the disk is full, SQLite writes fail and the receiver
-cannot accept new records (it must reject, losing audit custody).
+An unattended receiver's SQLite store grows until the disk fills; once
+writes fail the receiver must reject records, losing audit custody
+exactly when it matters. The README warned against deploying a master
+build for this reason.
 
 ## What
 
-Either merge the S3H retention enforcement from
-`plan/mini-siem-storage-hardening` into `master`, or document that
-master is not deployable without S3H and gate the deployment guidance
-on the S3H branch landing. The owner's pending S3H land/park/review
-decision (`.agents/state.md` Next item 1) is the relevant gate.
-
-## Scope of fix
-
-Depends on the S3H decision. If merged, the retention enforcement
-code on the isolated branch is the fix. If parked, add a deployment
-warning to the SIEM receiver README and record the dependency in
-`.agents/decisions.md`.
+`SqliteIngestStore.EnforceRetentionAsync` plus a
+`Storage/RetentionService` background sweep (15-minute interval,
+registered in `ReceiverApplication`). Age bound deletes events and
+quarantine attempts older than the cutoff; size bound trims oldest-first
+in bounded batches, vacuuming so the file actually shrinks and the sweep
+converges. Two exclusions are deliberate and guarded: **custody receipts
+are never swept** (append-only evidence — deleting it would destroy what
+retention protects), and **chain heads are never swept** (a later record
+must still validate against its predecessor's hash). A sweep failure is
+logged and retried; retention housekeeping never takes ingest down.
 
 ## Guard proof
 
-Not yet written. A guard should assert that after inserting more than
-`RetentionMaxTotalBytes` of records, a retention sweep brings the
-store under the limit, and that records older than
-`RetentionMaxAgeDays` are purged.
+`siem/PtkSiemReceiver.Tests/RetentionEnforcementTests.cs` (5 tests): age
+sweep removes old events while custody count is unchanged; records inside
+the window survive; unconfigured retention removes nothing; a size bound
+shrinks the database (measured through the same PRAGMA-derived size the
+sweep uses, since WAL makes the main file's length meaningless); the
+service sweeps on demand and returns null instead of throwing when the
+store is gone. Two sabotages, each proved to fail exactly these tests:
+(1) the age delete made a no-op, (2) the sweep extended to delete custody
+rows. SIEM suite 252/252 after restore.
 
-## Reviewer comments
+## Files changed
 
-Read-only review by Hermes subagent (SIEM receiver pass). No external
-fixed-SHA review has been dispatched.
+- `siem/PtkSiemReceiver/Storage/SqliteIngestStore.cs`
+- `siem/PtkSiemReceiver/Storage/RetentionService.cs` (new)
+- `siem/PtkSiemReceiver/Storage/SiemRetentionOutcome.cs` (new)
+- `siem/PtkSiemReceiver/Ingest/ReceiverApplication.cs`
+- `siem/PtkSiemReceiver/README.md` (deployment warning replaced by the
+  retention contract)
+- `siem/PtkSiemReceiver.Tests/RetentionEnforcementTests.cs` (new)
+
+## Known gaps
+
+The 2026-07-19 decision entry gated deployment guidance on an S3H
+land/park ruling. S3H's storage hardening landed separately; this fix
+closes the retention half on `master` directly, so that gate no longer
+blocks receiver deployment guidance. The receiver still needs its
+token-auth ingest path (R3c) before PTK's own exporter can reach it.

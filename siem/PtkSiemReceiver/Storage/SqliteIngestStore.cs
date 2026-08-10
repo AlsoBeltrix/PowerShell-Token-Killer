@@ -289,6 +289,141 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         }
     }
 
+    /// <summary>
+    /// Enforces the configured retention bounds (rbc-11: the options were
+    /// parsed but never applied, so an unattended receiver grew without
+    /// bound). Events and quarantine attempts age out; the custody ledger
+    /// NEVER does — it is the append-only witness that proves what was
+    /// received, and deleting it would destroy the evidence retention exists
+    /// to protect. Chain heads are likewise preserved so a later record still
+    /// validates against its predecessor's hash.
+    /// </summary>
+    internal async Task<SiemRetentionOutcome> EnforceRetentionAsync(
+        int? maximumAgeDays,
+        long? maximumTotalBytes,
+        DateTimeOffset utcNow,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        if (maximumAgeDays is null && maximumTotalBytes is null)
+            return new SiemRetentionOutcome(0, 0, 0);
+
+        await _writerGate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            long eventsRemoved = 0;
+            long quarantineRemoved = 0;
+
+            if (maximumAgeDays is int ageDays)
+            {
+                var cutoff = FormatUtc(utcNow.AddDays(-ageDays));
+                using var transaction = _writer.BeginTransaction(deferred: false);
+                eventsRemoved += DeleteAgedEvents(cutoff, transaction);
+                quarantineRemoved += DeleteAgedQuarantine(cutoff, transaction);
+                cancellationToken.ThrowIfCancellationRequested();
+                transaction.Commit();
+            }
+
+            if (maximumTotalBytes is long maximumBytes)
+            {
+                // Oldest-first until the database fits its bound. Each pass is
+                // its own transaction so a large sweep never holds the writer
+                // for an unbounded time against live ingest.
+                while (DatabaseBytes() > maximumBytes && !cancellationToken.IsCancellationRequested)
+                {
+                    using var transaction = _writer.BeginTransaction(deferred: false);
+                    var removed = DeleteOldestEvents(RetentionSweepBatch, transaction);
+                    removed += DeleteOldestQuarantine(RetentionSweepBatch, transaction);
+                    if (removed == 0)
+                    {
+                        transaction.Rollback();
+                        break;
+                    }
+                    eventsRemoved += removed;
+                    transaction.Commit();
+                    Vacuum();
+                }
+            }
+
+            return new SiemRetentionOutcome(eventsRemoved, quarantineRemoved, DatabaseBytes());
+        }
+        finally
+        {
+            _writerGate.Release();
+        }
+    }
+
+    private const int RetentionSweepBatch = 512;
+
+    private long DeleteAgedEvents(string cutoffUtc, SqliteTransaction transaction)
+    {
+        // A chain head is never deleted: the next record from that supervisor
+        // boot must still validate against it.
+        using var command = CreateCommand(_writer, transaction, """
+            DELETE FROM events
+            WHERE received_utc < $cutoff
+              AND event_id NOT IN (SELECT head_event_id FROM chains);
+            """);
+        command.Parameters.AddWithValue("$cutoff", cutoffUtc);
+        return command.ExecuteNonQuery();
+    }
+
+    private long DeleteAgedQuarantine(string cutoffUtc, SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(_writer, transaction, """
+            DELETE FROM quarantine WHERE received_utc < $cutoff;
+            """);
+        command.Parameters.AddWithValue("$cutoff", cutoffUtc);
+        return command.ExecuteNonQuery();
+    }
+
+    private long DeleteOldestEvents(int batch, SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(_writer, transaction, """
+            DELETE FROM events
+            WHERE event_id IN (
+                SELECT event_id FROM events
+                WHERE event_id NOT IN (SELECT head_event_id FROM chains)
+                ORDER BY received_utc ASC
+                LIMIT $batch);
+            """);
+        command.Parameters.AddWithValue("$batch", batch);
+        return command.ExecuteNonQuery();
+    }
+
+    private long DeleteOldestQuarantine(int batch, SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(_writer, transaction, """
+            DELETE FROM quarantine
+            WHERE attempt_id IN (
+                SELECT attempt_id FROM quarantine
+                ORDER BY received_utc ASC
+                LIMIT $batch);
+            """);
+        command.Parameters.AddWithValue("$batch", batch);
+        return command.ExecuteNonQuery();
+    }
+
+    private long DatabaseBytes()
+    {
+        var pageCount = Convert.ToInt64(
+            ExecuteScalar(_writer, null, "PRAGMA page_count;") ?? 0L,
+            System.Globalization.CultureInfo.InvariantCulture);
+        var pageSize = Convert.ToInt64(
+            ExecuteScalar(_writer, null, "PRAGMA page_size;") ?? 0L,
+            System.Globalization.CultureInfo.InvariantCulture);
+        return pageCount * pageSize;
+    }
+
+    private void Vacuum()
+    {
+        // Deleted pages must actually leave the file, or a size-bounded sweep
+        // never converges.
+        using var command = CreateCommand(_writer, null, "VACUUM;");
+        command.ExecuteNonQuery();
+    }
+
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;

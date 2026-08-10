@@ -121,6 +121,76 @@ public sealed class RetentionEnforcementTests
     }
 
     [Fact]
+    public async Task An_age_purge_that_frees_enough_space_deletes_no_fresh_records()
+    {
+        // cr3-4: the size loop measured raw page_count, which still counts
+        // pages the age purge freed, so a combined sweep deleted fresh
+        // in-window records that did not need to go.
+        using var database = new TestDatabase();
+        using var store = SqliteIngestStore.Open(database.Path);
+        await CommitChainAsync(store, count: 20);
+
+        var baseline = await store.EnforceRetentionAsync(
+            maximumAgeDays: null,
+            maximumTotalBytes: long.MaxValue,
+            utcNow: Receipt.ReceivedUtc,
+            CancellationToken.None);
+
+        // Age out everything except the chain head, then apply a size bound
+        // the freed space already satisfies. Nothing further may be deleted.
+        var outcome = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: baseline.DatabaseBytes,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+
+        Assert.Equal(1L, Count(database.Path, "events"));
+        Assert.True(
+            outcome.DatabaseBytes <= baseline.DatabaseBytes,
+            "the sweep reported more live bytes than the baseline");
+    }
+
+    [Fact]
+    public async Task Retention_yields_the_writer_so_ingest_proceeds_during_a_sweep()
+    {
+        // cr3-3: the sweep held the writer semaphore for its whole size loop,
+        // including a full VACUUM per batch, so live ingest stalled behind
+        // retention. Pruning chunks now take and release the gate.
+        using var database = new TestDatabase();
+        using var store = SqliteIngestStore.Open(database.Path);
+        await CommitChainAsync(store, count: 40);
+
+        var baseline = await store.EnforceRetentionAsync(
+            maximumAgeDays: null,
+            maximumTotalBytes: long.MaxValue,
+            utcNow: Receipt.ReceivedUtc,
+            CancellationToken.None);
+
+        var sweep = store.EnforceRetentionAsync(
+            maximumAgeDays: null,
+            maximumTotalBytes: baseline.DatabaseBytes / 2,
+            utcNow: Receipt.ReceivedUtc,
+            CancellationToken.None);
+
+        // A commit issued while the sweep runs must complete, not deadlock or
+        // wait for the entire sweep.
+        var ingest = store.CommitAsync(
+            Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890ff",
+                supervisorBootId: "3b7576e5-7763-4aa8-9741-3bc1d6a7e15d",
+                sequence: 1)),
+            Receipt,
+            CancellationToken.None);
+
+        var completed = await Task.WhenAny(
+            ingest,
+            Task.Delay(TimeSpan.FromSeconds(30)));
+        Assert.Same(ingest, completed);
+        Assert.Equal(IngestCommitResultKind.Accepted, (await ingest).Kind);
+        await sweep;
+    }
+
+    [Fact]
     public async Task The_retention_service_sweeps_on_demand_and_survives_a_failure()
     {
         using var database = new TestDatabase();

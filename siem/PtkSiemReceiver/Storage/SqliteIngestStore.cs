@@ -308,45 +308,83 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         if (maximumAgeDays is null && maximumTotalBytes is null)
             return new SiemRetentionOutcome(0, 0, 0);
 
-        await _writerGate.WaitAsync(cancellationToken);
-        try
-        {
-            ThrowIfDisposed();
-            long eventsRemoved = 0;
-            long quarantineRemoved = 0;
+        long eventsRemoved = 0;
+        long quarantineRemoved = 0;
 
-            if (maximumAgeDays is int ageDays)
+        if (maximumAgeDays is int ageDays)
+        {
+            var cutoff = FormatUtc(utcNow.AddDays(-ageDays));
+            await _writerGate.WaitAsync(cancellationToken);
+            try
             {
-                var cutoff = FormatUtc(utcNow.AddDays(-ageDays));
+                ThrowIfDisposed();
                 using var transaction = _writer.BeginTransaction(deferred: false);
                 eventsRemoved += DeleteAgedEvents(cutoff, transaction);
                 quarantineRemoved += DeleteAgedQuarantine(cutoff, transaction);
                 cancellationToken.ThrowIfCancellationRequested();
                 transaction.Commit();
             }
-
-            if (maximumTotalBytes is long maximumBytes)
+            finally
             {
-                // Oldest-first until the database fits its bound. Each pass is
-                // its own transaction so a large sweep never holds the writer
-                // for an unbounded time against live ingest.
-                while (DatabaseBytes() > maximumBytes && !cancellationToken.IsCancellationRequested)
+                _writerGate.Release();
+            }
+        }
+
+        if (maximumTotalBytes is long maximumBytes)
+        {
+            // Each pruning chunk takes and RELEASES the writer gate, so live
+            // ingest interleaves with retention instead of stalling behind a
+            // whole sweep (cr3-3). Compaction happens once, after pruning.
+            var pruned = false;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await _writerGate.WaitAsync(cancellationToken);
+                long removed;
+                try
                 {
+                    ThrowIfDisposed();
+                    // Live bytes exclude already-freed pages, so an age purge
+                    // that already made room does not trigger further deletes
+                    // (cr3-4).
+                    if (LiveDatabaseBytes() <= maximumBytes) break;
                     using var transaction = _writer.BeginTransaction(deferred: false);
-                    var removed = DeleteOldestEvents(RetentionSweepBatch, transaction);
+                    removed = DeleteOldestEvents(RetentionSweepBatch, transaction);
                     removed += DeleteOldestQuarantine(RetentionSweepBatch, transaction);
                     if (removed == 0)
                     {
                         transaction.Rollback();
                         break;
                     }
-                    eventsRemoved += removed;
                     transaction.Commit();
-                    Vacuum();
                 }
+                finally
+                {
+                    _writerGate.Release();
+                }
+                eventsRemoved += removed;
+                pruned = true;
             }
 
-            return new SiemRetentionOutcome(eventsRemoved, quarantineRemoved, DatabaseBytes());
+            if (pruned)
+            {
+                await _writerGate.WaitAsync(cancellationToken);
+                try
+                {
+                    ThrowIfDisposed();
+                    Vacuum();
+                }
+                finally
+                {
+                    _writerGate.Release();
+                }
+            }
+        }
+
+        await _writerGate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            return new SiemRetentionOutcome(eventsRemoved, quarantineRemoved, LiveDatabaseBytes());
         }
         finally
         {
@@ -405,15 +443,24 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         return command.ExecuteNonQuery();
     }
 
-    private long DatabaseBytes()
+    /// <summary>
+    /// Bytes the data actually occupies: total pages minus pages already on
+    /// the freelist. Measuring raw page_count counts space a pending compaction
+    /// will reclaim, which made a combined age+size sweep delete fresh records
+    /// the age purge had already made room for (cr3-4).
+    /// </summary>
+    private long LiveDatabaseBytes()
     {
         var pageCount = Convert.ToInt64(
             ExecuteScalar(_writer, null, "PRAGMA page_count;") ?? 0L,
             System.Globalization.CultureInfo.InvariantCulture);
+        var freeCount = Convert.ToInt64(
+            ExecuteScalar(_writer, null, "PRAGMA freelist_count;") ?? 0L,
+            System.Globalization.CultureInfo.InvariantCulture);
         var pageSize = Convert.ToInt64(
             ExecuteScalar(_writer, null, "PRAGMA page_size;") ?? 0L,
             System.Globalization.CultureInfo.InvariantCulture);
-        return pageCount * pageSize;
+        return Math.Max(0, pageCount - freeCount) * pageSize;
     }
 
     private void Vacuum()

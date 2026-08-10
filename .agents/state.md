@@ -11,10 +11,14 @@ call with `Set-Location`, treating the warm runspace as stateless. Root
 cause: `scripts/ptk-hook.ps1`'s deny guidance said unconditionally "anchor
 the command: prefix it with: Set-Location '<cwd>';" — models complied on
 the replay and then generalized the prefix to every call they composed.
-The advice is now conditional and once-only ("if this session is not
-already there … once set, do not re-anchor later calls"); the cwd test
-pins the new phrasing and rejects the old imperative, proven
-fail-before/pass-after. Note the fix reaches users through the *installed*
+The advice is now a persistence fact plus a conditional suggestion ("The
+warm runspace keeps its current directory across calls; if needed,
+prefix: Set-Location '<cwd>';"). Two owner corrections shaped it the same
+day: the first rewrite's "if this session is not already there … do not
+re-anchor later calls" was rejected as wordy, and the terse "on the first
+call only" was rejected as wrong — it read as forbidding later
+Set-Location. The cwd test pins the final phrasing and rejects both bad
+shapes, proven fail-before/pass-after against the original wording. Note the fix reaches users through the *installed*
 hook — `~/.claude` hooks on existing installs carry the old wording until
 reinstalled/re-inited.
 

@@ -336,12 +336,14 @@ Describe 'redirect hook and installer' {
 
         $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
         $reason | Should -Match ([regex]::Escape("Set-Location 'C:\repo\server'"))
-        # The anchor advice must stay once-only. The earlier unconditional
-        # "anchor the command: prefix it with" wording trained models to
-        # re-anchor every call, defeating the warm cwd (owner report,
+        # The anchor advice is a persistence fact plus a conditional
+        # suggestion, never a schedule: "anchor the command: prefix it with"
+        # trained models to re-anchor every call, and "on the first call
+        # only" read as forbidding later Set-Location (owner reports,
         # 2026-08-10).
-        $reason | Should -Match 'on the first call only'
+        $reason | Should -Match 'if needed, prefix'
         $reason | Should -Not -Match 'anchor the command'
+        $reason | Should -Not -Match 'first call only'
     }
 
     It 'escapes apostrophes in the cwd so the suggested prefix stays valid PowerShell' {

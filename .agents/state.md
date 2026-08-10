@@ -63,16 +63,31 @@ before the step fails (`bash -n` verified; end-to-end proof rides the
 next `v*` tag). The published draft came from a clean re-run of that
 leg.
 
-**Observed during the reproduction, unfiled candidate defect: run
-through `ptk_invoke`, the same failing install showed no error text at
-all** — seven lines of `@{Value=[active member not evaluated]}` plus
-`[ptk:capture incomplete reason=active_member_not_evaluated]`; only the
-exit code survived, and the refusal text above had to be recovered from
-the tee'd log on disk. The `*>&1` merge wraps the child's stderr lines
-in ErrorRecords the capture shaper declines to evaluate. That violates
-"compressed output preserves errors, exit codes, structure" (same
-field-reported class as o53-3). Diagnosis not started; candidate for the
-blanket fix authorization once diagnosed and verified.
+**Capture-marker candidate defect: diagnosed 2026-08-10; the text-loss
+half no longer reproduces, the false-positive half is real and
+owner-gated.** The 2026-08-07/08 observation (seven lines of
+`@{Value=[active member not evaluated]}`, refusal text lost) was made
+through the then-installed pre-gate build; live probes through the
+current installed build show merged-stream text preserved — native
+stderr under `*>&1` renders its message (`931dccb`'s ErrorRecord
+projection), and `Write-Host`/`Write-Warning` through `*>&1` survive
+too, all under reason `passive_projection_lossy`. What remains is a
+**false "capture incomplete" alarm on every `Select-Object` result**:
+`RunspaceHost.cs` (`ProjectOutput`, the `PSCustomObject` branch) sets
+`_activeMemberOmitted` for any custom object whose TypeNames are not the
+bare defaults, and `Select-Object` always prepends `Selected.<Type>` —
+so `... | Select-Object a,b` reports
+`[ptk:capture incomplete reason=active_member_not_evaluated retained=N
+total=N]` although no `Selected.*` type data exists by default and every
+note property was copied; nothing was omitted. The gate is deliberate
+honesty (type-table ScriptProperties on a custom typename are user code
+the capture must not run; three tests pin it, incl.
+`Late_type_data_cannot_turn_a_captured_type_name_into_executable_output`,
+which asserts this detail code). Fixing the false positive forks a
+design — passively consult the runspace TypeTable for the non-default
+names (racy vs. late `Update-TypeData`, and that test's expectation
+flips) vs. reclassify the reason vs. accept the noise — so it is an
+owner call, not blanket-covered.
 
 **Also open, unrelated and owner-gated: D1 of
 `.agents/plans/package-manager-distribution.md`** (the shape of the `ptk`

@@ -756,13 +756,27 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         };
     }
 
-    private static AuditSession CallSession() => new()
+    // The session tools bind exactly the requested, already-validated name —
+    // "default" when the request named none. A named session is a dynamic
+    // binding in the ptk.audit/2 schema; the worker generation is unknown at
+    // the supervisor admission boundary and stays 0. The previous static
+    // "default" stub attributed every named-session call to the default
+    // session while request.session_requested carried the truth (cr2-2).
+    private AuditSession CallSession()
     {
-        Name = "default",
-        Generation = 0,
-        BindingKind = "default",
-        AllowColdBackground = true,
-    };
+        var name = string.IsNullOrEmpty(_request.SessionRequested)
+            ? "default"
+            : _request.SessionRequested;
+        return new()
+        {
+            Name = name,
+            Generation = 0,
+            BindingKind = string.Equals(name, "default", StringComparison.Ordinal)
+                ? "default"
+                : "dynamic",
+            AllowColdBackground = true,
+        };
+    }
 
     private static AuditEventHealth HealthyEvent(AuditHealthSnapshot snapshot)
     {

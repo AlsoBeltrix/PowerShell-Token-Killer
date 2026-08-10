@@ -127,6 +127,67 @@ public sealed class AuditProgramStartupTests : IDisposable
     }
 
     [Fact]
+    public async Task A_named_session_invoke_is_journaled_under_its_own_session_name()
+    {
+        // cr2-2: the journal's canonical session block must carry the bound
+        // session, not a hardcoded "default" while request.session_requested
+        // holds the truth.
+        var auditRoot = NewRoot("session-attribution-audit");
+        using var process = StartServer(auditRoot);
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-session-attribution-test","version":"1"}}}""");
+            _ = await ReadResponseAsync(process, 1);
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_session","arguments":{"action":"open","name":"attrib-probe"}}}""");
+            _ = await ReadResponseAsync(process, 2);
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"ptk_invoke","arguments":{"script":"'attributed'","route":"pwsh","session":"attrib-probe"}}}""");
+            var invoke = (await ReadResponseAsync(process, 3)).GetProperty("result");
+            Assert.False(
+                invoke.TryGetProperty("isError", out var invokeError) &&
+                invokeError.GetBoolean());
+
+            // The live segment is exclusively held by the server; read the
+            // journal after shutdown.
+            try { process.Kill(entireProcessTree: true); } catch { /* racing exit */ }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            var journalText = string.Join(
+                "\n",
+                Directory.GetFiles(auditRoot, "*.jsonl", SearchOption.AllDirectories)
+                    .Select(File.ReadAllText));
+            Assert.Contains("\"attrib-probe\"", journalText, StringComparison.Ordinal);
+            Assert.Contains(
+                "\"binding_kind\":\"dynamic\"",
+                journalText,
+                StringComparison.Ordinal);
+            // The invoke's canonical session block names the bound session.
+            var invokeRecords = journalText
+                .Split('\n', StringSplitOptions.RemoveEmptyEntries)
+                .Where(line => line.Contains("attrib-probe", StringComparison.Ordinal))
+                .ToArray();
+            Assert.Contains(
+                invokeRecords,
+                line => line.Contains("\"name\":\"attrib-probe\"", StringComparison.Ordinal));
+        }
+        finally
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch { /* Preserve the test assertion. */ }
+            _ = await stderr;
+        }
+    }
+
+    [Fact]
     public async Task A_corrupt_host_identity_is_quarantined_and_service_continues()
     {
         // Contract rule 3: a fuckup cannot be globally terminal. The

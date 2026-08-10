@@ -1625,14 +1625,72 @@ public sealed class RunspaceHost : IDisposable
                 "_instanceMembers",
                 System.Reflection.BindingFlags.Instance |
                 System.Reflection.BindingFlags.NonPublic);
+        private static readonly System.Reflection.PropertyInfo? RunspaceExecutionContext =
+            typeof(Runspace).GetProperty(
+                "GetExecutionContext",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+        private static readonly System.Reflection.FieldInfo? TypeTableExtendedMembers =
+            typeof(System.Management.Automation.Runspaces.TypeTable).GetField(
+                "_extendedMembers",
+                System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.NonPublic);
+        private readonly Func<string, bool?>? _extendedTypeMemberProbe;
         private PSDataCollection<PSObject>? _outputSource;
         private PSDataCollection<ErrorRecord>? _errorSource;
         private PSDataCollection<WarningRecord>? _warningSource;
 
-        internal BoundedPassiveOutputCapture(long maximumBytes)
+        internal BoundedPassiveOutputCapture(
+            long maximumBytes,
+            Func<string, bool?>? extendedTypeMemberProbe = null)
         {
             _remainingProjectionBytes = Math.Max(0, maximumBytes);
             _remainingPrefixBytes = Math.Max(0, maximumBytes);
+            _extendedTypeMemberProbe = extendedTypeMemberProbe;
+        }
+
+        /// <summary>Builds a passive presence probe over the runspace's live
+        /// type table: type name => whether extended type members are
+        /// registered for it, null when the internal surface is unavailable
+        /// and presence is unknown. The per-name store is a
+        /// ConcurrentDictionary keyed by type name, so the containment check
+        /// is a thread-safe read that executes no user code, and
+        /// Update-TypeData/Remove-TypeData are visible immediately.</summary>
+        internal static Func<string, bool?> CreateExtendedTypeMemberProbe(
+            Runspace runspace)
+        {
+            object? typeTable;
+            try
+            {
+                var executionContext =
+                    RunspaceExecutionContext?.GetValue(runspace);
+                typeTable = executionContext?.GetType()
+                    .GetProperty(
+                        "TypeTable",
+                        System.Reflection.BindingFlags.Instance |
+                        System.Reflection.BindingFlags.NonPublic)?
+                    .GetValue(executionContext);
+            }
+            catch
+            {
+                typeTable = null;
+            }
+
+            if (typeTable is null) return static _ => null;
+            return name =>
+            {
+                try
+                {
+                    return TypeTableExtendedMembers?.GetValue(typeTable)
+                        is System.Collections.IDictionary byName
+                        ? byName.Contains(name)
+                        : null;
+                }
+                catch
+                {
+                    return null;
+                }
+            };
         }
 
         internal void Attach(
@@ -2230,7 +2288,14 @@ public sealed class RunspaceHost : IDisposable
             }
             else if (baseObject is PSCustomObject)
             {
-                if (!HasOnlyDefaultCustomObjectTypeNames(source))
+                // A non-default type name flags omission only when the type
+                // table actually registers members for it. Select-Object
+                // prepends Selected.<Type>, which by default carries no type
+                // data at all, so the unconditional flag reported "capture
+                // incomplete ... retained=N total=N" on every Select-Object
+                // result with nothing omitted (owner report, 2026-08-10).
+                if (!HasOnlyDefaultCustomObjectTypeNames(source) &&
+                    NonDefaultTypeNamesCarryTypeMembers(source))
                     _activeMemberOmitted = true;
                 CopyPassiveInstanceNotes(detached, source);
             }
@@ -2277,6 +2342,34 @@ public sealed class RunspaceHost : IDisposable
             PSCustomObject => "PSCustomObject",
             _ => "Object",
         };
+
+        /// <summary>Whether any of the object's non-default type names has
+        /// extended type members registered in the session's type table.
+        /// Registered members are user code the passive capture never
+        /// evaluates, so their presence — or an unanswerable probe — must
+        /// keep the honesty flag. Absence means the extra name carries no
+        /// members and copying the instance notes captured the whole
+        /// object. The name count is bounded for the same reason
+        /// <see cref="HasOnlyDefaultCustomObjectTypeNames"/> bounds it: never
+        /// enumerate a user-grown collection on the producer callback.</summary>
+        private bool NonDefaultTypeNamesCarryTypeMembers(PSObject source)
+        {
+            const int maximumProbedTypeNames = 8;
+            if (_extendedTypeMemberProbe is null) return true;
+            var typeNames = source.TypeNames;
+            if (typeNames.Count > maximumProbedTypeNames) return true;
+            for (var index = 0; index < typeNames.Count; index++)
+            {
+                var name = typeNames[index];
+                if (name is "System.Management.Automation.PSCustomObject"
+                    or "System.Object")
+                {
+                    continue;
+                }
+                if (_extendedTypeMemberProbe(name) is not false) return true;
+            }
+            return false;
+        }
 
         private static bool HasOnlyDefaultCustomObjectTypeNames(PSObject source)
         {
@@ -2419,9 +2512,14 @@ public sealed class RunspaceHost : IDisposable
             // and the value vanished (GitHub #41). Compose the notes
             // passively instead, through the same inert instance-member bag
             // the outer capture already reads.
+            // The type-member probe extends composition to custom objects
+            // whose extra type names carry no registered members: a nested
+            // Select-Object result (Selected.*) used to fall through to
+            // PSCustomObject's empty ToString() and vanish silently.
             if (value is PSObject noteSource &&
                 baseObject is PSCustomObject &&
-                HasOnlyDefaultCustomObjectTypeNames(noteSource))
+                (HasOnlyDefaultCustomObjectTypeNames(noteSource) ||
+                 !NonDefaultTypeNamesCarryTypeMembers(noteSource)))
             {
                 return ComposeNestedNotesText(noteSource, depth);
             }
@@ -3813,7 +3911,8 @@ public sealed class RunspaceHost : IDisposable
             ps.AddScript(dispatch.ExecutionScript!, useLocalScope: false);
             var captured = new PSDataCollection<PSObject>();
             var passiveCapture = new BoundedPassiveOutputCapture(
-                outputCapture?.MaximumArtifactBytes ?? 8 * 1024 * 1024);
+                outputCapture?.MaximumArtifactBytes ?? 8 * 1024 * 1024,
+                BoundedPassiveOutputCapture.CreateExtendedTypeMemberProbe(runspace));
             passiveCapture.Attach(captured, ps.Streams.Error, ps.Streams.Warning);
             var noInput = new PSDataCollection<object>();
             noInput.Complete();

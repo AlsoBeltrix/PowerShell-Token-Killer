@@ -728,8 +728,14 @@ public sealed class RunspaceHostTests : IDisposable
             Assert.Contains(passiveValue, result.Output, StringComparison.Ordinal);
             Assert.DoesNotContain(dynamicValue, result.Output, StringComparison.Ordinal);
             Assert.DoesNotContain(typeName, result.Output, StringComparison.Ordinal);
-            Assert.Equal(OutputArtifactState.Incomplete, result.OutputRecovery?.State);
-            Assert.Equal("active_member_not_evaluated", result.OutputRecovery?.DetailCode);
+            // At projection time the type name had no registered type data, so
+            // nothing was omitted and the capture is complete: the type-member
+            // probe (2026-08-10) replaced the unconditional non-default-name
+            // flag that reported every such object as incomplete. The security
+            // half is unchanged and asserted above/below: the late getter is
+            // never executed and its value never rendered.
+            Assert.Equal(OutputArtifactState.Available, result.OutputRecovery?.State);
+            Assert.Null(result.OutputRecovery?.DetailCode);
 
             var handle = Assert.IsType<string>(result.OutputRecovery?.Handle);
             var recovered = OutputTool.Output(
@@ -749,6 +755,155 @@ public sealed class RunspaceHostTests : IDisposable
                 '\n',
                 StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
             Assert.Equal(["0", "unchanged"], values);
+        }
+        finally
+        {
+            try { Directory.Delete(outputRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task A_select_object_result_with_no_registered_type_data_captures_complete()
+    {
+        // Select-Object prepends Selected.<Type>, which by default has no
+        // type data registered, so every note property is copied and nothing
+        // is omitted. The unconditional non-default-type-name flag reported
+        // "capture incomplete reason=active_member_not_evaluated retained=N
+        // total=N" on all such output (owner report, 2026-08-10).
+        var outputRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "passive-selected-complete-tests",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var store = new OutputStore(new OutputStoreOptions(
+                outputRoot,
+                TimeSpan.FromMinutes(15),
+                TimeSpan.FromHours(1),
+                MaximumArtifactBytes: 1024 * 1024,
+                MaximumSessionBytes: 2 * 1024 * 1024,
+                MaximumAggregateBytes: 4 * 1024 * 1024));
+            using var capture = new ForegroundOutputCapture(store);
+            var result = await _host.InvokeWithOutputCaptureAsync(
+                "[pscustomobject]@{ First = 'PASSIVE_ONE'; Second = 'PASSIVE_TWO' } | " +
+                "Select-Object First, Second",
+                capture,
+                route: "pwsh");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Contains("PASSIVE_ONE", result.Output, StringComparison.Ordinal);
+            Assert.Contains("PASSIVE_TWO", result.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "capture incomplete",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(OutputArtifactState.Available, result.OutputRecovery?.State);
+            Assert.Null(result.OutputRecovery?.DetailCode);
+        }
+        finally
+        {
+            try { Directory.Delete(outputRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task A_nested_select_object_result_composes_its_notes_instead_of_vanishing()
+    {
+        // A nested Selected.* custom object used to miss the composition gate
+        // and fall through to PSCustomObject's empty ToString(): the value
+        // rendered as an empty string and was silently lost. With no type
+        // data registered for the extra name, its notes compose like a plain
+        // nested [pscustomobject] (same class as GitHub #41).
+        var outputRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "passive-selected-nested-tests",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var store = new OutputStore(new OutputStoreOptions(
+                outputRoot,
+                TimeSpan.FromMinutes(15),
+                TimeSpan.FromHours(1),
+                MaximumArtifactBytes: 1024 * 1024,
+                MaximumSessionBytes: 2 * 1024 * 1024,
+                MaximumAggregateBytes: 4 * 1024 * 1024));
+            using var capture = new ForegroundOutputCapture(store);
+            var result = await _host.InvokeWithOutputCaptureAsync(
+                "[pscustomobject]@{ Outer = ([pscustomobject]@{ Inner = 'PASSIVE_NESTED' } | " +
+                "Select-Object Inner) }",
+                capture,
+                route: "pwsh");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Contains("PASSIVE_NESTED", result.Output, StringComparison.Ordinal);
+            // Composition is lossy by declaration, never an omission claim.
+            Assert.NotEqual(
+                "active_member_not_evaluated",
+                result.OutputRecovery?.DetailCode);
+        }
+        finally
+        {
+            try { Directory.Delete(outputRoot, recursive: true); }
+            catch { }
+        }
+    }
+
+    [Fact]
+    public async Task Registered_type_data_on_a_custom_type_name_still_flags_omission()
+    {
+        // The inverse guard for the type-member probe: when type data IS
+        // registered for the object's extra type name before it is emitted,
+        // those members are real user code the capture skips, so the honesty
+        // flag must stay and the getter must never run. A probe sabotaged to
+        // always answer "no members" fails here.
+        var typeName = "Ptk.PreRegistered." + Guid.NewGuid().ToString("N");
+        var escapedTypeName = typeName.Replace("'", "''");
+        var outputRoot = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            ".ptk",
+            "passive-preregistered-tests",
+            Guid.NewGuid().ToString("N"));
+        try
+        {
+            using var store = new OutputStore(new OutputStoreOptions(
+                outputRoot,
+                TimeSpan.FromMinutes(15),
+                TimeSpan.FromHours(1),
+                MaximumArtifactBytes: 1024 * 1024,
+                MaximumSessionBytes: 2 * 1024 * 1024,
+                MaximumAggregateBytes: 4 * 1024 * 1024));
+            using var capture = new ForegroundOutputCapture(store);
+            var result = await _host.InvokeWithOutputCaptureAsync(
+                $"$typeName = '{escapedTypeName}'; " +
+                "$global:preRegisteredGetterReads = 0; " +
+                "Update-TypeData -TypeName $typeName -MemberType ScriptProperty " +
+                "-MemberName Dynamic -Value { " +
+                "$global:preRegisteredGetterReads++; 'DYNAMIC_CONSTANT' } -Force; " +
+                "[pscustomobject]@{ PSTypeName = $typeName; Stable = 'PASSIVE_VALUE' }",
+                capture,
+                route: "pwsh");
+
+            Assert.True(result.Success, string.Join(Environment.NewLine, result.Errors));
+            Assert.Contains("PASSIVE_VALUE", result.Output, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "DYNAMIC_CONSTANT",
+                result.Output,
+                StringComparison.Ordinal);
+            Assert.Equal(OutputArtifactState.Incomplete, result.OutputRecovery?.State);
+            Assert.Equal(
+                "active_member_not_evaluated",
+                result.OutputRecovery?.DetailCode);
+
+            var reads = await _host.InvokeAsync(
+                "$global:preRegisteredGetterReads; " +
+                $"Remove-TypeData -TypeName '{escapedTypeName}' -ErrorAction SilentlyContinue",
+                raw: true,
+                route: "pwsh");
+            Assert.Equal("0", reads.Output.Trim());
         }
         finally
         {

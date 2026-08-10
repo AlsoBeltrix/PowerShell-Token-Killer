@@ -85,13 +85,24 @@ so `... | Select-Object a,b` reports
 total=N]` although no `Selected.*` type data exists by default and every
 note property was copied; nothing was omitted. The gate is deliberate
 honesty (type-table ScriptProperties on a custom typename are user code
-the capture must not run; three tests pin it, incl.
-`Late_type_data_cannot_turn_a_captured_type_name_into_executable_output`,
-which asserts this detail code). Fixing the false positive forks a
-design — passively consult the runspace TypeTable for the non-default
-names (racy vs. late `Update-TypeData`, and that test's expectation
-flips) vs. reclassify the reason vs. accept the noise — so it is an
-owner call, not blanket-covered.
+the capture must not run). **FIXED 2026-08-10 on the owner's explicit go
+("go", ruling the recommended TypeTable-lookup option):** the capture now
+carries a passive presence probe over the runspace type table's
+`_extendedMembers` ConcurrentDictionary (reflection, fail-conservative:
+an unanswerable probe keeps the flag), and the `PSCustomObject` branch
+flags omission only when a non-default type name actually has registered
+type data. The same predicate extends nested-note composition, fixing a
+second live loss: a nested `Select-Object` result fell through to
+`PSCustomObject`'s empty `ToString()` and vanished silently. Guards:
+three new tests (top-level Select-Object completes clean; nested
+composes; pre-registered type data still flags with the getter never
+run), each sabotage-proved in both directions, and
+`Late_type_data_cannot_turn_a_captured_type_name_into_executable_output`
+now asserts complete — at projection time (the synchronous `DataAdded`
+drain) the name had no type data, so nothing was omitted; its security
+assertions are unchanged. Battery: server 1,214/1,214, SIEM 247/247,
+handshake passed, Pester 112+3 skip (pre-change same session; only C#
+changed after).
 
 **Also open, unrelated and owner-gated: D1 of
 `.agents/plans/package-manager-distribution.md`** (the shape of the `ptk`

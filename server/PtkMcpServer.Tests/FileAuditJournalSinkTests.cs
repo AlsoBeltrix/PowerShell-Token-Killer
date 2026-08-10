@@ -256,6 +256,45 @@ public sealed class FileAuditJournalSinkTests : IDisposable
     }
 
     [Fact]
+    public void Factory_quarantines_an_unprotected_existing_host_identity_on_unix()
+    {
+        // The pre-read validation failure routes through the same
+        // quarantine-and-continue path as the post-read recheck (cr2-1
+        // breadth): an identity that is already unprotected when the factory
+        // opens is preserved as evidence and replaced, never adopted and
+        // never terminal.
+        if (OperatingSystem.IsWindows()) return;
+        var root = NewRoot();
+        var options = Options(root, segmentSlots: 2, aggregateSegments: 4);
+        using (AuditJournalFactory.Open(
+                   options,
+                   new AuditHealth(options, () => BaseTime),
+                   "test-version",
+                   utcNow: () => BaseTime))
+        {
+        }
+
+        var hostPath = Path.Combine(root, "host.id");
+        var original = File.ReadAllText(hostPath);
+        File.SetUnixFileMode(
+            hostPath,
+            SecureAuditStorage.OwnerFileMode | UnixFileMode.GroupRead);
+
+        using (AuditJournalFactory.Open(
+                   options,
+                   new AuditHealth(options, () => BaseTime),
+                   "test-version",
+                   utcNow: () => BaseTime))
+        {
+        }
+
+        var quarantined = Assert.Single(
+            Directory.GetFiles(Path.Combine(root, "quarantine")));
+        Assert.Equal(original, File.ReadAllText(quarantined));
+        Assert.NotEqual(original, File.ReadAllText(hostPath));
+    }
+
+    [Fact]
     public void Factory_sets_current_windows_user_as_owner_with_one_explicit_ace()
     {
         if (!OperatingSystem.IsWindows()) return;

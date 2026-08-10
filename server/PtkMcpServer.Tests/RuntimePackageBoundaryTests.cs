@@ -74,6 +74,32 @@ public sealed class RuntimePackageBoundaryTests
     }
 
     [Fact]
+    public void Host_identity_reads_use_the_non_mutating_protection_boundary()
+    {
+        // cr2-1: a RETAINED host identity must be validated, never repaired.
+        // On Windows, VerifyProtectedFile re-applies the owner/DACL, which
+        // silently adopted a foreign or over-permissive host.id instead of
+        // quarantining it. The factory must use only the non-mutating
+        // external boundary; protection application is reserved for files
+        // this process creates.
+        var factory = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "server",
+            "PtkMcpServer",
+            "Audit",
+            "AuditJournalFactory.cs"));
+
+        Assert.DoesNotContain(
+            "SecureAuditStorage.VerifyProtectedFile(",
+            factory,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "SecureAuditStorage.VerifyExternalProtectedFile(",
+            factory,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Production_composition_registers_no_idle_lifecycle_service()
     {
         var program = File.ReadAllText(Path.Combine(

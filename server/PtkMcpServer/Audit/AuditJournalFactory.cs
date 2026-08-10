@@ -253,7 +253,13 @@ internal static class AuditJournalFactory
         string path,
         Action<string>? readCompletedForTests)
     {
-        SecureAuditStorage.VerifyProtectedFile(path);
+        // A RETAINED identity is validated, never repaired: on Windows,
+        // VerifyProtectedFile re-applies the owner/DACL, which silently
+        // adopted a foreign or over-permissive host.id instead of routing it
+        // to quarantine (cr2-1). The non-mutating external boundary makes
+        // both platforms validate; protection is applied only to files this
+        // process creates.
+        SecureAuditStorage.VerifyExternalProtectedFile(path);
 
         byte[] bytes;
         using (var stream = new FileStream(
@@ -271,7 +277,7 @@ internal static class AuditJournalFactory
         }
 
         readCompletedForTests?.Invoke(path);
-        SecureAuditStorage.VerifyProtectedFile(path);
+        SecureAuditStorage.VerifyExternalProtectedFile(path);
         string text;
         try
         {

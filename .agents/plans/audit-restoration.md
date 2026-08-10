@@ -70,36 +70,64 @@ it).
    execution). Release framing/versioning is an owner call at ship
    time.
 
-## Open questions (owner, one at a time)
+## Product contract (owner, 2026-08-10, plain words)
 
-- **Q1 — the anchor scope.** With no SIEM receiver configured, does PTK
-  (a) refuse to execute at all (custody always required), or (b) record
-  locally fail-closed and add acknowledgment-gated export whenever a
-  receiver is configured? Recommendation: (b) — local evidence is
-  always-on and non-bypassable; configuring a receiver makes custody
-  acknowledgment part of the gate. (a) makes a bare install unusable
-  out of the box, which fights the global-release audience.
-- **Q2 — wire encoding** (protobuf restore vs OTLP/HTTP JSON). Ruled in
-  R1 with build evidence on real ARM64 Linux if available.
-- **Q3 — S4 fixture scope** (v1/v2 now vs blocked on v3).
+The owner's requirements, verbatim intent: "it needs to log. if there's
+siem connected, it needs to log there. there needs be dead-simple way
+configure SIEM connection. we need WEB GUI see the logs. we need web
+settings page where this can be configured."
+
+1. **PTK always logs.** Durable, non-bypassable: cannot record → does
+   not execute.
+2. **SIEM connected → logs flow there** with durable acknowledgment.
+3. **Dead-simple SIEM connection configuration.** One endpoint setting,
+   not a certificate ceremony. The S2 mTLS surface stays available for
+   hardened deployments but must not be the price of entry.
+4. **Web GUI to see the logs.**
+5. **Web settings page** where the SIEM connection (and audit settings)
+   are configured.
+
+This resolves former Q1 as: local logging always-on; export joins the
+gate when a receiver is configured. The former Q2 (wire encoding) and
+Q3 (S4 fixture scope) are engineering calls, settled inside R1 with
+recorded evidence — not owner questions.
+
+## Recommended shape (validated in R1 before any production code)
+
+One log store and one web surface, not two: the `siem/` receiver — the
+only component with a durable store (S1–S3+S3H, 247 tests) and a planned
+dashboard (S5) — becomes the log destination in every deployment.
+A default install runs it locally on loopback with zero-config
+(auto-provisioned, no operator ceremony); "connecting a SIEM" means
+pointing the settings page at a remote receiver instead. The web GUI is
+the receiver's dashboard (S5) plus a settings page (new). PTK's producer
+(restored from `ddbb908^`) spools locally and exports with
+acknowledgment; fail-closed per the mandate. R1 must validate the
+local-receiver lifecycle (who starts it, crash behavior under the
+fail-closed rule) before this shape is confirmed.
 
 ## Slices (each needs its own explicit go)
 
 - **R0** — Owner approves this plan; a decisions.md entry lands per the
   hold protocol (owner-landed).
 - **R1 — Discovery, no production code.** Diff the `ddbb908^` audit
-  surface against the current topology; produce the re-seating design,
-  the Q1 contract text, and Q2 build evidence.
+  surface against the current topology; produce the re-seating design;
+  settle encoding (protobuf vs OTLP/HTTP JSON) and the S4 fixture
+  regating with evidence; validate the local-receiver shape above.
 - **R2 — Local mandatory audit.** Admission gate + evidence + retention,
   fail-closed, in the current worker topology; actionable failure
   diagnostics; flip the handshake/product-proof audit assertions.
-- **R3 — Export leg.** Spool, exporter, mapper, ack semantics per Q1,
-  encoding per Q2.
-- **R4 — Conformance seam.** Producer-to-SIEM conformance restored; the
-  golden-fixture serializer lands, unblocking mini-SIEM S4.
-- **R5 — CI, docs, release gates.** CI legs, `AUDIT-EXPORT.md`, READMEs,
-  release-gate updates; then the mini-SIEM plan resumes S4–S8 under its
-  own authority.
+- **R3 — Export leg.** Spool, exporter, mapper, acknowledgment gating;
+  the dead-simple connection setting.
+- **R4 — Web surface.** Receiver dashboard (mini-SIEM S5 executed under
+  that plan's authority) + the settings page; the end-to-end "open a
+  browser, see the logs" proof.
+- **R5 — Conformance + alerts.** Producer-to-SIEM conformance and the
+  golden-fixture serializer (unblocks mini-SIEM S4); S6 alerts as
+  scheduled by the mini-SIEM plan.
+- **R6 — CI, docs, packaging, release gates.** CI legs,
+  `AUDIT-EXPORT.md`, READMEs, installer wiring for the local receiver,
+  release-gate updates.
 
 ## Verification
 

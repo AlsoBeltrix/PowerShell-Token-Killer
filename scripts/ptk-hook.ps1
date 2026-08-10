@@ -43,7 +43,7 @@ if ([string]::IsNullOrWhiteSpace($command) -or $command -match 'PTK_DIRECT') {
 # Single-quote escaping: an apostrophe in the path must not break (or, if
 # crafted, inject into) the suggested prefix the model will run verbatim.
 $cwdAdvice = if ($cwd) {
-    " The warm runspace keeps its own current directory across calls: if this session is not already there, prefix with: Set-Location '{0}'; once set, do not re-anchor later calls. " -f $cwd.Replace("'", "''")
+    " The warm runspace keeps its current directory across calls; on the first call only, prefix: Set-Location '{0}'; " -f $cwd.Replace("'", "''")
 } else {
     ' '
 }

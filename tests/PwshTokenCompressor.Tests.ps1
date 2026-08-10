@@ -336,11 +336,11 @@ Describe 'redirect hook and installer' {
 
         $reason = ($out | ConvertFrom-Json).hookSpecificOutput.permissionDecisionReason
         $reason | Should -Match ([regex]::Escape("Set-Location 'C:\repo\server'"))
-        # The anchor advice must stay conditional and once-only. The earlier
-        # unconditional "anchor the command: prefix it with" wording trained
-        # models to re-anchor every call, defeating the warm cwd (owner
-        # report, 2026-08-10).
-        $reason | Should -Match 'once set, do not re-anchor later calls'
+        # The anchor advice must stay once-only. The earlier unconditional
+        # "anchor the command: prefix it with" wording trained models to
+        # re-anchor every call, defeating the warm cwd (owner report,
+        # 2026-08-10).
+        $reason | Should -Match 'on the first call only'
         $reason | Should -Not -Match 'anchor the command'
     }
 

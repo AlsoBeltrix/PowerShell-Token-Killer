@@ -32,7 +32,16 @@ An openreview pass (oar1, `.agents/review/index.md`) returned `replace`;
 all rulings resolved same day (journal-backed local UI; one
 endpoint+token exporter contract for Splunk/Sentinel/OTLP/receiver
 alike, no pairing machinery; receiver retention fixed before shipping).
-R0 plan approval is the sole remaining gate before R1 discovery.
+**R0 approved and R1 discovery executed 2026-08-10**
+(`.agents/plans/audit-restoration-r1-discovery.md`): the deleted design
+already implemented local-always/export-additive — restoration is a
+re-seating at the current single call-filter anchor
+(`server/PtkMcpServer/Program.cs:58`), supervisor-side; encoding settled
+(vendor generated protobuf C#, drop Grpc.Tools from both projects —
+kills the ARM64 protoc blocker); S4 regated to v1/v2 corpora; receiver
+gets a token auth mode (no pairing); receiver retention (rbc-11) is a
+blanket-covered prerequisite. **Next gate: owner go for R2** (journal +
+admission gate + quarantine-and-continue).
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`

@@ -4,8 +4,18 @@ using System.Text.Json.Serialization;
 
 namespace PtkMcpServer.Audit.Export;
 
-/// <summary>How far delivery has durably progressed through the spool.</summary>
-internal sealed record AuditExportCursor(string? SegmentFileName, long ByteOffset)
+/// <summary>
+/// How far delivery has durably progressed through the spool.
+/// <paramref name="SegmentCompleted"/> records that the cursor's segment was
+/// consumed to its end while a later segment already existed — i.e. it was
+/// closed and is fully delivered. Without it, retention deleting a
+/// fully-delivered segment looked identical to losing an undelivered one and
+/// raised a false export gap (cr3-2 verification).
+/// </summary>
+internal sealed record AuditExportCursor(
+    string? SegmentFileName,
+    long ByteOffset,
+    bool SegmentCompleted = false)
 {
     internal static AuditExportCursor Start { get; } = new(null, 0);
 }
@@ -45,7 +55,10 @@ internal sealed class AuditExportCursorStore
                 verifyWithoutMutation: true);
             var file = JsonSerializer.Deserialize<CursorFile>(bytes);
             if (file is null || file.ByteOffset < 0) return AuditExportCursor.Start;
-            return new AuditExportCursor(file.SegmentFileName, file.ByteOffset);
+            return new AuditExportCursor(
+                file.SegmentFileName,
+                file.ByteOffset,
+                file.SegmentCompleted);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -67,6 +80,7 @@ internal sealed class AuditExportCursorStore
             {
                 SegmentFileName = cursor.SegmentFileName,
                 ByteOffset = cursor.ByteOffset,
+                SegmentCompleted = cursor.SegmentCompleted,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -95,5 +109,6 @@ internal sealed class AuditExportCursorStore
     {
         [JsonPropertyName("segment")] public string? SegmentFileName { get; set; }
         [JsonPropertyName("offset")] public long ByteOffset { get; set; }
+        [JsonPropertyName("completed")] public bool SegmentCompleted { get; set; }
     }
 }

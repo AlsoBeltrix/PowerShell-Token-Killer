@@ -51,7 +51,6 @@ internal sealed record AuditExportHealthSnapshot(
 internal sealed class AuditExportHealth
 {
     private readonly object _gate = new();
-    private readonly HashSet<string> _gapSegments = new(StringComparer.Ordinal);
     private AuditExportHealthSnapshot _snapshot =
         new(false, "none", 0, 0, 0, null, null);
 
@@ -97,20 +96,20 @@ internal sealed class AuditExportHealth
     }
 
     /// <summary>
-    /// Records that local spool retention deleted a segment before it was
-    /// delivered — permanently lost custody at the destination. Counted once
-    /// per segment so a repeating drain cannot inflate the number, and never
-    /// cleared by a later success: the gap happened.
+    /// Publishes the DURABLE gap count (see <see cref="AuditExportGapStore"/>):
+    /// segments local retention deleted before delivery — permanently lost
+    /// custody. The count is owned on disk so it survives restarts, and a
+    /// later success never clears it: the gap happened.
     /// </summary>
-    internal void RecordExportGap(string segmentFileName)
+    internal void SetExportGaps(long count)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(segmentFileName);
+        if (count < 0) return;
         lock (_gate)
         {
-            if (!_gapSegments.Add(segmentFileName)) return;
+            if (count <= _snapshot.ExportGaps) return;
             _snapshot = _snapshot with
             {
-                ExportGaps = _snapshot.ExportGaps + 1,
+                ExportGaps = count,
                 LastFailureDetail = "export.gap_spool_deleted",
             };
         }

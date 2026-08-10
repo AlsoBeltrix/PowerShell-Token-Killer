@@ -387,12 +387,20 @@ public sealed class AuditExportTests : IDisposable
         await using var service = NewService(options, receiver, cursorStore, health);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
 
-        // Retention deletes the cursor's segment, and newer records arrive.
+        // More records arrive and the destination goes down, so this segment
+        // now holds UNDELIVERED bytes.
+        AppendRecords(first, ["""{"event_type":"call.completed","event_id":"lost"}"""]);
+        receiver.ResponseStatus = HttpStatusCode.ServiceUnavailable;
+        Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+
+        // Retention deletes the segment while that tail is outstanding, and
+        // newer records arrive after it.
         File.Delete(first);
         WriteSegment(options, index: 1, records:
         [
             """{"event_type":"call.completed","event_id":"e2"}""",
         ]);
+        receiver.ResponseStatus = HttpStatusCode.OK;
 
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
         var snapshot = health.Snapshot();
@@ -400,6 +408,58 @@ public sealed class AuditExportTests : IDisposable
         Assert.Contains("EXPORT_GAPS=1", snapshot.StatusLine(), StringComparison.Ordinal);
         // The gap is permanent: later successful delivery does not erase it.
         Assert.Equal("export.gap_spool_deleted", snapshot.LastFailureDetail);
+
+        // And it survives the process: a gap is evidence of lost custody, so
+        // a fresh service reports it from durable state (cr3-2 verification).
+        var restartedHealth = new AuditExportHealth();
+        await using var restarted = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            restartedHealth);
+        Assert.Equal(1, restartedHealth.Snapshot().ExportGaps);
+        Assert.Contains(
+            "EXPORT_GAPS=1",
+            restartedHealth.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Deleting_a_fully_delivered_segment_is_not_an_export_gap()
+    {
+        // cr3-2 verification: retention removing records that WERE delivered
+        // is retention working. Flagging it as lost custody would cry wolf on
+        // every healthy install and devalue the real signal.
+        // The scenario that matters is rotation: the exporter drains the only
+        // segment (so its cursor names that segment), the journal then rotates
+        // and retention removes the delivered one. Nothing was lost.
+        var root = NewRoot("export-no-false-gap");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var first = WriteSegment(options, index: 0, records:
+        [
+            """{"event_type":"server.started","event_id":"e1"}""",
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using var service = NewService(options, receiver, cursorStore, health);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        // Rotation, then retention removes the fully delivered segment.
+        WriteSegment(options, index: 1, records:
+        [
+            """{"event_type":"call.completed","event_id":"e2"}""",
+        ]);
+        File.Delete(first);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        Assert.Equal(0, health.Snapshot().ExportGaps);
+        Assert.DoesNotContain(
+            "EXPORT_GAPS",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
     }
 
     [Fact]

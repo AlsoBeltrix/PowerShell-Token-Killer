@@ -22,6 +22,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private readonly AuditOptions _options;
     private readonly IAuditDestination? _destination;
     private readonly AuditExportCursorStore _cursorStore;
+    private readonly AuditExportGapStore _gapStore;
     private readonly AuditExportHealth _health;
     private readonly TimeSpan _idleInterval;
     private readonly TimeSpan _initialRetryDelay;
@@ -45,7 +46,11 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         _options = options;
         _destination = destination;
         _cursorStore = cursorStore;
+        _gapStore = new AuditExportGapStore(options.RootDirectory);
         _health = health;
+        // Gaps recorded by earlier processes are evidence and stay visible.
+        var retained = _gapStore.Read();
+        if (retained.Count > 0) _health.SetExportGaps(retained.Count);
         _idleInterval = idleInterval ?? TimeSpan.FromSeconds(2);
         _initialRetryDelay = initialRetryDelay ?? TimeSpan.FromSeconds(5);
         _maximumRetryDelay = maximumRetryDelay ?? TimeSpan.FromMinutes(5);
@@ -89,25 +94,40 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         // not delivered yet (journal retention is age/capacity driven and does
         // not consult the export cursor). Resuming silently at the oldest
         // surviving segment would hide permanently lost custody, so the gap is
-        // recorded and reported instead (cr3-2).
+        // recorded durably and reported instead (cr3-2). A segment already
+        // consumed to its end is NOT a gap — deleting fully delivered records
+        // is retention working correctly.
         if (cursor.SegmentFileName is not null &&
+            !cursor.SegmentCompleted &&
             segments.Length > 0 &&
             !segments.Any(file => string.Equals(
                 file.Name,
                 cursor.SegmentFileName,
                 StringComparison.Ordinal)))
         {
-            _health.RecordExportGap(cursor.SegmentFileName);
+            var record = _gapStore.Record(cursor.SegmentFileName);
+            _health.SetExportGaps(record.Count);
         }
 
         foreach (var segment in SegmentsFrom(segments, cursor))
         {
-            var startOffset = string.Equals(
+            var isCursorSegment = string.Equals(
                 segment.Name,
                 cursor.SegmentFileName,
-                StringComparison.Ordinal)
-                ? cursor.ByteOffset
-                : 0;
+                StringComparison.Ordinal);
+            var startOffset = isCursorSegment ? cursor.ByteOffset : 0;
+
+            // Undelivered bytes clear the completed flag immediately, before
+            // any delivery is attempted: if this segment is removed while a
+            // tail is outstanding, that is real lost custody and must be
+            // reported as a gap even though it was once fully delivered.
+            if (isCursorSegment &&
+                cursor.SegmentCompleted &&
+                !ReachedEndOfSegment(segment.FullName, cursor.ByteOffset))
+            {
+                cursor = cursor with { SegmentCompleted = false };
+                _cursorStore.TryWrite(cursor);
+            }
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -157,8 +177,24 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 }
 
                 startOffset = nextOffset;
-                _cursorStore.TryWrite(new AuditExportCursor(segment.Name, nextOffset));
                 cursor = new AuditExportCursor(segment.Name, nextOffset);
+                _cursorStore.TryWrite(cursor);
+            }
+
+            // Completion is end-of-file, not "a newer segment exists": after
+            // rotation the exporter may hold a cursor on a fully delivered
+            // segment that retention then removes, and calling that lost
+            // custody would cry wolf on every healthy install (cr3-2
+            // verification). Bytes appended later simply clear the flag on
+            // the next successful read.
+            if (string.Equals(cursor.SegmentFileName, segment.Name, StringComparison.Ordinal))
+            {
+                var completed = ReachedEndOfSegment(segment.FullName, cursor.ByteOffset);
+                if (completed != cursor.SegmentCompleted)
+                {
+                    cursor = cursor with { SegmentCompleted = completed };
+                    _cursorStore.TryWrite(cursor);
+                }
             }
         }
 
@@ -391,6 +427,23 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             readFailure = "export.segment_read_fault";
         }
         return records;
+    }
+
+    /// <summary>Whether delivery consumed the segment to its current end.</summary>
+    private static bool ReachedEndOfSegment(string path, long consumedBytes)
+    {
+        try
+        {
+            var file = new FileInfo(path);
+            file.Refresh();
+            return file.Exists && consumedBytes >= file.Length;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Unknown means "not proven delivered": prefer a false gap alarm
+            // over silently dropping evidence of real loss.
+            return false;
+        }
     }
 
     private static bool EndsWithNewline(string path, long length)

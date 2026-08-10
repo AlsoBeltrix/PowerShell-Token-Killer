@@ -125,37 +125,86 @@ public sealed class RetentionEnforcementTests
     {
         // cr3-4: the size loop measured raw page_count, which still counts
         // pages the age purge freed, so a combined sweep deleted fresh
-        // in-window records that did not need to go.
+        // in-window records that did not need to go. The first version of
+        // this guard passed against the defect because its size bound was
+        // never exceeded (verification reopen) — it now uses mixed-age data
+        // and a bound that only the LIVE measure satisfies.
         using var database = new TestDatabase();
         using var store = SqliteIngestStore.Open(database.Path);
-        await CommitChainAsync(store, count: 20);
 
-        var baseline = await store.EnforceRetentionAsync(
+        // 24 old records, then 6 inside the retention window.
+        var old = Receipt with { ReceivedUtc = Receipt.ReceivedUtc.AddYears(-1) };
+        await CommitChainAsync(store, count: 24, receipt: old);
+        await CommitChainAsync(
+            store,
+            count: 6,
+            receipt: Receipt,
+            startSequence: 25,
+            previousHash: LastHash);
+
+        var beforeSweep = await store.EnforceRetentionAsync(
             maximumAgeDays: null,
             maximumTotalBytes: long.MaxValue,
             utcNow: Receipt.ReceivedUtc,
             CancellationToken.None);
 
-        // Age out everything except the chain head, then apply a size bound
-        // the freed space already satisfies. Nothing further may be deleted.
+        // A bound at the pre-purge size: the raw page count still exceeds it
+        // after the age purge (pages are freed, not removed), so the defective
+        // measure keeps deleting; the live measure stops.
         var outcome = await store.EnforceRetentionAsync(
             maximumAgeDays: 30,
-            maximumTotalBytes: baseline.DatabaseBytes,
-            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            maximumTotalBytes: beforeSweep.DatabaseBytes / 2,
+            utcNow: Receipt.ReceivedUtc,
             CancellationToken.None);
 
-        Assert.Equal(1L, Count(database.Path, "events"));
+        // The six in-window records must survive: the age purge alone freed
+        // more than enough room.
+        Assert.Equal(6L, Count(database.Path, "events"));
         Assert.True(
-            outcome.DatabaseBytes <= baseline.DatabaseBytes,
+            outcome.DatabaseBytes <= beforeSweep.DatabaseBytes,
             "the sweep reported more live bytes than the baseline");
     }
 
     [Fact]
-    public async Task Retention_yields_the_writer_so_ingest_proceeds_during_a_sweep()
+    public void Retention_releases_the_writer_gate_between_pruning_chunks()
     {
-        // cr3-3: the sweep held the writer semaphore for its whole size loop,
-        // including a full VACUUM per batch, so live ingest stalled behind
-        // retention. Pruning chunks now take and release the gate.
+        // cr3-3: the sweep held the ingest writer semaphore across its whole
+        // size loop with a full VACUUM per batch, so live commits stalled
+        // behind retention. A timing test could not prove this (the first
+        // version passed against the defect too, because a small sweep is
+        // instant — verification reopen), so the property is pinned
+        // structurally: the size loop must take AND release the gate inside
+        // the loop, and compaction must not run per batch.
+        var source = File.ReadAllText(FindRepositoryFile(
+            "siem/PtkSiemReceiver/Storage/SqliteIngestStore.cs"));
+        var start = source.IndexOf(
+            "internal async Task<SiemRetentionOutcome> EnforceRetentionAsync",
+            StringComparison.Ordinal);
+        Assert.True(start > 0, "EnforceRetentionAsync was not found");
+        var loopStart = source.IndexOf(
+            "while (!cancellationToken.IsCancellationRequested)",
+            start,
+            StringComparison.Ordinal);
+        Assert.True(loopStart > 0, "the bounded pruning loop was not found");
+        var loopEnd = source.IndexOf("if (pruned)", loopStart, StringComparison.Ordinal);
+        Assert.True(loopEnd > loopStart, "the post-pruning compaction was not found");
+
+        var loopBody = source[loopStart..loopEnd];
+        Assert.Contains("_writerGate.WaitAsync", loopBody, StringComparison.Ordinal);
+        Assert.Contains("_writerGate.Release();", loopBody, StringComparison.Ordinal);
+        // Compaction belongs after pruning, never inside the chunk loop.
+        Assert.DoesNotContain("Vacuum();", loopBody, StringComparison.Ordinal);
+        Assert.Contains(
+            "Vacuum();",
+            source[loopEnd..],
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Ingest_completes_while_a_retention_sweep_runs()
+    {
+        // The behavioral companion to the structural pin above: a commit
+        // issued during a sweep completes rather than deadlocking.
         using var database = new TestDatabase();
         using var store = SqliteIngestStore.Open(database.Path);
         await CommitChainAsync(store, count: 40);
@@ -172,8 +221,6 @@ public sealed class RetentionEnforcementTests
             utcNow: Receipt.ReceivedUtc,
             CancellationToken.None);
 
-        // A commit issued while the sweep runs must complete, not deadlock or
-        // wait for the entire sweep.
         var ingest = store.CommitAsync(
             Validate(OtlpTestRequest.Create(
                 eventId: "018f6a78-4c20-7a11-8a34-1234567890ff",
@@ -188,6 +235,18 @@ public sealed class RetentionEnforcementTests
         Assert.Same(ingest, completed);
         Assert.Equal(IngestCommitResultKind.Accepted, (await ingest).Kind);
         await sweep;
+    }
+
+    private static string FindRepositoryFile(string relativePath)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, relativePath);
+            if (File.Exists(candidate)) return candidate;
+            directory = directory.Parent;
+        }
+        throw new FileNotFoundException(relativePath);
     }
 
     [Fact]
@@ -232,20 +291,31 @@ public sealed class RetentionEnforcementTests
         Assert.Null(afterFailure);
     }
 
-    private static async Task CommitChainAsync(SqliteIngestStore store, int count)
+    private static string? LastHash { get; set; }
+
+    private static async Task CommitChainAsync(
+        SqliteIngestStore store,
+        int count,
+        IngestReceiptContext? receipt = null,
+        int startSequence = 1,
+        string? previousHash = null)
     {
-        string? previousHash = null;
-        for (var index = 1; index <= count; index++)
+        var effectiveReceipt = receipt ?? Receipt;
+        for (var index = startSequence; index < startSequence + count; index++)
         {
             var request = OtlpTestRequest.Create(
                 eventId: $"018f6a78-4c20-7a11-8a34-1234567890{index:x2}",
                 sequence: index,
                 previousEventHash: previousHash);
             var record = Validate(request);
-            var result = await store.CommitAsync(record, Receipt, CancellationToken.None);
+            var result = await store.CommitAsync(
+                record,
+                effectiveReceipt,
+                CancellationToken.None);
             Assert.Equal(IngestCommitResultKind.Accepted, result.Kind);
             previousHash = record.EventHash;
         }
+        LastHash = previousHash;
     }
 
     private static ValidatedOtlpRecord Validate(ExportLogsServiceRequest request)

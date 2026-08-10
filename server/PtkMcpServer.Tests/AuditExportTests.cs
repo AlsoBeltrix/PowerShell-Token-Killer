@@ -323,6 +323,150 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task An_unreadable_segment_is_reported_rather_than_read_as_empty()
+    {
+        // cr3-1: every read failure became an empty batch, so an exporter
+        // that could deliver nothing still reported "healthy". The live
+        // journal segment is genuinely unreadable — the writer holds it
+        // FileShare.None and that exclusivity is load-bearing for its own
+        // live-vs-closed classification — so this condition is real, and it
+        // must be visible.
+        var root = NewRoot("export-unreadable");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var segment = WriteSegment(options, index: 0, records:
+        [
+            """{"event_type":"server.started","event_id":"e1"}""",
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+
+        // Hold the segment exactly as the journal writer holds its live one.
+        using (new FileStream(
+            segment,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None))
+        {
+            Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+        }
+
+        var snapshot = health.Snapshot();
+        Assert.Equal("export.segment_unreadable", snapshot.LastFailureDetail);
+        Assert.True(snapshot.ConsecutiveFailures > 0);
+        Assert.DoesNotContain("healthy", snapshot.StatusLine(), StringComparison.Ordinal);
+
+        // Once the writer releases it, the records deliver normally.
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.Equal(0, health.Snapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
+    public async Task A_spool_deleted_before_delivery_is_reported_as_an_export_gap()
+    {
+        // cr3-2: journal retention deletes closed segments by age/capacity
+        // without consulting the export cursor. Resuming silently at the
+        // oldest survivor would hide permanently lost custody.
+        var root = NewRoot("export-gap");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var first = WriteSegment(options, index: 0, records:
+        [
+            """{"event_type":"server.started","event_id":"e1"}""",
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using var service = NewService(options, receiver, cursorStore, health);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        // Retention deletes the cursor's segment, and newer records arrive.
+        File.Delete(first);
+        WriteSegment(options, index: 1, records:
+        [
+            """{"event_type":"call.completed","event_id":"e2"}""",
+        ]);
+
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        var snapshot = health.Snapshot();
+        Assert.Equal(1, snapshot.ExportGaps);
+        Assert.Contains("EXPORT_GAPS=1", snapshot.StatusLine(), StringComparison.Ordinal);
+        // The gap is permanent: later successful delivery does not erase it.
+        Assert.Equal("export.gap_spool_deleted", snapshot.LastFailureDetail);
+    }
+
+    [Fact]
+    public async Task A_transient_408_is_retried_instead_of_skipping_the_batch()
+    {
+        // cr3-5: 408 fell through to Permanent, which skipped up to a whole
+        // batch of audit records.
+        using var receiver = new FakeHttpDestination
+        {
+            ResponseStatus = HttpStatusCode.RequestTimeout,
+        };
+        var settings = new AuditExportSettings(
+            AuditDestinationKind.OtlpHttp,
+            receiver.BaseUri,
+            null);
+        using var destination = new HttpAuditDestination(settings);
+
+        var result = await destination.DeliverAsync(
+            ["""{"event_type":"call.completed"}"""],
+            CancellationToken.None);
+
+        Assert.Equal(AuditDeliveryDisposition.Retryable, result.Disposition);
+        Assert.Equal("export.http_408", result.DetailCode);
+    }
+
+    [Fact]
+    public async Task A_refused_batch_isolates_the_poison_record_and_keeps_the_rest()
+    {
+        // cr3-5: a permanent refusal advanced the cursor past the entire
+        // batch, discarding custody of every record travelling with the one
+        // the destination actually refused.
+        var root = NewRoot("export-isolate");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        WriteSegment(options, index: 0, records:
+        [
+            """{"event_type":"server.started","event_id":"good-1"}""",
+            """{"event_type":"call.completed","event_id":"poison"}""",
+            """{"event_type":"call.completed","event_id":"good-2"}""",
+        ]);
+
+        using var receiver = new FakeHttpDestination
+        {
+            // The batch and the poison record are refused; the two healthy
+            // records are accepted when delivered on their own.
+            RefusePredicate = body => body.Contains("poison", StringComparison.Ordinal),
+            RefusalStatus = HttpStatusCode.BadRequest,
+        };
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+
+        var delivered = await service.DrainOnceAsync(CancellationToken.None);
+        Assert.Equal(2, delivered);
+
+        var deliveredIds = receiver.Requests
+            .Where(request => !request.Body.Contains("poison", StringComparison.Ordinal))
+            .SelectMany(request => new[] { request.Body })
+            .ToArray();
+        Assert.Contains(deliveredIds, body => body.Contains("good-1", StringComparison.Ordinal));
+        Assert.Contains(deliveredIds, body => body.Contains("good-2", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Export_health_reports_a_missing_destination_as_local_journal_only()
     {
         var health = new AuditExportHealth();
@@ -415,6 +559,12 @@ public sealed class AuditExportTests : IDisposable
 
         internal HttpStatusCode ResponseStatus { get; set; } = HttpStatusCode.OK;
 
+        /// <summary>Refuses only the bodies this predicate matches, so a
+        /// poison record can be isolated from healthy ones.</summary>
+        internal Func<string, bool>? RefusePredicate { get; set; }
+
+        internal HttpStatusCode RefusalStatus { get; set; } = HttpStatusCode.BadRequest;
+
         internal List<ReceivedRequest> Requests { get; } = [];
 
         private async Task AcceptAsync()
@@ -442,7 +592,9 @@ public sealed class AuditExportTests : IDisposable
                         context.Request.Headers["Authorization"],
                         body));
                 }
-                context.Response.StatusCode = (int)ResponseStatus;
+                context.Response.StatusCode = RefusePredicate?.Invoke(body) == true
+                    ? (int)RefusalStatus
+                    : (int)ResponseStatus;
                 context.Response.Close();
             }
         }

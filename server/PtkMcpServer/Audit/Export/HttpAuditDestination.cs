@@ -83,11 +83,18 @@ internal sealed class HttpAuditDestination : IAuditDestination
         {
             if (response.IsSuccessStatusCode) return AuditDeliveryResult.Delivered;
             var status = (int)response.StatusCode;
-            // 429 and 5xx are the destination asking for later; 401/403 are
-            // operator-fixable configuration, which must be reported loudly
-            // and retried rather than silently discarding records.
-            if (status == (int)HttpStatusCode.TooManyRequests || status >= 500)
+            // 5xx and 429 are the destination asking for later; 408/425 are
+            // explicitly transient; 401/403 are operator-fixable
+            // configuration. All are retried rather than discarding audit
+            // records — only a genuine refusal of these bytes is permanent
+            // (cr3-5: 408 was classified permanent and skipped a whole batch).
+            if (status >= 500 ||
+                status is (int)HttpStatusCode.TooManyRequests
+                    or (int)HttpStatusCode.RequestTimeout
+                    or 425)
+            {
                 return AuditDeliveryResult.Retryable($"export.http_{status}");
+            }
             if (status is (int)HttpStatusCode.Unauthorized or (int)HttpStatusCode.Forbidden)
                 return AuditDeliveryResult.Retryable($"export.unauthorized_{status}");
             return AuditDeliveryResult.Permanent($"export.http_{status}");

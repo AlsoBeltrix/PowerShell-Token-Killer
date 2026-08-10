@@ -85,6 +85,21 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         var segments = EnumerateSegments();
         _health.RecordPendingBytes(PendingBytes(segments, cursor));
 
+        // Local spool retention can delete a closed segment this exporter has
+        // not delivered yet (journal retention is age/capacity driven and does
+        // not consult the export cursor). Resuming silently at the oldest
+        // surviving segment would hide permanently lost custody, so the gap is
+        // recorded and reported instead (cr3-2).
+        if (cursor.SegmentFileName is not null &&
+            segments.Length > 0 &&
+            !segments.Any(file => string.Equals(
+                file.Name,
+                cursor.SegmentFileName,
+                StringComparison.Ordinal)))
+        {
+            _health.RecordExportGap(cursor.SegmentFileName);
+        }
+
         foreach (var segment in SegmentsFrom(segments, cursor))
         {
             var startOffset = string.Equals(
@@ -96,7 +111,20 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
             while (!cancellationToken.IsCancellationRequested)
             {
-                var batch = ReadBatch(segment.FullName, startOffset, out var nextOffset);
+                var batch = ReadBatch(
+                    segment.FullName,
+                    startOffset,
+                    out var nextOffset,
+                    out var readFailure);
+                if (readFailure is not null)
+                {
+                    // Never silently report healthy while delivering nothing
+                    // (cr3-1): an unreadable segment — including the live one,
+                    // which the journal writer holds exclusively — is a
+                    // visible export failure, not an empty segment.
+                    _health.RecordFailure(readFailure);
+                    break;
+                }
                 if (batch.Count == 0) break;
 
                 var result = await _destination
@@ -109,10 +137,18 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 }
                 if (result.Disposition == AuditDeliveryDisposition.Permanent)
                 {
-                    // Reported, then stepped over: one refused batch must not
-                    // wedge every later record behind it. The local journal
-                    // remains the complete record either way.
-                    _health.RecordFailure(result.DetailCode ?? "export.refused");
+                    // A refusal is isolated to the offending record, never
+                    // applied to the whole batch (cr3-5): every record is
+                    // retried individually, so one poison record costs one
+                    // record, not up to MaximumBatchRecords of custody. A
+                    // record that is individually refused is reported and
+                    // stepped over — the local journal remains complete.
+                    var isolated = await DeliverIndividuallyAsync(
+                        batch,
+                        result.DetailCode ?? "export.refused",
+                        cancellationToken).ConfigureAwait(false);
+                    if (isolated.Retry) return delivered;
+                    delivered += isolated.Delivered;
                 }
                 else
                 {
@@ -128,6 +164,53 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
         _health.RecordPendingBytes(PendingBytes(EnumerateSegments(), cursor));
         return delivered;
+    }
+
+    /// <summary>
+    /// Re-delivers a permanently refused batch one record at a time so the
+    /// refusal lands on the record that caused it. A retryable answer during
+    /// isolation aborts the pass: the cursor stays put and the whole range is
+    /// retried, because partial progress cannot be represented in a
+    /// single-offset cursor.
+    /// </summary>
+    private async Task<(bool Retry, int Delivered)> DeliverIndividuallyAsync(
+        IReadOnlyList<string> batch,
+        string batchDetailCode,
+        CancellationToken cancellationToken)
+    {
+        if (batch.Count == 1)
+        {
+            _health.RecordFailure(batchDetailCode);
+            return (false, 0);
+        }
+
+        var delivered = 0;
+        var refused = 0;
+        foreach (var record in batch)
+        {
+            var single = await _destination!
+                .DeliverAsync([record], cancellationToken)
+                .ConfigureAwait(false);
+            switch (single.Disposition)
+            {
+                case AuditDeliveryDisposition.Delivered:
+                    delivered++;
+                    break;
+                case AuditDeliveryDisposition.Retryable:
+                    _health.RecordFailure(single.DetailCode ?? "export.failed");
+                    return (true, delivered);
+                default:
+                    refused++;
+                    _health.RecordFailure(single.DetailCode ?? batchDetailCode);
+                    break;
+            }
+        }
+
+        if (delivered > 0)
+            _health.RecordDelivery(delivered, DateTimeOffset.UtcNow);
+        if (refused > 0)
+            _health.RecordFailure(batchDetailCode);
+        return (false, delivered);
     }
 
     private async Task PumpAsync(CancellationToken cancellationToken)
@@ -241,10 +324,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private static List<string> ReadBatch(
         string path,
         long startOffset,
-        out long nextOffset)
+        out long nextOffset,
+        out string? readFailure)
     {
         var records = new List<string>();
         nextOffset = startOffset;
+        readFailure = null;
         try
         {
             using var stream = new FileStream(
@@ -282,10 +367,28 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             }
             nextOffset = consumed;
         }
+        catch (IOException)
+        {
+            // The journal writer holds the LIVE segment with FileShare.None,
+            // and that exclusivity is load-bearing for the writer's own
+            // live-vs-closed classification — so the live tail is currently
+            // exportable only after rotation. Surfaced, never silent; the
+            // coordinated-reader fix is its own slice (cr3-1 / R3d).
+            records.Clear();
+            nextOffset = startOffset;
+            readFailure = "export.segment_unreadable";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            records.Clear();
+            nextOffset = startOffset;
+            readFailure = "export.segment_unreadable";
+        }
         catch (Exception exception) when (!IsFatal(exception))
         {
             records.Clear();
             nextOffset = startOffset;
+            readFailure = "export.segment_read_fault";
         }
         return records;
     }

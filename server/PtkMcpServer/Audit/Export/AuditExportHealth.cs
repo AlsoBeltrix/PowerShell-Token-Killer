@@ -9,7 +9,8 @@ internal sealed record AuditExportHealthSnapshot(
     long PendingBytes,
     int ConsecutiveFailures,
     string? LastFailureDetail,
-    DateTimeOffset? LastDeliveryUtc)
+    DateTimeOffset? LastDeliveryUtc,
+    long ExportGaps = 0)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -33,6 +34,14 @@ internal sealed record AuditExportHealthSnapshot(
         }
         if (LastDeliveryUtc is not null)
             text += $" last_delivery_utc={LastDeliveryUtc.Value.ToString("O", CultureInfo.InvariantCulture)}";
+        // A gap is permanently lost custody, not a transient condition: it
+        // stays on the line for the life of the process.
+        if (ExportGaps > 0)
+        {
+            text +=
+                $" EXPORT_GAPS={ExportGaps.ToString(CultureInfo.InvariantCulture)} " +
+                "(spool retention deleted undelivered records)";
+        }
         return text;
     }
 }
@@ -42,6 +51,7 @@ internal sealed record AuditExportHealthSnapshot(
 internal sealed class AuditExportHealth
 {
     private readonly object _gate = new();
+    private readonly HashSet<string> _gapSegments = new(StringComparer.Ordinal);
     private AuditExportHealthSnapshot _snapshot =
         new(false, "none", 0, 0, 0, null, null);
 
@@ -64,7 +74,11 @@ internal sealed class AuditExportHealth
             {
                 DeliveredRecords = _snapshot.DeliveredRecords + records,
                 ConsecutiveFailures = 0,
-                LastFailureDetail = null,
+                // A gap is permanent: a later success clears the transient
+                // failure detail but never the gap record itself.
+                LastFailureDetail = _snapshot.ExportGaps > 0
+                    ? "export.gap_spool_deleted"
+                    : null,
                 LastDeliveryUtc = utcNow,
             };
         }
@@ -78,6 +92,26 @@ internal sealed class AuditExportHealth
             {
                 ConsecutiveFailures = _snapshot.ConsecutiveFailures + 1,
                 LastFailureDetail = detailCode,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Records that local spool retention deleted a segment before it was
+    /// delivered — permanently lost custody at the destination. Counted once
+    /// per segment so a repeating drain cannot inflate the number, and never
+    /// cleared by a later success: the gap happened.
+    /// </summary>
+    internal void RecordExportGap(string segmentFileName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(segmentFileName);
+        lock (_gate)
+        {
+            if (!_gapSegments.Add(segmentFileName)) return;
+            _snapshot = _snapshot with
+            {
+                ExportGaps = _snapshot.ExportGaps + 1,
+                LastFailureDetail = "export.gap_spool_deleted",
             };
         }
     }

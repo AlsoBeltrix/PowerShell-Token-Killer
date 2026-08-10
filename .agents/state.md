@@ -35,13 +35,37 @@ alike, no pairing machinery; receiver retention fixed before shipping).
 **R0 approved and R1 discovery executed 2026-08-10**
 (`.agents/plans/audit-restoration-r1-discovery.md`): the deleted design
 already implemented local-always/export-additive — restoration is a
-re-seating at the current single call-filter anchor
-(`server/PtkMcpServer/Program.cs:58`), supervisor-side; encoding settled
-(vendor generated protobuf C#, drop Grpc.Tools from both projects —
-kills the ARM64 protoc blocker); S4 regated to v1/v2 corpora; receiver
-gets a token auth mode (no pairing); receiver retention (rbc-11) is a
-blanket-covered prerequisite. **Next gate: owner go for R2** (journal +
-admission gate + quarantine-and-continue).
+re-seating at the current single call-filter anchor, supervisor-side;
+encoding settled (vendor generated protobuf C#, drop Grpc.Tools from
+both projects — kills the ARM64 protoc blocker); S4 regated to v1/v2
+corpora; receiver gets a token auth mode (no pairing); receiver
+retention (rbc-11) is a blanket-covered prerequisite.
+
+**R2 EXECUTED 2026-08-10 (owner go; core `ed1582a`, quarantine follow-on
+commit): PTK journals again.** The four deleted gate files are restored
+against the retained audit library; admission is the outermost call
+filter (o53-3 supervisor filter inner); the gate is the first hosted
+service. Contract behaviors, all guard-proved: healthy root → invoke
+served AND journaled (handshake: 14 artifacts from a live session);
+unwritable root → transport up, every invoke refused fail-closed with
+`[operation not started]`, `ptk_state` serves the emergency diagnosis,
+admission retries so a repaired root heals without restart; corrupt
+host identity → quarantined under `<root>/quarantine/` with original
+bytes preserved, fresh identity minted, service continues
+(fail-before/pass-after proven by stash-revert). `ptk_state` reports
+real audit health (`audit: healthy mode=local-only`); the worker
+runtime no longer claims `audit: disabled`. Handshake audit legs
+flipped and PASSED. Known R2 residuals, deliberate: audit refusals
+carry text+isError but no o53-3 structured verdict (they originate in
+the outer filter — align in R3); quarantine-and-continue covers the
+host-identity artifact class, the historic incident; corrupt journal
+*segment* handling still fail-closes and extends under the same
+pattern when R3 touches the sink; the release-gate product proof gains
+its positive journaling check in R6. **The StateToolTests quartet
+fails from a ptk session on this host (recorded PSModulePath quirk)
+and passes 15/15 from a plain shell — not a product failure. Next
+gate: owner go for R3** (export leg: spool, exporter, destination
+adapters, receiver token auth, rbc-11 retention).
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`

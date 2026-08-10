@@ -95,7 +95,16 @@ settings page where this can be configured."
    quarantined in place as evidence, reported loudly, and logging
    continues in clean storage. Refusing to start over one bad file —
    the old behavior — is forbidden. Only genuine inability to write
-   locally (disk full, permissions gone) blocks.
+   locally (disk full, permissions gone) blocks. **Reporting surfaces
+   (all four, owner-asked 2026-08-10):** (a) the quarantine is itself a
+   first-class audit event — hash, location, time — flowing to the SIEM
+   and preserved as custody evidence; (b) a persistent dashboard alert
+   banner requiring explicit operator disposition (the S6
+   no-silent-suppression pattern), with audit health shown on the
+   settings page; (c) the S6 webhook alert path for operator wiring
+   (Slack/email/pager); (d) in-session: `ptk_state` reports audit
+   health and subsequent `ptk_invoke` responses carry a bounded
+   one-line notice (the `[ptk hint]` mechanism).
 4. **Dead-simple SIEM connection configuration.** One endpoint setting,
    not a certificate ceremony. The S2 mTLS surface stays available for
    hardened deployments but must not be the price of entry.

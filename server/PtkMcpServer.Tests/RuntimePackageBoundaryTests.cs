@@ -108,15 +108,23 @@ public sealed class RuntimePackageBoundaryTests
             "PtkMcpServer",
             "Program.cs"));
 
-        // Exactly two hosted services: the audit runtime gate (registered
+        // Exactly three hosted services: the audit runtime gate (registered
         // first — audit startup is durable before session infrastructure;
-        // audit-restoration R2) and the supervisor lifecycle. Idle lifecycle
+        // audit-restoration R2), the audit export service (R3, additive and
+        // non-gating), and the supervisor lifecycle. Idle lifecycle
         // machinery stays banned below.
         Assert.Equal(
-            2,
+            3,
             program.Split(
                 "AddSingleton<IHostedService>",
                 StringSplitOptions.None).Length - 1);
+        // Export must never sit between audit admission and the supervisor
+        // as a startup dependency: it is registered after the gate and owns
+        // no admission coupling.
+        Assert.Contains(
+            "new AuditExportService(",
+            program,
+            StringComparison.Ordinal);
         Assert.Contains(
             "sp => sp.GetRequiredService<AuditRuntimeGate>()",
             program,

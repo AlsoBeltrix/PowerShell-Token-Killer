@@ -188,6 +188,99 @@ public sealed class AuditProgramStartupTests : IDisposable
     }
 
     [Fact]
+    public async Task An_unreachable_siem_never_blocks_execution()
+    {
+        // The owner's rule in one test (contract rule 2, 2026-08-10): "some
+        // idiot rebooting the splunk server shouldn't crash every coding
+        // session in the company." The endpoint below is a closed loopback
+        // port — every delivery attempt fails for the life of the process.
+        var auditRoot = NewRoot("export-outage-audit");
+        var deadPort = ClosedLoopbackPort();
+        using var process = StartServer(
+            auditRoot,
+            environment: new Dictionary<string, string>
+            {
+                ["PTK_AUDIT_EXPORT_KIND"] = "otlp_http",
+                ["PTK_AUDIT_EXPORT_ENDPOINT"] = $"http://127.0.0.1:{deadPort}/v1/logs",
+                ["PTK_AUDIT_EXPORT_TOKEN"] = "unused-token",
+            });
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-export-outage-test","version":"1"}}}""");
+            _ = await ReadResponseAsync(process, 1);
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+
+            // Several calls while the destination is unreachable: all must
+            // execute normally.
+            for (var id = 2; id <= 4; id++)
+            {
+                await SendAsync(
+                    process,
+                    "{\"jsonrpc\":\"2.0\",\"id\":" + id +
+                    ",\"method\":\"tools/call\",\"params\":{\"name\":\"ptk_invoke\"," +
+                    "\"arguments\":{\"script\":\"'ran-during-outage-" + id +
+                    "'\",\"route\":\"pwsh\"}}}");
+                var invoke = (await ReadResponseAsync(process, id)).GetProperty("result");
+                Assert.False(
+                    invoke.TryGetProperty("isError", out var invokeError) &&
+                    invokeError.GetBoolean());
+                Assert.Contains(
+                    $"ran-during-outage-{id}",
+                    invoke.GetProperty("content")[0].GetProperty("text").GetString(),
+                    StringComparison.Ordinal);
+            }
+
+            // The outage is visible as export health, never as an execution
+            // failure, and the records stay spooled for later delivery.
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"ptk_state","arguments":{}}}""");
+            var state = (await ReadResponseAsync(process, 5)).GetProperty("result");
+            var text = state.GetProperty("content")[0].GetProperty("text").GetString()!;
+            Assert.Contains("audit: healthy", text, StringComparison.Ordinal);
+            Assert.Contains("audit export:", text, StringComparison.Ordinal);
+            Assert.Contains($"127.0.0.1:{deadPort}", text, StringComparison.Ordinal);
+        }
+        finally
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch { /* Preserve the test assertion. */ }
+            _ = await stderr;
+        }
+
+        // Undelivered records are still recorded locally: an export outage
+        // costs delivery lag, never custody. The journal carries the call
+        // records; the exact script lives in the evidence store beside it.
+        var recorded = string.Join(
+            "\n",
+            Directory.GetFiles(auditRoot, "*", SearchOption.AllDirectories)
+                .Select(path =>
+                {
+                    try { return File.ReadAllText(path); }
+                    catch (IOException) { return string.Empty; }
+                }));
+        Assert.Contains("ran-during-outage-2", recorded, StringComparison.Ordinal);
+        Assert.Contains("\"event_type\":\"call.", recorded, StringComparison.Ordinal);
+    }
+
+    private static int ClosedLoopbackPort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(
+            System.Net.IPAddress.Loopback,
+            0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        return port;
+    }
+
+    [Fact]
     public async Task A_corrupt_host_identity_is_quarantined_and_service_continues()
     {
         // Contract rule 3: a fuckup cannot be globally terminal. The
@@ -261,7 +354,9 @@ public sealed class AuditProgramStartupTests : IDisposable
         }
     }
 
-    private Process StartServer(string auditRoot)
+    private Process StartServer(
+        string auditRoot,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var serverDll = Path.Combine(AppContext.BaseDirectory, "PtkMcpServer.dll");
         Assert.True(File.Exists(serverDll), $"server dll not found at {serverDll}");
@@ -278,6 +373,8 @@ public sealed class AuditProgramStartupTests : IDisposable
         start.ArgumentList.Add("exec");
         start.ArgumentList.Add(serverDll);
         start.Environment[AuditStartupConfiguration.AuditRootEnvironmentVariable] = auditRoot;
+        foreach (var (name, value) in environment ?? new Dictionary<string, string>())
+            start.Environment[name] = value;
         return Process.Start(start)
             ?? throw new InvalidOperationException("The audit startup test server did not start.");
     }

@@ -1,0 +1,330 @@
+using Microsoft.Extensions.Hosting;
+
+namespace PtkMcpServer.Audit.Export;
+
+/// <summary>
+/// Drains the local audit spool to the configured destination in the
+/// background, at least once, advancing a durable cursor only after the
+/// destination accepts a batch.
+///
+/// This service is deliberately incapable of gating execution (contract
+/// rule 2, owner ruling 2026-08-10: "SIEM connected != stop logging locally.
+/// some idiot rebooting the splunk server shouldn't crash every coding
+/// session"): it holds no admission lease, shares no lock with the journal
+/// writer, reads segments as an ordinary reader, and swallows every delivery
+/// failure into bounded retry plus health reporting.
+/// </summary>
+internal sealed class AuditExportService : IHostedService, IAsyncDisposable
+{
+    internal const int MaximumBatchRecords = 256;
+    internal const int MaximumBatchBytes = 1024 * 1024;
+
+    private readonly AuditOptions _options;
+    private readonly IAuditDestination? _destination;
+    private readonly AuditExportCursorStore _cursorStore;
+    private readonly AuditExportHealth _health;
+    private readonly TimeSpan _idleInterval;
+    private readonly TimeSpan _initialRetryDelay;
+    private readonly TimeSpan _maximumRetryDelay;
+    private readonly CancellationTokenSource _stopping = new();
+    private Task? _pump;
+    private int _disposed;
+
+    internal AuditExportService(
+        AuditOptions options,
+        IAuditDestination? destination,
+        AuditExportCursorStore cursorStore,
+        AuditExportHealth health,
+        TimeSpan? idleInterval = null,
+        TimeSpan? initialRetryDelay = null,
+        TimeSpan? maximumRetryDelay = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(cursorStore);
+        ArgumentNullException.ThrowIfNull(health);
+        _options = options;
+        _destination = destination;
+        _cursorStore = cursorStore;
+        _health = health;
+        _idleInterval = idleInterval ?? TimeSpan.FromSeconds(2);
+        _initialRetryDelay = initialRetryDelay ?? TimeSpan.FromSeconds(5);
+        _maximumRetryDelay = maximumRetryDelay ?? TimeSpan.FromMinutes(5);
+        if (_destination is not null)
+            _health.SetConfigured(_destination.Describe());
+    }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        if (_destination is null) return Task.CompletedTask;
+        _pump = Task.Run(() => PumpAsync(_stopping.Token), CancellationToken.None);
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        await _stopping.CancelAsync().ConfigureAwait(false);
+        if (_pump is null) return;
+        try
+        {
+            await _pump.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            // Shutdown must not wait on a destination; undelivered records
+            // stay spooled and export resumes on the next start.
+        }
+    }
+
+    /// <summary>One drain pass; separated so tests drive delivery
+    /// deterministically instead of racing the timer.</summary>
+    internal async Task<int> DrainOnceAsync(CancellationToken cancellationToken)
+    {
+        if (_destination is null) return 0;
+        var delivered = 0;
+        var cursor = _cursorStore.Read();
+        var segments = EnumerateSegments();
+        _health.RecordPendingBytes(PendingBytes(segments, cursor));
+
+        foreach (var segment in SegmentsFrom(segments, cursor))
+        {
+            var startOffset = string.Equals(
+                segment.Name,
+                cursor.SegmentFileName,
+                StringComparison.Ordinal)
+                ? cursor.ByteOffset
+                : 0;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                var batch = ReadBatch(segment.FullName, startOffset, out var nextOffset);
+                if (batch.Count == 0) break;
+
+                var result = await _destination
+                    .DeliverAsync(batch, cancellationToken)
+                    .ConfigureAwait(false);
+                if (result.Disposition == AuditDeliveryDisposition.Retryable)
+                {
+                    _health.RecordFailure(result.DetailCode ?? "export.failed");
+                    return delivered;
+                }
+                if (result.Disposition == AuditDeliveryDisposition.Permanent)
+                {
+                    // Reported, then stepped over: one refused batch must not
+                    // wedge every later record behind it. The local journal
+                    // remains the complete record either way.
+                    _health.RecordFailure(result.DetailCode ?? "export.refused");
+                }
+                else
+                {
+                    delivered += batch.Count;
+                    _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                }
+
+                startOffset = nextOffset;
+                _cursorStore.TryWrite(new AuditExportCursor(segment.Name, nextOffset));
+                cursor = new AuditExportCursor(segment.Name, nextOffset);
+            }
+        }
+
+        _health.RecordPendingBytes(PendingBytes(EnumerateSegments(), cursor));
+        return delivered;
+    }
+
+    private async Task PumpAsync(CancellationToken cancellationToken)
+    {
+        var retryDelay = _initialRetryDelay;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var failedBefore = _health.Snapshot().ConsecutiveFailures;
+            TimeSpan delay;
+            try
+            {
+                await DrainOnceAsync(cancellationToken).ConfigureAwait(false);
+                var failedAfter = _health.Snapshot().ConsecutiveFailures;
+                if (failedAfter > failedBefore)
+                {
+                    delay = retryDelay;
+                    retryDelay = Min(retryDelay * 2, _maximumRetryDelay);
+                }
+                else
+                {
+                    retryDelay = _initialRetryDelay;
+                    delay = _idleInterval;
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                // An exporter defect must never reach the audited path. It
+                // degrades to retry plus visible health, nothing more.
+                _health.RecordFailure("export.pump_fault");
+                delay = retryDelay;
+                retryDelay = Min(retryDelay * 2, _maximumRetryDelay);
+            }
+
+            try
+            {
+                await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private FileInfo[] EnumerateSegments()
+    {
+        try
+        {
+            var directory = new DirectoryInfo(_options.SpoolDirectory);
+            if (!directory.Exists) return [];
+            return directory
+                .GetFiles("*.jsonl")
+                .Where(file => AuditSpoolSegmentIdentity.TryParse(file.Name, out _))
+                .OrderBy(file => file.CreationTimeUtc)
+                .ThenBy(file => file.Name, StringComparer.Ordinal)
+                .ToArray();
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Segments at or after the cursor's segment. A cursor naming a segment
+    /// that retention has since removed restarts from the oldest retained
+    /// segment: re-delivery is contractually fine, a silent gap is not.
+    /// </summary>
+    private static IEnumerable<FileInfo> SegmentsFrom(
+        FileInfo[] segments,
+        AuditExportCursor cursor)
+    {
+        if (cursor.SegmentFileName is null) return segments;
+        var index = Array.FindIndex(
+            segments,
+            file => string.Equals(file.Name, cursor.SegmentFileName, StringComparison.Ordinal));
+        return index < 0 ? segments : segments.Skip(index);
+    }
+
+    private static long PendingBytes(FileInfo[] segments, AuditExportCursor cursor)
+    {
+        long pending = 0;
+        foreach (var segment in SegmentsFrom(segments, cursor))
+        {
+            var consumed = string.Equals(
+                segment.Name,
+                cursor.SegmentFileName,
+                StringComparison.Ordinal)
+                ? cursor.ByteOffset
+                : 0;
+            try
+            {
+                pending += Math.Max(0, segment.Length - consumed);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                // A segment that vanished mid-scan contributes nothing.
+            }
+        }
+        return pending;
+    }
+
+    /// <summary>
+    /// Reads whole JSONL records only. A partially written trailing line is
+    /// left for the next pass, so a record is never delivered torn.
+    /// </summary>
+    private static List<string> ReadBatch(
+        string path,
+        long startOffset,
+        out long nextOffset)
+    {
+        var records = new List<string>();
+        nextOffset = startOffset;
+        try
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 64 * 1024,
+                FileOptions.SequentialScan);
+            if (startOffset > stream.Length) return records;
+            stream.Seek(startOffset, SeekOrigin.Begin);
+            using var reader = new StreamReader(stream, System.Text.Encoding.UTF8);
+
+            var consumed = startOffset;
+            var batchBytes = 0;
+            while (records.Count < MaximumBatchRecords && batchBytes < MaximumBatchBytes)
+            {
+                var line = reader.ReadLine();
+                if (line is null) break;
+                var lineBytes = System.Text.Encoding.UTF8.GetByteCount(line);
+                // ReadLine cannot distinguish a complete final line from a
+                // torn one, so a trailing line without its newline is left
+                // behind: consumed only advances across newline-terminated
+                // records.
+                if (consumed + lineBytes >= stream.Length && !EndsWithNewline(path, stream.Length))
+                    break;
+                if (line.Length == 0)
+                {
+                    consumed += 1;
+                    continue;
+                }
+                records.Add(line);
+                consumed += lineBytes + 1;
+                batchBytes += lineBytes + 1;
+            }
+            nextOffset = consumed;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            records.Clear();
+            nextOffset = startOffset;
+        }
+        return records;
+    }
+
+    private static bool EndsWithNewline(string path, long length)
+    {
+        if (length == 0) return false;
+        try
+        {
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
+            stream.Seek(-1, SeekOrigin.End);
+            return stream.ReadByte() == '\n';
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return false;
+        }
+    }
+
+    private static TimeSpan Min(TimeSpan left, TimeSpan right) =>
+        left < right ? left : right;
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+        await _stopping.CancelAsync().ConfigureAwait(false);
+        if (_pump is not null)
+        {
+            try { await _pump.ConfigureAwait(false); }
+            catch (Exception exception) when (!IsFatal(exception)) { }
+        }
+        _stopping.Dispose();
+        _destination?.Dispose();
+    }
+}

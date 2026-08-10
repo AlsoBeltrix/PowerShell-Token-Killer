@@ -20,7 +20,8 @@ internal sealed record AuditExportCursor(
     string? SegmentFileName,
     long ByteOffset,
     string? LastSupervisorBootId = null,
-    long LastSequence = 0)
+    long LastSequence = 0,
+    bool LastWasLifecycleTerminal = false)
 {
     internal static AuditExportCursor Start { get; } = new(null, 0);
 }
@@ -64,7 +65,8 @@ internal sealed class AuditExportCursorStore
                 file.SegmentFileName,
                 file.ByteOffset,
                 file.LastSupervisorBootId,
-                file.LastSequence);
+                file.LastSequence,
+                file.LastWasLifecycleTerminal);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -88,6 +90,7 @@ internal sealed class AuditExportCursorStore
                 ByteOffset = cursor.ByteOffset,
                 LastSupervisorBootId = cursor.LastSupervisorBootId,
                 LastSequence = cursor.LastSequence,
+                LastWasLifecycleTerminal = cursor.LastWasLifecycleTerminal,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -118,5 +121,6 @@ internal sealed class AuditExportCursorStore
         [JsonPropertyName("offset")] public long ByteOffset { get; set; }
         [JsonPropertyName("boot")] public string? LastSupervisorBootId { get; set; }
         [JsonPropertyName("sequence")] public long LastSequence { get; set; }
+        [JsonPropertyName("terminal")] public bool LastWasLifecycleTerminal { get; set; }
     }
 }

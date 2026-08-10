@@ -11,7 +11,8 @@ internal sealed record AuditExportHealthSnapshot(
     string? LastFailureDetail,
     DateTimeOffset? LastDeliveryUtc,
     long ExportGaps = 0,
-    long MissingRecords = 0)
+    long MissingRecords = 0,
+    long UnverifiedBootBoundaries = 0)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -37,6 +38,17 @@ internal sealed record AuditExportHealthSnapshot(
             text += $" last_delivery_utc={LastDeliveryUtc.Value.ToString("O", CultureInfo.InvariantCulture)}";
         // A gap is permanently lost custody, not a transient condition: it
         // stays on the line for the life of the process.
+        // Suspicion is reported separately from proof: an unverified
+        // boundary means the previous supervisor boot's tail cannot be shown
+        // delivered (it ended without its lifecycle terminal), NOT that
+        // records are known lost.
+        if (UnverifiedBootBoundaries > 0)
+        {
+            text +=
+                $" unverified_boot_boundaries={UnverifiedBootBoundaries.ToString(CultureInfo.InvariantCulture)}" +
+                " (a previous supervisor boot ended without its terminal record;" +
+                " its tail cannot be proved delivered)";
+        }
         if (ExportGaps > 0)
         {
             text +=
@@ -117,6 +129,26 @@ internal sealed class AuditExportHealth
             };
         }
     }
+
+    /// <summary>
+    /// Notes that a supervisor boot's final records cannot be proved
+    /// delivered. Counted once per boot: this is an unprovable boundary, not
+    /// evidence of loss, and it never inflates the gap count.
+    /// </summary>
+    internal void RecordUnverifiedBootBoundary(string supervisorBootId, long lastSequence)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(supervisorBootId);
+        lock (_gate)
+        {
+            if (!_unverifiedBoundaries.Add($"{supervisorBootId}:{lastSequence}")) return;
+            _snapshot = _snapshot with
+            {
+                UnverifiedBootBoundaries = _snapshot.UnverifiedBootBoundaries + 1,
+            };
+        }
+    }
+
+    private readonly HashSet<string> _unverifiedBoundaries = new(StringComparer.Ordinal);
 
     internal void RecordPendingBytes(long pendingBytes)
     {

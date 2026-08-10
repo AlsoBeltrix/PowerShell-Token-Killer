@@ -460,16 +460,91 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
-    public async Task A_new_supervisor_boot_restarting_at_sequence_one_is_not_a_gap()
+    public async Task A_clean_boot_boundary_at_sequence_one_raises_nothing()
     {
-        // Each supervisor boot owns its own chain starting at 1; comparing
-        // across boots would report a gap on every restart.
-        var root = NewRoot("export-new-boot");
+        // Each supervisor boot owns its own chain from 1. When the previous
+        // boot ended with its lifecycle terminal and the next starts at 1,
+        // nothing is outstanding and nothing is lost.
+        var root = NewRoot("export-clean-boot");
         var options = AuditOptions.Create(root);
         Directory.CreateDirectory(options.SpoolDirectory);
+        var first = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
         WriteSegment(options, index: 0, records:
         [
-            ChainRecord("d99ba8e8-25c5-4bfb-9c39-364407e4d96d", sequence: 7),
+            ChainRecord(first, sequence: 1),
+            ChainRecord(first, sequence: 2, eventType: "server.stopped"),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+
+        WriteSegment(options, index: 1, records:
+        [
+            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+        ]);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        var line = health.Snapshot().StatusLine();
+        Assert.DoesNotContain("EXPORT_GAPS", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("unverified_boot_boundaries", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_new_boots_deleted_prefix_is_reported_as_a_gap()
+    {
+        // cr3-2 round 3: a boot change skipped comparison entirely, so
+        // records 1..N-1 of the NEW boot could be deleted before delivery and
+        // never be noticed. A new chain must start at 1.
+        var root = NewRoot("export-newboot-prefix");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var first = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(first, sequence: 1),
+            ChainRecord(first, sequence: 2, eventType: "server.stopped"),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+
+        // The new boot's first three records were removed before delivery.
+        WriteSegment(options, index: 1, records:
+        [
+            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 4),
+        ]);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        var line = health.Snapshot().StatusLine();
+        Assert.Contains("EXPORT_GAPS=1", line, StringComparison.Ordinal);
+        Assert.Contains("missing_records=3", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task An_unterminated_boot_followed_by_a_new_one_is_flagged_unverified()
+    {
+        // The other half of cr3-2 round 3: the OLD boot's tail cannot be
+        // proved either way from sequences alone. Reported as suspicion —
+        // never counted as proved loss.
+        var root = NewRoot("export-unverified-boundary");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var first = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(first, sequence: 1),
         ]);
 
         using var receiver = new FakeHttpDestination();
@@ -481,12 +556,18 @@ public sealed class AuditExportTests : IDisposable
             health);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
 
+        // No terminal was ever delivered for that boot, and the next boot
+        // begins cleanly at 1.
         WriteSegment(options, index: 1, records:
         [
             ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
         ]);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
-        Assert.Equal(0, health.Snapshot().ExportGaps);
+
+        var line = health.Snapshot().StatusLine();
+        Assert.Contains("unverified_boot_boundaries=1", line, StringComparison.Ordinal);
+        // Suspicion must not masquerade as proof.
+        Assert.DoesNotContain("EXPORT_GAPS", line, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -582,10 +663,13 @@ public sealed class AuditExportTests : IDisposable
 
     /// <summary>A canonical journal line carrying the chain position the
     /// exporter uses to prove loss: per-boot contiguous sequence.</summary>
-    private static string ChainRecord(string supervisorBootId, long sequence) =>
+    private static string ChainRecord(
+        string supervisorBootId,
+        long sequence,
+        string eventType = "call.completed") =>
         "{\"schema_version\":\"ptk.audit/2\",\"event_id\":\"019f5ee1-2384-7eac-8f88-2eb4e7ec5e" +
         sequence.ToString("D2", System.Globalization.CultureInfo.InvariantCulture) +
-        "\",\"event_type\":\"call.completed\",\"sequence\":" +
+        "\",\"event_type\":\"" + eventType + "\",\"sequence\":" +
         sequence.ToString(System.Globalization.CultureInfo.InvariantCulture) +
         ",\"producer\":{\"host_id\":\"92874c03-05a7-4aa6-8094-b2e87cad5696\"," +
         "\"supervisor_boot_id\":\"" + supervisorBootId + "\",\"worker_boot_id\":null," +

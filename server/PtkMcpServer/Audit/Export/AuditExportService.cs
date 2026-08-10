@@ -156,12 +156,13 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 }
 
                 startOffset = nextOffset;
-                var (chainBootId, chainSequence) = ChainPosition(batch[^1]);
+                var (chainBootId, chainSequence, chainTerminal) = ChainPosition(batch[^1]);
                 cursor = new AuditExportCursor(
                     segment.Name,
                     nextOffset,
                     chainBootId ?? cursor.LastSupervisorBootId,
-                    chainSequence ?? cursor.LastSequence);
+                    chainSequence ?? cursor.LastSequence,
+                    chainBootId is null ? cursor.LastWasLifecycleTerminal : chainTerminal);
                 _cursorStore.TryWrite(cursor);
             }
         }
@@ -406,22 +407,52 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private void DetectSequenceGap(AuditExportCursor cursor, string nextRecord)
     {
         if (cursor.LastSupervisorBootId is null || cursor.LastSequence <= 0) return;
-        var (bootId, sequence) = ChainPosition(nextRecord);
+        var (bootId, sequence, _) = ChainPosition(nextRecord);
         if (bootId is null || sequence is null) return;
-        if (!string.Equals(bootId, cursor.LastSupervisorBootId, StringComparison.Ordinal))
-            return;
-        if (sequence <= cursor.LastSequence + 1) return;
 
-        var missing = sequence.Value - cursor.LastSequence - 1;
-        var record = _gapStore.Record(
-            $"{bootId}:{cursor.LastSequence + 1}-{sequence.Value - 1}",
-            missing);
+        if (string.Equals(bootId, cursor.LastSupervisorBootId, StringComparison.Ordinal))
+        {
+            if (sequence <= cursor.LastSequence + 1) return;
+            RecordGap(
+                $"{bootId}:{cursor.LastSequence + 1}-{sequence.Value - 1}",
+                sequence.Value - cursor.LastSequence - 1);
+            return;
+        }
+
+        // A boot boundary is two separate questions, and skipping the
+        // comparison answered neither (cr3-2 round 3).
+        //
+        // 1. The NEW boot's chain starts at 1, so a first record above 1
+        //    proves its prefix was removed before delivery.
+        if (sequence > 1)
+            RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
+
+        // 2. The OLD boot's tail cannot be proved either way from sequences
+        //    alone: records after the last delivered one may never have
+        //    existed, or may have been deleted undelivered. If the last
+        //    record delivered from that boot was its lifecycle terminal, the
+        //    chain ended cleanly and nothing is outstanding. Otherwise the
+        //    boundary is UNVERIFIED — reported as suspicion, never as proved
+        //    loss, so the gap count keeps meaning "records provably lost".
+        if (!cursor.LastWasLifecycleTerminal)
+        {
+            _health.RecordUnverifiedBootBoundary(
+                cursor.LastSupervisorBootId,
+                cursor.LastSequence);
+        }
+    }
+
+    private void RecordGap(string gapKey, long missingRecords)
+    {
+        var record = _gapStore.Record(gapKey, missingRecords);
         _health.SetExportGaps(record.Count, record.MissingRecords);
     }
 
-    /// <summary>The record's per-boot chain position, or nulls when the line
-    /// is not parseable — an undecorated record is still delivered.</summary>
-    private static (string? BootId, long? Sequence) ChainPosition(string record)
+    /// <summary>The record's per-boot chain position and whether it is the
+    /// lifecycle terminal, or nulls when the line is not parseable — an
+    /// undecorated record is still delivered.</summary>
+    private static (string? BootId, long? Sequence, bool IsTerminal) ChainPosition(
+        string record)
     {
         try
         {
@@ -438,11 +469,14 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 bootElement.ValueKind == System.Text.Json.JsonValueKind.String
                 ? bootElement.GetString()
                 : null;
-            return (bootId, sequence);
+            var isTerminal = root.TryGetProperty("event_type", out var typeElement) &&
+                typeElement.ValueKind == System.Text.Json.JsonValueKind.String &&
+                string.Equals(typeElement.GetString(), "server.stopped", StringComparison.Ordinal);
+            return (bootId, sequence, isTerminal);
         }
         catch (System.Text.Json.JsonException)
         {
-            return (null, null);
+            return (null, null, false);
         }
     }
 

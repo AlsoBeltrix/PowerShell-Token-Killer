@@ -368,17 +368,18 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
-    public async Task A_spool_deleted_before_delivery_is_reported_as_an_export_gap()
+    public async Task Records_removed_before_delivery_are_reported_as_a_durable_gap()
     {
-        // cr3-2: journal retention deletes closed segments by age/capacity
-        // without consulting the export cursor. Resuming silently at the
-        // oldest survivor would hide permanently lost custody.
+        // cr3-2 (round 2): loss is proved by the chain, not by which files
+        // survive. Whatever retention and rotation did, a jump in the
+        // per-boot sequence means records were removed before delivery.
         var root = NewRoot("export-gap");
         var options = AuditOptions.Create(root);
         Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
         var first = WriteSegment(options, index: 0, records:
         [
-            """{"event_type":"server.started","event_id":"e1"}""",
+            ChainRecord(boot, sequence: 1),
         ]);
 
         using var receiver = new FakeHttpDestination();
@@ -387,30 +388,24 @@ public sealed class AuditExportTests : IDisposable
         await using var service = NewService(options, receiver, cursorStore, health);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
 
-        // More records arrive and the destination goes down, so this segment
-        // now holds UNDELIVERED bytes.
-        AppendRecords(first, ["""{"event_type":"call.completed","event_id":"lost"}"""]);
-        receiver.ResponseStatus = HttpStatusCode.ServiceUnavailable;
-        Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
-
-        // Retention deletes the segment while that tail is outstanding, and
-        // newer records arrive after it.
+        // Sequences 2 and 3 are written, then removed before any drain sees
+        // them — the exact race that defeated file bookkeeping: appended,
+        // rotated, deleted between drains.
         File.Delete(first);
         WriteSegment(options, index: 1, records:
         [
-            """{"event_type":"call.completed","event_id":"e2"}""",
+            ChainRecord(boot, sequence: 4),
         ]);
-        receiver.ResponseStatus = HttpStatusCode.OK;
 
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
         var snapshot = health.Snapshot();
+        // Asserted through the stable status-line surface so this guard
+        // compiles — and therefore bites — against every prior revision.
         Assert.Equal(1, snapshot.ExportGaps);
         Assert.Contains("EXPORT_GAPS=1", snapshot.StatusLine(), StringComparison.Ordinal);
-        // The gap is permanent: later successful delivery does not erase it.
-        Assert.Equal("export.gap_spool_deleted", snapshot.LastFailureDetail);
+        Assert.Contains("missing_records=2", snapshot.StatusLine(), StringComparison.Ordinal);
 
-        // And it survives the process: a gap is evidence of lost custody, so
-        // a fresh service reports it from durable state (cr3-2 verification).
+        // The gap is evidence and survives the process.
         var restartedHealth = new AuditExportHealth();
         await using var restarted = NewService(
             options,
@@ -419,38 +414,40 @@ public sealed class AuditExportTests : IDisposable
             restartedHealth);
         Assert.Equal(1, restartedHealth.Snapshot().ExportGaps);
         Assert.Contains(
-            "EXPORT_GAPS=1",
+            "missing_records=2",
             restartedHealth.Snapshot().StatusLine(),
             StringComparison.Ordinal);
     }
 
     [Fact]
-    public async Task Deleting_a_fully_delivered_segment_is_not_an_export_gap()
+    public async Task Rotation_and_retention_of_delivered_records_raise_no_gap()
     {
-        // cr3-2 verification: retention removing records that WERE delivered
-        // is retention working. Flagging it as lost custody would cry wolf on
-        // every healthy install and devalue the real signal.
-        // The scenario that matters is rotation: the exporter drains the only
-        // segment (so its cursor names that segment), the journal then rotates
-        // and retention removes the delivered one. Nothing was lost.
+        // The false-positive half: deleting records that WERE delivered is
+        // retention working. A contiguous chain proves nothing was lost, so
+        // no alarm — including across a segment rotation.
         var root = NewRoot("export-no-false-gap");
         var options = AuditOptions.Create(root);
         Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
         var first = WriteSegment(options, index: 0, records:
         [
-            """{"event_type":"server.started","event_id":"e1"}""",
+            ChainRecord(boot, sequence: 1),
+            ChainRecord(boot, sequence: 2),
         ]);
 
         using var receiver = new FakeHttpDestination();
         var health = new AuditExportHealth();
-        var cursorStore = new AuditExportCursorStore(root);
-        await using var service = NewService(options, receiver, cursorStore, health);
-        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
 
-        // Rotation, then retention removes the fully delivered segment.
+        // Rotate, then retention removes the fully delivered segment.
         WriteSegment(options, index: 1, records:
         [
-            """{"event_type":"call.completed","event_id":"e2"}""",
+            ChainRecord(boot, sequence: 3),
         ]);
         File.Delete(first);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
@@ -460,6 +457,36 @@ public sealed class AuditExportTests : IDisposable
             "EXPORT_GAPS",
             health.Snapshot().StatusLine(),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_new_supervisor_boot_restarting_at_sequence_one_is_not_a_gap()
+    {
+        // Each supervisor boot owns its own chain starting at 1; comparing
+        // across boots would report a gap on every restart.
+        var root = NewRoot("export-new-boot");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord("d99ba8e8-25c5-4bfb-9c39-364407e4d96d", sequence: 7),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        WriteSegment(options, index: 1, records:
+        [
+            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+        ]);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.Equal(0, health.Snapshot().ExportGaps);
     }
 
     [Fact]
@@ -552,6 +579,17 @@ public sealed class AuditExportTests : IDisposable
             cursorStore,
             health);
     }
+
+    /// <summary>A canonical journal line carrying the chain position the
+    /// exporter uses to prove loss: per-boot contiguous sequence.</summary>
+    private static string ChainRecord(string supervisorBootId, long sequence) =>
+        "{\"schema_version\":\"ptk.audit/2\",\"event_id\":\"019f5ee1-2384-7eac-8f88-2eb4e7ec5e" +
+        sequence.ToString("D2", System.Globalization.CultureInfo.InvariantCulture) +
+        "\",\"event_type\":\"call.completed\",\"sequence\":" +
+        sequence.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+        ",\"producer\":{\"host_id\":\"92874c03-05a7-4aa6-8094-b2e87cad5696\"," +
+        "\"supervisor_boot_id\":\"" + supervisorBootId + "\",\"worker_boot_id\":null," +
+        "\"pid\":32890,\"version\":\"1.0.0.0\",\"binary_digest\":null}}";
 
     private static string WriteSegment(
         AuditOptions options,

@@ -4,8 +4,9 @@ using System.Text.Json.Serialization;
 namespace PtkMcpServer.Audit.Export;
 
 /// <summary>
-/// Durable record of segments local retention deleted before they were
-/// delivered — permanently lost custody at the destination.
+/// Durable record of audit records that were removed locally before they
+/// were delivered — permanently lost custody at the destination. Keyed by
+/// the missing chain range so the same gap is never counted twice.
 ///
 /// This is on disk, not in memory, because a gap is evidence: process-local
 /// state would erase the only trace of the loss at the next restart (cr3-2
@@ -40,20 +41,23 @@ internal sealed class AuditExportGapStore
     /// segment already recorded is not counted twice, so a repeating drain
     /// cannot inflate the number.
     /// </summary>
-    internal AuditExportGapRecord Record(string segmentFileName)
+    internal AuditExportGapRecord Record(string gapKey, long missingRecords)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(segmentFileName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(gapKey);
         lock (_gate)
         {
             var current = ReadLocked();
-            if (current.Segments.Contains(segmentFileName, StringComparer.Ordinal))
+            if (current.Segments.Contains(gapKey, StringComparer.Ordinal))
                 return current;
 
-            var segments = current.Segments
-                .Append(segmentFileName)
+            var keys = current.Segments
+                .Append(gapKey)
                 .TakeLast(MaximumRetainedSegments)
                 .ToArray();
-            var updated = new AuditExportGapRecord(current.Count + 1, segments);
+            var updated = new AuditExportGapRecord(
+                current.Count + 1,
+                keys,
+                current.MissingRecords + Math.Max(0, missingRecords));
             TryWriteLocked(updated);
             return updated;
         }
@@ -71,7 +75,10 @@ internal sealed class AuditExportGapStore
                 verifyWithoutMutation: true);
             var file = JsonSerializer.Deserialize<GapFile>(bytes);
             if (file is null || file.Count < 0) return AuditExportGapRecord.Empty;
-            return new AuditExportGapRecord(file.Count, file.Segments ?? []);
+            return new AuditExportGapRecord(
+                file.Count,
+                file.Segments ?? [],
+                file.MissingRecords);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -90,6 +97,7 @@ internal sealed class AuditExportGapStore
             {
                 Count = record.Count,
                 Segments = record.Segments.ToArray(),
+                MissingRecords = record.MissingRecords,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -114,10 +122,16 @@ internal sealed class AuditExportGapStore
     {
         [JsonPropertyName("count")] public long Count { get; set; }
         [JsonPropertyName("segments")] public string[]? Segments { get; set; }
+        [JsonPropertyName("missing_records")] public long MissingRecords { get; set; }
     }
 }
 
-internal sealed record AuditExportGapRecord(long Count, IReadOnlyList<string> Segments)
+/// <summary>Distinct gap events, their bounded keys, and the total number of
+/// audit records proved missing across them.</summary>
+internal sealed record AuditExportGapRecord(
+    long Count,
+    IReadOnlyList<string> Segments,
+    long MissingRecords = 0)
 {
     internal static AuditExportGapRecord Empty { get; } = new(0, []);
 }

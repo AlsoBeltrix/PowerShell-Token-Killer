@@ -10,7 +10,8 @@ internal sealed record AuditExportHealthSnapshot(
     int ConsecutiveFailures,
     string? LastFailureDetail,
     DateTimeOffset? LastDeliveryUtc,
-    long ExportGaps = 0)
+    long ExportGaps = 0,
+    long MissingRecords = 0)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -40,7 +41,8 @@ internal sealed record AuditExportHealthSnapshot(
         {
             text +=
                 $" EXPORT_GAPS={ExportGaps.ToString(CultureInfo.InvariantCulture)} " +
-                "(spool retention deleted undelivered records)";
+                $"missing_records={MissingRecords.ToString(CultureInfo.InvariantCulture)} " +
+                "(records were removed locally before delivery)";
         }
         return text;
     }
@@ -76,7 +78,7 @@ internal sealed class AuditExportHealth
                 // A gap is permanent: a later success clears the transient
                 // failure detail but never the gap record itself.
                 LastFailureDetail = _snapshot.ExportGaps > 0
-                    ? "export.gap_spool_deleted"
+                    ? "export.gap_records_lost"
                     : null,
                 LastDeliveryUtc = utcNow,
             };
@@ -101,7 +103,7 @@ internal sealed class AuditExportHealth
     /// custody. The count is owned on disk so it survives restarts, and a
     /// later success never clears it: the gap happened.
     /// </summary>
-    internal void SetExportGaps(long count)
+    internal void SetExportGaps(long count, long missingRecords = 0)
     {
         if (count < 0) return;
         lock (_gate)
@@ -110,7 +112,8 @@ internal sealed class AuditExportHealth
             _snapshot = _snapshot with
             {
                 ExportGaps = count,
-                LastFailureDetail = "export.gap_spool_deleted",
+                MissingRecords = Math.Max(_snapshot.MissingRecords, missingRecords),
+                LastFailureDetail = "export.gap_records_lost",
             };
         }
     }

@@ -50,7 +50,8 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         _health = health;
         // Gaps recorded by earlier processes are evidence and stay visible.
         var retained = _gapStore.Read();
-        if (retained.Count > 0) _health.SetExportGaps(retained.Count);
+        if (retained.Count > 0)
+            _health.SetExportGaps(retained.Count, retained.MissingRecords);
         _idleInterval = idleInterval ?? TimeSpan.FromSeconds(2);
         _initialRetryDelay = initialRetryDelay ?? TimeSpan.FromSeconds(5);
         _maximumRetryDelay = maximumRetryDelay ?? TimeSpan.FromMinutes(5);
@@ -90,44 +91,15 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         var segments = EnumerateSegments();
         _health.RecordPendingBytes(PendingBytes(segments, cursor));
 
-        // Local spool retention can delete a closed segment this exporter has
-        // not delivered yet (journal retention is age/capacity driven and does
-        // not consult the export cursor). Resuming silently at the oldest
-        // surviving segment would hide permanently lost custody, so the gap is
-        // recorded durably and reported instead (cr3-2). A segment already
-        // consumed to its end is NOT a gap — deleting fully delivered records
-        // is retention working correctly.
-        if (cursor.SegmentFileName is not null &&
-            !cursor.SegmentCompleted &&
-            segments.Length > 0 &&
-            !segments.Any(file => string.Equals(
-                file.Name,
-                cursor.SegmentFileName,
-                StringComparison.Ordinal)))
-        {
-            var record = _gapStore.Record(cursor.SegmentFileName);
-            _health.SetExportGaps(record.Count);
-        }
 
         foreach (var segment in SegmentsFrom(segments, cursor))
         {
-            var isCursorSegment = string.Equals(
+            var startOffset = string.Equals(
                 segment.Name,
                 cursor.SegmentFileName,
-                StringComparison.Ordinal);
-            var startOffset = isCursorSegment ? cursor.ByteOffset : 0;
-
-            // Undelivered bytes clear the completed flag immediately, before
-            // any delivery is attempted: if this segment is removed while a
-            // tail is outstanding, that is real lost custody and must be
-            // reported as a gap even though it was once fully delivered.
-            if (isCursorSegment &&
-                cursor.SegmentCompleted &&
-                !ReachedEndOfSegment(segment.FullName, cursor.ByteOffset))
-            {
-                cursor = cursor with { SegmentCompleted = false };
-                _cursorStore.TryWrite(cursor);
-            }
+                StringComparison.Ordinal)
+                ? cursor.ByteOffset
+                : 0;
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -146,6 +118,13 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     break;
                 }
                 if (batch.Count == 0) break;
+
+                // Loss is proved by the chain itself, not by which files
+                // still exist: a jump in the per-boot sequence means records
+                // between the last delivered one and this one were removed
+                // before delivery, whatever retention or rotation did to the
+                // segments (cr3-2, both verification rounds).
+                DetectSequenceGap(cursor, batch[0]);
 
                 var result = await _destination
                     .DeliverAsync(batch, cancellationToken)
@@ -177,24 +156,13 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 }
 
                 startOffset = nextOffset;
-                cursor = new AuditExportCursor(segment.Name, nextOffset);
+                var (chainBootId, chainSequence) = ChainPosition(batch[^1]);
+                cursor = new AuditExportCursor(
+                    segment.Name,
+                    nextOffset,
+                    chainBootId ?? cursor.LastSupervisorBootId,
+                    chainSequence ?? cursor.LastSequence);
                 _cursorStore.TryWrite(cursor);
-            }
-
-            // Completion is end-of-file, not "a newer segment exists": after
-            // rotation the exporter may hold a cursor on a fully delivered
-            // segment that retention then removes, and calling that lost
-            // custody would cry wolf on every healthy install (cr3-2
-            // verification). Bytes appended later simply clear the flag on
-            // the next successful read.
-            if (string.Equals(cursor.SegmentFileName, segment.Name, StringComparison.Ordinal))
-            {
-                var completed = ReachedEndOfSegment(segment.FullName, cursor.ByteOffset);
-                if (completed != cursor.SegmentCompleted)
-                {
-                    cursor = cursor with { SegmentCompleted = completed };
-                    _cursorStore.TryWrite(cursor);
-                }
             }
         }
 
@@ -429,20 +397,52 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         return records;
     }
 
-    /// <summary>Whether delivery consumed the segment to its current end.</summary>
-    private static bool ReachedEndOfSegment(string path, long consumedBytes)
+    /// <summary>
+    /// Records a durable gap when the next record's chain position skips past
+    /// the last delivered one. Only compares within a single supervisor boot:
+    /// each boot starts its own chain at sequence 1, so a boot change is not
+    /// a gap.
+    /// </summary>
+    private void DetectSequenceGap(AuditExportCursor cursor, string nextRecord)
+    {
+        if (cursor.LastSupervisorBootId is null || cursor.LastSequence <= 0) return;
+        var (bootId, sequence) = ChainPosition(nextRecord);
+        if (bootId is null || sequence is null) return;
+        if (!string.Equals(bootId, cursor.LastSupervisorBootId, StringComparison.Ordinal))
+            return;
+        if (sequence <= cursor.LastSequence + 1) return;
+
+        var missing = sequence.Value - cursor.LastSequence - 1;
+        var record = _gapStore.Record(
+            $"{bootId}:{cursor.LastSequence + 1}-{sequence.Value - 1}",
+            missing);
+        _health.SetExportGaps(record.Count, record.MissingRecords);
+    }
+
+    /// <summary>The record's per-boot chain position, or nulls when the line
+    /// is not parseable — an undecorated record is still delivered.</summary>
+    private static (string? BootId, long? Sequence) ChainPosition(string record)
     {
         try
         {
-            var file = new FileInfo(path);
-            file.Refresh();
-            return file.Exists && consumedBytes >= file.Length;
+            using var document = System.Text.Json.JsonDocument.Parse(record);
+            var root = document.RootElement;
+            long? sequence = root.TryGetProperty("sequence", out var sequenceElement) &&
+                sequenceElement.ValueKind == System.Text.Json.JsonValueKind.Number &&
+                sequenceElement.TryGetInt64(out var parsedSequence)
+                ? parsedSequence
+                : null;
+            string? bootId = root.TryGetProperty("producer", out var producer) &&
+                producer.ValueKind == System.Text.Json.JsonValueKind.Object &&
+                producer.TryGetProperty("supervisor_boot_id", out var bootElement) &&
+                bootElement.ValueKind == System.Text.Json.JsonValueKind.String
+                ? bootElement.GetString()
+                : null;
+            return (bootId, sequence);
         }
-        catch (Exception exception) when (!IsFatal(exception))
+        catch (System.Text.Json.JsonException)
         {
-            // Unknown means "not proven delivered": prefer a false gap alarm
-            // over silently dropping evidence of real loss.
-            return false;
+            return (null, null);
         }
     }
 

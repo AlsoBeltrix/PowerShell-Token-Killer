@@ -5,17 +5,22 @@ using System.Text.Json.Serialization;
 namespace PtkMcpServer.Audit.Export;
 
 /// <summary>
-/// How far delivery has durably progressed through the spool.
-/// <paramref name="SegmentCompleted"/> records that the cursor's segment was
-/// consumed to its end while a later segment already existed — i.e. it was
-/// closed and is fully delivered. Without it, retention deleting a
-/// fully-delivered segment looked identical to losing an undelivered one and
-/// raised a false export gap (cr3-2 verification).
+/// How far delivery has durably progressed through the spool, plus the last
+/// delivered record's chain position.
+///
+/// The chain position is what makes loss detectable: file bookkeeping cannot
+/// distinguish "this segment was deleted after everything in it was
+/// delivered" from "a tail was appended, rotated and deleted before the next
+/// drain" (both cr3-2 verification rounds). Audit records carry a per-boot
+/// contiguous <c>sequence</c>, so comparing the next record's sequence with
+/// the last delivered one proves whether anything was lost, whatever
+/// retention did to the files.
 /// </summary>
 internal sealed record AuditExportCursor(
     string? SegmentFileName,
     long ByteOffset,
-    bool SegmentCompleted = false)
+    string? LastSupervisorBootId = null,
+    long LastSequence = 0)
 {
     internal static AuditExportCursor Start { get; } = new(null, 0);
 }
@@ -58,7 +63,8 @@ internal sealed class AuditExportCursorStore
             return new AuditExportCursor(
                 file.SegmentFileName,
                 file.ByteOffset,
-                file.SegmentCompleted);
+                file.LastSupervisorBootId,
+                file.LastSequence);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -80,7 +86,8 @@ internal sealed class AuditExportCursorStore
             {
                 SegmentFileName = cursor.SegmentFileName,
                 ByteOffset = cursor.ByteOffset,
-                SegmentCompleted = cursor.SegmentCompleted,
+                LastSupervisorBootId = cursor.LastSupervisorBootId,
+                LastSequence = cursor.LastSequence,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -109,6 +116,7 @@ internal sealed class AuditExportCursorStore
     {
         [JsonPropertyName("segment")] public string? SegmentFileName { get; set; }
         [JsonPropertyName("offset")] public long ByteOffset { get; set; }
-        [JsonPropertyName("completed")] public bool SegmentCompleted { get; set; }
+        [JsonPropertyName("boot")] public string? LastSupervisorBootId { get; set; }
+        [JsonPropertyName("sequence")] public long LastSequence { get; set; }
     }
 }

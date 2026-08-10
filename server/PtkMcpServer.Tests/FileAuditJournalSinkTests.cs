@@ -228,21 +228,31 @@ public sealed class FileAuditJournalSinkTests : IDisposable
         }
 
         var hostPath = Path.Combine(root, "host.id");
-        try
+        var original = File.ReadAllText(hostPath);
+
+        // The post-read protection recheck still fires — but instead of the
+        // pre-restoration terminal refusal, the compromised artifact is
+        // quarantined and a fresh identity minted (audit-restoration
+        // contract rule 3). The recheck's security property survives in a
+        // stronger observable form: the tampered value is provably never
+        // used as this process's identity.
+        using (AuditJournalFactory.Open(
+                   options,
+                   new AuditHealth(options, () => BaseTime),
+                   "test-version",
+                   utcNow: () => BaseTime,
+                   hostIdentityReadCompletedForTests: path => File.SetUnixFileMode(
+                       path,
+                       SecureAuditStorage.OwnerFileMode | UnixFileMode.GroupRead)))
         {
-            Assert.ThrowsAny<IOException>(() => AuditJournalFactory.Open(
-                options,
-                new AuditHealth(options, () => BaseTime),
-                "test-version",
-                utcNow: () => BaseTime,
-                hostIdentityReadCompletedForTests: path => File.SetUnixFileMode(
-                    path,
-                    SecureAuditStorage.OwnerFileMode | UnixFileMode.GroupRead)));
         }
-        finally
-        {
-            File.SetUnixFileMode(hostPath, SecureAuditStorage.OwnerFileMode);
-        }
+
+        var quarantined = Assert.Single(
+            Directory.GetFiles(Path.Combine(root, "quarantine")));
+        Assert.Equal(original, File.ReadAllText(quarantined));
+        var fresh = File.ReadAllText(hostPath);
+        Assert.NotEqual(original, fresh);
+        Assert.True(Guid.TryParseExact(fresh.TrimEnd('\n'), "D", out _));
     }
 
     [Fact]

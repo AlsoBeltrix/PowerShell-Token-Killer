@@ -197,7 +197,22 @@ internal static class AuditJournalFactory
     {
         var publishedPath = Path.Combine(root, HostIdentityFileName);
         if (PathExists(publishedPath))
-            return ReadHostId(publishedPath, readCompletedForTests);
+        {
+            try
+            {
+                return ReadHostId(publishedPath, readCompletedForTests);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                // A fuckup cannot be globally terminal (owner ruling,
+                // audit-restoration contract rule 3): a corrupt, foreign, or
+                // unprotected identity artifact is preserved as quarantine
+                // evidence and a fresh identity is minted. Only a failure to
+                // quarantine — genuine local write inability — still blocks,
+                // by rethrowing the original validation failure.
+                QuarantineHostIdentity(root, publishedPath, exception);
+            }
+        }
 
         var hostId = Guid.NewGuid();
         var temporaryPath = Path.Combine(root, $".{HostIdentityFileName}.{Guid.NewGuid():N}.tmp");
@@ -277,6 +292,39 @@ internal static class AuditJournalFactory
         }
         return hostId;
     }
+
+    internal const string QuarantineDirectoryName = "quarantine";
+
+    private static void QuarantineHostIdentity(
+        string root,
+        string publishedPath,
+        Exception validationFailure)
+    {
+        try
+        {
+            var quarantineDirectory = SecureAuditStorage.PrepareRoot(
+                Path.Combine(root, QuarantineDirectoryName));
+            var target = Path.Combine(
+                quarantineDirectory,
+                $"{HostIdentityFileName}.{DateTimeOffset.UtcNow:yyyyMMddTHHmmssfffZ}.{Guid.NewGuid():N}");
+            File.Move(publishedPath, target);
+            Console.Error.WriteLine(
+                $"[ptk audit] quarantined an invalid host identity artifact to '{target}' " +
+                $"({validationFailure.Message}); a fresh host identity will be created.");
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Quarantine itself failed: this is real local write inability,
+            // the one condition that blocks. Surface the original validation
+            // failure as the cause.
+            throw new IOException(
+                "The persisted audit host identity is invalid and could not be quarantined.",
+                new AggregateException(validationFailure, exception));
+        }
+    }
+
+    private static bool IsFatal(Exception exception) =>
+        exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
 
     private static bool PathExists(string path)
     {

@@ -126,6 +126,63 @@ public sealed class AuditProgramStartupTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task A_corrupt_host_identity_is_quarantined_and_service_continues()
+    {
+        // Contract rule 3: a fuckup cannot be globally terminal. The
+        // pre-restoration design refused startup over one bad artifact; the
+        // restored design preserves it as quarantine evidence, mints a fresh
+        // identity, and keeps journaling.
+        var auditRoot = NewRoot("quarantine-audit");
+        await File.WriteAllTextAsync(
+            Path.Combine(auditRoot, "host.id"),
+            "definitely not a host identity");
+
+        using var process = StartServer(auditRoot);
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"audit-quarantine-test","version":"1"}}}""");
+            _ = await ReadResponseAsync(process, 1);
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","method":"notifications/initialized"}""");
+            await SendAsync(
+                process,
+                """{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ptk_invoke","arguments":{"script":"'quarantined-and-running'","route":"pwsh"}}}""");
+            var invoke = (await ReadResponseAsync(process, 2)).GetProperty("result");
+            Assert.False(
+                invoke.TryGetProperty("isError", out var invokeError) &&
+                invokeError.GetBoolean());
+            Assert.Contains(
+                "quarantined-and-running",
+                invoke.GetProperty("content")[0].GetProperty("text").GetString(),
+                StringComparison.Ordinal);
+
+            // The evidence survived: exactly one quarantined artifact with
+            // the original bytes, and a fresh valid identity in its place.
+            var quarantined = Directory.GetFiles(
+                Path.Combine(auditRoot, "quarantine"));
+            var artifact = Assert.Single(quarantined);
+            Assert.Equal(
+                "definitely not a host identity",
+                await File.ReadAllTextAsync(artifact));
+            var fresh = await File.ReadAllTextAsync(
+                Path.Combine(auditRoot, "host.id"));
+            Assert.True(Guid.TryParseExact(fresh.TrimEnd('\n'), "D", out _));
+        }
+        finally
+        {
+            try { process.Kill(entireProcessTree: true); } catch { /* already exited */ }
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch { /* Preserve the test assertion. */ }
+            var diagnostics = await stderr;
+            Assert.Contains("quarantined", diagnostics, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private Process StartServer(string auditRoot)
     {
         var serverDll = Path.Combine(AppContext.BaseDirectory, "PtkMcpServer.dll");

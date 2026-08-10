@@ -63,9 +63,22 @@ host-identity artifact class, the historic incident; corrupt journal
 pattern when R3 touches the sink; the release-gate product proof gains
 its positive journaling check in R6. **The StateToolTests quartet
 fails from a ptk session on this host (recorded PSModulePath quirk)
-and passes 15/15 from a plain shell — not a product failure. Next
-gate: owner go for R3** (export leg: spool, exporter, destination
-adapters, receiver token auth, rbc-11 retention).
+and passes 15/15 from a plain shell — not a product failure.**
+
+**R2 was codereviewed and is CLOSED clean (cr2, 2026-08-10):** codex
+found four defects over the whole R2 range, all admitted, fixed one
+commit each, then batch-verified `accepted` with every guard
+independently re-proved — cr2-1 HIGH (Windows *repaired* rather than
+validated a retained `host.id`, silently adopting a foreign or
+over-permissive identity instead of quarantining it), cr2-2 HIGH (every
+call journaled `session.name=default`, misattributing named-session
+activity), cr2-3 MEDIUM (audit admission rejected `ptk_output` requests
+carrying the schema's own defaults), cr2-4 MEDIUM (quarantines were
+stderr-only, absent from the journal — the plan's rule-3 reporting
+surface (a)). `.agents/review/index.md` §cr2 owns the record. Battery at
+`98083cc`: server 1,220/1,220 from a plain shell, Pester 112 + 3
+skipped. **Next gate: owner go for R3** (export leg: spool, exporter,
+destination adapters, receiver token auth, rbc-11 retention).
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`

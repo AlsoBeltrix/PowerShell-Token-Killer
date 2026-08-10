@@ -1,5 +1,36 @@
 # Review status
 
+## Closed — cr2 (codereview over the R2 audit restoration, 2026-08-10)
+
+Generation pass: codex-cli 0.146.1, `codex/gpt-5.6-sol/high/standard`
+(owner said "codex default"), over `61fc838..a10ad50` — the whole
+audit-restoration R2 range. Verdict `findings` (4), capability_ok true,
+SHAs pinned and matched; ~170.6k tokens. Dispatched with the recorded
+`-c 'mcp_servers={}'` recipe, read-only sandbox. All four candidates
+verified against the code at intake and admitted; none declined.
+
+| ID     | Severity | Impact (one line) | Status | Reviewer |
+|--------|----------|-------------------|--------|----------|
+| cr2-1 | HIGH | Windows repaired rather than validated a retained `host.id`, silently adopting a foreign/over-permissive identity instead of quarantining it | `[x]` fixed `8e913e7`, accepted | codex/gpt-5.6-sol/high/standard |
+| cr2-2 | HIGH | every call journaled `session.name=default`; named-session activity was misattributed | `[x]` fixed `73464ab`, accepted | codex/gpt-5.6-sol/high/standard |
+| cr2-3 | MEDIUM | audit admission rejected `ptk_output` requests carrying the schema's own defaults, narrowing the published MCP contract | `[x]` fixed `a5a8f76`, accepted | codex/gpt-5.6-sol/high/standard |
+| cr2-4 | MEDIUM | quarantines were stderr-only — no durable journal record, so monitoring/export could not see them | `[x]` fixed `98083cc`, accepted | codex/gpt-5.6-sol/high/standard |
+
+One commit per finding, each sabotage-proved locally (stash-revert →
+named guard fails → restore → passes). Full battery at `98083cc`:
+server 1,220/1,220 from a plain shell, Pester 112 + 3 skipped.
+
+**Verification: one batch dispatch, accepted, guard_confirmed true.**
+Batch shape was the orchestrator's call (one shared surface, four
+sequential commits, one disposable worktree at `98083cc`) — a recorded
+deviation from per-finding dispatch, mirroring the r806 precedent.
+codex-cli 0.146.1, `codex/gpt-5.6-sol/high/standard`, workspace-write
+inside an orchestrator-created disposable worktree, pins
+`a10ad501..98083cc6` matched, capability_ok true; the reviewer
+independently re-ran every guard proof (revert → fail → restore → pass)
+for all four findings. ~97.7k tokens. Per-finding records carry the
+verdict text.
+
 ## Closed — oar1 (openreview, audit-restoration plan, 2026-08-10)
 
 **Rulings resolved same day, all three in the reviewer's favor with one

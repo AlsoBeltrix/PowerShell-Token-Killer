@@ -233,6 +233,23 @@ public sealed class AuditProgramStartupTests : IDisposable
             var fresh = await File.ReadAllTextAsync(
                 Path.Combine(auditRoot, "host.id"));
             Assert.True(Guid.TryParseExact(fresh.TrimEnd('\n'), "D", out _));
+
+            // cr2-4: the quarantine is a first-class journal record, not a
+            // stderr-only aside — durable right after server.started.
+            try { process.Kill(entireProcessTree: true); } catch { /* racing exit */ }
+            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+            var journalText = string.Join(
+                "\n",
+                Directory.GetFiles(auditRoot, "*.jsonl", SearchOption.AllDirectories)
+                    .Select(File.ReadAllText));
+            Assert.Contains(
+                "\"audit.quarantine\"",
+                journalText,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "\"quarantine.host_identity\"",
+                journalText,
+                StringComparison.Ordinal);
         }
         finally
         {

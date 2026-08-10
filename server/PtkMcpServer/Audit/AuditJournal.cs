@@ -606,6 +606,30 @@ internal sealed class AuditJournal : IDisposable
         }
     }
 
+    /// <summary>Startup-time quarantine facts happen before any journal
+    /// exists to record them (factory host-identity validation). The factory
+    /// parks the bounded detail code here and the server lifecycle appends
+    /// the durable audit.quarantine record immediately after server.started
+    /// (cr2-4) — a quarantine must never remain stderr-only.</summary>
+    internal void RecordPendingStartupQuarantine(string detailCode)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(detailCode);
+        lock (_gate)
+            _pendingStartupQuarantineDetail = detailCode;
+    }
+
+    internal bool TryTakePendingStartupQuarantine(out string? detailCode)
+    {
+        lock (_gate)
+        {
+            detailCode = _pendingStartupQuarantineDetail;
+            _pendingStartupQuarantineDetail = null;
+            return detailCode is not null;
+        }
+    }
+
+    private string? _pendingStartupQuarantineDetail;
+
     internal Guid CreateCallId()
     {
         lock (_gate)

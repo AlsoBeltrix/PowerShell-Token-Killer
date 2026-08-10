@@ -50,14 +50,15 @@ internal static class AuditJournalFactory
         var hostId = LoadOrCreateHostId(
             root,
             hostIdentityReadCompletedForTests,
-            hostIdentityDestinationCheckedForTests);
+            hostIdentityDestinationCheckedForTests,
+            out var quarantineDetail);
         var supervisorBootId = Guid.NewGuid();
         var sink = new FileAuditJournalSink(
             options,
             supervisorBootId,
             utcNow,
             sinkFaultInjector);
-        return CreateJournalTakingSink(
+        var journal = CreateJournalTakingSink(
             options,
             health,
             producerVersion,
@@ -67,6 +68,9 @@ internal static class AuditJournalFactory
             binaryDigest,
             utcNow,
             uuidV7Factory);
+        if (quarantineDetail is not null)
+            journal.RecordPendingStartupQuarantine(quarantineDetail);
+        return journal;
     }
 
     /// <summary>
@@ -135,11 +139,12 @@ internal static class AuditJournalFactory
 
         Guid hostId;
         Guid supervisorBootId;
+        string? anchoredQuarantineDetail;
         try
         {
             var root = SecureAuditStorage.PrepareRoot(options.RootDirectory);
             _ = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
-            hostId = LoadOrCreateHostId(root, null, null);
+            hostId = LoadOrCreateHostId(root, null, null, out anchoredQuarantineDetail);
             supervisorBootId = sink.CurrentSegmentIdentity.SupervisorBootId;
         }
         catch
@@ -147,7 +152,7 @@ internal static class AuditJournalFactory
             sink.Dispose();
             throw;
         }
-        return CreateJournalTakingSink(
+        var anchoredJournal = CreateJournalTakingSink(
             options,
             health,
             producerVersion,
@@ -157,6 +162,9 @@ internal static class AuditJournalFactory
             binaryDigest,
             utcNow,
             uuidV7Factory);
+        if (anchoredQuarantineDetail is not null)
+            anchoredJournal.RecordPendingStartupQuarantine(anchoredQuarantineDetail);
+        return anchoredJournal;
     }
 
     private static AuditJournal CreateJournalTakingSink(
@@ -190,11 +198,16 @@ internal static class AuditJournalFactory
         }
     }
 
+    internal const string HostIdentityQuarantineDetailCode =
+        "quarantine.host_identity";
+
     private static Guid LoadOrCreateHostId(
         string root,
         Action<string>? readCompletedForTests,
-        Action? destinationCheckedForTests)
+        Action? destinationCheckedForTests,
+        out string? quarantineDetail)
     {
+        quarantineDetail = null;
         var publishedPath = Path.Combine(root, HostIdentityFileName);
         if (PathExists(publishedPath))
         {
@@ -204,6 +217,7 @@ internal static class AuditJournalFactory
             }
             catch (Exception exception) when (!IsFatal(exception))
             {
+                quarantineDetail = HostIdentityQuarantineDetailCode;
                 // A fuckup cannot be globally terminal (owner ruling,
                 // audit-restoration contract rule 3): a corrupt, foreign, or
                 // unprotected identity artifact is preserved as quarantine

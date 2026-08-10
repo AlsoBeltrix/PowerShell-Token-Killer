@@ -90,6 +90,18 @@ internal sealed class AuditServerLifecycle : IHostedService, IDisposable
                         parentEventId: null,
                         outcomeState: "started"));
                 _startedEventId = started.EventId;
+                // A startup quarantine is part of the durable startup
+                // obligation (cr2-4): the fact must reach the journal, not
+                // just stderr, before this lifecycle claims Started. Failure
+                // to record it fails startup like any lifecycle append.
+                if (_journal.TryTakePendingStartupQuarantine(out var quarantineDetail))
+                {
+                    _journal.AppendAutomaticTransition(CreateEvent(
+                        "audit.quarantine",
+                        parentEventId: started.EventId,
+                        outcomeState: "quarantined",
+                        detailCode: quarantineDetail));
+                }
                 _state = LifecycleState.Started;
             }
             catch (AuditEventValidationException)
@@ -197,7 +209,8 @@ internal sealed class AuditServerLifecycle : IHostedService, IDisposable
     private AuditEventInput CreateEvent(
         string eventType,
         Guid? parentEventId,
-        string outcomeState)
+        string outcomeState,
+        string? detailCode = null)
     {
         var health = _journal.Health.Snapshot();
         var unhealthy = health.State is AuditHealthState.Degraded or AuditHealthState.Unavailable;
@@ -212,6 +225,7 @@ internal sealed class AuditServerLifecycle : IHostedService, IDisposable
         Outcome = new AuditOutcome
         {
             State = outcomeState,
+            DetailCode = detailCode,
             TerminationCertainty = "not_applicable",
         },
         Coverage = new AuditCoverage

@@ -690,33 +690,11 @@ judges by payload survival instead.
 
 ## Next
 
-**IMMEDIATE (resume here): the R4 codereview returned EIGHT findings,
-none triaged, none fixed.** Dispatch: codex / gpt-5.6-sol / high /
-standard over `3b8dff8..3996e6a`, verdict `findings`, capability_ok
-true, 2026-08-11. The raw verdict is NOT yet written to
-`.agents/review/findings/` — it exists only in this session's scratchpad
-(`/private/tmp/claude-501/.../cr-r4-verdict.txt`, session-scoped), so
-**re-dispatch the same prompt if the records were never written**
-(prompt: `.../cr-r4-prompt.txt`; both under the session scratchpad).
-Summary of what it found, for triage — three HIGH: (1) a local process
-that binds port 8317 first can harvest the UI bearer token an operator
-then sends it, and later reuse it (the port race treats every collision
-as a trusted peer); (2) `AuditAlertWebhookService`'s constructor calls
-`CountQuarantine()` (a full `Directory.GetFiles`) synchronously during
-hosted-service construction — an optional webhook becoming a startup
-availability gate, which violates the sole-gate invariant; (3)
-`/api/records` swallows every non-fatal segment-read failure as though
-it were the locked live segment, returning HTTP 200 with evidence
-silently omitted and no partial marker. Five MEDIUM: tail*4 short-circuit
-can hide the live tail behind a populated closed spool; concurrent
-first-start token creation is check-then-act so the serving UI may hold
-a different token than the file; a failed webhook edge is lost if the
-condition heals before the retry; lineage alerts fire once per process
-(never on growth or recurrence); webhook delivery failure is invisible
-in every health surface. My assessment before triage: (2) and (3) look
-clearly right and cheap; (1) is real and wants the UI bound before the
-token is minted (or the token proven to belong to our own listener);
-the MEDIUMs look admissible. Then R5, then R6.
+**Active review loop: cr5 over R4 (`3b8dff8..3996e6a`) — see
+`.agents/review/index.md` §cr5.** All eight codex findings were verified
+against the code and ADMITTED at intake 2026-08-11 (records
+`.agents/review/findings/cr5-1..8.md`); fixes land one commit each,
+then verification (HIGHs frontier per T2). Then R5, then R6.
 
 **Goal in force (owner, 2026-08-11): "finish the whole things.
 codereview codex per slice."** That is the go for the remaining

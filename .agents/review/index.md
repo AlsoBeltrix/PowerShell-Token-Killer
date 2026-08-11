@@ -1,5 +1,25 @@
 # Review status
 
+## ACTIVE — cr5 (codereview over R4, 2026-08-11)
+
+Generation pass: codex / gpt-5.6-sol / high / standard over
+`3b8dff8..3996e6a` (R4: journaled eviction event + allocation-path
+floor, loopback web UI, alert webhook). Verdict `findings` (8),
+capability_ok true, SHAs matched, 2026-08-11. All eight verified
+against the code at intake and ADMITTED; none declined. Every finding
+sits in `Audit/Web/` — the UI and webhook services, both new in R4.
+
+| ID    | Severity | Impact (one line)                                              | Status | Reviewer |
+|-------|----------|----------------------------------------------------------------|--------|----------|
+| cr5-1 | HIGH     | port squatter harvests the UI bearer token, reuses it later    | `[ ]`  | |
+| cr5-2 | HIGH     | webhook ctor filesystem work gates startup (webhook or not)    | `[ ]`  | |
+| cr5-3 | HIGH     | /api/records returns 200 with evidence silently omitted        | `[ ]`  | |
+| cr5-4 | MEDIUM   | populated closed spool hides the live tail from the UI         | `[ ]`  | |
+| cr5-5 | MEDIUM   | token race: serving UI may not recognize the published token   | `[ ]`  | |
+| cr5-6 | MEDIUM   | failed webhook edge lost if the condition heals before retry   | `[ ]`  | |
+| cr5-7 | MEDIUM   | lineage alert fires at most once per process lifetime          | `[ ]`  | |
+| cr5-8 | MEDIUM   | webhook delivery failure invisible in every health surface     | `[ ]`  | |
+
 ## Closed — cr4 (codereview over R3d completion + R3c, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over

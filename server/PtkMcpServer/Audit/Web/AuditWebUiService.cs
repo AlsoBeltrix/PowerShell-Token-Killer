@@ -22,6 +22,14 @@ namespace PtkMcpServer.Audit.Web;
 /// owner-only file under the audit root — loopback binding alone does not
 /// stop a hostile web page from scripting requests at 127.0.0.1 (DNS
 /// rebinding), but such a page cannot read the token file.
+///
+/// The token is minted fresh per bind, published only while this process
+/// owns the listener, and deleted on stop (cr5-1): a credential is never
+/// published while an unauthenticated process could own the configured
+/// port, and a token a squatter manages to harvest dies at the next bind
+/// instead of unlocking the real UI later. The unavoidable residue is
+/// spoofing — a squatter can serve a fake page to an operator who types
+/// the port by hand — but it cannot use what it captures.
 /// </summary>
 internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
 {
@@ -42,6 +50,7 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
     private HttpListener? _listener;
     private Task? _loop;
     private string? _token;
+    private bool _tokenPublished;
     private int _disposed;
 
     internal AuditWebUiService(
@@ -88,6 +97,14 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         await _stopping.CancelAsync().ConfigureAwait(false);
+        // Retire the published credential before releasing the port: a
+        // token must never outlive the listener it authenticates (cr5-1).
+        if (_tokenPublished)
+        {
+            _tokenPublished = false;
+            try { File.Delete(Path.Combine(_options.RootDirectory, TokenFileName)); }
+            catch (Exception exception) when (!IsFatal(exception)) { }
+        }
         try { _listener?.Stop(); }
         catch (Exception exception) when (!IsFatal(exception)) { }
         if (_loop is not null)
@@ -103,10 +120,25 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
         {
             try
             {
-                _token ??= LoadOrCreateToken();
+                // Bind FIRST, mint after (cr5-1): the credential exists only
+                // while this process owns the listener it opens, so nothing
+                // is ever published toward a port a squatter could hold.
                 var listener = new HttpListener();
                 listener.Prefixes.Add($"http://127.0.0.1:{_port}/");
                 listener.Start();
+                try
+                {
+                    _token = MintAndPublishToken();
+                    _tokenPublished = true;
+                }
+                catch
+                {
+                    // Unpublishable token: release the port so another
+                    // supervisor (or this one, next pass) can serve.
+                    try { listener.Stop(); }
+                    catch (Exception stopFailure) when (!IsFatal(stopFailure)) { }
+                    throw;
+                }
                 _listener = listener;
                 await ServeAsync(listener, cancellationToken).ConfigureAwait(false);
                 return;
@@ -264,19 +296,16 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
             Encoding.UTF8.GetBytes(_token));
     }
 
-    private string LoadOrCreateToken()
+    /// <summary>
+    /// Mints a fresh token for THIS bind and publishes it atomically. A
+    /// retained token is never reused: rotation is what makes a harvested
+    /// or stale credential worthless against every future listener. The
+    /// overwrite is safe because only the process holding the bind reaches
+    /// here — a bind-failed standby never touches the file (cr5-5).
+    /// </summary>
+    private string MintAndPublishToken()
     {
         var path = Path.Combine(_options.RootDirectory, TokenFileName);
-        try
-        {
-            if (File.Exists(path))
-            {
-                var existing = File.ReadAllText(path).Trim();
-                if (existing.Length >= 32) return existing;
-            }
-        }
-        catch (Exception exception) when (!IsFatal(exception)) { }
-
         var token = Convert.ToHexString(RandomNumberGenerator.GetBytes(24)).ToLowerInvariant();
         var temporaryPath = Path.Combine(
             _options.RootDirectory,

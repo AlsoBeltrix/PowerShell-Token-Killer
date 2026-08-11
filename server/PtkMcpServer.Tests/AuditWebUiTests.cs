@@ -307,6 +307,43 @@ public sealed class AuditWebUiTests : IDisposable
             record => record.GetString()!.Contains(liveBoot, StringComparison.Ordinal));
     }
 
+    [Fact]
+    public async Task The_token_rotates_per_bind_and_a_stale_token_dies()
+    {
+        // cr5-1: the bearer token is minted fresh for each bind, published
+        // only while this process owns the listener, and deleted on stop —
+        // so a token a port squatter harvests is worthless against every
+        // future real listener.
+        var root = NewRoot("webui-rotate");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var port = FreePort();
+        string token1;
+        await using (var first = new AuditWebUiService(
+            options, health, new AuditExportHealth(), () => null, port))
+        {
+            await first.StartAsync(CancellationToken.None);
+            token1 = await WaitForTokenAsync(root);
+            using var probe = new HttpClient();
+            using var ok = await GetAsync(probe, port, "/api/health", token1);
+            Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        }
+
+        // The credential does not outlive its listener.
+        Assert.False(File.Exists(Path.Combine(root, AuditWebUiService.TokenFileName)));
+
+        await using var second = new AuditWebUiService(
+            options, health, new AuditExportHealth(), () => null, port);
+        await second.StartAsync(CancellationToken.None);
+        var token2 = await WaitForTokenAsync(root);
+        Assert.NotEqual(token1, token2);
+        using var client = new HttpClient();
+        using (var stale = await GetAsync(client, port, "/api/health", token1))
+            Assert.Equal(HttpStatusCode.Unauthorized, stale.StatusCode);
+        using (var fresh = await GetAsync(client, port, "/api/health", token2))
+            Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
+    }
+
     private static async Task<bool> WaitAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)

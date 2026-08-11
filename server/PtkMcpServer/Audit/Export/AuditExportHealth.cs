@@ -16,7 +16,13 @@ internal sealed record AuditExportHealthSnapshot(
     long RefusedRecords = 0,
     // Another supervisor on this audit root holds the export lease and is
     // delivering (cr4-4); this process's exporter is idle by design.
-    bool Standby = false)
+    bool Standby = false,
+    // Operator alert webhook delivery health (cr5-8): nonsecret only — no
+    // URL, no payload. Trailing optionals so no construction site changes.
+    bool AlertWebhookConfigured = false,
+    long AlertWebhookConsecutiveFailures = 0,
+    string? AlertWebhookLastFailure = null,
+    DateTimeOffset? AlertWebhookLastSuccessUtc = null)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -26,7 +32,8 @@ internal sealed record AuditExportHealthSnapshot(
     /// </summary>
     internal string StatusLine()
     {
-        if (!Configured) return "audit export: not configured (local journal only)";
+        if (!Configured)
+            return "audit export: not configured (local journal only)" + WebhookSuffix();
         var state = ConsecutiveFailures == 0 &&
             ExportGaps == 0 &&
             RefusedRecords == 0 &&
@@ -76,7 +83,27 @@ internal sealed record AuditExportHealthSnapshot(
                 $"missing_records={MissingRecords.ToString(CultureInfo.InvariantCulture)} " +
                 "(records were removed locally before delivery)";
         }
-        return text;
+        return text + WebhookSuffix();
+    }
+
+    /// <summary>
+    /// The paging surface must not be able to fail silently (cr5-8): a
+    /// configured alert webhook reports its delivery health on the same
+    /// operator line, without ever coupling to admission.
+    /// </summary>
+    private string WebhookSuffix()
+    {
+        if (!AlertWebhookConfigured) return string.Empty;
+        if (AlertWebhookConsecutiveFailures > 0)
+        {
+            return
+                $" ALERT_WEBHOOK_FAILING={AlertWebhookConsecutiveFailures.ToString(CultureInfo.InvariantCulture)}" +
+                $" detail={AlertWebhookLastFailure ?? "unknown"}" +
+                (AlertWebhookLastSuccessUtc is { } success
+                    ? $" last_alert_utc={success.ToString("O", CultureInfo.InvariantCulture)}"
+                    : " (no alert has ever been delivered)");
+        }
+        return " alert_webhook=ok";
     }
 }
 
@@ -200,6 +227,38 @@ internal sealed class AuditExportHealth
         {
             if (_snapshot.Standby != standby)
                 _snapshot = _snapshot with { Standby = standby };
+        }
+    }
+
+    internal void SetAlertWebhookConfigured()
+    {
+        lock (_gate)
+            _snapshot = _snapshot with { AlertWebhookConfigured = true };
+    }
+
+    internal void RecordAlertDelivery(DateTimeOffset utcNow)
+    {
+        lock (_gate)
+        {
+            _snapshot = _snapshot with
+            {
+                AlertWebhookConsecutiveFailures = 0,
+                AlertWebhookLastFailure = null,
+                AlertWebhookLastSuccessUtc = utcNow,
+            };
+        }
+    }
+
+    internal void RecordAlertFailure(string detail)
+    {
+        lock (_gate)
+        {
+            _snapshot = _snapshot with
+            {
+                AlertWebhookConsecutiveFailures =
+                    _snapshot.AlertWebhookConsecutiveFailures + 1,
+                AlertWebhookLastFailure = detail,
+            };
         }
     }
 }

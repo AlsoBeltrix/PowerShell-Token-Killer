@@ -245,6 +245,55 @@ public sealed class AuditAlertWebhookTests : IDisposable
         Assert.Single(receiver.Bodies);
     }
 
+    [Fact]
+    public async Task Webhook_delivery_failure_is_visible_in_export_health()
+    {
+        // cr5-8: the paging surface must not be able to fail silently. A
+        // failing webhook shows on the export status line (ptk_state) and
+        // in the snapshot; recovery clears it; none of it gates anything.
+        var root = NewRoot("webhook-health");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+
+        // No webhook configured: the line says nothing about one.
+        Assert.DoesNotContain(
+            "alert_webhook",
+            exportHealth.Snapshot().StatusLine(),
+            StringComparison.OrdinalIgnoreCase);
+
+        using var receiver = new WebhookReceiver { ResponseStatus = HttpStatusCode.BadGateway };
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri);
+
+        exportHealth.SetRefusedRecords(1);
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+        var failing = exportHealth.Snapshot();
+        Assert.Equal(1, failing.AlertWebhookConsecutiveFailures);
+        Assert.Equal("http_502", failing.AlertWebhookLastFailure);
+        Assert.Null(failing.AlertWebhookLastSuccessUtc);
+        Assert.Contains(
+            "ALERT_WEBHOOK_FAILING=1 detail=http_502",
+            failing.StatusLine(),
+            StringComparison.Ordinal);
+
+        // Recovery clears the failure and stamps the delivery.
+        receiver.ResponseStatus = HttpStatusCode.OK;
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        var healthy = exportHealth.Snapshot();
+        Assert.Equal(0, healthy.AlertWebhookConsecutiveFailures);
+        Assert.Null(healthy.AlertWebhookLastFailure);
+        Assert.NotNull(healthy.AlertWebhookLastSuccessUtc);
+        Assert.Contains(
+            "alert_webhook=ok",
+            healthy.StatusLine(),
+            StringComparison.Ordinal);
+    }
+
     private static void WriteQuarantineArtifact(string root, DateTimeOffset minted)
     {
         var directory = SecureAuditStorage.PrepareRoot(

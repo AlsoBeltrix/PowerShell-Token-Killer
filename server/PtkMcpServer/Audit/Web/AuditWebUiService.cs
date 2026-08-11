@@ -358,6 +358,13 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                 refused_records = export.RefusedRecords,
                 unverified_boot_boundaries = export.UnverifiedBootBoundaries,
                 standby = export.Standby,
+                alert_webhook = new
+                {
+                    configured = export.AlertWebhookConfigured,
+                    consecutive_failures = export.AlertWebhookConsecutiveFailures,
+                    last_failure = export.AlertWebhookLastFailure,
+                    last_success_utc = export.AlertWebhookLastSuccessUtc?.ToString("O"),
+                },
             },
             spool = new { segments = segmentCount, bytes = spoolBytes },
         };

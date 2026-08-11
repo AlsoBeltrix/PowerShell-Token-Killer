@@ -67,6 +67,7 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         // quarantine timestamp every writer embeds in the filename — so
         // history stays silent without a startup baseline count.
         _startedUtc = DateTimeOffset.UtcNow;
+        if (_webhook is not null) _exportHealth.SetAlertWebhookConfigured();
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -219,13 +220,21 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
             using var response = await _client
                 .SendAsync(request, cancellationToken)
                 .ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return false;
+            if (!response.IsSuccessStatusCode)
+            {
+                _exportHealth.RecordAlertFailure($"http_{(int)response.StatusCode}");
+                return false;
+            }
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
-            // Not delivered: the edge stays pending and retries next pass.
+            // Not delivered: the edge stays pending and retries next pass,
+            // and the failure is on the health surface (cr5-8).
+            _exportHealth.RecordAlertFailure(exception.GetType().Name);
             return false;
         }
+
+        _exportHealth.RecordAlertDelivery(DateTimeOffset.UtcNow);
 
         // Acknowledged: advance the notified state so the same facts do not
         // repeat, while any further growth fires again.

@@ -98,6 +98,15 @@ builder.Services.AddSingleton(sp =>
         var auditLine = snapshot.FailureClass is null
             ? $"audit: {state} mode={mode}"
             : $"audit: {state} mode={mode} failure_class={snapshot.FailureClass}";
+        if (snapshot.UndeliveredEvictions > 0)
+        {
+            // Capacity pressure discarded records the exporter never
+            // delivered. This must reach a surface an operator reads, not
+            // only the server's stderr.
+            auditLine +=
+                $" SPOOL_EVICTED_UNDELIVERED={snapshot.UndeliveredEvictions}" +
+                " (records were dropped before export; see audit export gaps)";
+        }
         return auditLine + Environment.NewLine + exportHealth.Snapshot().StatusLine();
     });
 });

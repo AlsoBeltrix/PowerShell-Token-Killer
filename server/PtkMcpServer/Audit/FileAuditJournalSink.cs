@@ -1132,12 +1132,24 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
 
         if (evictedUndelivered)
         {
+            // Counted, not just printed: stderr is invisible to an operator
+            // in practice, and this is exactly the class of fact the
+            // reporting contract says must reach a surface people read
+            // (ptk_state now; the web GUI and webhook in R4).
+            Interlocked.Increment(ref _undeliveredEvictions);
             Console.Error.WriteLine(
                 "[ptk audit] the audit spool reached its capacity bound and evicted " +
                 "segments the exporter had not delivered; those records are lost to " +
-                "the destination and the exporter will report the gap.");
+                "the destination and are reported in ptk_state.");
         }
     }
+
+    private long _undeliveredEvictions;
+
+    /// <summary>Segment evictions that discarded records the exporter had not
+    /// delivered. Surfaced through audit health so an operator sees it
+    /// without reading the server's stderr.</summary>
+    internal long UndeliveredEvictions => Interlocked.Read(ref _undeliveredEvictions);
 
     private bool TryEvictOne(bool deliveredOnly, string? floor)
     {

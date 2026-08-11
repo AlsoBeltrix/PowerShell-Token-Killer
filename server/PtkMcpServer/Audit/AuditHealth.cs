@@ -169,7 +169,10 @@ public sealed record AuditHealthSnapshot(
     long EmergencyProbeCount,
     DateTimeOffset? EmergencyProbeFirstUtc,
     DateTimeOffset? EmergencyProbeLastUtc,
-    AuditExporterHealthSnapshot Exporter)
+    AuditExporterHealthSnapshot Exporter,
+    // Capacity-pressure evictions that discarded undelivered records. A
+    // trailing optional so no existing construction site changes.
+    long UndeliveredEvictions = 0)
 {
     public long EffectiveFreeBytes => Math.Max(0, SpoolCapacityBytes - SpoolBytes - ReservedBytes);
 }
@@ -231,6 +234,22 @@ public sealed class AuditHealth
             return SnapshotLocked();
         }
     }
+
+    /// <summary>
+    /// Records capacity-pressure evictions that discarded records the
+    /// exporter never delivered, so an operator sees them in ptk_state
+    /// instead of only in the server's stderr.
+    /// </summary>
+    public void UpdateUndeliveredEvictions(long count)
+    {
+        if (count < 0) return;
+        lock (_gate)
+        {
+            if (count > _undeliveredEvictions) _undeliveredEvictions = count;
+        }
+    }
+
+    private long _undeliveredEvictions;
 
     public void UpdateStorageMetrics(long spoolBytes, long reservedBytes, long emergencyReserveBytes)
     {
@@ -432,7 +451,8 @@ public sealed class AuditHealth
         _emergencyProbeCount,
         _emergencyProbeFirstUtc,
         _emergencyProbeLastUtc,
-        _exporter);
+        _exporter,
+        _undeliveredEvictions);
 
     private DateTimeOffset GetUtcNow()
     {

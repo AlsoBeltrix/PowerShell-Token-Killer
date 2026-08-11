@@ -747,6 +747,17 @@ internal sealed class AuditJournal : IDisposable
             // quota-directory scan must not retroactively invalidate a record
             // that was already appended and flushed through the held writer.
         }
+        // Only the file sink evicts under capacity pressure; the in-memory
+        // test sink has no such concept, so this stays off the interface.
+        try
+        {
+            if (_sink is FileAuditJournalSink fileSink)
+                Health.UpdateUndeliveredEvictions(fileSink.UndeliveredEvictions);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Diagnostic only, exactly like the byte metrics above.
+        }
         Health.UpdateStorageMetrics(
             _lastKnownTotalBytes,
             ReservedBytesLocked(),

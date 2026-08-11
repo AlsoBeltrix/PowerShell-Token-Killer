@@ -53,11 +53,20 @@ internal static class ExportRetentionFloor
 
     /// <summary>
     /// Whether a closed segment is still needed by the exporter: the cursor's
-    /// own segment and anything ordered after it. Comparison is by the
-    /// segment's canonical (boot, index) identity, falling back to an ordinal
-    /// name comparison only when the floor cannot be parsed.
+    /// own segment and anything ordered after it in DELIVERY order.
+    /// Comparison is by the segment's canonical (boot, index) identity within
+    /// a boot; across boots, delivery order is boot groups ordered by their
+    /// earliest segment's creation time (matching the exporter's traversal,
+    /// cr4-4), supplied by the caller from its own directory listing — a
+    /// different boot is NOT "already delivered or already lost" when
+    /// supervisors share the root concurrently. Without a supplied group
+    /// ordering only the cursor's own boot is protected (the pre-cr4-4
+    /// behaviour).
     /// </summary>
-    internal static bool IsRequired(string segmentFileName, string? floorFileName)
+    internal static bool IsRequired(
+        string segmentFileName,
+        string? floorFileName,
+        Func<Guid, DateTime?>? bootGroupEarliestCreationUtc = null)
     {
         if (floorFileName is null) return false;
         if (string.Equals(segmentFileName, floorFileName, StringComparison.Ordinal))
@@ -68,11 +77,18 @@ internal static class ExportRetentionFloor
             return false;
         }
 
-        // Within one supervisor boot the index orders the chain. Across boots
-        // there is no ordering, so only the cursor's own boot is protected;
-        // an older boot's segments are already delivered or already lost.
-        return segment.SupervisorBootId == floor.SupervisorBootId &&
-               segment.Index >= floor.Index;
+        if (segment.SupervisorBootId == floor.SupervisorBootId)
+            return segment.Index >= floor.Index;
+        if (bootGroupEarliestCreationUtc is null) return false;
+
+        var candidateGroup = bootGroupEarliestCreationUtc(segment.SupervisorBootId);
+        var floorGroup = bootGroupEarliestCreationUtc(floor.SupervisorBootId);
+        // Unknown ordering is conservative: keep the bytes.
+        if (candidateGroup is null || floorGroup is null) return true;
+        // Only a boot group STRICTLY before the cursor's group has been
+        // traversed by delivery; everything at or after it may still be
+        // undelivered.
+        return candidateGroup >= floorGroup;
     }
 
     private static bool IsFatal(Exception exception) =>

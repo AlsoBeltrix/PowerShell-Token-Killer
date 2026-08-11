@@ -1105,10 +1105,23 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         // such loss afterwards is intrinsically leaky, so retention stops
         // creating it. A missing or unreadable cursor yields no floor and the
         // prior behaviour, because the journal must not depend on the
-        // exporter's bookkeeping.
+        // exporter's bookkeeping. Delivery order groups segments by boot
+        // (cr4-4), so the floor needs each boot group's earliest creation
+        // time to know which OTHER boots delivery has already traversed.
         var floor = ExportRetentionFloor.ReadOldestRequiredSegment(_options.RootDirectory);
+        var bootGroupEarliest = EnumerateSegments()
+            .Select(file => (File: file,
+                Parsed: AuditSpoolSegmentIdentity.TryParse(file.Name, out var identity),
+                Identity: identity))
+            .Where(entry => entry.Parsed)
+            .GroupBy(entry => entry.Identity.SupervisorBootId)
+            .ToDictionary(
+                group => group.Key,
+                group => group.Min(entry => entry.File.CreationTimeUtc));
+        DateTime? GroupEarliest(Guid bootId) =>
+            bootGroupEarliest.TryGetValue(bootId, out var earliest) ? earliest : null;
         DeleteEligiblePrefixSegments(segment =>
-            !ExportRetentionFloor.IsRequired(segment.Name, floor) &&
+            !ExportRetentionFloor.IsRequired(segment.Name, floor, GroupEarliest) &&
             now - new DateTimeOffset(segment.LastWriteTimeUtc, TimeSpan.Zero) >= _options.RetentionAge);
 
         if (TotalBytesUnderQuotaLock() <= AggregateCapacityBytes - requiredReservedBytes)
@@ -1123,9 +1136,9 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         var evictedUndelivered = false;
         while (TotalBytesUnderQuotaLock() > AggregateCapacityBytes - requiredReservedBytes)
         {
-            if (TryEvictOne(deliveredOnly: true, floor))
+            if (TryEvictOne(deliveredOnly: true, floor, GroupEarliest))
                 continue;
-            if (!TryEvictOne(deliveredOnly: false, floor))
+            if (!TryEvictOne(deliveredOnly: false, floor, GroupEarliest))
                 return;
             evictedUndelivered = true;
         }
@@ -1151,11 +1164,17 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
     /// without reading the server's stderr.</summary>
     internal long UndeliveredEvictions => Interlocked.Read(ref _undeliveredEvictions);
 
-    private bool TryEvictOne(bool deliveredOnly, string? floor)
+    private bool TryEvictOne(
+        bool deliveredOnly,
+        string? floor,
+        Func<Guid, DateTime?> bootGroupEarliestCreationUtc)
     {
         foreach (var segment in EnumerateDeletionFronts(_currentSegmentPath))
         {
-            if (deliveredOnly && ExportRetentionFloor.IsRequired(segment.Segment.Name, floor))
+            if (deliveredOnly && ExportRetentionFloor.IsRequired(
+                    segment.Segment.Name,
+                    floor,
+                    bootGroupEarliestCreationUtc))
                 continue;
             if (!TryDeleteClosedSegment(segment.Segment))
                 continue;

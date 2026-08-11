@@ -36,13 +36,47 @@ public sealed class ExportRetentionFloorTests : IDisposable
         Assert.False(ExportRetentionFloor.IsRequired(
             AuditSpoolSegmentIdentity.Create(boot, 3).FileName,
             floor));
-        // Another supervisor boot has no ordering against this floor, so it
-        // is not protected by it.
+        // Without a supplied group ordering, another supervisor boot has no
+        // ordering against this floor and is not protected (the pre-cr4-4
+        // single-supervisor behaviour).
         Assert.False(ExportRetentionFloor.IsRequired(
             AuditSpoolSegmentIdentity.Create(Guid.NewGuid(), 9).FileName,
             floor));
         // No cursor at all means no extra retention.
         Assert.False(ExportRetentionFloor.IsRequired(floor, null));
+    }
+
+    [Fact]
+    public void With_group_ordering_other_boots_at_or_after_the_cursor_group_are_protected()
+    {
+        // cr4-4: delivery traverses boot groups in earliest-creation order,
+        // so a DIFFERENT boot is deletable only when its whole group is
+        // strictly before the cursor's group — "different boot" no longer
+        // means "already delivered or already lost" on a shared root.
+        var floorBoot = Guid.Parse("d99ba8e8-25c5-4bfb-9c39-364407e4d96d");
+        var earlierBoot = Guid.Parse("5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01");
+        var laterBoot = Guid.Parse("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c");
+        var unknownBoot = Guid.Parse("7c1f2f66-9f6e-4a3b-8b21-6a2f9d1c0e55");
+        var floor = AuditSpoolSegmentIdentity.Create(floorBoot, 2).FileName;
+        var baseTime = new DateTime(2026, 8, 11, 12, 0, 0, DateTimeKind.Utc);
+        DateTime? Earliest(Guid boot) =>
+            boot == floorBoot ? baseTime :
+            boot == earlierBoot ? baseTime.AddMinutes(-5) :
+            boot == laterBoot ? baseTime.AddMinutes(5) :
+            null;
+
+        Assert.False(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(earlierBoot, 9).FileName, floor, Earliest));
+        Assert.True(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(laterBoot, 0).FileName, floor, Earliest));
+        // Unknown ordering is conservative: keep the bytes.
+        Assert.True(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(unknownBoot, 0).FileName, floor, Earliest));
+        // Same-boot behaviour is unchanged by the ordering argument.
+        Assert.True(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(floorBoot, 3).FileName, floor, Earliest));
+        Assert.False(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(floorBoot, 1).FileName, floor, Earliest));
     }
 
     [Fact]

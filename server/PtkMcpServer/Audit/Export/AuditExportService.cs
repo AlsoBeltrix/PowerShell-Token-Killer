@@ -25,6 +25,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private readonly AuditExportGapStore _gapStore;
     private readonly AuditExportHealth _health;
     private readonly Func<AuditJournal?>? _liveJournalSource;
+    private readonly AuditExportLease _lease = new();
     private readonly TimeSpan _idleInterval;
     private readonly TimeSpan _initialRetryDelay;
     private readonly TimeSpan _maximumRetryDelay;
@@ -109,6 +110,17 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     internal async Task<int> DrainOnceAsync(CancellationToken cancellationToken)
     {
         if (_destination is null) return 0;
+        // Exactly one exporter per audit root (cr4-4): the durable cursor and
+        // gap ledger are single-writer artifacts, and every supervisor on the
+        // root runs this service. Standby is quiet, retried each pump tick,
+        // and never a failure.
+        if (!_lease.TryAcquire(_options.RootDirectory))
+        {
+            _health.SetStandby(true);
+            return 0;
+        }
+        _health.SetStandby(false);
+
         var delivered = 0;
         var cursor = _cursorStore.Read();
 
@@ -154,6 +166,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 StringComparison.Ordinal)
                 ? cursor.ByteOffset
                 : 0;
+            var stillGrowing = false;
 
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -180,16 +193,22 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                             out nextOffset))
                     {
                         // An empty answer at the committed tail means nothing
-                        // durable is pending — quiet, not a failure.
+                        // durable is pending — quiet, not a failure. The
+                        // segment is still growing, so the drain must not
+                        // advance past it into later boots (cr4-4).
+                        stillGrowing = true;
                     }
                     else
                     {
                         // Never silently report healthy while delivering
-                        // nothing (cr3-1): a segment that is unreadable AND
-                        // not the live journal's is a visible export failure,
-                        // not an empty segment.
+                        // nothing (cr3-1) — and never SKIP either (cr4-4):
+                        // advancing to later segments would move the single
+                        // cursor past undelivered records, ending the
+                        // retention floor's protection of them. A foreign
+                        // supervisor's live segment stays unreadable until
+                        // it rotates; the whole drain waits, visibly.
                         _health.RecordFailure(readFailure);
-                        break;
+                        return delivered;
                     }
                 }
                 if (batch.Count == 0) break;
@@ -258,6 +277,14 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     cursor.LastSupervisorBootId,
                     cursor.LastSequence,
                     cursor.LastWasLifecycleTerminal);
+            }
+
+            if (stillGrowing)
+            {
+                // The live tail is drained to its committed watermark; later
+                // boots' segments wait until this one rotates or its writer
+                // closes, so the cursor never leapfrogs a growing segment.
+                break;
             }
         }
 
@@ -363,6 +390,14 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Segments in delivery order: grouped by supervisor boot (groups ordered
+    /// by their earliest segment's creation time), indexes ascending within a
+    /// boot. Plain creation-time order interleaved concurrent boots
+    /// (A0, B0, A1, …), and every crossing back into a boot mid-chain read as
+    /// a FALSE proved gap (cr4-4): the chain walk compares per boot, so each
+    /// boot must be traversed contiguously.
+    /// </summary>
     private FileInfo[] EnumerateSegments()
     {
         try
@@ -371,9 +406,15 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             if (!directory.Exists) return [];
             return directory
                 .GetFiles("*.jsonl")
-                .Where(file => AuditSpoolSegmentIdentity.TryParse(file.Name, out _))
-                .OrderBy(file => file.CreationTimeUtc)
-                .ThenBy(file => file.Name, StringComparer.Ordinal)
+                .Select(file => (File: file,
+                    Parsed: AuditSpoolSegmentIdentity.TryParse(file.Name, out var identity),
+                    Identity: identity))
+                .Where(entry => entry.Parsed)
+                .GroupBy(entry => entry.Identity.SupervisorBootId)
+                .OrderBy(group => group.Min(entry => entry.File.CreationTimeUtc))
+                .ThenBy(group => group.Key)
+                .SelectMany(group => group.OrderBy(entry => entry.Identity.Index))
+                .Select(entry => entry.File)
                 .ToArray();
         }
         catch (Exception exception) when (!IsFatal(exception))
@@ -792,5 +833,6 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         }
         _stopping.Dispose();
         _destination?.Dispose();
+        _lease.Dispose();
     }
 }

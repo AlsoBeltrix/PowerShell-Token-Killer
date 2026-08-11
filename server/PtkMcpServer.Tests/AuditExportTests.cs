@@ -465,6 +465,119 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_foreign_live_segment_halts_the_drain_instead_of_being_skipped()
+    {
+        // cr4-4: with concurrent supervisors on one root, another process's
+        // live segment is unreadable here (FileShare.None) and NOT servable
+        // by this process's live source. Skipping it would advance the single
+        // cursor past undelivered records, ending the retention floor's
+        // protection of them — the drain must stop and wait, visibly.
+        var root = NewRoot("export-foreign-live");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var bootA = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var bootB = "5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01";
+        var baseTime = new DateTime(2026, 8, 11, 12, 0, 0, DateTimeKind.Utc);
+        var foreignLive = WriteSegment(
+            options, index: 0, [ChainRecord(bootA, 1)], bootA, baseTime);
+        WriteSegment(
+            options, index: 0, [ChainRecord(bootB, 1)], bootB, baseTime.AddSeconds(1));
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using var service = NewService(options, receiver, cursorStore, health);
+
+        using (new FileStream(
+            foreignLive,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None))
+        {
+            Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+            Assert.Equal("export.segment_unreadable", health.Snapshot().LastFailureDetail);
+            Assert.Null(cursorStore.Read().SegmentFileName);
+        }
+
+        // Once the foreign writer releases (rotation/exit), everything
+        // delivers in order with no gap manufactured.
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            "EXPORT_GAPS",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Interleaved_boot_segments_produce_no_false_gaps()
+    {
+        // cr4-4: two concurrent boots interleave segment creation
+        // (A0, B0, A1). Creation-time traversal crossed back into boot A at
+        // sequence 3 and recorded a FALSE proved gap A:1-2 for records that
+        // were delivered moments earlier. Traversal is grouped per boot.
+        var root = NewRoot("export-interleaved");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var bootA = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var bootB = "5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01";
+        var baseTime = new DateTime(2026, 8, 11, 12, 0, 0, DateTimeKind.Utc);
+        WriteSegment(options, index: 0,
+            [ChainRecord(bootA, 1), ChainRecord(bootA, 2)], bootA, baseTime);
+        WriteSegment(options, index: 0,
+            [ChainRecord(bootB, 1)], bootB, baseTime.AddSeconds(1));
+        WriteSegment(options, index: 1,
+            [ChainRecord(bootA, 3)], bootA, baseTime.AddSeconds(2));
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options, receiver, new AuditExportCursorStore(root), health);
+
+        Assert.Equal(4, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            "EXPORT_GAPS",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Only_one_exporter_drains_a_shared_root_at_a_time()
+    {
+        // cr4-4: every supervisor runs an export service against the same
+        // durable cursor and ledger; without a lease their tmp+rename writes
+        // race last-writer-wins. Exactly one drains; the rest stand by.
+        var root = NewRoot("export-lease");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        WriteSegment(options, index: 0, [ChainRecord(boot, 1)], boot);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options, receiver, new AuditExportCursorStore(root), health);
+
+        using (new FileStream(
+            Path.Combine(root, AuditExportLease.FileName),
+            FileMode.OpenOrCreate,
+            FileAccess.ReadWrite,
+            FileShare.None))
+        {
+            Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+            Assert.Contains(
+                "standby",
+                health.Snapshot().StatusLine(),
+                StringComparison.Ordinal);
+        }
+
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            "standby",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Records_removed_before_delivery_are_reported_as_a_durable_gap()
     {
         // cr3-2 (round 2): loss is proved by the chain, not by which files
@@ -1246,11 +1359,16 @@ public sealed class AuditExportTests : IDisposable
     private static string WriteSegment(
         AuditOptions options,
         int index,
-        string[] records)
+        string[] records,
+        string? bootId = null,
+        DateTime? createdUtc = null)
     {
-        var identity = AuditSpoolSegmentIdentity.Create(Guid.NewGuid(), index);
+        var identity = AuditSpoolSegmentIdentity.Create(
+            bootId is null ? Guid.NewGuid() : Guid.Parse(bootId),
+            index);
         var path = Path.Combine(options.SpoolDirectory, identity.FileName);
         File.WriteAllText(path, string.Concat(records.Select(record => record + "\n")));
+        if (createdUtc is not null) File.SetCreationTimeUtc(path, createdUtc.Value);
         return path;
     }
 

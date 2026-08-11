@@ -13,7 +13,10 @@ internal sealed record AuditExportHealthSnapshot(
     long ExportGaps = 0,
     long MissingRecords = 0,
     long UnverifiedBootBoundaries = 0,
-    long RefusedRecords = 0)
+    long RefusedRecords = 0,
+    // Another supervisor on this audit root holds the export lease and is
+    // delivering (cr4-4); this process's exporter is idle by design.
+    bool Standby = false)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -30,6 +33,9 @@ internal sealed record AuditExportHealthSnapshot(
             UnverifiedBootBoundaries == 0
             ? "healthy"
             : ConsecutiveFailures > 0 ? "retrying" : "degraded";
+        // Standby is a routing fact, not a health state: durable warnings
+        // below still render, because evidence outlives the lease holder.
+        if (Standby) state = "standby (another supervisor holds the export lease)";
         var text =
             $"audit export: {state} destination={Destination} " +
             $"delivered={DeliveredRecords.ToString(CultureInfo.InvariantCulture)} " +
@@ -186,5 +192,14 @@ internal sealed class AuditExportHealth
     {
         lock (_gate)
             _snapshot = _snapshot with { PendingBytes = Math.Max(0, pendingBytes) };
+    }
+
+    internal void SetStandby(bool standby)
+    {
+        lock (_gate)
+        {
+            if (_snapshot.Standby != standby)
+                _snapshot = _snapshot with { Standby = standby };
+        }
     }
 }

@@ -112,6 +112,15 @@ builder.Services.AddSingleton(sp =>
                 $" SPOOL_EVICTED_UNDELIVERED={snapshot.UndeliveredEvictions}" +
                 " (records were dropped before export; see audit export gaps)";
         }
+        if (snapshot.LineagePublishFailures > 0)
+        {
+            // This boot's lineage attestation cannot be written (cr4-2):
+            // journaling continues, but if this boot's records were wholly
+            // destroyed before delivery, its successor could not name it.
+            auditLine +=
+                $" LINEAGE_UNPUBLISHED={snapshot.LineagePublishFailures}" +
+                " (boot-lineage.json cannot be written; this boot is unattested)";
+        }
         return auditLine + Environment.NewLine + exportHealth.Snapshot().StatusLine();
     });
 });

@@ -126,6 +126,33 @@ public sealed class AuditBootLineageTests : IDisposable
     }
 
     [Fact]
+    public void A_failed_lineage_publish_is_visible_and_heals()
+    {
+        // cr4-2: while boot-lineage.json cannot be written this boot is
+        // unattested — journaling must continue AND the condition must be
+        // visible, then clear the moment a publish lands.
+        var root = NewRoot("lineage-publish-failure");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        // Squat a directory on the artifact name (the cr3-2 round-9/10
+        // technique): the temp file writes, the rename onto a directory
+        // cannot succeed.
+        Directory.CreateDirectory(Path.Combine(root, AuditBootLineage.FileName));
+
+        using var journal = AuditJournalFactory.Open(options, health, "test-version");
+        AppendOne(journal);
+        Assert.True(health.Snapshot().LineagePublishFailures > 0);
+        AppendOne(journal);
+        Assert.True(health.Snapshot().LineagePublishFailures > 1);
+
+        // Repair the root; the next append publishes and clears the state.
+        Directory.Delete(Path.Combine(root, AuditBootLineage.FileName));
+        AppendOne(journal);
+        Assert.Equal(0, health.Snapshot().LineagePublishFailures);
+        Assert.True(File.Exists(Path.Combine(root, AuditBootLineage.FileName)));
+    }
+
+    [Fact]
     public void A_canonical_but_non_v4_lineage_id_is_quarantined_not_served()
     {
         // cr4-1: the record serializer requires a UUIDv4 predecessor. A

@@ -219,6 +219,7 @@ internal sealed class AuditJournal : IDisposable
     private string? _deferredRecoveryFailureClass;
     private long _lastKnownTotalBytes;
     private bool _lineagePublished;
+    private long _lineagePublishFailures;
 
     internal AuditJournal(
         AuditOptions options,
@@ -573,11 +574,18 @@ internal sealed class AuditJournal : IDisposable
             // a lineage entry always attests a boot that journaled something
             // (R3d boot lineage). Failure retries on the next append: lineage
             // is attestation for the NEXT boot and must never fail this one.
+            // While unpublished the boot is unattested, and that condition is
+            // VISIBLE (cr4-2): silent publish failure would degrade to the
+            // pre-lineage world without anyone knowing.
             if (!_lineagePublished)
             {
                 _lineagePublished = AuditBootLineage.TryPublish(
                     _options.RootDirectory,
                     SupervisorBootId);
+                _lineagePublishFailures = _lineagePublished
+                    ? 0
+                    : checked(_lineagePublishFailures + 1);
+                Health.UpdateLineagePublishFailures(_lineagePublishFailures);
             }
             UpdateHealthMetricsLocked();
             return serialized;

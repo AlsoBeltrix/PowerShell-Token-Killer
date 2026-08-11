@@ -172,7 +172,11 @@ public sealed record AuditHealthSnapshot(
     AuditExporterHealthSnapshot Exporter,
     // Capacity-pressure evictions that discarded undelivered records. A
     // trailing optional so no existing construction site changes.
-    long UndeliveredEvictions = 0)
+    long UndeliveredEvictions = 0,
+    // Consecutive failed boot-lineage publish attempts (cr4-2): while
+    // nonzero this boot is unattested and a wholly vanished successor
+    // scenario would be invisible — visible condition, never a gate.
+    long LineagePublishFailures = 0)
 {
     public long EffectiveFreeBytes => Math.Max(0, SpoolCapacityBytes - SpoolBytes - ReservedBytes);
 }
@@ -250,6 +254,22 @@ public sealed class AuditHealth
     }
 
     private long _undeliveredEvictions;
+
+    /// <summary>
+    /// Tracks consecutive failed boot-lineage publish attempts (cr4-2). Zero
+    /// clears the condition: unlike evictions this is a live state, not a
+    /// monotonic total — the moment a publish lands the boot IS attested.
+    /// </summary>
+    public void UpdateLineagePublishFailures(long consecutiveFailures)
+    {
+        if (consecutiveFailures < 0) return;
+        lock (_gate)
+        {
+            _lineagePublishFailures = consecutiveFailures;
+        }
+    }
+
+    private long _lineagePublishFailures;
 
     public void UpdateStorageMetrics(long spoolBytes, long reservedBytes, long emergencyReserveBytes)
     {
@@ -452,7 +472,8 @@ public sealed class AuditHealth
         _emergencyProbeFirstUtc,
         _emergencyProbeLastUtc,
         _exporter,
-        _undeliveredEvictions);
+        _undeliveredEvictions,
+        _lineagePublishFailures);
 
     private DateTimeOffset GetUtcNow()
     {

@@ -429,19 +429,12 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                         if (line.Length > 0) lines.Add(line);
                     }
                 }
-                catch (Exception exception) when (exception
-                    is FileNotFoundException or DirectoryNotFoundException)
-                {
-                    // Retention deleted it between enumeration and read.
-                }
-                catch (IOException) when (
-                    identity.Index == newestIndexPerBoot[identity.SupervisorBootId])
-                {
-                    // The locked live segment: served below when it is ours,
-                    // and readable after rotation when another supervisor's.
-                }
                 catch (Exception exception) when (!IsFatal(exception))
                 {
+                    var failureClass = ClassifySegmentReadFailure(
+                        exception,
+                        identity.Index == newestIndexPerBoot[identity.SupervisorBootId]);
+                    if (failureClass != SegmentReadFailureClass.Reportable) continue;
                     unreadableCount++;
                     if (unreadable.Count < MaximumReportedUnreadableSegments)
                     {
@@ -517,6 +510,37 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
             liveTailError,
             readError);
     }
+
+    internal enum SegmentReadFailureClass
+    {
+        /// <summary>The segment FILE vanished: retention, silent.</summary>
+        VanishedSegment,
+        /// <summary>Lock-shaped failure on the newest segment of its boot —
+        /// the one position a live segment can occupy; served via the
+        /// journal handle when ours, readable after rotation when another
+        /// supervisor's.</summary>
+        ExpectedLive,
+        /// <summary>Omitted evidence the answer must report.</summary>
+        Reportable,
+    }
+
+    /// <summary>
+    /// The decision table for a closed-segment read failure (cr5-3, repair
+    /// round 1). Order matters: <see cref="FileNotFoundException"/> and
+    /// <see cref="DirectoryNotFoundException"/> both derive from
+    /// <see cref="IOException"/> — a vanished FILE is retention, but a
+    /// vanished DIRECTORY is the spool itself going away, which is
+    /// reportable evidence loss even on the newest segment of a boot.
+    /// </summary>
+    internal static SegmentReadFailureClass ClassifySegmentReadFailure(
+        Exception exception,
+        bool newestOfBoot) => exception switch
+    {
+        FileNotFoundException => SegmentReadFailureClass.VanishedSegment,
+        DirectoryNotFoundException => SegmentReadFailureClass.Reportable,
+        IOException when newestOfBoot => SegmentReadFailureClass.ExpectedLive,
+        _ => SegmentReadFailureClass.Reportable,
+    };
 
     private static int ParseTail(HttpListenerRequest request) =>
         int.TryParse(request.QueryString["tail"], out var tail) &&

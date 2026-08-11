@@ -373,6 +373,40 @@ public sealed class AuditWebUiTests : IDisposable
         }
     }
 
+    [Fact]
+    public void Segment_read_failure_classification_reports_a_vanished_spool_directory()
+    {
+        // cr5-3 repair round 1: only the FILE vanishing is retention. A
+        // vanished parent DIRECTORY is the spool itself going away —
+        // reportable evidence loss, never silence, whatever the segment's
+        // position. Both exceptions derive from IOException, so the
+        // decision table's arm order is load-bearing.
+        Assert.Equal(
+            AuditWebUiService.SegmentReadFailureClass.Reportable,
+            AuditWebUiService.ClassifySegmentReadFailure(
+                new DirectoryNotFoundException(), newestOfBoot: true));
+        Assert.Equal(
+            AuditWebUiService.SegmentReadFailureClass.Reportable,
+            AuditWebUiService.ClassifySegmentReadFailure(
+                new DirectoryNotFoundException(), newestOfBoot: false));
+        Assert.Equal(
+            AuditWebUiService.SegmentReadFailureClass.VanishedSegment,
+            AuditWebUiService.ClassifySegmentReadFailure(
+                new FileNotFoundException(), newestOfBoot: false));
+        Assert.Equal(
+            AuditWebUiService.SegmentReadFailureClass.ExpectedLive,
+            AuditWebUiService.ClassifySegmentReadFailure(
+                new IOException(), newestOfBoot: true));
+        Assert.Equal(
+            AuditWebUiService.SegmentReadFailureClass.Reportable,
+            AuditWebUiService.ClassifySegmentReadFailure(
+                new IOException(), newestOfBoot: false));
+        Assert.Equal(
+            AuditWebUiService.SegmentReadFailureClass.Reportable,
+            AuditWebUiService.ClassifySegmentReadFailure(
+                new UnauthorizedAccessException(), newestOfBoot: true));
+    }
+
     private static async Task<bool> WaitAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)

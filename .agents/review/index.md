@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr4 (codereview over R3d completion + R3c, 2026-08-11)
+## Closed — cr4 (codereview over R3d completion + R3c, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over
 `abc3292..8ab189a` (boot lineage, coordinated live-tail read, receiver
@@ -11,19 +11,23 @@ no-op since 0.146.1); the first dispatch failed fail-closed on
 `capability_ok:false` and the incantation was re-probed to per-server
 `enabled=false` flags — recorded in `harnesses.local.json`.
 
-All five fixes landed one commit each and are sabotage-proved:
-cr4-1 `9acd89d`, cr4-2 `54dd79f`, cr4-3 `c0abafc`, cr4-4 `7c8fa96`,
-cr4-5 `5ddbaef`. Battery after the batch: server 1,279/1,279, SIEM
-270/270, handshake PASSED. Verification: HIGHs dispatched to frontier
-(codex/gpt-5.6-sol/xhigh, esc:T2), MEDIUMs to standard.
+ALL FIVE VERIFIED. Fixes landed one commit each, sabotage-proved:
+cr4-1 `9acd89d`, cr4-2 `54dd79f`, cr4-3 `c0abafc`, cr4-4 `7c8fa96` +
+repairs `ae7ca0a`/`97ee6d1`/`940dc3c`, cr4-5 `5ddbaef`. cr4-4 took
+FOUR frontier rounds (T2 then T5-ceiling ×3): the reviewer twice found
+real new paths in the repairs — a mutable file ordering under the
+linear cursor, then drain-scoped attestations, then cursor-only
+evidence — before accepting the per-boot-positions + ledger-mirrored
+attestations design. Battery at close: server 1,281/1,281, SIEM
+270/270, handshake PASSED.
 
 | ID    | Severity | Impact (one line)                                            | Status | Reviewer |
 |-------|----------|--------------------------------------------------------------|--------|----------|
-| cr4-1 | HIGH     | non-v4 lineage id bypasses quarantine, disables execution    | `[~]`  | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
-| cr4-2 | MEDIUM   | silent lineage publish failure leaves a boot unattested      | `[~]`  | codex/gpt-5.6-sol/high/standard |
-| cr4-3 | HIGH     | concurrent supervisors overwrite each other's lineage        | `[~]`  | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
-| cr4-4 | HIGH     | export leg unsafe under concurrent supervisors (skip/races/false gaps) | `[~]` | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
-| cr4-5 | MEDIUM   | honest cross-encoding replay quarantined as forgery          | `[~]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-1 | HIGH     | non-v4 lineage id bypasses quarantine, disables execution    | `[x]`  | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| cr4-2 | MEDIUM   | silent lineage publish failure leaves a boot unattested      | `[x]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-3 | HIGH     | concurrent supervisors overwrite each other's lineage        | `[x]`  | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| cr4-4 | HIGH     | export leg unsafe under concurrent supervisors (skip/races/false gaps) | `[x]` | codex/gpt-5.6-sol/xhigh/frontier esc:T2,T5,T5,T5 |
+| cr4-5 | MEDIUM   | honest cross-encoding replay quarantined as forgery          | `[x]`  | codex/gpt-5.6-sol/high/standard |
 
 ## Closed — cr2 (codereview over the R2 audit restoration, 2026-08-10)
 

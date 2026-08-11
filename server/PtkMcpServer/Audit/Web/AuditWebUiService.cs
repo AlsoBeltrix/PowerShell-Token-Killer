@@ -396,7 +396,7 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
     /// </summary>
     private RecordsRead ReadRecentRecords(int tail)
     {
-        var lines = new List<string>();
+        var units = new List<(DateTime SortKey, List<string> Lines)>();
         var unreadableCount = 0;
         var unreadable = new List<object>();
         string? liveTailError = null;
@@ -424,10 +424,12 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                         FileAccess.Read,
                         FileShare.ReadWrite | FileShare.Delete);
                     using var reader = new StreamReader(stream, Encoding.UTF8);
+                    var segmentLines = new List<string>();
                     while (reader.ReadLine() is { } line)
                     {
-                        if (line.Length > 0) lines.Add(line);
+                        if (line.Length > 0) segmentLines.Add(line);
                     }
+                    units.Add((file.LastWriteTimeUtc, segmentLines));
                 }
                 catch (Exception exception) when (!IsFatal(exception))
                 {
@@ -460,6 +462,7 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                     long offset = 0;
                     var identity = default(AuditSpoolSegmentIdentity);
                     var identityKnown = false;
+                    var liveLines = new List<string>();
                     while (true)
                     {
                         AuditCommittedSpoolRead read;
@@ -487,9 +490,29 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                         if (lastNewline < 0) break;
                         foreach (var line in text[..lastNewline].Split('\n'))
                         {
-                            if (line.Length > 0) lines.Add(line);
+                            if (line.Length > 0) liveLines.Add(line);
                         }
                         offset += Encoding.UTF8.GetByteCount(text[..(lastNewline + 1)]);
+                    }
+
+                    if (liveLines.Count > 0)
+                    {
+                        // The live tail is one more unit, keyed by its own
+                        // segment's last write — an unreadable stat falls
+                        // back to newest, the single-supervisor truth.
+                        var sortKey = DateTime.MaxValue;
+                        if (identityKnown)
+                        {
+                            try
+                            {
+                                var liveFile = new FileInfo(Path.Combine(
+                                    _options.SpoolDirectory,
+                                    identity.FileName));
+                                if (liveFile.Exists) sortKey = liveFile.LastWriteTimeUtc;
+                            }
+                            catch (Exception statFailure) when (!IsFatal(statFailure)) { }
+                        }
+                        units.Add((sortKey, liveLines));
                     }
                 }
                 catch (Exception exception) when (!IsFatal(exception))
@@ -503,6 +526,16 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
             readError = exception.GetType().Name;
         }
 
+        // Newest evidence wins regardless of which unit held it (cr5-4
+        // repair round 1): closed segments and this supervisor's live tail
+        // are ordered together by their segment's last write, so a quiet
+        // bind winner's stale live tail cannot outrank a busy peer's newer
+        // rotated segments. OrderBy is stable, so a same-instant tie keeps
+        // the live tail last, as before.
+        var lines = units
+            .OrderBy(unit => unit.SortKey)
+            .SelectMany(unit => unit.Lines)
+            .ToList();
         return new RecordsRead(
             lines.Count <= tail ? lines : lines[^tail..],
             unreadableCount,

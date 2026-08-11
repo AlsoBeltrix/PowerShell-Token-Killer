@@ -289,6 +289,10 @@ public sealed class AuditWebUiTests : IDisposable
             AuditSpoolSegmentIdentity.Create(closedBoot, 0).FileName);
         File.WriteAllLines(closed, Enumerable.Range(0, 20).Select(index =>
             $$"""{"event_type":"call.completed","event_id":"closed-{{index}}"}"""));
+        // The closed spool is genuinely OLDER than the live tail (written
+        // afterwards only for TryReserve mechanics); newest-evidence
+        // ordering must therefore surface the live records.
+        File.SetLastWriteTimeUtc(closed, DateTime.UtcNow.AddHours(-1));
 
         var port = FreePort();
         await using var service = new AuditWebUiService(
@@ -405,6 +409,46 @@ public sealed class AuditWebUiTests : IDisposable
             AuditWebUiService.SegmentReadFailureClass.Reportable,
             AuditWebUiService.ClassifySegmentReadFailure(
                 new UnauthorizedAccessException(), newestOfBoot: true));
+    }
+
+    [Fact]
+    public async Task A_stale_live_tail_does_not_outrank_newer_closed_evidence()
+    {
+        // cr5-4 reopen round 1: with several supervisors on one root, the
+        // quiet UI bind winner's live tail can be OLDER than a busy peer's
+        // rotated segments. The newest evidence must win whichever unit
+        // holds it — position (live-appended-last) is not chronology.
+        var root = NewRoot("webui-stale-live");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        using var journal = AuditJournalFactory.Open(options, health, "test-version");
+        AppendEvents(journal, 3);
+        var busyBoot = Guid.NewGuid();
+        var rotated = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(busyBoot, 0).FileName);
+        File.WriteAllLines(rotated, Enumerable.Range(0, 20).Select(index =>
+            $$"""{"event_type":"call.completed","event_id":"closed-{{index}}"}"""));
+        File.SetLastWriteTimeUtc(rotated, DateTime.UtcNow.AddHours(1));
+
+        var port = FreePort();
+        await using var service = new AuditWebUiService(
+            options, health, new AuditExportHealth(), () => journal, port);
+        await service.StartAsync(CancellationToken.None);
+        var token = await WaitForTokenAsync(root);
+        using var client = new HttpClient();
+
+        using var response = await GetAsync(client, port, "/api/records?tail=5", token);
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var records = payload.RootElement.GetProperty("records");
+        Assert.Equal(5, records.GetArrayLength());
+        Assert.Contains(
+            records.EnumerateArray(),
+            record => record.GetString()!.Contains("closed-19", StringComparison.Ordinal));
+        var liveBoot = journal.SupervisorBootId.ToString("D");
+        Assert.DoesNotContain(
+            records.EnumerateArray(),
+            record => record.GetString()!.Contains(liveBoot, StringComparison.Ordinal));
     }
 
     private static async Task<bool> WaitAsync(Func<bool> condition)

@@ -116,8 +116,11 @@ load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
 **cr3-2 was reopened SIX times, each for a real silent-loss path. All
-six are fixed; DETECTION WORK IS HALTED at `a330279` by the stopping rule
-set before round six, and the class is handed to R3d.**
+six are fixed. Detection work was halted at `a330279` by the stopping
+rule set before round six; **the owner overrode that halt the same day
+("you can do 3 more rounds"), so rounds 7-9 are authorized** and the
+loop resumed — round 7 also gives the round-6 repair the independent
+verification it initially lacked.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file
@@ -535,10 +538,10 @@ judges by payload survival instead.
 
 ## Next
 
-**Immediate: R3d.** The cr3-2 detection loop is deliberately closed
-(round 6 found a corrupt-ledger path — fixed, guard-proved locally, and
-the only cr3-2 repair not independently verified, by choice). Six rounds
-each finding a real path is the argument for R3d's
+**Immediate: finish the owner-authorized cr3-2 rounds 7-9, then R3d.**
+The loop was halted after round 6 and the owner reopened it for three
+more rounds. Whatever those find, R3d remains the structural answer:
+six rounds each finding a real path is the argument for its
 **acknowledgment-aware journal retention**: stop deleting undelivered
 records, and the class disappears rather than needing ever-finer
 detection. R3d also owes the coordinated live-tail read (cr3-1). Then,

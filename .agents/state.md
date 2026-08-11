@@ -237,9 +237,32 @@ reported-failure behaviour. Sabotage proof: live read disabled → both
 new tests fail. Battery: server 1,272/1,272, SIEM 256/256, handshake
 PASSED.
 
-**Still owed by R3d:** the eviction as a **journaled audit event** plus
-the GUI/webhook surfaces (R4), so the fact reaches the SIEM itself and
-not only `ptk_state`.
+**R4 IS CODE-COMPLETE (2026-08-11, `a9eaa4a` + `3996e6a`), codereview
+in flight — see §Next.** Three surfaces landed, all four reporting
+surfaces of contract rule 3 now exist: (a) `audit.spool_evicted` is a
+first-class journal record emitted from emergency capacity on the append
+after an undelivered eviction, so the fact reaches the SIEM through the
+ordinary export leg; writing its guard exposed a real pre-existing hole,
+fixed in the same commit — the rotation-time physical-allocation path
+(`EnsurePhysicalAllocationAvailable`) deleted closed segments with NO
+floor consultation and NO undelivered accounting, silently destroying
+undelivered records; (b) the loopback web UI
+(`Audit/Web/AuditWebUiService.cs`, plain `HttpListener` — no ASP.NET in
+the trimmed server): journal-backed log view (closed segments as files,
+own live tail through the writer's handle), quarantine evidence,
+audit+export health, and a settings page that writes `export.json`
+through the loader's own validation (a UI write the next start would
+refuse is impossible; the credential is preserved on endpoint-only
+updates and never echoed). Auth is a bearer token in an owner-only
+`ui-token` file plus loopback/Host pinning; one UI per root, supervisors
+race for the port (default 8317, `PTK_AUDIT_UI_PORT`,
+`PTK_AUDIT_UI_DISABLED`), losers stand by and take over; (c) the
+edge-triggered alert webhook (`AuditAlertWebhookService`, optional
+`alert_webhook` in `export.json` or `PTK_AUDIT_ALERT_WEBHOOK`, same
+https-or-loopback rule) — conditions post when they appear or grow,
+never repeat unchanged, and an undeliverable webhook keeps the edge
+pending. The composition boundary pin moved 3 → 5 hosted services.
+Battery: server 1,287/1,287, handshake PASSED, SIEM 270/270 unchanged.
 
 **R3c EXECUTED 2026-08-11 (owner goal "finish the whole things",
 2026-08-11): PTK can now reach its OWN fallback receiver.** The receiver
@@ -667,11 +690,40 @@ judges by payload survival instead.
 
 ## Next
 
+**IMMEDIATE (resume here): the R4 codereview returned EIGHT findings,
+none triaged, none fixed.** Dispatch: codex / gpt-5.6-sol / high /
+standard over `3b8dff8..3996e6a`, verdict `findings`, capability_ok
+true, 2026-08-11. The raw verdict is NOT yet written to
+`.agents/review/findings/` — it exists only in this session's scratchpad
+(`/private/tmp/claude-501/.../cr-r4-verdict.txt`, session-scoped), so
+**re-dispatch the same prompt if the records were never written**
+(prompt: `.../cr-r4-prompt.txt`; both under the session scratchpad).
+Summary of what it found, for triage — three HIGH: (1) a local process
+that binds port 8317 first can harvest the UI bearer token an operator
+then sends it, and later reuse it (the port race treats every collision
+as a trusted peer); (2) `AuditAlertWebhookService`'s constructor calls
+`CountQuarantine()` (a full `Directory.GetFiles`) synchronously during
+hosted-service construction — an optional webhook becoming a startup
+availability gate, which violates the sole-gate invariant; (3)
+`/api/records` swallows every non-fatal segment-read failure as though
+it were the locked live segment, returning HTTP 200 with evidence
+silently omitted and no partial marker. Five MEDIUM: tail*4 short-circuit
+can hide the live tail behind a populated closed spool; concurrent
+first-start token creation is check-then-act so the serving UI may hold
+a different token than the file; a failed webhook edge is lost if the
+condition heals before the retry; lineage alerts fire once per process
+(never on growth or recurrence); webhook delivery failure is invisible
+in every health surface. My assessment before triage: (2) and (3) look
+clearly right and cheap; (1) is real and wants the UI bound before the
+token is minted (or the token proven to belong to our own listener);
+the MEDIUMs look admissible. Then R5, then R6.
+
 **Goal in force (owner, 2026-08-11): "finish the whole things.
 codereview codex per slice."** That is the go for the remaining
 audit-restoration slices in order, each followed by a codex codereview.
 R3d is DONE (cr3-2's fifteen paths all fixed; cr3-1 fixed in full).
-R3c is EXECUTED (see §Now). **The cr4 codereview loop over
+R3c is EXECUTED and its review CLOSED. R4 is code-complete with its
+review OPEN (eight findings, above). **The cr4 codereview loop over
 `abc3292..8ab189a` (boot lineage + live-tail + R3c) is ACTIVE:** codex
 returned five findings, all admitted, all centered on one blind spot —
 multiple supervisors sharing one audit root (one per MCP connection is

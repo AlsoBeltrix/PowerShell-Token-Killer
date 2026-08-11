@@ -214,13 +214,32 @@ proofs bit at all three layers (exporter detection, producer publish,
 receiver validation). Battery: server 1,270/1,270, SIEM 256/256, Pester
 112+3 skip, handshake PASSED, dependency audit clean.
 
-**Still owed by R3d, in priority order:** (1) The **coordinated
-live-tail read** (cr3-1): the live segment is exportable only after
-rotation because the writer holds it `FileShare.None` and that
-exclusivity is load-bearing for `IsLockedSegment`; the condition is
-reported, not hidden. (2) The eviction as a **journaled audit event**
-plus the GUI/webhook surfaces (R4), so the fact reaches the SIEM itself
-and not only `ptk_state`.
+**The coordinated live-tail read landed 2026-08-11 — cr3-1 is now fully
+fixed, not PARTIAL.** The writer's `FileShare.None` on the live segment
+stays untouched (it remains load-bearing for `IsLockedSegment`); the
+exporter instead reads the live tail through the writer's OWN handle via
+`AuditJournal.ReadCommittedSpool` — the mode-agnostic primitive the
+restored library already carried (the anchored `AuditLiveSpoolReader`
+machinery above it stays deliberately unrestored). Wiring: the gate
+exposes a `_gate`-locked `JournalForLiveExport` snapshot; Program.cs
+hands the export service a `liveJournalSource` delegate; when a file
+read fails, the exporter asks the journal for the durably committed
+prefix (the flush watermark always sits on a record boundary, so no
+torn records), delivers it, and advances the same file-byte cursor —
+rotation hands over to the ordinary closed-file read seamlessly, proved
+by a continuity test (live drain → rotation → drain; every record
+delivered exactly once, no gaps, no boundaries). A drained live tail is
+now QUIET instead of a permanently reported `export.segment_unreadable`;
+that failure code still fires for a segment that is unreadable and NOT
+the live journal's (the old pin still passes, with no live source
+configured). Any live-read fault degrades to exactly the pre-existing
+reported-failure behaviour. Sabotage proof: live read disabled → both
+new tests fail. Battery: server 1,272/1,272, SIEM 256/256, handshake
+PASSED.
+
+**Still owed by R3d:** the eviction as a **journaled audit event** plus
+the GUI/webhook surfaces (R4), so the fact reaches the SIEM itself and
+not only `ptk_state`.
 
 **R3c is the other honest remainder, not started.** R3c: the
 receiver still ingests protobuf over mTLS only, so PTK reaches Splunk,
@@ -619,13 +638,13 @@ judges by payload survival instead.
 
 ## Next
 
-**Immediate: finish R3d.** The cr3-2 review loop is CLOSED and all
-fifteen of its paths are now fixed — ten codex rounds plus a Fable-5
-second opinion; the last path (wholly vanished boot) closed 2026-08-10
-by producer boot lineage (see §Now). R3d's core landed
-(acknowledgment-aware retention, `7aa03ff`; eviction visible in
-`ptk_state`, `a2dcece`; boot lineage, this commit). **Next piece: the
-coordinated live-tail read (cr3-1).** Then, in order: **R3c** (receiver token auth + JSON ingest —
+**R3d is essentially DONE.** The cr3-2 review loop is CLOSED and all
+fifteen of its paths fixed (boot lineage closed the last, 2026-08-10);
+cr3-1's coordinated live-tail read landed 2026-08-11 (see §Now) on top
+of acknowledgment-aware retention (`7aa03ff`) and visible eviction
+(`a2dcece`). What remains of R3d's list — the eviction as a journaled
+audit event and the webhook/GUI surfaces — belongs naturally to **R4**.
+**Next slice, in order: R3c** (receiver token auth + JSON ingest —
 without it PTK cannot reach its OWN fallback receiver, though Splunk,
 Sentinel and any OTLP collector work today), **R4** (the loopback web
 GUI + settings page — the slice that finally lets the owner SEE the

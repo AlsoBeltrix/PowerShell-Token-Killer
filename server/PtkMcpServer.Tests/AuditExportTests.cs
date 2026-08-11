@@ -368,6 +368,103 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task The_live_tail_exports_through_the_writers_handle_before_rotation()
+    {
+        // cr3-1's completion (R3d): the journal writer holds the live segment
+        // FileShare.None — load-bearing for its live-vs-closed classification
+        // — so the exporter reads the durably committed tail through the
+        // writer's OWN handle. Records journaled seconds ago reach the SIEM
+        // before any rotation, and a drained live tail is quiet, not a
+        // permanently reported failure.
+        var root = NewRoot("export-live-tail");
+        var options = AuditOptions.Create(root);
+        var health = new AuditExportHealth();
+        using var receiver = new FakeHttpDestination();
+        using var journal = AuditJournalFactory.Open(
+            options,
+            new AuditHealth(options),
+            "test-version");
+        AppendJournalEvents(journal, 3);
+
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health,
+            liveJournalSource: () => journal);
+
+        Assert.Equal(3, await service.DrainOnceAsync(CancellationToken.None));
+        var snapshot = health.Snapshot();
+        Assert.Equal(0, snapshot.ConsecutiveFailures);
+        Assert.Null(snapshot.LastFailureDetail);
+
+        // Fully delivered: the next pass is quiet — no delivery, no failure.
+        Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.Equal(0, health.Snapshot().ConsecutiveFailures);
+        Assert.Null(health.Snapshot().LastFailureDetail);
+
+        // New records become deliverable on the very next drain, still live.
+        AppendJournalEvents(journal, 2);
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Live_then_rotated_delivery_is_continuous_with_neither_gaps_nor_duplicates()
+    {
+        // The live read hands over to the ordinary closed-file read at
+        // rotation through one shared currency: file byte offsets on the
+        // cursor. Every journaled record must be delivered exactly once
+        // across that boundary, with no chain gap manufactured.
+        var root = NewRoot("export-live-rotation");
+        var options = AuditOptions.Create(
+            root,
+            AuditProtectionMode.LocalOnly,
+            exportConfigurationIdentity: null,
+            maxRecordBytes: 4096,
+            segmentBytes: 16_384,
+            aggregateBytes: 1024 * 1024,
+            emergencyReserveBytes: 8192,
+            retentionAge: TimeSpan.FromDays(1),
+            maxEvidenceBytes: 4096,
+            evidenceAggregateBytes: 4096,
+            evidenceRetentionAge: TimeSpan.FromDays(1));
+        var health = new AuditExportHealth();
+        using var receiver = new FakeHttpDestination();
+        using var journal = AuditJournalFactory.Open(
+            options,
+            new AuditHealth(options),
+            "test-version");
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health,
+            liveJournalSource: () => journal);
+
+        // Some records are exported straight off the live tail...
+        var appended = AppendJournalEvents(journal, 3);
+        var delivered = await service.DrainOnceAsync(CancellationToken.None);
+
+        // ...then the segment rotates with records the live pass never saw.
+        var bootId = journal.SupervisorBootId;
+        while (!File.Exists(Path.Combine(
+                   options.SpoolDirectory,
+                   AuditSpoolSegmentIdentity.Create(bootId, 1).FileName)))
+        {
+            appended += AppendJournalEvents(journal, 1);
+        }
+        appended += AppendJournalEvents(journal, 2);
+
+        delivered += await service.DrainOnceAsync(CancellationToken.None);
+
+        Assert.Equal(appended, delivered);
+        var line = health.Snapshot().StatusLine();
+        Assert.DoesNotContain("EXPORT_GAPS", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("unverified_boot_boundaries", line, StringComparison.Ordinal);
+        Assert.Equal(0, health.Snapshot().ConsecutiveFailures);
+    }
+
+    [Fact]
     public async Task Records_removed_before_delivery_are_reported_as_a_durable_gap()
     {
         // cr3-2 (round 2): loss is proved by the chain, not by which files
@@ -1089,7 +1186,8 @@ public sealed class AuditExportTests : IDisposable
         AuditOptions options,
         FakeHttpDestination receiver,
         AuditExportCursorStore cursorStore,
-        AuditExportHealth health)
+        AuditExportHealth health,
+        Func<AuditJournal?>? liveJournalSource = null)
     {
         var settings = new AuditExportSettings(
             AuditDestinationKind.OtlpHttp,
@@ -1099,7 +1197,36 @@ public sealed class AuditExportTests : IDisposable
             options,
             new HttpAuditDestination(settings),
             cursorStore,
-            health);
+            health,
+            liveJournalSource: liveJournalSource);
+    }
+
+    private static int AppendJournalEvents(AuditJournal journal, int count)
+    {
+        for (var index = 0; index < count; index++)
+        {
+            Assert.True(journal.TryReserve(1, out var reservation, out _));
+            journal.Append(reservation!, new AuditEventInput
+            {
+                EventType = "call.completed",
+                Session = new AuditSession { Name = "default", Generation = 0, BindingKind = "default" },
+                Actor = new AuditActor { AttributionStrength = "unknown" },
+                Correlation = new AuditCorrelation(),
+                Request = new AuditRequest(),
+                Routing = new AuditRouting(),
+                Outcome = new AuditOutcome { State = "completed", TerminationCertainty = "not_applicable" },
+                Coverage = new AuditCoverage
+                {
+                    PtkRequest = true,
+                    RootProcessObserved = "not_applicable",
+                    DescendantsObserved = "not_applicable",
+                    RemoteEffectObserved = "not_applicable",
+                },
+                Audit = new AuditEventHealth { ProtectionMode = "local-only", HealthState = "healthy" },
+            });
+            reservation!.Release();
+        }
+        return count;
     }
 
     /// <summary>A canonical journal line carrying the chain position the

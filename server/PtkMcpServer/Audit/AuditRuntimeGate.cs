@@ -89,6 +89,21 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
 
     internal AuditHealth Health => _health;
 
+    /// <summary>
+    /// Snapshot of the operational journal for the export leg's coordinated
+    /// live-tail read (cr3-1/R3d); null before startup succeeds and after
+    /// stop. The exporter treats null as "no live source" and keeps its
+    /// closed-segment file reads — it must never gate on this.
+    /// </summary>
+    internal AuditJournal? JournalForLiveExport
+    {
+        get
+        {
+            lock (_gate)
+                return _journal;
+        }
+    }
+
     internal DateTimeOffset LastActivityUtc
     {
         get

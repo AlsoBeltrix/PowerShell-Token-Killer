@@ -75,7 +75,12 @@ builder.Services.AddSingleton<IHostedService>(sp => new AuditExportService(
     sp.GetRequiredService<AuditOptions>(),
     exportSettings.IsConfigured ? new HttpAuditDestination(exportSettings) : null,
     new AuditExportCursorStore(sp.GetRequiredService<AuditOptions>().RootDirectory),
-    sp.GetRequiredService<AuditExportHealth>()));
+    sp.GetRequiredService<AuditExportHealth>(),
+    // The live segment is held FileShare.None by the journal writer; the
+    // exporter reads its durably committed tail through the writer's own
+    // handle instead of a second file handle (cr3-1/R3d).
+    liveJournalSource: () =>
+        sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport));
 
 // One supervisor owns this MCP connection's bounded worker/session registry.
 // Submitted scripts execute only in contained worker processes. Constructing

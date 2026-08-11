@@ -24,6 +24,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private readonly AuditExportCursorStore _cursorStore;
     private readonly AuditExportGapStore _gapStore;
     private readonly AuditExportHealth _health;
+    private readonly Func<AuditJournal?>? _liveJournalSource;
     private readonly TimeSpan _idleInterval;
     private readonly TimeSpan _initialRetryDelay;
     private readonly TimeSpan _maximumRetryDelay;
@@ -38,7 +39,8 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         AuditExportHealth health,
         TimeSpan? idleInterval = null,
         TimeSpan? initialRetryDelay = null,
-        TimeSpan? maximumRetryDelay = null)
+        TimeSpan? maximumRetryDelay = null,
+        Func<AuditJournal?>? liveJournalSource = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(cursorStore);
@@ -48,6 +50,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         _cursorStore = cursorStore;
         _gapStore = new AuditExportGapStore(options.RootDirectory);
         _health = health;
+        _liveJournalSource = liveJournalSource;
         // Gaps recorded by earlier processes are evidence and stay visible,
         // including any that an earlier process could not write to the
         // ledger and parked on the cursor instead (cr3-2 round 9).
@@ -161,12 +164,33 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     out var readFailure);
                 if (readFailure is not null)
                 {
-                    // Never silently report healthy while delivering nothing
-                    // (cr3-1): an unreadable segment — including the live one,
-                    // which the journal writer holds exclusively — is a
-                    // visible export failure, not an empty segment.
-                    _health.RecordFailure(readFailure);
-                    break;
+                    // The journal writer holds the live segment
+                    // FileShare.None, and that exclusivity is load-bearing
+                    // for its own live-vs-closed classification — so the live
+                    // tail is read through the writer's OWN handle instead,
+                    // bounded by the durable flush watermark (cr3-1/R3d,
+                    // completing the coordinated read this failure code
+                    // previously only reported). Offsets are file offsets
+                    // either way, so after rotation the ordinary file read
+                    // continues from the same cursor seamlessly.
+                    if (TryReadLiveCommitted(
+                            segment.Name,
+                            startOffset,
+                            out batch,
+                            out nextOffset))
+                    {
+                        // An empty answer at the committed tail means nothing
+                        // durable is pending — quiet, not a failure.
+                    }
+                    else
+                    {
+                        // Never silently report healthy while delivering
+                        // nothing (cr3-1): a segment that is unreadable AND
+                        // not the live journal's is a visible export failure,
+                        // not an empty segment.
+                        _health.RecordFailure(readFailure);
+                        break;
+                    }
                 }
                 if (batch.Count == 0) break;
 
@@ -471,6 +495,91 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             readFailure = "export.segment_read_fault";
         }
         return records;
+    }
+
+    /// <summary>
+    /// Reads the live segment's durably committed prefix through the journal
+    /// writer's own handle. True when the journal authoritatively answered
+    /// for this segment (records, or "at the committed tail" with an empty
+    /// batch); false when there is no live source, the segment is not the
+    /// journal's current one, or the read failed — the caller then reports
+    /// the original file-read failure exactly as before. Only complete
+    /// LF-terminated records are consumed, and the committed watermark always
+    /// sits on a record boundary, so a record is never delivered torn.
+    /// </summary>
+    private bool TryReadLiveCommitted(
+        string segmentFileName,
+        long startOffset,
+        out List<string> records,
+        out long nextOffset)
+    {
+        records = [];
+        nextOffset = startOffset;
+        if (_liveJournalSource is null) return false;
+        if (!AuditSpoolSegmentIdentity.TryParse(segmentFileName, out var identity))
+            return false;
+        try
+        {
+            var journal = _liveJournalSource();
+            if (journal is null) return false;
+            var answered = false;
+            var batchBytes = 0;
+            while (records.Count < MaximumBatchRecords && batchBytes < MaximumBatchBytes)
+            {
+                var read = journal.ReadCommittedSpool(
+                    identity,
+                    nextOffset,
+                    journal.Options.MaxRecordBytes);
+                if (read.Status == AuditCommittedSpoolReadStatus.AtCommittedTail)
+                {
+                    answered = true;
+                    break;
+                }
+                if (read.Status != AuditCommittedSpoolReadStatus.Data ||
+                    read.Bytes.IsEmpty)
+                {
+                    // Rotated, writer closed, or not the current segment: the
+                    // ordinary closed-file read owns it (now or next drain).
+                    break;
+                }
+
+                var span = read.Bytes.Span;
+                var consumed = 0;
+                while (records.Count < MaximumBatchRecords && batchBytes < MaximumBatchBytes)
+                {
+                    var lineFeed = span[consumed..].IndexOf((byte)'\n');
+                    if (lineFeed < 0) break;
+                    if (lineFeed > 0)
+                    {
+                        records.Add(System.Text.Encoding.UTF8.GetString(
+                            span.Slice(consumed, lineFeed)));
+                    }
+                    consumed += lineFeed + 1;
+                    batchBytes += lineFeed + 1;
+                }
+                // A committed chunk with no complete line means a record
+                // wider than the read bound — not this reader's call to
+                // guess; fall back to the visible failure.
+                if (consumed == 0) break;
+                nextOffset += consumed;
+                answered = true;
+            }
+            if (!answered)
+            {
+                records = [];
+                nextOffset = startOffset;
+            }
+            return answered;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // The live read is additive: any fault degrades to the exact
+            // pre-existing behaviour (a reported unreadable segment), never
+            // to a torn or duplicated delivery.
+            records = [];
+            nextOffset = startOffset;
+            return false;
+        }
     }
 
     /// <summary>

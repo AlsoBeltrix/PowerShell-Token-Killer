@@ -9,16 +9,24 @@ capability_ok true, SHAs matched, 2026-08-11. All eight verified
 against the code at intake and ADMITTED; none declined. Every finding
 sits in `Audit/Web/` — the UI and webhook services, both new in R4.
 
+All eight fixes are LANDED, one commit each, every guard proved
+fail-before/pass-after (stash-revert, checkout-revert, or two-way
+wiring sabotage where the surface is additive — per record). Battery at
+`16e0c4d`: server 1,298/1,298, SIEM 270/270, Pester 112+3 skip,
+handshake PASSED. Verification in flight: HIGHs batched to frontier
+(T2), MEDIUMs batched to standard — batch shape is the orchestrator's
+call, mirroring the cr2/r806 precedent.
+
 | ID    | Severity | Impact (one line)                                              | Status | Reviewer |
 |-------|----------|----------------------------------------------------------------|--------|----------|
-| cr5-1 | HIGH     | port squatter harvests the UI bearer token, reuses it later    | `[ ]`  | |
-| cr5-2 | HIGH     | webhook ctor filesystem work gates startup (webhook or not)    | `[ ]`  | |
-| cr5-3 | HIGH     | /api/records returns 200 with evidence silently omitted        | `[ ]`  | |
-| cr5-4 | MEDIUM   | populated closed spool hides the live tail from the UI         | `[ ]`  | |
-| cr5-5 | MEDIUM   | token race: serving UI may not recognize the published token   | `[ ]`  | |
-| cr5-6 | MEDIUM   | failed webhook edge lost if the condition heals before retry   | `[ ]`  | |
-| cr5-7 | MEDIUM   | lineage alert fires at most once per process lifetime          | `[ ]`  | |
-| cr5-8 | MEDIUM   | webhook delivery failure invisible in every health surface     | `[ ]`  | |
+| cr5-1 | HIGH     | port squatter harvests the UI bearer token, reuses it later    | `[~]` fixed `ee0ac2f` | |
+| cr5-2 | HIGH     | webhook ctor filesystem work gates startup (webhook or not)    | `[~]` fixed `5a7d895` | |
+| cr5-3 | HIGH     | /api/records returns 200 with evidence silently omitted        | `[~]` fixed `0d208ac` | |
+| cr5-4 | MEDIUM   | populated closed spool hides the live tail from the UI         | `[~]` fixed `e526643` | |
+| cr5-5 | MEDIUM   | token race: serving UI may not recognize the published token   | `[~]` fixed `415c139` | |
+| cr5-6 | MEDIUM   | failed webhook edge lost if the condition heals before retry   | `[~]` fixed `17440c5` | |
+| cr5-7 | MEDIUM   | lineage alert fires at most once per process lifetime          | `[~]` fixed `55ff41d` | |
+| cr5-8 | MEDIUM   | webhook delivery failure invisible in every health surface     | `[~]` fixed `16e0c4d` | |
 
 ## Closed — cr4 (codereview over R3d completion + R3c, 2026-08-11)
 

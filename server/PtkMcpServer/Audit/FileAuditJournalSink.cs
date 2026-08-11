@@ -1100,27 +1100,56 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         foreach (var segment in candidates)
             TryTrimClosedSegment(segment);
 
+        // Age alone NEVER destroys records the exporter has not delivered
+        // (audit-restoration R3d): ten review rounds showed that detecting
+        // such loss afterwards is intrinsically leaky, so retention stops
+        // creating it. A missing or unreadable cursor yields no floor and the
+        // prior behaviour, because the journal must not depend on the
+        // exporter's bookkeeping.
+        var floor = ExportRetentionFloor.ReadOldestRequiredSegment(_options.RootDirectory);
         DeleteEligiblePrefixSegments(segment =>
+            !ExportRetentionFloor.IsRequired(segment.Name, floor) &&
             now - new DateTimeOffset(segment.LastWriteTimeUtc, TimeSpan.Zero) >= _options.RetentionAge);
 
         if (TotalBytesUnderQuotaLock() <= AggregateCapacityBytes - requiredReservedBytes)
             return;
 
+        // Capacity pressure is the one case that may still evict undelivered
+        // records: the alternative is refusing to journal, which would let a
+        // SIEM outage stop execution — forbidden by contract rule 2. Delivered
+        // segments are always evicted first; an undelivered eviction is a
+        // last resort and is announced on stderr so it is never silent. The
+        // exporter's chain-continuity detection then proves the loss.
+        var evictedUndelivered = false;
         while (TotalBytesUnderQuotaLock() > AggregateCapacityBytes - requiredReservedBytes)
         {
-            var deleted = false;
-            foreach (var segment in EnumerateDeletionFronts(_currentSegmentPath))
-            {
-                if (!TryDeleteClosedSegment(segment.Segment))
-                    continue;
-
-                deleted = true;
-                break;
-            }
-
-            if (!deleted)
+            if (TryEvictOne(deliveredOnly: true, floor))
+                continue;
+            if (!TryEvictOne(deliveredOnly: false, floor))
                 return;
+            evictedUndelivered = true;
         }
+
+        if (evictedUndelivered)
+        {
+            Console.Error.WriteLine(
+                "[ptk audit] the audit spool reached its capacity bound and evicted " +
+                "segments the exporter had not delivered; those records are lost to " +
+                "the destination and the exporter will report the gap.");
+        }
+    }
+
+    private bool TryEvictOne(bool deliveredOnly, string? floor)
+    {
+        foreach (var segment in EnumerateDeletionFronts(_currentSegmentPath))
+        {
+            if (deliveredOnly && ExportRetentionFloor.IsRequired(segment.Segment.Name, floor))
+                continue;
+            if (!TryDeleteClosedSegment(segment.Segment))
+                continue;
+            return true;
+        }
+        return false;
     }
 
     private void DeleteEligiblePrefixSegments(Func<FileInfo, bool> eligible)

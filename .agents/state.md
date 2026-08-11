@@ -169,7 +169,23 @@ contributes nothing to detection, and destroying the audit root
 that exists in the OLD revision — twice a "proof" reverted into a
 compile error, which proves nothing.**
 
-**R3c and R3d are the honest remainder, neither started.** R3c: the
+**R3d is UNDERWAY: acknowledgment-aware retention landed.** Journal
+retention now consults the export cursor through `ExportRetentionFloor`:
+**age-based cleanup can no longer delete a segment the exporter has not
+delivered** — the structural fix that makes most of the cr3-2 class
+impossible instead of merely detectable. A missing or unreadable cursor
+yields no floor and the prior behaviour, because the journal must never
+depend on the exporter's bookkeeping. **Capacity pressure remains the
+one case that may still evict undelivered records** — the alternative is
+refusing to journal, which would let a SIEM outage stop execution
+(forbidden by rule 2) — so delivered segments are always evicted first
+and an undelivered eviction is announced on stderr, with the exporter's
+chain detection proving the loss. Guard proved fail-before/pass-after
+against the pre-floor sink. Still owed by R3d: the coordinated live-tail
+read (cr3-1) and **producer boot lineage**, without which a wholly
+vanished boot stays invisible (the open Fable-5 finding).
+
+**R3c is the other honest remainder, not started.** R3c: the
 receiver still ingests protobuf over mTLS only, so PTK reaches Splunk,
 Sentinel and any OTLP collector today but NOT its own fallback receiver;
 it needs a token-auth + OTLP-JSON ingest path, and that touches the mTLS

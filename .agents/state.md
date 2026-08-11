@@ -181,9 +181,21 @@ refusing to journal, which would let a SIEM outage stop execution
 (forbidden by rule 2) — so delivered segments are always evicted first
 and an undelivered eviction is announced on stderr, with the exporter's
 chain detection proving the loss. Guard proved fail-before/pass-after
-against the pre-floor sink. Still owed by R3d: the coordinated live-tail
-read (cr3-1) and **producer boot lineage**, without which a wholly
-vanished boot stays invisible (the open Fable-5 finding).
+against the pre-floor sink (`7aa03ff`). An undelivered eviction is now
+reported in `ptk_state` as `SPOOL_EVICTED_UNDELIVERED=<n>` — the stderr
+line it originally used was invisible in practice, the same weakness the
+owner called out for quarantine reporting (`a2dcece`).
+
+**Still owed by R3d, in priority order:** (1) **producer boot lineage** —
+without it a wholly vanished supervisor boot is undetectable (the open
+Fable-5 finding, reproduction preserved as a skipped test in
+`AuditExportAdversarialReviewTests`); it needs a record-schema change, so
+it is the natural next piece. (2) The **coordinated live-tail read**
+(cr3-1): the live segment is exportable only after rotation because the
+writer holds it `FileShare.None` and that exclusivity is load-bearing for
+`IsLockedSegment`; the condition is reported, not hidden. (3) The
+eviction as a **journaled audit event** plus the GUI/webhook surfaces
+(R4), so the fact reaches the SIEM itself and not only `ptk_state`.
 
 **R3c is the other honest remainder, not started.** R3c: the
 receiver still ingests protobuf over mTLS only, so PTK reaches Splunk,
@@ -582,19 +594,31 @@ judges by payload survival instead.
 
 ## Next
 
-**Immediate: finish the owner-authorized cr3-2 rounds 7-9, then R3d.**
-The loop was halted after round 6 and the owner reopened it for three
-more rounds. Whatever those find, R3d remains the structural answer:
-six rounds each finding a real path is the argument for its
-**acknowledgment-aware journal retention**: stop deleting undelivered
-records, and the class disappears rather than needing ever-finer
-detection. R3d also owes the coordinated live-tail read (cr3-1). Then,
-in order: **R3d** (acknowledgment-aware
-retention + coordinated live-tail read), **R3c** (receiver token auth +
-JSON ingest), **R4** (the loopback web GUI + settings page — the slice
-that finally lets the owner SEE the logs), R5 conformance/alerts, R6
-CI/docs/packaging. Plan: `.agents/plans/audit-restoration.md`;
-R1 discovery record alongside it.
+**Immediate: finish R3d.** The cr3-2 review loop is CLOSED — ten codex
+rounds plus a Fable-5 second opinion, fifteen paths, fourteen fixed, and
+the owner agreed the remaining effort belongs in R3d rather than in more
+detection rounds. R3d's core landed (acknowledgment-aware retention,
+`7aa03ff`; eviction visible in `ptk_state`, `a2dcece`). **Next piece:
+producer boot lineage** — a record-schema change that closes the one
+open finding (a wholly vanished supervisor boot is currently
+undetectable); its reproduction is a skipped test in
+`AuditExportAdversarialReviewTests`. Then the coordinated live-tail read
+(cr3-1). Then, in order: **R3c** (receiver token auth + JSON ingest —
+without it PTK cannot reach its OWN fallback receiver, though Splunk,
+Sentinel and any OTLP collector work today), **R4** (the loopback web
+GUI + settings page — the slice that finally lets the owner SEE the
+logs, and which also owes the journaled eviction/quarantine events and
+the webhook surface), R5 conformance/alerts, R6 CI/docs/packaging. Plan:
+`.agents/plans/audit-restoration.md`; R1 discovery record alongside it.
+
+**Two durable review lessons from this session, both earned:** a guard
+must assert only through surface that exists in the OLD revision (twice
+a "proof" reverted into a compile error, which proves nothing), and a
+verification dispatch must pin the base at which the fix actually
+landed (one round reported "no bite" purely from a wrong pin). And one
+process failure worth not repeating: **never state a mechanism in a
+commit message that no test exercises** — the round-9 "flush" claim was
+false when written.
 
 **Goal in force (owner, 2026-08-05): finish the app to a 1.0-ready state.**
 Review significant code changes with codex (default settings), work GH issues

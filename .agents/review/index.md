@@ -1,5 +1,16 @@
 # Review status
 
+## Closed — cr6 (codereview over R5a, 2026-08-11)
+
+Generation pass: codex / gpt-5.6-sol / high / standard over
+`b1bd4a7..be80e59` (R5a: producer-owned golden corpora + producer-to-
+receiver conformance, the mini-SIEM S4 fixture gate). Verdict
+`findings` (1), capability_ok true, SHAs matched. Verified same day.
+
+| ID    | Severity | Impact (one line)                                            | Status | Reviewer |
+|-------|----------|--------------------------------------------------------------|--------|----------|
+| cr6-1 | MEDIUM   | fixture locator resolved an ancestor checkout's stale corpus | `[x]` `4d564c4` | codex/gpt-5.6-sol/high/standard |
+
 ## Closed — cr5 (codereview over R4, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over

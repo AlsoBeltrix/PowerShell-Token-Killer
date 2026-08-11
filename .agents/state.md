@@ -716,10 +716,44 @@ VSTest testhost socket (round 1 returned guard_confirmed:false with no
 test run); dispatch guard-proof reviews with
 `-c 'sandbox_workspace_write.network_access=true'` — with it the
 reviewer ran every proof independently.** Battery at `124ba4c`: server
-1,301/1,301, SIEM 270/270, Pester 112+3 skip, handshake PASSED. Next:
-R5 (conformance suite; alert polish), then R6 (CI/docs/packaging,
-release-gate journaling check), per
-`.agents/plans/audit-restoration.md`.
+1,301/1,301, SIEM 270/270, Pester 112+3 skip, handshake PASSED.
+
+**R5a EXECUTED and its review loop CLOSED (2026-08-11, `be80e59` +
+cr6-1 fix `4d564c4`): the producer-owned conformance gate exists — the
+mini-SIEM S4 fixture gate is UNBLOCKED and its first half executed.**
+Producer side (the additive test-only commit the mini-SIEM plan
+authorized, executed under R5's approval + the standing go): golden
+request corpora captured through the REAL `HttpAuditDestination` path
+(OTLP JSON + Splunk HEC × v1 + v2; three-record chains — complete,
+minimal, Unicode — distinct event ids, version-consistent hash links),
+byte-compared every run in `SiemConformanceGoldenTests`, regenerated
+only under `PTK_WRITE_GOLDEN=1`. Receiver side: `ProducerConformanceTests`
+POSTs the exact golden bytes — accepted, stored byte-identically
+(`exact_json_body`), idempotent on replay, value-level Unicode and
+timestamp fidelity — and the fixture locator fails closed, stopping at
+this checkout's `.git` boundary (cr6-1, found by the slice's codereview:
+the walk originally continued past the repo root and could adopt an
+ancestor checkout's stale corpus; §`.agents/review/index.md` cr6).
+The gate bit twice while landing, both real: the first corpus reused
+one event id for every record (the receiver rightly 400'd it —
+duplicate_mismatch/chain_gap; corpus fixed with distinct ids), and an
+encoder sabotage failed exactly the two OTLP goldens. Battery: server
+1,306/1,306 (plain shell), SIEM 275/275. **Test-dispatch lesson: run
+the full server suite from a plain shell — BOTH warm ptk sessions on
+this host now carry the truncated `PSModulePath` and reproduce the
+recorded four-probe StateToolTests failure; earlier same-day a default-
+session run was clean, so the truncation is worker-inheritance
+roulette, exactly as `.agents/machines.md` records.**
+
+Next: **R5b — mini-SIEM S5** (receiver query API + dashboard + operator
+auth; `Web/` does not exist yet under `siem/PtkSiemReceiver/`), then
+**R5c — S6** (alert rules, work-item queue, gap-disposition state
+machine), then R6 (CI/docs/packaging, release-gate journaling check),
+per `.agents/plans/audit-restoration.md` and the mini-SIEM plan's slice
+definitions. The codex verification recipe that works:
+`-s workspace-write -c 'sandbox_workspace_write.network_access=true'`
+(VSTest testhost needs the socket), per-server MCP `enabled=false`
+overrides, `-o <file>` for the verdict.
 
 **Housekeeping note (2026-08-11):** `git stash` holds one pre-existing
 entry — an *hcc-7* prompt-flush WIP for `scripts/ptk_init.ps1`

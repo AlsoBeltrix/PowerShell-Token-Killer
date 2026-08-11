@@ -294,6 +294,40 @@ public sealed class JsonIngestTests
     }
 
     [Fact]
+    public async Task A_cross_encoding_replay_of_the_same_event_is_idempotent()
+    {
+        // cr4-5: a record's identity is its exact JSONL body, never the
+        // transport envelope. The same honest event delivered first through
+        // mTLS/protobuf and replayed through token/JSON must be idempotent —
+        // not a duplicate_mismatch quarantine.
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        using var clientCertificate = authority.IssueClient();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+
+        var record = OtlpTestRequest.CreateRecord();
+        using (var mtls = host.CreateClient(clientCertificate))
+        using (var response = await mtls.PostAsync(host.Endpoint, OtlpTestRequest.Content()))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        }
+
+        using var bearer = host.CreateClient();
+        using (var replay = await bearer.SendAsync(
+                   JsonRequest(host.Endpoint, IngestToken, record.Body)))
+        {
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        }
+
+        Assert.Equal(1L, DatabaseInt64(host.DatabasePath, "SELECT COUNT(*) FROM events;"));
+        Assert.Equal(0L, DatabaseInt64(host.DatabasePath, "SELECT COUNT(*) FROM quarantine;"));
+    }
+
+    [Fact]
     public async Task A_batch_with_one_poison_record_commits_the_rest_and_returns_permanent()
     {
         using var authority = new TestCertificateAuthority();

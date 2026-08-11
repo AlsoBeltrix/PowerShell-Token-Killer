@@ -204,8 +204,15 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             var duplicate = ReadEvent(record.EventId, transaction);
             if (duplicate is not null)
             {
+                // A record's identity is its exact JSONL body (which embeds
+                // the event hash) — never the transport envelope: the same
+                // honest event replayed through the other wire encoding, or
+                // regrouped into a different batch, carries different
+                // request/envelope bytes but the identical body, and must be
+                // idempotent, not quarantined (cr4-5). A same-id DIFFERENT
+                // body remains the forgery signal.
                 if (string.Equals(duplicate.EventHash, record.EventHash, StringComparison.Ordinal) &&
-                    duplicate.RawRequestBytes.AsSpan().SequenceEqual(record.RawRequestBytes))
+                    duplicate.ExactJsonBody.AsSpan().SequenceEqual(record.ExactJsonBody))
                 {
                     transaction.Rollback();
                     return IngestCommitResult.Accepted();
@@ -568,7 +575,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         using var command = CreateCommand(
             transaction.Connection!,
             transaction,
-            "SELECT event_hash, raw_request FROM events WHERE event_id = $event_id;");
+            "SELECT event_hash, exact_json_body FROM events WHERE event_id = $event_id;");
         command.Parameters.AddWithValue("$event_id", FormatGuid(eventId));
         using var reader = command.ExecuteReader();
         return reader.Read()
@@ -867,7 +874,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
 
-    private sealed record EventIdentity(string EventHash, byte[] RawRequestBytes);
+    private sealed record EventIdentity(string EventHash, byte[] ExactJsonBody);
 
     private sealed record ChainHead(long Sequence, string EventId, string EventHash);
 

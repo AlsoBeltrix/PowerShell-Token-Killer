@@ -178,6 +178,100 @@ public sealed class AuditWebUiTests : IDisposable
         Assert.True(await WaitAsync(() => second.IsServing));
     }
 
+    [Fact]
+    public async Task An_unreadable_closed_segment_marks_the_answer_partial()
+    {
+        // cr5-3: a closed segment that fails to read is omitted evidence,
+        // and the answer must say so instead of returning HTTP 200 as
+        // though the record list were complete.
+        var root = NewRoot("webui-partial");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = Guid.NewGuid();
+        var locked = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(boot, 0).FileName);
+        File.WriteAllText(locked, """{"event_type":"call.completed","event_id":"e0"}""" + "\n");
+        var readable = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(boot, 1).FileName);
+        File.WriteAllText(readable, """{"event_type":"call.completed","event_id":"e1"}""" + "\n");
+
+        var health = new AuditHealth(options);
+        var port = FreePort();
+        await using var service = new AuditWebUiService(
+            options, health, new AuditExportHealth(), () => null, port);
+        await service.StartAsync(CancellationToken.None);
+        var token = await WaitForTokenAsync(root);
+        using var client = new HttpClient();
+
+        // A non-newest segment held the way a writer holds its live one is
+        // NOT a live segment; its failure must be reported, while readable
+        // records still serve.
+        using (new FileStream(locked, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (var response = await GetAsync(client, port, "/api/records?tail=10", token))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.True(payload.RootElement.GetProperty("partial").GetBoolean());
+            Assert.Equal(1, payload.RootElement.GetProperty("unreadable_count").GetInt32());
+            var records = payload.RootElement.GetProperty("records");
+            Assert.Equal(1, records.GetArrayLength());
+            Assert.Contains("e1", records[0].GetString(), StringComparison.Ordinal);
+            Assert.Equal(
+                Path.GetFileName(locked),
+                payload.RootElement.GetProperty("unreadable_segments")[0]
+                    .GetProperty("segment").GetString());
+        }
+
+        // Released: the answer is complete again and says so.
+        using (var response = await GetAsync(client, port, "/api/records?tail=10", token))
+        {
+            using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.False(payload.RootElement.GetProperty("partial").GetBoolean());
+            Assert.Equal(2, payload.RootElement.GetProperty("records").GetArrayLength());
+        }
+    }
+
+    [Fact]
+    public async Task Another_supervisors_locked_live_segment_is_expected_not_partial()
+    {
+        // The one position a live segment can occupy is the newest of its
+        // boot; a lock there is the stated shared-root limit, not evidence
+        // loss, and must not false-alarm the partial marker.
+        var root = NewRoot("webui-live-lock");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = Guid.NewGuid();
+        var closed = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(boot, 0).FileName);
+        File.WriteAllText(closed, """{"event_type":"call.completed","event_id":"e0"}""" + "\n");
+        var live = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(boot, 1).FileName);
+        File.WriteAllText(live, """{"event_type":"call.completed","event_id":"e1"}""" + "\n");
+
+        var health = new AuditHealth(options);
+        var port = FreePort();
+        await using var service = new AuditWebUiService(
+            options, health, new AuditExportHealth(), () => null, port);
+        await service.StartAsync(CancellationToken.None);
+        var token = await WaitForTokenAsync(root);
+        using var client = new HttpClient();
+
+        using (new FileStream(live, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (var response = await GetAsync(client, port, "/api/records?tail=10", token))
+        {
+            using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.False(payload.RootElement.GetProperty("partial").GetBoolean());
+            Assert.Equal(0, payload.RootElement.GetProperty("unreadable_count").GetInt32());
+            var records = payload.RootElement.GetProperty("records");
+            Assert.Equal(1, records.GetArrayLength());
+            Assert.Contains("e0", records[0].GetString(), StringComparison.Ordinal);
+        }
+    }
+
     private static async Task<bool> WaitAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)

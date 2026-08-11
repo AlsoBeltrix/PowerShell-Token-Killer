@@ -210,10 +210,19 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                 await WriteJsonAsync(context.Response, 200, BuildHealth()).ConfigureAwait(false);
                 return;
             case ("GET", "/api/records"):
+                var read = ReadRecentRecords(ParseTail(request));
                 await WriteJsonAsync(
                     context.Response,
                     200,
-                    new { records = ReadRecentRecords(ParseTail(request)) })
+                    new
+                    {
+                        records = read.Records,
+                        partial = read.Partial,
+                        unreadable_count = read.UnreadableCount,
+                        unreadable_segments = read.UnreadableSegments,
+                        live_tail_error = read.LiveTailError,
+                        read_error = read.ReadError,
+                    })
                     .ConfigureAwait(false);
                 return;
             case ("GET", "/api/quarantine"):
@@ -325,24 +334,51 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
         };
     }
 
+    private sealed record RecordsRead(
+        IReadOnlyList<string> Records,
+        int UnreadableCount,
+        IReadOnlyList<object> UnreadableSegments,
+        string? LiveTailError,
+        string? ReadError)
+    {
+        public bool Partial =>
+            UnreadableCount > 0 || LiveTailError is not null || ReadError is not null;
+    }
+
+    private const int MaximumReportedUnreadableSegments = 8;
+
     /// <summary>
     /// The newest records across the spool, oldest-first within the answer.
     /// Closed segments are read as files; this supervisor's own live tail is
     /// read through the journal writer's handle. Another supervisor's live
     /// segment becomes readable after rotation — the honest limit of a
-    /// shared root, stated in the UI.
+    /// shared root, stated in the UI. Any other read failure is evidence the
+    /// answer is missing, and the answer says so (cr5-3): only a vanished
+    /// file (retention) and a lock-shaped failure on the newest segment of
+    /// its boot — the one position a live segment can occupy — pass as
+    /// expected.
     /// </summary>
-    private IReadOnlyList<string> ReadRecentRecords(int tail)
+    private RecordsRead ReadRecentRecords(int tail)
     {
         var lines = new List<string>();
+        var unreadableCount = 0;
+        var unreadable = new List<object>();
+        string? liveTailError = null;
+        string? readError = null;
         try
         {
             var files = new DirectoryInfo(_options.SpoolDirectory)
                 .GetFiles("*.jsonl")
-                .Where(file => AuditSpoolSegmentIdentity.TryParse(file.Name, out _))
-                .OrderBy(file => file.LastWriteTimeUtc)
+                .Select(file => AuditSpoolSegmentIdentity.TryParse(file.Name, out var identity)
+                    ? (File: file, Identity: identity)
+                    : default)
+                .Where(entry => entry.File is not null)
+                .OrderBy(entry => entry.File.LastWriteTimeUtc)
                 .ToArray();
-            foreach (var file in files)
+            var newestIndexPerBoot = files
+                .GroupBy(entry => entry.Identity.SupervisorBootId)
+                .ToDictionary(group => group.Key, group => group.Max(entry => entry.Identity.Index));
+            foreach (var (file, identity) in files)
             {
                 try
                 {
@@ -357,9 +393,28 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                         if (line.Length > 0) lines.Add(line);
                     }
                 }
+                catch (Exception exception) when (exception
+                    is FileNotFoundException or DirectoryNotFoundException)
+                {
+                    // Retention deleted it between enumeration and read.
+                }
+                catch (IOException) when (
+                    identity.Index == newestIndexPerBoot[identity.SupervisorBootId])
+                {
+                    // The locked live segment: served below when it is ours,
+                    // and readable after rotation when another supervisor's.
+                }
                 catch (Exception exception) when (!IsFatal(exception))
                 {
-                    // The locked live segment: served below when it is ours.
+                    unreadableCount++;
+                    if (unreadable.Count < MaximumReportedUnreadableSegments)
+                    {
+                        unreadable.Add(new
+                        {
+                            segment = file.Name,
+                            error = exception.GetType().Name,
+                        });
+                    }
                 }
             }
 
@@ -403,12 +458,23 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                         offset += Encoding.UTF8.GetByteCount(text[..(lastNewline + 1)]);
                     }
                 }
-                catch (Exception exception) when (!IsFatal(exception)) { }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    liveTailError = exception.GetType().Name;
+                }
             }
         }
-        catch (Exception exception) when (!IsFatal(exception)) { }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            readError = exception.GetType().Name;
+        }
 
-        return lines.Count <= tail ? lines : lines[^tail..];
+        return new RecordsRead(
+            lines.Count <= tail ? lines : lines[^tail..],
+            unreadableCount,
+            unreadable,
+            liveTailError,
+            readError);
     }
 
     private static int ParseTail(HttpListenerRequest request) =>
@@ -572,6 +638,7 @@ depend on any SIEM being reachable. Another supervisor's in-progress segment
 appears here after it rotates.</p>
 <h2>Health</h2><pre id="health">loading…</pre>
 <h2>Recent records (<span id="count">…</span>)</h2>
+<div id="partial" class="warn"></div>
 <table id="records"><thead><tr><th>time</th><th>type</th><th>session</th><th>outcome</th></tr></thead><tbody></tbody></table>
 <h2>Quarantine</h2><pre id="quarantine">loading…</pre>
 <h2>SIEM connection</h2>
@@ -597,6 +664,7 @@ async function refresh(){
  const r=await (await api('/api/records?tail=100')).json();
  const body=document.querySelector('#records tbody');body.innerHTML='';
  document.getElementById('count').textContent=r.records.length;
+ document.getElementById('partial').textContent=r.partial?'WARNING: partial read — some journal evidence could not be read ('+(r.unreadable_count||0)+' unreadable segment(s)'+(r.live_tail_error?', live tail: '+r.live_tail_error:'')+(r.read_error?', spool: '+r.read_error:'')+')':'';
  for(const line of r.records.slice().reverse()){
   let rec;try{rec=JSON.parse(line)}catch{rec=null}
   const tr=document.createElement('tr');

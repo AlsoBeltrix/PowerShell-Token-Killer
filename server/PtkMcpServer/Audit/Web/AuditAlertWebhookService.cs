@@ -28,6 +28,8 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
     private Task? _loop;
     private int _disposed;
 
+    private readonly DateTimeOffset _startedUtc;
+
     private long _notifiedEvictions;
     private long _notifiedGaps;
     private long _notifiedRefused;
@@ -53,9 +55,12 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         _webhook = webhook;
         _client = client ?? new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
         _interval = interval ?? TimeSpan.FromSeconds(30);
-        // The baseline quarantine count is what exists at startup: alerts
-        // fire on NEW artifacts, not on history every boot.
-        _notifiedQuarantine = CountQuarantine();
+        // No filesystem work here (cr5-2): hosted-service construction sits
+        // on the startup path, and an optional webhook must never gate it.
+        // "New artifact" is judged per file against this instant, from the
+        // quarantine timestamp every writer embeds in the filename — so
+        // history stays silent without a startup baseline count.
+        _startedUtc = DateTimeOffset.UtcNow;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -216,6 +221,14 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         return true;
     }
 
+    /// <summary>
+    /// Counts quarantine artifacts minted after this service came up, from
+    /// the quarantine instant every writer embeds in the filename
+    /// (<c>name.yyyyMMddTHHmmssfffZ.guid</c>) — a moved artifact keeps its
+    /// original file times, so timestamps on disk cannot answer this. A name
+    /// carrying no parseable instant counts as new: an alerting channel
+    /// fails noisy, and acknowledgment silences it after one post.
+    /// </summary>
     private int CountQuarantine()
     {
         try
@@ -223,14 +236,36 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
             var directory = Path.Combine(
                 _options.RootDirectory,
                 AuditJournalFactory.QuarantineDirectoryName);
-            return Directory.Exists(directory)
-                ? Directory.GetFiles(directory).Length
-                : 0;
+            if (!Directory.Exists(directory)) return 0;
+            var count = 0;
+            foreach (var file in Directory.EnumerateFiles(directory))
+            {
+                if (!TryParseQuarantineInstant(Path.GetFileName(file), out var minted) ||
+                    minted >= _startedUtc)
+                {
+                    count++;
+                }
+            }
+            return count;
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
             return _notifiedQuarantine;
         }
+    }
+
+    private static bool TryParseQuarantineInstant(string fileName, out DateTimeOffset minted)
+    {
+        minted = default;
+        var parts = fileName.Split('.');
+        return parts.Length >= 3 &&
+            DateTimeOffset.TryParseExact(
+                parts[^2],
+                "yyyyMMddTHHmmssfffZ",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal |
+                System.Globalization.DateTimeStyles.AdjustToUniversal,
+                out minted);
     }
 
     public async ValueTask DisposeAsync()

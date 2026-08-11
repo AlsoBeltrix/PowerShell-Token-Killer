@@ -88,6 +88,96 @@ public sealed class AuditAlertWebhookTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_historic_quarantine_artifact_appearing_after_startup_does_not_page()
+    {
+        // cr5-2: the constructor must do no filesystem baseline count, so
+        // "new" is judged from the quarantine instant embedded in the file
+        // name. A restored historic artifact is not a new quarantine event.
+        var root = NewRoot("webhook-quarantine-historic");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+        using var receiver = new WebhookReceiver();
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri);
+
+        WriteQuarantineArtifact(root, DateTimeOffset.UtcNow.AddHours(-1));
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Empty(receiver.Bodies);
+    }
+
+    [Fact]
+    public async Task A_quarantine_minted_after_startup_pages_and_growth_pages_again()
+    {
+        var root = NewRoot("webhook-quarantine-new");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+        using var receiver = new WebhookReceiver();
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri);
+
+        WriteQuarantineArtifact(root, DateTimeOffset.UtcNow.AddSeconds(1));
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Contains(
+            "quarantine",
+            Assert.Single(receiver.Bodies),
+            StringComparison.Ordinal);
+
+        // Acknowledged: unchanged state stays silent.
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+
+        // Growth fires again.
+        WriteQuarantineArtifact(root, DateTimeOffset.UtcNow.AddSeconds(1));
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Equal(2, receiver.Bodies.Count);
+    }
+
+    [Fact]
+    public async Task A_quarantine_name_without_a_parseable_instant_counts_as_new()
+    {
+        // An alerting channel fails noisy: a foreign artifact the naming
+        // scheme cannot date pages once instead of never.
+        var root = NewRoot("webhook-quarantine-foreign");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+        using var receiver = new WebhookReceiver();
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri);
+
+        var directory = SecureAuditStorage.PrepareRoot(
+            Path.Combine(root, AuditJournalFactory.QuarantineDirectoryName));
+        File.WriteAllText(Path.Combine(directory, "mystery-artifact"), "?");
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Contains(
+            "quarantine",
+            Assert.Single(receiver.Bodies),
+            StringComparison.Ordinal);
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+    }
+
+    private static void WriteQuarantineArtifact(string root, DateTimeOffset minted)
+    {
+        var directory = SecureAuditStorage.PrepareRoot(
+            Path.Combine(root, AuditJournalFactory.QuarantineDirectoryName));
+        var name = $"host.id.{minted:yyyyMMddTHHmmssfffZ}.{Guid.NewGuid():N}";
+        File.WriteAllText(Path.Combine(directory, name), "quarantined bytes");
+    }
+
     private string NewRoot(string label)
     {
         var root = Path.Combine(

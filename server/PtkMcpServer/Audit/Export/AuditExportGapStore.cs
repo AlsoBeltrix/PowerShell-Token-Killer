@@ -165,6 +165,43 @@ internal sealed class AuditExportGapStore
     }
 
     /// <summary>
+    /// Durably mirrors a lineage attestation (claimed predecessor → claiming
+    /// boot). Claims are EVIDENCE and must not live only on the cursor: the
+    /// cursor is loss-tolerant by contract (an unreadable cursor merely
+    /// re-delivers) and its boot map is bounded, so cursor loss or eviction
+    /// would erase the only witness that a vanished predecessor ever existed
+    /// (cr4-4 round 3 — the same cr3-2 round-5 lesson that moved chain
+    /// memory here). Bounded: resolved claims (the claimed boot's chain
+    /// reached its terminal) are evicted first.
+    /// </summary>
+    internal bool TryRecordAttestation(string claimedBootId, string claimingBootId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(claimedBootId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(claimingBootId);
+        lock (_gate)
+        {
+            var current = ReadOrQuarantineLocked(out _);
+            if (current.Attestations.ContainsKey(claimedBootId)) return true;
+            var attestations = new Dictionary<string, string>(
+                current.Attestations,
+                StringComparer.Ordinal)
+            {
+                [claimedBootId] = claimingBootId,
+            };
+            const int maximumAttestations = 64;
+            while (attestations.Count > maximumAttestations)
+            {
+                var victim = attestations.Keys
+                    .OrderByDescending(claimed =>
+                        current.Chains.TryGetValue(claimed, out var chain) && chain.Terminal)
+                    .First();
+                attestations.Remove(victim);
+            }
+            return TryWriteLocked(current with { AttestationsOrNull = attestations });
+        }
+    }
+
+    /// <summary>
     /// Records one lost segment. Returns the resulting durable record. A
     /// segment already recorded is not counted twice, so a repeating drain
     /// cannot inflate the number.
@@ -273,6 +310,15 @@ internal sealed class AuditExportGapStore
                     file.LastSequence,
                     file.LastWasLifecycleTerminal);
             }
+            var attestations = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (file.Attestations is not null)
+            {
+                foreach (var (claimed, claiming) in file.Attestations)
+                {
+                    if (string.IsNullOrWhiteSpace(claiming)) continue;
+                    attestations[claimed] = claiming;
+                }
+            }
             return new AuditExportGapRecord(
                 file.Count,
                 file.Segments ?? [],
@@ -281,7 +327,8 @@ internal sealed class AuditExportGapStore
                 file.LastSequence,
                 file.LastWasLifecycleTerminal,
                 file.RefusedRecords,
-                chains);
+                chains,
+                attestations);
         }
     }
 
@@ -309,6 +356,10 @@ internal sealed class AuditExportGapStore
                         Sequence = entry.Value.Sequence,
                         Terminal = entry.Value.Terminal,
                     },
+                    StringComparer.Ordinal),
+                Attestations = record.Attestations.ToDictionary(
+                    entry => entry.Key,
+                    entry => (string?)entry.Value,
                     StringComparer.Ordinal),
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
@@ -346,6 +397,7 @@ internal sealed class AuditExportGapStore
         [JsonPropertyName("last_terminal")] public bool LastWasLifecycleTerminal { get; set; }
         [JsonPropertyName("refused_records")] public long RefusedRecords { get; set; }
         [JsonPropertyName("chains")] public Dictionary<string, ChainFile?>? Chains { get; set; }
+        [JsonPropertyName("attested")] public Dictionary<string, string?>? Attestations { get; set; }
     }
 
     private sealed class ChainFile
@@ -368,13 +420,22 @@ internal sealed record AuditExportGapRecord(
     long LastSequence = 0,
     bool LastWasLifecycleTerminal = false,
     long RefusedRecords = 0,
-    IReadOnlyDictionary<string, AuditExportChainMemory>? ChainsOrNull = null)
+    IReadOnlyDictionary<string, AuditExportChainMemory>? ChainsOrNull = null,
+    IReadOnlyDictionary<string, string>? AttestationsOrNull = null)
 {
     internal static AuditExportGapRecord Empty { get; } = new(0, []);
 
     internal IReadOnlyDictionary<string, AuditExportChainMemory> Chains =>
         ChainsOrNull ?? EmptyChains;
 
+    /// <summary>Durable lineage attestations: claimed predecessor → the boot
+    /// that named it (cr4-4 round 3).</summary>
+    internal IReadOnlyDictionary<string, string> Attestations =>
+        AttestationsOrNull ?? EmptyAttestations;
+
     private static readonly IReadOnlyDictionary<string, AuditExportChainMemory> EmptyChains =
         new Dictionary<string, AuditExportChainMemory>(StringComparer.Ordinal);
+
+    private static readonly IReadOnlyDictionary<string, string> EmptyAttestations =
+        new Dictionary<string, string>(StringComparer.Ordinal);
 }

@@ -248,7 +248,17 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     // means records between the last delivered one and this
                     // one were removed before delivery, whatever retention
                     // or rotation did to the segments (cr3-2).
+                    var claimBefore = claimedPrevious;
                     prior = WalkChain(bootKey, prior, batch, ref claimedPrevious);
+                    if (claimedPrevious is not null &&
+                        !string.Equals(claimBefore, claimedPrevious, StringComparison.Ordinal))
+                    {
+                        // Mirrored into the durable ledger the moment it is
+                        // read: an attestation is EVIDENCE, and the cursor —
+                        // loss-tolerant and bounded — must never be its only
+                        // home (cr4-4 round 3; the cr3-2 round-5 lesson).
+                        _ = _gapStore.TryRecordAttestation(claimedPrevious, bootKey);
+                    }
 
                     var result = await _destination
                         .DeliverAsync(batch, cancellationToken)
@@ -411,11 +421,21 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         IReadOnlyList<BootGroup> groups,
         IReadOnlySet<string> incompleteBoots)
     {
-        var claims = cursor.Boots
-            .Where(entry => entry.Value.PreviousBootId is not null &&
-                !string.Equals(entry.Value.PreviousBootId, entry.Key, StringComparison.Ordinal))
-            .Select(entry => entry.Value.PreviousBootId!)
-            .ToHashSet(StringComparer.Ordinal);
+        var claims = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var (claimingBoot, entry) in cursor.Boots)
+        {
+            if (entry.PreviousBootId is null) continue;
+            if (string.Equals(entry.PreviousBootId, claimingBoot, StringComparison.Ordinal))
+                continue;
+            claims.Add(entry.PreviousBootId);
+            // The ledger's mirror covers claims whose cursor entry is later
+            // lost or evicted; a cursor claim the ledger missed (it was
+            // unwritable when the claim was read) heals into it here
+            // (cr4-4 round 3).
+            if (!ledger.Attestations.ContainsKey(entry.PreviousBootId))
+                _ = _gapStore.TryRecordAttestation(entry.PreviousBootId, claimingBoot);
+        }
+        claims.UnionWith(ledger.Attestations.Keys);
         if (claims.Count == 0) return;
         var present = groups
             .Select(group => group.BootId.ToString("D"))

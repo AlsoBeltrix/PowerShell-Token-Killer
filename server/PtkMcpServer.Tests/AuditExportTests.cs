@@ -643,12 +643,32 @@ public sealed class AuditExportTests : IDisposable
 
         // The attestation is durable: a restarted exporter still raises it.
         var restartedHealth = new AuditExportHealth();
-        await using var restarted = NewService(
-            options, receiver, new AuditExportCursorStore(root), restartedHealth);
-        Assert.Equal(0, await restarted.DrainOnceAsync(CancellationToken.None));
+        await using (var restarted = NewService(
+            options, receiver, new AuditExportCursorStore(root), restartedHealth))
+        {
+            Assert.Equal(0, await restarted.DrainOnceAsync(CancellationToken.None));
+            Assert.Contains(
+                "unverified_boot_boundaries=1",
+                restartedHealth.Snapshot().StatusLine(),
+                StringComparison.Ordinal);
+        }
+
+        // And it is EVIDENCE, not cursor metadata: losing the loss-tolerant
+        // cursor (which merely re-delivers) must not erase the only witness
+        // that the vanished predecessor existed — the ledger mirror carries
+        // it (cr4-4 round 3, replaying the cr3-2 round-5 attack). Ordinary
+        // retention has ALSO removed the delivered segments by now, so
+        // re-delivery cannot re-read the claim from the records themselves.
+        foreach (var file in Directory.GetFiles(options.SpoolDirectory, "*.jsonl"))
+            File.Delete(file);
+        File.Delete(new AuditExportCursorStore(root).CursorPath);
+        var cursorlessHealth = new AuditExportHealth();
+        await using var cursorless = NewService(
+            options, receiver, new AuditExportCursorStore(root), cursorlessHealth);
+        _ = await cursorless.DrainOnceAsync(CancellationToken.None);
         Assert.Contains(
             "unverified_boot_boundaries=1",
-            restartedHealth.Snapshot().StatusLine(),
+            cursorlessHealth.Snapshot().StatusLine(),
             StringComparison.Ordinal);
     }
 

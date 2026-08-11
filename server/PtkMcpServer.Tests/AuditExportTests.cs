@@ -200,9 +200,9 @@ public sealed class AuditExportTests : IDisposable
             Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
         }
 
-        var cursor = cursorStore.Read();
-        Assert.Equal(Path.GetFileName(segment), cursor.SegmentFileName);
-        Assert.Equal(new FileInfo(segment).Length, cursor.ByteOffset);
+        var position = PositionFor(cursorStore.Read(), segment);
+        Assert.Equal(Path.GetFileName(segment), position.SegmentFileName);
+        Assert.Equal(new FileInfo(segment).Length, position.ByteOffset);
 
         // A fresh service (restart) resumes after the cursor, then picks up
         // records appended since.
@@ -275,7 +275,7 @@ public sealed class AuditExportTests : IDisposable
         Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
         // Nothing acknowledged means nothing skipped: the cursor stays put so
         // the outage costs lag, never lost custody.
-        Assert.Null(cursorStore.Read().SegmentFileName);
+        Assert.Empty(cursorStore.Read().Boots);
 
         var snapshot = health.Snapshot();
         Assert.True(snapshot.Configured);
@@ -315,7 +315,7 @@ public sealed class AuditExportTests : IDisposable
         // everything recorded after it.
         Assert.Equal(
             Path.GetFileName(segment),
-            cursorStore.Read().SegmentFileName);
+            PositionFor(cursorStore.Read(), segment).SegmentFileName);
 
         receiver.ResponseStatus = HttpStatusCode.OK;
         AppendRecords(segment, ["""{"event_type":"call.completed","event_id":"e2"}"""]);
@@ -465,13 +465,13 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
-    public async Task A_foreign_live_segment_halts_the_drain_instead_of_being_skipped()
+    public async Task A_foreign_live_segment_halts_its_boot_and_no_position_passes_it()
     {
-        // cr4-4: with concurrent supervisors on one root, another process's
-        // live segment is unreadable here (FileShare.None) and NOT servable
-        // by this process's live source. Skipping it would advance the single
-        // cursor past undelivered records, ending the retention floor's
-        // protection of them — the drain must stop and wait, visibly.
+        // cr4-4 (per-boot positions): another supervisor's live segment is
+        // unreadable here (FileShare.None) and not servable by this process's
+        // live source. Its BOOT halts — no position for it may advance, so
+        // retention keeps protecting it — while every other boot's delivery
+        // proceeds independently on its own position.
         var root = NewRoot("export-foreign-live");
         var options = AuditOptions.Create(root);
         Directory.CreateDirectory(options.SpoolDirectory);
@@ -494,14 +494,65 @@ public sealed class AuditExportTests : IDisposable
             FileAccess.ReadWrite,
             FileShare.None))
         {
-            Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+            // The unaffected boot delivers; the locked boot is reported and
+            // records NO position, so nothing can ever have "passed" it.
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
             Assert.Equal("export.segment_unreadable", health.Snapshot().LastFailureDetail);
-            Assert.Null(cursorStore.Read().SegmentFileName);
+            Assert.Null(cursorStore.Read().For(Guid.Parse(bootA)));
+            Assert.NotNull(cursorStore.Read().For(Guid.Parse(bootB)));
         }
 
-        // Once the foreign writer releases (rotation/exit), everything
-        // delivers in order with no gap manufactured.
-        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+        // Once the foreign writer releases (rotation/exit), its records
+        // deliver with no gap manufactured.
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            "EXPORT_GAPS",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Deleting_a_delivered_boots_segments_never_hides_an_undelivered_boot()
+    {
+        // The cr4-4 REOPEN scenario: with the old single cursor over a
+        // mutable file ordering, deleting delivered segments re-sorted an
+        // undelivered boot to "before the cursor", which both skipped it and
+        // let retention classify it delivered. Per-boot positions make the
+        // sequence deliver correctly by construction.
+        var root = NewRoot("export-reopen-scenario");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var bootA = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var bootB = "5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01";
+        var baseTime = new DateTime(2026, 8, 11, 12, 0, 0, DateTimeKind.Utc);
+        var segmentA0 = WriteSegment(
+            options, index: 0, [ChainRecord(bootA, 1)], bootA, baseTime);
+        WriteSegment(
+            options, index: 1, [ChainRecord(bootA, 2)], bootA, baseTime.AddSeconds(2));
+        var lockedB = WriteSegment(
+            options, index: 0, [ChainRecord(bootB, 1)], bootB, baseTime.AddSeconds(1));
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using var service = NewService(options, receiver, cursorStore, health);
+
+        // Boot A delivers fully while boot B is another supervisor's live
+        // segment.
+        using (new FileStream(
+            lockedB,
+            FileMode.Open,
+            FileAccess.ReadWrite,
+            FileShare.None))
+        {
+            Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+        }
+
+        // Retention removes A's delivered first segment; under the old
+        // mutable ordering this re-sorted B before the cursor.
+        File.Delete(segmentA0);
+
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
         Assert.DoesNotContain(
             "EXPORT_GAPS",
             health.Snapshot().StatusLine(),
@@ -734,7 +785,10 @@ public sealed class AuditExportTests : IDisposable
         File.Delete(first);
         WriteSegment(options, index: 1, records:
         [
-            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+            ChainRecord(
+                "2a6465d4-6652-4ff7-8630-2ab0c5f6d04c",
+                sequence: 1,
+                previousBootId: oldBoot),
         ]);
 
         var health = new AuditExportHealth();
@@ -1207,11 +1261,16 @@ public sealed class AuditExportTests : IDisposable
             health);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
 
-        // No terminal was ever delivered for that boot, and the next boot
+        // No terminal was ever delivered for that boot, and the next boot —
+        // whose lineage attests it (cr4-4: the boundary judgment reads
+        // attestation, since per-boot traversal has no crossing moment) —
         // begins cleanly at 1.
         WriteSegment(options, index: 1, records:
         [
-            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+            ChainRecord(
+                "2a6465d4-6652-4ff7-8630-2ab0c5f6d04c",
+                sequence: 1,
+                previousBootId: first),
         ]);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
 
@@ -1314,6 +1373,18 @@ public sealed class AuditExportTests : IDisposable
             liveJournalSource: liveJournalSource);
     }
 
+    private static AuditExportBootPosition PositionFor(
+        AuditExportCursor cursor,
+        string segmentPath)
+    {
+        Assert.True(AuditSpoolSegmentIdentity.TryParse(
+            Path.GetFileName(segmentPath),
+            out var identity));
+        var position = cursor.For(identity.SupervisorBootId);
+        Assert.NotNull(position);
+        return position!;
+    }
+
     private static int AppendJournalEvents(AuditJournal journal, int count)
     {
         for (var index = 0; index < count; index++)
@@ -1343,17 +1414,22 @@ public sealed class AuditExportTests : IDisposable
     }
 
     /// <summary>A canonical journal line carrying the chain position the
-    /// exporter uses to prove loss: per-boot contiguous sequence.</summary>
+    /// exporter uses to prove loss: per-boot contiguous sequence, plus the
+    /// boot-lineage attestation the boundary judgment reads (cr4-4).</summary>
     private static string ChainRecord(
         string supervisorBootId,
         long sequence,
-        string eventType = "call.completed") =>
+        string eventType = "call.completed",
+        string? previousBootId = null) =>
         "{\"schema_version\":\"ptk.audit/2\",\"event_id\":\"019f5ee1-2384-7eac-8f88-2eb4e7ec5e" +
         sequence.ToString("D2", System.Globalization.CultureInfo.InvariantCulture) +
         "\",\"event_type\":\"" + eventType + "\",\"sequence\":" +
         sequence.ToString(System.Globalization.CultureInfo.InvariantCulture) +
         ",\"producer\":{\"host_id\":\"92874c03-05a7-4aa6-8094-b2e87cad5696\"," +
-        "\"supervisor_boot_id\":\"" + supervisorBootId + "\",\"worker_boot_id\":null," +
+        "\"supervisor_boot_id\":\"" + supervisorBootId + "\"," +
+        "\"previous_supervisor_boot_id\":" +
+        (previousBootId is null ? "null" : "\"" + previousBootId + "\"") +
+        ",\"worker_boot_id\":null," +
         "\"pid\":32890,\"version\":\"1.0.0.0\",\"binary_digest\":null}}";
 
     private static string WriteSegment(
@@ -1363,13 +1439,42 @@ public sealed class AuditExportTests : IDisposable
         string? bootId = null,
         DateTime? createdUtc = null)
     {
-        var identity = AuditSpoolSegmentIdentity.Create(
-            bootId is null ? Guid.NewGuid() : Guid.Parse(bootId),
-            index);
+        // A segment's file name carries its boot id, and the walk rightly
+        // refuses records that contradict their segment's boot (cr4-4) — so
+        // an unspecified boot is derived from the records, as production
+        // segments are by construction.
+        var boot = bootId is not null
+            ? Guid.Parse(bootId)
+            : EmbeddedBootId(records) ?? Guid.NewGuid();
+        var identity = AuditSpoolSegmentIdentity.Create(boot, index);
         var path = Path.Combine(options.SpoolDirectory, identity.FileName);
         File.WriteAllText(path, string.Concat(records.Select(record => record + "\n")));
         if (createdUtc is not null) File.SetCreationTimeUtc(path, createdUtc.Value);
         return path;
+    }
+
+    private static Guid? EmbeddedBootId(string[] records)
+    {
+        foreach (var record in records)
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(record);
+                if (document.RootElement.TryGetProperty("producer", out var producer) &&
+                    producer.ValueKind == JsonValueKind.Object &&
+                    producer.TryGetProperty("supervisor_boot_id", out var boot) &&
+                    boot.ValueKind == JsonValueKind.String &&
+                    Guid.TryParseExact(boot.GetString(), "D", out var parsed))
+                {
+                    return parsed;
+                }
+            }
+            catch (JsonException)
+            {
+                // Undecorated records fall through to a random boot.
+            }
+        }
+        return null;
     }
 
     private static void AppendRecords(string segmentPath, string[] records) =>

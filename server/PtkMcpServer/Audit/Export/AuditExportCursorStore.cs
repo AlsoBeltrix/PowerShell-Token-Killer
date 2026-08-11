@@ -1,12 +1,12 @@
-using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
 namespace PtkMcpServer.Audit.Export;
 
 /// <summary>
-/// How far delivery has durably progressed through the spool, plus the last
-/// delivered record's chain position.
+/// One boot's durable delivery state: the last segment delivery touched, the
+/// consumed byte offset within it, and the last delivered record's chain
+/// position.
 ///
 /// The chain position is what makes loss detectable: file bookkeeping cannot
 /// distinguish "this segment was deleted after everything in it was
@@ -16,16 +16,60 @@ namespace PtkMcpServer.Audit.Export;
 /// the last delivered one proves whether anything was lost, whatever
 /// retention did to the files.
 /// </summary>
-internal sealed record AuditExportCursor(
+internal sealed record AuditExportBootPosition(
     string? SegmentFileName,
     long ByteOffset,
-    string? LastSupervisorBootId = null,
-    long LastSequence = 0,
-    bool LastWasLifecycleTerminal = false,
+    long LastSequence,
+    bool LastWasLifecycleTerminal,
+    DateTimeOffset TouchedUtc);
+
+/// <summary>
+/// How far delivery has durably progressed, PER SUPERVISOR BOOT. The cr4-4
+/// reopen proved a single linear position cannot survive concurrent boots:
+/// any total order keyed on the remaining files mutates when retention
+/// deletes delivered segments, and a mutated order lets the one cursor both
+/// skip and expose undelivered segments. Per-boot positions are
+/// order-independent by construction.
+/// </summary>
+internal sealed record AuditExportCursor(
+    IReadOnlyDictionary<string, AuditExportBootPosition> Boots,
     long UnrecordedGaps = 0,
     long UnrecordedMissingRecords = 0)
 {
-    internal static AuditExportCursor Start { get; } = new(null, 0);
+    internal static AuditExportCursor Start { get; } =
+        new(new Dictionary<string, AuditExportBootPosition>(StringComparer.Ordinal));
+
+    internal AuditExportBootPosition? For(Guid supervisorBootId) =>
+        Boots.TryGetValue(supervisorBootId.ToString("D"), out var position)
+            ? position
+            : null;
+
+    internal AuditExportCursor WithBoot(Guid supervisorBootId, AuditExportBootPosition position)
+    {
+        var boots = new Dictionary<string, AuditExportBootPosition>(Boots, StringComparer.Ordinal)
+        {
+            [supervisorBootId.ToString("D")] = position,
+        };
+        return this with { Boots = Bound(boots) };
+    }
+
+    /// <summary>Bounded map: terminal (finished) boots are evicted first,
+    /// oldest-touched first; a non-terminal entry guards an undelivered
+    /// floor and is only evicted under genuine overflow.</summary>
+    private static Dictionary<string, AuditExportBootPosition> Bound(
+        Dictionary<string, AuditExportBootPosition> boots)
+    {
+        const int maximumBoots = 64;
+        while (boots.Count > maximumBoots)
+        {
+            var victim = boots
+                .OrderByDescending(entry => entry.Value.LastWasLifecycleTerminal)
+                .ThenBy(entry => entry.Value.TouchedUtc)
+                .First();
+            boots.Remove(victim.Key);
+        }
+        return boots;
+    }
 }
 
 /// <summary>
@@ -33,11 +77,12 @@ internal sealed record AuditExportCursor(
 /// destination accepted the batch, so a crash re-delivers rather than skips
 /// (at-least-once; the receiver is idempotent). A cursor that cannot be
 /// persisted never blocks execution — it costs re-delivery, nothing more.
+/// A version-1 (single-position) cursor is migrated on read.
 /// </summary>
 internal sealed class AuditExportCursorStore
 {
     internal const string FileName = "export-cursor.json";
-    private const int MaximumFileBytes = 8 * 1024;
+    private const int MaximumFileBytes = 64 * 1024;
 
     private readonly string _path;
     private readonly string _directory;
@@ -62,15 +107,60 @@ internal sealed class AuditExportCursorStore
                 requireProtectedParent: false,
                 verifyWithoutMutation: true);
             var file = JsonSerializer.Deserialize<CursorFile>(bytes);
-            if (file is null || file.ByteOffset < 0) return AuditExportCursor.Start;
+            if (file is null) return AuditExportCursor.Start;
+
+            var boots = new Dictionary<string, AuditExportBootPosition>(StringComparer.Ordinal);
+            if (file.Boots is not null)
+            {
+                foreach (var (key, entry) in file.Boots)
+                {
+                    if (entry is null || entry.ByteOffset < 0) continue;
+                    if (!Guid.TryParseExact(key, "D", out _)) continue;
+                    boots[key] = new AuditExportBootPosition(
+                        entry.SegmentFileName,
+                        entry.ByteOffset,
+                        entry.LastSequence,
+                        entry.LastWasLifecycleTerminal,
+                        entry.TouchedUtc ?? DateTimeOffset.UnixEpoch);
+                }
+            }
+            else if (file.SegmentFileName is not null || file.LastSupervisorBootId is not null)
+            {
+                // Version-1 migration: one linear position becomes that
+                // segment's boot's position; a chain memory recorded against
+                // a different boot becomes a chain-only entry.
+                if (file.ByteOffset < 0) return AuditExportCursor.Start;
+                if (file.SegmentFileName is not null &&
+                    AuditSpoolSegmentIdentity.TryParse(file.SegmentFileName, out var identity))
+                {
+                    var chainMatches = string.Equals(
+                        file.LastSupervisorBootId,
+                        identity.SupervisorBootId.ToString("D"),
+                        StringComparison.Ordinal);
+                    boots[identity.SupervisorBootId.ToString("D")] = new AuditExportBootPosition(
+                        file.SegmentFileName,
+                        file.ByteOffset,
+                        chainMatches ? file.LastSequence : 0,
+                        chainMatches && file.LastWasLifecycleTerminal,
+                        DateTimeOffset.UnixEpoch);
+                }
+                if (file.LastSupervisorBootId is not null &&
+                    Guid.TryParseExact(file.LastSupervisorBootId, "D", out _) &&
+                    !boots.ContainsKey(file.LastSupervisorBootId))
+                {
+                    boots[file.LastSupervisorBootId] = new AuditExportBootPosition(
+                        SegmentFileName: null,
+                        ByteOffset: 0,
+                        file.LastSequence,
+                        file.LastWasLifecycleTerminal,
+                        DateTimeOffset.UnixEpoch);
+                }
+            }
+
             return new AuditExportCursor(
-                file.SegmentFileName,
-                file.ByteOffset,
-                file.LastSupervisorBootId,
-                file.LastSequence,
-                file.LastWasLifecycleTerminal,
-                file.UnrecordedGaps,
-                file.UnrecordedMissingRecords);
+                boots,
+                Math.Max(0, file.UnrecordedGaps),
+                Math.Max(0, file.UnrecordedMissingRecords));
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -90,11 +180,18 @@ internal sealed class AuditExportCursorStore
         {
             var payload = JsonSerializer.SerializeToUtf8Bytes(new CursorFile
             {
-                SegmentFileName = cursor.SegmentFileName,
-                ByteOffset = cursor.ByteOffset,
-                LastSupervisorBootId = cursor.LastSupervisorBootId,
-                LastSequence = cursor.LastSequence,
-                LastWasLifecycleTerminal = cursor.LastWasLifecycleTerminal,
+                Version = 2,
+                Boots = cursor.Boots.ToDictionary(
+                    entry => entry.Key,
+                    entry => new BootFile
+                    {
+                        SegmentFileName = entry.Value.SegmentFileName,
+                        ByteOffset = entry.Value.ByteOffset,
+                        LastSequence = entry.Value.LastSequence,
+                        LastWasLifecycleTerminal = entry.Value.LastWasLifecycleTerminal,
+                        TouchedUtc = entry.Value.TouchedUtc,
+                    },
+                    StringComparer.Ordinal),
                 UnrecordedGaps = cursor.UnrecordedGaps,
                 UnrecordedMissingRecords = cursor.UnrecordedMissingRecords,
             });
@@ -123,6 +220,9 @@ internal sealed class AuditExportCursorStore
 
     private sealed class CursorFile
     {
+        [JsonPropertyName("version")] public int? Version { get; set; }
+        [JsonPropertyName("boots")] public Dictionary<string, BootFile?>? Boots { get; set; }
+        // Version-1 fields, read for migration only.
         [JsonPropertyName("segment")] public string? SegmentFileName { get; set; }
         [JsonPropertyName("offset")] public long ByteOffset { get; set; }
         [JsonPropertyName("boot")] public string? LastSupervisorBootId { get; set; }
@@ -132,5 +232,14 @@ internal sealed class AuditExportCursorStore
         // survives a restart even when only the ledger is unwritable.
         [JsonPropertyName("unrecorded_gaps")] public long UnrecordedGaps { get; set; }
         [JsonPropertyName("unrecorded_missing")] public long UnrecordedMissingRecords { get; set; }
+    }
+
+    private sealed class BootFile
+    {
+        [JsonPropertyName("segment")] public string? SegmentFileName { get; set; }
+        [JsonPropertyName("offset")] public long ByteOffset { get; set; }
+        [JsonPropertyName("sequence")] public long LastSequence { get; set; }
+        [JsonPropertyName("terminal")] public bool LastWasLifecycleTerminal { get; set; }
+        [JsonPropertyName("touched")] public DateTimeOffset? TouchedUtc { get; set; }
     }
 }

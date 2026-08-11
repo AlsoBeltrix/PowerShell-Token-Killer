@@ -154,142 +154,283 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             return 0;
         }
 
-        var segments = EnumerateSegments();
-        _health.RecordPendingBytes(PendingBytes(segments, cursor));
+        // Delivery is PER BOOT with per-boot durable positions (cr4-4
+        // reopen): the earlier single linear cursor rode a cross-boot
+        // ordering keyed on the remaining files, which mutated whenever
+        // retention deleted delivered segments — letting the cursor both
+        // skip undelivered segments and expose them to retention. Per-boot
+        // positions are order-independent: a blocked or still-growing boot
+        // halts only ITSELF, and no other boot's progress can move past it.
+        var groups = EnumerateBootGroups();
+        _health.RecordPendingBytes(PendingBytes(groups, cursor));
+        var ledger = _gapStore.ReadOrQuarantine(out var ledgerWasCorrupt);
+        if (ledgerWasCorrupt)
+            _health.RecordUnverifiedBootBoundary("ledger-unreadable", 0);
 
+        // Lineage attestations observed this drain, judged at the end
+        // against everything then known (a claimed predecessor may simply
+        // deliver later in this same pass).
+        var lineageClaims = new Dictionary<string, string>(StringComparer.Ordinal);
+        var incompleteBoots = new HashSet<string>(StringComparer.Ordinal);
 
-        foreach (var segment in SegmentsFrom(segments, cursor))
+        foreach (var group in groups)
         {
-            var startOffset = string.Equals(
-                segment.Name,
-                cursor.SegmentFileName,
-                StringComparison.Ordinal)
-                ? cursor.ByteOffset
-                : 0;
+            var bootKey = group.BootId.ToString("D");
+            var position = cursor.For(group.BootId);
+            var prior = PriorChain(group.BootId, position, ledger);
+            var bootHalted = false;
             var stillGrowing = false;
 
-            while (!cancellationToken.IsCancellationRequested)
+            foreach (var segment in group.Segments)
             {
-                var batch = ReadBatch(
-                    segment.FullName,
-                    startOffset,
-                    out var nextOffset,
-                    out var readFailure);
-                if (readFailure is not null)
+                if (!AuditSpoolSegmentIdentity.TryParse(segment.Name, out var identity))
+                    continue;
+                if (position?.SegmentFileName is not null &&
+                    AuditSpoolSegmentIdentity.TryParse(
+                        position.SegmentFileName,
+                        out var positionIdentity) &&
+                    identity.Index < positionIdentity.Index)
                 {
-                    // The journal writer holds the live segment
-                    // FileShare.None, and that exclusivity is load-bearing
-                    // for its own live-vs-closed classification — so the live
-                    // tail is read through the writer's OWN handle instead,
-                    // bounded by the durable flush watermark (cr3-1/R3d,
-                    // completing the coordinated read this failure code
-                    // previously only reported). Offsets are file offsets
-                    // either way, so after rotation the ordinary file read
-                    // continues from the same cursor seamlessly.
-                    if (TryReadLiveCommitted(
-                            segment.Name,
-                            startOffset,
-                            out batch,
-                            out nextOffset))
+                    // Fully consumed on an earlier drain.
+                    continue;
+                }
+                var startOffset = position is not null &&
+                    string.Equals(segment.Name, position.SegmentFileName, StringComparison.Ordinal)
+                    ? position.ByteOffset
+                    : 0;
+
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var batch = ReadBatch(
+                        segment.FullName,
+                        startOffset,
+                        out var nextOffset,
+                        out var readFailure);
+                    if (readFailure is not null)
                     {
-                        // An empty answer at the committed tail means nothing
-                        // durable is pending — quiet, not a failure. The
-                        // segment is still growing, so the drain must not
-                        // advance past it into later boots (cr4-4).
-                        stillGrowing = true;
+                        // The journal writer holds the live segment
+                        // FileShare.None, and that exclusivity is
+                        // load-bearing for its own live-vs-closed
+                        // classification — so the live tail is read through
+                        // the writer's OWN handle instead, bounded by the
+                        // durable flush watermark (cr3-1/R3d). Offsets are
+                        // file offsets either way, so after rotation the
+                        // ordinary file read continues from the same
+                        // position seamlessly.
+                        if (TryReadLiveCommitted(
+                                segment.Name,
+                                startOffset,
+                                out batch,
+                                out nextOffset))
+                        {
+                            // Quiet at the committed tail; still growing, so
+                            // this BOOT stops here for this pass.
+                            stillGrowing = true;
+                        }
+                        else
+                        {
+                            // Visible (cr3-1), and it halts only THIS BOOT
+                            // (cr4-4): a foreign supervisor's live segment
+                            // stays unreadable until it rotates, while every
+                            // other boot's delivery proceeds on its own
+                            // position.
+                            _health.RecordFailure(readFailure);
+                            bootHalted = true;
+                            break;
+                        }
+                    }
+                    if (batch.Count == 0) break;
+
+                    // Loss is proved by the chain itself, not by which files
+                    // still exist: a jump in this boot's contiguous sequence
+                    // means records between the last delivered one and this
+                    // one were removed before delivery, whatever retention
+                    // or rotation did to the segments (cr3-2).
+                    prior = WalkChain(bootKey, prior, batch, lineageClaims);
+
+                    var result = await _destination
+                        .DeliverAsync(batch, cancellationToken)
+                        .ConfigureAwait(false);
+                    if (result.Disposition == AuditDeliveryDisposition.Retryable)
+                    {
+                        _health.RecordFailure(result.DetailCode ?? "export.failed");
+                        return delivered;
+                    }
+                    if (result.Disposition == AuditDeliveryDisposition.Permanent)
+                    {
+                        // A refusal is isolated to the offending record,
+                        // never applied to the whole batch (cr3-5): every
+                        // record is retried individually, so one poison
+                        // record costs one record. A record that is
+                        // individually refused is reported and stepped over
+                        // — the local journal remains complete.
+                        var isolated = await DeliverIndividuallyAsync(
+                            batch,
+                            result.DetailCode ?? "export.refused",
+                            cancellationToken).ConfigureAwait(false);
+                        if (isolated.Retry) return delivered;
+                        delivered += isolated.Delivered;
                     }
                     else
                     {
-                        // Never silently report healthy while delivering
-                        // nothing (cr3-1) — and never SKIP either (cr4-4):
-                        // advancing to later segments would move the single
-                        // cursor past undelivered records, ending the
-                        // retention floor's protection of them. A foreign
-                        // supervisor's live segment stays unreadable until
-                        // it rotates; the whole drain waits, visibly.
-                        _health.RecordFailure(readFailure);
+                        delivered += batch.Count;
+                        _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                    }
+
+                    startOffset = nextOffset;
+                    position = new AuditExportBootPosition(
+                        segment.Name,
+                        nextOffset,
+                        prior.Has ? prior.Sequence : 0,
+                        prior.Has && prior.Terminal,
+                        DateTimeOffset.UtcNow);
+                    cursor = cursor.WithBoot(group.BootId, position) with
+                    {
+                        UnrecordedGaps = _unrecordedGaps,
+                        UnrecordedMissingRecords = _unrecordedMissingRecords,
+                    };
+                    if (!_cursorStore.TryWrite(cursor))
+                    {
+                        // Neither export metadata path can persist progress
+                        // or evidence. Export PAUSES here and says so
+                        // (cr3-2 round 10). Pausing export never gates
+                        // execution; the local journal stays complete.
+                        _health.RecordFailure("export.metadata_unwritable");
                         return delivered;
                     }
-                }
-                if (batch.Count == 0) break;
-
-                // Loss is proved by the chain itself, not by which files
-                // still exist: a jump in the per-boot sequence means records
-                // between the last delivered one and this one were removed
-                // before delivery, whatever retention or rotation did to the
-                // segments (cr3-2, both verification rounds).
-                DetectSequenceGaps(EffectivePriorPosition(cursor), batch);
-
-                var result = await _destination
-                    .DeliverAsync(batch, cancellationToken)
-                    .ConfigureAwait(false);
-                if (result.Disposition == AuditDeliveryDisposition.Retryable)
-                {
-                    _health.RecordFailure(result.DetailCode ?? "export.failed");
-                    return delivered;
-                }
-                if (result.Disposition == AuditDeliveryDisposition.Permanent)
-                {
-                    // A refusal is isolated to the offending record, never
-                    // applied to the whole batch (cr3-5): every record is
-                    // retried individually, so one poison record costs one
-                    // record, not up to MaximumBatchRecords of custody. A
-                    // record that is individually refused is reported and
-                    // stepped over — the local journal remains complete.
-                    var isolated = await DeliverIndividuallyAsync(
-                        batch,
-                        result.DetailCode ?? "export.refused",
-                        cancellationToken).ConfigureAwait(false);
-                    if (isolated.Retry) return delivered;
-                    delivered += isolated.Delivered;
-                }
-                else
-                {
-                    delivered += batch.Count;
-                    _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                    // Mirrored into the durable ledger so losing the cursor
+                    // does not erase boot memory (cr3-2 round 5).
+                    if (prior.Has)
+                    {
+                        _gapStore.RecordChainPosition(
+                            bootKey,
+                            prior.Sequence,
+                            prior.Terminal);
+                    }
                 }
 
-                startOffset = nextOffset;
-                var (chainBootId, chainSequence, chainTerminal, _) = ChainPosition(batch[^1]);
-                cursor = new AuditExportCursor(
-                    segment.Name,
-                    nextOffset,
-                    chainBootId ?? cursor.LastSupervisorBootId,
-                    chainSequence ?? cursor.LastSequence,
-                    chainBootId is null ? cursor.LastWasLifecycleTerminal : chainTerminal,
-                    _unrecordedGaps,
-                    _unrecordedMissingRecords);
-                if (!_cursorStore.TryWrite(cursor))
-                {
-                    // Neither export metadata path can persist progress or
-                    // evidence. Export PAUSES here and says so: continuing
-                    // would deliver on, advance nothing durably, and lose the
-                    // gap record at the next restart (cr3-2 round 10 —
-                    // replacing the false "execution stops first" argument).
-                    // Pausing export never gates execution; the local journal
-                    // stays complete.
-                    _health.RecordFailure("export.metadata_unwritable");
-                    return delivered;
-                }
-                // Mirrored into the durable ledger so losing the cursor does
-                // not erase boot memory (cr3-2 round 5).
-                _gapStore.RecordChainPosition(
-                    cursor.LastSupervisorBootId,
-                    cursor.LastSequence,
-                    cursor.LastWasLifecycleTerminal);
+                if (bootHalted || stillGrowing) break;
             }
 
-            if (stillGrowing)
-            {
-                // The live tail is drained to its committed watermark; later
-                // boots' segments wait until this one rotates or its writer
-                // closes, so the cursor never leapfrogs a growing segment.
-                break;
-            }
+            if (bootHalted || stillGrowing) incompleteBoots.Add(bootKey);
         }
 
-        _health.RecordPendingBytes(PendingBytes(EnumerateSegments(), cursor));
+        JudgeLineageClaims(lineageClaims, cursor, ledger, groups, incompleteBoots);
+        _health.RecordPendingBytes(PendingBytes(EnumerateBootGroups(), cursor));
         return delivered;
+    }
+
+    private readonly record struct ChainPrior(bool Has, long Sequence, bool Terminal);
+
+    private ChainPrior PriorChain(
+        Guid bootId,
+        AuditExportBootPosition? position,
+        AuditExportGapRecord ledger)
+    {
+        if (position is not null && position.LastSequence > 0)
+            return new ChainPrior(true, position.LastSequence, position.LastWasLifecycleTerminal);
+        // The durable ledger remembers boots whose cursor entry was lost
+        // (cr3-2 round 5).
+        if (ledger.Chains.TryGetValue(bootId.ToString("D"), out var memory))
+            return new ChainPrior(true, memory.Sequence, memory.Terminal);
+        return default;
+    }
+
+    /// <summary>
+    /// Walks one delivered batch for chain continuity within its boot,
+    /// recording proved gaps, collecting lineage attestations, and returning
+    /// the advanced chain position. Records whose embedded boot id does not
+    /// match the segment's boot contribute nothing: file placement is not
+    /// trusted to overrule the walk's per-boot bookkeeping, and such records
+    /// are still delivered.
+    /// </summary>
+    private ChainPrior WalkChain(
+        string bootKey,
+        ChainPrior prior,
+        IReadOnlyList<string> batch,
+        IDictionary<string, string> lineageClaims)
+    {
+        foreach (var record in batch)
+        {
+            var (bootId, sequence, isTerminal, previousBootId) = ChainPosition(record);
+            if (bootId is null || sequence is null) continue;
+            if (!string.Equals(bootId, bootKey, StringComparison.Ordinal)) continue;
+
+            if (previousBootId is not null &&
+                !string.Equals(previousBootId, bootKey, StringComparison.Ordinal) &&
+                !lineageClaims.ContainsKey(previousBootId))
+            {
+                lineageClaims[previousBootId] = bootKey;
+            }
+
+            if (!prior.Has)
+            {
+                // Every chain starts at 1, so a first observed record above 1
+                // proves its prefix is gone — whether this is a first run, a
+                // lost cursor, or a lost ledger.
+                if (sequence > 1)
+                    RecordGap($"{bootKey}:1-{sequence.Value - 1}", sequence.Value - 1);
+            }
+            else if (sequence > prior.Sequence + 1)
+            {
+                RecordGap(
+                    $"{bootKey}:{prior.Sequence + 1}-{sequence.Value - 1}",
+                    sequence.Value - prior.Sequence - 1);
+            }
+
+            prior = new ChainPrior(true, sequence.Value, isTerminal);
+        }
+        return prior;
+    }
+
+    /// <summary>
+    /// Judges the lineage attestations seen this drain (cr4-4 rework of the
+    /// boundary heuristics — per-boot traversal has no "crossing" moment, and
+    /// lineage is the stronger signal anyway):
+    /// - a claimed predecessor with NO chain memory and NO spool files is a
+    ///   wholly vanished boot (the cr3-2 open finding's shape) — unverified
+    ///   boundary;
+    /// - a claimed predecessor whose delivered chain never reached its
+    ///   lifecycle terminal, and which is no longer growing or blocked, ended
+    ///   without its terminal — unverified boundary (the successor's
+    ///   existence plus the dead spool proves it ended; a concurrent ALIVE
+    ///   predecessor always presents a locked or growing newest segment and
+    ///   is exempt);
+    /// - a claimed predecessor that is merely undelivered-but-present, or
+    ///   still alive, raises nothing.
+    /// </summary>
+    private void JudgeLineageClaims(
+        IReadOnlyDictionary<string, string> lineageClaims,
+        AuditExportCursor cursor,
+        AuditExportGapRecord ledger,
+        IReadOnlyList<BootGroup> groups,
+        IReadOnlySet<string> incompleteBoots)
+    {
+        if (lineageClaims.Count == 0) return;
+        var present = groups
+            .Select(group => group.BootId.ToString("D"))
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var (claimed, _) in lineageClaims)
+        {
+            ChainPrior chain = default;
+            if (Guid.TryParseExact(claimed, "D", out var claimedBootId))
+            {
+                chain = PriorChain(claimedBootId, cursor.For(claimedBootId), ledger);
+            }
+
+            if (!chain.Has)
+            {
+                if (!present.Contains(claimed))
+                    _health.RecordUnverifiedBootBoundary(claimed, 0);
+                continue;
+            }
+            if (chain.Terminal) continue;
+            // An alive predecessor always presents a locked or growing
+            // newest segment this drain; anything else with a successor and
+            // no terminal has ended unverified.
+            if (incompleteBoots.Contains(claimed)) continue;
+            _health.RecordUnverifiedBootBoundary(claimed, chain.Sequence);
+        }
     }
 
     /// <summary>
@@ -390,15 +531,16 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         }
     }
 
+    private sealed record BootGroup(Guid BootId, IReadOnlyList<FileInfo> Segments);
+
     /// <summary>
-    /// Segments in delivery order: grouped by supervisor boot (groups ordered
-    /// by their earliest segment's creation time), indexes ascending within a
-    /// boot. Plain creation-time order interleaved concurrent boots
-    /// (A0, B0, A1, …), and every crossing back into a boot mid-chain read as
-    /// a FALSE proved gap (cr4-4): the chain walk compares per boot, so each
-    /// boot must be traversed contiguously.
+    /// Segments grouped per supervisor boot, indexes ascending within each
+    /// boot; groups in a STABLE arbitrary order (boot id). Delivery keeps a
+    /// position per boot, so no cross-boot order is load-bearing — which is
+    /// the point: the cr4-4 reopen showed any order keyed on the remaining
+    /// files mutates when retention deletes delivered segments.
     /// </summary>
-    private FileInfo[] EnumerateSegments()
+    private IReadOnlyList<BootGroup> EnumerateBootGroups()
     {
         try
         {
@@ -411,10 +553,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     Identity: identity))
                 .Where(entry => entry.Parsed)
                 .GroupBy(entry => entry.Identity.SupervisorBootId)
-                .OrderBy(group => group.Min(entry => entry.File.CreationTimeUtc))
-                .ThenBy(group => group.Key)
-                .SelectMany(group => group.OrderBy(entry => entry.Identity.Index))
-                .Select(entry => entry.File)
+                .OrderBy(group => group.Key)
+                .Select(group => new BootGroup(
+                    group.Key,
+                    group.OrderBy(entry => entry.Identity.Index)
+                        .Select(entry => entry.File)
+                        .ToArray()))
                 .ToArray();
         }
         catch (Exception exception) when (!IsFatal(exception))
@@ -423,40 +567,36 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         }
     }
 
-    /// <summary>
-    /// Segments at or after the cursor's segment. A cursor naming a segment
-    /// that retention has since removed restarts from the oldest retained
-    /// segment: re-delivery is contractually fine, a silent gap is not.
-    /// </summary>
-    private static IEnumerable<FileInfo> SegmentsFrom(
-        FileInfo[] segments,
+    private static long PendingBytes(
+        IReadOnlyList<BootGroup> groups,
         AuditExportCursor cursor)
     {
-        if (cursor.SegmentFileName is null) return segments;
-        var index = Array.FindIndex(
-            segments,
-            file => string.Equals(file.Name, cursor.SegmentFileName, StringComparison.Ordinal));
-        return index < 0 ? segments : segments.Skip(index);
-    }
-
-    private static long PendingBytes(FileInfo[] segments, AuditExportCursor cursor)
-    {
         long pending = 0;
-        foreach (var segment in SegmentsFrom(segments, cursor))
+        foreach (var group in groups)
         {
-            var consumed = string.Equals(
-                segment.Name,
-                cursor.SegmentFileName,
-                StringComparison.Ordinal)
-                ? cursor.ByteOffset
-                : 0;
-            try
+            var position = cursor.For(group.BootId);
+            var positionIndex = -1;
+            if (position?.SegmentFileName is not null &&
+                AuditSpoolSegmentIdentity.TryParse(position.SegmentFileName, out var identity))
             {
-                pending += Math.Max(0, segment.Length - consumed);
+                positionIndex = identity.Index;
             }
-            catch (Exception exception) when (!IsFatal(exception))
+            foreach (var segment in group.Segments)
             {
-                // A segment that vanished mid-scan contributes nothing.
+                if (!AuditSpoolSegmentIdentity.TryParse(segment.Name, out var segmentIdentity))
+                    continue;
+                try
+                {
+                    if (segmentIdentity.Index < positionIndex) continue;
+                    var consumed = segmentIdentity.Index == positionIndex
+                        ? position!.ByteOffset
+                        : 0;
+                    pending += Math.Max(0, segment.Length - consumed);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    // A segment that vanished mid-scan contributes nothing.
+                }
             }
         }
         return pending;
@@ -621,122 +761,6 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             nextOffset = startOffset;
             return false;
         }
-    }
-
-    /// <summary>
-    /// Records a durable gap when the next record's chain position skips past
-    /// the last delivered one. Only compares within a single supervisor boot:
-    /// each boot starts its own chain at sequence 1, so a boot change is not
-    /// a gap.
-    /// </summary>
-    /// <summary>
-    /// Walks the whole batch for chain continuity, not just its first record.
-    /// Comparing only the first record let a jump INSIDE one batch — records
-    /// 2 and 4 delivered together after 3 was removed — advance the cursor
-    /// with no signal (cr3-2 round 8).
-    /// </summary>
-    private void DetectSequenceGaps(AuditExportCursor prior, IReadOnlyList<string> batch)
-    {
-        var priorBoot = prior.LastSupervisorBootId;
-        var priorSequence = prior.LastSequence;
-        var priorTerminal = prior.LastWasLifecycleTerminal;
-        var hasPrior = priorBoot is not null && priorSequence > 0;
-
-        foreach (var record in batch)
-        {
-            var (bootId, sequence, isTerminal, previousBootId) = ChainPosition(record);
-            // An unparseable record carries no position, so it neither proves
-            // nor breaks continuity; it is still delivered.
-            if (bootId is null || sequence is null) continue;
-
-            if (!hasPrior)
-            {
-                // Every chain starts at 1, so a first observed record above 1
-                // proves its prefix is gone — whether this is a first run, a
-                // lost cursor, or a lost ledger.
-                if (sequence > 1)
-                    RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
-                ReportUnobservedPredecessor(previousBootId, observedPriorBoot: null);
-            }
-            else if (string.Equals(bootId, priorBoot, StringComparison.Ordinal))
-            {
-                if (sequence > priorSequence + 1)
-                {
-                    RecordGap(
-                        $"{bootId}:{priorSequence + 1}-{sequence.Value - 1}",
-                        sequence.Value - priorSequence - 1);
-                }
-            }
-            else
-            {
-                // A boot boundary is two questions: the new chain must start
-                // at 1 (proved loss), and the old boot's tail can only be
-                // proved delivered by its lifecycle terminal (otherwise
-                // suspicion, never counted as proof).
-                if (sequence > 1)
-                    RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
-                if (!priorTerminal)
-                    _health.RecordUnverifiedBootBoundary(priorBoot!, priorSequence);
-                ReportUnobservedPredecessor(previousBootId, priorBoot);
-            }
-
-            priorBoot = bootId;
-            priorSequence = sequence.Value;
-            priorTerminal = isTerminal;
-            hasPrior = true;
-        }
-    }
-
-    /// <summary>
-    /// The prior chain position to compare against: the cursor when it has
-    /// one, otherwise the durable ledger. A cursor that is missing or
-    /// corrupted reads as "start", and without this fallback an erased boot's
-    /// undelivered tail left no trace at all (cr3-2 round 5). An unreadable
-    /// ledger is quarantined and reported rather than read as absent
-    /// (rounds 6-7).
-    /// </summary>
-    private AuditExportCursor EffectivePriorPosition(AuditExportCursor cursor)
-    {
-        if (cursor.LastSupervisorBootId is not null && cursor.LastSequence > 0)
-            return cursor;
-        var ledger = _gapStore.ReadOrQuarantine(out var ledgerWasCorrupt);
-        if (ledgerWasCorrupt)
-        {
-            // Memory was destroyed by something other than an operator
-            // wiping the audit root, so prior delivery cannot be proved and
-            // the loss of that proof is itself reportable (cr3-2 round 6).
-            _health.RecordUnverifiedBootBoundary("ledger-unreadable", 0);
-        }
-        if (ledger.LastSupervisorBootId is null || ledger.LastSequence <= 0)
-            return cursor;
-        return cursor with
-        {
-            LastSupervisorBootId = ledger.LastSupervisorBootId,
-            LastSequence = ledger.LastSequence,
-            LastWasLifecycleTerminal = ledger.LastWasLifecycleTerminal,
-        };
-    }
-
-    /// <summary>
-    /// A record's boot lineage names the last predecessor boot that journaled
-    /// something. When that named boot is not the one delivery last observed,
-    /// a whole boot's records existed locally and were never delivered — the
-    /// path that was structurally invisible while boot ids carried no lineage
-    /// (R3d, Fable-5 review finding 1). Reported as an unverified boundary,
-    /// not a proved gap: the exporter cannot count the vanished boot's
-    /// records, and a stale lineage entry (its writer could not publish)
-    /// produces the same mismatch — suspicion is never counted as proof.
-    /// A record carrying NO lineage claims nothing: pre-lineage producers
-    /// wrote none, and absence must not manufacture signals on upgrade.
-    /// </summary>
-    private void ReportUnobservedPredecessor(
-        string? claimedPreviousBootId,
-        string? observedPriorBoot)
-    {
-        if (claimedPreviousBootId is null) return;
-        if (string.Equals(claimedPreviousBootId, observedPriorBoot, StringComparison.Ordinal))
-            return;
-        _health.RecordUnverifiedBootBoundary(claimedPreviousBootId, 0);
     }
 
     private void RecordGap(string gapKey, long missingRecords)

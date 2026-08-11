@@ -671,7 +671,28 @@ judges by payload survival instead.
 codereview codex per slice."** That is the go for the remaining
 audit-restoration slices in order, each followed by a codex codereview.
 R3d is DONE (cr3-2's fifteen paths all fixed; cr3-1 fixed in full).
-R3c is EXECUTED (see §Now) — codereview pending, then **R4** (receiver token auth + JSON ingest —
+R3c is EXECUTED (see §Now). **The cr4 codereview loop over
+`abc3292..8ab189a` (boot lineage + live-tail + R3c) is ACTIVE:** codex
+returned five findings, all admitted, all centered on one blind spot —
+multiple supervisors sharing one audit root (one per MCP connection is
+the deployment norm). All five fixes are LANDED and sabotage-proved
+(`9acd89d`..`5ddbaef`; §`.agents/review/index.md` cr4 owns the table):
+non-v4 lineage id now quarantines instead of poisoning every append;
+failed lineage publishes are visible (`LINEAGE_UNPUBLISHED` in
+ptk_state); lineage resolves+publishes atomically at FIRST append under
+the cross-process spool quota lease (concurrently opened boots chain in
+first-append order — plus a caught self-deadlock: the lease had to be
+released before the metrics update, which reacquires it); the export
+leg gained a cross-process single-exporter lease, boot-grouped
+traversal (no false gaps from interleaved boots), halt-at-unreadable
+(the cursor can never pass undelivered records), and a
+delivery-order-aware retention floor; and the receiver's duplicate
+identity is now the exact record body, never transport bytes (honest
+cross-encoding replays idempotent). Note the reviewer transport lesson:
+codex-cli 0.147.0 silently ignores `-c 'mcp_servers={}'` — the first
+generation dispatch failed fail-closed on `capability_ok:false`;
+per-server `enabled=false` overrides work and are cached. Verification
+dispatches are in flight; then **R4** (receiver token auth + JSON ingest —
 without it PTK cannot reach its OWN fallback receiver, though Splunk,
 Sentinel and any OTLP collector work today), **R4** (the loopback web
 GUI + settings page — the slice that finally lets the owner SEE the

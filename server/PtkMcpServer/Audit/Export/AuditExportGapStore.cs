@@ -122,17 +122,44 @@ internal sealed class AuditExportGapStore
         lock (_gate)
         {
             var current = ReadOrQuarantineLocked(out _);
-            if (string.Equals(current.LastSupervisorBootId, supervisorBootId, StringComparison.Ordinal) &&
-                current.LastSequence == sequence &&
-                current.LastWasLifecycleTerminal == wasLifecycleTerminal)
+            var existing = current.Chains.TryGetValue(supervisorBootId!, out var chain)
+                ? chain
+                : null;
+            if (existing is not null &&
+                existing.Sequence == sequence &&
+                existing.Terminal == wasLifecycleTerminal &&
+                string.Equals(current.LastSupervisorBootId, supervisorBootId, StringComparison.Ordinal) &&
+                current.LastSequence == sequence)
             {
                 return;
             }
+
+            // Per-boot chain memory (cr4-4): concurrent boots each carry
+            // their own chain, so one last-position pair cannot remember them
+            // all. The legacy single fields are still written for artifact
+            // compatibility. Bounded like the cursor's boot map.
+            var chains = new Dictionary<string, AuditExportChainMemory>(
+                current.Chains,
+                StringComparer.Ordinal)
+            {
+                [supervisorBootId!] =
+                    new AuditExportChainMemory(sequence, wasLifecycleTerminal),
+            };
+            const int maximumChains = 64;
+            while (chains.Count > maximumChains)
+            {
+                var victim = chains
+                    .OrderByDescending(entry => entry.Value.Terminal)
+                    .First();
+                chains.Remove(victim.Key);
+            }
+
             _ = TryWriteLocked(current with
             {
                 LastSupervisorBootId = supervisorBootId,
                 LastSequence = sequence,
                 LastWasLifecycleTerminal = wasLifecycleTerminal,
+                ChainsOrNull = chains,
             });
         }
     }
@@ -228,6 +255,24 @@ internal sealed class AuditExportGapStore
             }
             if (file.Count < 0)
                 throw new InvalidDataException("The export ledger count is negative.");
+            var chains = new Dictionary<string, AuditExportChainMemory>(StringComparer.Ordinal);
+            if (file.Chains is not null)
+            {
+                foreach (var (boot, chain) in file.Chains)
+                {
+                    if (chain is null || chain.Sequence <= 0) continue;
+                    chains[boot] = new AuditExportChainMemory(chain.Sequence, chain.Terminal);
+                }
+            }
+            // A version-1 ledger's single position seeds the map.
+            if (file.LastSupervisorBootId is not null &&
+                file.LastSequence > 0 &&
+                !chains.ContainsKey(file.LastSupervisorBootId))
+            {
+                chains[file.LastSupervisorBootId] = new AuditExportChainMemory(
+                    file.LastSequence,
+                    file.LastWasLifecycleTerminal);
+            }
             return new AuditExportGapRecord(
                 file.Count,
                 file.Segments ?? [],
@@ -235,7 +280,8 @@ internal sealed class AuditExportGapStore
                 file.LastSupervisorBootId,
                 file.LastSequence,
                 file.LastWasLifecycleTerminal,
-                file.RefusedRecords);
+                file.RefusedRecords,
+                chains);
         }
     }
 
@@ -256,6 +302,14 @@ internal sealed class AuditExportGapStore
                 LastSequence = record.LastSequence,
                 LastWasLifecycleTerminal = record.LastWasLifecycleTerminal,
                 RefusedRecords = record.RefusedRecords,
+                Chains = record.Chains.ToDictionary(
+                    entry => entry.Key,
+                    entry => (ChainFile?)new ChainFile
+                    {
+                        Sequence = entry.Value.Sequence,
+                        Terminal = entry.Value.Terminal,
+                    },
+                    StringComparer.Ordinal),
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -291,8 +345,18 @@ internal sealed class AuditExportGapStore
         [JsonPropertyName("last_sequence")] public long LastSequence { get; set; }
         [JsonPropertyName("last_terminal")] public bool LastWasLifecycleTerminal { get; set; }
         [JsonPropertyName("refused_records")] public long RefusedRecords { get; set; }
+        [JsonPropertyName("chains")] public Dictionary<string, ChainFile?>? Chains { get; set; }
+    }
+
+    private sealed class ChainFile
+    {
+        [JsonPropertyName("sequence")] public long Sequence { get; set; }
+        [JsonPropertyName("terminal")] public bool Terminal { get; set; }
     }
 }
+
+/// <summary>One boot's last delivered chain position, mirrored durably.</summary>
+internal sealed record AuditExportChainMemory(long Sequence, bool Terminal);
 
 /// <summary>Distinct gap events, their bounded keys, and the total number of
 /// audit records proved missing across them.</summary>
@@ -303,7 +367,14 @@ internal sealed record AuditExportGapRecord(
     string? LastSupervisorBootId = null,
     long LastSequence = 0,
     bool LastWasLifecycleTerminal = false,
-    long RefusedRecords = 0)
+    long RefusedRecords = 0,
+    IReadOnlyDictionary<string, AuditExportChainMemory>? ChainsOrNull = null)
 {
     internal static AuditExportGapRecord Empty { get; } = new(0, []);
+
+    internal IReadOnlyDictionary<string, AuditExportChainMemory> Chains =>
+        ChainsOrNull ?? EmptyChains;
+
+    private static readonly IReadOnlyDictionary<string, AuditExportChainMemory> EmptyChains =
+        new Dictionary<string, AuditExportChainMemory>(StringComparer.Ordinal);
 }

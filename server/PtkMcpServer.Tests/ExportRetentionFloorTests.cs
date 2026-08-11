@@ -6,11 +6,15 @@ namespace PtkMcpServer.Tests;
 /// <summary>
 /// audit-restoration R3d: journal retention is acknowledgment-aware, so
 /// ordinary age-based cleanup cannot destroy records the exporter has not
-/// delivered. Ten review rounds established that detecting such loss
-/// afterwards is intrinsically leaky; this stops creating it.
+/// delivered. The cr4-4 reopen retired the single-segment floor for PER-BOOT
+/// floors: any cross-boot ordering keyed on the remaining files mutates when
+/// delivered segments are deleted, so no such ordering may decide retention.
 /// </summary>
 public sealed class ExportRetentionFloorTests : IDisposable
 {
+    private static readonly Guid BootA = Guid.Parse("d99ba8e8-25c5-4bfb-9c39-364407e4d96d");
+    private static readonly Guid BootB = Guid.Parse("5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01");
+
     private readonly List<string> _roots = [];
 
     public void Dispose()
@@ -23,94 +27,85 @@ public sealed class ExportRetentionFloorTests : IDisposable
     }
 
     [Fact]
-    public void The_floor_protects_the_cursor_segment_and_everything_after_it()
+    public void Per_boot_floors_protect_positions_undelivered_boots_and_release_finished_ones()
     {
-        var boot = Guid.Parse("d99ba8e8-25c5-4bfb-9c39-364407e4d96d");
-        var floor = AuditSpoolSegmentIdentity.Create(boot, 4).FileName;
+        var floors = new Dictionary<Guid, ExportRetentionFloor.BootFloor>
+        {
+            [BootA] = new(SegmentIndex: 4, Terminal: false),
+            [BootB] = new(SegmentIndex: 2, Terminal: true),
+        };
 
-        Assert.True(ExportRetentionFloor.IsRequired(floor, floor));
+        // The position segment and everything after it stay; earlier
+        // segments of the same boot are delivered and deletable.
         Assert.True(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(boot, 5).FileName,
-            floor));
-        // Already delivered.
+            AuditSpoolSegmentIdentity.Create(BootA, 4).FileName, floors));
+        Assert.True(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(BootA, 5).FileName, floors));
         Assert.False(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(boot, 3).FileName,
-            floor));
-        // Without a supplied group ordering, another supervisor boot has no
-        // ordering against this floor and is not protected (the pre-cr4-4
-        // single-supervisor behaviour).
+            AuditSpoolSegmentIdentity.Create(BootA, 3).FileName, floors));
+
+        // A boot whose lifecycle terminal was delivered needs nothing:
+        // nothing appends after server.stopped.
         Assert.False(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(Guid.NewGuid(), 9).FileName,
-            floor));
-        // No cursor at all means no extra retention.
-        Assert.False(ExportRetentionFloor.IsRequired(floor, null));
+            AuditSpoolSegmentIdentity.Create(BootB, 9).FileName, floors));
+
+        // A boot the exporter has never recorded is wholly undelivered:
+        // everything is retained.
+        Assert.True(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(Guid.NewGuid(), 0).FileName, floors));
+
+        // No floors at all (export never ran) retains nothing extra.
+        Assert.False(ExportRetentionFloor.IsRequired(
+            AuditSpoolSegmentIdentity.Create(BootA, 4).FileName, null));
     }
 
     [Fact]
-    public void With_group_ordering_other_boots_at_or_after_the_cursor_group_are_protected()
-    {
-        // cr4-4: delivery traverses boot groups in earliest-creation order,
-        // so a DIFFERENT boot is deletable only when its whole group is
-        // strictly before the cursor's group — "different boot" no longer
-        // means "already delivered or already lost" on a shared root.
-        var floorBoot = Guid.Parse("d99ba8e8-25c5-4bfb-9c39-364407e4d96d");
-        var earlierBoot = Guid.Parse("5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01");
-        var laterBoot = Guid.Parse("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c");
-        var unknownBoot = Guid.Parse("7c1f2f66-9f6e-4a3b-8b21-6a2f9d1c0e55");
-        var floor = AuditSpoolSegmentIdentity.Create(floorBoot, 2).FileName;
-        var baseTime = new DateTime(2026, 8, 11, 12, 0, 0, DateTimeKind.Utc);
-        DateTime? Earliest(Guid boot) =>
-            boot == floorBoot ? baseTime :
-            boot == earlierBoot ? baseTime.AddMinutes(-5) :
-            boot == laterBoot ? baseTime.AddMinutes(5) :
-            null;
-
-        Assert.False(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(earlierBoot, 9).FileName, floor, Earliest));
-        Assert.True(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(laterBoot, 0).FileName, floor, Earliest));
-        // Unknown ordering is conservative: keep the bytes.
-        Assert.True(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(unknownBoot, 0).FileName, floor, Earliest));
-        // Same-boot behaviour is unchanged by the ordering argument.
-        Assert.True(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(floorBoot, 3).FileName, floor, Earliest));
-        Assert.False(ExportRetentionFloor.IsRequired(
-            AuditSpoolSegmentIdentity.Create(floorBoot, 1).FileName, floor, Earliest));
-    }
-
-    [Fact]
-    public void An_absent_or_unreadable_cursor_yields_no_floor()
+    public void An_absent_or_unreadable_cursor_yields_no_floors()
     {
         var root = NewRoot("floor-missing");
-        Assert.Null(ExportRetentionFloor.ReadOldestRequiredSegment(root));
+        Assert.Null(ExportRetentionFloor.ReadFloors(root));
 
         // The journal must never fail or change behaviour because the
         // exporter's bookkeeping is unusable.
         File.WriteAllText(Path.Combine(root, "export-cursor.json"), "{ not json");
-        Assert.Null(ExportRetentionFloor.ReadOldestRequiredSegment(root));
-
-        File.WriteAllText(
-            Path.Combine(root, "export-cursor.json"),
-            JsonSerializer.Serialize(new { segment = "not-a-segment-name", offset = 0 }));
-        Assert.Null(ExportRetentionFloor.ReadOldestRequiredSegment(root));
+        Assert.Null(ExportRetentionFloor.ReadFloors(root));
     }
 
     [Fact]
-    public void A_valid_cursor_reports_its_segment_as_the_floor()
+    public void A_version2_cursor_reports_per_boot_floors()
     {
-        var root = NewRoot("floor-present");
-        var name = AuditSpoolSegmentIdentity
-            .Create(Guid.Parse("d99ba8e8-25c5-4bfb-9c39-364407e4d96d"), 7)
-            .FileName;
-        var path = Path.Combine(root, "export-cursor.json");
-        File.WriteAllText(path, JsonSerializer.Serialize(new { segment = name, offset = 128 }));
-        // The floor read enforces the same owner-only protection as every
-        // other audit artifact: a world-readable cursor is not trusted.
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, SecureAuditStorage.OwnerFileMode);
+        var root = NewRoot("floor-v2");
+        var segmentA = AuditSpoolSegmentIdentity.Create(BootA, 7).FileName;
+        WriteProtected(root, "export-cursor.json", JsonSerializer.Serialize(new
+        {
+            version = 2,
+            boots = new Dictionary<string, object>
+            {
+                [BootA.ToString("D")] = new { segment = segmentA, offset = 128, terminal = false },
+                [BootB.ToString("D")] = new { segment = (string?)null, offset = 0, terminal = true },
+            },
+        }));
 
-        Assert.Equal(name, ExportRetentionFloor.ReadOldestRequiredSegment(root));
+        var floors = ExportRetentionFloor.ReadFloors(root);
+        Assert.NotNull(floors);
+        Assert.Equal(7, floors![BootA].SegmentIndex);
+        Assert.False(floors[BootA].Terminal);
+        Assert.True(floors[BootB].Terminal);
+    }
+
+    [Fact]
+    public void A_version1_cursor_migrates_to_its_boots_floor()
+    {
+        var root = NewRoot("floor-v1");
+        var name = AuditSpoolSegmentIdentity.Create(BootA, 7).FileName;
+        WriteProtected(root, "export-cursor.json",
+            JsonSerializer.Serialize(new { segment = name, offset = 128 }));
+
+        var floors = ExportRetentionFloor.ReadFloors(root);
+        Assert.NotNull(floors);
+        var floor = Assert.Single(floors!);
+        Assert.Equal(BootA, floor.Key);
+        Assert.Equal(7, floor.Value.SegmentIndex);
     }
 
     [Fact]
@@ -155,7 +150,14 @@ public sealed class ExportRetentionFloorTests : IDisposable
         }
 
         // Delivery stands at segment 1: segment 0 is delivered, 1 is not.
-        WriteCursor(root, closedOne);
+        WriteProtected(root, "export-cursor.json", JsonSerializer.Serialize(new
+        {
+            version = 2,
+            boots = new Dictionary<string, object>
+            {
+                [boot.ToString("D")] = new { segment = closedOne, offset = 0, terminal = false },
+            },
+        }));
 
         // A further append triggers the retention sweep.
         WriteUntilSegmentExists(journal, options, AuditSpoolSegmentIdentity.Create(boot, 3).FileName);
@@ -209,12 +211,10 @@ public sealed class ExportRetentionFloorTests : IDisposable
         Audit = new AuditEventHealth { ProtectionMode = "local-only", HealthState = "healthy" },
     };
 
-    private static void WriteCursor(string root, string segmentFileName)
+    private static void WriteProtected(string root, string name, string json)
     {
-        var path = Path.Combine(root, "export-cursor.json");
-        File.WriteAllText(
-            path,
-            JsonSerializer.Serialize(new { segment = segmentFileName, offset = 0 }));
+        var path = Path.Combine(root, name);
+        File.WriteAllText(path, json);
         if (!OperatingSystem.IsWindows())
             File.SetUnixFileMode(path, SecureAuditStorage.OwnerFileMode);
     }

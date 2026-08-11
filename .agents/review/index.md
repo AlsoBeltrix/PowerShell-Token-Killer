@@ -11,13 +11,19 @@ no-op since 0.146.1); the first dispatch failed fail-closed on
 `capability_ok:false` and the incantation was re-probed to per-server
 `enabled=false` flags — recorded in `harnesses.local.json`.
 
+All five fixes landed one commit each and are sabotage-proved:
+cr4-1 `9acd89d`, cr4-2 `54dd79f`, cr4-3 `c0abafc`, cr4-4 `7c8fa96`,
+cr4-5 `5ddbaef`. Battery after the batch: server 1,279/1,279, SIEM
+270/270, handshake PASSED. Verification: HIGHs dispatched to frontier
+(codex/gpt-5.6-sol/xhigh, esc:T2), MEDIUMs to standard.
+
 | ID    | Severity | Impact (one line)                                            | Status | Reviewer |
 |-------|----------|--------------------------------------------------------------|--------|----------|
-| cr4-1 | HIGH     | non-v4 lineage id bypasses quarantine, disables execution    | `[ ]`  | codex/gpt-5.6-sol/high/standard |
-| cr4-2 | MEDIUM   | silent lineage publish failure leaves a boot unattested      | `[ ]`  | codex/gpt-5.6-sol/high/standard |
-| cr4-3 | HIGH     | concurrent supervisors overwrite each other's lineage        | `[ ]`  | codex/gpt-5.6-sol/high/standard |
-| cr4-4 | HIGH     | export leg unsafe under concurrent supervisors (skip/races/false gaps) | `[ ]` | codex/gpt-5.6-sol/high/standard |
-| cr4-5 | MEDIUM   | honest cross-encoding replay quarantined as forgery          | `[ ]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-1 | HIGH     | non-v4 lineage id bypasses quarantine, disables execution    | `[~]`  | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| cr4-2 | MEDIUM   | silent lineage publish failure leaves a boot unattested      | `[~]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-3 | HIGH     | concurrent supervisors overwrite each other's lineage        | `[~]`  | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| cr4-4 | HIGH     | export leg unsafe under concurrent supervisors (skip/races/false gaps) | `[~]` | codex/gpt-5.6-sol/xhigh/frontier esc:T2 |
+| cr4-5 | MEDIUM   | honest cross-encoding replay quarantined as forgery          | `[~]`  | codex/gpt-5.6-sol/high/standard |
 
 ## Closed — cr2 (codereview over the R2 audit restoration, 2026-08-10)
 

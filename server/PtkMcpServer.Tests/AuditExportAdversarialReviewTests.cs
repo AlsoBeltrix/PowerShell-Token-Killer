@@ -352,8 +352,31 @@ public sealed class AuditExportAdversarialReviewTests : IDisposable
         string[] records,
         string? bootId = null)
     {
+        // The walk refuses records contradicting their segment's boot
+        // (cr4-4), so an unspecified boot is derived from the records the
+        // way production segments carry theirs.
+        Guid DeriveBoot()
+        {
+            foreach (var record in records)
+            {
+                try
+                {
+                    using var document = System.Text.Json.JsonDocument.Parse(record);
+                    if (document.RootElement.TryGetProperty("producer", out var producer) &&
+                        producer.TryGetProperty("supervisor_boot_id", out var boot) &&
+                        Guid.TryParseExact(boot.GetString(), "D", out var parsed))
+                    {
+                        return parsed;
+                    }
+                }
+                catch (System.Text.Json.JsonException)
+                {
+                }
+            }
+            return Guid.NewGuid();
+        }
         var identity = AuditSpoolSegmentIdentity.Create(
-            bootId is null ? Guid.NewGuid() : Guid.Parse(bootId),
+            bootId is null ? DeriveBoot() : Guid.Parse(bootId),
             index);
         var path = Path.Combine(options.SpoolDirectory, identity.FileName);
         File.WriteAllText(path, string.Concat(records.Select(record => record + "\n")));

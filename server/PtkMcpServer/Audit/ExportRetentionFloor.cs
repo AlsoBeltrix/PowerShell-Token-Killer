@@ -3,10 +3,17 @@ using System.Text.Json;
 namespace PtkMcpServer.Audit;
 
 /// <summary>
-/// The oldest spool segment the exporter still needs — everything strictly
-/// older has been delivered. Journal retention consults this so ordinary
-/// age-based cleanup never destroys records that were never exported
-/// (audit-restoration R3d).
+/// What the exporter still needs from the spool, PER SUPERVISOR BOOT.
+/// Journal retention consults this so ordinary age-based cleanup never
+/// destroys records that were never exported (audit-restoration R3d).
+///
+/// The cr4-4 reopen retired the single-segment floor: any cross-boot
+/// ordering keyed on the remaining files mutates when delivered segments are
+/// deleted, and a mutated order both hid undelivered segments from the
+/// exporter and exposed them to retention. Per-boot floors are
+/// order-independent: a boot with no recorded delivery keeps everything, a
+/// boot with a recorded position keeps its position's segment and later
+/// ones, and a boot whose lifecycle terminal was delivered needs nothing.
 ///
 /// Read directly from the export cursor rather than wired through the
 /// construction chain: both components are audit subsystem parts in one
@@ -17,13 +24,17 @@ namespace PtkMcpServer.Audit;
 internal static class ExportRetentionFloor
 {
     private const string CursorFileName = "export-cursor.json";
-    private const int MaximumFileBytes = 8 * 1024;
+    private const int MaximumFileBytes = 64 * 1024;
+
+    /// <summary>One boot's floor: delivery stands at (or within) the segment
+    /// with this index; earlier segments are fully delivered.</summary>
+    internal sealed record BootFloor(int SegmentIndex, bool Terminal);
 
     /// <summary>
-    /// The segment file name at which delivery stands, or null when there is
-    /// no usable cursor. Callers treat null as "retain nothing extra".
+    /// The per-boot floors, or null when there is no usable cursor — callers
+    /// treat null as "retain nothing extra" (export has never run here).
     /// </summary>
-    internal static string? ReadOldestRequiredSegment(string auditRootDirectory)
+    internal static IReadOnlyDictionary<Guid, BootFloor>? ReadFloors(string auditRootDirectory)
     {
         if (string.IsNullOrWhiteSpace(auditRootDirectory)) return null;
         try
@@ -36,14 +47,38 @@ internal static class ExportRetentionFloor
                 requireProtectedParent: false,
                 verifyWithoutMutation: true);
             using var document = JsonDocument.Parse(bytes);
-            if (!document.RootElement.TryGetProperty("segment", out var segment) ||
-                segment.ValueKind != JsonValueKind.String)
+            var root = document.RootElement;
+            var floors = new Dictionary<Guid, BootFloor>();
+            if (root.TryGetProperty("boots", out var boots) &&
+                boots.ValueKind == JsonValueKind.Object)
             {
-                return null;
+                foreach (var entry in boots.EnumerateObject())
+                {
+                    if (!Guid.TryParseExact(entry.Name, "D", out var bootId)) continue;
+                    if (entry.Value.ValueKind != JsonValueKind.Object) continue;
+                    var terminal =
+                        entry.Value.TryGetProperty("terminal", out var terminalElement) &&
+                        terminalElement.ValueKind == JsonValueKind.True;
+                    int segmentIndex = 0;
+                    if (entry.Value.TryGetProperty("segment", out var segmentElement) &&
+                        segmentElement.ValueKind == JsonValueKind.String &&
+                        AuditSpoolSegmentIdentity.TryParse(segmentElement.GetString(), out var identity) &&
+                        identity.SupervisorBootId == bootId)
+                    {
+                        segmentIndex = identity.Index;
+                    }
+                    floors[bootId] = new BootFloor(segmentIndex, terminal);
+                }
+            }
+            else if (root.TryGetProperty("segment", out var legacySegment) &&
+                     legacySegment.ValueKind == JsonValueKind.String &&
+                     AuditSpoolSegmentIdentity.TryParse(legacySegment.GetString(), out var legacy))
+            {
+                // Version-1 cursor: its one position becomes that boot's floor.
+                floors[legacy.SupervisorBootId] = new BootFloor(legacy.Index, Terminal: false);
             }
 
-            var name = segment.GetString();
-            return AuditSpoolSegmentIdentity.TryParse(name, out _) ? name : null;
+            return floors;
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -52,43 +87,25 @@ internal static class ExportRetentionFloor
     }
 
     /// <summary>
-    /// Whether a closed segment is still needed by the exporter: the cursor's
-    /// own segment and anything ordered after it in DELIVERY order.
-    /// Comparison is by the segment's canonical (boot, index) identity within
-    /// a boot; across boots, delivery order is boot groups ordered by their
-    /// earliest segment's creation time (matching the exporter's traversal,
-    /// cr4-4), supplied by the caller from its own directory listing — a
-    /// different boot is NOT "already delivered or already lost" when
-    /// supervisors share the root concurrently. Without a supplied group
-    /// ordering only the cursor's own boot is protected (the pre-cr4-4
-    /// behaviour).
+    /// Whether a closed segment is still needed by the exporter. With no
+    /// floors at all (export never ran), nothing extra is retained. With
+    /// floors: a boot the exporter has never recorded is wholly retained
+    /// (undelivered), a boot with a position retains its floor segment and
+    /// everything after it, and a boot whose lifecycle terminal was delivered
+    /// retains nothing (its chain is complete — nothing appends after
+    /// server.stopped).
     /// </summary>
     internal static bool IsRequired(
         string segmentFileName,
-        string? floorFileName,
-        Func<Guid, DateTime?>? bootGroupEarliestCreationUtc = null)
+        IReadOnlyDictionary<Guid, BootFloor>? floors)
     {
-        if (floorFileName is null) return false;
-        if (string.Equals(segmentFileName, floorFileName, StringComparison.Ordinal))
-            return true;
-        if (!AuditSpoolSegmentIdentity.TryParse(segmentFileName, out var segment) ||
-            !AuditSpoolSegmentIdentity.TryParse(floorFileName, out var floor))
-        {
+        if (floors is null) return false;
+        if (!AuditSpoolSegmentIdentity.TryParse(segmentFileName, out var segment))
             return false;
-        }
-
-        if (segment.SupervisorBootId == floor.SupervisorBootId)
-            return segment.Index >= floor.Index;
-        if (bootGroupEarliestCreationUtc is null) return false;
-
-        var candidateGroup = bootGroupEarliestCreationUtc(segment.SupervisorBootId);
-        var floorGroup = bootGroupEarliestCreationUtc(floor.SupervisorBootId);
-        // Unknown ordering is conservative: keep the bytes.
-        if (candidateGroup is null || floorGroup is null) return true;
-        // Only a boot group STRICTLY before the cursor's group has been
-        // traversed by delivery; everything at or after it may still be
-        // undelivered.
-        return candidateGroup >= floorGroup;
+        if (!floors.TryGetValue(segment.SupervisorBootId, out var floor))
+            return true;
+        if (floor.Terminal) return false;
+        return segment.Index >= floor.SegmentIndex;
     }
 
     private static bool IsFatal(Exception exception) =>

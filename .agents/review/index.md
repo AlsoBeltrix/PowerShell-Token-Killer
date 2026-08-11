@@ -1,5 +1,24 @@
 # Review status
 
+## Active — cr4 (codereview over R3d completion + R3c, 2026-08-11)
+
+Generation pass: codex / gpt-5.6-sol / high / standard over
+`abc3292..8ab189a` (boot lineage, coordinated live-tail read, receiver
+token auth + JSON ingest). Verdict `findings` (5), capability_ok true,
+SHAs matched. Dispatch note: codex-cli 0.147.0 ignored the recorded
+`-c 'mcp_servers={}'` override (empty inline table deep-merges to a
+no-op since 0.146.1); the first dispatch failed fail-closed on
+`capability_ok:false` and the incantation was re-probed to per-server
+`enabled=false` flags — recorded in `harnesses.local.json`.
+
+| ID    | Severity | Impact (one line)                                            | Status | Reviewer |
+|-------|----------|--------------------------------------------------------------|--------|----------|
+| cr4-1 | HIGH     | non-v4 lineage id bypasses quarantine, disables execution    | `[ ]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-2 | MEDIUM   | silent lineage publish failure leaves a boot unattested      | `[ ]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-3 | HIGH     | concurrent supervisors overwrite each other's lineage        | `[ ]`  | codex/gpt-5.6-sol/high/standard |
+| cr4-4 | HIGH     | export leg unsafe under concurrent supervisors (skip/races/false gaps) | `[ ]` | codex/gpt-5.6-sol/high/standard |
+| cr4-5 | MEDIUM   | honest cross-encoding replay quarantined as forgery          | `[ ]`  | codex/gpt-5.6-sol/high/standard |
+
 ## Closed — cr2 (codereview over the R2 audit restoration, 2026-08-10)
 
 Generation pass: codex-cli 0.146.1, `codex/gpt-5.6-sol/high/standard`

@@ -52,10 +52,19 @@ internal static class AuditBootLineage
             // our artifact (the export ledger learned this in cr3-2 round 7).
             if (file.Version != CurrentVersion)
                 throw new InvalidDataException("The boot lineage artifact does not carry its schema version.");
+            // The value must satisfy the exact constraint the record
+            // serializer enforces (canonical lower-case UUIDv4, RFC-4122
+            // variant): a canonical-but-non-v4 id read here would poison
+            // every subsequent append with a schema-invalid producer field,
+            // turning one corrupt ADVISORY artifact into a total refusal of
+            // execution (cr4-1) — the exact opposite of rule 3.
             if (!Guid.TryParseExact(file.LastBoot, "D", out var lastBoot) ||
-                lastBoot.ToString("D") != file.LastBoot)
+                lastBoot.ToString("D") != file.LastBoot ||
+                file.LastBoot![14] != '4' ||
+                file.LastBoot[19] is not ('8' or '9' or 'a' or 'b'))
             {
-                throw new InvalidDataException("The boot lineage artifact does not name a canonical boot id.");
+                throw new InvalidDataException(
+                    "The boot lineage artifact does not name a canonical version-4 boot id.");
             }
             return lastBoot;
         }

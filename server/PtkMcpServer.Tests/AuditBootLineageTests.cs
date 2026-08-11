@@ -126,6 +126,37 @@ public sealed class AuditBootLineageTests : IDisposable
     }
 
     [Fact]
+    public void A_canonical_but_non_v4_lineage_id_is_quarantined_not_served()
+    {
+        // cr4-1: the record serializer requires a UUIDv4 predecessor. A
+        // canonical UUIDv1 that passed the lineage read would fail EVERY
+        // subsequent append's schema validation — one corrupt advisory
+        // artifact refusing all execution, the opposite of rule 3.
+        var root = NewRoot("lineage-non-v4");
+        var options = AuditOptions.Create(root);
+        var lineagePath = Path.Combine(root, AuditBootLineage.FileName);
+        File.WriteAllText(
+            lineagePath,
+            "{\"version\":1,\"last_boot\":\"a6e0e5f0-1dd2-11b2-8080-808080808080\"}");
+        if (!OperatingSystem.IsWindows())
+            File.SetUnixFileMode(lineagePath, SecureAuditStorage.OwnerFileMode);
+
+        using var journal = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+
+        Assert.Null(journal.PreviousSupervisorBootId);
+        Assert.False(File.Exists(lineagePath));
+        Assert.NotEmpty(Directory.GetFiles(
+            Path.Combine(root, AuditJournalFactory.QuarantineDirectoryName),
+            AuditBootLineage.FileName + ".*"));
+        var parked = new List<string?>();
+        while (journal.TryTakePendingStartupQuarantine(out var detail))
+            parked.Add(detail);
+        Assert.Contains(AuditBootLineage.QuarantineDetailCode, parked);
+        // The append that would have failed schema validation succeeds.
+        AppendOne(journal);
+    }
+
+    [Fact]
     public void Distinct_startup_quarantine_facts_are_all_retained()
     {
         // The pending-quarantine channel was a single slot; with two artifact

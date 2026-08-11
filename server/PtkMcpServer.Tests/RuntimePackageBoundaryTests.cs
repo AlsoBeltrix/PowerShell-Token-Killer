@@ -108,13 +108,14 @@ public sealed class RuntimePackageBoundaryTests
             "PtkMcpServer",
             "Program.cs"));
 
-        // Exactly three hosted services: the audit runtime gate (registered
+        // Exactly five hosted services: the audit runtime gate (registered
         // first — audit startup is durable before session infrastructure;
         // audit-restoration R2), the audit export service (R3, additive and
-        // non-gating), and the supervisor lifecycle. Idle lifecycle
-        // machinery stays banned below.
+        // non-gating), the loopback audit web UI and the alert webhook (R4,
+        // both incapable of gating execution), and the supervisor lifecycle.
+        // Idle lifecycle machinery stays banned below.
         Assert.Equal(
-            3,
+            5,
             program.Split(
                 "AddSingleton<IHostedService>",
                 StringSplitOptions.None).Length - 1);

@@ -79,6 +79,13 @@ builder.Services.AddSingleton<IHostedService>(sp => new PtkMcpServer.Audit.Web.A
     sp.GetRequiredService<AuditHealth>(),
     sp.GetRequiredService<AuditExportHealth>(),
     () => sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport));
+// Operator alert webhook (R4, reporting surface (c)): edge-triggered POSTs
+// for conditions that demand a human. Absent configuration means no service.
+builder.Services.AddSingleton<IHostedService>(sp => new PtkMcpServer.Audit.Web.AuditAlertWebhookService(
+    sp.GetRequiredService<AuditOptions>(),
+    sp.GetRequiredService<AuditHealth>(),
+    sp.GetRequiredService<AuditExportHealth>(),
+    exportSettings.AlertWebhook));
 builder.Services.AddSingleton<IHostedService>(sp => new AuditExportService(
     sp.GetRequiredService<AuditOptions>(),
     exportSettings.IsConfigured ? new HttpAuditDestination(exportSettings) : null,

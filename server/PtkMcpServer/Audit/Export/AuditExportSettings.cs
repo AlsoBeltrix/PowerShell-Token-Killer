@@ -25,12 +25,16 @@ internal enum AuditDestinationKind
 internal sealed record AuditExportSettings(
     AuditDestinationKind Kind,
     Uri? Endpoint,
-    string? Credential)
+    string? Credential,
+    // Optional operator alert webhook (R4, reporting surface (c)); same
+    // https-or-loopback rule as the endpoint.
+    Uri? AlertWebhook = null)
 {
     internal const string FileName = "export.json";
     internal const string KindEnvironmentVariable = "PTK_AUDIT_EXPORT_KIND";
     internal const string EndpointEnvironmentVariable = "PTK_AUDIT_EXPORT_ENDPOINT";
     internal const string CredentialEnvironmentVariable = "PTK_AUDIT_EXPORT_TOKEN";
+    internal const string AlertWebhookEnvironmentVariable = "PTK_AUDIT_ALERT_WEBHOOK";
     private const int MaximumCredentialLength = 4096;
     private const int MaximumEndpointLength = 2048;
     private const int MaximumFileBytes = 64 * 1024;
@@ -70,7 +74,8 @@ internal sealed record AuditExportSettings(
                     settings = new AuditExportSettings(
                         ParseKind(file.Kind),
                         ParseEndpoint(file.Endpoint),
-                        Trim(file.Credential));
+                        Trim(file.Credential),
+                        ParseEndpoint(file.AlertWebhook));
                 }
             }
         }
@@ -83,6 +88,9 @@ internal sealed record AuditExportSettings(
         var environmentKind = Environment.GetEnvironmentVariable(KindEnvironmentVariable);
         var environmentEndpoint = Environment.GetEnvironmentVariable(EndpointEnvironmentVariable);
         var environmentCredential = Environment.GetEnvironmentVariable(CredentialEnvironmentVariable);
+        var environmentWebhook = Environment.GetEnvironmentVariable(AlertWebhookEnvironmentVariable);
+        if (!string.IsNullOrWhiteSpace(environmentWebhook))
+            settings = settings with { AlertWebhook = ParseEndpoint(environmentWebhook) };
         if (!string.IsNullOrWhiteSpace(environmentKind))
             settings = settings with { Kind = ParseKind(environmentKind) };
         if (!string.IsNullOrWhiteSpace(environmentEndpoint))
@@ -189,7 +197,8 @@ internal sealed record AuditExportSettings(
             $".{FileName}.{Guid.NewGuid():N}.tmp");
         try
         {
-            if (credential is null && File.Exists(path))
+            string? alertWebhook = null;
+            if (File.Exists(path))
             {
                 try
                 {
@@ -198,8 +207,9 @@ internal sealed record AuditExportSettings(
                         MaximumFileBytes,
                         requireProtectedParent: false,
                         verifyWithoutMutation: true);
-                    credential = JsonSerializer
-                        .Deserialize<AuditExportSettingsFile>(bytes)?.Credential;
+                    var prior = JsonSerializer.Deserialize<AuditExportSettingsFile>(bytes);
+                    credential ??= prior?.Credential;
+                    alertWebhook = prior?.AlertWebhook;
                 }
                 catch (Exception exception) when (!IsFatal(exception))
                 {
@@ -212,6 +222,7 @@ internal sealed record AuditExportSettings(
                 Kind = KindText(ParseKind(kind)),
                 Endpoint = Trim(endpoint),
                 Credential = Trim(credential),
+                AlertWebhook = Trim(alertWebhook),
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -236,5 +247,6 @@ internal sealed record AuditExportSettings(
         [JsonPropertyName("kind")] public string? Kind { get; set; }
         [JsonPropertyName("endpoint")] public string? Endpoint { get; set; }
         [JsonPropertyName("credential")] public string? Credential { get; set; }
+        [JsonPropertyName("alert_webhook")] public string? AlertWebhook { get; set; }
     }
 }

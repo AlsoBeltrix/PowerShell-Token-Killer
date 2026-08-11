@@ -167,10 +167,6 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         if (ledgerWasCorrupt)
             _health.RecordUnverifiedBootBoundary("ledger-unreadable", 0);
 
-        // Lineage attestations observed this drain, judged at the end
-        // against everything then known (a claimed predecessor may simply
-        // deliver later in this same pass).
-        var lineageClaims = new Dictionary<string, string>(StringComparer.Ordinal);
         var incompleteBoots = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var group in groups)
@@ -178,6 +174,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             var bootKey = group.BootId.ToString("D");
             var position = cursor.For(group.BootId);
             var prior = PriorChain(group.BootId, position, ledger);
+            // The attestation this boot's records carry, held on its durable
+            // position so it is re-judged EVERY drain — a claim that was
+            // "pending" while the predecessor was merely blocked must still
+            // raise its boundary when the predecessor's tail later vanishes
+            // (cr4-4, second frontier round).
+            var claimedPrevious = position?.PreviousBootId;
             var bootHalted = false;
             var stillGrowing = false;
 
@@ -246,7 +248,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     // means records between the last delivered one and this
                     // one were removed before delivery, whatever retention
                     // or rotation did to the segments (cr3-2).
-                    prior = WalkChain(bootKey, prior, batch, lineageClaims);
+                    prior = WalkChain(bootKey, prior, batch, ref claimedPrevious);
 
                     var result = await _destination
                         .DeliverAsync(batch, cancellationToken)
@@ -283,7 +285,8 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                         nextOffset,
                         prior.Has ? prior.Sequence : 0,
                         prior.Has && prior.Terminal,
-                        DateTimeOffset.UtcNow);
+                        DateTimeOffset.UtcNow,
+                        claimedPrevious);
                     cursor = cursor.WithBoot(group.BootId, position) with
                     {
                         UnrecordedGaps = _unrecordedGaps,
@@ -315,7 +318,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             if (bootHalted || stillGrowing) incompleteBoots.Add(bootKey);
         }
 
-        JudgeLineageClaims(lineageClaims, cursor, ledger, groups, incompleteBoots);
+        JudgeLineageClaims(cursor, ledger, groups, incompleteBoots);
         _health.RecordPendingBytes(PendingBytes(EnumerateBootGroups(), cursor));
         return delivered;
     }
@@ -338,17 +341,17 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
     /// <summary>
     /// Walks one delivered batch for chain continuity within its boot,
-    /// recording proved gaps, collecting lineage attestations, and returning
-    /// the advanced chain position. Records whose embedded boot id does not
-    /// match the segment's boot contribute nothing: file placement is not
-    /// trusted to overrule the walk's per-boot bookkeeping, and such records
-    /// are still delivered.
+    /// recording proved gaps, capturing the boot's lineage attestation, and
+    /// returning the advanced chain position. Records whose embedded boot id
+    /// does not match the segment's boot contribute nothing: file placement
+    /// is not trusted to overrule the walk's per-boot bookkeeping, and such
+    /// records are still delivered.
     /// </summary>
     private ChainPrior WalkChain(
         string bootKey,
         ChainPrior prior,
         IReadOnlyList<string> batch,
-        IDictionary<string, string> lineageClaims)
+        ref string? claimedPrevious)
     {
         foreach (var record in batch)
         {
@@ -356,11 +359,11 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
             if (bootId is null || sequence is null) continue;
             if (!string.Equals(bootId, bootKey, StringComparison.Ordinal)) continue;
 
-            if (previousBootId is not null &&
-                !string.Equals(previousBootId, bootKey, StringComparison.Ordinal) &&
-                !lineageClaims.ContainsKey(previousBootId))
+            if (claimedPrevious is null &&
+                previousBootId is not null &&
+                !string.Equals(previousBootId, bootKey, StringComparison.Ordinal))
             {
-                lineageClaims[previousBootId] = bootKey;
+                claimedPrevious = previousBootId;
             }
 
             if (!prior.Has)
@@ -384,9 +387,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     }
 
     /// <summary>
-    /// Judges the lineage attestations seen this drain (cr4-4 rework of the
-    /// boundary heuristics — per-boot traversal has no "crossing" moment, and
-    /// lineage is the stronger signal anyway):
+    /// Judges every lineage attestation the durable cursor holds — every
+    /// drain, not only the drain that read the claim (cr4-4, second frontier
+    /// round: a claim judged "pending" while its predecessor was blocked
+    /// must still raise its boundary when the tail later vanishes, and the
+    /// judgment must survive restarts). Per-boot traversal has no "crossing"
+    /// moment, and lineage is the stronger signal anyway:
     /// - a claimed predecessor with NO chain memory and NO spool files is a
     ///   wholly vanished boot (the cr3-2 open finding's shape) — unverified
     ///   boundary;
@@ -400,17 +406,21 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     ///   still alive, raises nothing.
     /// </summary>
     private void JudgeLineageClaims(
-        IReadOnlyDictionary<string, string> lineageClaims,
         AuditExportCursor cursor,
         AuditExportGapRecord ledger,
         IReadOnlyList<BootGroup> groups,
         IReadOnlySet<string> incompleteBoots)
     {
-        if (lineageClaims.Count == 0) return;
+        var claims = cursor.Boots
+            .Where(entry => entry.Value.PreviousBootId is not null &&
+                !string.Equals(entry.Value.PreviousBootId, entry.Key, StringComparison.Ordinal))
+            .Select(entry => entry.Value.PreviousBootId!)
+            .ToHashSet(StringComparer.Ordinal);
+        if (claims.Count == 0) return;
         var present = groups
             .Select(group => group.BootId.ToString("D"))
             .ToHashSet(StringComparer.Ordinal);
-        foreach (var (claimed, _) in lineageClaims)
+        foreach (var claimed in claims)
         {
             ChainPrior chain = default;
             if (Guid.TryParseExact(claimed, "D", out var claimedBootId))

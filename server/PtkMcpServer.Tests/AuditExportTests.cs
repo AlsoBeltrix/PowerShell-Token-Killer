@@ -592,6 +592,67 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_pending_attestation_still_raises_when_the_predecessors_tail_later_vanishes()
+    {
+        // cr4-4, second frontier round: lineage claims judged only in the
+        // drain that read them went silent if the predecessor was merely
+        // blocked at that moment and its undelivered tail vanished later.
+        // The attestation lives on the successor's durable cursor position
+        // and is re-judged every drain — surviving restarts too.
+        var root = NewRoot("export-pending-attestation");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var bootP = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var bootB = "5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01";
+        var baseTime = new DateTime(2026, 8, 11, 12, 0, 0, DateTimeKind.Utc);
+        WriteSegment(options, index: 0, [ChainRecord(bootP, 1)], bootP, baseTime);
+        var lockedTail = WriteSegment(
+            options, index: 1, [ChainRecord(bootP, 2)], bootP, baseTime.AddSeconds(1));
+        WriteSegment(
+            options, index: 0,
+            [ChainRecord(bootB, 1, previousBootId: bootP)],
+            bootB, baseTime.AddSeconds(2));
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using (var service = NewService(
+            options, receiver, new AuditExportCursorStore(root), health))
+        {
+            using (new FileStream(
+                lockedTail,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            {
+                // P is merely blocked: correctly no signal yet.
+                Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+                Assert.DoesNotContain(
+                    "unverified_boot_boundaries",
+                    health.Snapshot().StatusLine(),
+                    StringComparison.Ordinal);
+            }
+
+            // P's undelivered tail vanishes wholly; its writer is gone.
+            File.Delete(lockedTail);
+            Assert.Equal(0, await service.DrainOnceAsync(CancellationToken.None));
+            Assert.Contains(
+                "unverified_boot_boundaries=1",
+                health.Snapshot().StatusLine(),
+                StringComparison.Ordinal);
+        }
+
+        // The attestation is durable: a restarted exporter still raises it.
+        var restartedHealth = new AuditExportHealth();
+        await using var restarted = NewService(
+            options, receiver, new AuditExportCursorStore(root), restartedHealth);
+        Assert.Equal(0, await restarted.DrainOnceAsync(CancellationToken.None));
+        Assert.Contains(
+            "unverified_boot_boundaries=1",
+            restartedHealth.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Only_one_exporter_drains_a_shared_root_at_a_time()
     {
         // cr4-4: every supervisor runs an export service against the same

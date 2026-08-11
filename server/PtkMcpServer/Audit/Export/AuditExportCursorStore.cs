@@ -21,7 +21,13 @@ internal sealed record AuditExportBootPosition(
     long ByteOffset,
     long LastSequence,
     bool LastWasLifecycleTerminal,
-    DateTimeOffset TouchedUtc);
+    DateTimeOffset TouchedUtc,
+    // The predecessor boot this boot's records attest (boot lineage). Held
+    // DURABLY so the attestation outlives the drain that read it: a claim
+    // judged "pending" while the predecessor was merely blocked must still
+    // raise its boundary when the predecessor's tail later vanishes
+    // (cr4-4, second frontier round).
+    string? PreviousBootId = null);
 
 /// <summary>
 /// How far delivery has durably progressed, PER SUPERVISOR BOOT. The cr4-4
@@ -121,7 +127,8 @@ internal sealed class AuditExportCursorStore
                         entry.ByteOffset,
                         entry.LastSequence,
                         entry.LastWasLifecycleTerminal,
-                        entry.TouchedUtc ?? DateTimeOffset.UnixEpoch);
+                        entry.TouchedUtc ?? DateTimeOffset.UnixEpoch,
+                        entry.PreviousBootId);
                 }
             }
             else if (file.SegmentFileName is not null || file.LastSupervisorBootId is not null)
@@ -190,6 +197,7 @@ internal sealed class AuditExportCursorStore
                         LastSequence = entry.Value.LastSequence,
                         LastWasLifecycleTerminal = entry.Value.LastWasLifecycleTerminal,
                         TouchedUtc = entry.Value.TouchedUtc,
+                        PreviousBootId = entry.Value.PreviousBootId,
                     },
                     StringComparer.Ordinal),
                 UnrecordedGaps = cursor.UnrecordedGaps,
@@ -241,5 +249,6 @@ internal sealed class AuditExportCursorStore
         [JsonPropertyName("sequence")] public long LastSequence { get; set; }
         [JsonPropertyName("terminal")] public bool LastWasLifecycleTerminal { get; set; }
         [JsonPropertyName("touched")] public DateTimeOffset? TouchedUtc { get; set; }
+        [JsonPropertyName("previous")] public string? PreviousBootId { get; set; }
     }
 }

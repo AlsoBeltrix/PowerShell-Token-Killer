@@ -691,8 +691,27 @@ identity is now the exact record body, never transport bytes (honest
 cross-encoding replays idempotent). Note the reviewer transport lesson:
 codex-cli 0.147.0 silently ignores `-c 'mcp_servers={}'` — the first
 generation dispatch failed fail-closed on `capability_ok:false`;
-per-server `enabled=false` overrides work and are cached. Verification
-dispatches are in flight; then **R4** (receiver token auth + JSON ingest —
+per-server `enabled=false` overrides work and are cached.
+**Verification round 1: cr4-1/2/3/5 ACCEPTED (guards independently
+confirmed; HIGHs at frontier per T2). cr4-4 REOPENED, correctly:** the
+first fix's boot-group order was keyed on the earliest segment STILL
+PRESENT — a mutable order; deleting a delivered segment re-sorted an
+undelivered boot before the cursor (skipped forever) and the floor
+would age-delete it as delivered. **Repair landed `ae7ca0a`: per-boot
+durable positions replace the linear cursor entirely** (cursor v2 +
+migration; per-boot ledger chain memory; stable boot-id group order —
+no cross-boot order is load-bearing anymore; per-boot halt, which also
+removes the first fix's lag cost; per-boot retention floor —
+unrecorded boot keeps everything, terminal-delivered boot keeps
+nothing; boundary heuristics moved from crossing-order to LINEAGE
+ATTESTATION, strictly stronger). Contract change recorded: pre-lineage
+records cannot attest a predecessor, so the ended-without-terminal
+suspicion now requires the successor's lineage claim (two boundary
+tests updated to carry it). One test-support lesson: the walk rightly
+refuses records contradicting their segment's boot, so the test
+helpers now derive segment names from the records' embedded boot.
+Battery after repair: server 1,280/1,280, SIEM 270/270, handshake
+PASSED. T5-ceiling frontier redispatch of cr4-4 in flight; then **R4** (receiver token auth + JSON ingest —
 without it PTK cannot reach its OWN fallback receiver, though Splunk,
 Sentinel and any OTLP collector work today), **R4** (the loopback web
 GUI + settings page — the slice that finally lets the owner SEE the

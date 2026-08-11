@@ -524,20 +524,48 @@ internal sealed class FileAuditJournalSink : IAuditJournalSink, IAuditCommittedS
         if (_options.ProtectionMode == AuditProtectionMode.Anchored)
             throw new IOException("Anchored audit allocation capacity is exhausted.");
 
+        // Physical allocation pressure is capacity pressure like any other
+        // (R4, closing a hole adjacent to cr4-4): delivered segments go
+        // first per the exporter's per-boot floors, and an UNDELIVERED
+        // deletion is counted and announced — never silent.
+        var floors = ExportRetentionFloor.ReadFloors(_options.RootDirectory);
         while (committed > AggregateCapacityBytes - SegmentCapacityBytes)
         {
             var deleted = false;
+            var deletedUndelivered = false;
             foreach (var segment in EnumerateDeletionFronts(excludedPath: null))
             {
+                if (ExportRetentionFloor.IsRequired(segment.Segment.Name, floors))
+                    continue;
                 if (!TryDeleteClosedSegment(segment.Segment))
                     continue;
-
                 deleted = true;
                 break;
+            }
+            if (!deleted)
+            {
+                foreach (var segment in EnumerateDeletionFronts(excludedPath: null))
+                {
+                    if (!TryDeleteClosedSegment(segment.Segment))
+                        continue;
+                    deleted = true;
+                    deletedUndelivered = ExportRetentionFloor.IsRequired(
+                        segment.Segment.Name,
+                        floors);
+                    break;
+                }
             }
 
             if (!deleted)
                 throw new IOException("Audit allocation capacity is exhausted by live segments.");
+            if (deletedUndelivered)
+            {
+                Interlocked.Increment(ref _undeliveredEvictions);
+                Console.Error.WriteLine(
+                    "[ptk audit] segment allocation pressure evicted a segment the exporter " +
+                    "had not delivered; those records are lost to the destination and are " +
+                    "reported in ptk_state and the journal.");
+            }
 
             committed = PhysicalCommittedBytes(EnumerateSegments());
         }

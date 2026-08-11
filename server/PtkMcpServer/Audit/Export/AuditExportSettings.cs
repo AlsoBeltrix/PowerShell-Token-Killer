@@ -144,6 +144,90 @@ internal sealed record AuditExportSettings(
         return trimmed.Length > MaximumCredentialLength ? null : trimmed;
     }
 
+    /// <summary>
+    /// Validates a settings-page write (audit-restoration R4) with the exact
+    /// rules the loader applies, so the UI can never persist a configuration
+    /// the next start would refuse: an unknown kind or — for a configured
+    /// destination — an endpoint that is neither HTTPS nor loopback HTTP.
+    /// </summary>
+    internal static bool TryValidateForWrite(
+        string? kind,
+        string? endpoint,
+        out string failure)
+    {
+        failure = string.Empty;
+        var trimmedKind = kind?.Trim().ToLowerInvariant();
+        var parsedKind = ParseKind(kind);
+        if (parsedKind == AuditDestinationKind.None &&
+            trimmedKind is not (null or "" or "none"))
+        {
+            failure = "invalid_kind";
+            return false;
+        }
+        if (parsedKind != AuditDestinationKind.None && ParseEndpoint(endpoint) is null)
+        {
+            failure = "invalid_endpoint";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Atomically writes the owner-only settings file. A null credential
+    /// preserves the one already on disk, so the settings page can change
+    /// the endpoint without re-entering (or ever reading back) the secret.
+    /// </summary>
+    internal static bool TryWrite(
+        string auditRootDirectory,
+        string? kind,
+        string? endpoint,
+        string? credential)
+    {
+        var path = Path.Combine(auditRootDirectory, FileName);
+        var temporaryPath = Path.Combine(
+            auditRootDirectory,
+            $".{FileName}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            if (credential is null && File.Exists(path))
+            {
+                try
+                {
+                    var bytes = SecureAuditStorage.ReadProtectedFile(
+                        path,
+                        MaximumFileBytes,
+                        requireProtectedParent: false,
+                        verifyWithoutMutation: true);
+                    credential = JsonSerializer
+                        .Deserialize<AuditExportSettingsFile>(bytes)?.Credential;
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    // An unreadable prior file preserves nothing.
+                }
+            }
+
+            var payload = JsonSerializer.SerializeToUtf8Bytes(new AuditExportSettingsFile
+            {
+                Kind = KindText(ParseKind(kind)),
+                Endpoint = Trim(endpoint),
+                Credential = Trim(credential),
+            });
+            using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
+            {
+                stream.Write(payload);
+                stream.Flush(flushToDisk: true);
+            }
+            File.Move(temporaryPath, path, overwrite: true);
+            return true;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            SecureAuditStorage.TryDelete(temporaryPath);
+            return false;
+        }
+    }
+
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
 

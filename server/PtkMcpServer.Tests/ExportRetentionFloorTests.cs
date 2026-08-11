@@ -169,6 +169,69 @@ public sealed class ExportRetentionFloorTests : IDisposable
         Assert.Contains(closedOne, present);
     }
 
+    [Fact]
+    public void A_capacity_eviction_of_undelivered_records_is_journaled_as_an_audit_event()
+    {
+        // audit-restoration R4, reporting surface (a): an undelivered
+        // eviction must reach the SIEM itself through the ordinary export
+        // leg — a first-class audit.spool_evicted record — not only
+        // ptk_state.
+        var root = NewRoot("floor-evicted-event");
+        var options = AuditOptions.Create(
+            root,
+            AuditProtectionMode.LocalOnly,
+            exportConfigurationIdentity: null,
+            maxRecordBytes: 4096,
+            segmentBytes: 16_384,
+            aggregateBytes: 64 * 1024,
+            emergencyReserveBytes: 8192,
+            retentionAge: TimeSpan.FromDays(1),
+            maxEvidenceBytes: 4096,
+            evidenceAggregateBytes: 4096,
+            evidenceRetentionAge: TimeSpan.FromDays(1));
+        var health = new AuditHealth(options);
+
+        using (var journal = AuditJournalFactory.Open(options, health, "test-version"))
+        {
+            var boot = ReadSpoolBootId(options.SpoolDirectory);
+            // The exporter's floor stands at segment 0 undelivered, so every
+            // closed segment is protected and capacity pressure must take
+            // the undelivered path.
+            WriteProtected(root, "export-cursor.json", JsonSerializer.Serialize(new
+            {
+                version = 2,
+                boots = new Dictionary<string, object>
+                {
+                    [boot.ToString("D")] = new
+                    {
+                        segment = AuditSpoolSegmentIdentity.Create(boot, 0).FileName,
+                        offset = 0,
+                        terminal = false,
+                    },
+                },
+            }));
+
+            for (var appended = 0; appended < 400 && health.Snapshot().UndeliveredEvictions == 0; appended++)
+            {
+                Assert.True(journal.TryReserve(1, out var reservation, out _));
+                journal.Append(reservation!, TestEvent());
+                reservation!.Release();
+            }
+            Assert.True(health.Snapshot().UndeliveredEvictions > 0);
+            // One more append gives the reporter its turn after the eviction.
+            Assert.True(journal.TryReserve(1, out var final, out _));
+            journal.Append(final!, TestEvent());
+            final!.Release();
+        }
+
+        var journaled = Directory.GetFiles(options.SpoolDirectory, "*.jsonl")
+            .Select(File.ReadAllText)
+            .Any(content => content.Contains(
+                "\"event_type\":\"audit.spool_evicted\"",
+                StringComparison.Ordinal));
+        Assert.True(journaled, "no audit.spool_evicted record reached the journal");
+    }
+
     private static Guid ReadSpoolBootId(string spoolDirectory)
     {
         var name = Path.GetFileName(

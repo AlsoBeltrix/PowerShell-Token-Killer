@@ -71,6 +71,14 @@ if (exportConfigurationFailure is not null)
         "PTK continues journaling locally.").ConfigureAwait(false);
 }
 builder.Services.AddSingleton(new AuditExportHealth());
+// The loopback audit web UI (R4): journal-backed log view, quarantine
+// evidence, export health, and the settings page. One UI per audit root —
+// supervisors race for the port, losers stand by. Never gates execution.
+builder.Services.AddSingleton<IHostedService>(sp => new PtkMcpServer.Audit.Web.AuditWebUiService(
+    sp.GetRequiredService<AuditOptions>(),
+    sp.GetRequiredService<AuditHealth>(),
+    sp.GetRequiredService<AuditExportHealth>(),
+    () => sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport));
 builder.Services.AddSingleton<IHostedService>(sp => new AuditExportService(
     sp.GetRequiredService<AuditOptions>(),
     exportSettings.IsConfigured ? new HttpAuditDestination(exportSettings) : null,

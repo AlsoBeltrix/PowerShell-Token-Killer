@@ -652,7 +652,90 @@ internal sealed class AuditJournal : IDisposable
             }
 
             UpdateHealthMetricsLocked();
+            ReportUndeliveredEvictionsLocked();
             return serialized;
+        }
+    }
+
+    private long _journaledUndeliveredEvictions;
+    private bool _reportingEviction;
+
+    /// <summary>
+    /// Journals capacity-pressure evictions of UNDELIVERED records as a
+    /// first-class audit event (audit-restoration R4, reporting surface (a)):
+    /// the fact must reach the SIEM through the ordinary export leg, not
+    /// only ptk_state. Emitted from the emergency capacity — eviction
+    /// happens exactly at high water, which is what that reserve exists
+    /// for. A failed emission poisons the journal for FUTURE appends (real
+    /// local write inability, the one condition that gates); the caller's
+    /// already-durable record still returns success.
+    /// </summary>
+    private void ReportUndeliveredEvictionsLocked()
+    {
+        if (_reportingEviction) return;
+        if (_sink is not FileAuditJournalSink fileSink) return;
+        long observed;
+        try { observed = fileSink.UndeliveredEvictions; }
+        catch (Exception exception) when (!IsFatal(exception)) { return; }
+        if (observed <= _journaledUndeliveredEvictions) return;
+
+        _reportingEviction = true;
+        try
+        {
+            var health = Health.Snapshot();
+            var unhealthy = health.State
+                is AuditHealthState.Degraded or AuditHealthState.Unavailable;
+            AppendAutomaticTransition(new AuditEventInput
+            {
+                EventType = "audit.spool_evicted",
+                Session = new AuditSession(),
+                Actor = new AuditActor { AttributionStrength = "unknown" },
+                Correlation = new AuditCorrelation(),
+                Request = new AuditRequest(),
+                Routing = new AuditRouting(),
+                Outcome = new AuditOutcome
+                {
+                    State = "evicted",
+                    DetailCode = "spool.evicted_undelivered",
+                    TerminationCertainty = "not_applicable",
+                },
+                Coverage = new AuditCoverage
+                {
+                    PtkRequest = false,
+                    RootProcessObserved = "not_applicable",
+                    DescendantsObserved = "not_applicable",
+                    RemoteEffectObserved = "not_applicable",
+                },
+                Audit = new AuditEventHealth
+                {
+                    ProtectionMode = _options.ProtectionMode == AuditProtectionMode.LocalOnly
+                        ? "local-only"
+                        : "anchored",
+                    ExportConfigurationIdentity = _options.ExportConfigurationIdentity,
+                    HealthState = unhealthy ? "degraded" : "healthy",
+                    FailureClass = unhealthy ? health.FailureClass : null,
+                    DegradedSinceUtc = unhealthy ? health.DegradedSinceUtc : null,
+                },
+            });
+            _journaledUndeliveredEvictions = observed;
+        }
+        catch (AuditUnavailableException)
+        {
+            // The journal is now poisoned (the transition append could not be
+            // persisted even from emergency capacity — genuine local write
+            // inability). The caller's record was already durable before this
+            // report ran, so its append still returns success; every LATER
+            // append fails through the ordinary poisoned path.
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Reporting must never corrupt the successful append that
+            // triggered it; the count stays visible in health and this
+            // retries on the next append.
+        }
+        finally
+        {
+            _reportingEviction = false;
         }
     }
 

@@ -50,7 +50,8 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         AuditExportHealth exportHealth,
         Uri? webhook,
         HttpClient? client = null,
-        TimeSpan? interval = null)
+        TimeSpan? interval = null,
+        DateTimeOffset? startedUtc = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -65,8 +66,15 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         // on the startup path, and an optional webhook must never gate it.
         // "New artifact" is judged per file against this instant, from the
         // quarantine timestamp every writer embeds in the filename — so
-        // history stays silent without a startup baseline count.
-        _startedUtc = DateTimeOffset.UtcNow;
+        // history stays silent without a startup baseline count. The
+        // instant is floored to the millisecond those filenames carry: a
+        // stamp truncated within the starting millisecond must compare as
+        // new (fail-noisy), never vanish into the sub-millisecond fraction
+        // (cr5-2 reopen round 1).
+        var started = startedUtc ?? DateTimeOffset.UtcNow;
+        _startedUtc = new DateTimeOffset(
+            started.UtcTicks - started.UtcTicks % TimeSpan.TicksPerMillisecond,
+            TimeSpan.Zero);
         if (_webhook is not null) _exportHealth.SetAlertWebhookConfigured();
     }
 

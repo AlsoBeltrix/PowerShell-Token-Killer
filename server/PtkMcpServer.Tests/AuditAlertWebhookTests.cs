@@ -294,6 +294,40 @@ public sealed class AuditAlertWebhookTests : IDisposable
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task A_quarantine_minted_within_the_starting_millisecond_still_pages()
+    {
+        // cr5-2 reopen round 1: filename stamps carry milliseconds, the
+        // construction instant carried sub-millisecond ticks — a
+        // quarantine minted later within the same millisecond compared
+        // earlier and vanished. The comparison must be fail-noisy at the
+        // shared granularity.
+        var root = NewRoot("webhook-quarantine-same-ms");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+        using var receiver = new WebhookReceiver();
+        var started = new DateTimeOffset(2026, 8, 11, 12, 0, 0, 123, TimeSpan.Zero)
+            .AddTicks(7_777);
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri,
+            startedUtc: started);
+
+        // The artifact's stamp is the same millisecond, sub-ms truncated.
+        WriteQuarantineArtifact(
+            root,
+            new DateTimeOffset(2026, 8, 11, 12, 0, 0, 123, TimeSpan.Zero));
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Contains(
+            "quarantine",
+            Assert.Single(receiver.Bodies),
+            StringComparison.Ordinal);
+    }
+
     private static void WriteQuarantineArtifact(string root, DateTimeOffset minted)
     {
         var directory = SecureAuditStorage.PrepareRoot(

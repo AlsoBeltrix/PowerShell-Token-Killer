@@ -107,7 +107,7 @@ internal sealed class AuditExportGapStore
             {
                 return;
             }
-            TryWriteLocked(current with
+            _ = TryWriteLocked(current with
             {
                 LastSupervisorBootId = supervisorBootId,
                 LastSequence = sequence,
@@ -121,9 +121,13 @@ internal sealed class AuditExportGapStore
     /// segment already recorded is not counted twice, so a repeating drain
     /// cannot inflate the number.
     /// </summary>
-    internal AuditExportGapRecord Record(string gapKey, long missingRecords)
+    internal AuditExportGapRecord Record(
+        string gapKey,
+        long missingRecords,
+        out bool persisted)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(gapKey);
+        persisted = true;
         lock (_gate)
         {
             var current = ReadLocked();
@@ -140,7 +144,7 @@ internal sealed class AuditExportGapStore
                 Segments = keys,
                 MissingRecords = current.MissingRecords + Math.Max(0, missingRecords),
             };
-            TryWriteLocked(updated);
+            persisted = TryWriteLocked(updated);
             return updated;
         }
     }
@@ -192,7 +196,7 @@ internal sealed class AuditExportGapStore
         }
     }
 
-    private void TryWriteLocked(AuditExportGapRecord record)
+    private bool TryWriteLocked(AuditExportGapRecord record)
     {
         var temporaryPath = Path.Combine(
             _directory,
@@ -215,13 +219,16 @@ internal sealed class AuditExportGapStore
                 stream.Flush(flushToDisk: true);
             }
             File.Move(temporaryPath, _path, overwrite: true);
+            return true;
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
-            // Losing the durable note must not stop execution or delivery;
-            // the in-memory health line still reports the gap for this
-            // process.
+            // Losing the durable note must not stop execution or delivery,
+            // but it must not silently lose the EVIDENCE either: the caller
+            // parks the unrecorded gap on the cursor so a restart still
+            // reports it (cr3-2 round 9).
             SecureAuditStorage.TryDelete(temporaryPath);
+            return false;
         }
     }
 

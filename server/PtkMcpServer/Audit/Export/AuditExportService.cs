@@ -48,10 +48,20 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         _cursorStore = cursorStore;
         _gapStore = new AuditExportGapStore(options.RootDirectory);
         _health = health;
-        // Gaps recorded by earlier processes are evidence and stay visible.
+        // Gaps recorded by earlier processes are evidence and stay visible,
+        // including any that an earlier process could not write to the
+        // ledger and parked on the cursor instead (cr3-2 round 9).
         var retained = _gapStore.Read();
-        if (retained.Count > 0)
-            _health.SetExportGaps(retained.Count, retained.MissingRecords);
+        var parked = _cursorStore.Read();
+        _unrecordedGaps = parked.UnrecordedGaps;
+        _unrecordedMissingRecords = parked.UnrecordedMissingRecords;
+        var totalGaps = retained.Count + _unrecordedGaps;
+        if (totalGaps > 0)
+        {
+            _health.SetExportGaps(
+                totalGaps,
+                retained.MissingRecords + _unrecordedMissingRecords);
+        }
         _idleInterval = idleInterval ?? TimeSpan.FromSeconds(2);
         _initialRetryDelay = initialRetryDelay ?? TimeSpan.FromSeconds(5);
         _maximumRetryDelay = maximumRetryDelay ?? TimeSpan.FromMinutes(5);
@@ -162,7 +172,9 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     nextOffset,
                     chainBootId ?? cursor.LastSupervisorBootId,
                     chainSequence ?? cursor.LastSequence,
-                    chainBootId is null ? cursor.LastWasLifecycleTerminal : chainTerminal);
+                    chainBootId is null ? cursor.LastWasLifecycleTerminal : chainTerminal,
+                    _unrecordedGaps,
+                    _unrecordedMissingRecords);
                 _cursorStore.TryWrite(cursor);
                 // Mirrored into the durable ledger so losing the cursor does
                 // not erase boot memory (cr3-2 round 5).
@@ -498,9 +510,22 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
     private void RecordGap(string gapKey, long missingRecords)
     {
-        var record = _gapStore.Record(gapKey, missingRecords);
+        var record = _gapStore.Record(gapKey, missingRecords, out var persisted);
         _health.SetExportGaps(record.Count, record.MissingRecords);
+        if (!persisted)
+        {
+            // The ledger could not be rewritten. The cursor still advances
+            // (the batch WAS delivered), so without parking the evidence
+            // here a restart would silently return to healthy (cr3-2 round
+            // 9). The counters ride the cursor write that follows every
+            // delivery and are flushed into the ledger when it recovers.
+            _unrecordedGaps += 1;
+            _unrecordedMissingRecords += Math.Max(0, missingRecords);
+        }
     }
+
+    private long _unrecordedGaps;
+    private long _unrecordedMissingRecords;
 
     /// <summary>The record's per-boot chain position and whether it is the
     /// lifecycle terminal, or nulls when the line is not parseable — an

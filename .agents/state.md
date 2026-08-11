@@ -116,14 +116,19 @@ load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
 **cr3-2 was reopened SIX times, each for a real silent-loss path. All
-EIGHT are fixed. Detection work was halted at `a330279` by the stopping
+NINE are fixed. Detection work was halted at `a330279` by the stopping
 rule set before round six; **the owner overrode that halt ("you can do 3
-more rounds")**. Rounds 7 and 8 are spent, each confirming the prior
-guard AND finding a real path: round 7, a parseable but schema-less
-ledger passing as legitimately empty (closed by requiring a schema
-marker); round 8, a gap INSIDE one delivery batch, since only the first
-record was compared (closed by walking the whole batch). **Round 9 is
-the last authorized.**
+more rounds")**. All three authorized rounds (7-9) are spent, each
+confirming the prior guard AND finding a real path: round 7, a parseable
+but schema-less ledger passing as legitimately empty (closed by
+requiring a schema marker); round 8, a gap INSIDE one delivery batch
+(closed by walking the whole batch); round 9, a gap held only in memory
+when the ledger alone was unwritable while the cursor advanced (closed
+by parking the evidence on the cursor). **Round 9 was asked to close the
+loop and answered explicitly: detection was NOT complete. Authorization
+is now exhausted; the round-9 repair is guard-proved locally but
+independently unverified. Nine rounds, nine real paths — the empirical
+case for R3d.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file

@@ -697,6 +697,54 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_gap_survives_restart_when_only_its_ledger_cannot_be_rewritten()
+    {
+        // cr3-2 round 9: when the ledger alone could not be replaced, the
+        // gap lived only in memory while the cursor still advanced, so a
+        // restart silently returned to healthy. The evidence is now parked
+        // on the cursor, which is still writable in that scenario.
+        var root = NewRoot("export-unwritable-ledger");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var segment = WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 1),
+        ]);
+
+        // A directory in the ledger's place: readable as "absent", never
+        // replaceable by the atomic write.
+        Directory.CreateDirectory(Path.Combine(root, AuditExportGapStore.FileName));
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using (var service = NewService(options, receiver, cursorStore, health))
+        {
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+            // Sequence 3 arrives; 2 was removed before delivery.
+            AppendRecords(segment, [ChainRecord(boot, sequence: 3)]);
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+            Assert.Contains(
+                "EXPORT_GAPS=1",
+                health.Snapshot().StatusLine(),
+                StringComparison.Ordinal);
+        }
+
+        // Restart: the ledger still cannot be written, but the gap must not
+        // vanish.
+        var restartedHealth = new AuditExportHealth();
+        await using var restarted = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            restartedHealth);
+        var line = restartedHealth.Snapshot().StatusLine();
+        Assert.Contains("EXPORT_GAPS=1", line, StringComparison.Ordinal);
+        Assert.Contains("missing_records=1", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_contiguous_multi_record_batch_raises_nothing()
     {
         // The no-alarm half of the same walk: an ordinary batch must not

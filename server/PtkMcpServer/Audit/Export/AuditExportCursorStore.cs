@@ -21,7 +21,9 @@ internal sealed record AuditExportCursor(
     long ByteOffset,
     string? LastSupervisorBootId = null,
     long LastSequence = 0,
-    bool LastWasLifecycleTerminal = false)
+    bool LastWasLifecycleTerminal = false,
+    long UnrecordedGaps = 0,
+    long UnrecordedMissingRecords = 0)
 {
     internal static AuditExportCursor Start { get; } = new(null, 0);
 }
@@ -66,7 +68,9 @@ internal sealed class AuditExportCursorStore
                 file.ByteOffset,
                 file.LastSupervisorBootId,
                 file.LastSequence,
-                file.LastWasLifecycleTerminal);
+                file.LastWasLifecycleTerminal,
+                file.UnrecordedGaps,
+                file.UnrecordedMissingRecords);
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -91,6 +95,8 @@ internal sealed class AuditExportCursorStore
                 LastSupervisorBootId = cursor.LastSupervisorBootId,
                 LastSequence = cursor.LastSequence,
                 LastWasLifecycleTerminal = cursor.LastWasLifecycleTerminal,
+                UnrecordedGaps = cursor.UnrecordedGaps,
+                UnrecordedMissingRecords = cursor.UnrecordedMissingRecords,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -122,5 +128,9 @@ internal sealed class AuditExportCursorStore
         [JsonPropertyName("boot")] public string? LastSupervisorBootId { get; set; }
         [JsonPropertyName("sequence")] public long LastSequence { get; set; }
         [JsonPropertyName("terminal")] public bool LastWasLifecycleTerminal { get; set; }
+        // Gaps whose durable ledger write failed: parked here so the evidence
+        // survives a restart even when only the ledger is unwritable.
+        [JsonPropertyName("unrecorded_gaps")] public long UnrecordedGaps { get; set; }
+        [JsonPropertyName("unrecorded_missing")] public long UnrecordedMissingRecords { get; set; }
     }
 }

@@ -42,7 +42,8 @@ internal sealed class SiemReceiverOptions
         int? retentionMaxAgeDays,
         long? retentionMaxTotalBytes,
         string? configurationPath = null,
-        ProtectedPathIdentity? configurationIdentity = null)
+        ProtectedPathIdentity? configurationIdentity = null,
+        string? ingestToken = null)
     {
         IngestBindAddress = ingestBindAddress;
         IngestPort = ingestPort;
@@ -62,6 +63,7 @@ internal sealed class SiemReceiverOptions
         RetentionMaxTotalBytes = retentionMaxTotalBytes;
         ConfigurationPath = configurationPath;
         ConfigurationIdentity = configurationIdentity;
+        IngestToken = ingestToken;
     }
 
     internal IPAddress IngestBindAddress { get; }
@@ -107,7 +109,19 @@ internal sealed class SiemReceiverOptions
 
     internal ProtectedPathIdentity? ConfigurationIdentity { get; }
 
-    // Never include the operator token (or anything derived from it) here.
+    /// <summary>
+    /// Optional ingest bearer token (audit-restoration R3c). When set, a
+    /// client without an mTLS certificate may authenticate with
+    /// <c>Authorization: Bearer</c> — the mode PTK's own exporter uses, since
+    /// its one-endpoint-plus-token contract is identical for Splunk,
+    /// Sentinel, any OTLP collector, and this receiver (owner ruling
+    /// 2026-08-10, no pairing machinery). When null, the ingest port
+    /// requires a client certificate exactly as before.
+    /// </summary>
+    internal string? IngestToken { get; }
+
+    // Never include the operator or ingest token (or anything derived from
+    // them) here.
     public override string ToString() => "siem receiver configuration";
 }
 
@@ -144,7 +158,12 @@ internal static class SiemReceiverConfigurationLoader
         "revocationCheckMode",
         "maxRequestBytes",
         "maxConcurrentRequests",
+        "token",
     };
+
+    /// <summary>A short ingest token is a footgun, not a configuration: its
+    /// SHA-256 appears in custody receipts, so it must be high-entropy.</summary>
+    internal const int MinimumIngestTokenLength = 16;
 
     private static readonly HashSet<string> OperatorProperties = new(StringComparer.Ordinal)
     {
@@ -277,6 +296,9 @@ internal static class SiemReceiverConfigurationLoader
             ingest, "maxRequestBytes", "max_request_bytes") ?? DefaultMaxRequestBytes;
         var maxConcurrentRequests = ParseOptionalPositiveInt32(
             ingest, "maxConcurrentRequests", "max_concurrent_requests") ?? DefaultMaxConcurrentRequests;
+        var ingestToken = OptionalString(ingest, "token", "ingest_token");
+        if (ingestToken is not null && ingestToken.Length < MinimumIngestTokenLength)
+            Fail("ingest_token");
 
         var operatorBindAddress = OptionalString(
                 operatorSection, "bindAddress", "operator_bind_address") is { } operatorBindText
@@ -338,7 +360,8 @@ internal static class SiemReceiverConfigurationLoader
             retentionMaxAgeDays,
             retentionMaxTotalBytes,
             configurationPath,
-            configurationIdentity);
+            configurationIdentity,
+            ingestToken);
     }
 
     private static void RejectUnknownProperties(JsonElement element, HashSet<string> expected)

@@ -97,6 +97,31 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void Ingest_token_is_optional_typed_and_never_short()
+    {
+        // audit-restoration R3c: the token that lets PTK's exporter reach
+        // this receiver without an mTLS certificate. Absent means the mode
+        // is off; a short token is a refused footgun, not a configuration,
+        // because its SHA-256 lands in custody receipts.
+        var withoutToken = SiemReceiverConfigurationLoader.Load(
+            WriteConfiguration(ValidConfiguration()));
+        Assert.Null(withoutToken.IngestToken);
+
+        var configuration = ValidConfiguration();
+        configuration.Ingest["token"] = "ingest-token-0123456789abcdef";
+        var options = SiemReceiverConfigurationLoader.Load(
+            WriteConfiguration(configuration));
+        Assert.Equal("ingest-token-0123456789abcdef", options.IngestToken);
+        Assert.DoesNotContain("ingest-token", options.ToString(), StringComparison.Ordinal);
+
+        var shortToken = ValidConfiguration();
+        shortToken.Ingest["token"] = "too-short";
+        var failure = Assert.Throws<SiemReceiverConfigurationException>(
+            () => SiemReceiverConfigurationLoader.Load(WriteConfiguration(shortToken)));
+        Assert.Equal("ingest_token", failure.FailureCode);
+    }
+
+    [Fact]
     public void Retention_with_single_bound_loads()
     {
         var configuration = ValidConfiguration();

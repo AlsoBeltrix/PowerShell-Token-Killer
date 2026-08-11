@@ -241,15 +241,44 @@ PASSED.
 the GUI/webhook surfaces (R4), so the fact reaches the SIEM itself and
 not only `ptk_state`.
 
-**R3c is the other honest remainder, not started.** R3c: the
-receiver still ingests protobuf over mTLS only, so PTK reaches Splunk,
-Sentinel and any OTLP collector today but NOT its own fallback receiver;
-it needs a token-auth + OTLP-JSON ingest path, and that touches the mTLS
-boundary 255 receiver tests pin. R3d: the coordinated live-tail read
-(cr3-1) and **acknowledgment-aware journal retention** (cr3-2's complete
-fix) — four reopens argue that not deleting undelivered records beats
-detecting the loss afterwards; detection should become the backstop, not
-the primary defense.
+**R3c EXECUTED 2026-08-11 (owner goal "finish the whole things",
+2026-08-11): PTK can now reach its OWN fallback receiver.** The receiver
+gained (1) a bearer-token auth mode — optional `ingest.token` in the
+protected config (min 16 chars; its SHA-256 is the custody credential
+identity, mirroring the mTLS thumbprint; TLS flips to AllowCertificate
+only when a token is configured, and a presented certificate is still
+validated exactly as before) — and (2) an `application/json` OTLP ingest
+path accepting the generic-collector shape PTK's exporter actually
+emits, batched. Key design calls: the ENVELOPE is transport (lenient,
+proto3-JSON empty-array omission tolerated, unknown decorations
+ignored) while each record's JSONL body is the custody evidence and
+passes the SAME extracted validation core as the protobuf path
+(event-hash recomputation included); the two indexing hints PTK writes
+(`ptk.event_type`/`ptk.event_id`) are cross-checked so a decoration
+cannot contradict its evidence; per-record raw evidence is the exact
+log-record JSON, NOT the whole request — the producer regroups batches
+across retries, and request-level bytes would have made honest replays
+look like "same event, different bytes" (quarantine) besides storing
+each envelope up to 256 times. Batch responses aggregate to the
+producer's existing contract: first transient stops the pass (replay is
+idempotent), any permanent yields 400 so the producer isolates
+record-by-record. 401 is used for auth failures, which the producer
+already classifies as retryable. All 256 pre-R3c receiver pins pass
+unchanged; 13 new tests, three sabotage proofs (auth bypass, TLS-mode
+flip, hint check) — one test was strengthened when its first sabotage
+did NOT bite (EnsureSuccessStatusCode throws HttpRequestException on
+401 too; the test now demands a transport-level failure with
+`exception.StatusCode == null`). Known gap, deliberate: the receiver
+serves HTTPS with operator-provided certs, and PTK's HttpClient
+validates server trust normally — reaching the receiver still requires
+its server cert to be OS-trusted (or a real CA); the trust-bootstrap
+story is an R6 docs/packaging question, not an auth question.
+Receiver README documents the new contract; drift between the
+receiver-side copy of the producer envelope shape and the real exporter
+is R5's conformance suite's job.
+
+**R3d note (historical):** the coordinated live-tail read and
+acknowledgment-aware retention both landed — see the R3d entries above.
 
 **Hook anchor advice fixed (2026-08-10, owner report, blanket fix
 authorization).** The owner observed agents prefixing every `ptk_invoke`
@@ -638,13 +667,11 @@ judges by payload survival instead.
 
 ## Next
 
-**R3d is essentially DONE.** The cr3-2 review loop is CLOSED and all
-fifteen of its paths fixed (boot lineage closed the last, 2026-08-10);
-cr3-1's coordinated live-tail read landed 2026-08-11 (see §Now) on top
-of acknowledgment-aware retention (`7aa03ff`) and visible eviction
-(`a2dcece`). What remains of R3d's list — the eviction as a journaled
-audit event and the webhook/GUI surfaces — belongs naturally to **R4**.
-**Next slice, in order: R3c** (receiver token auth + JSON ingest —
+**Goal in force (owner, 2026-08-11): "finish the whole things.
+codereview codex per slice."** That is the go for the remaining
+audit-restoration slices in order, each followed by a codex codereview.
+R3d is DONE (cr3-2's fifteen paths all fixed; cr3-1 fixed in full).
+R3c is EXECUTED (see §Now) — codereview pending, then **R4** (receiver token auth + JSON ingest —
 without it PTK cannot reach its OWN fallback receiver, though Splunk,
 Sentinel and any OTLP collector work today), **R4** (the loopback web
 GUI + settings page — the slice that finally lets the owner SEE the

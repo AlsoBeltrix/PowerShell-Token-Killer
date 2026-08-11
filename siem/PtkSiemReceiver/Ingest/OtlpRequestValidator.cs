@@ -53,6 +53,9 @@ internal sealed record OtlpValidationResult(
         string failureCode) =>
         new(null, DescribeRejectedAttempt(requestBytes, failureCode), failureCode);
 
+    internal static OtlpValidationResult Invalid(RejectedOtlpAttempt attempt) =>
+        new(null, attempt, attempt.FailureCode);
+
     private static RejectedOtlpAttempt DescribeRejectedAttempt(
         ReadOnlySpan<byte> requestBytes,
         string failureCode)
@@ -127,6 +130,19 @@ internal sealed record OtlpValidationResult(
 
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
+}
+
+/// <summary>
+/// Per-record outcomes for one OTLP JSON export request. A request-level
+/// failure means the envelope itself was unusable and nothing was read from
+/// it; otherwise every log record has exactly one result, in order.
+/// </summary>
+internal sealed record OtlpJsonIngestValidation(
+    IReadOnlyList<OtlpValidationResult> Results,
+    string? RequestFailureCode)
+{
+    internal static OtlpJsonIngestValidation RequestInvalid(string failureCode) =>
+        new([], failureCode);
 }
 
 internal static class OtlpRequestValidator
@@ -213,70 +229,28 @@ internal static class OtlpRequestValidator
             }
 
             var exactBody = StrictUtf8.GetBytes(log.Body.StringValue);
-            using var document = JsonDocument.Parse(
-                exactBody,
-                new JsonDocumentOptions
-                {
-                    AllowTrailingCommas = false,
-                    CommentHandling = JsonCommentHandling.Disallow,
-                    MaxDepth = 16,
-                });
-            var root = RequireObject(document.RootElement, "body_shape");
-            EnsureNoDuplicateProperties(root);
-
-            var schemaVersion = RequireString(root, "schema_version", "schema_version");
-            var expectedRoot = schemaVersion switch
-            {
-                V1 => V1RootProperties,
-                V2 => V2RootProperties,
-                V3 => V3RootProperties,
-                _ => throw new OtlpValidationException("schema_version"),
-            };
-            RequireExactProperties(root, expectedRoot, "body_shape");
-
-            var eventIdText = RequireString(root, "event_id", "event_id");
-            var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
-            var eventType = RequireNonemptyString(root, "event_type", "event_type");
-            var occurred = RequireUtc(root, "occurred_utc", "occurred_utc");
-            var observed = RequireUtc(root, "observed_utc", "observed_utc");
-            var sequence = RequireInt64(root, "sequence", "sequence");
-            if (sequence < 1) Fail("sequence");
-            var previousHash = OptionalString(root, "previous_event_hash", "previous_event_hash");
-            if (sequence == 1 ? previousHash is not null : !IsLowerHex(previousHash, 64))
-                Fail("previous_event_hash");
-            var eventHash = RequireString(root, "event_hash", "event_hash");
-            if (!IsLowerHex(eventHash, 64) || !HasValidEventHash(exactBody, eventHash))
-                Fail("event_hash");
-
-            var producer = RequireObjectProperty(root, "producer", "producer");
-            var hostId = RequireString(producer, "host_id", "producer");
-            var hostGuid = RequireCanonicalUuid(hostId, 4, "producer");
-            var supervisorBootText = RequireString(
-                producer,
-                "supervisor_boot_id",
-                "producer");
-            var supervisorBootId = RequireCanonicalUuid(
-                supervisorBootText,
-                4,
-                "producer");
-            var workerBootId = OptionalString(producer, "worker_boot_id", "producer");
-            Guid? workerBootGuid = null;
-            if (workerBootId is not null)
-                workerBootGuid = RequireCanonicalUuid(workerBootId, 4, "producer");
-            // Boot lineage (R3d): absent on pre-lineage records, nullable on
-            // current ones — and never garbage when present.
-            if (producer.TryGetProperty("previous_supervisor_boot_id", out var previousBoot) &&
-                previousBoot.ValueKind != JsonValueKind.Null)
-            {
-                if (previousBoot.ValueKind != JsonValueKind.String) Fail("producer");
-                _ = RequireCanonicalUuid(previousBoot.GetString()!, 4, "producer");
-            }
-            var producerVersion = RequireNonemptyString(producer, "version", "producer");
-
-            var session = RequireObjectProperty(root, "session", "session");
-            var correlation = RequireObjectProperty(root, "correlation", "correlation");
-            var auditRequest = RequireObjectProperty(root, "request", "request");
-            var outcome = RequireObjectProperty(root, "outcome", "outcome");
+            using var body = ValidateBody(exactBody);
+            var root = body.Root;
+            var schemaVersion = body.SchemaVersion;
+            var eventIdText = body.EventIdText;
+            var eventId = body.EventId;
+            var eventType = body.EventType;
+            var occurred = body.Occurred;
+            var observed = body.Observed;
+            var sequence = body.Sequence;
+            var previousHash = body.PreviousHash;
+            var eventHash = body.EventHash;
+            var hostId = body.HostId;
+            var hostGuid = body.HostGuid;
+            var supervisorBootText = body.SupervisorBootText;
+            var supervisorBootId = body.SupervisorBootId;
+            var workerBootId = body.WorkerBootId;
+            var workerBootGuid = body.WorkerBootGuid;
+            var producerVersion = body.ProducerVersion;
+            var session = body.Session;
+            var correlation = body.Correlation;
+            var auditRequest = body.AuditRequest;
+            var outcome = body.Outcome;
 
             var attributes = ReadAttributes(log.Attributes);
             var expectedAttributes = new Dictionary<string, ExpectedValue>(StringComparer.Ordinal)
@@ -386,6 +360,384 @@ internal static class OtlpRequestValidator
             return OtlpValidationResult.Invalid(requestBytes, "invalid_record");
         }
     }
+
+    /// <summary>
+    /// The audit-record body validation shared by both wire encodings: exact
+    /// per-version root shape, canonical identifiers, and the recomputed
+    /// event hash. The record line is the custody evidence; every path that
+    /// accepts one must run this exact code (audit-restoration R3c).
+    /// </summary>
+    private static ParsedBody ValidateBody(byte[] exactBody)
+    {
+        var document = JsonDocument.Parse(
+            exactBody,
+            new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 16,
+            });
+        try
+        {
+            var root = RequireObject(document.RootElement, "body_shape");
+            EnsureNoDuplicateProperties(root);
+
+            var schemaVersion = RequireString(root, "schema_version", "schema_version");
+            var expectedRoot = schemaVersion switch
+            {
+                V1 => V1RootProperties,
+                V2 => V2RootProperties,
+                V3 => V3RootProperties,
+                _ => throw new OtlpValidationException("schema_version"),
+            };
+            RequireExactProperties(root, expectedRoot, "body_shape");
+
+            var eventIdText = RequireString(root, "event_id", "event_id");
+            var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
+            var eventType = RequireNonemptyString(root, "event_type", "event_type");
+            var occurred = RequireUtc(root, "occurred_utc", "occurred_utc");
+            var observed = RequireUtc(root, "observed_utc", "observed_utc");
+            var sequence = RequireInt64(root, "sequence", "sequence");
+            if (sequence < 1) Fail("sequence");
+            var previousHash = OptionalString(root, "previous_event_hash", "previous_event_hash");
+            if (sequence == 1 ? previousHash is not null : !IsLowerHex(previousHash, 64))
+                Fail("previous_event_hash");
+            var eventHash = RequireString(root, "event_hash", "event_hash");
+            if (!IsLowerHex(eventHash, 64) || !HasValidEventHash(exactBody, eventHash))
+                Fail("event_hash");
+
+            var producer = RequireObjectProperty(root, "producer", "producer");
+            var hostId = RequireString(producer, "host_id", "producer");
+            var hostGuid = RequireCanonicalUuid(hostId, 4, "producer");
+            var supervisorBootText = RequireString(
+                producer,
+                "supervisor_boot_id",
+                "producer");
+            var supervisorBootId = RequireCanonicalUuid(
+                supervisorBootText,
+                4,
+                "producer");
+            var workerBootId = OptionalString(producer, "worker_boot_id", "producer");
+            Guid? workerBootGuid = null;
+            if (workerBootId is not null)
+                workerBootGuid = RequireCanonicalUuid(workerBootId, 4, "producer");
+            // Boot lineage (R3d): absent on pre-lineage records, nullable on
+            // current ones — and never garbage when present.
+            if (producer.TryGetProperty("previous_supervisor_boot_id", out var previousBoot) &&
+                previousBoot.ValueKind != JsonValueKind.Null)
+            {
+                if (previousBoot.ValueKind != JsonValueKind.String) Fail("producer");
+                _ = RequireCanonicalUuid(previousBoot.GetString()!, 4, "producer");
+            }
+            var producerVersion = RequireNonemptyString(producer, "version", "producer");
+
+            return new ParsedBody
+            {
+                Document = document,
+                Root = root,
+                SchemaVersion = schemaVersion,
+                EventIdText = eventIdText,
+                EventId = eventId,
+                EventType = eventType,
+                Occurred = occurred,
+                Observed = observed,
+                Sequence = sequence,
+                PreviousHash = previousHash,
+                EventHash = eventHash,
+                HostId = hostId,
+                HostGuid = hostGuid,
+                SupervisorBootText = supervisorBootText,
+                SupervisorBootId = supervisorBootId,
+                WorkerBootId = workerBootId,
+                WorkerBootGuid = workerBootGuid,
+                ProducerVersion = producerVersion,
+                Session = RequireObjectProperty(root, "session", "session"),
+                Correlation = RequireObjectProperty(root, "correlation", "correlation"),
+                AuditRequest = RequireObjectProperty(root, "request", "request"),
+                Outcome = RequireObjectProperty(root, "outcome", "outcome"),
+            };
+        }
+        catch
+        {
+            document.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class ParsedBody : IDisposable
+    {
+        internal required JsonDocument Document { get; init; }
+        internal required JsonElement Root { get; init; }
+        internal required string SchemaVersion { get; init; }
+        internal required string EventIdText { get; init; }
+        internal required Guid EventId { get; init; }
+        internal required string EventType { get; init; }
+        internal required DateTimeOffset Occurred { get; init; }
+        internal required DateTimeOffset Observed { get; init; }
+        internal required long Sequence { get; init; }
+        internal required string? PreviousHash { get; init; }
+        internal required string EventHash { get; init; }
+        internal required string HostId { get; init; }
+        internal required Guid HostGuid { get; init; }
+        internal required string SupervisorBootText { get; init; }
+        internal required Guid SupervisorBootId { get; init; }
+        internal required string? WorkerBootId { get; init; }
+        internal required Guid? WorkerBootGuid { get; init; }
+        internal required string ProducerVersion { get; init; }
+        internal required JsonElement Session { get; init; }
+        internal required JsonElement Correlation { get; init; }
+        internal required JsonElement AuditRequest { get; init; }
+        internal required JsonElement Outcome { get; init; }
+
+        public void Dispose() => Document.Dispose();
+    }
+
+    /// <summary>Bound on log records in one JSON export request. The request
+    /// byte bound is the real limit; this caps degenerate envelopes.</summary>
+    internal const int MaximumJsonLogRecords = 4096;
+
+    /// <summary>
+    /// Validates an OTLP/HTTP JSON export request (audit-restoration R3c) —
+    /// the generic-collector encoding PTK's own exporter emits identically
+    /// for Splunk-style collectors, OTLP endpoints, and this receiver. The
+    /// ENVELOPE is transport and read leniently (standard proto3 JSON, empty
+    /// arrays omitted, unknown decorations ignored); each record BODY is the
+    /// custody evidence and passes the exact validation the protobuf path
+    /// runs, and the two indexing hints PTK writes are cross-checked so a
+    /// decoration can never contradict the evidence it decorates. Batches
+    /// are per-record results: one poison record refuses one record.
+    /// </summary>
+    internal static OtlpJsonIngestValidation ValidateJsonRequest(byte[] requestBytes)
+    {
+        try
+        {
+            if (requestBytes.Length == 0)
+                return OtlpJsonIngestValidation.RequestInvalid("otlp_json");
+            JsonDocument envelope;
+            try
+            {
+                envelope = JsonDocument.Parse(requestBytes, new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 64,
+                });
+            }
+            catch (JsonException)
+            {
+                return OtlpJsonIngestValidation.RequestInvalid("otlp_json");
+            }
+
+            using (envelope)
+            {
+                var root = envelope.RootElement;
+                if (root.ValueKind != JsonValueKind.Object ||
+                    !root.TryGetProperty("resourceLogs", out var resourceLogs) ||
+                    resourceLogs.ValueKind != JsonValueKind.Array)
+                {
+                    return OtlpJsonIngestValidation.RequestInvalid("otlp_shape");
+                }
+
+                var logRecords = new List<JsonElement>();
+                foreach (var resourceEntry in resourceLogs.EnumerateArray())
+                {
+                    if (resourceEntry.ValueKind != JsonValueKind.Object)
+                        return OtlpJsonIngestValidation.RequestInvalid("otlp_shape");
+                    // Proto3 JSON omits empty repeated fields, so an absent
+                    // array is an empty one, not a malformed request.
+                    if (!resourceEntry.TryGetProperty("scopeLogs", out var scopeLogs))
+                        continue;
+                    if (scopeLogs.ValueKind != JsonValueKind.Array)
+                        return OtlpJsonIngestValidation.RequestInvalid("otlp_shape");
+                    foreach (var scopeEntry in scopeLogs.EnumerateArray())
+                    {
+                        if (scopeEntry.ValueKind != JsonValueKind.Object)
+                            return OtlpJsonIngestValidation.RequestInvalid("otlp_shape");
+                        if (!scopeEntry.TryGetProperty("logRecords", out var entries))
+                            continue;
+                        if (entries.ValueKind != JsonValueKind.Array)
+                            return OtlpJsonIngestValidation.RequestInvalid("otlp_shape");
+                        foreach (var entry in entries.EnumerateArray())
+                        {
+                            if (logRecords.Count == MaximumJsonLogRecords)
+                                return OtlpJsonIngestValidation.RequestInvalid("record_count");
+                            logRecords.Add(entry);
+                        }
+                    }
+                }
+
+                var results = new List<OtlpValidationResult>(logRecords.Count);
+                foreach (var logRecord in logRecords)
+                    results.Add(ValidateJsonLogRecord(logRecord));
+                return new OtlpJsonIngestValidation(results, null);
+            }
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return OtlpJsonIngestValidation.RequestInvalid("invalid_record");
+        }
+    }
+
+    private static OtlpValidationResult ValidateJsonLogRecord(JsonElement logRecord)
+    {
+        // The per-record raw evidence is the exact log-record JSON, not the
+        // whole request: the producer regroups batches across retries, so
+        // request-level bytes would make an honest replay look like "same
+        // event, different bytes" (quarantine), and a 256-record batch would
+        // store its envelope 256 times.
+        var rawRecordBytes = Encoding.UTF8.GetBytes(logRecord.GetRawText());
+        byte[]? exactBody = null;
+        try
+        {
+            if (logRecord.ValueKind != JsonValueKind.Object ||
+                !logRecord.TryGetProperty("body", out var bodyElement) ||
+                bodyElement.ValueKind != JsonValueKind.Object ||
+                !bodyElement.TryGetProperty("stringValue", out var stringValue) ||
+                stringValue.ValueKind != JsonValueKind.String)
+            {
+                throw new OtlpValidationException("log_shape");
+            }
+
+            exactBody = StrictUtf8.GetBytes(stringValue.GetString()!);
+            using var body = ValidateBody(exactBody);
+            RequireTruthfulJsonHints(logRecord, body.EventType, body.EventIdText);
+
+            return OtlpValidationResult.Valid(new ValidatedOtlpRecord(
+                rawRecordBytes,
+                exactBody,
+                body.SchemaVersion,
+                body.EventId,
+                body.EventType,
+                body.Occurred,
+                body.Observed,
+                body.HostGuid,
+                body.EventHash,
+                body.PreviousHash,
+                body.SupervisorBootId,
+                body.WorkerBootGuid,
+                body.Sequence,
+                OptionalString(body.Session, "name", "session"),
+                OptionalInt64(body.Session, "generation", "session"),
+                OptionalString(body.Correlation, "call_id", "correlation"),
+                OptionalInt64(body.Correlation, "job_id", "correlation"),
+                OptionalString(body.Outcome, "state", "outcome")));
+        }
+        catch (OtlpValidationException exception)
+        {
+            return OtlpValidationResult.Invalid(
+                DescribeRejectedJsonRecord(rawRecordBytes, exactBody, exception.FailureCode));
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return OtlpValidationResult.Invalid(
+                DescribeRejectedJsonRecord(rawRecordBytes, exactBody, "invalid_record"));
+        }
+    }
+
+    /// <summary>
+    /// The two indexing hints PTK's exporter writes (<c>ptk.event_type</c>,
+    /// <c>ptk.event_id</c>) must match the validated record when present.
+    /// Other attribute keys are transport decoration and carry no claim.
+    /// </summary>
+    private static void RequireTruthfulJsonHints(
+        JsonElement logRecord,
+        string eventType,
+        string eventIdText)
+    {
+        if (!logRecord.TryGetProperty("attributes", out var attributes)) return;
+        if (attributes.ValueKind != JsonValueKind.Array) Fail("attributes");
+        foreach (var attribute in attributes.EnumerateArray())
+        {
+            if (attribute.ValueKind != JsonValueKind.Object ||
+                !attribute.TryGetProperty("key", out var keyElement) ||
+                keyElement.ValueKind != JsonValueKind.String)
+            {
+                Fail("attributes");
+                continue; // unreachable; Fail throws
+            }
+
+            var key = keyElement.GetString();
+            var expected = key switch
+            {
+                "ptk.event_type" => eventType,
+                "ptk.event_id" => eventIdText,
+                _ => null,
+            };
+            if (expected is null) continue;
+            if (!attribute.TryGetProperty("value", out var valueElement) ||
+                valueElement.ValueKind != JsonValueKind.Object ||
+                !valueElement.TryGetProperty("stringValue", out var hintValue) ||
+                hintValue.ValueKind != JsonValueKind.String ||
+                !string.Equals(hintValue.GetString(), expected, StringComparison.Ordinal))
+            {
+                Fail("attributes");
+            }
+        }
+    }
+
+    private static RejectedOtlpAttempt DescribeRejectedJsonRecord(
+        byte[] rawRecordBytes,
+        byte[]? exactBody,
+        string failureCode)
+    {
+        string? eventId = null;
+        string? eventHash = null;
+        string? previousEventHash = null;
+        string? supervisorBootId = null;
+        long? sequence = null;
+        try
+        {
+            if (exactBody is not null)
+            {
+                using var document = JsonDocument.Parse(exactBody, new JsonDocumentOptions
+                {
+                    AllowTrailingCommas = false,
+                    CommentHandling = JsonCommentHandling.Disallow,
+                    MaxDepth = 16,
+                });
+                if (document.RootElement.ValueKind == JsonValueKind.Object)
+                {
+                    var root = document.RootElement;
+                    eventId = ClaimString(root, "event_id");
+                    eventHash = ClaimString(root, "event_hash");
+                    previousEventHash = ClaimString(root, "previous_event_hash");
+                    sequence = ClaimInt64(root, "sequence");
+                    if (root.TryGetProperty("producer", out var producer) &&
+                        producer.ValueKind == JsonValueKind.Object)
+                    {
+                        supervisorBootId = ClaimString(producer, "supervisor_boot_id");
+                    }
+                }
+            }
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            // Claims are advisory only; the exact log record stays evidence.
+        }
+
+        return new RejectedOtlpAttempt(
+            rawRecordBytes,
+            exactBody,
+            failureCode,
+            eventId,
+            eventHash,
+            previousEventHash,
+            supervisorBootId,
+            sequence);
+    }
+
+    private static string? ClaimString(JsonElement parent, string propertyName) =>
+        parent.TryGetProperty(propertyName, out var value) &&
+        value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static long? ClaimInt64(JsonElement parent, string propertyName) =>
+        parent.TryGetProperty(propertyName, out var value) &&
+        value.ValueKind == JsonValueKind.Number &&
+        value.TryGetInt64(out var result)
+            ? result
+            : null;
 
     private static void AddHostAttributes(
         JsonElement root,

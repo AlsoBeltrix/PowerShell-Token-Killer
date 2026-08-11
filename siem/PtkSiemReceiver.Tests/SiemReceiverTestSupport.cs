@@ -175,7 +175,8 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         int maximumRequestBytes = 1024 * 1024,
         int maximumConcurrentRequests = SiemReceiverConfigurationLoader.DefaultMaxConcurrentRequests,
         TimeProvider? timeProvider = null,
-        ISqliteIngestFaultInjector? storageFaultInjector = null)
+        ISqliteIngestFaultInjector? storageFaultInjector = null,
+        string? ingestToken = null)
     {
         var root = SiemTestFileSystem.CreateProtectedRoot("ptk-siem-host");
         var certificatePath = Path.Combine(root, "server-cert.pem");
@@ -213,7 +214,8 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
             null,
             databasePath,
             null,
-            null);
+            null,
+            ingestToken: ingestToken);
 
         WebApplication? application = null;
         try
@@ -318,7 +320,19 @@ internal static class OtlpTestRequest
     private const string OccurredUtc = "2026-07-15T12:34:56.1234567Z";
     private const string ObservedUtc = "2026-07-15T12:34:57.1234567Z";
 
-    internal static ExportLogsServiceRequest Create(
+    /// <summary>One canonical audit-record line plus the identifiers a test
+    /// needs to project or chain it; shared by the protobuf request builder
+    /// and the R3c JSON ingest tests so both paths validate one shape.</summary>
+    internal sealed record TestAuditRecord(
+        string Body,
+        string EventId,
+        string EventType,
+        string EventHash,
+        string SupervisorBootId,
+        long Sequence,
+        string SchemaVersion);
+
+    internal static TestAuditRecord CreateRecord(
         string schemaVersion = "ptk.audit/2",
         string? eventId = null,
         string? supervisorBootId = null,
@@ -369,6 +383,37 @@ internal static class OtlpTestRequest
         var eventHash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(preHash)))
             .ToLowerInvariant();
         var body = preHash[..^1] + $",\"event_hash\":\"{eventHash}\"}}";
+        return new TestAuditRecord(
+            body,
+            eventId,
+            eventType,
+            eventHash,
+            supervisorBootId,
+            sequence,
+            schemaVersion);
+    }
+
+    internal static ExportLogsServiceRequest Create(
+        string schemaVersion = "ptk.audit/2",
+        string? eventId = null,
+        string? supervisorBootId = null,
+        long sequence = 1,
+        string? previousEventHash = null,
+        string eventType = "tool.completed",
+        string? previousSupervisorBootId = null)
+    {
+        var testRecord = CreateRecord(
+            schemaVersion,
+            eventId,
+            supervisorBootId,
+            sequence,
+            previousEventHash,
+            eventType,
+            previousSupervisorBootId);
+        eventId = testRecord.EventId;
+        supervisorBootId = testRecord.SupervisorBootId;
+        var eventHash = testRecord.EventHash;
+        var body = testRecord.Body;
 
         var resource = new OtlpResource();
         resource.Attributes.Add(StringAttribute("service.namespace", "ptk"));

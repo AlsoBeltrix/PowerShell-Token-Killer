@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Text;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.AspNetCore.Server.Kestrel.Https;
@@ -124,7 +125,14 @@ internal static class ReceiverApplication
                         listen.UseHttps(new HttpsConnectionAdapterOptions
                         {
                             ServerCertificate = serverCertificate,
-                            ClientCertificateMode = ClientCertificateMode.RequireCertificate,
+                            // With an ingest token configured (R3c), a client
+                            // may authenticate per-request with Bearer
+                            // instead; a certificate that IS presented is
+                            // still validated exactly as before. Without a
+                            // token, mTLS stays mandatory.
+                            ClientCertificateMode = options.IngestToken is null
+                                ? ClientCertificateMode.RequireCertificate
+                                : ClientCertificateMode.AllowCertificate,
                             ClientCertificateValidation = (certificate, chain, errors) =>
                                 ClientCertificateValidator.Validate(
                                     certificate,
@@ -288,7 +296,21 @@ internal static class ReceiverApplication
         TimeProvider timeProvider)
     {
         var receivedUtc = timeProvider.GetUtcNow();
-        if (!HasExactProtobufContentType(context.Request))
+        // Authentication precedes any body buffering (the rbc-12 posture): a
+        // connection either carried a validated client certificate through
+        // the TLS handshake, or — token mode only — must present the exact
+        // ingest bearer token now.
+        var certificate = context.Connection.ClientCertificate;
+        if (certificate is null && !HasValidIngestToken(context.Request, options.IngestToken))
+        {
+            await OtlpHttpResponse.WriteUnauthorizedAsync(
+                context.Response,
+                context.RequestAborted);
+            return;
+        }
+
+        var encoding = ClassifyContentType(context.Request);
+        if (encoding == IngestEncoding.Unsupported)
         {
             await OtlpHttpResponse.WritePermanentAsync(
                 context.Response,
@@ -310,7 +332,7 @@ internal static class ReceiverApplication
             return;
         }
 
-        var receipt = CreateReceiptContext(context, receivedUtc);
+        var receipt = CreateReceiptContext(context, receivedUtc, options);
         if (receipt is null)
         {
             await OtlpHttpResponse.WriteTransientAsync(
@@ -320,22 +342,92 @@ internal static class ReceiverApplication
             return;
         }
 
-        var validation = OtlpRequestValidator.Validate(body);
-        var commitResult = validation.IsValid
-            ? await InvokeCommitAsync(
-                () => committer.CommitAsync(
-                    validation.Record!,
-                    receipt,
-                    context.RequestAborted),
-                context.RequestAborted)
-            : await InvokeCommitAsync(
-                () => committer.QuarantineAsync(
-                    validation.RejectedAttempt!,
-                    receipt,
-                    context.RequestAborted),
-                context.RequestAborted);
+        if (encoding == IngestEncoding.Protobuf)
+        {
+            var validation = OtlpRequestValidator.Validate(body);
+            var commitResult = validation.IsValid
+                ? await InvokeCommitAsync(
+                    () => committer.CommitAsync(
+                        validation.Record!,
+                        receipt,
+                        context.RequestAborted),
+                    context.RequestAborted)
+                : await InvokeCommitAsync(
+                    () => committer.QuarantineAsync(
+                        validation.RejectedAttempt!,
+                        receipt,
+                        context.RequestAborted),
+                    context.RequestAborted);
 
-        await WriteCommitResultAsync(context, commitResult);
+            await WriteCommitResultAsync(context, commitResult);
+            return;
+        }
+
+        await HandleJsonIngestAsync(context, committer, receipt, body);
+    }
+
+    /// <summary>
+    /// The OTLP/HTTP JSON path (audit-restoration R3c): the encoding PTK's
+    /// own exporter sends, batched. Each record commits or quarantines
+    /// individually; the response aggregates so the producer's existing
+    /// contract does the rest — transient stops the pass and replays the
+    /// batch (commits are idempotent by exact bytes), permanent makes the
+    /// producer isolate record-by-record so one poison record costs one
+    /// record.
+    /// </summary>
+    private static async Task HandleJsonIngestAsync(
+        HttpContext context,
+        IIngestCommitter committer,
+        IngestReceiptContext receipt,
+        byte[] body)
+    {
+        var validation = OtlpRequestValidator.ValidateJsonRequest(body);
+        if (validation.RequestFailureCode is not null)
+        {
+            await OtlpHttpResponse.WritePermanentAsync(
+                context.Response,
+                validation.RequestFailureCode,
+                context.RequestAborted);
+            return;
+        }
+
+        IngestCommitResult? firstPermanent = null;
+        foreach (var result in validation.Results)
+        {
+            var commitResult = result.IsValid
+                ? await InvokeCommitAsync(
+                    () => committer.CommitAsync(
+                        result.Record!,
+                        receipt,
+                        context.RequestAborted),
+                    context.RequestAborted)
+                : await InvokeCommitAsync(
+                    () => committer.QuarantineAsync(
+                        result.RejectedAttempt!,
+                        receipt,
+                        context.RequestAborted),
+                    context.RequestAborted);
+            if (commitResult.Kind == IngestCommitResultKind.TransientFailure)
+            {
+                // Stop at the first transient refusal: the whole request is
+                // retried and already-committed records replay idempotently.
+                await WriteCommitResultAsync(context, commitResult);
+                return;
+            }
+            if (commitResult.Kind == IngestCommitResultKind.PermanentFailure)
+                firstPermanent ??= commitResult;
+        }
+
+        await WriteCommitResultAsync(
+            context,
+            firstPermanent ?? IngestCommitResult.Accepted());
+    }
+
+    private enum IngestEncoding
+    {
+        Unsupported,
+        Protobuf,
+        Json,
     }
 
     private static async Task<IngestCommitResult> InvokeCommitAsync(
@@ -382,38 +474,100 @@ internal static class ReceiverApplication
 
     private static IngestReceiptContext? CreateReceiptContext(
         HttpContext context,
-        DateTimeOffset receivedUtc)
+        DateTimeOffset receivedUtc,
+        SiemReceiverOptions options)
     {
         var certificate = context.Connection.ClientCertificate;
         var address = context.Connection.RemoteIpAddress;
-        if (certificate is null || address is null) return null;
+        if (address is null) return null;
+        // The custody credential identity: the certificate's SHA-256 for an
+        // mTLS client, the token's SHA-256 for a bearer client (R3c) —
+        // either way 64 lower-hex characters naming the credential that
+        // delivered the record, never the credential itself.
+        string thumbprint;
+        if (certificate is not null)
+        {
+            thumbprint = Convert.ToHexString(SHA256.HashData(certificate.RawData))
+                .ToLowerInvariant();
+        }
+        else if (options.IngestToken is { } token)
+        {
+            thumbprint = Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(token)))
+                .ToLowerInvariant();
+        }
+        else
+        {
+            return null;
+        }
 
         var addressText = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6
             ? $"[{address}]"
             : address.ToString();
         var endpoint = $"{addressText}:{context.Connection.RemotePort}";
-        var thumbprint = Convert.ToHexString(SHA256.HashData(certificate.RawData))
-            .ToLowerInvariant();
         return new IngestReceiptContext(
             receivedUtc.ToUniversalTime(),
             thumbprint,
             endpoint);
     }
 
-    private static bool HasExactProtobufContentType(HttpRequest request)
+    /// <summary>Exact single Authorization header, exact Bearer scheme,
+    /// fixed-time token comparison. Only meaningful when a token is
+    /// configured; without one, certificate-less connections cannot exist.</summary>
+    private static bool HasValidIngestToken(HttpRequest request, string? configuredToken)
+    {
+        if (configuredToken is null) return false;
+        if (!request.Headers.TryGetValue(HeaderNames.Authorization, out var values) ||
+            values.Count != 1 ||
+            values[0] is not { } header)
+        {
+            return false;
+        }
+
+        const string scheme = "Bearer ";
+        if (!header.StartsWith(scheme, StringComparison.Ordinal)) return false;
+        var presented = Encoding.UTF8.GetBytes(header[scheme.Length..]);
+        var expected = Encoding.UTF8.GetBytes(configuredToken);
+        return CryptographicOperations.FixedTimeEquals(presented, expected);
+    }
+
+    private const string JsonMediaType = "application/json";
+
+    private static IngestEncoding ClassifyContentType(HttpRequest request)
     {
         if (!request.Headers.TryGetValue(HeaderNames.ContentType, out var values) ||
             values.Count != 1 ||
             !MediaTypeHeaderValue.TryParse(values[0], out var parsed))
         {
-            return false;
+            return IngestEncoding.Unsupported;
         }
 
-        return string.Equals(
-                   parsed.MediaType.Value,
-                   ProtobufMediaType,
-                   StringComparison.OrdinalIgnoreCase) &&
-               parsed.Parameters.Count == 0;
+        if (string.Equals(
+                parsed.MediaType.Value,
+                ProtobufMediaType,
+                StringComparison.OrdinalIgnoreCase) &&
+            parsed.Parameters.Count == 0)
+        {
+            return IngestEncoding.Protobuf;
+        }
+
+        // application/json, alone or with the one charset UTF-8 JSON has
+        // (PTK's exporter sends "application/json; charset=utf-8").
+        if (string.Equals(
+                parsed.MediaType.Value,
+                JsonMediaType,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            if (parsed.Parameters.Count == 0) return IngestEncoding.Json;
+            if (parsed.Parameters.Count == 1 &&
+                string.Equals(parsed.Parameters[0].Name.Value, "charset", StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(parsed.Parameters[0].Value.Value, "utf-8", StringComparison.OrdinalIgnoreCase))
+            {
+                return IngestEncoding.Json;
+            }
+        }
+
+        return IngestEncoding.Unsupported;
     }
 
     private static async Task<byte[]?> ReadBoundedAsync(

@@ -28,6 +28,22 @@ internal static class OtlpHttpResponse
             retryAfter: null,
             cancellationToken);
 
+    /// <summary>
+    /// 401 for a request that presented neither a client certificate nor the
+    /// configured ingest token (audit-restoration R3c). PTK's exporter
+    /// classifies 401 as retryable operator-fixable configuration, so no
+    /// audit record is ever discarded over a credential mismatch.
+    /// </summary>
+    internal static Task WriteUnauthorizedAsync(
+        HttpResponse response,
+        CancellationToken cancellationToken) =>
+        WriteAsync(
+            response,
+            StatusCodes.Status401Unauthorized,
+            EncodeGoogleStatus(16, "unauthenticated"),
+            retryAfter: null,
+            cancellationToken);
+
     internal static Task WriteTransientAsync(
         HttpResponse response,
         string failureCode,

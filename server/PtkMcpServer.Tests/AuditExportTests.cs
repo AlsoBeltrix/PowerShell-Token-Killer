@@ -745,6 +745,103 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task Parked_gaps_flush_into_the_ledger_once_it_can_be_written()
+    {
+        // cr3-2 round 10: the round-9 fix parked gap counters on the cursor
+        // but never folded them back into the ledger, so a later cursor loss
+        // silently restored a healthy status. (The round-9 commit CLAIMED
+        // this flush existed; it did not.)
+        var root = NewRoot("export-parked-flush");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var segment = WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 1),
+        ]);
+        var ledgerPath = Path.Combine(root, AuditExportGapStore.FileName);
+        Directory.CreateDirectory(ledgerPath);
+
+        using var receiver = new FakeHttpDestination();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using (var service = NewService(
+            options,
+            receiver,
+            cursorStore,
+            new AuditExportHealth()))
+        {
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+            AppendRecords(segment, [ChainRecord(boot, sequence: 3)]);
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        }
+
+        // The ledger becomes writable; a drain must migrate the parked
+        // counters into it.
+        Directory.Delete(ledgerPath);
+        await using (var recovered = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            new AuditExportHealth()))
+        {
+            await recovered.DrainOnceAsync(CancellationToken.None);
+        }
+
+        // Now lose the cursor entirely: the evidence must survive in the
+        // ledger.
+        File.Delete(cursorStore.CursorPath);
+        var health = new AuditExportHealth();
+        await using var restarted = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Contains(
+            "EXPORT_GAPS=1",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Export_pauses_and_reports_when_no_metadata_can_be_written()
+    {
+        // cr3-2 round 10 also falsified the round-9 residual argument that
+        // "if both metadata paths are unwritable the audit root is failing
+        // and execution stops first": the spool stays writable, so delivery
+        // continued and a restart lost the evidence. Export now pauses and
+        // says so -- pausing export never gates execution.
+        var root = NewRoot("export-metadata-blocked");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 1),
+            ChainRecord(boot, sequence: 2),
+        ]);
+        // Both export metadata paths blocked; the journal spool is untouched.
+        Directory.CreateDirectory(Path.Combine(root, AuditExportGapStore.FileName));
+        Directory.CreateDirectory(Path.Combine(root, AuditExportCursorStore.FileName));
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        await service.DrainOnceAsync(CancellationToken.None);
+
+        Assert.Equal(
+            "export.metadata_unwritable",
+            health.Snapshot().LastFailureDetail);
+        Assert.Contains(
+            "retrying",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_contiguous_multi_record_batch_raises_nothing()
     {
         // The no-alarm half of the same walk: an ordinary batch must not

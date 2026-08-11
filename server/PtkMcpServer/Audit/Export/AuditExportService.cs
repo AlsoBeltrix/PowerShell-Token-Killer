@@ -98,6 +98,25 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         if (_destination is null) return 0;
         var delivered = 0;
         var cursor = _cursorStore.Read();
+
+        // Migrate gap counters an earlier process could not persist. The
+        // round-9 fix parked them on the cursor but never folded them back,
+        // so a later cursor loss erased the evidence (cr3-2 round 10).
+        if (_unrecordedGaps > 0 || _unrecordedMissingRecords > 0)
+        {
+            if (_gapStore.TryAbsorbUnrecorded(_unrecordedGaps, _unrecordedMissingRecords))
+            {
+                _unrecordedGaps = 0;
+                _unrecordedMissingRecords = 0;
+                cursor = cursor with
+                {
+                    UnrecordedGaps = 0,
+                    UnrecordedMissingRecords = 0,
+                };
+                _cursorStore.TryWrite(cursor);
+            }
+        }
+
         var segments = EnumerateSegments();
         _health.RecordPendingBytes(PendingBytes(segments, cursor));
 
@@ -175,7 +194,18 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     chainBootId is null ? cursor.LastWasLifecycleTerminal : chainTerminal,
                     _unrecordedGaps,
                     _unrecordedMissingRecords);
-                _cursorStore.TryWrite(cursor);
+                if (!_cursorStore.TryWrite(cursor))
+                {
+                    // Neither export metadata path can persist progress or
+                    // evidence. Export PAUSES here and says so: continuing
+                    // would deliver on, advance nothing durably, and lose the
+                    // gap record at the next restart (cr3-2 round 10 —
+                    // replacing the false "execution stops first" argument).
+                    // Pausing export never gates execution; the local journal
+                    // stays complete.
+                    _health.RecordFailure("export.metadata_unwritable");
+                    return delivered;
+                }
                 // Mirrored into the durable ledger so losing the cursor does
                 // not erase boot memory (cr3-2 round 5).
                 _gapStore.RecordChainPosition(

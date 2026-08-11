@@ -149,6 +149,38 @@ internal sealed class AuditExportGapStore
         }
     }
 
+    /// <summary>
+    /// Folds gap counters an earlier process could not persist (parked on the
+    /// cursor) into the ledger once it is writable again. Without this the
+    /// parked counters never migrated, so a later cursor loss silently
+    /// restored a healthy status (cr3-2 round 10).
+    /// </summary>
+    internal bool TryAbsorbUnrecorded(long gaps, long missingRecords)
+    {
+        if (gaps <= 0 && missingRecords <= 0) return true;
+        lock (_gate)
+        {
+            AuditExportGapRecord current;
+            try
+            {
+                current = File.Exists(_path) ? ReadStrictLocked() : AuditExportGapRecord.Empty;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                // A corrupt ledger is handled by ReadOrQuarantine on the
+                // read path; leave the counters parked rather than folding
+                // them into something unreadable.
+                return false;
+            }
+
+            return TryWriteLocked(current with
+            {
+                Count = current.Count + gaps,
+                MissingRecords = current.MissingRecords + Math.Max(0, missingRecords),
+            });
+        }
+    }
+
     private AuditExportGapRecord ReadLocked()
     {
         try

@@ -116,7 +116,7 @@ load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
 **cr3-2 was reopened SIX times, each for a real silent-loss path. All
-NINE are fixed. Detection work was halted at `a330279` by the stopping
+ELEVEN are fixed across TEN rounds. Detection work was halted at `a330279` by the stopping
 rule set before round six; **the owner overrode that halt ("you can do 3
 more rounds")**. All three authorized rounds (7-9) are spent, each
 confirming the prior guard AND finding a real path: round 7, a parseable
@@ -124,11 +124,19 @@ but schema-less ledger passing as legitimately empty (closed by
 requiring a schema marker); round 8, a gap INSIDE one delivery batch
 (closed by walking the whole batch); round 9, a gap held only in memory
 when the ledger alone was unwritable while the cursor advanced (closed
-by parking the evidence on the cursor). **Round 9 was asked to close the
-loop and answered explicitly: detection was NOT complete. Authorization
-is now exhausted; the round-9 repair is guard-proved locally but
-independently unverified. Nine rounds, nine real paths — the empirical
-case for R3d.**
+by parking the evidence on the cursor). Round 9 answered the closing question explicitly:
+detection was NOT complete. **The owner then dispatched round 10 (codex
+plus a Fable 5 second opinion), which found TWO more — including that
+the round-9 commit's written claim that parked counters "flush into the
+ledger when it recovers" was FALSE (no flush existed), and that its
+residual argument ("if both metadata paths are unwritable, execution
+stops first") was also false: the spool stays writable, so delivery
+continues and evidence dies at restart.** Both are fixed at head: the
+flush is implemented, and export now PAUSES with
+`export.metadata_unwritable` rather than delivering with nothing durable
+behind it. Ten rounds, eleven real paths — the empirical case for R3d is
+now overwhelming. Durable lesson: **never state a mechanism in a commit
+message that no test exercises.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file

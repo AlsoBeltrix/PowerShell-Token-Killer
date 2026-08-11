@@ -102,6 +102,57 @@ public sealed class ProducerConformanceTests
         Assert.Contains("producer-owned", exception!.Message, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void The_locator_refuses_an_ancestor_checkouts_corpus()
+    {
+        // cr6-1: "found somewhere up the tree" is not "found in THIS
+        // checkout" — a same-named corpus above the repository boundary
+        // must not stand in for a missing local one.
+        var outer = Directory.CreateTempSubdirectory("ptk-conformance-locator-");
+        try
+        {
+            var staleDirectory = Directory.CreateDirectory(Path.Combine(
+                outer.FullName, "server", "PtkMcpServer.Tests", "SiemConformance"));
+            File.WriteAllText(Path.Combine(staleDirectory.FullName, "x.golden.json"), "{}");
+            var repo = Directory.CreateDirectory(Path.Combine(outer.FullName, "repo"));
+            Directory.CreateDirectory(Path.Combine(repo.FullName, ".git"));
+            var start = Directory.CreateDirectory(
+                Path.Combine(repo.FullName, "bin", "Debug")).FullName;
+
+            var exception = Assert.Throws<FileNotFoundException>(
+                () => ProducerGoldenBytes("x.golden.json", start));
+            Assert.Contains("fails closed", exception.Message, StringComparison.Ordinal);
+        }
+        finally
+        {
+            outer.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
+    public void The_locator_finds_the_corpus_inside_its_own_repository_root()
+    {
+        var outer = Directory.CreateTempSubdirectory("ptk-conformance-locator-");
+        try
+        {
+            var repo = Directory.CreateDirectory(Path.Combine(outer.FullName, "repo"));
+            Directory.CreateDirectory(Path.Combine(repo.FullName, ".git"));
+            var fixtures = Directory.CreateDirectory(Path.Combine(
+                repo.FullName, "server", "PtkMcpServer.Tests", "SiemConformance"));
+            File.WriteAllText(Path.Combine(fixtures.FullName, "x.golden.json"), "{\"ok\":1}");
+            var start = Directory.CreateDirectory(
+                Path.Combine(repo.FullName, "bin", "Debug")).FullName;
+
+            Assert.Equal(
+                "{\"ok\":1}",
+                Encoding.UTF8.GetString(ProducerGoldenBytes("x.golden.json", start)));
+        }
+        finally
+        {
+            outer.Delete(recursive: true);
+        }
+    }
+
     // ---- Helpers ----
 
     private static HttpRequestMessage GoldenRequest(Uri endpoint, byte[] golden)
@@ -116,15 +167,25 @@ public sealed class ProducerConformanceTests
         return request;
     }
 
-    /// <summary>Locates the producer-owned corpus by walking up to the repo
-    /// root; absent fixtures FAIL the suite (S4 fixture gate) — the receiver
-    /// never authors a substitute.</summary>
-    private static byte[] ProducerGoldenBytes(string name)
+    /// <summary>Locates the producer-owned corpus INSIDE this checkout;
+    /// absent fixtures FAIL the suite (S4 fixture gate) — the receiver never
+    /// authors a substitute, and the walk stops at the first repository root
+    /// so an ancestor checkout's same-named corpus can never stand in for a
+    /// missing local one (cr6-1).</summary>
+    private static byte[] ProducerGoldenBytes(string name) =>
+        ProducerGoldenBytes(name, AppContext.BaseDirectory);
+
+    internal static byte[] ProducerGoldenBytes(string name, string startDirectory)
     {
-        for (var current = new DirectoryInfo(AppContext.BaseDirectory);
+        for (var current = new DirectoryInfo(startDirectory);
              current is not null;
              current = current.Parent)
         {
+            // A `.git` directory (ordinary clone) or file (worktree) marks
+            // this checkout's boundary: the corpus lives beneath it or the
+            // gate fails closed, never resolving above it.
+            var gitEntry = Path.Combine(current.FullName, ".git");
+            if (!Directory.Exists(gitEntry) && !File.Exists(gitEntry)) continue;
             var candidate = Path.Combine(
                 current.FullName,
                 "server",
@@ -132,12 +193,16 @@ public sealed class ProducerConformanceTests
                 "SiemConformance",
                 name);
             if (File.Exists(candidate)) return File.ReadAllBytes(candidate);
+            throw new FileNotFoundException(
+                $"The producer-owned golden fixture is missing at '{candidate}'. The S4 " +
+                "fixture gate fails closed: generate the corpus on the producer " +
+                "(server/PtkMcpServer.Tests, PTK_WRITE_GOLDEN=1) — the receiver never " +
+                "substitutes its own copy, wherever else one exists.");
         }
         throw new FileNotFoundException(
-            $"The producer-owned golden fixture '{name}' was not found above " +
-            $"'{AppContext.BaseDirectory}'. The S4 fixture gate fails closed: generate the " +
-            "corpus on the producer (server/PtkMcpServer.Tests, PTK_WRITE_GOLDEN=1) — the " +
-            "receiver never substitutes its own copy.");
+            $"No repository root was found above '{startDirectory}', so the " +
+            $"producer-owned golden fixture '{name}' cannot be located. The S4 fixture " +
+            "gate fails closed.");
     }
 
     private static IReadOnlyList<string> LogRecordBodies(byte[] golden)

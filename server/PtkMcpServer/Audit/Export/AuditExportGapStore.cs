@@ -36,11 +36,13 @@ internal sealed class AuditExportGapStore
         _path = Path.Combine(auditRootDirectory, FileName);
     }
 
-    internal AuditExportGapRecord Read()
-    {
-        lock (_gate)
-            return ReadLocked();
-    }
+    /// <summary>
+    /// Every read path quarantines a corrupt ledger. Quarantine used to fire
+    /// only when the cursor lacked a position, so a corrupt ledger BEHIND a
+    /// healthy cursor silently erased proved gaps and the next write replaced
+    /// the evidence (Fable-5 review finding 2).
+    /// </summary>
+    internal AuditExportGapRecord Read() => ReadOrQuarantine(out _);
 
     /// <summary>
     /// Reads the ledger, distinguishing ABSENT from CORRUPT. Silently
@@ -53,6 +55,11 @@ internal sealed class AuditExportGapStore
     internal AuditExportGapRecord ReadOrQuarantine(out bool wasCorrupt)
     {
         lock (_gate)
+            return ReadOrQuarantineLocked(out wasCorrupt);
+    }
+
+    private AuditExportGapRecord ReadOrQuarantineLocked(out bool wasCorrupt)
+    {
         {
             wasCorrupt = false;
             if (!File.Exists(_path)) return AuditExportGapRecord.Empty;
@@ -92,6 +99,20 @@ internal sealed class AuditExportGapStore
 
     /// <summary>Durably remembers the last delivered chain position, so a
     /// lost or corrupted cursor does not erase boot memory.</summary>
+    /// <summary>A record the destination permanently refused is never
+    /// delivered — lost custody, held to the same durable-evidence bar as a
+    /// gap rather than a transient failure line (Fable-5 review finding 4).</summary>
+    internal AuditExportGapRecord RecordRefusedRecord()
+    {
+        lock (_gate)
+        {
+            var current = ReadOrQuarantineLocked(out _);
+            var updated = current with { RefusedRecords = current.RefusedRecords + 1 };
+            _ = TryWriteLocked(updated);
+            return updated;
+        }
+    }
+
     internal void RecordChainPosition(
         string? supervisorBootId,
         long sequence,
@@ -100,7 +121,7 @@ internal sealed class AuditExportGapStore
         if (string.IsNullOrWhiteSpace(supervisorBootId) || sequence <= 0) return;
         lock (_gate)
         {
-            var current = ReadLocked();
+            var current = ReadOrQuarantineLocked(out _);
             if (string.Equals(current.LastSupervisorBootId, supervisorBootId, StringComparison.Ordinal) &&
                 current.LastSequence == sequence &&
                 current.LastWasLifecycleTerminal == wasLifecycleTerminal)
@@ -130,7 +151,7 @@ internal sealed class AuditExportGapStore
         persisted = true;
         lock (_gate)
         {
-            var current = ReadLocked();
+            var current = ReadOrQuarantineLocked(out _);
             if (current.Segments.Contains(gapKey, StringComparer.Ordinal))
                 return current;
 
@@ -160,18 +181,7 @@ internal sealed class AuditExportGapStore
         if (gaps <= 0 && missingRecords <= 0) return true;
         lock (_gate)
         {
-            AuditExportGapRecord current;
-            try
-            {
-                current = File.Exists(_path) ? ReadStrictLocked() : AuditExportGapRecord.Empty;
-            }
-            catch (Exception exception) when (!IsFatal(exception))
-            {
-                // A corrupt ledger is handled by ReadOrQuarantine on the
-                // read path; leave the counters parked rather than folding
-                // them into something unreadable.
-                return false;
-            }
+            var current = ReadOrQuarantineLocked(out _);
 
             return TryWriteLocked(current with
             {
@@ -224,7 +234,8 @@ internal sealed class AuditExportGapStore
                 file.MissingRecords,
                 file.LastSupervisorBootId,
                 file.LastSequence,
-                file.LastWasLifecycleTerminal);
+                file.LastWasLifecycleTerminal,
+                file.RefusedRecords);
         }
     }
 
@@ -244,6 +255,7 @@ internal sealed class AuditExportGapStore
                 LastSupervisorBootId = record.LastSupervisorBootId,
                 LastSequence = record.LastSequence,
                 LastWasLifecycleTerminal = record.LastWasLifecycleTerminal,
+                RefusedRecords = record.RefusedRecords,
             });
             using (var stream = SecureAuditStorage.CreateExclusiveFile(temporaryPath))
             {
@@ -278,6 +290,7 @@ internal sealed class AuditExportGapStore
         [JsonPropertyName("last_boot")] public string? LastSupervisorBootId { get; set; }
         [JsonPropertyName("last_sequence")] public long LastSequence { get; set; }
         [JsonPropertyName("last_terminal")] public bool LastWasLifecycleTerminal { get; set; }
+        [JsonPropertyName("refused_records")] public long RefusedRecords { get; set; }
     }
 }
 
@@ -289,7 +302,8 @@ internal sealed record AuditExportGapRecord(
     long MissingRecords = 0,
     string? LastSupervisorBootId = null,
     long LastSequence = 0,
-    bool LastWasLifecycleTerminal = false)
+    bool LastWasLifecycleTerminal = false,
+    long RefusedRecords = 0)
 {
     internal static AuditExportGapRecord Empty { get; } = new(0, []);
 }

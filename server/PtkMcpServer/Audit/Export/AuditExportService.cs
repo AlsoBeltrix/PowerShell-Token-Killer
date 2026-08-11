@@ -51,7 +51,17 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         // Gaps recorded by earlier processes are evidence and stay visible,
         // including any that an earlier process could not write to the
         // ledger and parked on the cursor instead (cr3-2 round 9).
-        var retained = _gapStore.Read();
+        var retained = _gapStore.ReadOrQuarantine(out var retainedWasCorrupt);
+        if (retainedWasCorrupt)
+        {
+            // A corrupt ledger BEHIND a healthy cursor destroyed proved gaps
+            // silently, because quarantine only fired when the cursor lacked
+            // a position (Fable-5 review finding 2). Losing the evidence is
+            // itself reportable, at startup as well as mid-drain.
+            _health.RecordUnverifiedBootBoundary("ledger-unreadable", 0);
+        }
+        if (retained.RefusedRecords > 0)
+            _health.SetRefusedRecords(retained.RefusedRecords);
         var parked = _cursorStore.Read();
         _unrecordedGaps = parked.UnrecordedGaps;
         _unrecordedMissingRecords = parked.UnrecordedMissingRecords;
@@ -115,6 +125,18 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 };
                 _cursorStore.TryWrite(cursor);
             }
+        }
+
+        // If export metadata cannot be persisted at all, delivering would
+        // advance nothing durably and any loss proved in this pass would die
+        // at the next restart. Export pauses BEFORE delivering rather than
+        // after (Fable-5 review finding 3, which falsified the round-9
+        // "execution stops first" argument: the spool lives in a
+        // subdirectory and keeps working while both stores are blocked).
+        if (!_cursorStore.TryWrite(cursor))
+        {
+            _health.RecordFailure("export.metadata_unwritable");
+            return 0;
         }
 
         var segments = EnumerateSegments();
@@ -233,6 +255,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     {
         if (batch.Count == 1)
         {
+            _health.SetRefusedRecords(_gapStore.RecordRefusedRecord().RefusedRecords);
             _health.RecordFailure(batchDetailCode);
             return (false, 0);
         }
@@ -254,6 +277,10 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     return (true, delivered);
                 default:
                     refused++;
+                    // Durable: a refused record is never delivered, so the
+                    // signal must outlive the next success and a restart
+                    // (Fable-5 review finding 4).
+                    _health.SetRefusedRecords(_gapStore.RecordRefusedRecord().RefusedRecords);
                     _health.RecordFailure(single.DetailCode ?? batchDetailCode);
                     break;
             }

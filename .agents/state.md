@@ -116,7 +116,8 @@ load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
 **cr3-2 was reopened SIX times, each for a real silent-loss path. All
-ELEVEN are fixed across TEN rounds. Detection work was halted at `a330279` by the stopping
+FIFTEEN paths were found across ten codex rounds plus a Fable-5 second
+opinion; FOURTEEN are fixed and ONE is open by design. Detection work was halted at `a330279` by the stopping
 rule set before round six; **the owner overrode that halt ("you can do 3
 more rounds")**. All three authorized rounds (7-9) are spent, each
 confirming the prior guard AND finding a real path: round 7, a parseable
@@ -134,9 +135,20 @@ stops first") was also false: the spool stays writable, so delivery
 continues and evidence dies at restart.** Both are fixed at head: the
 flush is implemented, and export now PAUSES with
 `export.metadata_unwritable` rather than delivering with nothing durable
-behind it. Ten rounds, eleven real paths — the empirical case for R3d is
-now overwhelming. Durable lesson: **never state a mechanism in a commit
-message that no test exercises.**
+behind it. **A Fable 5 agent, dispatched as a second opinion and told it shared the
+author's blind spots, found four more with failing tests — two codex
+never saw.** Three are fixed (corrupt ledger behind a healthy cursor
+erasing proved gaps; export now pausing before delivery when no metadata
+can be persisted; refusals as a durable REFUSED_RECORDS counter, with
+"healthy" no longer possible while any permanent loss is recorded).
+**One is OPEN and unfixable in the exporter: a wholly vanished
+supervisor boot is structurally invisible because boot ids are random
+UUIDv4 with no lineage — closing it needs a PRODUCER SCHEMA change (boot
+lineage), which is R3d work.** Its reproduction is preserved as a
+skipped test. Fifteen paths, fourteen fixed — the case for R3d is now
+overwhelming: stop deleting undelivered records and most of this class
+cannot arise. Durable lesson: **never state a mechanism in a commit
+message that no test exercises** (the round-9 "flush" claim was false).
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file

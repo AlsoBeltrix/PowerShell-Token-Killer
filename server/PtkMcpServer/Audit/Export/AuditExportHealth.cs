@@ -12,7 +12,8 @@ internal sealed record AuditExportHealthSnapshot(
     DateTimeOffset? LastDeliveryUtc,
     long ExportGaps = 0,
     long MissingRecords = 0,
-    long UnverifiedBootBoundaries = 0)
+    long UnverifiedBootBoundaries = 0,
+    long RefusedRecords = 0)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -23,7 +24,12 @@ internal sealed record AuditExportHealthSnapshot(
     internal string StatusLine()
     {
         if (!Configured) return "audit export: not configured (local journal only)";
-        var state = ConsecutiveFailures == 0 ? "healthy" : "retrying";
+        var state = ConsecutiveFailures == 0 &&
+            ExportGaps == 0 &&
+            RefusedRecords == 0 &&
+            UnverifiedBootBoundaries == 0
+            ? "healthy"
+            : ConsecutiveFailures > 0 ? "retrying" : "degraded";
         var text =
             $"audit export: {state} destination={Destination} " +
             $"delivered={DeliveredRecords.ToString(CultureInfo.InvariantCulture)} " +
@@ -48,6 +54,14 @@ internal sealed record AuditExportHealthSnapshot(
                 $" unverified_boot_boundaries={UnverifiedBootBoundaries.ToString(CultureInfo.InvariantCulture)}" +
                 " (a previous supervisor boot ended without its terminal record;" +
                 " its tail cannot be proved delivered)";
+        }
+        // A permanently refused record was never delivered: lost custody at
+        // the destination, held to the same durable bar as a gap.
+        if (RefusedRecords > 0)
+        {
+            text +=
+                $" REFUSED_RECORDS={RefusedRecords.ToString(CultureInfo.InvariantCulture)}" +
+                " (the destination permanently refused these records)";
         }
         if (ExportGaps > 0)
         {
@@ -89,9 +103,13 @@ internal sealed class AuditExportHealth
                 ConsecutiveFailures = 0,
                 // A gap is permanent: a later success clears the transient
                 // failure detail but never the gap record itself.
+                // Permanent losses outlive a later success; only transient
+                // failure detail is cleared.
                 LastFailureDetail = _snapshot.ExportGaps > 0
                     ? "export.gap_records_lost"
-                    : null,
+                    : _snapshot.RefusedRecords > 0
+                        ? "export.records_refused"
+                        : null,
                 LastDeliveryUtc = utcNow,
             };
         }
@@ -149,6 +167,20 @@ internal sealed class AuditExportHealth
     }
 
     private readonly HashSet<string> _unverifiedBoundaries = new(StringComparer.Ordinal);
+
+    internal void SetRefusedRecords(long count)
+    {
+        if (count < 0) return;
+        lock (_gate)
+        {
+            if (count <= _snapshot.RefusedRecords) return;
+            _snapshot = _snapshot with
+            {
+                RefusedRecords = count,
+                LastFailureDetail = "export.records_refused",
+            };
+        }
+    }
 
     internal void RecordPendingBytes(long pendingBytes)
     {

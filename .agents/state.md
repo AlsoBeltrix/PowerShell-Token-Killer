@@ -690,11 +690,43 @@ judges by payload survival instead.
 
 ## Next
 
-**Active review loop: cr5 over R4 (`3b8dff8..3996e6a`) — see
-`.agents/review/index.md` §cr5.** All eight codex findings were verified
-against the code and ADMITTED at intake 2026-08-11 (records
-`.agents/review/findings/cr5-1..8.md`); fixes land one commit each,
-then verification (HIGHs frontier per T2). Then R5, then R6.
+**The cr5 loop over R4 is CLOSED — all eight findings VERIFIED
+(2026-08-11).** `.agents/review/index.md` §cr5 owns the record. Fixes
+landed one commit each with fail-before/pass-after guard proofs;
+verification ran as two batches (HIGHs frontier per T2, MEDIUMs
+standard) and returned THREE real reopens, each repaired and
+re-accepted at frontier: cr5-2 round 2 (the construction instant kept
+sub-millisecond ticks while quarantine filenames carry milliseconds —
+a same-millisecond artifact silently never paged; floored to the
+shared granularity, `e253c12`), cr5-3 round 2
+(`DirectoryNotFoundException` classed as benign retention — a vanished
+spool directory omitted every closed segment at `partial:false`; now
+an explicit decision table with load-bearing arm order, `459039a`),
+and cr5-4 round 2 (the live tail appended after every closed segment
+regardless of chronology — under the shared-root topology a quiet bind
+winner's stale live records outranked a busy peer's newer rotated
+evidence; record units now ordered by segment recency, `124ba4c`).
+Notable fix shapes: the UI bearer token is now per-bind (bind first,
+mint fresh, publish only while owning the listener, delete on stop —
+a harvested token dies at the next bind, `ee0ac2f`); webhook
+"new quarantine" is judged from the filename-embedded instant, so the
+constructor does no filesystem work at all (`5a7d895`). **Reviewer
+transport lesson: codex 0.147.0's workspace-write sandbox denies the
+VSTest testhost socket (round 1 returned guard_confirmed:false with no
+test run); dispatch guard-proof reviews with
+`-c 'sandbox_workspace_write.network_access=true'` — with it the
+reviewer ran every proof independently.** Battery at `124ba4c`: server
+1,301/1,301, SIEM 270/270, Pester 112+3 skip, handshake PASSED. Next:
+R5 (conformance suite; alert polish), then R6 (CI/docs/packaging,
+release-gate journaling check), per
+`.agents/plans/audit-restoration.md`.
+
+**Housekeeping note (2026-08-11):** `git stash` holds one pre-existing
+entry — an *hcc-7* prompt-flush WIP for `scripts/ptk_init.ps1`
+(Read-Host prompt unflushed through the install pipe). It predates this
+session, was accidentally popped during a guard proof, and was restored
+to the stash untouched with a descriptive message. It is uncommitted
+work from another effort; do not drop it silently.
 
 **Goal in force (owner, 2026-08-11): "finish the whole things.
 codereview codex per slice."** That is the go for the remaining

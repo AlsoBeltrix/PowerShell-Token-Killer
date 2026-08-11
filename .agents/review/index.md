@@ -1,32 +1,43 @@
 # Review status
 
-## ACTIVE — cr5 (codereview over R4, 2026-08-11)
+## Closed — cr5 (codereview over R4, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over
 `3b8dff8..3996e6a` (R4: journaled eviction event + allocation-path
 floor, loopback web UI, alert webhook). Verdict `findings` (8),
-capability_ok true, SHAs matched, 2026-08-11. All eight verified
-against the code at intake and ADMITTED; none declined. Every finding
-sits in `Audit/Web/` — the UI and webhook services, both new in R4.
+capability_ok true, SHAs matched. All eight verified against the code
+at intake and ADMITTED; none declined. Every finding sits in
+`Audit/Web/` — the UI and webhook services, both new in R4.
 
-All eight fixes are LANDED, one commit each, every guard proved
-fail-before/pass-after (stash-revert, checkout-revert, or two-way
-wiring sabotage where the surface is additive — per record). Battery at
-`16e0c4d`: server 1,298/1,298, SIEM 270/270, Pester 112+3 skip,
-handshake PASSED. Verification in flight: HIGHs batched to frontier
-(T2), MEDIUMs batched to standard — batch shape is the orchestrator's
-call, mirroring the cr2/r806 precedent.
+ALL EIGHT VERIFIED. Fixes landed one commit each, every guard proved
+fail-before/pass-after (stash-revert, checkout-revert, or targeted
+sabotage where the surface is additive — per record): cr5-1 `ee0ac2f`,
+cr5-2 `5a7d895` + repair `e253c12`, cr5-3 `0d208ac` + repair `459039a`,
+cr5-4 `e526643` + repair `124ba4c`, cr5-5 `415c139`, cr5-6 `17440c5`,
+cr5-7 `55ff41d`, cr5-8 `16e0c4d`. Verification ran as two batches
+(orchestrator's call, cr2/r806 precedent): HIGHs at frontier (T2),
+MEDIUMs at standard. THREE real reopens, each repaired and re-accepted
+at frontier: cr5-2 (same-millisecond truncation between the
+construction instant and filename stamps), cr5-3
+(DirectoryNotFoundException classed as benign retention), cr5-4
+(live-appended-last presented a quiet supervisor's stale records as
+newest under the shared-root topology). Round 1 of the HIGH batch
+returned guard_confirmed:false because the codex sandbox denied the
+VSTest testhost socket — fixed for all later rounds by dispatching with
+`-c 'sandbox_workspace_write.network_access=true'` (worth reusing).
+Battery at `124ba4c`: server 1,301/1,301, SIEM 270/270, Pester 112+3
+skip, handshake PASSED.
 
 | ID    | Severity | Impact (one line)                                              | Status | Reviewer |
 |-------|----------|----------------------------------------------------------------|--------|----------|
-| cr5-1 | HIGH     | port squatter harvests the UI bearer token, reuses it later    | `[~]` fixed `ee0ac2f` | |
-| cr5-2 | HIGH     | webhook ctor filesystem work gates startup (webhook or not)    | `[~]` fixed `5a7d895` | |
-| cr5-3 | HIGH     | /api/records returns 200 with evidence silently omitted        | `[~]` fixed `0d208ac` | |
-| cr5-4 | MEDIUM   | populated closed spool hides the live tail from the UI         | `[~]` fixed `e526643` | |
-| cr5-5 | MEDIUM   | token race: serving UI may not recognize the published token   | `[~]` fixed `415c139` | |
-| cr5-6 | MEDIUM   | failed webhook edge lost if the condition heals before retry   | `[~]` fixed `17440c5` | |
-| cr5-7 | MEDIUM   | lineage alert fires at most once per process lifetime          | `[~]` fixed `55ff41d` | |
-| cr5-8 | MEDIUM   | webhook delivery failure invisible in every health surface     | `[~]` fixed `16e0c4d` | |
+| cr5-1 | HIGH     | port squatter harvests the UI bearer token, reuses it later    | `[x]` `ee0ac2f` | codex/gpt-5.6-sol/xhigh/frontier esc:T2,T5 |
+| cr5-2 | HIGH     | webhook ctor filesystem work gates startup (webhook or not)    | `[x]` `5a7d895`+`e253c12` | codex/gpt-5.6-sol/xhigh/frontier esc:T2,T5 |
+| cr5-3 | HIGH     | /api/records returns 200 with evidence silently omitted        | `[x]` `0d208ac`+`459039a` | codex/gpt-5.6-sol/xhigh/frontier esc:T2,T5 |
+| cr5-4 | MEDIUM   | populated closed spool hides the live tail from the UI         | `[x]` `e526643`+`124ba4c` | codex/gpt-5.6-sol/xhigh/frontier esc:T5 |
+| cr5-5 | MEDIUM   | token race: serving UI may not recognize the published token   | `[x]` `415c139` | codex/gpt-5.6-sol/high/standard |
+| cr5-6 | MEDIUM   | failed webhook edge lost if the condition heals before retry   | `[x]` `17440c5` | codex/gpt-5.6-sol/high/standard |
+| cr5-7 | MEDIUM   | lineage alert fires at most once per process lifetime          | `[x]` `55ff41d` | codex/gpt-5.6-sol/high/standard |
+| cr5-8 | MEDIUM   | webhook delivery failure invisible in every health surface     | `[x]` `16e0c4d` | codex/gpt-5.6-sol/high/standard |
 
 ## Closed — cr4 (codereview over R3d completion + R3c, 2026-08-11)
 

@@ -210,6 +210,41 @@ public sealed class AuditAlertWebhookTests : IDisposable
         Assert.Equal(3, receiver.Bodies.Count);
     }
 
+    [Fact]
+    public async Task A_failed_edge_survives_the_condition_healing()
+    {
+        // cr5-6: an observed edge whose post failed must still reach the
+        // operator even when the condition recovers before the retry —
+        // otherwise a transient episode that raced the webhook outage is
+        // silently lost.
+        var root = NewRoot("webhook-pending-heal");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+        using var receiver = new WebhookReceiver { ResponseStatus = HttpStatusCode.BadGateway };
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri);
+
+        health.UpdateLineagePublishFailures(1);
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+
+        // The condition heals AND the destination recovers: the observed
+        // edge still delivers, once.
+        health.UpdateLineagePublishFailures(0);
+        receiver.ResponseStatus = HttpStatusCode.OK;
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Contains(
+            "lineage_unpublished",
+            Assert.Single(receiver.Bodies),
+            StringComparison.Ordinal);
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Single(receiver.Bodies);
+    }
+
     private static void WriteQuarantineArtifact(string root, DateTimeOffset minted)
     {
         var directory = SecureAuditStorage.PrepareRoot(

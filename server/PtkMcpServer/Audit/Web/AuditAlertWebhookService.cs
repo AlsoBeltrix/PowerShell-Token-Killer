@@ -38,6 +38,12 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
     private int _notifiedQuarantine;
     private bool _notifiedUnhealthy;
 
+    // Observed edges awaiting a successful post, keyed by condition name so
+    // retention is bounded by the condition vocabulary (cr5-6). A failed
+    // delivery keeps its edges here; a condition healing before the retry
+    // no longer erases the fact that the edge was observed.
+    private readonly Dictionary<string, object> _pending = [];
+
     internal AuditAlertWebhookService(
         AuditOptions options,
         AuditHealth health,
@@ -110,26 +116,26 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         var audit = _health.Snapshot();
         var export = _exportHealth.Snapshot();
         var quarantine = CountQuarantine();
-        var conditions = new List<object>();
+        var conditions = new List<KeyValuePair<string, object>>();
 
         var unhealthy = audit.State
             is AuditHealthState.Degraded or AuditHealthState.Unavailable;
         if (unhealthy && !_notifiedUnhealthy)
         {
-            conditions.Add(new
+            conditions.Add(new("audit_unhealthy", new
             {
                 condition = "audit_unhealthy",
                 state = audit.State.ToString().ToLowerInvariant(),
                 failure_class = audit.FailureClass,
-            });
+            }));
         }
         if (audit.UndeliveredEvictions > _notifiedEvictions)
         {
-            conditions.Add(new
+            conditions.Add(new("spool_evicted_undelivered", new
             {
                 condition = "spool_evicted_undelivered",
                 total = audit.UndeliveredEvictions,
-            });
+            }));
         }
         // Lineage is live state, not a monotonic total (cr5-7): recovery to
         // zero re-arms the edge so a NEW failure episode pages again, and
@@ -137,47 +143,55 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         if (audit.LineagePublishFailures == 0) _notifiedLineageFailures = 0;
         if (audit.LineagePublishFailures > _notifiedLineageFailures)
         {
-            conditions.Add(new
+            conditions.Add(new("lineage_unpublished", new
             {
                 condition = "lineage_unpublished",
                 consecutive_failures = audit.LineagePublishFailures,
-            });
+            }));
         }
         if (export.ExportGaps > _notifiedGaps)
         {
-            conditions.Add(new
+            conditions.Add(new("export_gaps", new
             {
                 condition = "export_gaps",
                 total = export.ExportGaps,
                 missing_records = export.MissingRecords,
-            });
+            }));
         }
         if (export.RefusedRecords > _notifiedRefused)
         {
-            conditions.Add(new
+            conditions.Add(new("refused_records", new
             {
                 condition = "refused_records",
                 total = export.RefusedRecords,
-            });
+            }));
         }
         if (export.UnverifiedBootBoundaries > _notifiedBoundaries)
         {
-            conditions.Add(new
+            conditions.Add(new("unverified_boot_boundaries", new
             {
                 condition = "unverified_boot_boundaries",
                 total = export.UnverifiedBootBoundaries,
-            });
+            }));
         }
         if (quarantine > _notifiedQuarantine)
         {
-            conditions.Add(new
+            conditions.Add(new("quarantine", new
             {
                 condition = "quarantine",
                 total = quarantine,
-            });
+            }));
         }
 
-        if (conditions.Count == 0)
+        // Newly observed edges join the pending set; fresher detail for a
+        // condition already pending replaces it. Pending edges survive the
+        // condition healing (cr5-6) — only a successful post clears them.
+        foreach (var (name, detail) in conditions)
+        {
+            _pending[name] = detail;
+        }
+
+        if (_pending.Count == 0)
         {
             _notifiedUnhealthy = unhealthy;
             return false;
@@ -187,7 +201,7 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
         {
             source = "ptk-audit",
             observed_utc = DateTimeOffset.UtcNow.ToString("O"),
-            conditions,
+            conditions = _pending.Values,
             export_status = export.StatusLine(),
         });
         using var request = new HttpRequestMessage(HttpMethod.Post, _webhook)
@@ -215,6 +229,7 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
 
         // Acknowledged: advance the notified state so the same facts do not
         // repeat, while any further growth fires again.
+        _pending.Clear();
         _notifiedUnhealthy = unhealthy;
         _notifiedEvictions = audit.UndeliveredEvictions;
         _notifiedLineageFailures = audit.LineagePublishFailures;

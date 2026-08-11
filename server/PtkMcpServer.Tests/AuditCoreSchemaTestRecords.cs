@@ -48,7 +48,8 @@ internal static class AuditCoreSchemaTestRecords
         long sequence = 1,
         string? previousEventHash = null,
         string? outcomeState = null,
-        AuditOperatorDispositionFacts? operatorDisposition = null) =>
+        AuditOperatorDispositionFacts? operatorDisposition = null,
+        Guid? eventId = null) =>
         AuditEventSerializer.Serialize(
             sequence,
             previousEventHash,
@@ -60,9 +61,59 @@ internal static class AuditCoreSchemaTestRecords
                 "1.2.3-test",
                 HashA),
             CompleteInput(includeOptionalQueryValues, outcomeState, operatorDisposition),
-            EventId,
+            eventId ?? EventId,
             Occurred,
             Observed);
+
+    /// <summary>A second distinct record identity for multi-record corpora
+    /// (R5 conformance): the receiver's events are keyed by event id, so a
+    /// chain of distinct records must never reuse <see cref="EventId"/>.</summary>
+    internal static readonly Guid SecondEventId =
+        Guid.Parse("01890f3e-2222-7abc-8def-0123456789ab");
+
+    internal static readonly Guid UnicodeEventId =
+        Guid.Parse("01890f3e-4444-7abc-8def-0123456789ab");
+
+    /// <summary>
+    /// A canonical record whose free-text fields carry non-ASCII content
+    /// (CJK, Cyrillic, Greek, an astral-plane symbol) — the SIEM conformance
+    /// corpus's Unicode-fidelity leg (audit-restoration R5 / mini-SIEM S4).
+    /// Additive: no existing record's bytes change.
+    /// </summary>
+    internal static SerializedAuditEvent CreateUnicode(
+        long sequence,
+        string? previousEventHash)
+    {
+        var input = CompleteInput(
+            includeOptionalQueryValues: true,
+            outcomeState: null,
+            operatorDisposition: null);
+        input = input with
+        {
+            Session = input.Session! with
+            {
+                DeclaredPurpose = "Unicode 検証 — тест ✓ δοκιμή 𝄞",
+            },
+            Request = input.Request! with
+            {
+                Cwd = "/tmp/工作/área",
+            },
+        };
+        return AuditEventSerializer.Serialize(
+            sequence,
+            previousEventHash,
+            new AuditProducerContext(
+                HostId,
+                SupervisorBootId,
+                WorkerBootId,
+                4321,
+                "1.2.3-test",
+                HashA),
+            input,
+            UnicodeEventId,
+            Occurred,
+            Observed);
+    }
 
     internal static byte[] ToLegacyV1(ReadOnlyMemory<byte> v2Line)
     {

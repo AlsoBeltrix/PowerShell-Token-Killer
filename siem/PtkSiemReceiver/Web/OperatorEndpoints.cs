@@ -61,6 +61,26 @@ internal static class OperatorEndpoints
 
     private static async Task<bool> AdmitAsync(HttpContext context, SiemReceiverOptions options)
     {
+        if (!await AdmitSurfaceAsync(context, options).ConfigureAwait(false)) return false;
+
+        if (!HasValidOperatorToken(context.Request, options.OperatorToken))
+        {
+            await WriteJsonAsync(
+                context, 401, new { error = "unauthorized" }).ConfigureAwait(false);
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>Surface + Host admission without the credential: the static
+    /// dashboard page carries zero evidence, so it serves token-free and the
+    /// operator pastes the token into the page instead of the URL — a URL
+    /// travels through request logs and browser history, a header does
+    /// not.</summary>
+    private static async Task<bool> AdmitSurfaceAsync(
+        HttpContext context, SiemReceiverOptions options)
+    {
         if (context.Features.Get<IOperatorSurfaceFeature>() is null)
         {
             await WriteJsonAsync(
@@ -80,25 +100,19 @@ internal static class OperatorEndpoints
             return false;
         }
 
-        if (!HasValidOperatorToken(context.Request, options.OperatorToken))
-        {
-            await WriteJsonAsync(
-                context, 401, new { error = "unauthorized" }).ConfigureAwait(false);
-            return false;
-        }
-
         return true;
     }
 
     private static bool IsLoopbackHost(string host) =>
         host is "127.0.0.1" or "localhost" or "::1";
 
+    // Header-only on purpose: a query-string credential lands in request
+    // logs and browser history (cr7-1).
     private static bool HasValidOperatorToken(HttpRequest request, string operatorToken)
     {
-        var presented = request.Headers.Authorization.ToString() is { } header &&
-            header.StartsWith("Bearer ", StringComparison.Ordinal)
-            ? header["Bearer ".Length..]
-            : request.Query["token"].ToString();
+        var header = request.Headers.Authorization.ToString();
+        if (!header.StartsWith("Bearer ", StringComparison.Ordinal)) return false;
+        var presented = header["Bearer ".Length..];
         if (string.IsNullOrEmpty(presented)) return false;
         return CryptographicOperations.FixedTimeEquals(
             Encoding.UTF8.GetBytes(presented),
@@ -331,7 +345,7 @@ internal static class OperatorEndpoints
         HttpContext context,
         SiemReceiverOptions options)
     {
-        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+        if (!await AdmitSurfaceAsync(context, options).ConfigureAwait(false)) return;
         context.Response.StatusCode = 200;
         context.Response.ContentType = "text/html; charset=utf-8";
         var bytes = Encoding.UTF8.GetBytes(DashboardHtml);
@@ -403,6 +417,10 @@ button{background:#265;color:#fff;border:0;padding:.4rem .8rem;border-radius:4px
 </head>
 <body>
 <h1>PTK SIEM Receiver — stored audit evidence</h1>
+<form id="auth" onsubmit="return saveToken(event)" style="display:none">
+<input id="tok" type="password" placeholder="operator token" size="40"> <button>Unlock</button>
+<span class="warn">token required</span>
+</form>
 <h2>Chains</h2><pre id="chains">loading…</pre>
 <h2>Events</h2>
 <form onsubmit="return refreshEvents(event)">
@@ -412,8 +430,15 @@ button{background:#265;color:#fff;border:0;padding:.4rem .8rem;border-radius:4px
 <table id="events"><thead><tr><th>occurred</th><th>type</th><th>boot</th><th>seq</th><th>session</th><th>outcome</th></tr></thead><tbody></tbody></table>
 <h2>Quarantine</h2><pre id="quarantine">loading…</pre>
 <script>
-const token=new URLSearchParams(location.search).get('token')||'';
+let token=sessionStorage.getItem('ptk_operator_token')||'';
 const api=(p)=>fetch(p,{headers:{Authorization:'Bearer '+token}});
+function saveToken(e){
+ e.preventDefault();
+ token=document.getElementById('tok').value.trim();
+ sessionStorage.setItem('ptk_operator_token',token);
+ refresh();
+ return false;
+}
 async function refreshEvents(e){
  if(e)e.preventDefault();
  const q=new URLSearchParams();
@@ -429,7 +454,10 @@ async function refreshEvents(e){
  return false;
 }
 async function refresh(){
- const c=await (await api('/api/chains')).json();
+ const r=await api('/api/chains');
+ if(r.status===401){document.getElementById('auth').style.display='';return;}
+ document.getElementById('auth').style.display='none';
+ const c=await r.json();
  document.getElementById('chains').textContent=JSON.stringify(c.chains,null,1);
  await refreshEvents();
  const q=await (await api('/api/quarantine')).json();

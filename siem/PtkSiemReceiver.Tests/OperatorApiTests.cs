@@ -163,13 +163,39 @@ public sealed class OperatorApiTests
             Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         }
 
-        // The query-parameter form works for the dashboard link.
-        using (var viaQuery = await client.GetAsync(new Uri(
-                   host.OperatorEndpoint,
-                   $"/api/chains?token={SiemReceiverTestHost.OperatorToken}")))
+    }
+
+    [Fact]
+    public async Task The_query_string_form_never_authenticates()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        // A correct token in the URL is still 401: a query-string credential
+        // lands in request logs and browser history, so evidence endpoints
+        // accept the header form only (cr7-1).
+        foreach (var path in new[] { "/api/events", "/api/chains", "/api/quarantine" })
         {
-            Assert.Equal(HttpStatusCode.OK, viaQuery.StatusCode);
+            using var viaQuery = await client.GetAsync(new Uri(
+                host.OperatorEndpoint,
+                $"{path}?token={SiemReceiverTestHost.OperatorToken}"));
+            Assert.Equal(HttpStatusCode.Unauthorized, viaQuery.StatusCode);
         }
+
+        // The static page itself carries zero evidence, so it serves without
+        // a token; the operator pastes the token into the page.
+        using var page = await client.GetAsync(new Uri(host.OperatorEndpoint, "/"));
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        var html = await page.Content.ReadAsStringAsync();
+        Assert.Contains("operator token", html, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            SiemReceiverTestHost.OperatorToken, html, StringComparison.Ordinal);
     }
 
     [Fact]

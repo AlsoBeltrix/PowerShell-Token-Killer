@@ -207,7 +207,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 }
 
                 startOffset = nextOffset;
-                var (chainBootId, chainSequence, chainTerminal) = ChainPosition(batch[^1]);
+                var (chainBootId, chainSequence, chainTerminal, _) = ChainPosition(batch[^1]);
                 cursor = new AuditExportCursor(
                     segment.Name,
                     nextOffset,
@@ -494,7 +494,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
         foreach (var record in batch)
         {
-            var (bootId, sequence, isTerminal) = ChainPosition(record);
+            var (bootId, sequence, isTerminal, previousBootId) = ChainPosition(record);
             // An unparseable record carries no position, so it neither proves
             // nor breaks continuity; it is still delivered.
             if (bootId is null || sequence is null) continue;
@@ -506,6 +506,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 // lost cursor, or a lost ledger.
                 if (sequence > 1)
                     RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
+                ReportUnobservedPredecessor(previousBootId, observedPriorBoot: null);
             }
             else if (string.Equals(bootId, priorBoot, StringComparison.Ordinal))
             {
@@ -526,6 +527,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
                 if (!priorTerminal)
                     _health.RecordUnverifiedBootBoundary(priorBoot!, priorSequence);
+                ReportUnobservedPredecessor(previousBootId, priorBoot);
             }
 
             priorBoot = bootId;
@@ -565,6 +567,28 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         };
     }
 
+    /// <summary>
+    /// A record's boot lineage names the last predecessor boot that journaled
+    /// something. When that named boot is not the one delivery last observed,
+    /// a whole boot's records existed locally and were never delivered — the
+    /// path that was structurally invisible while boot ids carried no lineage
+    /// (R3d, Fable-5 review finding 1). Reported as an unverified boundary,
+    /// not a proved gap: the exporter cannot count the vanished boot's
+    /// records, and a stale lineage entry (its writer could not publish)
+    /// produces the same mismatch — suspicion is never counted as proof.
+    /// A record carrying NO lineage claims nothing: pre-lineage producers
+    /// wrote none, and absence must not manufacture signals on upgrade.
+    /// </summary>
+    private void ReportUnobservedPredecessor(
+        string? claimedPreviousBootId,
+        string? observedPriorBoot)
+    {
+        if (claimedPreviousBootId is null) return;
+        if (string.Equals(claimedPreviousBootId, observedPriorBoot, StringComparison.Ordinal))
+            return;
+        _health.RecordUnverifiedBootBoundary(claimedPreviousBootId, 0);
+    }
+
     private void RecordGap(string gapKey, long missingRecords)
     {
         var record = _gapStore.Record(gapKey, missingRecords, out var persisted);
@@ -584,11 +608,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private long _unrecordedGaps;
     private long _unrecordedMissingRecords;
 
-    /// <summary>The record's per-boot chain position and whether it is the
-    /// lifecycle terminal, or nulls when the line is not parseable — an
-    /// undecorated record is still delivered.</summary>
-    private static (string? BootId, long? Sequence, bool IsTerminal) ChainPosition(
-        string record)
+    /// <summary>The record's per-boot chain position, whether it is the
+    /// lifecycle terminal, and the predecessor boot its lineage attests — or
+    /// nulls when the line is not parseable; an undecorated record is still
+    /// delivered.</summary>
+    private static (string? BootId, long? Sequence, bool IsTerminal, string? PreviousBootId)
+        ChainPosition(string record)
     {
         try
         {
@@ -599,20 +624,26 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 sequenceElement.TryGetInt64(out var parsedSequence)
                 ? parsedSequence
                 : null;
-            string? bootId = root.TryGetProperty("producer", out var producer) &&
-                producer.ValueKind == System.Text.Json.JsonValueKind.Object &&
+            var hasProducer = root.TryGetProperty("producer", out var producer) &&
+                producer.ValueKind == System.Text.Json.JsonValueKind.Object;
+            string? bootId = hasProducer &&
                 producer.TryGetProperty("supervisor_boot_id", out var bootElement) &&
                 bootElement.ValueKind == System.Text.Json.JsonValueKind.String
                 ? bootElement.GetString()
                 : null;
+            string? previousBootId = hasProducer &&
+                producer.TryGetProperty("previous_supervisor_boot_id", out var previousElement) &&
+                previousElement.ValueKind == System.Text.Json.JsonValueKind.String
+                ? previousElement.GetString()
+                : null;
             var isTerminal = root.TryGetProperty("event_type", out var typeElement) &&
                 typeElement.ValueKind == System.Text.Json.JsonValueKind.String &&
                 string.Equals(typeElement.GetString(), "server.stopped", StringComparison.Ordinal);
-            return (bootId, sequence, isTerminal);
+            return (bootId, sequence, isTerminal, previousBootId);
         }
         catch (System.Text.Json.JsonException)
         {
-            return (null, null, false);
+            return (null, null, false, null);
         }
     }
 

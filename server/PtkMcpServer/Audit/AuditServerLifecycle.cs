@@ -94,7 +94,7 @@ internal sealed class AuditServerLifecycle : IHostedService, IDisposable
                 // obligation (cr2-4): the fact must reach the journal, not
                 // just stderr, before this lifecycle claims Started. Failure
                 // to record it fails startup like any lifecycle append.
-                if (_journal.TryTakePendingStartupQuarantine(out var quarantineDetail))
+                while (_journal.TryTakePendingStartupQuarantine(out var quarantineDetail))
                 {
                     _journal.AppendAutomaticTransition(CreateEvent(
                         "audit.quarantine",

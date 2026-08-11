@@ -186,16 +186,41 @@ reported in `ptk_state` as `SPOOL_EVICTED_UNDELIVERED=<n>` — the stderr
 line it originally used was invisible in practice, the same weakness the
 owner called out for quarantine reporting (`a2dcece`).
 
-**Still owed by R3d, in priority order:** (1) **producer boot lineage** —
-without it a wholly vanished supervisor boot is undetectable (the open
-Fable-5 finding, reproduction preserved as a skipped test in
-`AuditExportAdversarialReviewTests`); it needs a record-schema change, so
-it is the natural next piece. (2) The **coordinated live-tail read**
-(cr3-1): the live segment is exportable only after rotation because the
-writer holds it `FileShare.None` and that exclusivity is load-bearing for
-`IsLockedSegment`; the condition is reported, not hidden. (3) The
-eviction as a **journaled audit event** plus the GUI/webhook surfaces
-(R4), so the fact reaches the SIEM itself and not only `ptk_state`.
+**Producer boot lineage landed 2026-08-10 — the last open cr3-2 path is
+CLOSED; all fifteen are now closed.** Every audit record carries
+`producer.previous_supervisor_boot_id`: the id of the last predecessor
+boot that journaled at least one record, read at journal open from an
+owner-only `boot-lineage.json` in the audit root and published on the
+boot's FIRST durable append (never at open — so a boot that opened and
+crashed before writing anything neither appears in lineage nor alarms,
+and a boot with zero records lost zero records). The exporter's chain
+walk reads the attestation and reports a claimed predecessor that
+delivery never observed as `unverified_boot_boundaries` — deliberately
+suspicion, not EXPORT_GAPS: the vanished boot's record count is
+uncountable and a stale lineage entry (whose writer could not publish)
+produces the same mismatch. Benign shapes are pinned silent: a truthful
+attestation (ordinary restart) and records carrying no lineage at all
+(pre-lineage producers — an upgrade manufactures no alarms). The
+`ptk.audit/2` version string is unchanged: the field is additive inside
+`producer`, the receiver's strict root-property whitelist is untouched,
+and its validator accepts absent/null but rejects garbage (absent ≠
+null matters there: `OptionalString` fails on a missing property, which
+one first cut got wrong and 29 receiver tests caught). A corrupt lineage
+artifact is quarantined and journaled; the pending-startup-quarantine
+channel became a list because host identity and lineage can both
+quarantine on one startup and the single slot silently dropped one.
+The formerly skipped reproduction is un-skipped and passing; sabotage
+proofs bit at all three layers (exporter detection, producer publish,
+receiver validation). Battery: server 1,270/1,270, SIEM 256/256, Pester
+112+3 skip, handshake PASSED, dependency audit clean.
+
+**Still owed by R3d, in priority order:** (1) The **coordinated
+live-tail read** (cr3-1): the live segment is exportable only after
+rotation because the writer holds it `FileShare.None` and that
+exclusivity is load-bearing for `IsLockedSegment`; the condition is
+reported, not hidden. (2) The eviction as a **journaled audit event**
+plus the GUI/webhook surfaces (R4), so the fact reaches the SIEM itself
+and not only `ptk_state`.
 
 **R3c is the other honest remainder, not started.** R3c: the
 receiver still ingests protobuf over mTLS only, so PTK reaches Splunk,
@@ -594,16 +619,13 @@ judges by payload survival instead.
 
 ## Next
 
-**Immediate: finish R3d.** The cr3-2 review loop is CLOSED — ten codex
-rounds plus a Fable-5 second opinion, fifteen paths, fourteen fixed, and
-the owner agreed the remaining effort belongs in R3d rather than in more
-detection rounds. R3d's core landed (acknowledgment-aware retention,
-`7aa03ff`; eviction visible in `ptk_state`, `a2dcece`). **Next piece:
-producer boot lineage** — a record-schema change that closes the one
-open finding (a wholly vanished supervisor boot is currently
-undetectable); its reproduction is a skipped test in
-`AuditExportAdversarialReviewTests`. Then the coordinated live-tail read
-(cr3-1). Then, in order: **R3c** (receiver token auth + JSON ingest —
+**Immediate: finish R3d.** The cr3-2 review loop is CLOSED and all
+fifteen of its paths are now fixed — ten codex rounds plus a Fable-5
+second opinion; the last path (wholly vanished boot) closed 2026-08-10
+by producer boot lineage (see §Now). R3d's core landed
+(acknowledgment-aware retention, `7aa03ff`; eviction visible in
+`ptk_state`, `a2dcece`; boot lineage, this commit). **Next piece: the
+coordinated live-tail read (cr3-1).** Then, in order: **R3c** (receiver token auth + JSON ingest —
 without it PTK cannot reach its OWN fallback receiver, though Splunk,
 Sentinel and any OTLP collector work today), **R4** (the loopback web
 GUI + settings page — the slice that finally lets the owner SEE the

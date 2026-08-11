@@ -46,7 +46,8 @@ public sealed class AuditEventTests
              "request", "operator_disposition", "routing", "outcome", "coverage", "audit", "event_hash"],
             root.EnumerateObject().Select(property => property.Name));
         Assert.Equal(
-            ["host_id", "supervisor_boot_id", "worker_boot_id", "pid", "version", "binary_digest"],
+            ["host_id", "supervisor_boot_id", "previous_supervisor_boot_id",
+             "worker_boot_id", "pid", "version", "binary_digest"],
             Names(root, "producer"));
         Assert.Equal(
             ["name", "generation", "binding_kind", "template_name", "template_digest",

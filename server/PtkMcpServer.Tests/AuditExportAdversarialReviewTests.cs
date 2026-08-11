@@ -25,13 +25,12 @@ public sealed class AuditExportAdversarialReviewTests : IDisposable
         }
     }
 
-    // OPEN, by design: an entire supervisor boot whose records were journaled
-    // and destroyed undelivered is structurally invisible to a chain walk,
-    // because boot ids are random UUIDv4 with no lineage or counter. Closing
-    // it needs a PRODUCER SCHEMA change (boot lineage in the record), which
-    // belongs to R3d, not the exporter. Reproduction preserved, not deleted;
-    // see .agents/review/findings/cr3-2.md.
-    [Fact(Skip = "Open finding: needs producer boot lineage (R3d); reproduction preserved")]
+    // CLOSED by R3d boot lineage: every record now attests the last
+    // predecessor boot that journaled anything, so a wholly vanished boot is
+    // named by its successor's records even though its own files are gone.
+    // Formerly the one open finding of the cr3-2 loop; see
+    // .agents/review/findings/cr3-2.md.
+    [Fact]
     public async Task Review_a_wholly_vanished_intermediate_boot_leaves_no_signal()
     {
         // Boot A ends cleanly: its lifecycle terminal is delivered, so the
@@ -41,11 +40,10 @@ public sealed class AuditExportAdversarialReviewTests : IDisposable
         // not ticked), retention removes B's only segment. Boot C starts a
         // clean chain at 1.
         //
-        // Detection compares C's first record against (A, terminal): C starts
-        // at 1 (no gap) and A was terminal (no unverified boundary). Boot B's
-        // records existed locally, were never delivered, and no signal of any
-        // kind appears — boot ids are random UUIDs with no lineage, so a
-        // vanished WHOLE boot is invisible to the chain walk.
+        // Without lineage this was invisible: C starts at 1 (no gap) and A
+        // was terminal (no unverified boundary). With lineage, C's records
+        // name B as the predecessor that journaled something, and delivery
+        // last observed A — the mismatch is the signal.
         var root = NewRoot("adv-vanished-boot");
         var options = AuditOptions.Create(root);
         Directory.CreateDirectory(options.SpoolDirectory);
@@ -71,14 +69,14 @@ public sealed class AuditExportAdversarialReviewTests : IDisposable
         // drain.
         var bootBSegment = WriteSegment(options, index: 0, ticksOffset: 1, records:
         [
-            ChainRecord(bootB, sequence: 1),
-            ChainRecord(bootB, sequence: 2),
+            ChainRecord(bootB, sequence: 1, previousBootId: bootA),
+            ChainRecord(bootB, sequence: 2, previousBootId: bootA),
         ], bootId: bootB);
         File.Delete(bootBSegment);
 
         WriteSegment(options, index: 0, ticksOffset: 2, records:
         [
-            ChainRecord(bootC, sequence: 1),
+            ChainRecord(bootC, sequence: 1, previousBootId: bootB),
         ], bootId: bootC);
         Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
 
@@ -87,6 +85,50 @@ public sealed class AuditExportAdversarialReviewTests : IDisposable
             line.Contains("EXPORT_GAPS", StringComparison.Ordinal) ||
             line.Contains("unverified_boot_boundaries", StringComparison.Ordinal),
             $"boot B's records were journaled and destroyed undelivered, yet: {line}");
+    }
+
+    [Fact]
+    public async Task A_truthful_or_absent_predecessor_attestation_raises_no_signal()
+    {
+        // The two benign boundary shapes must stay silent: a successor whose
+        // lineage names exactly the boot delivery last observed (ordinary
+        // restart), and records carrying no lineage at all (a pre-lineage
+        // producer — an upgrade must not manufacture alarms).
+        var root = NewRoot("adv-lineage-benign");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var bootA = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var bootB = "5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01";
+        var bootC = "2a6465d4-6652-4ff7-8630-2ab0c5f6d04c";
+        WriteSegment(options, index: 0, ticksOffset: 0, records:
+        [
+            ChainRecord(bootA, sequence: 1),
+            ChainRecord(bootA, sequence: 2, eventType: "server.stopped"),
+        ], bootId: bootA);
+        // An upgrade boundary: boot B's records predate lineage entirely.
+        WriteSegment(options, index: 0, ticksOffset: 1, records:
+        [
+            ChainRecord(bootB, sequence: 1),
+            ChainRecord(bootB, sequence: 2, eventType: "server.stopped"),
+        ], bootId: bootB);
+        // An ordinary restart: boot C truthfully attests boot B.
+        WriteSegment(options, index: 0, ticksOffset: 2, records:
+        [
+            ChainRecord(bootC, sequence: 1, previousBootId: bootB),
+        ], bootId: bootC);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(5, await service.DrainOnceAsync(CancellationToken.None));
+
+        var line = health.Snapshot().StatusLine();
+        Assert.DoesNotContain("EXPORT_GAPS", line, StringComparison.Ordinal);
+        Assert.DoesNotContain("unverified_boot_boundaries", line, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -289,14 +331,18 @@ public sealed class AuditExportAdversarialReviewTests : IDisposable
         string supervisorBootId,
         long sequence,
         string eventType = "call.completed",
-        string? eventId = null) =>
+        string? eventId = null,
+        string? previousBootId = null) =>
         "{\"schema_version\":\"ptk.audit/2\",\"event_id\":\"" +
         (eventId ?? ("019f5ee1-2384-7eac-8f88-2eb4e7ec5e" +
             sequence.ToString("D2", System.Globalization.CultureInfo.InvariantCulture))) +
         "\",\"event_type\":\"" + eventType + "\",\"sequence\":" +
         sequence.ToString(System.Globalization.CultureInfo.InvariantCulture) +
         ",\"producer\":{\"host_id\":\"92874c03-05a7-4aa6-8094-b2e87cad5696\"," +
-        "\"supervisor_boot_id\":\"" + supervisorBootId + "\",\"worker_boot_id\":null," +
+        "\"supervisor_boot_id\":\"" + supervisorBootId + "\"," +
+        "\"previous_supervisor_boot_id\":" +
+        (previousBootId is null ? "null" : "\"" + previousBootId + "\"") +
+        ",\"worker_boot_id\":null," +
         "\"pid\":32890,\"version\":\"1.0.0.0\",\"binary_digest\":null}}";
 
     private static string WriteSegment(

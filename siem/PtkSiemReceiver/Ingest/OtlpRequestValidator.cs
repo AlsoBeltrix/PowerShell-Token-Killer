@@ -263,6 +263,14 @@ internal static class OtlpRequestValidator
             Guid? workerBootGuid = null;
             if (workerBootId is not null)
                 workerBootGuid = RequireCanonicalUuid(workerBootId, 4, "producer");
+            // Boot lineage (R3d): absent on pre-lineage records, nullable on
+            // current ones — and never garbage when present.
+            if (producer.TryGetProperty("previous_supervisor_boot_id", out var previousBoot) &&
+                previousBoot.ValueKind != JsonValueKind.Null)
+            {
+                if (previousBoot.ValueKind != JsonValueKind.String) Fail("producer");
+                _ = RequireCanonicalUuid(previousBoot.GetString()!, 4, "producer");
+            }
             var producerVersion = RequireNonemptyString(producer, "version", "producer");
 
             var session = RequireObjectProperty(root, "session", "session");

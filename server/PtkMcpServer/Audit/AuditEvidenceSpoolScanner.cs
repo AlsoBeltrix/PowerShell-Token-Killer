@@ -53,8 +53,8 @@ internal static class AuditEvidenceSpoolScanner
 
     private static readonly HashSet<string> ProducerProperties = new(
         [
-            "host_id", "supervisor_boot_id", "worker_boot_id", "pid",
-            "version", "binary_digest",
+            "host_id", "supervisor_boot_id", "previous_supervisor_boot_id",
+            "worker_boot_id", "pid", "version", "binary_digest",
         ],
         StringComparer.Ordinal);
 

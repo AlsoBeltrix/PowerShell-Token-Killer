@@ -218,6 +218,7 @@ internal sealed class AuditJournal : IDisposable
     private bool _recoveryCallbackActive;
     private string? _deferredRecoveryFailureClass;
     private long _lastKnownTotalBytes;
+    private bool _lineagePublished;
 
     internal AuditJournal(
         AuditOptions options,
@@ -227,6 +228,7 @@ internal sealed class AuditJournal : IDisposable
         string? binaryDigest,
         Guid hostId,
         Guid supervisorBootId,
+        Guid? previousSupervisorBootId = null,
         Func<DateTimeOffset>? utcNow = null,
         Func<DateTimeOffset, Guid>? uuidV7Factory = null)
     {
@@ -247,6 +249,7 @@ internal sealed class AuditJournal : IDisposable
         _binaryDigest = binaryDigest;
         HostId = hostId;
         SupervisorBootId = supervisorBootId;
+        PreviousSupervisorBootId = previousSupervisorBootId;
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _uuidV7Factory = uuidV7Factory ?? Guid.CreateVersion7;
         _lastKnownTotalBytes = _sink.TotalBytes;
@@ -260,6 +263,8 @@ internal sealed class AuditJournal : IDisposable
     internal Guid HostId { get; }
 
     internal Guid SupervisorBootId { get; }
+
+    internal Guid? PreviousSupervisorBootId { get; }
 
     internal AuditOptions Options => _options;
 
@@ -522,7 +527,8 @@ internal sealed class AuditJournal : IDisposable
                 WorkerBootId: null,
                 Pid: Environment.ProcessId,
                 _producerVersion,
-                _binaryDigest);
+                _binaryDigest,
+                PreviousSupervisorBootId);
             var serialized = AuditEventSerializer.Serialize(
                 nextSequence,
                 _previousEventHash,
@@ -563,6 +569,16 @@ internal sealed class AuditJournal : IDisposable
             _sequence = nextSequence;
             _previousEventHash = serialized.EventHash;
             _lastEventId = serialized.EventId;
+            // Lineage is published only once a record is durably on disk, so
+            // a lineage entry always attests a boot that journaled something
+            // (R3d boot lineage). Failure retries on the next append: lineage
+            // is attestation for the NEXT boot and must never fail this one.
+            if (!_lineagePublished)
+            {
+                _lineagePublished = AuditBootLineage.TryPublish(
+                    _options.RootDirectory,
+                    SupervisorBootId);
+            }
             UpdateHealthMetricsLocked();
             return serialized;
         }
@@ -615,20 +631,31 @@ internal sealed class AuditJournal : IDisposable
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(detailCode);
         lock (_gate)
-            _pendingStartupQuarantineDetail = detailCode;
+        {
+            // Distinct artifact classes can quarantine on one startup (host
+            // identity AND boot lineage); a single slot silently dropped all
+            // but the last parked fact.
+            if (!_pendingStartupQuarantineDetails.Contains(detailCode))
+                _pendingStartupQuarantineDetails.Add(detailCode);
+        }
     }
 
     internal bool TryTakePendingStartupQuarantine(out string? detailCode)
     {
         lock (_gate)
         {
-            detailCode = _pendingStartupQuarantineDetail;
-            _pendingStartupQuarantineDetail = null;
-            return detailCode is not null;
+            if (_pendingStartupQuarantineDetails.Count == 0)
+            {
+                detailCode = null;
+                return false;
+            }
+            detailCode = _pendingStartupQuarantineDetails[0];
+            _pendingStartupQuarantineDetails.RemoveAt(0);
+            return true;
         }
     }
 
-    private string? _pendingStartupQuarantineDetail;
+    private readonly List<string> _pendingStartupQuarantineDetails = [];
 
     internal Guid CreateCallId()
     {

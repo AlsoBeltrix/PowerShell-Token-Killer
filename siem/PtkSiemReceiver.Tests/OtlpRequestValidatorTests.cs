@@ -23,6 +23,21 @@ public sealed class OtlpRequestValidatorTests
     }
 
     [Fact]
+    public void Optional_boot_lineage_is_accepted_when_canonical_and_rejected_otherwise()
+    {
+        // audit-restoration R3d: producers attest their predecessor boot in
+        // producer.previous_supervisor_boot_id. Optional — pre-lineage
+        // producers wrote none — but never garbage when present.
+        var attested = OtlpTestRequest.Create(
+            previousSupervisorBootId: "5b0e5efc-2f63-46f5-93a3-2f4ea18d6a01");
+        Assert.True(OtlpRequestValidator.Validate(attested.ToByteArray()).IsValid);
+
+        var garbage = OtlpTestRequest.Create(
+            previousSupervisorBootId: "not-a-boot-id");
+        Assert.Equal("producer", Failure(garbage));
+    }
+
+    [Fact]
     public void Empty_or_malformed_protobuf_is_rejected()
     {
         Assert.Equal("protobuf", OtlpRequestValidator.Validate([]).FailureCode);

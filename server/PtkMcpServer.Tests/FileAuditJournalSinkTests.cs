@@ -1375,7 +1375,8 @@ public sealed class FileAuditJournalSinkTests : IDisposable
         binaryDigest: null,
         HostId,
         bootId,
-            () => BaseTime);
+        previousSupervisorBootId: null,
+        utcNow: () => BaseTime);
 
     [SupportedOSPlatform("windows")]
     private static void SetAlternateWindowsOwnerWhenAvailable(string path)

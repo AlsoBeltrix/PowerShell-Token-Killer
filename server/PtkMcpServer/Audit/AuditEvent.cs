@@ -13,7 +13,8 @@ internal sealed record AuditProducerContext(
     Guid? WorkerBootId,
     long? Pid,
     string Version,
-    string? BinaryDigest);
+    string? BinaryDigest,
+    Guid? PreviousSupervisorBootId = null);
 
 internal sealed record AuditEventInput
 {
@@ -337,6 +338,10 @@ internal static class AuditEventSerializer
         RequireUtc(observedUtc, "observed_utc");
         RequireUuid(producer.HostId, 4, "producer.host_id");
         RequireUuid(producer.SupervisorBootId, 4, "producer.supervisor_boot_id");
+        RequireNullableUuid(
+            producer.PreviousSupervisorBootId,
+            4,
+            "producer.previous_supervisor_boot_id");
         RequireNullableUuid(producer.WorkerBootId, 4, "producer.worker_boot_id");
         RequirePositive(producer.Pid, "producer.pid");
         RequireText(producer.Version, 128, "producer.version", nullable: false);
@@ -829,6 +834,7 @@ internal static class AuditEventSerializer
         writer.WriteStartObject("producer");
         writer.WriteString("host_id", FormatUuid(producer.HostId));
         writer.WriteString("supervisor_boot_id", FormatUuid(producer.SupervisorBootId));
+        WriteUuid(writer, "previous_supervisor_boot_id", producer.PreviousSupervisorBootId);
         WriteUuid(writer, "worker_boot_id", producer.WorkerBootId);
         WriteNumber(writer, "pid", producer.Pid);
         writer.WriteString("version", producer.Version);

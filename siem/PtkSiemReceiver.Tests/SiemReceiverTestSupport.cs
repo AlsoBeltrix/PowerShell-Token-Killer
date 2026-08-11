@@ -324,7 +324,8 @@ internal static class OtlpTestRequest
         string? supervisorBootId = null,
         long sequence = 1,
         string? previousEventHash = null,
-        string eventType = "tool.completed")
+        string eventType = "tool.completed",
+        string? previousSupervisorBootId = null)
     {
         eventId ??= DefaultEventId;
         supervisorBootId ??= DefaultSupervisorBootId;
@@ -348,6 +349,9 @@ internal static class OtlpTestRequest
             $"\"occurred_utc\":\"{OccurredUtc}\"," +
             $"\"observed_utc\":\"{ObservedUtc}\"," +
             $"\"producer\":{{\"host_id\":\"{DefaultHostId}\",\"supervisor_boot_id\":\"{supervisorBootId}\"," +
+            (previousSupervisorBootId is null
+                ? string.Empty
+                : $"\"previous_supervisor_boot_id\":\"{previousSupervisorBootId}\",") +
             "\"worker_boot_id\":null,\"version\":\"1.2.3\"}" +
             host +
             $",\"sequence\":{sequence},\"previous_event_hash\":" +

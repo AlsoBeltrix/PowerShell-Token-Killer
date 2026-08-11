@@ -423,10 +423,15 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
             {
                 try
                 {
+                    // The live tail holds the NEWEST records, so it is read
+                    // unconditionally (cr5-4): a populated closed spool must
+                    // not short-circuit it. The read is bounded by the live
+                    // segment itself — rotation caps its size, and every
+                    // pass either advances the offset or breaks.
                     long offset = 0;
                     var identity = default(AuditSpoolSegmentIdentity);
                     var identityKnown = false;
-                    while (lines.Count < tail * 4)
+                    while (true)
                     {
                         AuditCommittedSpoolRead read;
                         if (!identityKnown)

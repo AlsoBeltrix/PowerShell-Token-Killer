@@ -272,6 +272,41 @@ public sealed class AuditWebUiTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task A_populated_closed_spool_does_not_hide_the_live_tail()
+    {
+        // cr5-4: the live tail holds the NEWEST records; a closed spool
+        // already holding 4x the requested tail must not short-circuit it
+        // into serving older evidence as the newest.
+        var root = NewRoot("webui-live-tail");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        using var journal = AuditJournalFactory.Open(options, health, "test-version");
+        AppendEvents(journal, 3);
+        var closedBoot = Guid.NewGuid();
+        var closed = Path.Combine(
+            options.SpoolDirectory,
+            AuditSpoolSegmentIdentity.Create(closedBoot, 0).FileName);
+        File.WriteAllLines(closed, Enumerable.Range(0, 20).Select(index =>
+            $$"""{"event_type":"call.completed","event_id":"closed-{{index}}"}"""));
+
+        var port = FreePort();
+        await using var service = new AuditWebUiService(
+            options, health, new AuditExportHealth(), () => journal, port);
+        await service.StartAsync(CancellationToken.None);
+        var token = await WaitForTokenAsync(root);
+        using var client = new HttpClient();
+
+        using var response = await GetAsync(client, port, "/api/records?tail=5", token);
+        using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var records = payload.RootElement.GetProperty("records");
+        Assert.Equal(5, records.GetArrayLength());
+        var liveBoot = journal.SupervisorBootId.ToString("D");
+        Assert.Contains(
+            records.EnumerateArray(),
+            record => record.GetString()!.Contains(liveBoot, StringComparison.Ordinal));
+    }
+
     private static async Task<bool> WaitAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)

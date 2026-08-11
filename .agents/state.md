@@ -116,11 +116,13 @@ load-bearing (`IsLockedSegment` classifies live vs closed by
 openability), so the coordinated-reader fix is R3d.
 
 **cr3-2 was reopened SIX times, each for a real silent-loss path. All
-six are fixed. Detection work was halted at `a330279` by the stopping
-rule set before round six; **the owner overrode that halt the same day
-("you can do 3 more rounds"), so rounds 7-9 are authorized** and the
-loop resumed — round 7 also gives the round-6 repair the independent
-verification it initially lacked.**
+SEVEN are fixed. Detection work was halted at `a330279` by the stopping
+rule set before round six; **the owner overrode that halt ("you can do 3
+more rounds")**. Round 7 is spent: it independently confirmed the
+round-6 guard bites AND found a seventh path (a parseable but
+schema-less ledger passed as legitimately empty, silently discarding
+boot memory — closed by requiring a schema marker). Rounds 8-9 remain
+authorized.**
 The arc, worth knowing before touching this code: file bookkeeping could
 not distinguish "deleted after delivery" from "deleted with a tail
 outstanding" (round 1: false alarms + process-local state), end-of-file

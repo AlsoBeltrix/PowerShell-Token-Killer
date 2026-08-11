@@ -603,6 +603,62 @@ public sealed class AuditExportTests : IDisposable
         Assert.Equal("{ this is not valid json", File.ReadAllText(artifact));
     }
 
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("""{"count":0,"segments":[]}""")]
+    [InlineData("")]
+    public async Task A_schemaless_ledger_is_corruption_not_an_empty_ledger(string payload)
+    {
+        // cr3-2 round 7: a structurally valid but schema-less object
+        // deserialized to all-defaults and passed as a legitimately empty
+        // ledger, silently discarding boot memory. Only a file carrying our
+        // own version marker is our ledger.
+        var root = NewRoot("export-schemaless-ledger");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var oldBoot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var first = WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(oldBoot, sequence: 1),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var cursorStore = new AuditExportCursorStore(root);
+        await using (var service = NewService(
+            options,
+            receiver,
+            cursorStore,
+            new AuditExportHealth()))
+        {
+            Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        }
+
+        File.Delete(cursorStore.CursorPath);
+        File.WriteAllText(Path.Combine(root, AuditExportGapStore.FileName), payload);
+        File.Delete(first);
+        WriteSegment(options, index: 1, records:
+        [
+            ChainRecord("2a6465d4-6652-4ff7-8630-2ab0c5f6d04c", sequence: 1),
+        ]);
+
+        var health = new AuditExportHealth();
+        await using var restarted = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(1, await restarted.DrainOnceAsync(CancellationToken.None));
+
+        Assert.Contains(
+            "unverified_boot_boundaries",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+        var quarantined = Directory.GetFiles(
+            Path.Combine(root, "quarantine"),
+            AuditExportGapStore.FileName + "*");
+        Assert.Single(quarantined);
+    }
+
     [Fact]
     public async Task A_first_run_from_the_start_of_a_chain_raises_nothing()
     {

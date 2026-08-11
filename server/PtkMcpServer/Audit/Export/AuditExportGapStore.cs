@@ -170,6 +170,16 @@ internal sealed class AuditExportGapStore
                 verifyWithoutMutation: true);
             var file = JsonSerializer.Deserialize<GapFile>(bytes)
                 ?? throw new InvalidDataException("The export ledger is empty.");
+            // A structurally valid but schema-less object ({} or a truncated
+            // write) deserializes to all-defaults and used to pass as a
+            // legitimately empty ledger, silently discarding boot memory
+            // (cr3-2 round 7). Only a file carrying our own version marker
+            // is our ledger; anything else is corruption.
+            if (file.Version != CurrentVersion)
+            {
+                throw new InvalidDataException(
+                    "The export ledger does not carry its schema version.");
+            }
             if (file.Count < 0)
                 throw new InvalidDataException("The export ledger count is negative.");
             return new AuditExportGapRecord(
@@ -191,6 +201,7 @@ internal sealed class AuditExportGapStore
         {
             var payload = JsonSerializer.SerializeToUtf8Bytes(new GapFile
             {
+                Version = CurrentVersion,
                 Count = record.Count,
                 Segments = record.Segments.ToArray(),
                 MissingRecords = record.MissingRecords,
@@ -217,8 +228,11 @@ internal sealed class AuditExportGapStore
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
 
+    internal const int CurrentVersion = 1;
+
     private sealed class GapFile
     {
+        [JsonPropertyName("version")] public int? Version { get; set; }
         [JsonPropertyName("count")] public long Count { get; set; }
         [JsonPropertyName("segments")] public string[]? Segments { get; set; }
         [JsonPropertyName("missing_records")] public long MissingRecords { get; set; }

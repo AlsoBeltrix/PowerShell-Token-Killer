@@ -324,6 +324,13 @@ internal static class SiemReceiverConfigurationLoader
         if (operatorPort == ingestPort)
             Fail("operator_port_conflict");
 
+        // The two surfaces' authorities must not be collapsible by
+        // configuration: a shared secret would let the read-only operator
+        // credential authenticate store-writing ingest (cr7-2).
+        if (ingestToken is not null &&
+            string.Equals(ingestToken, operatorToken, StringComparison.Ordinal))
+            Fail("token_reuse");
+
         var sqlitePath = RequiredAbsolutePath(
             storage, "sqlitePath", "storage_sqlite_path");
 

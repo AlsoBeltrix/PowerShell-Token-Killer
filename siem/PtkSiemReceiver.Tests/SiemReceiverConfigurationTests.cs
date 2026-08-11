@@ -643,6 +643,22 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void Equal_ingest_and_operator_tokens_are_rejected()
+    {
+        // cr7-2: equal tokens would collapse the read-only operator
+        // credential into store-writing ingest authority.
+        var configuration = ValidConfiguration();
+        configuration.Ingest["token"] = "shared-token-0123456789abcdef";
+        configuration.Operator["token"] = "shared-token-0123456789abcdef";
+        Assert.Equal("token_reuse", FailureCodeOf(WriteConfiguration(configuration)));
+
+        var distinct = ValidConfiguration();
+        distinct.Ingest["token"] = "ingest-token-0123456789abcdef";
+        distinct.Operator["token"] = "operator-token-0123456789abcdef";
+        Assert.NotNull(SiemReceiverConfigurationLoader.Load(WriteConfiguration(distinct)));
+    }
+
+    [Fact]
     public void Missing_operator_port_is_rejected()
     {
         var configuration = ValidConfiguration();

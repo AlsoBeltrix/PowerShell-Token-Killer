@@ -350,7 +350,10 @@ public sealed class ReceiverStartupProtectionTests
             @operator = new
             {
                 bindAddress = files.Options.OperatorBindAddress.ToString(),
-                port = files.Options.OperatorPort,
+                // A literal valid port: the loader requires 1-65535, while
+                // ReceiverFiles carries 0 (ephemeral) for tests that bind.
+                // This config is only ever parsed, never started.
+                port = 4319,
                 token = files.Options.OperatorToken,
             },
             storage = new
@@ -710,7 +713,7 @@ public sealed class ReceiverStartupProtectionTests
             1024 * 1024,
             SiemReceiverConfigurationLoader.DefaultMaxConcurrentRequests,
             IPAddress.Loopback,
-            9,
+            0,
             new string('t', 32),
             operatorCertificate ?? OperatorCertificatePath,
             operatorKey ?? OperatorKeyPath,

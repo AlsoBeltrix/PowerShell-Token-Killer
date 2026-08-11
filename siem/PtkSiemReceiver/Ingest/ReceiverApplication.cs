@@ -61,22 +61,24 @@ internal static class ReceiverApplication
                 .ToArray();
             foreach (var authorityRead in authorityReads)
                 protectedExternalIdentities.Add(authorityRead.Identity);
+            ProtectedFileRead? operatorCertificateRead = null;
+            ProtectedFileRead? operatorKeyRead = null;
             if (options.OperatorHttpsCertificatePath is not null)
             {
-                var operatorCertificateRead = ReadTlsMaterial(
+                operatorCertificateRead = ReadTlsMaterial(
                     options.OperatorHttpsCertificatePath,
                     "operator_https_material",
                     "operator_https_material",
                     sensitiveBuffers,
                     protectedPathTestHooks);
-                protectedExternalIdentities.Add(operatorCertificateRead.Identity);
-                var operatorKeyRead = ReadTlsMaterial(
+                protectedExternalIdentities.Add(operatorCertificateRead.Value.Identity);
+                operatorKeyRead = ReadTlsMaterial(
                     options.OperatorHttpsCertificateKeyPath!,
                     "operator_https_material",
                     "operator_https_material",
                     sensitiveBuffers,
                     protectedPathTestHooks);
-                protectedExternalIdentities.Add(operatorKeyRead.Identity);
+                protectedExternalIdentities.Add(operatorKeyRead.Value.Identity);
             }
 
             tlsMaterialAcquiredForTests?.Invoke();
@@ -95,6 +97,25 @@ internal static class ReceiverApplication
                 throw;
             }
             var trustStore = new ReceiverTrustStore(clientAuthorities);
+            // The operator surface serves HTTPS from its own verified bytes
+            // when configured (S5); without a pair it is plain HTTP, which
+            // the configuration loader already restricts to loopback.
+            X509Certificate2? operatorCertificate = null;
+            if (operatorCertificateRead is not null)
+            {
+                try
+                {
+                    operatorCertificate = ReceiverCertificateLoader.LoadServerCertificate(
+                        operatorCertificateRead.Value.Bytes,
+                        operatorKeyRead!.Value.Bytes);
+                }
+                catch
+                {
+                    serverCertificate.Dispose();
+                    trustStore.Dispose();
+                    throw;
+                }
+            }
             Storage.SqliteIngestStore? ownedStore = null;
             WebApplication? application = null;
             try
@@ -143,11 +164,34 @@ internal static class ReceiverApplication
                             SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
                         });
                     });
+                    // The operator query surface is a separate listener by
+                    // design (S5); its connections carry a marker feature so
+                    // neither surface can serve the other's routes, whatever
+                    // ports the deployment chose.
+                    kestrel.Listen(options.OperatorBindAddress, options.OperatorPort, listen =>
+                    {
+                        listen.Use(next => connection =>
+                        {
+                            connection.Features.Set<Web.IOperatorSurfaceFeature>(
+                                Web.OperatorSurfaceFeature.Instance);
+                            return next(connection);
+                        });
+                        if (operatorCertificate is not null)
+                        {
+                            listen.Protocols = HttpProtocols.Http1AndHttp2;
+                            listen.UseHttps(new HttpsConnectionAdapterOptions
+                            {
+                                ServerCertificate = operatorCertificate,
+                                SslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                            });
+                        }
+                    });
                 });
 
                 builder.Services.AddSingleton(options);
                 builder.Services.AddSingleton<X509Certificate2>(_ => serverCertificate);
                 builder.Services.AddSingleton<ReceiverTrustStore>(_ => trustStore);
+                builder.Services.AddSingleton(_ => new Web.OperatorTlsMaterial(operatorCertificate));
                 builder.Services.AddSingleton(timeProvider ?? TimeProvider.System);
                 builder.Services.AddSingleton<IngestAdmissionGate>(
                     _ => new IngestAdmissionGate(options.MaxConcurrentRequests));
@@ -175,7 +219,9 @@ internal static class ReceiverApplication
                 _ = application.Services.GetRequiredService<ReceiverTrustStore>();
                 _ = application.Services.GetRequiredService<IIngestCommitter>();
                 _ = application.Services.GetRequiredService<IngestAdmissionGate>();
+                _ = application.Services.GetRequiredService<Web.OperatorTlsMaterial>();
                 application.MapPost("/v1/logs", HandleIngestAsync);
+                Web.OperatorEndpoints.Map(application);
                 return application;
             }
             catch
@@ -189,6 +235,7 @@ internal static class ReceiverApplication
                     ownedStore?.Dispose();
                     serverCertificate.Dispose();
                     trustStore.Dispose();
+                    operatorCertificate?.Dispose();
                 }
                 throw;
             }
@@ -268,6 +315,14 @@ internal static class ReceiverApplication
         TimeProvider timeProvider,
         IngestAdmissionGate admissionGate)
     {
+        // Ingest never serves on the operator surface (S5): the operator
+        // credential must not become an ingest credential by port reuse.
+        if (context.Features.Get<Web.IOperatorSurfaceFeature>() is not null)
+        {
+            context.Response.StatusCode = 404;
+            return;
+        }
+
         // rbc-12: refuse before any buffering so a saturated receiver
         // holds no additional per-request memory.
         if (!admissionGate.TryEnter())

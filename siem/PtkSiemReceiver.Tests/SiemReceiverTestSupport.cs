@@ -155,15 +155,23 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         WebApplication application,
         string root,
         Uri endpoint,
+        Uri operatorEndpoint,
         string databasePath)
     {
         _application = application;
         _root = root;
         Endpoint = endpoint;
+        OperatorEndpoint = operatorEndpoint;
         DatabasePath = databasePath;
     }
 
     internal Uri Endpoint { get; }
+
+    /// <summary>Base URI of the operator query surface (S5): plain HTTP on
+    /// loopback in tests, exactly the no-certificate configuration.</summary>
+    internal Uri OperatorEndpoint { get; }
+
+    internal const string OperatorToken = "tttttttttttttttttttttttttttttttt";
 
     internal string DatabasePath { get; }
 
@@ -208,8 +216,8 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
             maximumRequestBytes,
             maximumConcurrentRequests,
             IPAddress.Loopback,
-            9,
-            new string('t', 32),
+            0,
+            OperatorToken,
             null,
             null,
             databasePath,
@@ -229,11 +237,17 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
             var server = application.Services.GetRequiredService<IServer>();
             var addresses = server.Features.Get<IServerAddressesFeature>()?.Addresses ??
                             throw new InvalidOperationException("Kestrel did not publish an address.");
-            var address = Assert.Single(addresses);
+            // Two listeners since S5: ingest is the HTTPS one, the operator
+            // surface is plain HTTP in this no-certificate configuration.
+            var ingestAddress = Assert.Single(
+                addresses, address => address.StartsWith("https://", StringComparison.Ordinal));
+            var operatorAddress = Assert.Single(
+                addresses, address => address.StartsWith("http://", StringComparison.Ordinal));
             return new SiemReceiverTestHost(
                 application,
                 root,
-                new Uri(new Uri(address), "/v1/logs"),
+                new Uri(new Uri(ingestAddress), "/v1/logs"),
+                new Uri(operatorAddress),
                 databasePath);
         }
         catch

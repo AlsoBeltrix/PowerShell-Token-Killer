@@ -52,9 +52,10 @@ internal static class AuditJournalFactory
             hostIdentityReadCompletedForTests,
             hostIdentityDestinationCheckedForTests,
             out var quarantineDetail);
-        var previousSupervisorBootId = AuditBootLineage.ReadPrevious(
-            root,
-            out var lineageQuarantineDetail);
+        // Boot lineage is deliberately NOT read here: the journal resolves
+        // and publishes it atomically at its first append, under the
+        // cross-process quota lease, so concurrently opened boots chain in
+        // true first-append order (cr4-3).
         var supervisorBootId = Guid.NewGuid();
         var sink = new FileAuditJournalSink(
             options,
@@ -67,15 +68,12 @@ internal static class AuditJournalFactory
             producerVersion,
             sink,
             supervisorBootId,
-            previousSupervisorBootId,
             hostId,
             binaryDigest,
             utcNow,
             uuidV7Factory);
         if (quarantineDetail is not null)
             journal.RecordPendingStartupQuarantine(quarantineDetail);
-        if (lineageQuarantineDetail is not null)
-            journal.RecordPendingStartupQuarantine(lineageQuarantineDetail);
         return journal;
     }
 
@@ -145,17 +143,12 @@ internal static class AuditJournalFactory
 
         Guid hostId;
         Guid supervisorBootId;
-        Guid? previousSupervisorBootId;
         string? anchoredQuarantineDetail;
-        string? lineageQuarantineDetail;
         try
         {
             var root = SecureAuditStorage.PrepareRoot(options.RootDirectory);
             _ = SecureAuditStorage.PrepareRoot(options.SpoolDirectory);
             hostId = LoadOrCreateHostId(root, null, null, out anchoredQuarantineDetail);
-            previousSupervisorBootId = AuditBootLineage.ReadPrevious(
-                root,
-                out lineageQuarantineDetail);
             supervisorBootId = sink.CurrentSegmentIdentity.SupervisorBootId;
         }
         catch
@@ -169,15 +162,12 @@ internal static class AuditJournalFactory
             producerVersion,
             sink,
             supervisorBootId,
-            previousSupervisorBootId,
             hostId,
             binaryDigest,
             utcNow,
             uuidV7Factory);
         if (anchoredQuarantineDetail is not null)
             anchoredJournal.RecordPendingStartupQuarantine(anchoredQuarantineDetail);
-        if (lineageQuarantineDetail is not null)
-            anchoredJournal.RecordPendingStartupQuarantine(lineageQuarantineDetail);
         return anchoredJournal;
     }
 
@@ -187,7 +177,6 @@ internal static class AuditJournalFactory
         string producerVersion,
         FileAuditJournalSink sink,
         Guid supervisorBootId,
-        Guid? previousSupervisorBootId,
         Guid hostId,
         string? binaryDigest,
         Func<DateTimeOffset>? utcNow,
@@ -203,7 +192,7 @@ internal static class AuditJournalFactory
                 binaryDigest,
                 hostId,
                 supervisorBootId,
-                previousSupervisorBootId,
+                previousSupervisorBootId: null,
                 utcNow,
                 uuidV7Factory);
         }

@@ -57,9 +57,11 @@ public sealed class AuditBootLineageTests : IDisposable
         Guid secondBoot;
         using (var second = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version"))
         {
-            Assert.Equal(firstBoot, second.PreviousSupervisorBootId);
+            // Resolution happens at the FIRST append, not at open (cr4-3).
+            Assert.Null(second.PreviousSupervisorBootId);
             secondBoot = second.SupervisorBootId;
             AppendOne(second);
+            Assert.Equal(firstBoot, second.PreviousSupervisorBootId);
         }
 
         var secondSegment = AuditSpoolSegmentIdentity
@@ -89,13 +91,15 @@ public sealed class AuditBootLineageTests : IDisposable
             AppendOne(first);
         }
 
-        // Opens, journals nothing, goes away.
+        // Opens, journals nothing, goes away — it never resolves lineage and
+        // never publishes itself.
         using (var silent = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version"))
         {
-            Assert.Equal(firstBoot, silent.PreviousSupervisorBootId);
+            Assert.Null(silent.PreviousSupervisorBootId);
         }
 
         using var third = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+        AppendOne(third);
         Assert.Equal(firstBoot, third.PreviousSupervisorBootId);
     }
 
@@ -110,12 +114,13 @@ public sealed class AuditBootLineageTests : IDisposable
             File.SetUnixFileMode(lineagePath, SecureAuditStorage.OwnerFileMode);
 
         using var journal = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+        // The read happens at the first append (cr4-3), which must succeed.
+        AppendOne(journal);
 
         // Contract rule 3: preserved as evidence, fresh state minted, service
         // continues — and the fact is parked for the journal, never
         // stderr-only (cr2-4).
         Assert.Null(journal.PreviousSupervisorBootId);
-        Assert.False(File.Exists(lineagePath));
         Assert.NotEmpty(Directory.GetFiles(
             Path.Combine(root, AuditJournalFactory.QuarantineDirectoryName),
             AuditBootLineage.FileName + ".*"));
@@ -123,6 +128,26 @@ public sealed class AuditBootLineageTests : IDisposable
         while (journal.TryTakePendingStartupQuarantine(out var detail))
             parked.Add(detail);
         Assert.Contains(AuditBootLineage.QuarantineDetailCode, parked);
+    }
+
+    [Fact]
+    public void Concurrently_opened_boots_chain_in_first_append_order()
+    {
+        // cr4-3: two supervisors that OPEN before either appends must still
+        // chain — the second appender attests the first appender, not the
+        // shared grandparent both saw at open. Resolution and publication
+        // are atomic at first append under the cross-process quota lease.
+        var root = NewRoot("lineage-concurrent");
+        var options = AuditOptions.Create(root);
+
+        using var first = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+        using var second = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+
+        AppendOne(first);
+        AppendOne(second);
+
+        Assert.Null(first.PreviousSupervisorBootId);
+        Assert.Equal(first.SupervisorBootId, second.PreviousSupervisorBootId);
     }
 
     [Fact]
@@ -169,9 +194,11 @@ public sealed class AuditBootLineageTests : IDisposable
             File.SetUnixFileMode(lineagePath, SecureAuditStorage.OwnerFileMode);
 
         using var journal = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+        // The read happens at the first append (cr4-3); the append that a
+        // served v1 id would have failed must succeed.
+        AppendOne(journal);
 
         Assert.Null(journal.PreviousSupervisorBootId);
-        Assert.False(File.Exists(lineagePath));
         Assert.NotEmpty(Directory.GetFiles(
             Path.Combine(root, AuditJournalFactory.QuarantineDirectoryName),
             AuditBootLineage.FileName + ".*"));
@@ -179,8 +206,6 @@ public sealed class AuditBootLineageTests : IDisposable
         while (journal.TryTakePendingStartupQuarantine(out var detail))
             parked.Add(detail);
         Assert.Contains(AuditBootLineage.QuarantineDetailCode, parked);
-        // The append that would have failed schema validation succeeds.
-        AppendOne(journal);
     }
 
     [Fact]
@@ -198,6 +223,9 @@ public sealed class AuditBootLineageTests : IDisposable
             File.SetUnixFileMode(lineagePath, SecureAuditStorage.OwnerFileMode);
 
         using var journal = AuditJournalFactory.Open(options, new AuditHealth(options), "test-version");
+        // Host identity quarantines at open; lineage at the first append
+        // (cr4-3). Both facts must survive in the parked channel together.
+        AppendOne(journal);
 
         var parked = new List<string?>();
         while (journal.TryTakePendingStartupQuarantine(out var detail))

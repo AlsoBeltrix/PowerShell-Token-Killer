@@ -220,6 +220,8 @@ internal sealed class AuditJournal : IDisposable
     private long _lastKnownTotalBytes;
     private bool _lineagePublished;
     private long _lineagePublishFailures;
+    private bool _lineageResolved;
+    private Guid? _resolvedPreviousBootId;
 
     internal AuditJournal(
         AuditOptions options,
@@ -250,7 +252,14 @@ internal sealed class AuditJournal : IDisposable
         _binaryDigest = binaryDigest;
         HostId = hostId;
         SupervisorBootId = supervisorBootId;
-        PreviousSupervisorBootId = previousSupervisorBootId;
+        // A non-null value pre-resolves lineage (test seam); production
+        // resolution happens at the first append under the quota lease
+        // (cr4-3).
+        if (previousSupervisorBootId is not null)
+        {
+            _resolvedPreviousBootId = previousSupervisorBootId;
+            _lineageResolved = true;
+        }
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _uuidV7Factory = uuidV7Factory ?? Guid.CreateVersion7;
         _lastKnownTotalBytes = _sink.TotalBytes;
@@ -265,7 +274,16 @@ internal sealed class AuditJournal : IDisposable
 
     internal Guid SupervisorBootId { get; }
 
-    internal Guid? PreviousSupervisorBootId { get; }
+    /// <summary>The predecessor this boot's records attest; null until the
+    /// first append resolves it (cr4-3) and for a genuinely first boot.</summary>
+    internal Guid? PreviousSupervisorBootId
+    {
+        get
+        {
+            lock (_gate)
+                return _resolvedPreviousBootId;
+        }
+    }
 
     internal AuditOptions Options => _options;
 
@@ -518,75 +536,121 @@ internal sealed class AuditJournal : IDisposable
             ThrowIfClosedOrPoisonedLocked();
             reservation.EnsureUsableLocked(this);
 
-            var occurredUtc = GetUtcNowLocked();
-            var observedUtc = GetUtcNowLocked();
-            var eventId = CreateUuidV7Locked(observedUtc);
-            var nextSequence = checked(_sequence + 1);
-            var producer = new AuditProducerContext(
-                HostId,
-                SupervisorBootId,
-                WorkerBootId: null,
-                Pid: Environment.ProcessId,
-                _producerVersion,
-                _binaryDigest,
-                PreviousSupervisorBootId);
-            var serialized = AuditEventSerializer.Serialize(
-                nextSequence,
-                _previousEventHash,
-                producer,
-                input,
-                eventId,
-                occurredUtc,
-                observedUtc);
-
-            if (serialized.Utf8Line.Length > _options.MaxRecordBytes)
-            {
-                throw new AuditEventValidationException(
-                    $"Serialized audit record exceeds configured maximum {_options.MaxRecordBytes} bytes.");
-            }
-
+            // Boot lineage is resolved at the FIRST append, not at open, and
+            // under the cross-process spool quota lease: two supervisors that
+            // open concurrently would otherwise both capture the same
+            // predecessor and overwrite each other's publication, leaving one
+            // boot unattested (cr4-3). Inside one critical section this boot
+            // reads the current lineage head, writes its first record
+            // claiming exactly that head, and publishes itself as the new
+            // head — so overlapping boots chain in true first-append order.
+            // The lease is advisory coordination for an advisory artifact:
+            // if it cannot be acquired, the append proceeds with an unlocked
+            // resolve (the pre-fix behaviour) rather than failing.
+            AuditSpoolQuotaLease? lineageLease = null;
+            SerializedAuditEvent serialized;
             try
             {
-                _sink.Append(serialized.Utf8Line);
+                if (!_lineageResolved)
+                {
+                    try
+                    {
+                        lineageLease = AuditSpoolQuotaLease.AcquireExisting(
+                            _options.SpoolDirectory);
+                    }
+                    catch (Exception exception) when (!IsFatal(exception))
+                    {
+                        // Unlocked fallback; never gates the append.
+                    }
+
+                    _resolvedPreviousBootId = AuditBootLineage.ReadPrevious(
+                        _options.RootDirectory,
+                        out var lineageQuarantineDetail);
+                    if (lineageQuarantineDetail is not null)
+                        RecordPendingStartupQuarantine(lineageQuarantineDetail);
+                    _lineageResolved = true;
+                }
+
+                var occurredUtc = GetUtcNowLocked();
+                var observedUtc = GetUtcNowLocked();
+                var eventId = CreateUuidV7Locked(observedUtc);
+                var nextSequence = checked(_sequence + 1);
+                var producer = new AuditProducerContext(
+                    HostId,
+                    SupervisorBootId,
+                    WorkerBootId: null,
+                    Pid: Environment.ProcessId,
+                    _producerVersion,
+                    _binaryDigest,
+                    _resolvedPreviousBootId);
+                serialized = AuditEventSerializer.Serialize(
+                    nextSequence,
+                    _previousEventHash,
+                    producer,
+                    input,
+                    eventId,
+                    occurredUtc,
+                    observedUtc);
+
+                if (serialized.Utf8Line.Length > _options.MaxRecordBytes)
+                {
+                    throw new AuditEventValidationException(
+                        $"Serialized audit record exceeds configured maximum {_options.MaxRecordBytes} bytes.");
+                }
+
+                try
+                {
+                    _sink.Append(serialized.Utf8Line);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    PoisonLocked("journal.append");
+                    throw new AuditUnavailableException();
+                }
+
+                try
+                {
+                    _sink.FlushToDisk();
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    PoisonLocked("journal.flush");
+                    throw new AuditUnavailableException();
+                }
+
+                reservation.ConsumeOneLocked();
+                _reservedSlots--;
+                _sequence = nextSequence;
+                _previousEventHash = serialized.EventHash;
+                _lastEventId = serialized.EventId;
+                // Lineage is published only once a record is durably on disk,
+                // so a lineage entry always attests a boot that journaled
+                // something (R3d boot lineage). Failure retries on the next
+                // append: lineage is attestation for the NEXT boot and must
+                // never fail this one. While unpublished the boot is
+                // unattested, and that condition is VISIBLE (cr4-2): silent
+                // publish failure would degrade to the pre-lineage world
+                // without anyone knowing.
+                if (!_lineagePublished)
+                {
+                    _lineagePublished = AuditBootLineage.TryPublish(
+                        _options.RootDirectory,
+                        SupervisorBootId);
+                    _lineagePublishFailures = _lineagePublished
+                        ? 0
+                        : checked(_lineagePublishFailures + 1);
+                    Health.UpdateLineagePublishFailures(_lineagePublishFailures);
+                }
             }
-            catch (Exception exception) when (!IsFatal(exception))
+            finally
             {
-                PoisonLocked("journal.append");
-                throw new AuditUnavailableException();
+                // Released BEFORE the metrics update: UpdateHealthMetricsLocked
+                // reads _sink.TotalBytes, which acquires this same
+                // cross-process lease and would otherwise burn its whole
+                // acquisition timeout against our own handle.
+                lineageLease?.Dispose();
             }
 
-            try
-            {
-                _sink.FlushToDisk();
-            }
-            catch (Exception exception) when (!IsFatal(exception))
-            {
-                PoisonLocked("journal.flush");
-                throw new AuditUnavailableException();
-            }
-
-            reservation.ConsumeOneLocked();
-            _reservedSlots--;
-            _sequence = nextSequence;
-            _previousEventHash = serialized.EventHash;
-            _lastEventId = serialized.EventId;
-            // Lineage is published only once a record is durably on disk, so
-            // a lineage entry always attests a boot that journaled something
-            // (R3d boot lineage). Failure retries on the next append: lineage
-            // is attestation for the NEXT boot and must never fail this one.
-            // While unpublished the boot is unattested, and that condition is
-            // VISIBLE (cr4-2): silent publish failure would degrade to the
-            // pre-lineage world without anyone knowing.
-            if (!_lineagePublished)
-            {
-                _lineagePublished = AuditBootLineage.TryPublish(
-                    _options.RootDirectory,
-                    SupervisorBootId);
-                _lineagePublishFailures = _lineagePublished
-                    ? 0
-                    : checked(_lineagePublishFailures + 1);
-                Health.UpdateLineagePublishFailures(_lineagePublishFailures);
-            }
             UpdateHealthMetricsLocked();
             return serialized;
         }

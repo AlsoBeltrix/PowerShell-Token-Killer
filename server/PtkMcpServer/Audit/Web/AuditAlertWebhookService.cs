@@ -131,7 +131,11 @@ internal sealed class AuditAlertWebhookService : IHostedService, IAsyncDisposabl
                 total = audit.UndeliveredEvictions,
             });
         }
-        if (audit.LineagePublishFailures > 0 && _notifiedLineageFailures == 0)
+        // Lineage is live state, not a monotonic total (cr5-7): recovery to
+        // zero re-arms the edge so a NEW failure episode pages again, and
+        // growth within an episode pages like every other counter.
+        if (audit.LineagePublishFailures == 0) _notifiedLineageFailures = 0;
+        if (audit.LineagePublishFailures > _notifiedLineageFailures)
         {
             conditions.Add(new
             {

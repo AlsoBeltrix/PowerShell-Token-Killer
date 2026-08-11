@@ -170,6 +170,46 @@ public sealed class AuditAlertWebhookTests : IDisposable
         Assert.False(await service.CheckOnceAsync(CancellationToken.None));
     }
 
+    [Fact]
+    public async Task Lineage_failure_growth_and_new_episodes_page_again()
+    {
+        // cr5-7: lineage is live state — growth within an episode pages
+        // like every other counter, and recovery to zero re-arms the edge
+        // so a NEW episode pages instead of being ignored for the process
+        // lifetime.
+        var root = NewRoot("webhook-lineage");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        exportHealth.SetConfigured("otlp_http https://siem.example/");
+        using var receiver = new WebhookReceiver();
+        await using var service = new AuditAlertWebhookService(
+            options,
+            health,
+            exportHealth,
+            receiver.BaseUri);
+
+        health.UpdateLineagePublishFailures(1);
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Contains(
+            "lineage_unpublished",
+            Assert.Single(receiver.Bodies),
+            StringComparison.Ordinal);
+
+        // Unchanged: silent. Growth within the episode: pages again.
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+        health.UpdateLineagePublishFailures(2);
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Equal(2, receiver.Bodies.Count);
+
+        // Recovery, then a fresh episode: pages again.
+        health.UpdateLineagePublishFailures(0);
+        Assert.False(await service.CheckOnceAsync(CancellationToken.None));
+        health.UpdateLineagePublishFailures(1);
+        Assert.True(await service.CheckOnceAsync(CancellationToken.None));
+        Assert.Equal(3, receiver.Bodies.Count);
+    }
+
     private static void WriteQuarantineArtifact(string root, DateTimeOffset minted)
     {
         var directory = SecureAuditStorage.PrepareRoot(

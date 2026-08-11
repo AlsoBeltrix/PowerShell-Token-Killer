@@ -124,7 +124,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 // between the last delivered one and this one were removed
                 // before delivery, whatever retention or rotation did to the
                 // segments (cr3-2, both verification rounds).
-                DetectSequenceGap(EffectivePriorPosition(cursor), batch[0]);
+                DetectSequenceGaps(EffectivePriorPosition(cursor), batch);
 
                 var result = await _destination
                     .DeliverAsync(batch, cancellationToken)
@@ -410,52 +410,59 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     /// each boot starts its own chain at sequence 1, so a boot change is not
     /// a gap.
     /// </summary>
-    private void DetectSequenceGap(AuditExportCursor cursor, string nextRecord)
+    /// <summary>
+    /// Walks the whole batch for chain continuity, not just its first record.
+    /// Comparing only the first record let a jump INSIDE one batch — records
+    /// 2 and 4 delivered together after 3 was removed — advance the cursor
+    /// with no signal (cr3-2 round 8).
+    /// </summary>
+    private void DetectSequenceGaps(AuditExportCursor prior, IReadOnlyList<string> batch)
     {
-        var (bootId, sequence, _) = ChainPosition(nextRecord);
-        if (bootId is null || sequence is null) return;
+        var priorBoot = prior.LastSupervisorBootId;
+        var priorSequence = prior.LastSequence;
+        var priorTerminal = prior.LastWasLifecycleTerminal;
+        var hasPrior = priorBoot is not null && priorSequence > 0;
 
-        // No prior position — a first run, or a cursor that was lost or
-        // unreadable — must still inspect the first record. Skipping it let
-        // an outage plus retention leave the exporter starting above
-        // sequence 1 with no signal at all (cr3-2 round 4). Every chain
-        // starts at 1, so a higher first record proves its prefix is gone.
-        if (cursor.LastSupervisorBootId is null || cursor.LastSequence <= 0)
+        foreach (var record in batch)
         {
-            if (sequence > 1)
-                RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
-            return;
-        }
+            var (bootId, sequence, isTerminal) = ChainPosition(record);
+            // An unparseable record carries no position, so it neither proves
+            // nor breaks continuity; it is still delivered.
+            if (bootId is null || sequence is null) continue;
 
-        if (string.Equals(bootId, cursor.LastSupervisorBootId, StringComparison.Ordinal))
-        {
-            if (sequence <= cursor.LastSequence + 1) return;
-            RecordGap(
-                $"{bootId}:{cursor.LastSequence + 1}-{sequence.Value - 1}",
-                sequence.Value - cursor.LastSequence - 1);
-            return;
-        }
+            if (!hasPrior)
+            {
+                // Every chain starts at 1, so a first observed record above 1
+                // proves its prefix is gone — whether this is a first run, a
+                // lost cursor, or a lost ledger.
+                if (sequence > 1)
+                    RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
+            }
+            else if (string.Equals(bootId, priorBoot, StringComparison.Ordinal))
+            {
+                if (sequence > priorSequence + 1)
+                {
+                    RecordGap(
+                        $"{bootId}:{priorSequence + 1}-{sequence.Value - 1}",
+                        sequence.Value - priorSequence - 1);
+                }
+            }
+            else
+            {
+                // A boot boundary is two questions: the new chain must start
+                // at 1 (proved loss), and the old boot's tail can only be
+                // proved delivered by its lifecycle terminal (otherwise
+                // suspicion, never counted as proof).
+                if (sequence > 1)
+                    RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
+                if (!priorTerminal)
+                    _health.RecordUnverifiedBootBoundary(priorBoot!, priorSequence);
+            }
 
-        // A boot boundary is two separate questions, and skipping the
-        // comparison answered neither (cr3-2 round 3).
-        //
-        // 1. The NEW boot's chain starts at 1, so a first record above 1
-        //    proves its prefix was removed before delivery.
-        if (sequence > 1)
-            RecordGap($"{bootId}:1-{sequence.Value - 1}", sequence.Value - 1);
-
-        // 2. The OLD boot's tail cannot be proved either way from sequences
-        //    alone: records after the last delivered one may never have
-        //    existed, or may have been deleted undelivered. If the last
-        //    record delivered from that boot was its lifecycle terminal, the
-        //    chain ended cleanly and nothing is outstanding. Otherwise the
-        //    boundary is UNVERIFIED — reported as suspicion, never as proved
-        //    loss, so the gap count keeps meaning "records provably lost".
-        if (!cursor.LastWasLifecycleTerminal)
-        {
-            _health.RecordUnverifiedBootBoundary(
-                cursor.LastSupervisorBootId,
-                cursor.LastSequence);
+            priorBoot = bootId;
+            priorSequence = sequence.Value;
+            priorTerminal = isTerminal;
+            hasPrior = true;
         }
     }
 
@@ -463,7 +470,9 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     /// The prior chain position to compare against: the cursor when it has
     /// one, otherwise the durable ledger. A cursor that is missing or
     /// corrupted reads as "start", and without this fallback an erased boot's
-    /// undelivered tail left no trace at all (cr3-2 round 5).
+    /// undelivered tail left no trace at all (cr3-2 round 5). An unreadable
+    /// ledger is quarantined and reported rather than read as absent
+    /// (rounds 6-7).
     /// </summary>
     private AuditExportCursor EffectivePriorPosition(AuditExportCursor cursor)
     {

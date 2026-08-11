@@ -660,6 +660,73 @@ public sealed class AuditExportTests : IDisposable
     }
 
     [Fact]
+    public async Task A_sequence_gap_inside_one_delivery_batch_is_reported()
+    {
+        // cr3-2 round 8: only the batch's FIRST record was compared, so a
+        // jump inside a batch -- 2 and 4 delivered together after 3 was
+        // removed -- advanced the cursor with no signal.
+        var root = NewRoot("export-intrabatch-gap");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        var segment = WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 1),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+
+        // Sequences 2 and 4 arrive together; 3 was removed before delivery.
+        AppendRecords(segment,
+        [
+            ChainRecord(boot, sequence: 2),
+            ChainRecord(boot, sequence: 4),
+        ]);
+        Assert.Equal(2, await service.DrainOnceAsync(CancellationToken.None));
+
+        var line = health.Snapshot().StatusLine();
+        Assert.Contains("EXPORT_GAPS=1", line, StringComparison.Ordinal);
+        Assert.Contains("missing_records=1", line, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task A_contiguous_multi_record_batch_raises_nothing()
+    {
+        // The no-alarm half of the same walk: an ordinary batch must not
+        // manufacture gaps as it steps through its own records.
+        var root = NewRoot("export-intrabatch-clean");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        var boot = "d99ba8e8-25c5-4bfb-9c39-364407e4d96d";
+        WriteSegment(options, index: 0, records:
+        [
+            ChainRecord(boot, sequence: 1),
+            ChainRecord(boot, sequence: 2),
+            ChainRecord(boot, sequence: 3),
+        ]);
+
+        using var receiver = new FakeHttpDestination();
+        var health = new AuditExportHealth();
+        await using var service = NewService(
+            options,
+            receiver,
+            new AuditExportCursorStore(root),
+            health);
+        Assert.Equal(3, await service.DrainOnceAsync(CancellationToken.None));
+        Assert.DoesNotContain(
+            "EXPORT_GAPS",
+            health.Snapshot().StatusLine(),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task A_first_run_from_the_start_of_a_chain_raises_nothing()
     {
         // The no-alarm half: an ordinary first run whose oldest surviving

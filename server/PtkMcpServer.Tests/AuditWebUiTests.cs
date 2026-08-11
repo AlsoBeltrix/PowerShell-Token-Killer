@@ -344,6 +344,35 @@ public sealed class AuditWebUiTests : IDisposable
             Assert.Equal(HttpStatusCode.OK, fresh.StatusCode);
     }
 
+    [Fact]
+    public async Task A_bind_failed_standby_never_writes_the_token_file()
+    {
+        // cr5-5: token creation belongs to the bind winner alone. A
+        // contender that lost the port must not create or replace the
+        // published credential — that race is how the serving UI could end
+        // up not recognizing the token the file holds.
+        var root = NewRoot("webui-standby-token");
+        var options = AuditOptions.Create(root);
+        var health = new AuditHealth(options);
+        var port = FreePort();
+        var squatter = new TcpListener(IPAddress.Loopback, port);
+        squatter.Start();
+        try
+        {
+            await using var service = new AuditWebUiService(
+                options, health, new AuditExportHealth(), () => null, port,
+                bindRetryInterval: TimeSpan.FromMilliseconds(50));
+            await service.StartAsync(CancellationToken.None);
+            await Task.Delay(400);
+            Assert.False(service.IsServing);
+            Assert.False(File.Exists(Path.Combine(root, AuditWebUiService.TokenFileName)));
+        }
+        finally
+        {
+            squatter.Stop();
+        }
+    }
+
     private static async Task<bool> WaitAsync(Func<bool> condition)
     {
         for (var attempt = 0; attempt < 100; attempt++)

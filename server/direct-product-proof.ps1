@@ -225,36 +225,51 @@ $c = Get-Command ls
 }
 finally {
     try { $stdin.Close() } catch { }
-    if (-not $server.WaitForExit(15000)) { $server.Kill($true) }
-}
+    if (-not $server.WaitForExit(15000)) {
+        $server.Kill($true)
+        # The root is inspected and deleted below; a killed server must be
+        # fully gone first or deletion races its open journal handles.
+        $null = $server.WaitForExit(15000)
+    }
 
-# 14 (audit-restoration R6): the packaged product journaled the calls above.
-# Positive and CALL-level: lifecycle records (server.started) are journaled
-# independently of call auditing, so their presence proves nothing about the
-# call filter (cr9-1). The gate demands a call admission, a terminal call
-# outcome, and a record naming this proof's own named session.
-$auditArtifacts = if (Test-Path -LiteralPath $script:auditRoot) {
-    @(Get-ChildItem -LiteralPath $script:auditRoot -Recurse -Force -File |
-        Where-Object Length -gt 0)
+    # 14 (audit-restoration R6): the packaged product journaled the calls
+    # above. Positive and CALL-level: lifecycle records (server.started) are
+    # journaled independently of call auditing, so their presence proves
+    # nothing about the call filter (cr9-1). The gate demands a call
+    # admission, a terminal call outcome, and a record naming this proof's
+    # own named session. Inside the finally (cr9-5) so a mid-proof
+    # exception still judges and removes the throwaway root.
+    $auditArtifacts = if (Test-Path -LiteralPath $script:auditRoot) {
+        @(Get-ChildItem -LiteralPath $script:auditRoot -Recurse -Force -File |
+            Where-Object Length -gt 0)
+    }
+    else {
+        @()
+    }
+    Report 'journals the proof''s calls under the audit root' `
+        ($auditArtifacts.Count -gt 0) "artifacts=$($auditArtifacts.Count)"
+    $sawAccepted = $false
+    $sawTerminal = $false
+    $sawProofSession = $false
+    foreach ($artifact in $auditArtifacts) {
+        $text = Get-Content -LiteralPath $artifact.FullName -Raw
+        if ($text -match '"event_type":"call\.accepted"') { $sawAccepted = $true }
+        if ($text -match '"event_type":"call\.(completed|failed)"') { $sawTerminal = $true }
+        if ($text -match '"name":"proof"') { $sawProofSession = $true }
+    }
+    Report 'journal carries call admissions and terminal outcomes' `
+        ($sawAccepted -and $sawTerminal) "accepted=$sawAccepted terminal=$sawTerminal"
+    Report 'journal attributes calls to the proof''s named session' $sawProofSession
+    if (Test-Path -LiteralPath $script:auditRoot) {
+        try {
+            Remove-Item -LiteralPath $script:auditRoot -Recurse -Force -ErrorAction Stop
+        }
+        catch {
+            # Never silent: the root lives under the operator's HOME.
+            Write-Host "  WARNING: proof audit root not removed: $($script:auditRoot) -- $_"
+        }
+    }
 }
-else {
-    @()
-}
-Report 'journals the proof''s calls under the audit root' `
-    ($auditArtifacts.Count -gt 0) "artifacts=$($auditArtifacts.Count)"
-$sawAccepted = $false
-$sawTerminal = $false
-$sawProofSession = $false
-foreach ($artifact in $auditArtifacts) {
-    $text = Get-Content -LiteralPath $artifact.FullName -Raw
-    if ($text -match '"event_type":"call\.accepted"') { $sawAccepted = $true }
-    if ($text -match '"event_type":"call\.(completed|failed)"') { $sawTerminal = $true }
-    if ($text -match '"name":"proof"') { $sawProofSession = $true }
-}
-Report 'journal carries call admissions and terminal outcomes' `
-    ($sawAccepted -and $sawTerminal) "accepted=$sawAccepted terminal=$sawTerminal"
-Report 'journal attributes calls to the proof''s named session' $sawProofSession
-try { Remove-Item -LiteralPath $script:auditRoot -Recurse -Force } catch { }
 
 # 12. with RTK absent, startup fails with the actionable message
 $gate = [Diagnostics.ProcessStartInfo]::new()

@@ -33,9 +33,17 @@ internal interface ISqliteIngestFaultInjector
 
 internal sealed record SqliteWriterPolicy(string JournalMode, int Synchronous);
 
+internal enum GapDispositionOutcome
+{
+    NotFound,
+    IllegalState,
+    Dispositioned,
+    Resumed,
+}
+
 internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -234,11 +242,61 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             var chainFailure = ValidateChainPosition(record, currentHead);
             if (chainFailure is not null)
             {
+                // The S6 post-gap carve-out: while a gap for this boot awaits
+                // or has an operator disposition, an otherwise-valid record
+                // beyond the gap is committed flagged post-gap — evidence
+                // keeps arriving, the frozen chain head is never silently
+                // re-anchored, and only an operator disposition resumes.
+                var activeGap = chainFailure == "chain_gap"
+                    ? ReadActiveGap(record.SupervisorBootId, transaction)
+                    : null;
+                if (activeGap is not null)
+                {
+                    var postGapHead = ReadPostGapHead(
+                        record.SupervisorBootId,
+                        currentHead?.Sequence ?? 0,
+                        transaction);
+                    var postGapFailure = ValidatePostGapPosition(record, postGapHead);
+                    if (postGapFailure is null)
+                    {
+                        InsertEvent(record, receipt, transaction, postGap: true);
+                        AppendCustody(
+                            record.RawRequestBytes,
+                            receipt,
+                            "accepted:post-gap",
+                            "event",
+                            FormatGuid(record.EventId),
+                            transaction);
+                        if (activeGap.State == "dispositioned")
+                        {
+                            // The operator already authorized resumption; the
+                            // first record beyond the gap anchors AND resumes.
+                            ResumeGap(activeGap, record, receipt, transaction);
+                        }
+
+                        cancellationToken.ThrowIfCancellationRequested();
+                        _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Event);
+                        transaction.Commit();
+                        return IngestCommitResult.Accepted();
+                    }
+
+                    // A record that does not even chain onto the post-gap
+                    // sub-chain is an ordinary rejection; one active gap per
+                    // boot, never a second while the first is undecided.
+                    chainFailure = postGapFailure;
+                }
+
                 AppendQuarantine(
                     RejectedFrom(record, chainFailure),
                     receipt,
                     currentHead,
                     transaction);
+                if (chainFailure == "chain_gap" &&
+                    ReadActiveGap(record.SupervisorBootId, transaction) is null)
+                {
+                    OpenGap(record, currentHead, receipt, transaction);
+                }
+
                 cancellationToken.ThrowIfCancellationRequested();
                 _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Quarantine);
                 transaction.Commit();
@@ -408,7 +466,9 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         using var command = CreateCommand(_writer, transaction, """
             DELETE FROM events
             WHERE received_utc < $cutoff
-              AND event_id NOT IN (SELECT head_event_id FROM chains);
+              AND event_id NOT IN (SELECT head_event_id FROM chains)
+              AND NOT (post_gap = 1 AND supervisor_boot_id IN (
+                  SELECT supervisor_boot_id FROM gaps WHERE state != 'resumed'));
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
         return command.ExecuteNonQuery();
@@ -425,11 +485,15 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 
     private long DeleteOldestEvents(int batch, SqliteTransaction transaction)
     {
+        // An undecided gap's post-gap sub-chain is pending evidence: deleting
+        // any of it would break the continuity the resume depends on.
         using var command = CreateCommand(_writer, transaction, """
             DELETE FROM events
             WHERE event_id IN (
                 SELECT event_id FROM events
                 WHERE event_id NOT IN (SELECT head_event_id FROM chains)
+                  AND NOT (post_gap = 1 AND supervisor_boot_id IN (
+                      SELECT supervisor_boot_id FROM gaps WHERE state != 'resumed'))
                 ORDER BY received_utc ASC
                 LIMIT $batch);
             """);
@@ -543,15 +607,29 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     ('receiver_id', $receiver_id);
                 """))
             {
-                meta.Parameters.AddWithValue("$schema_version", CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture));
+                meta.Parameters.AddWithValue("$schema_version", "1");
                 meta.Parameters.AddWithValue("$receiver_id", Guid.NewGuid().ToString("D"));
                 meta.ExecuteNonQuery();
             }
 
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=1;");
+            transaction.Commit();
+            version = 1;
+        }
+
+        if (version < 2)
+        {
+            // Schema v2 (mini-SIEM S6, audit-restoration R5c): the
+            // gap-disposition state machine. Gapped boots keep storing
+            // evidence (post-gap flagged, never silently re-anchored) and
+            // resumption is an operator decision, recorded.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, SchemaVersionTwoSql);
             ExecuteNonQuery(
                 connection,
                 transaction,
-                $"PRAGMA user_version={CurrentSchemaVersion};");
+                "UPDATE meta SET value = '2' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=2;");
             transaction.Commit();
         }
 
@@ -620,7 +698,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
     private static void InsertEvent(
         ValidatedOtlpRecord record,
         IngestReceiptContext receipt,
-        SqliteTransaction transaction)
+        SqliteTransaction transaction,
+        bool postGap = false)
     {
         using var command = CreateCommand(transaction.Connection!, transaction, """
             INSERT INTO events(
@@ -628,14 +707,15 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 occurred_utc, observed_utc, host_id, worker_boot_id,
                 previous_event_hash, event_hash, session_name, session_generation,
                 call_id, job_id, outcome_state, raw_request, exact_json_body,
-                received_utc)
+                received_utc, post_gap)
             VALUES(
                 $event_id, $boot_id, $sequence, $schema_version, $event_type,
                 $occurred_utc, $observed_utc, $host_id, $worker_boot_id,
                 $previous_event_hash, $event_hash, $session_name, $session_generation,
                 $call_id, $job_id, $outcome_state, $raw_request, $exact_json_body,
-                $received_utc);
+                $received_utc, $post_gap);
             """);
+        command.Parameters.AddWithValue("$post_gap", postGap ? 1 : 0);
         command.Parameters.AddWithValue("$event_id", FormatGuid(record.EventId));
         command.Parameters.AddWithValue("$boot_id", FormatGuid(record.SupervisorBootId));
         command.Parameters.AddWithValue("$sequence", record.Sequence);
@@ -694,6 +774,302 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         if (command.ExecuteNonQuery() != 1)
             throw new InvalidOperationException("The chain head changed during the serialized ingest transaction.");
     }
+
+    // ---- Gap-disposition state machine (mini-SIEM S6 / R5c) ----
+
+    /// <summary>
+    /// The operator's sole authority over resumption: an <c>open</c> gap
+    /// becomes <c>dispositioned</c> (<c>resolved</c> or <c>accepted-loss</c>),
+    /// and if post-gap records are already stored the chain resumes
+    /// immediately — the head moves to the sub-chain tail and the gap is
+    /// <c>resumed</c>. With no stored post-gap records the gap stays
+    /// dispositioned and the next record beyond the gap anchors and resumes.
+    /// Resolution never acknowledges the missing record: the quarantine row
+    /// and the gap row remain the evidence.
+    /// </summary>
+    internal async Task<GapDispositionOutcome> DispositionGapAsync(
+        long gapId,
+        string disposition,
+        IngestReceiptContext receipt,
+        CancellationToken cancellationToken)
+    {
+        if (disposition is not ("resolved" or "accepted-loss"))
+            throw new ArgumentException("Unknown gap disposition.", nameof(disposition));
+        ValidateReceipt(receipt);
+        ThrowIfDisposed();
+
+        await _writerGate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            using var transaction = _writer.BeginTransaction(deferred: false);
+            GapRow? gap = null;
+            using (var command = CreateCommand(transaction.Connection!, transaction, """
+                SELECT gap_id, supervisor_boot_id, state, claimed_sequence
+                FROM gaps WHERE gap_id = $gap_id;
+                """))
+            {
+                command.Parameters.AddWithValue("$gap_id", gapId);
+                using var reader = command.ExecuteReader();
+                if (reader.Read())
+                {
+                    gap = new GapRow(
+                        reader.GetInt64(0),
+                        reader.GetString(1),
+                        reader.GetString(2),
+                        reader.GetInt64(3));
+                }
+            }
+
+            if (gap is null) return GapDispositionOutcome.NotFound;
+            if (gap.State != "open") return GapDispositionOutcome.IllegalState;
+
+            var dispositionUtc = FormatUtc(receipt.ReceivedUtc);
+            using (var command = CreateCommand(transaction.Connection!, transaction, """
+                UPDATE gaps SET
+                    state = 'dispositioned',
+                    disposition = $disposition,
+                    disposition_actor = $actor,
+                    disposition_endpoint = $endpoint,
+                    disposition_utc = $utc
+                WHERE gap_id = $gap_id;
+                """))
+            {
+                command.Parameters.AddWithValue("$disposition", disposition);
+                command.Parameters.AddWithValue("$actor", receipt.ClientCertificateThumbprint);
+                command.Parameters.AddWithValue("$endpoint", receipt.RemoteEndpoint);
+                command.Parameters.AddWithValue("$utc", dispositionUtc);
+                command.Parameters.AddWithValue("$gap_id", gap.GapId);
+                if (command.ExecuteNonQuery() != 1)
+                    throw new InvalidOperationException("The gap disposition did not affect exactly one row.");
+            }
+
+            AppendCustody(
+                GapCustodyBytes(gap, $"dispositioned:{disposition}"),
+                receipt,
+                $"gap:dispositioned:{disposition}",
+                "gap",
+                gap.GapId.ToString(CultureInfo.InvariantCulture),
+                transaction);
+
+            var resumed = false;
+            if (Guid.TryParseExact(gap.SupervisorBootId, "D", out var bootId))
+            {
+                var currentHead = ReadChain(bootId, transaction);
+                var tail = ReadPostGapHead(bootId, currentHead?.Sequence ?? 0, transaction);
+                if (tail is not null)
+                {
+                    var first = ReadFirstPostGap(
+                        bootId, currentHead?.Sequence ?? 0, transaction);
+                    SetChainHead(gap.SupervisorBootId, tail, transaction);
+                    MarkGapResumed(gap.GapId, dispositionUtc, first!.EventId, transaction);
+                    AppendCustody(
+                        GapCustodyBytes(gap, "resumed"),
+                        receipt,
+                        "gap:resumed",
+                        "gap",
+                        gap.GapId.ToString(CultureInfo.InvariantCulture),
+                        transaction);
+                    resumed = true;
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return resumed ? GapDispositionOutcome.Resumed : GapDispositionOutcome.Dispositioned;
+        }
+        finally
+        {
+            _writerGate.Release();
+        }
+    }
+
+    private static GapRow? ReadActiveGap(Guid supervisorBootId, SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            SELECT gap_id, supervisor_boot_id, state, claimed_sequence
+            FROM gaps
+            WHERE supervisor_boot_id = $boot_id AND state != 'resumed';
+            """);
+        command.Parameters.AddWithValue("$boot_id", FormatGuid(supervisorBootId));
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new GapRow(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetInt64(3))
+            : null;
+    }
+
+    /// <summary>The stored post-gap sub-chain's newest record for this boot.
+    /// Post-gap flags persist as historical evidence after a resume, so the
+    /// walk only considers records above the frozen head — a resumed
+    /// episode's records sit at or below it.</summary>
+    private static ChainHead? ReadPostGapHead(
+        Guid supervisorBootId,
+        long headSequence,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            SELECT sequence, event_id, event_hash FROM events
+            WHERE supervisor_boot_id = $boot_id AND post_gap = 1 AND sequence > $head
+            ORDER BY sequence DESC LIMIT 1;
+            """);
+        command.Parameters.AddWithValue("$boot_id", FormatGuid(supervisorBootId));
+        command.Parameters.AddWithValue("$head", headSequence);
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new ChainHead(reader.GetInt64(0), reader.GetString(1), reader.GetString(2))
+            : null;
+    }
+
+    private static ChainHead? ReadFirstPostGap(
+        Guid supervisorBootId,
+        long headSequence,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            SELECT sequence, event_id, event_hash FROM events
+            WHERE supervisor_boot_id = $boot_id AND post_gap = 1 AND sequence > $head
+            ORDER BY sequence ASC LIMIT 1;
+            """);
+        command.Parameters.AddWithValue("$boot_id", FormatGuid(supervisorBootId));
+        command.Parameters.AddWithValue("$head", headSequence);
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new ChainHead(reader.GetInt64(0), reader.GetString(1), reader.GetString(2))
+            : null;
+    }
+
+    /// <summary>The first post-gap record anchors the sub-chain wherever the
+    /// gap left it; every later one must chain contiguously onto the stored
+    /// sub-chain exactly as the main chain would.</summary>
+    private static string? ValidatePostGapPosition(
+        ValidatedOtlpRecord record,
+        ChainHead? postGapHead)
+    {
+        if (postGapHead is null) return null;
+        if (record.Sequence <= postGapHead.Sequence) return "chain_position";
+        if (record.Sequence > postGapHead.Sequence + 1) return "chain_gap";
+        return string.Equals(
+            record.PreviousEventHash,
+            postGapHead.EventHash,
+            StringComparison.Ordinal)
+            ? null
+            : "chain_break";
+    }
+
+    private static void OpenGap(
+        ValidatedOtlpRecord record,
+        ChainHead? currentHead,
+        IngestReceiptContext receipt,
+        SqliteTransaction transaction)
+    {
+        using (var command = CreateCommand(transaction.Connection!, transaction, """
+            INSERT INTO gaps(
+                supervisor_boot_id, observed_head_sequence, claimed_sequence,
+                opened_utc, state)
+            VALUES($boot_id, $head_sequence, $claimed_sequence, $opened_utc, 'open');
+            """))
+        {
+            command.Parameters.AddWithValue("$boot_id", FormatGuid(record.SupervisorBootId));
+            AddNullable(command, "$head_sequence", currentHead?.Sequence);
+            command.Parameters.AddWithValue("$claimed_sequence", record.Sequence);
+            command.Parameters.AddWithValue("$opened_utc", FormatUtc(receipt.ReceivedUtc));
+            if (command.ExecuteNonQuery() != 1)
+                throw new InvalidOperationException("The gap insert did not affect exactly one row.");
+        }
+
+        var gapId = Convert.ToInt64(
+            ExecuteScalar(transaction.Connection!, transaction, "SELECT last_insert_rowid();"),
+            CultureInfo.InvariantCulture);
+        var gap = new GapRow(
+            gapId, FormatGuid(record.SupervisorBootId), "open", record.Sequence);
+        AppendCustody(
+            GapCustodyBytes(gap, "opened"),
+            receipt,
+            "gap:opened",
+            "gap",
+            gapId.ToString(CultureInfo.InvariantCulture),
+            transaction);
+    }
+
+    private static void ResumeGap(
+        GapRow gap,
+        ValidatedOtlpRecord record,
+        IngestReceiptContext receipt,
+        SqliteTransaction transaction)
+    {
+        SetChainHead(
+            gap.SupervisorBootId,
+            new ChainHead(record.Sequence, FormatGuid(record.EventId), record.EventHash),
+            transaction);
+        MarkGapResumed(
+            gap.GapId,
+            FormatUtc(receipt.ReceivedUtc),
+            FormatGuid(record.EventId),
+            transaction);
+        AppendCustody(
+            GapCustodyBytes(gap, "resumed"),
+            receipt,
+            "gap:resumed",
+            "gap",
+            gap.GapId.ToString(CultureInfo.InvariantCulture),
+            transaction);
+    }
+
+    private static void SetChainHead(
+        string supervisorBootId,
+        ChainHead head,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            INSERT INTO chains(
+                supervisor_boot_id, head_sequence, head_event_id, head_event_hash)
+            VALUES($boot_id, $sequence, $event_id, $event_hash)
+            ON CONFLICT(supervisor_boot_id) DO UPDATE SET
+                head_sequence = $sequence,
+                head_event_id = $event_id,
+                head_event_hash = $event_hash;
+            """);
+        command.Parameters.AddWithValue("$boot_id", supervisorBootId);
+        command.Parameters.AddWithValue("$sequence", head.Sequence);
+        command.Parameters.AddWithValue("$event_id", head.EventId);
+        command.Parameters.AddWithValue("$event_hash", head.EventHash);
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("The chain-head resume write did not affect exactly one row.");
+    }
+
+    private static void MarkGapResumed(
+        long gapId,
+        string resumedUtc,
+        string resumeEventId,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            UPDATE gaps SET
+                state = 'resumed',
+                resumed_utc = $utc,
+                resume_event_id = $event_id
+            WHERE gap_id = $gap_id;
+            """);
+        command.Parameters.AddWithValue("$utc", resumedUtc);
+        command.Parameters.AddWithValue("$event_id", resumeEventId);
+        command.Parameters.AddWithValue("$gap_id", gapId);
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("The gap resume did not affect exactly one row.");
+    }
+
+    private static byte[] GapCustodyBytes(GapRow gap, string transition) =>
+        Encoding.UTF8.GetBytes(
+            $"gap:{gap.GapId}:{gap.SupervisorBootId}:claimed={gap.ClaimedSequence}:{transition}");
+
+    private sealed record GapRow(
+        long GapId,
+        string SupervisorBootId,
+        string State,
+        long ClaimedSequence);
 
     private static void AppendQuarantine(
         RejectedOtlpAttempt attempt,
@@ -955,6 +1331,31 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             subject_kind TEXT NOT NULL,
             subject_id TEXT NOT NULL
         );
+        """;
+
+    private const string SchemaVersionTwoSql = """
+        ALTER TABLE events ADD COLUMN post_gap INTEGER NOT NULL DEFAULT 0;
+
+        CREATE TABLE gaps(
+            gap_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            supervisor_boot_id TEXT NOT NULL,
+            observed_head_sequence INTEGER NULL,
+            claimed_sequence INTEGER NOT NULL,
+            opened_utc TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('open','dispositioned','resumed')),
+            disposition TEXT NULL CHECK(disposition IN ('resolved','accepted-loss')),
+            disposition_actor TEXT NULL,
+            disposition_endpoint TEXT NULL,
+            disposition_utc TEXT NULL,
+            resumed_utc TEXT NULL,
+            resume_event_id TEXT NULL
+        );
+
+        CREATE UNIQUE INDEX ix_gaps_active_boot
+            ON gaps(supervisor_boot_id)
+            WHERE state != 'resumed';
+        CREATE INDEX ix_gaps_opened
+            ON gaps(opened_utc);
         """;
 }
 

@@ -132,14 +132,17 @@ public sealed class RetentionEnforcementTests
         using var database = new TestDatabase();
         using var store = SqliteIngestStore.Open(database.Path);
 
-        // 24 old records, then 6 inside the retention window.
+        // 96 old records, then 6 inside the retention window. The old bulk
+        // must dominate the store's fixed page overhead (schema v2 added
+        // empty tables and indexes), or the half-size bound sits inside the
+        // overhead and the discrimination below turns on page arithmetic.
         var old = Receipt with { ReceivedUtc = Receipt.ReceivedUtc.AddYears(-1) };
-        await CommitChainAsync(store, count: 24, receipt: old);
+        await CommitChainAsync(store, count: 96, receipt: old);
         await CommitChainAsync(
             store,
             count: 6,
             receipt: Receipt,
-            startSequence: 25,
+            startSequence: 97,
             previousHash: LastHash);
 
         var beforeSweep = await store.EnforceRetentionAsync(

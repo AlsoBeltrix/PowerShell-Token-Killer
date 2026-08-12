@@ -151,19 +151,25 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
     private readonly WebApplication _application;
     private readonly string _root;
 
+    private readonly bool _preserveRootOnDispose;
+
     private SiemReceiverTestHost(
         WebApplication application,
         string root,
         Uri endpoint,
         Uri operatorEndpoint,
-        string databasePath)
+        string databasePath,
+        bool preserveRootOnDispose)
     {
         _application = application;
         _root = root;
         Endpoint = endpoint;
         OperatorEndpoint = operatorEndpoint;
         DatabasePath = databasePath;
+        _preserveRootOnDispose = preserveRootOnDispose;
     }
+
+    internal string Root => _root;
 
     internal Uri Endpoint { get; }
 
@@ -184,26 +190,33 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         int maximumConcurrentRequests = SiemReceiverConfigurationLoader.DefaultMaxConcurrentRequests,
         TimeProvider? timeProvider = null,
         ISqliteIngestFaultInjector? storageFaultInjector = null,
-        string? ingestToken = null)
+        string? ingestToken = null,
+        string? existingRoot = null,
+        bool preserveRootOnDispose = false)
     {
-        var root = SiemTestFileSystem.CreateProtectedRoot("ptk-siem-host");
+        // A restart test hands the previous host's root back in: certificate
+        // material and the database are reused as a real restart would.
+        var root = existingRoot ?? SiemTestFileSystem.CreateProtectedRoot("ptk-siem-host");
         var certificatePath = Path.Combine(root, "server-cert.pem");
         var keyPath = Path.Combine(root, "server-key.pem");
         var authorityPath = Path.Combine(root, "client-roots.pem");
-        await File.WriteAllTextAsync(certificatePath, serverCertificate.ExportCertificatePem());
-        _ = SiemProtectedPath.ProtectCreatedFile(certificatePath);
-        using (var key = serverCertificate.GetRSAPrivateKey() ??
-                         throw new InvalidOperationException("The test server certificate has no RSA key."))
+        if (existingRoot is null)
         {
-            await File.WriteAllTextAsync(keyPath, key.ExportPkcs8PrivateKeyPem());
+            await File.WriteAllTextAsync(certificatePath, serverCertificate.ExportCertificatePem());
+            _ = SiemProtectedPath.ProtectCreatedFile(certificatePath);
+            using (var key = serverCertificate.GetRSAPrivateKey() ??
+                             throw new InvalidOperationException("The test server certificate has no RSA key."))
+            {
+                await File.WriteAllTextAsync(keyPath, key.ExportPkcs8PrivateKeyPem());
+            }
+            _ = SiemProtectedPath.ProtectCreatedFile(keyPath);
+            await File.WriteAllTextAsync(
+                authorityPath,
+                string.Join(
+                    Environment.NewLine,
+                    trustedClientAuthorities.Select(certificate => certificate.ExportCertificatePem())));
+            _ = SiemProtectedPath.ProtectCreatedFile(authorityPath);
         }
-        _ = SiemProtectedPath.ProtectCreatedFile(keyPath);
-        await File.WriteAllTextAsync(
-            authorityPath,
-            string.Join(
-                Environment.NewLine,
-                trustedClientAuthorities.Select(certificate => certificate.ExportCertificatePem())));
-        _ = SiemProtectedPath.ProtectCreatedFile(authorityPath);
 
         var databasePath = Path.Combine(root, "siem.db");
         var options = new SiemReceiverOptions(
@@ -248,12 +261,13 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
                 root,
                 new Uri(new Uri(ingestAddress), "/v1/logs"),
                 new Uri(operatorAddress),
-                databasePath);
+                databasePath,
+                preserveRootOnDispose);
         }
         catch
         {
             if (application is not null) await application.DisposeAsync();
-            Directory.Delete(root, recursive: true);
+            if (existingRoot is null) Directory.Delete(root, recursive: true);
             throw;
         }
     }
@@ -275,7 +289,7 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
     {
         await _application.StopAsync();
         await _application.DisposeAsync();
-        Directory.Delete(_root, recursive: true);
+        if (!_preserveRootOnDispose) Directory.Delete(_root, recursive: true);
     }
 }
 

@@ -57,6 +57,8 @@ internal static class OperatorEndpoints
         application.MapGet("/api/events/{eventId}", HandleEventDetailAsync);
         application.MapGet("/api/chains", HandleChainsAsync);
         application.MapGet("/api/quarantine", HandleQuarantineAsync);
+        application.MapGet("/api/gaps", HandleGapsAsync);
+        application.MapPost("/api/gaps/{gapId:long}/disposition", HandleGapDispositionAsync);
     }
 
     // ---- Admission ----
@@ -163,7 +165,7 @@ internal static class OperatorEndpoints
         command.CommandText =
             "SELECT event_id, supervisor_boot_id, sequence, schema_version, event_type, " +
             "occurred_utc, observed_utc, session_name, session_generation, outcome_state, " +
-            "received_utc FROM events" +
+            "received_utc, post_gap FROM events" +
             (filters.Count > 0 ? " WHERE " + string.Join(" AND ", filters) : string.Empty) +
             " ORDER BY occurred_utc DESC, sequence DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
@@ -187,6 +189,7 @@ internal static class OperatorEndpoints
                     session_generation = reader.IsDBNull(8) ? (long?)null : reader.GetInt64(8),
                     outcome_state = reader.IsDBNull(9) ? null : reader.GetString(9),
                     received_utc = reader.GetString(10),
+                    post_gap = reader.GetInt64(11) != 0,
                 });
             }
         }
@@ -375,6 +378,118 @@ internal static class OperatorEndpoints
         await WriteJsonAsync(context, 200, new { items }).ConfigureAwait(false);
     }
 
+    internal static async Task HandleGapsAsync(
+        HttpContext context,
+        SiemReceiverOptions options)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+
+        using var connection = OpenReadOnly(options.SqlitePath);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT gap_id, supervisor_boot_id, observed_head_sequence, claimed_sequence, " +
+            "opened_utc, state, disposition, disposition_actor, disposition_utc, " +
+            "resumed_utc, resume_event_id FROM gaps " +
+            "ORDER BY gap_id DESC LIMIT 200;";
+        var gaps = new List<object>();
+        using (var reader = await command.ExecuteReaderAsync(context.RequestAborted)
+                   .ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(context.RequestAborted).ConfigureAwait(false))
+            {
+                gaps.Add(new
+                {
+                    gap_id = reader.GetInt64(0),
+                    supervisor_boot_id = reader.GetString(1),
+                    observed_head_sequence =
+                        reader.IsDBNull(2) ? (long?)null : reader.GetInt64(2),
+                    claimed_sequence = reader.GetInt64(3),
+                    opened_utc = reader.GetString(4),
+                    state = reader.GetString(5),
+                    disposition = reader.IsDBNull(6) ? null : reader.GetString(6),
+                    disposition_actor = reader.IsDBNull(7) ? null : reader.GetString(7),
+                    disposition_utc = reader.IsDBNull(8) ? null : reader.GetString(8),
+                    resumed_utc = reader.IsDBNull(9) ? null : reader.GetString(9),
+                    resume_event_id = reader.IsDBNull(10) ? null : reader.GetString(10),
+                });
+            }
+        }
+
+        await WriteJsonAsync(context, 200, new { gaps }).ConfigureAwait(false);
+    }
+
+    /// <summary>The one write this surface owns in S6's first half: the
+    /// operator's gap disposition, which is the sole resumption authority.
+    /// The transition commits through the store's serialized writer with a
+    /// custody entry naming the credential (the operator token's SHA-256,
+    /// never the token) and the caller's endpoint.</summary>
+    internal static async Task HandleGapDispositionAsync(
+        HttpContext context,
+        SiemReceiverOptions options,
+        long gapId)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+
+        var store = context.RequestServices
+            .GetService<Storage.SqliteIngestStore>();
+        if (store is null)
+        {
+            await WriteJsonAsync(
+                context, 503, new { error = "store_unavailable" }).ConfigureAwait(false);
+            return;
+        }
+
+        string? disposition = null;
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(
+                context.Request.Body,
+                cancellationToken: context.RequestAborted).ConfigureAwait(false);
+            if (body.RootElement.ValueKind == JsonValueKind.Object &&
+                body.RootElement.TryGetProperty("disposition", out var value) &&
+                value.ValueKind == JsonValueKind.String)
+            {
+                disposition = value.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        if (disposition is not ("resolved" or "accepted-loss"))
+        {
+            await WriteJsonAsync(
+                context, 400, new { error = "disposition" }).ConfigureAwait(false);
+            return;
+        }
+
+        var timeProvider = context.RequestServices.GetRequiredService<TimeProvider>();
+        var address = context.Connection.RemoteIpAddress;
+        var endpoint = address is null
+            ? "unknown"
+            : $"{address}:{context.Connection.RemotePort}";
+        var receipt = new Ingest.IngestReceiptContext(
+            timeProvider.GetUtcNow().ToUniversalTime(),
+            Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(options.OperatorToken)))
+                .ToLowerInvariant(),
+            endpoint);
+
+        var outcome = await store.DispositionGapAsync(
+            gapId, disposition, receipt, context.RequestAborted).ConfigureAwait(false);
+        var (status, payload) = outcome switch
+        {
+            Storage.GapDispositionOutcome.NotFound =>
+                (404, (object)new { error = "unknown_gap" }),
+            Storage.GapDispositionOutcome.IllegalState =>
+                (409, new { error = "illegal_transition" }),
+            Storage.GapDispositionOutcome.Resumed =>
+                (200, new { gap_id = gapId, state = "resumed", disposition }),
+            _ => (200, new { gap_id = gapId, state = "dispositioned", disposition }),
+        };
+        await WriteJsonAsync(context, status, payload).ConfigureAwait(false);
+    }
+
     internal static async Task HandleDashboardAsync(
         HttpContext context,
         SiemReceiverOptions options)
@@ -487,6 +602,7 @@ button{background:#265;color:#fff;border:0;padding:.4rem .8rem;border-radius:4px
 <input id="boot" placeholder="boot id" size="38"> <button>Filter</button>
 </form>
 <table id="events"><thead><tr><th>occurred</th><th>type</th><th>boot</th><th>seq</th><th>session</th><th>outcome</th></tr></thead><tbody></tbody></table>
+<h2>Gaps</h2><pre id="gaps">loading…</pre>
 <h2>Quarantine</h2><pre id="quarantine">loading…</pre>
 <script>
 let token=sessionStorage.getItem('ptk_operator_token')||'';
@@ -519,6 +635,8 @@ async function refresh(){
  const c=await r.json();
  document.getElementById('chains').textContent=JSON.stringify(c.chains,null,1);
  await refreshEvents();
+ const g=await (await api('/api/gaps')).json();
+ document.getElementById('gaps').textContent=g.gaps.length?JSON.stringify(g.gaps,null,1):'none';
  const q=await (await api('/api/quarantine')).json();
  document.getElementById('quarantine').textContent=q.items.length?JSON.stringify(q.items,null,1):'none';
 }

@@ -198,6 +198,9 @@ internal static class ReceiverApplication
                 if (ownedStore is not null)
                 {
                     builder.Services.AddSingleton<IIngestCommitter>(_ => ownedStore);
+                    // The operator surface's gap-disposition write (S6) goes
+                    // through the same serialized writer as ingest.
+                    builder.Services.AddSingleton<Storage.SqliteIngestStore>(_ => ownedStore);
                 }
                 else
                 {

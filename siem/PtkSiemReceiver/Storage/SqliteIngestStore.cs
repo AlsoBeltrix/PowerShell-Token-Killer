@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using PtkSiemReceiver.Ingest;
 using PtkSiemReceiver.Security;
@@ -962,7 +963,21 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     ExecuteScalar(transaction.Connection!, transaction, "SELECT last_insert_rowid();"),
                     CultureInfo.InvariantCulture);
                 AppendCustody(
-                    AlertCustodyBytes(alertId, rule.Name, itemId, "created"),
+                    CustodySnapshotBytes(new
+                    {
+                        v = 1,
+                        kind = "alert",
+                        transition = "created",
+                        alert_id = alertId,
+                        rule = rule.Name,
+                        work_item_id = itemId,
+                        subject_kind = kind,
+                        subject_id = subjectId,
+                        created_utc = createdUtc,
+                        enqueue_config_hash = enqueueHash,
+                        evaluation_config_hash = evaluationConfigHash,
+                        detail,
+                    }),
                     receipt,
                     "alert:created",
                     "alert",
@@ -1145,7 +1160,17 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 ("$id", alertId.ToString(CultureInfo.InvariantCulture)));
 
             AppendCustody(
-                AlertCustodyBytes(alertId, ruleName, workItemId, $"{state}->{targetState}"),
+                CustodySnapshotBytes(new
+                {
+                    v = 1,
+                    kind = "alert",
+                    transition = $"{state}->{targetState}",
+                    alert_id = alertId,
+                    rule = ruleName,
+                    work_item_id = workItemId,
+                    actor = receipt.ClientCertificateThumbprint,
+                    utc = FormatUtc(receipt.ReceivedUtc),
+                }),
                 receipt,
                 $"alert:{targetState}",
                 "alert",
@@ -1174,12 +1199,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             throw new InvalidOperationException("The write did not affect exactly one row.");
     }
 
-    private static byte[] AlertCustodyBytes(
-        long alertId,
-        string ruleName,
-        long workItemId,
-        string transition) =>
-        Encoding.UTF8.GetBytes($"alert:{alertId}:{ruleName}:item={workItemId}:{transition}");
+    // cr8-3: custody bytes are versioned JSON snapshots of every immutable
+    // evidence field, not identity stubs — rewriting a stored alert or gap
+    // row must break its receipt.
+    private static byte[] CustodySnapshotBytes(object snapshot) =>
+        JsonSerializer.SerializeToUtf8Bytes(snapshot);
 
     // ---- Gap-disposition state machine (mini-SIEM S6 / R5c) ----
 
@@ -1251,7 +1275,19 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             }
 
             AppendCustody(
-                GapCustodyBytes(gap, $"dispositioned:{disposition}"),
+                CustodySnapshotBytes(new
+                {
+                    v = 1,
+                    kind = "gap",
+                    transition = $"dispositioned:{disposition}",
+                    gap_id = gap.GapId,
+                    supervisor_boot_id = gap.SupervisorBootId,
+                    claimed_sequence = gap.ClaimedSequence,
+                    disposition,
+                    actor = receipt.ClientCertificateThumbprint,
+                    endpoint = receipt.RemoteEndpoint,
+                    utc = dispositionUtc,
+                }),
                 receipt,
                 $"gap:dispositioned:{disposition}",
                 "gap",
@@ -1270,7 +1306,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     SetChainHead(gap.SupervisorBootId, tail, transaction);
                     MarkGapResumed(gap.GapId, dispositionUtc, first!.EventId, transaction);
                     AppendCustody(
-                        GapCustodyBytes(gap, "resumed"),
+                        GapResumeSnapshot(
+                            gap, "resumed", dispositionUtc, first.EventId, tail),
                         receipt,
                         "gap:resumed",
                         "gap",
@@ -1390,10 +1427,18 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         var gapId = Convert.ToInt64(
             ExecuteScalar(transaction.Connection!, transaction, "SELECT last_insert_rowid();"),
             CultureInfo.InvariantCulture);
-        var gap = new GapRow(
-            gapId, FormatGuid(record.SupervisorBootId), "open", record.Sequence);
         AppendCustody(
-            GapCustodyBytes(gap, "opened"),
+            CustodySnapshotBytes(new
+            {
+                v = 1,
+                kind = "gap",
+                transition = "opened",
+                gap_id = gapId,
+                supervisor_boot_id = FormatGuid(record.SupervisorBootId),
+                observed_head_sequence = currentHead?.Sequence,
+                claimed_sequence = record.Sequence,
+                opened_utc = FormatUtc(receipt.ReceivedUtc),
+            }),
             receipt,
             "gap:opened",
             "gap",
@@ -1428,10 +1473,10 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         }
 
         if (head.Sequence < gap.ClaimedSequence) return;
-        MarkGapResumed(
-            gap.GapId, FormatUtc(receipt.ReceivedUtc), head.EventId, transaction);
+        var healedUtc = FormatUtc(receipt.ReceivedUtc);
+        MarkGapResumed(gap.GapId, healedUtc, head.EventId, transaction);
         AppendCustody(
-            GapCustodyBytes(gap, "healed"),
+            GapResumeSnapshot(gap, "healed", healedUtc, head.EventId, head),
             receipt,
             "gap:resumed",
             "gap",
@@ -1472,23 +1517,39 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         IngestReceiptContext receipt,
         SqliteTransaction transaction)
     {
-        SetChainHead(
-            gap.SupervisorBootId,
-            new ChainHead(record.Sequence, FormatGuid(record.EventId), record.EventHash),
-            transaction);
-        MarkGapResumed(
-            gap.GapId,
-            FormatUtc(receipt.ReceivedUtc),
-            FormatGuid(record.EventId),
-            transaction);
+        var head = new ChainHead(
+            record.Sequence, FormatGuid(record.EventId), record.EventHash);
+        SetChainHead(gap.SupervisorBootId, head, transaction);
+        var resumedUtc = FormatUtc(receipt.ReceivedUtc);
+        MarkGapResumed(gap.GapId, resumedUtc, head.EventId, transaction);
         AppendCustody(
-            GapCustodyBytes(gap, "resumed"),
+            GapResumeSnapshot(gap, "resumed", resumedUtc, head.EventId, head),
             receipt,
             "gap:resumed",
             "gap",
             gap.GapId.ToString(CultureInfo.InvariantCulture),
             transaction);
     }
+
+    private static byte[] GapResumeSnapshot(
+        GapRow gap,
+        string transition,
+        string resumedUtc,
+        string resumeEventId,
+        ChainHead head) =>
+        CustodySnapshotBytes(new
+        {
+            v = 1,
+            kind = "gap",
+            transition,
+            gap_id = gap.GapId,
+            supervisor_boot_id = gap.SupervisorBootId,
+            claimed_sequence = gap.ClaimedSequence,
+            resumed_utc = resumedUtc,
+            resume_event_id = resumeEventId,
+            head_sequence = head.Sequence,
+            head_event_id = head.EventId,
+        });
 
     private static void SetChainHead(
         string supervisorBootId,
@@ -1531,10 +1592,6 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         if (command.ExecuteNonQuery() != 1)
             throw new InvalidOperationException("The gap resume did not affect exactly one row.");
     }
-
-    private static byte[] GapCustodyBytes(GapRow gap, string transition) =>
-        Encoding.UTF8.GetBytes(
-            $"gap:{gap.GapId}:{gap.SupervisorBootId}:claimed={gap.ClaimedSequence}:{transition}");
 
     private sealed record GapRow(
         long GapId,

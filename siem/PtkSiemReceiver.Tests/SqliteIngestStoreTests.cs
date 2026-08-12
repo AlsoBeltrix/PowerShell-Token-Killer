@@ -348,6 +348,70 @@ public sealed class SqliteIngestStoreTests
     }
 
     [Fact]
+    public async Task Alert_custody_receipts_commit_the_evidence_fields()
+    {
+        // cr8-3: the receipt must break when the stored alert's evidence is
+        // rewritten — an identity stub verifies over forgery.
+        using var database = new TestDatabase();
+        var hash = new string('a', 64);
+        using var store = SqliteIngestStore.Open(
+            database.Path, alertRuleConfigHash: hash);
+        var record = Validate(OtlpTestRequest.Create());
+        Assert.Equal(
+            IngestCommitResultKind.Accepted,
+            (await store.CommitAsync(record, Receipt, default)).Kind);
+        IReadOnlyList<PtkSiemReceiver.Configuration.AlertRule> rules =
+            [new("completed", "event_match", "tool.completed", null, null)];
+        var created = await store.EvaluateNextAlertWorkItemAsync(
+            rules, hash, Receipt.ReceivedUtc, CancellationToken.None);
+        var alert = Assert.Single(created!);
+
+        var storedHash = Scalar<string>(
+            database.Path,
+            "SELECT receipt_hash FROM custody WHERE disposition = 'alert:created';");
+        var previousHash = Scalar<string>(
+            database.Path,
+            "SELECT previous_receipt_hash FROM custody WHERE disposition = 'alert:created';");
+        var receivedUtc = Scalar<string>(
+            database.Path,
+            "SELECT received_utc FROM custody WHERE disposition = 'alert:created';");
+
+        byte[] SnapshotBytes(string detail) =>
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new
+            {
+                v = 1,
+                kind = "alert",
+                transition = "created",
+                alert_id = alert.AlertId,
+                rule = "completed",
+                work_item_id = 1L,
+                subject_kind = "event",
+                subject_id = record.EventId.ToString("D"),
+                created_utc = alert.CreatedUtc,
+                enqueue_config_hash = hash,
+                evaluation_config_hash = hash,
+                detail,
+            });
+
+        string Recompute(string detail) =>
+            CustodyHash.Compute(
+                2,
+                previousHash,
+                SnapshotBytes(detail),
+                receivedUtc,
+                new string('0', 64),
+                "receiver",
+                "alert:created",
+                "alert",
+                alert.AlertId.ToString(CultureInfo.InvariantCulture));
+
+        // The honest snapshot reproduces the stored receipt; a forged
+        // detail — the very field an attacker would rewrite — cannot.
+        Assert.Equal(storedHash, Recompute(alert.Detail));
+        Assert.NotEqual(storedHash, Recompute("{\"forged\":true}"));
+    }
+
+    [Fact]
     public async Task Identical_replay_after_head_advance_is_idempotent_without_second_receipt()
     {
         using var database = new TestDatabase();

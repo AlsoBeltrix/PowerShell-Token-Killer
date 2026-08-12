@@ -53,6 +53,14 @@ $psi.UseShellExecute = $false
 $psi.RedirectStandardInput = $true
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true
+# Audit is base-level and non-bypassable (audit-restoration R6): the packaged
+# product must journal every call, and this proof judges that positively on
+# its own throwaway root rather than writing into the operator's real one.
+# Under $HOME, not the temp dir: protected-path admission refuses symlinked
+# components, and macOS's /var temp path is one (the handshake's precedent).
+$script:auditRoot = Join-Path $HOME `
+    ('.ptk-proof-audit-' + [guid]::NewGuid().ToString('N'))
+$psi.Environment['PTK_AUDIT_ROOT'] = $script:auditRoot
 $server = [Diagnostics.Process]::Start($psi)
 $stdin = $server.StandardInput
 $stdout = $server.StandardOutput
@@ -219,6 +227,31 @@ finally {
     try { $stdin.Close() } catch { }
     if (-not $server.WaitForExit(15000)) { $server.Kill($true) }
 }
+
+# 14 (audit-restoration R6): the packaged product journaled the calls above.
+# Positive and content-level: the configured root must hold nonempty
+# artifacts, and at least one must carry a real audit record ("event_type"),
+# so an empty directory or zero-byte placeholder cannot pass. The handshake
+# proves this for a checkout; a release cannot ship a candidate whose
+# packaged bits stopped journaling.
+$auditArtifacts = if (Test-Path -LiteralPath $script:auditRoot) {
+    @(Get-ChildItem -LiteralPath $script:auditRoot -Recurse -Force -File |
+        Where-Object Length -gt 0)
+}
+else {
+    @()
+}
+Report 'journals the proof''s calls under the audit root' `
+    ($auditArtifacts.Count -gt 0) "artifacts=$($auditArtifacts.Count)"
+$hasRecord = $false
+foreach ($artifact in $auditArtifacts) {
+    if ((Get-Content -LiteralPath $artifact.FullName -Raw) -match '"event_type"') {
+        $hasRecord = $true
+        break
+    }
+}
+Report 'journal artifacts carry audit records' $hasRecord
+try { Remove-Item -LiteralPath $script:auditRoot -Recurse -Force } catch { }
 
 # 12. with RTK absent, startup fails with the actionable message
 $gate = [Diagnostics.ProcessStartInfo]::new()

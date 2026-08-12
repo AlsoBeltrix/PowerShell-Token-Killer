@@ -88,13 +88,17 @@ changes.
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
 ```
-— 21/21 on Windows (19 elsewhere; the extra two are the Defender
+— 23/23 on Windows (21 elsewhere; the extra two are the Defender
 scan-completion and payload-survival checks, r806-4) against an
 **installed** candidate, not a checkout: the five
 tools, warm named sessions, object compression, trusted-type rendering, a
 type needing the wider assembly set (#42), text preservation, `ptk_output`
 recovery, timeout recovery, reset/close, compound native routing, the fresh
-session's `ls` alias and `PSModuleAutoloadingPreference=None`, and the RTK
+session's `ls` alias and `PSModuleAutoloadingPreference=None`, the positive
+audit-journaling gate (audit-restoration R6: the packaged bits must journal
+the proof's own calls — nonempty artifacts carrying real records under an
+isolated `$HOME`-rooted audit root; temp-dir roots are refused on macOS
+because `/var` is a symlink), and the RTK
 startup gate (exit 78 naming `PTK_RTK_PATH`). On Windows it also scans the
 packaged bits with Defender, asserting both that the scan completed (exit 0
 or 2; an absent or failing scanner fails the gate — r806-4) and that the

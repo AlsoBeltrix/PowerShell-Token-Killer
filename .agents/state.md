@@ -5,47 +5,27 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM S4 CORRECTION (2026-08-12, evidence reconciliation at
-`9ad7d9f`): S4 is PARTIAL, not complete.** Audit-restoration R5a landed
-the amended S4a fixture/conformance half: producer-owned v1/v2
-OTLP/HTTP JSON + Splunk HEC goldens, exact receiver consumption,
-byte/value fidelity, and idempotent replay. The approved S4 durability
-and custody half never landed: no whole-process pre-commit/post-ack
-barriers or ack-before-commit discriminator; no custody verifier,
-retention tombstones, independent checkpoint/witness, rewrite/tail
-detection, or restore reconciliation. Existing positive commit-before-
-ack, WAL/FULL, interruption, and alert-replay tests are real evidence
-but do not satisfy those missing requirements. The explicit remaining
-slice is now `.agents/plans/mini-siem-implementation.md` **S4b** and
-requires its own code go. S5/S6 remain executed. **S7 docs/manual smoke
-and receiver release readiness are gated on S4b.** A targeted current-
-head run covering producer conformance, ingest integration, and the
-SQLite store passed 58/58; no product code changed in the
-reconciliation.
-
-**S4b UNDERWAY — custody/retention is closed at review cap; independent
-witness + restore landed pending Claude review (2026-08-12).** SQLite schema v8
-adds v2 custody receipts with recomputable evidence digests, exact live
-evidence, and atomic event/quarantine/closed-alert retention tombstones.
-Startup refuses broken sequence/link/hash, changed event/quarantine
-bytes, changed latest gap/alert state, and changed tombstone boundaries;
-retained source evidence compacts only behind the tombstone. An injected
-retention interruption rolls back source deletes, custody compaction, and
-tombstone creation together. New load-bearing guards were independently
-sabotaged: bypassing startup verification made the tampered-event guard
-fail; bypassing event tombstone creation made the retention guard fail.
-Schema v10 now adds the independent half: immutable protected checkpoint files
-outside the database root, optional anchor-first off-box/write-once file drop,
-startup and periodic health, authenticated health/manual-attestation surface,
-and mutation gating across ingest, alert evaluation, and retention. An older
-online backup starts in restore-pending state; authenticated operator approval
-appends a witnessed branch event, custody-records it, creates exactly one open
-data-loss alert, and permits replay without rewriting witnessed history.
-SIEM suite: 323/323. Load-bearing bypasses independently failed the tail-
-truncation/restore guard, live-checkpoint regression guard, restore-subject
-mutation guard, and protected-witness startup guard. Remaining S4b product
-section: whole-process pre-commit/post-ack barriers and discriminators. Each
-major section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
+**S4b PRODUCT WORK COMPLETE; FINAL BARRIER REVIEW PENDING (2026-08-12).**
+The custody/retention and independent-witness/restore sections are closed at
+their two-round review caps (cr10/cr11). The final durability-barrier section
+now runs the real standalone receiver in a separately contained process and
+kills its whole process tree: a deterministic pre-commit kill returns no valid
+nonrejecting ack and leaves no event, chain, or custody rows after restart; an
+immediate post-ack kill preserves the exact request/body, producer-chain head,
+healthy witnessed custody head, and idempotent replay. A separate test-only
+host supplies the narrow pre-commit hold and deterministic ack-before-commit
+double without adding an activation path to the shipped receiver entry point.
+The latter produces a valid ack but no event after restart, while an injected
+`synchronous=OFF` writer is refused with `storage_policy`. Independent
+sabotage moved the hold after `Commit()` (pre-commit guard failed with one
+durable event), substituted the early-ack double into the positive post-ack
+proof (event detail became 404), and removed the FULL comparison (OFF mutant
+escaped with no exception). Restored focused guards pass 4/4 in Debug and
+Release; the full SIEM suite passes 329/329. `dotnet format` is clean for every
+changed C# file except the already-recorded pre-existing indentation block in
+`SqliteIngestStore.cs` (now shifted to lines 1313-1420). Required next action:
+run cr12 with Claude Code / claude-opus-5 / xhigh, maximum two valid rounds.
+S4b and the S7 gate remain open until that review closes.
 
 **cr11 CLOSED at its two-round cap:** the S4b independent-witness/restore major section
 landed at `87818e4` over base `9c6f89c`; see `.agents/review/index.md`. After

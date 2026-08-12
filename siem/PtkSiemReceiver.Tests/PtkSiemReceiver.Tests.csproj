@@ -20,6 +20,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\PtkSiemReceiver\PtkSiemReceiver.csproj" />
+    <ProjectReference Include="..\PtkSiemReceiver.TestHost\PtkSiemReceiver.TestHost.csproj"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

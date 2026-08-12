@@ -26,7 +26,8 @@ internal static class ReceiverApplication
         Storage.ISqliteIngestFaultInjector? storageFaultInjector = null,
         ProtectedPathTestHooks? protectedPathTestHooks = null,
         Action? tlsMaterialAcquiredForTests = null,
-        bool alertEvaluationHoldForTests = false)
+        bool alertEvaluationHoldForTests = false,
+        Func<IIngestCommitter, IIngestCommitter>? committerDecoratorForTests = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         RejectMutableStorageCollisions(options);
@@ -208,9 +209,14 @@ internal static class ReceiverApplication
                 builder.Services.AddSingleton(custodyHealth);
                 builder.Services.AddSingleton<IngestAdmissionGate>(
                     _ => new IngestAdmissionGate(options.MaxConcurrentRequests));
+                // The decorator is an internal process-barrier test seam. The
+                // production entry point never supplies one.
+                var selectedCommitter = (IIngestCommitter?)ownedStore ?? committer!;
+                if (committerDecoratorForTests is not null)
+                    selectedCommitter = committerDecoratorForTests(selectedCommitter);
                 if (ownedStore is not null)
                 {
-                    builder.Services.AddSingleton<IIngestCommitter>(_ => ownedStore);
+                    builder.Services.AddSingleton<IIngestCommitter>(_ => selectedCommitter);
                     // The operator surface's gap-disposition write (S6) goes
                     // through the same serialized writer as ingest.
                     builder.Services.AddSingleton<Storage.SqliteIngestStore>(_ => ownedStore);
@@ -222,7 +228,7 @@ internal static class ReceiverApplication
                 }
                 else
                 {
-                    builder.Services.AddSingleton(committer!);
+                    builder.Services.AddSingleton(selectedCommitter);
                 }
                 builder.Services.AddHostedService<ReceiverLifecycleService>();
                 // Alert evaluation is decoupled from the ack path but

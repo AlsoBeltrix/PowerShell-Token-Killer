@@ -81,6 +81,17 @@ public sealed class SqliteIngestStoreTests
             Scalar<string>(database.Path, "SELECT value FROM meta WHERE key = 'receiver_id';"));
     }
 
+    [Fact]
+    public void Synchronous_off_mutant_is_rejected_by_the_writer_policy_assertion()
+    {
+        using var database = new TestDatabase();
+
+        var exception = Assert.Throws<SiemReceiverStartupException>(() =>
+            SqliteIngestStore.Open(database.Path, new SynchronousOffMutant()));
+
+        Assert.Equal("storage_policy", exception.FailureCode);
+    }
+
     [Theory]
     [InlineData("database")]
     [InlineData("wal")]
@@ -974,6 +985,20 @@ public sealed class SqliteIngestStoreTests
         public void BeforeCommit(SqliteIngestWriteKind writeKind)
         {
             if (writeKind == target) throw exception;
+        }
+    }
+
+    private sealed class SynchronousOffMutant : ISqliteIngestFaultInjector
+    {
+        public void BeforeCommit(SqliteIngestWriteKind writeKind)
+        {
+        }
+
+        public void MutateWriterPolicyForTests(SqliteConnection connection)
+        {
+            using var command = connection.CreateCommand();
+            command.CommandText = "PRAGMA synchronous=OFF;";
+            command.ExecuteNonQuery();
         }
     }
 

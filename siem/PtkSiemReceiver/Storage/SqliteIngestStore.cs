@@ -39,6 +39,10 @@ internal interface ISqliteIngestFaultInjector
     void RetentionDeleteStatementForTests(string table, int subjectCount)
     {
     }
+
+    void MutateWriterPolicyForTests(SqliteConnection connection)
+    {
+    }
 }
 
 internal sealed record SqliteWriterPolicy(string JournalMode, int Synchronous);
@@ -168,7 +172,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
                 fullPath,
                 databaseIdentity.Value,
                 protectedPathTestHooks);
-            var policy = ConfigureAndAssertWriterPolicy(connection);
+            var policy = ConfigureAndAssertWriterPolicy(connection, faultInjector);
             MaterializeWalSidecars(connection);
             _ = SiemProtectedPath.VerifySqliteFile(
                 walPath,
@@ -703,7 +707,9 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         _writerGate.Dispose();
     }
 
-    private static SqliteWriterPolicy ConfigureAndAssertWriterPolicy(SqliteConnection connection)
+    private static SqliteWriterPolicy ConfigureAndAssertWriterPolicy(
+        SqliteConnection connection,
+        ISqliteIngestFaultInjector? faultInjector)
     {
         var journalMode = Convert.ToString(
             ExecuteScalar(connection, null, "PRAGMA journal_mode=WAL;"),
@@ -714,6 +720,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             connection,
             null,
             $"PRAGMA busy_timeout={BusyTimeoutSeconds * 1000};");
+        faultInjector?.MutateWriterPolicyForTests(connection);
         var synchronous = Convert.ToInt32(
             ExecuteScalar(connection, null, "PRAGMA synchronous;"),
             CultureInfo.InvariantCulture);

@@ -5,6 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
+**MINI-SIEM S4 CORRECTION (2026-08-12, evidence reconciliation at
+`9ad7d9f`): S4 is PARTIAL, not complete.** Audit-restoration R5a landed
+the amended S4a fixture/conformance half: producer-owned v1/v2
+OTLP/HTTP JSON + Splunk HEC goldens, exact receiver consumption,
+byte/value fidelity, and idempotent replay. The approved S4 durability
+and custody half never landed: no whole-process pre-commit/post-ack
+barriers or ack-before-commit discriminator; no custody verifier,
+retention tombstones, independent checkpoint/witness, rewrite/tail
+detection, or restore reconciliation. Existing positive commit-before-
+ack, WAL/FULL, interruption, and alert-replay tests are real evidence
+but do not satisfy those missing requirements. The explicit remaining
+slice is now `.agents/plans/mini-siem-implementation.md` **S4b** and
+requires its own code go. S5/S6 remain executed. **S7 docs/manual smoke
+and receiver release readiness are gated on S4b.** A targeted current-
+head run covering producer conformance, ingest integration, and the
+SQLite store passed 58/58; no product code changed in the
+reconciliation.
+
 **OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
 removal was never consciously owner-approved.** The owner's words: "I
 never consciously removed SIEM output. that's a p0 requirement." The
@@ -836,14 +854,16 @@ disabled, and the ACTIVE exact-script evidence store was documented
 as legacy-only (both docs now require protecting `~/.ptk/audit` as
 sensitive data). One frontier verification batch confirmed all five.
 
-**EVERY audit-restoration slice (R0–R6) is now EXECUTED with its
-codereview loop CLOSED.** What remains to the effort's end state is
-owner-facing: the mini-SIEM S7 slice (ops docs: siem/README install/
-backup/threat-model per the mini-SIEM plan) and the S7 manual smoke —
-PTK driving a receiver on another host, events visible in the
+**EVERY PTK audit-restoration slice (R0–R6) is now EXECUTED with its
+codereview loop CLOSED.** That does not complete the separately approved
+mini-SIEM plan: the S4b receiver durability/custody slice identified in
+the correction at the top of this file remains before S7. After S4b,
+the owner-facing remainder is the mini-SIEM S7 ops docs and manual smoke
+— PTK driving a receiver on another host, events visible in the
 dashboard — the "owner has seen it work" gate. The release legs'
-receiver artifacts get their end-to-end proof on the next `v*`
-tag/dispatch (owner action).
+receiver artifacts get their end-to-end proof on a later explicitly
+authorized `v*` tag/dispatch, and must not be called release-ready before
+S4b/S7 close.
 The codex verification recipe that works: `-s workspace-write -c
 'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
 the socket), per-server MCP `enabled=false` overrides, `-o <file>`
@@ -1198,12 +1218,11 @@ record a new gated finding.
 
 ## Open / Parked
 
-- Mini-SIEM S4's fixture gate remains intentionally closed: producer-owned
-  exact v1/v2/v3 OTLP byte corpora must all exist before S4 begins. The
-  producer-side serializer for current v1/v2 records is landed at `1f6d485`,
-  but R0 supplies only JSONL v3 contract vectors, not a producer-owned
-  serialized v3 OTLP request; do not synthesize one in the receiver or treat
-  its hand-authored S2 structural test as a golden producer fixture.
+- Mini-SIEM S4a's fixture gate is complete under the later audit-restoration
+  amendment (producer-owned v1/v2 OTLP/HTTP JSON corpora; v3 deliberately
+  removed). S4b's durability/custody work remains open and gates S7; the
+  correction at the top of this file and the explicit S4b plan are the
+  current authority.
 - Warm-backend slice 7 is unblocked open work, currently unscheduled, and
   remains owner-run Windows validation: AD native import/warm reuse; Exchange
   implicit remoting with first-vs-repeated `Get-Queue` latency; EXO/Graph

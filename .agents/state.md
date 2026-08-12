@@ -5,7 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-**S4b PRODUCT WORK COMPLETE; FINAL BARRIER REVIEW PENDING (2026-08-12).**
+**S4b COMPLETE; S7 UNBLOCKED (2026-08-12).**
 The custody/retention and independent-witness/restore sections are closed at
 their two-round review caps (cr10/cr11). The final durability-barrier section
 now runs the real standalone receiver in a separately contained process and
@@ -23,14 +23,15 @@ proof (event detail became 404), and removed the FULL comparison (OFF mutant
 escaped with no exception). Restored focused guards pass 4/4 in Debug and
 Release; the full SIEM suite passes 329/329. `dotnet format` is clean for every
 changed C# file except the already-recorded pre-existing indentation block in
-`SqliteIngestStore.cs` (now shifted to lines 1313-1420). Required next action:
-run cr12 with Claude Code / claude-opus-5 / xhigh, maximum two valid rounds.
-S4b and the S7 gate remain open until that review closes.
-
-**cr12 ACTIVE — final S4b process-barrier review:** Claude Code 2.1.228 /
-`claude-opus-5` / `xhigh` generation round 1 is running over exact range
-`1be29fc..9b14a7e` through the previously qualified background transport.
-See `.agents/review/index.md`; maximum two valid rounds for this section.
+`SqliteIngestStore.cs` (now shifted to lines 1313-1420). cr12 closed on its
+first valid generation round: Claude Code 2.1.228 / `claude-opus-5` / `xhigh`
+returned `clean`, capability proof true, with exact pins
+`1be29fc..9b14a7e`; no findings. The codereview playbook requires stopping on
+a valid clean result, so the two-round cap was not consumed further. Standing
+battery after the slice: server 1,306/1,306 (with the documented PTK-session
+`PSModulePath` correction), Pester 112 passed + 3 platform skips, and all five
+server projects have no vulnerable packages. **Next item: S7 ops/docs plus
+the two-host-equivalent manual receiver smoke.**
 
 **cr11 CLOSED at its two-round cap:** the S4b independent-witness/restore major section
 landed at `87818e4` over base `9c6f89c`; see `.agents/review/index.md`. After

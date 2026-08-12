@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr12 (Claude review over S4b process barriers, 2026-08-12)
+## Closed — cr12 (Claude review over S4b process barriers, 2026-08-12)
 
 Implementation landed at `9b14a7e` over base `1be29fc`: a real standalone-
 receiver post-ack process-tree kill/restart proof, a separate test-only host
@@ -8,8 +8,11 @@ for the deterministic pre-commit hold and ack-before-commit double, exact
 event/chain/custody/replay assertions, and a `synchronous=OFF` writer-policy
 mutant. Local sabotage proved all three discriminators bite; restored SIEM
 passes 329/329. Claude Code 2.1.228 / claude-opus-5 / xhigh generation round 1
-was dispatched through the qualified background transport as session
-`620f10ab`; result pending. This section permits at most two valid rounds.
+ran through the qualified background transport as session `620f10ab` and
+returned a valid `clean` verdict: `capability_ok=true`, exact full base/head
+SHAs, and empty findings. Per the codereview playbook, the clean result closes
+the section; no second-round finding search was dispatched. Reviewer:
+`claude/claude-opus-5/xhigh/frontier` (owner-selected section requirement).
 
 ## Closed — cr11 (Claude review over S4b independent witness/restore, 2026-08-12)
 

@@ -44,7 +44,10 @@ public sealed class RetentionEnforcementTests
         Assert.True(outcome.EventsRemoved >= 3);
         // The custody ledger is the append-only witness of what was received:
         // retention must never erase the evidence it exists to protect.
-        Assert.Equal(custodyBefore, Count(database.Path, "custody"));
+        Assert.Equal(custodyBefore + 1, Count(database.Path, "custody"));
+        Assert.Equal(1L, Count(database.Path, "retention_tombstones"));
+        Assert.Equal(3L, Count(database.Path, "retention_tombstone_entries"));
+        Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
         // The chain head survives so a later record still validates against
         // its predecessor's hash.
         Assert.Equal(1L, Count(database.Path, "events"));
@@ -117,7 +120,8 @@ public sealed class RetentionEnforcementTests
         Assert.True(
             outcome.DatabaseBytes < beforeBytes,
             $"database did not shrink: {outcome.DatabaseBytes} >= {beforeBytes}");
-        Assert.Equal(Count(database.Path, "custody"), 24L);
+        Assert.Equal(25L, Count(database.Path, "custody"));
+        Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
     }
 
     [Fact]
@@ -151,12 +155,18 @@ public sealed class RetentionEnforcementTests
             utcNow: Receipt.ReceivedUtc,
             CancellationToken.None);
 
-        // A bound at the pre-purge size: the raw page count still exceeds it
-        // after the age purge (pages are freed, not removed), so the defective
-        // measure keeps deleting; the live measure stops.
-        var outcome = await store.EnforceRetentionAsync(
+        // Run the age leg first, then use its live-byte result as the size
+        // bound. Raw page_count still includes the freed pages and would keep
+        // deleting the six fresh records; the live measure stops exactly.
+        var ageOutcome = await store.EnforceRetentionAsync(
             maximumAgeDays: 30,
-            maximumTotalBytes: beforeSweep.DatabaseBytes / 2,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc,
+            CancellationToken.None);
+        Assert.Equal(6L, Count(database.Path, "events"));
+        var outcome = await store.EnforceRetentionAsync(
+            maximumAgeDays: null,
+            maximumTotalBytes: ageOutcome.DatabaseBytes,
             utcNow: Receipt.ReceivedUtc,
             CancellationToken.None);
 
@@ -166,6 +176,7 @@ public sealed class RetentionEnforcementTests
         Assert.True(
             outcome.DatabaseBytes <= beforeSweep.DatabaseBytes,
             "the sweep reported more live bytes than the baseline");
+        Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
     }
 
     [Fact]
@@ -662,9 +673,83 @@ public sealed class RetentionEnforcementTests
             Scalar<string>(database.Path, "SELECT state FROM alerts;"));
         Assert.Equal(
             1L,
-            Scalar<long>(
-                database.Path,
-                "SELECT COUNT(*) FROM custody WHERE disposition = 'alert:retention_deleted';"));
+            Scalar<long>(database.Path, """
+                SELECT COUNT(*) FROM retention_tombstones
+                WHERE subject_kind = 'alert';
+                """));
+        Assert.Equal(
+            1L,
+            Scalar<long>(database.Path, """
+                SELECT COUNT(*) FROM custody c
+                JOIN retention_tombstones t
+                  ON c.subject_kind = 'retention_tombstone'
+                 AND c.subject_id = CAST(t.tombstone_id AS TEXT)
+                WHERE c.disposition = 'retention:tombstone'
+                  AND t.subject_kind = 'alert';
+                """));
+        Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
+    }
+
+    [Fact]
+    public async Task Tombstone_boundary_mutation_is_refused_on_restart()
+    {
+        using var database = new TestDatabase();
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            await CommitChainAsync(store, count: 4);
+            _ = await store.EnforceRetentionAsync(
+                maximumAgeDays: 30,
+                maximumTotalBytes: null,
+                utcNow: Receipt.ReceivedUtc.AddYears(1),
+                CancellationToken.None);
+            Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
+        }
+
+        using (var connection = new SqliteConnection(
+                   new SqliteConnectionStringBuilder
+                   {
+                       DataSource = database.Path,
+                       Mode = SqliteOpenMode.ReadWrite,
+                       Pooling = false,
+                   }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                UPDATE retention_tombstone_entries
+                SET event_hash = 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+                WHERE producer_sequence = 1;
+                """;
+            Assert.Equal(1, command.ExecuteNonQuery());
+        }
+
+        var exception = Assert.Throws<SiemReceiverStartupException>(
+            () => SqliteIngestStore.Open(database.Path));
+        Assert.Equal("custody_integrity_tombstone", exception.FailureCode);
+    }
+
+    [Fact]
+    public async Task Interrupted_retention_rolls_back_sources_tombstone_and_compaction()
+    {
+        using var database = new TestDatabase();
+        using var store = SqliteIngestStore.Open(
+            database.Path,
+            faultInjector: new ThrowOnRetentionCommit());
+        await CommitChainAsync(store, count: 4);
+
+        await Assert.ThrowsAsync<IOException>(() => store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None));
+
+        Assert.Equal(4L, Count(database.Path, "events"));
+        Assert.Equal(4L, Count(database.Path, "custody"));
+        Assert.Equal(0L, Count(database.Path, "retention_tombstones"));
+        Assert.Equal(
+            4L,
+            Scalar<long>(database.Path, "SELECT COUNT(*) FROM custody WHERE evidence IS NOT NULL;"));
+        Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
     }
 
     private static string? LastHash { get; set; }
@@ -734,6 +819,15 @@ public sealed class RetentionEnforcementTests
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class ThrowOnRetentionCommit : ISqliteIngestFaultInjector
+    {
+        public void BeforeCommit(SqliteIngestWriteKind writeKind)
+        {
+            if (writeKind == SqliteIngestWriteKind.Retention)
+                throw new IOException("retention interrupted");
+        }
     }
 
     private sealed class TestDatabase : IDisposable

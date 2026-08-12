@@ -23,10 +23,27 @@ public sealed class SqliteIngestStoreTests
     {
         Assert.Equal(
             "72f8734275e69561219341294a6c909cbf324e25f49ddda585fd7696aa37dc07",
-            CustodyHash.Compute(
+            CustodyHash.ComputeV1(
                 7,
                 string.Concat(Enumerable.Repeat("ab", 32)),
                 [0, 1, 255],
+                "2026-07-15T16:30:45.1234567Z",
+                string.Concat(Enumerable.Repeat("cd", 32)),
+                "[::1]:4318",
+                "quarantine:attributes",
+                "quarantine",
+                "42"));
+    }
+
+    [Fact]
+    public void Custody_v2_deterministic_framing_has_frozen_digest()
+    {
+        Assert.Equal(
+            "eac743c52e4e0005051bf1f46bf30cabf919ab6305d245a327dad82458fc219f",
+            CustodyHash.ComputeV2(
+                7,
+                string.Concat(Enumerable.Repeat("ab", 32)),
+                string.Concat(Enumerable.Repeat("ef", 32)),
                 "2026-07-15T16:30:45.1234567Z",
                 string.Concat(Enumerable.Repeat("cd", 32)),
                 "[::1]:4318",
@@ -48,7 +65,7 @@ public sealed class SqliteIngestStoreTests
             AssertExactProtection(database.Path, isDirectory: false);
             AssertExactProtection(database.Path + "-wal", isDirectory: false);
             AssertExactProtection(database.Path + "-shm", isDirectory: false);
-            Assert.Equal(7L, Scalar<long>(database.Path, "PRAGMA user_version;"));
+            Assert.Equal(8L, Scalar<long>(database.Path, "PRAGMA user_version;"));
             Assert.Equal("wal", Scalar<string>(database.Path, "PRAGMA journal_mode;"));
             receiverId = Scalar<string>(
                 database.Path,
@@ -334,10 +351,10 @@ public sealed class SqliteIngestStoreTests
 
         var receiptHash = Scalar<string>(database.Path, "SELECT receipt_hash FROM custody;");
         Assert.Equal(
-            CustodyHash.Compute(
+            CustodyHash.ComputeV2(
                 1,
                 null,
-                record.RawRequestBytes,
+                CustodyEvidenceHash.Compute(record.RawRequestBytes),
                 "2026-07-15T16:30:45.1234567Z",
                 Receipt.ClientCertificateThumbprint,
                 Receipt.RemoteEndpoint,
@@ -345,6 +362,65 @@ public sealed class SqliteIngestStoreTests
                 "event",
                 record.EventId.ToString("D")),
             receiptHash);
+    }
+
+    [Fact]
+    public async Task Startup_refuses_event_evidence_mutated_behind_its_custody_receipt()
+    {
+        using var database = new TestDatabase();
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            var record = Validate(OtlpTestRequest.Create());
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(record, Receipt, default)).Kind);
+        }
+
+        Execute(database.Path, "UPDATE events SET raw_request = X'010203';");
+        var exception = Assert.Throws<SiemReceiverStartupException>(
+            () => SqliteIngestStore.Open(database.Path));
+        Assert.Equal("custody_integrity_subject", exception.FailureCode);
+    }
+
+    [Fact]
+    public async Task Startup_refuses_custody_metadata_mutated_without_rehashing()
+    {
+        using var database = new TestDatabase();
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            var record = Validate(OtlpTestRequest.Create());
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(record, Receipt, default)).Kind);
+        }
+
+        Execute(database.Path, "UPDATE custody SET remote_endpoint = 'forged';");
+        var exception = Assert.Throws<SiemReceiverStartupException>(
+            () => SqliteIngestStore.Open(database.Path));
+        Assert.Equal("custody_integrity_hash", exception.FailureCode);
+    }
+
+    [Fact]
+    public async Task Startup_refuses_alert_state_mutated_behind_its_lifecycle_receipt()
+    {
+        using var database = new TestDatabase();
+        var hash = new string('a', 64);
+        using (var store = SqliteIngestStore.Open(database.Path, alertRuleConfigHash: hash))
+        {
+            var record = Validate(OtlpTestRequest.Create());
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(record, Receipt, default)).Kind);
+            IReadOnlyList<PtkSiemReceiver.Configuration.AlertRule> rules =
+                [new("completed", "event_match", "tool.completed", null, null)];
+            Assert.Single((await store.EvaluateNextAlertWorkItemAsync(
+                rules, hash, Receipt.ReceivedUtc, default))!);
+        }
+
+        Execute(database.Path, "UPDATE alerts SET detail = '{\"forged\":true}';");
+        var exception = Assert.Throws<SiemReceiverStartupException>(
+            () => SqliteIngestStore.Open(database.Path));
+        Assert.Equal("custody_integrity_subject", exception.FailureCode);
     }
 
     [Fact]
@@ -394,10 +470,10 @@ public sealed class SqliteIngestStoreTests
             });
 
         string Recompute(string detail) =>
-            CustodyHash.Compute(
+            CustodyHash.ComputeV2(
                 2,
                 previousHash,
-                SnapshotBytes(detail),
+                CustodyEvidenceHash.Compute(SnapshotBytes(detail)),
                 receivedUtc,
                 new string('0', 64),
                 "receiver",
@@ -626,6 +702,14 @@ public sealed class SqliteIngestStoreTests
         using var command = connection.CreateCommand();
         command.CommandText = sql;
         return command.ExecuteScalar() ?? DBNull.Value;
+    }
+
+    private static void Execute(string path, string sql)
+    {
+        using var connection = Open(path, readOnly: false);
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.ExecuteNonQuery();
     }
 
     private static SqliteConnection Open(string path, bool readOnly)

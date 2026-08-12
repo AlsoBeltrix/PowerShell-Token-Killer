@@ -13,6 +13,7 @@ internal enum SqliteIngestWriteKind
 {
     Event,
     Quarantine,
+    Retention,
 }
 
 internal interface ISqliteIngestFaultInjector
@@ -57,9 +58,11 @@ internal sealed record CreatedAlert(
     string CreatedUtc,
     string Detail);
 
-internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
+internal sealed record CustodyAppendResult(long Sequence, string ReceiptHash);
+
+internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 7;
+    private const int CurrentSchemaVersion = 8;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -73,16 +76,20 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         SqliteWriterPolicy writerPolicy,
         ISqliteIngestFaultInjector? faultInjector,
         ProtectedDirectoryLease parentLease,
-        string? alertRuleConfigHash)
+        string? alertRuleConfigHash,
+        CustodyVerificationResult startupCustodyVerification)
     {
         _writer = writer;
         _parentLease = parentLease;
         WriterPolicy = writerPolicy;
         _faultInjector = faultInjector;
         _alertRuleConfigHash = alertRuleConfigHash;
+        StartupCustodyVerification = startupCustodyVerification;
     }
 
     internal SqliteWriterPolicy WriterPolicy { get; }
+
+    internal CustodyVerificationResult StartupCustodyVerification { get; }
 
     internal static SqliteIngestStore Open(
         string databasePath,
@@ -164,6 +171,10 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             SiemProtectedPath.VerifySqliteFileIsOpen(walIdentity.Value);
             SiemProtectedPath.VerifySqliteFileIsOpen(sharedMemoryIdentity.Value);
             ApplyMigrations(connection);
+            BackfillLegacyCustodyEvidence(connection);
+            var custodyVerification = VerifyCustodyCore(connection);
+            if (!custodyVerification.Healthy)
+                throw new SiemReceiverStartupException(custodyVerification.FailureCode);
             faultInjector?.AfterStartupProtectionForTests(fullPath);
 
             SiemProtectedPath.VerifyRetainedDirectory(parentLease, protectedPathTestHooks);
@@ -186,7 +197,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 policy,
                 faultInjector,
                 parentLease,
-                alertRuleConfigHash);
+                alertRuleConfigHash,
+                custodyVerification);
             connection = null;
             parentLease = null;
             return store;
@@ -437,10 +449,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             {
                 ThrowIfDisposed();
                 using var transaction = _writer.BeginTransaction(deferred: false);
-                eventsRemoved += DeleteAgedEvents(cutoff, transaction);
-                quarantineRemoved += DeleteAgedQuarantine(cutoff, transaction);
+                eventsRemoved += DeleteAgedEvents(cutoff, utcNow, transaction);
+                quarantineRemoved += DeleteAgedQuarantine(cutoff, utcNow, transaction);
                 DeleteAgedClosedAlerts(cutoff, utcNow, transaction);
                 cancellationToken.ThrowIfCancellationRequested();
+                _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Retention);
                 transaction.Commit();
             }
             finally
@@ -467,13 +480,14 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     // (cr3-4).
                     if (LiveDatabaseBytes() <= maximumBytes) break;
                     using var transaction = _writer.BeginTransaction(deferred: false);
-                    removed = DeleteOldestEvents(RetentionSweepBatch, transaction);
-                    removed += DeleteOldestQuarantine(RetentionSweepBatch, transaction);
+                    removed = DeleteOldestEvents(RetentionSweepBatch, utcNow, transaction);
+                    removed += DeleteOldestQuarantine(RetentionSweepBatch, utcNow, transaction);
                     if (removed == 0)
                     {
                         transaction.Rollback();
                         break;
                     }
+                    _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Retention);
                     transaction.Commit();
                 }
                 finally
@@ -513,12 +527,15 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 
     private const int RetentionSweepBatch = 512;
 
-    private long DeleteAgedEvents(string cutoffUtc, SqliteTransaction transaction)
+    private long DeleteAgedEvents(
+        string cutoffUtc,
+        DateTimeOffset utcNow,
+        SqliteTransaction transaction)
     {
         // A chain head is never deleted: the next record from that supervisor
         // boot must still validate against it.
         using var command = CreateCommand(_writer, transaction, """
-            DELETE FROM events
+            SELECT event_id FROM events
             WHERE received_utc < $cutoff
               AND event_id NOT IN (SELECT head_event_id FROM chains)
               AND NOT (post_gap = 1 AND supervisor_boot_id IN (
@@ -527,19 +544,23 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                   SELECT subject_id FROM alert_queue
                   WHERE kind = 'event' AND item_id > (
                       SELECT CAST(value AS INTEGER) FROM meta
-                      WHERE key = 'alert_cursor'));
+                      WHERE key = 'alert_cursor'))
+            ORDER BY supervisor_boot_id, sequence;
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
-        return command.ExecuteNonQuery();
+        return PurgeSelectedEvents(ReadStringColumn(command), utcNow, transaction);
     }
 
-    private long DeleteAgedQuarantine(string cutoffUtc, SqliteTransaction transaction)
+    private long DeleteAgedQuarantine(
+        string cutoffUtc,
+        DateTimeOffset utcNow,
+        SqliteTransaction transaction)
     {
         // cr8-2: a subject still referenced by an unevaluated work item is
         // not deletable — the committed enqueue promised an evaluation over
         // durable inputs.
         using var command = CreateCommand(_writer, transaction, """
-            DELETE FROM quarantine
+            SELECT CAST(attempt_id AS TEXT) FROM quarantine
             WHERE received_utc < $cutoff
               AND CAST(attempt_id AS TEXT) NOT IN (
                   SELECT subject_id FROM alert_queue
@@ -548,10 +569,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                       WHERE key = 'alert_cursor'))
               AND attempt_id NOT IN (
                   SELECT opening_attempt_id FROM gaps
-                  WHERE state != 'resumed' AND opening_attempt_id IS NOT NULL);
+                  WHERE state != 'resumed' AND opening_attempt_id IS NOT NULL)
+            ORDER BY attempt_id;
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
-        return command.ExecuteNonQuery();
+        return PurgeSelectedQuarantine(ReadStringColumn(command), utcNow, transaction);
     }
 
     /// <summary>cr8-5: the plan's rule — the only alert-row deletion is
@@ -575,42 +597,25 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         }
 
         if (alertIds.Count == 0) return;
-        using (var delete = CreateCommand(_writer, transaction, """
-            DELETE FROM alerts
-            WHERE state = 'closed' AND updated_utc < $cutoff;
-            """))
+        if (PurgeSelectedAlerts(
+                alertIds.Select(id => id.ToString(CultureInfo.InvariantCulture)).ToArray(),
+                utcNow,
+                transaction) != alertIds.Count)
         {
-            delete.Parameters.AddWithValue("$cutoff", cutoffUtc);
-            if (delete.ExecuteNonQuery() != alertIds.Count)
-                throw new InvalidOperationException("The closed-alert sweep did not match its selection.");
+            throw new InvalidOperationException("The closed-alert sweep did not match its selection.");
         }
-
-        AppendCustody(
-            CustodySnapshotBytes(new
-            {
-                v = 1,
-                kind = "alert",
-                transition = "retention_deleted",
-                alert_ids = alertIds,
-                utc = FormatUtc(utcNow),
-            }),
-            new IngestReceiptContext(
-                utcNow.ToUniversalTime(), new string('0', 64), "receiver"),
-            "alert:retention_deleted",
-            "alert_retention",
-            alertIds.Count.ToString(CultureInfo.InvariantCulture),
-            transaction);
     }
 
-    private long DeleteOldestEvents(int batch, SqliteTransaction transaction)
+    private long DeleteOldestEvents(
+        int batch,
+        DateTimeOffset utcNow,
+        SqliteTransaction transaction)
     {
         // An undecided gap's post-gap sub-chain is pending evidence: deleting
         // any of it would break the continuity the resume depends on. A
         // subject of an unevaluated work item is likewise pending (cr8-2).
         using var command = CreateCommand(_writer, transaction, """
-            DELETE FROM events
-            WHERE event_id IN (
-                SELECT event_id FROM events
+            SELECT event_id FROM events
                 WHERE event_id NOT IN (SELECT head_event_id FROM chains)
                   AND NOT (post_gap = 1 AND supervisor_boot_id IN (
                       SELECT supervisor_boot_id FROM gaps WHERE state != 'resumed'))
@@ -620,20 +625,21 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                           SELECT CAST(value AS INTEGER) FROM meta
                           WHERE key = 'alert_cursor'))
                 ORDER BY received_utc ASC
-                LIMIT $batch);
+                LIMIT $batch;
             """);
         command.Parameters.AddWithValue("$batch", batch);
-        return command.ExecuteNonQuery();
+        return PurgeSelectedEvents(ReadStringColumn(command), utcNow, transaction);
     }
 
-    private long DeleteOldestQuarantine(int batch, SqliteTransaction transaction)
+    private long DeleteOldestQuarantine(
+        int batch,
+        DateTimeOffset utcNow,
+        SqliteTransaction transaction)
     {
         // The attempt that opened an unresolved gap is the gap's proof
         // (cr8-4); it outlives the sweep until the gap resumes.
         using var command = CreateCommand(_writer, transaction, """
-            DELETE FROM quarantine
-            WHERE attempt_id IN (
-                SELECT attempt_id FROM quarantine
+            SELECT CAST(attempt_id AS TEXT) FROM quarantine
                 WHERE CAST(attempt_id AS TEXT) NOT IN (
                     SELECT subject_id FROM alert_queue
                     WHERE kind = 'quarantine' AND item_id > (
@@ -643,10 +649,10 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                       SELECT opening_attempt_id FROM gaps
                       WHERE state != 'resumed' AND opening_attempt_id IS NOT NULL)
                 ORDER BY received_utc ASC
-                LIMIT $batch);
+                LIMIT $batch;
             """);
         command.Parameters.AddWithValue("$batch", batch);
-        return command.ExecuteNonQuery();
+        return PurgeSelectedQuarantine(ReadStringColumn(command), utcNow, transaction);
     }
 
     /// <summary>
@@ -900,6 +906,30 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             transaction.Commit();
         }
 
+        if (version < 8)
+        {
+            // Schema v8 (mini-SIEM S4b): new custody receipts commit to a
+            // stored evidence digest. The evidence bytes stay available
+            // while their source row is live; retention may compact them
+            // only behind an atomic, custody-chained tombstone.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            if (!ColumnExists(connection, transaction, "custody", "evidence_hash"))
+            {
+                ExecuteNonQuery(connection, transaction, SchemaVersionEightSql);
+            }
+            else if (!TableExists(connection, transaction, "retention_tombstones") ||
+                     !TableExists(connection, transaction, "retention_tombstone_entries"))
+            {
+                throw new InvalidOperationException("Schema v8 is only partially present.");
+            }
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "UPDATE meta SET value = '8' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=8;");
+            transaction.Commit();
+        }
+
         var recordedVersion = Convert.ToString(
             ExecuteScalar(
                 connection,
@@ -913,6 +943,33 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         {
             throw new SiemReceiverStartupException("storage_schema");
         }
+    }
+
+    private static bool ColumnExists(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string table,
+        string column)
+    {
+        using var command = CreateCommand(connection, transaction, $"PRAGMA table_info({table});");
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            if (string.Equals(reader.GetString(1), column, StringComparison.Ordinal)) return true;
+        }
+        return false;
+    }
+
+    private static bool TableExists(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        string table)
+    {
+        using var command = CreateCommand(connection, transaction, """
+            SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = $name;
+            """);
+        command.Parameters.AddWithValue("$name", table);
+        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) == 1;
     }
 
     private static EventIdentity? ReadEvent(Guid eventId, SqliteTransaction transaction)
@@ -1877,7 +1934,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             throw new InvalidOperationException("The alert work-item insert did not affect exactly one row.");
     }
 
-    private static void AppendCustody(
+    private static CustodyAppendResult AppendCustody(
         byte[] rawRequestBytes,
         IngestReceiptContext receipt,
         string disposition,
@@ -1904,10 +1961,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 
         var receiptSequence = checked(previousSequence + 1);
         var receivedUtc = FormatUtc(receipt.ReceivedUtc);
-        var receiptHash = CustodyHash.Compute(
+        var evidenceHash = CustodyEvidenceHash.Compute(rawRequestBytes);
+        var receiptHash = CustodyHash.ComputeV2(
             receiptSequence,
             previousHash,
-            rawRequestBytes,
+            evidenceHash,
             receivedUtc,
             receipt.ClientCertificateThumbprint,
             receipt.RemoteEndpoint,
@@ -1919,11 +1977,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             INSERT INTO custody(
                 receipt_sequence, ledger_version, previous_receipt_hash, receipt_hash,
                 received_utc, client_certificate_thumbprint, remote_endpoint,
-                disposition, subject_kind, subject_id)
+                disposition, subject_kind, subject_id, evidence_hash, evidence)
             VALUES(
-                $receipt_sequence, 1, $previous_receipt_hash, $receipt_hash,
+                $receipt_sequence, 2, $previous_receipt_hash, $receipt_hash,
                 $received_utc, $client_certificate_thumbprint, $remote_endpoint,
-                $disposition, $subject_kind, $subject_id);
+                $disposition, $subject_kind, $subject_id, $evidence_hash, $evidence);
             """);
         command.Parameters.AddWithValue("$receipt_sequence", receiptSequence);
         AddNullable(command, "$previous_receipt_hash", previousHash);
@@ -1934,8 +1992,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         command.Parameters.AddWithValue("$disposition", disposition);
         command.Parameters.AddWithValue("$subject_kind", subjectKind);
         command.Parameters.AddWithValue("$subject_id", subjectId);
+        command.Parameters.AddWithValue("$evidence_hash", evidenceHash);
+        command.Parameters.AddWithValue("$evidence", rawRequestBytes);
         if (command.ExecuteNonQuery() != 1)
             throw new InvalidOperationException("The custody insert did not affect exactly one row.");
+        return new CustodyAppendResult(receiptSequence, receiptHash);
     }
 
     private static RejectedOtlpAttempt RejectedFrom(
@@ -2148,11 +2209,73 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 
         INSERT INTO meta(key, value) VALUES('alert_cursor', '0');
         """;
+
+    private const string SchemaVersionEightSql = """
+        ALTER TABLE custody RENAME TO custody_v7;
+
+        CREATE TABLE custody(
+            receipt_sequence INTEGER PRIMARY KEY,
+            ledger_version INTEGER NOT NULL CHECK(ledger_version IN (1, 2)),
+            previous_receipt_hash TEXT NULL,
+            receipt_hash TEXT NOT NULL UNIQUE,
+            received_utc TEXT NOT NULL,
+            client_certificate_thumbprint TEXT NOT NULL,
+            remote_endpoint TEXT NOT NULL,
+            disposition TEXT NOT NULL,
+            subject_kind TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            evidence_hash TEXT NULL,
+            evidence BLOB NULL
+        );
+
+        INSERT INTO custody(
+            receipt_sequence, ledger_version, previous_receipt_hash, receipt_hash,
+            received_utc, client_certificate_thumbprint, remote_endpoint,
+            disposition, subject_kind, subject_id, evidence_hash, evidence)
+        SELECT
+            receipt_sequence, ledger_version, previous_receipt_hash, receipt_hash,
+            received_utc, client_certificate_thumbprint, remote_endpoint,
+            disposition, subject_kind, subject_id, NULL, NULL
+        FROM custody_v7;
+
+        DROP TABLE custody_v7;
+
+        CREATE TABLE retention_tombstones(
+            tombstone_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_kind TEXT NOT NULL CHECK(subject_kind IN ('event', 'quarantine', 'alert')),
+            supervisor_boot_id TEXT NULL,
+            first_sequence INTEGER NULL,
+            last_sequence INTEGER NULL,
+            boundary_previous_event_hash TEXT NULL,
+            boundary_event_hash TEXT NULL,
+            purged_count INTEGER NOT NULL CHECK(purged_count > 0),
+            deleted_commitment TEXT NOT NULL,
+            first_custody_sequence INTEGER NOT NULL,
+            last_custody_sequence INTEGER NOT NULL,
+            custody_predecessor_hash TEXT NULL,
+            custody_successor_hash TEXT NOT NULL,
+            created_utc TEXT NOT NULL
+        );
+
+        CREATE TABLE retention_tombstone_entries(
+            tombstone_id INTEGER NOT NULL,
+            subject_kind TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            custody_sequence INTEGER NOT NULL UNIQUE,
+            evidence_hash TEXT NOT NULL,
+            producer_sequence INTEGER NULL,
+            previous_event_hash TEXT NULL,
+            event_hash TEXT NULL,
+            PRIMARY KEY(tombstone_id, custody_sequence),
+            FOREIGN KEY(tombstone_id) REFERENCES retention_tombstones(tombstone_id)
+        ) WITHOUT ROWID;
+        """;
 }
 
 internal static class CustodyHash
 {
-    private static readonly byte[] Magic = "PTK-SIEM-CUSTODY"u8.ToArray();
+    private static readonly byte[] V1Magic = "PTK-SIEM-CUSTODY"u8.ToArray();
+    private static readonly byte[] V2Magic = "PTK-SIEM-CUSTODY2"u8.ToArray();
 
     /// <summary>
     /// Version 1 framing is the fixed magic, a big-endian ledger version and
@@ -2160,7 +2283,7 @@ internal static class CustodyHash
     /// exact order: previous hash, raw request, receipt UTC, certificate
     /// thumbprint, remote endpoint, disposition, subject kind, subject ID.
     /// </summary>
-    internal static string Compute(
+    internal static string ComputeV1(
         long receiptSequence,
         string? previousReceiptHash,
         ReadOnlySpan<byte> rawRequestBytes,
@@ -2172,7 +2295,7 @@ internal static class CustodyHash
         string subjectId)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        hash.AppendData(Magic);
+        hash.AppendData(V1Magic);
 
         Span<byte> integer = stackalloc byte[sizeof(long)];
         BinaryPrimitives.WriteInt32BigEndian(integer[..sizeof(int)], 1);
@@ -2182,6 +2305,43 @@ internal static class CustodyHash
 
         AppendText(hash, previousReceiptHash ?? string.Empty);
         AppendField(hash, rawRequestBytes);
+        AppendText(hash, receivedUtc);
+        AppendText(hash, certificateThumbprint);
+        AppendText(hash, remoteEndpoint);
+        AppendText(hash, disposition);
+        AppendText(hash, subjectKind);
+        AppendText(hash, subjectId);
+        return Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Version 2 replaces the potentially large evidence field in the
+    /// receipt framing with its lowercase SHA-256. This keeps every receipt
+    /// independently recomputable after retention compacts evidence bytes,
+    /// while an atomic tombstone commits to every intentional compaction.
+    /// </summary>
+    internal static string ComputeV2(
+        long receiptSequence,
+        string? previousReceiptHash,
+        string evidenceHash,
+        string receivedUtc,
+        string certificateThumbprint,
+        string remoteEndpoint,
+        string disposition,
+        string subjectKind,
+        string subjectId)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(V2Magic);
+
+        Span<byte> integer = stackalloc byte[sizeof(long)];
+        BinaryPrimitives.WriteInt32BigEndian(integer[..sizeof(int)], 2);
+        hash.AppendData(integer[..sizeof(int)]);
+        BinaryPrimitives.WriteInt64BigEndian(integer, receiptSequence);
+        hash.AppendData(integer);
+
+        AppendText(hash, previousReceiptHash ?? string.Empty);
+        AppendText(hash, evidenceHash);
         AppendText(hash, receivedUtc);
         AppendText(hash, certificateThumbprint);
         AppendText(hash, remoteEndpoint);
@@ -2201,4 +2361,10 @@ internal static class CustodyHash
         hash.AppendData(length);
         hash.AppendData(value);
     }
+}
+
+internal static class CustodyEvidenceHash
+{
+    internal static string Compute(ReadOnlySpan<byte> evidence) =>
+        Convert.ToHexString(SHA256.HashData(evidence)).ToLowerInvariant();
 }

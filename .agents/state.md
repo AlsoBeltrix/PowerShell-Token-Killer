@@ -23,6 +23,22 @@ head run covering producer conformance, ingest integration, and the
 SQLite store passed 58/58; no product code changed in the
 reconciliation.
 
+**S4b UNDERWAY — custody verifier + retention tombstones code-complete
+2026-08-12, pending the owner-requested Claude review.** SQLite schema v8
+adds v2 custody receipts with recomputable evidence digests, exact live
+evidence, and atomic event/quarantine/closed-alert retention tombstones.
+Startup refuses broken sequence/link/hash, changed event/quarantine
+bytes, changed latest gap/alert state, and changed tombstone boundaries;
+retained source evidence compacts only behind the tombstone. An injected
+retention interruption rolls back source deletes, custody compaction, and
+tombstone creation together. New load-bearing guards were independently
+sabotaged: bypassing startup verification made the tampered-event guard
+fail; bypassing event tombstone creation made the retention guard fail.
+SIEM suite: 311/311. Remaining S4b sections: protected independent
+witness/checkpoints + periodic health/restore reconciliation, then the
+whole-process pre-commit/post-ack barriers and discriminators. Each major
+section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
+
 **OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
 removal was never consciously owner-approved.** The owner's words: "I
 never consciously removed SIEM output. that's a p0 requirement." The

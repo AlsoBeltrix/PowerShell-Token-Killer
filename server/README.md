@@ -73,17 +73,26 @@ Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 | `ptk_reset` | optional `session` | Replace one idle session worker with a fresh contained worker and factory runspace. It refuses while that session is busy or old containment is unconfirmed. |
 | `ptk_session` | `action` (`list`/`open`/`close`); optional `name` | List the connection-local registry, open one named session, or close one idle named session. `default` is lazy and cannot be closed; at most eight sessions may be open. |
 
-## Audit compatibility status
+## Audit status
 
-The production supervisor does not open audit storage, require a local journal,
-or enable the retired OTLP producer. `ptk_state` reports audit disabled, and
-`PTK_AUDIT_ROOT` or `PTK_AUDIT_EXPORT_CONFIG` does not enable producer behavior
-in the ordinary runtime.
+Auditing is mandatory and fail-closed. Every supervisor boot opens a local
+audit journal (default `~/.ptk/audit`, override `PTK_AUDIT_ROOT`) before
+serving any tool call: with a healthy root, every invoke is journaled durably
+before it runs — including the **exact submitted script bytes** as protected
+evidence — and with an unwritable or refused root the transport stays up but
+every invoke is refused fail-closed until the root heals. `ptk_state` reports
+real audit health.
 
-The repository retains legacy local journal/evidence administration,
-checkpoint disposition, and the standalone SIEM receiver's wire/ack contract.
-`PtkAuditAdmin` is retained for those legacy stores but is excluded from the
-runtime package. See [retained audit and receiver contracts](AUDIT-EXPORT.md).
+**Protect the audit root as sensitive data.** Journaled scripts can contain
+passwords, tokens, and customer data; the store is created owner-only, and
+backups or copies of it need the same protection.
+
+SIEM export is optional and asynchronous — configured via `export.json` in
+the audit root, the loopback web UI's settings page (default port 8317), or
+`PTK_AUDIT_EXPORT_KIND` / `PTK_AUDIT_EXPORT_ENDPOINT` /
+`PTK_AUDIT_EXPORT_TOKEN` — and never gates execution. See
+[the audit, export, and receiver contract](AUDIT-EXPORT.md) for the full
+surface, including `PtkAuditAdmin` and the standalone SIEM receiver.
 
 `ptk_invoke` returns command output, then labeled sections when present, in
 this order: `[exit] N`, `[stderr]`, `[errors]`, and `[warnings]`. Empty

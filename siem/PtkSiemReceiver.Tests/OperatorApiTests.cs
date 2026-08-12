@@ -166,6 +166,55 @@ public sealed class OperatorApiTests
     }
 
     [Fact]
+    public async Task Time_filters_are_parsed_not_compared_as_text()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        // The corpus record occurs at 2026-07-15T12:34:56.1234567Z.
+        var record = OtlpTestRequest.CreateRecord();
+        using (var response = await client.SendAsync(
+                   IngestJsonRequest(host.Endpoint, record.Body)))
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // A whole-second window around the event must include it: pre-fix
+        // the lexicographic compare of "…56Z" against "…56.1234567Z" dropped
+        // the event from its own second (cr7-4).
+        using (var response = await OperatorGetAsync(
+                   host,
+                   client,
+                   "/api/events?from=2026-07-15T12:34:56Z&to=2026-07-15T12:34:56Z"))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(1, payload.RootElement.GetProperty("events").GetArrayLength());
+        }
+
+        // An offset form of the same instant behaves identically.
+        using (var response = await OperatorGetAsync(
+                   host,
+                   client,
+                   "/api/events?from=2026-07-15T14:34:56%2B02:00"))
+        {
+            using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(1, payload.RootElement.GetProperty("events").GetArrayLength());
+        }
+
+        // Garbage is a refused request, not a silently empty filter.
+        using (var response = await OperatorGetAsync(
+                   host, client, "/api/events?from=not-a-time"))
+        {
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        }
+    }
+
+    [Fact]
     public async Task The_query_string_form_never_authenticates()
     {
         using var authority = new TestCertificateAuthority();

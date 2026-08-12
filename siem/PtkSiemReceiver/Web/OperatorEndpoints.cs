@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -129,13 +130,30 @@ internal static class OperatorEndpoints
         if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
 
         var limit = ParseLimit(context.Request.Query["limit"].ToString());
+
+        // Time bounds are parsed, not compared as caller text: the store's
+        // column is the fixed seven-digit format below, and lexicographic
+        // comparison against a coarser caller string silently drops
+        // same-second evidence (cr7-4).
+        if (!TryCanonicalizeTimeFilter(
+                context.Request.Query["from"].ToString(),
+                roundUpWholeSecond: false,
+                out var from) ||
+            !TryCanonicalizeTimeFilter(
+                context.Request.Query["to"].ToString(),
+                roundUpWholeSecond: true,
+                out var to))
+        {
+            await WriteJsonAsync(
+                context, 400, new { error = "time_filter" }).ConfigureAwait(false);
+            return;
+        }
+
         var filters = new List<string>();
         using var connection = OpenReadOnly(options.SqlitePath);
         using var command = connection.CreateCommand();
-        AddOptionalFilter(command, filters, "occurred_utc >= $from",
-            "$from", context.Request.Query["from"].ToString());
-        AddOptionalFilter(command, filters, "occurred_utc <= $to",
-            "$to", context.Request.Query["to"].ToString());
+        AddOptionalFilter(command, filters, "occurred_utc >= $from", "$from", from);
+        AddOptionalFilter(command, filters, "occurred_utc <= $to", "$to", to);
         AddOptionalFilter(command, filters, "event_type = $type",
             "$type", context.Request.Query["type"].ToString());
         AddOptionalFilter(command, filters, "session_name = $session",
@@ -389,6 +407,31 @@ internal static class OperatorEndpoints
         if (string.IsNullOrEmpty(value)) return;
         filters.Add(clause);
         command.Parameters.AddWithValue(parameterName, value);
+    }
+
+    /// <summary>Empty stays empty (no filter); anything else must parse as a
+    /// timestamp or the request is a 400, and binds in the store's own
+    /// canonical UTC format. A whole-second upper bound rounds up to the last
+    /// tick of its second so it includes the second it names.</summary>
+    private static bool TryCanonicalizeTimeFilter(
+        string text, bool roundUpWholeSecond, out string canonical)
+    {
+        canonical = string.Empty;
+        if (string.IsNullOrEmpty(text)) return true;
+        if (!DateTimeOffset.TryParse(
+                text,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                out var parsed))
+        {
+            return false;
+        }
+
+        if (roundUpWholeSecond && parsed.UtcTicks % TimeSpan.TicksPerSecond == 0)
+            parsed = parsed.AddTicks(TimeSpan.TicksPerSecond - 1);
+        canonical = parsed.ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'", CultureInfo.InvariantCulture);
+        return true;
     }
 
     private static int ParseLimit(string text) =>

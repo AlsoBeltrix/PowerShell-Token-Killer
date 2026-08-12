@@ -765,18 +765,43 @@ batch CONFIRMED all five with every guard independently re-proved.**
 Receiver corpus note: event IDs must be UUIDv7, boot/host IDs v4 —
 a v4 event id 400s at ingest.
 
-Next: **R5c — mini-SIEM S6 IN PROGRESS** (gap-disposition state
-machine + post-gap storage first — schema v2 migration adds
-`events.post_gap` + `gaps`; then alert rules over a durable work-item
-queue + evaluation cursor, custody-chained alert lifecycle, webhook
-with bounded retry, dashboard surfacing, the crash-before-alert-
-persistence kill test), then R6 (CI/docs/packaging, release-gate
-journaling check), per `.agents/plans/audit-restoration.md` and the
-mini-SIEM plan's slice definitions. The codex verification recipe that
-works: `-s workspace-write -c
-'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
-the socket), per-server MCP `enabled=false` overrides, `-o <file>` for
-the verdict.
+**R5c EXECUTED (2026-08-11), codereview cr8 dispatched over
+`b093dea..782d345`.** Two commits, mini-SIEM S6 complete:
+- `53aa635` gap-disposition state machine: schema v2 in-place
+  migration (`events.post_gap`, `gaps`, one active gap per boot); a
+  chain_gap rejection opens durable gap evidence with its quarantine
+  row; while a gap is open/dispositioned, otherwise-valid records
+  beyond it commit flagged post-gap with sub-chain continuity while
+  the head stays frozen; POST /api/gaps/{id}/disposition
+  (resolved|accepted-loss) is the SOLE resumption authority —
+  stored sub-chain resumes immediately at its tail, otherwise the
+  next anchor record resumes; every transition custody-chained with
+  the operator token's SHA-256 as actor. Tests include the plan's
+  reject → disposition → restart → resume ordering and a real v1→v2
+  migration. Knock-on: the cr3-4 retention guard was recalibrated
+  (96 old records; the v2 fixed page overhead had flipped its
+  marginal half-size bound) and re-proved biting against the
+  raw-page-count sabotage.
+- `782d345` alert pipeline: schema v3 (durable `alert_queue` written
+  in the ingest transaction stamped with the frozen rule-config
+  SHA-256, persisted `alert_cursor`, custody-chained `alerts`);
+  config `alerts` section (event_match/chain_break/gap_detected/
+  ingest_rate, strict per-type parameters, webhook
+  HTTPS-or-loopback); evaluation commits alerts + custody + cursor
+  atomically (exactly once, crash-replay at startup, both config
+  hashes recorded across a rule change); webhook fires after commit,
+  bounded 3 attempts, never a gate; lifecycle API open→acknowledged→
+  closed only. Kill test uses the deterministic
+  `alertEvaluationHoldForTests` seam; enqueue-drop and
+  transition-unguard sabotages both bit. SIEM suite 294/294.
+
+Next: close the cr8 loop (triage → fix per finding → verify), then
+**R6** (CI legs, AUDIT-EXPORT.md/READMEs, receiver signing through
+release legs, release-gate positive journaling check) + its
+codereview. The codex verification recipe that works:
+`-s workspace-write -c 'sandbox_workspace_write.network_access=true'`
+(VSTest testhost needs the socket), per-server MCP `enabled=false`
+overrides, `-o <file>` for the verdict.
 
 **Housekeeping note (2026-08-11):** `git stash` holds one pre-existing
 entry — an *hcc-7* prompt-flush WIP for `scripts/ptk_init.ps1`

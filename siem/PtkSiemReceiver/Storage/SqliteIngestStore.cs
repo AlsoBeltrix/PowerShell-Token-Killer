@@ -59,7 +59,7 @@ internal sealed record CreatedAlert(
 
 internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 4;
+    private const int CurrentSchemaVersion = 5;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -799,6 +799,31 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction,
                 "UPDATE meta SET value = '4' WHERE key = 'schema_version';");
             ExecuteNonQuery(connection, transaction, "PRAGMA user_version=4;");
+            transaction.Commit();
+        }
+
+        if (version < 5)
+        {
+            // Schema v5 (cr8-4 verification reopen): a store migrated from
+            // v3 carried its existing gaps with no opening-attempt link, so
+            // their quarantine evidence was still sweepable. Backfill the
+            // link from the chain_gap attempt matching boot + claimed
+            // sequence; a gap whose attempt is already gone stays NULL —
+            // there is nothing left to protect.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, """
+                UPDATE gaps SET opening_attempt_id = (
+                    SELECT MIN(attempt_id) FROM quarantine
+                    WHERE quarantine.claimed_supervisor_boot_id = gaps.supervisor_boot_id
+                      AND quarantine.claimed_sequence = gaps.claimed_sequence
+                      AND quarantine.failure_code = 'chain_gap')
+                WHERE opening_attempt_id IS NULL;
+                """);
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "UPDATE meta SET value = '5' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=5;");
             transaction.Commit();
         }
 

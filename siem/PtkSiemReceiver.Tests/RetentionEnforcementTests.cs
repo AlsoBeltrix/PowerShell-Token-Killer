@@ -379,6 +379,61 @@ public sealed class RetentionEnforcementTests
     }
 
     [Fact]
+    public async Task A_migrated_pre_v4_gap_regains_its_opening_attempt_link()
+    {
+        // cr8-4 verification reopen: a v3 store's existing unresolved gap
+        // migrated with opening_attempt_id NULL, so its quarantine evidence
+        // was still sweepable. The v5 backfill relinks it.
+        using var database = new TestDatabase();
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            await CommitChainAsync(store, count: 1);
+            var gapped = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890f4",
+                sequence: 3,
+                previousEventHash: LastHash));
+            Assert.Equal(
+                IngestCommitResultKind.PermanentFailure,
+                (await store.CommitAsync(gapped, Receipt, default)).Kind);
+        }
+
+        // Reconstruct the faithful v3 shape: no opening-attempt column,
+        // versions rolled back.
+        using (var connection = new SqliteConnection(
+                   new SqliteConnectionStringBuilder
+                   {
+                       DataSource = database.Path,
+                       Mode = SqliteOpenMode.ReadWrite,
+                       Pooling = false,
+                   }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE gaps DROP COLUMN opening_attempt_id;
+                UPDATE meta SET value = '3' WHERE key = 'schema_version';
+                PRAGMA user_version=3;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        using (var reopened = SqliteIngestStore.Open(database.Path))
+        {
+            Assert.Equal(
+                1L,
+                Scalar<long>(
+                    database.Path,
+                    "SELECT opening_attempt_id FROM gaps WHERE state = 'open';"));
+            _ = await reopened.EnforceRetentionAsync(
+                maximumAgeDays: 30,
+                maximumTotalBytes: null,
+                utcNow: Receipt.ReceivedUtc.AddYears(1),
+                CancellationToken.None);
+            Assert.Equal(1L, Count(database.Path, "quarantine"));
+        }
+    }
+
+    [Fact]
     public async Task Spent_queue_rows_and_aged_closed_alerts_are_reclaimed()
     {
         // cr8-5: evaluated queue rows are deleted with the cursor advance,

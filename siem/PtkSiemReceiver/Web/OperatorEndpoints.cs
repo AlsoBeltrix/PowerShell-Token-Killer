@@ -47,6 +47,7 @@ internal static class OperatorEndpoints
 {
     private const int DefaultEventLimit = 100;
     private const int MaximumEventLimit = 500;
+    internal const int MaximumChainLimit = 200;
 
     internal static void Map(WebApplication application)
     {
@@ -280,11 +281,17 @@ internal static class OperatorEndpoints
 
         using var connection = OpenReadOnly(options.SqlitePath);
         using var command = connection.CreateCommand();
+        // Bounded like every other list (cr7-3): the newest boots window
+        // serves triage; growth in retained history must not grow this
+        // response. One extra row detects truncation.
         command.CommandText =
             "SELECT c.supervisor_boot_id, c.head_sequence, c.head_event_id, " +
-            "c.head_event_hash, COUNT(e.event_id) " +
+            "c.head_event_hash, COUNT(e.event_id), MAX(e.received_utc) " +
             "FROM chains c LEFT JOIN events e ON e.supervisor_boot_id = c.supervisor_boot_id " +
-            "GROUP BY c.supervisor_boot_id ORDER BY c.supervisor_boot_id;";
+            "GROUP BY c.supervisor_boot_id " +
+            "ORDER BY MAX(e.received_utc) DESC, c.supervisor_boot_id DESC " +
+            "LIMIT $limit;";
+        command.Parameters.AddWithValue("$limit", MaximumChainLimit + 1);
         var chains = new List<object>();
         using (var reader = await command.ExecuteReaderAsync(context.RequestAborted)
                    .ConfigureAwait(false))
@@ -298,11 +305,15 @@ internal static class OperatorEndpoints
                     head_event_id = reader.GetString(2),
                     head_event_hash = reader.GetString(3),
                     stored_events = reader.GetInt64(4),
+                    last_received_utc = reader.IsDBNull(5) ? null : reader.GetString(5),
                 });
             }
         }
 
-        await WriteJsonAsync(context, 200, new { chains }).ConfigureAwait(false);
+        var truncated = chains.Count > MaximumChainLimit;
+        if (truncated) chains.RemoveAt(MaximumChainLimit);
+
+        await WriteJsonAsync(context, 200, new { chains, truncated }).ConfigureAwait(false);
     }
 
     internal static async Task HandleQuarantineAsync(
@@ -463,7 +474,8 @@ async function refresh(){
  const q=await (await api('/api/quarantine')).json();
  document.getElementById('quarantine').textContent=q.items.length?JSON.stringify(q.items,null,1):'none';
 }
-refresh();setInterval(refresh,10000);
+async function loop(){try{await refresh();}finally{setTimeout(loop,10000);}}
+loop();
 </script>
 </body>
 </html>

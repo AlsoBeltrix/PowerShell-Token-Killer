@@ -199,6 +199,52 @@ public sealed class OperatorApiTests
     }
 
     [Fact]
+    public async Task The_chains_list_is_bounded_and_newest_first()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        // Exactly the bound in one batch, then one more boot in a later
+        // request: the response must hold exactly the bound, flag the
+        // truncation, and lead with the newest boot (cr7-3).
+        var bound = PtkSiemReceiver.Web.OperatorEndpoints.MaximumChainLimit;
+        var batch = new string[bound];
+        for (var index = 0; index < bound; index++)
+        {
+            batch[index] = OtlpTestRequest.CreateRecord(
+                eventId: $"11111111-2222-7333-8444-{index:D12}",
+                supervisorBootId: $"aaaaaaaa-0000-4000-8000-{index:D12}").Body;
+        }
+        using (var response = await client.SendAsync(
+                   IngestJsonRequest(host.Endpoint, batch)))
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        const string NewestBoot = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+        var newest = OtlpTestRequest.CreateRecord(
+            eventId: "22222222-3333-7444-8555-000000000000",
+            supervisorBootId: NewestBoot);
+        using (var response = await client.SendAsync(
+                   IngestJsonRequest(host.Endpoint, newest.Body)))
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var list = await OperatorGetAsync(host, client, "/api/chains");
+        Assert.Equal(HttpStatusCode.OK, list.StatusCode);
+        using var payload = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        Assert.True(payload.RootElement.GetProperty("truncated").GetBoolean());
+        var chains = payload.RootElement.GetProperty("chains");
+        Assert.Equal(bound, chains.GetArrayLength());
+        Assert.Equal(
+            NewestBoot,
+            chains[0].GetProperty("supervisor_boot_id").GetString());
+    }
+
+    [Fact]
     public async Task The_two_surfaces_do_not_serve_each_others_routes()
     {
         using var authority = new TestCertificateAuthority();

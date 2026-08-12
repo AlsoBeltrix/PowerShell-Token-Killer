@@ -1,5 +1,21 @@
 # Review status
 
+## Active — cr10 (Claude review over S4b custody/retention, 2026-08-12)
+
+Generation attempt: claude / claude-opus-5 / xhigh / frontier over the
+intended `53bb4aa..196b4f7` range. Claude independently resolved the real
+commits and returned two evidence-backed candidates, but the orchestrator had
+supplied invalid fabricated full-SHA expansions; returned SHAs therefore did
+not match the literal dispatch pins and the envelope is not accepted as a
+range verdict. Both candidates passed intake independently and are admitted.
+Fixes land one finding per commit; one verification batch is the section's
+second and final review round.
+
+| ID     | Severity | Impact (one line)                                      | Status | Reviewer |
+|--------|----------|--------------------------------------------------------|--------|----------|
+| cr10-1 | CRITICAL | v7 receipts brick the receiver during v8 upgrade       | `[~]` fixed, verification pending | pending |
+| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[ ]` | pending |
+
 ## Closed — cr9 (codereview over R6, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over
@@ -893,4 +909,3 @@ commit, per this repo's recorded codex-loop precedent (`.agents/state.md`,
 2026-07-04 routing entry) rather than the playbook's per-finding branches —
 the scope is prose in governance files, and the owner-gated push boundary
 still applies to the whole batch.
-

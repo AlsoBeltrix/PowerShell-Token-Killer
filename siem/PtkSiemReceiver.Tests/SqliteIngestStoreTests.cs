@@ -424,6 +424,157 @@ public sealed class SqliteIngestStoreTests
     }
 
     [Fact]
+    public async Task V7_upgrade_counts_unrecoverable_legacy_receipts_without_bricking_startup()
+    {
+        using var database = new TestDatabase();
+        var ruleHash = new string('b', 64);
+        using (var store = SqliteIngestStore.Open(
+                   database.Path, alertRuleConfigHash: ruleHash))
+        {
+            var first = Validate(OtlpTestRequest.Create());
+            var second = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890f2",
+                sequence: 2,
+                previousEventHash: first.EventHash));
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(first, Receipt, default)).Kind);
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(second, Receipt, default)).Kind);
+
+            var gap = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890f4",
+                sequence: 4,
+                previousEventHash: second.EventHash));
+            Assert.Equal(
+                IngestCommitResultKind.PermanentFailure,
+                (await store.CommitAsync(gap, Receipt, default)).Kind);
+
+            IReadOnlyList<PtkSiemReceiver.Configuration.AlertRule> rules =
+                [new("completed", "event_match", "tool.completed", null, null)];
+            while (await store.EvaluateNextAlertWorkItemAsync(
+                       rules, ruleHash, Receipt.ReceivedUtc, default) is not null)
+            {
+            }
+        }
+
+        long expectedLegacy;
+        using (var connection = Open(database.Path, readOnly: false))
+        {
+            using (var delete = connection.CreateCommand())
+            {
+                delete.CommandText = "DELETE FROM events WHERE sequence = 1;";
+                Assert.Equal(1, delete.ExecuteNonQuery());
+            }
+
+            using (var count = connection.CreateCommand())
+            {
+                count.CommandText = """
+                    SELECT COUNT(*) FROM custody c
+                    WHERE c.subject_kind IN ('gap', 'alert')
+                       OR (c.subject_kind = 'event' AND NOT EXISTS (
+                           SELECT 1 FROM events e WHERE e.event_id = c.subject_id));
+                    """;
+                expectedLegacy = Convert.ToInt64(
+                    count.ExecuteScalar(), CultureInfo.InvariantCulture);
+            }
+            Assert.True(expectedLegacy >= 3);
+
+            var legacyRows = new List<(long Sequence, byte[] Evidence, string Utc,
+                string Credential, string Endpoint, string Disposition,
+                string Kind, string SubjectId)>();
+            using (var select = connection.CreateCommand())
+            {
+                select.CommandText = """
+                    SELECT receipt_sequence, evidence, received_utc,
+                           client_certificate_thumbprint, remote_endpoint,
+                           disposition, subject_kind, subject_id
+                    FROM custody ORDER BY receipt_sequence;
+                    """;
+                using var reader = select.ExecuteReader();
+                while (reader.Read())
+                {
+                    legacyRows.Add((
+                        reader.GetInt64(0), reader.GetFieldValue<byte[]>(1),
+                        reader.GetString(2), reader.GetString(3), reader.GetString(4),
+                        reader.GetString(5), reader.GetString(6), reader.GetString(7)));
+                }
+            }
+
+            string? previousLegacyHash = null;
+            foreach (var row in legacyRows)
+            {
+                var legacyHash = CustodyHash.ComputeV1(
+                    row.Sequence,
+                    previousLegacyHash,
+                    row.Evidence,
+                    row.Utc,
+                    row.Credential,
+                    row.Endpoint,
+                    row.Disposition,
+                    row.Kind,
+                    row.SubjectId);
+                using var update = connection.CreateCommand();
+                update.CommandText = """
+                    UPDATE custody SET previous_receipt_hash = $previous,
+                                       receipt_hash = $hash
+                    WHERE receipt_sequence = $sequence;
+                    """;
+                update.Parameters.AddWithValue(
+                    "$previous", (object?)previousLegacyHash ?? DBNull.Value);
+                update.Parameters.AddWithValue("$hash", legacyHash);
+                update.Parameters.AddWithValue("$sequence", row.Sequence);
+                Assert.Equal(1, update.ExecuteNonQuery());
+                previousLegacyHash = legacyHash;
+            }
+
+            using var downgrade = connection.CreateCommand();
+            downgrade.CommandText = """
+                CREATE TABLE custody_v7(
+                    receipt_sequence INTEGER PRIMARY KEY,
+                    ledger_version INTEGER NOT NULL CHECK(ledger_version = 1),
+                    previous_receipt_hash TEXT NULL,
+                    receipt_hash TEXT NOT NULL UNIQUE,
+                    received_utc TEXT NOT NULL,
+                    client_certificate_thumbprint TEXT NOT NULL,
+                    remote_endpoint TEXT NOT NULL,
+                    disposition TEXT NOT NULL,
+                    subject_kind TEXT NOT NULL,
+                    subject_id TEXT NOT NULL
+                );
+                INSERT INTO custody_v7
+                SELECT receipt_sequence, 1, previous_receipt_hash, receipt_hash,
+                       received_utc, client_certificate_thumbprint, remote_endpoint,
+                       disposition, subject_kind, subject_id
+                FROM custody;
+                DROP TABLE custody;
+                ALTER TABLE custody_v7 RENAME TO custody;
+                DROP TABLE retention_tombstone_entries;
+                DROP TABLE retention_tombstones;
+                UPDATE meta SET value = '7' WHERE key = 'schema_version';
+                PRAGMA user_version=7;
+                """;
+            downgrade.ExecuteNonQuery();
+        }
+
+        using var upgraded = SqliteIngestStore.Open(database.Path);
+        Assert.True(upgraded.StartupCustodyVerification.Healthy);
+        Assert.Equal(
+            "custody_legacy_unverified",
+            upgraded.StartupCustodyVerification.FailureCode);
+        Assert.Equal(
+            expectedLegacy,
+            upgraded.StartupCustodyVerification.LegacyUnverifiedReceipts);
+        Assert.Equal(
+            expectedLegacy,
+            Scalar<long>(database.Path, """
+                SELECT COUNT(*) FROM custody
+                WHERE ledger_version = 1 AND evidence IS NULL;
+                """));
+    }
+
+    [Fact]
     public async Task Alert_custody_receipts_commit_the_evidence_fields()
     {
         // cr8-3: the receipt must break when the stored alert's evidence is

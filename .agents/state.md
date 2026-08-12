@@ -39,6 +39,23 @@ witness/checkpoints + periodic health/restore reconciliation, then the
 whole-process pre-commit/post-ack barriers and discriminators. Each major
 section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
 
+**Active review loop cr10:** Claude's first-round S4b custody/retention pass
+produced two admitted findings; `.agents/review/index.md` owns status. cr10-1
+is a CRITICAL v7→v8 legacy-receipt startup brick; cr10-2 is HIGH quadratic
+startup/retention behavior. The generation envelope itself failed the literal
+SHA-pin check because the orchestrator expanded short SHAs incorrectly, so it
+is not recorded as an accepted range verdict; both findings are retained on
+their independently reproducible evidence. One fix commit per finding, then
+one final verification batch (the section's round-two cap).
+
+**cr10-1 fixed, guard proved biting (2026-08-12):** subject verification now
+exempts only ledger-v1 receipts whose exact evidence is unavailable, allowing
+them to reach the existing explicit `LegacyUnverifiedReceipts` count. Every
+v2 receipt and every v1 receipt backfilled from a live event/quarantine source
+still takes full verification. The guard rebuilds a faithful v7 schema with an
+orphaned event plus gap/alert lifecycle receipts; removing the exemption
+reproduces `custody_integrity_subject`, restoring it passes.
+
 **OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
 removal was never consciously owner-approved.** The owner's words: "I
 never consciously removed SIEM output. that's a p0 requirement." The

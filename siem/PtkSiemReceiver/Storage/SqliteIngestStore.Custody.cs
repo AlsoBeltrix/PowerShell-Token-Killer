@@ -205,6 +205,7 @@ internal sealed partial class SqliteIngestStore
                 if (!VerifySubjectEvidence(
                         connection,
                         sequence,
+                        ledgerVersion,
                         subjectKind,
                         subjectId,
                         evidenceHash,
@@ -382,12 +383,21 @@ internal sealed partial class SqliteIngestStore
     private static bool VerifySubjectEvidence(
         SqliteConnection connection,
         long custodySequence,
+        int ledgerVersion,
         string subjectKind,
         string subjectId,
         string? evidenceHash,
         byte[]? evidence,
         IReadOnlyDictionary<long, string> compacted)
     {
+        // Exact evidence was not retained in schema v7. The migration
+        // backfills event/quarantine bytes while their source still exists;
+        // gap/alert lifecycle snapshots and already-retained sources cannot
+        // be reconstructed. Those rows remain explicitly counted as legacy
+        // unverified instead of turning a successful schema upgrade into a
+        // permanent startup refusal. Every v2 receipt and every recovered v1
+        // receipt still takes the full subject check below.
+        if (ledgerVersion == 1 && evidence is null) return true;
         if (evidence is null &&
             compacted.TryGetValue(custodySequence, out var compactedHash) &&
             string.Equals(compactedHash, evidenceHash, StringComparison.Ordinal))

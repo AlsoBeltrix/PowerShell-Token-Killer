@@ -15,12 +15,15 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
 {
     private readonly string _root =
         SiemTestFileSystem.CreateProtectedRoot("ptk-siem-config");
+    private readonly string _witnessRoot =
+        SiemTestFileSystem.CreateProtectedRoot("ptk-siem-witness-config");
 
     public void Dispose()
     {
         try
         {
             Directory.Delete(_root, recursive: true);
+            Directory.Delete(_witnessRoot, recursive: true);
         }
         catch (Exception exception) when (
             exception is IOException or UnauthorizedAccessException)
@@ -55,6 +58,8 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
         Assert.Null(options.OperatorHttpsCertificatePath);
         Assert.Null(options.OperatorHttpsCertificateKeyPath);
         Assert.Equal(Path.Combine(_root, "events.db"), options.SqlitePath);
+        Assert.Equal(_witnessRoot, options.CustodyWitness!.DirectoryPath);
+        Assert.Equal(60, options.CustodyWitness.CheckpointIntervalSeconds);
         Assert.Null(options.RetentionMaxAgeDays);
         Assert.Null(options.RetentionMaxTotalBytes);
         Assert.Equal(configurationPath, options.ConfigurationPath);
@@ -132,6 +137,53 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
 
         Assert.Equal(7, options.RetentionMaxAgeDays);
         Assert.Null(options.RetentionMaxTotalBytes);
+    }
+
+    [Fact]
+    public void Custody_witness_requires_an_independent_absolute_directory()
+    {
+        var missing = ValidConfiguration();
+        missing.Storage.Remove("custodyWitness");
+        Assert.Equal(
+            "custody_witness_section",
+            FailureCodeOf(WriteConfiguration(missing)));
+
+        var insideDataRoot = ValidConfiguration();
+        insideDataRoot.Storage["custodyWitness"] = new JsonObject
+        {
+            ["directoryPath"] = Path.Combine(_root, "witness"),
+        };
+        Assert.Equal(
+            "custody_witness_independence",
+            FailureCodeOf(WriteConfiguration(insideDataRoot)));
+
+        var sameAnchor = ValidConfiguration();
+        ((JsonObject)sameAnchor.Storage["custodyWitness"]!)["anchorDirectoryPath"] =
+            _witnessRoot;
+        Assert.Equal(
+            "custody_anchor_independence",
+            FailureCodeOf(WriteConfiguration(sameAnchor)));
+    }
+
+    [Fact]
+    public void Custody_witness_interval_is_bounded_and_anchor_is_typed()
+    {
+        var configuration = ValidConfiguration();
+        var anchor = Path.Combine(
+            Path.GetDirectoryName(_root)!, $"ptk-siem-anchor-{Guid.NewGuid():n}");
+        var witness = (JsonObject)configuration.Storage["custodyWitness"]!;
+        witness["checkpointIntervalSeconds"] = 15;
+        witness["anchorDirectoryPath"] = anchor;
+
+        var options = SiemReceiverConfigurationLoader.Load(
+            WriteConfiguration(configuration));
+        Assert.Equal(15, options.CustodyWitness!.CheckpointIntervalSeconds);
+        Assert.Equal(anchor, options.CustodyWitness.AnchorDirectoryPath);
+
+        witness["checkpointIntervalSeconds"] = 86_401;
+        Assert.Equal(
+            "custody_witness_interval",
+            FailureCodeOf(WriteConfiguration(configuration)));
     }
 
     [Fact]
@@ -850,6 +902,10 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
         ["storage"] = new JsonObject
         {
             ["sqlitePath"] = Path.Combine(_root, "events.db"),
+            ["custodyWitness"] = new JsonObject
+            {
+                ["directoryPath"] = _witnessRoot,
+            },
         },
     });
 

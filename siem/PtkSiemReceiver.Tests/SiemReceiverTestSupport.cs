@@ -150,8 +150,12 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
 {
     private readonly WebApplication _application;
     private readonly string _root;
+    private readonly string _witnessRoot;
+    private readonly string? _anchorRoot;
 
     private readonly bool _preserveRootOnDispose;
+    private readonly bool _preserveWitnessOnDispose;
+    private readonly bool _preserveAnchorOnDispose;
 
     private SiemReceiverTestHost(
         WebApplication application,
@@ -159,7 +163,11 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         Uri endpoint,
         Uri operatorEndpoint,
         string databasePath,
-        bool preserveRootOnDispose)
+        bool preserveRootOnDispose,
+        string witnessRoot,
+        bool preserveWitnessOnDispose,
+        string? anchorRoot,
+        bool preserveAnchorOnDispose)
     {
         _application = application;
         _root = root;
@@ -167,9 +175,20 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         OperatorEndpoint = operatorEndpoint;
         DatabasePath = databasePath;
         _preserveRootOnDispose = preserveRootOnDispose;
+        _witnessRoot = witnessRoot;
+        _preserveWitnessOnDispose = preserveWitnessOnDispose;
+        _anchorRoot = anchorRoot;
+        _preserveAnchorOnDispose = preserveAnchorOnDispose;
     }
 
     internal string Root => _root;
+
+    internal string WitnessRoot => _witnessRoot;
+
+    internal string? AnchorRoot => _anchorRoot;
+
+    internal CustodyWitness CustodyWitness =>
+        _application.Services.GetRequiredService<CustodyWitness>();
 
     internal Uri Endpoint { get; }
 
@@ -193,6 +212,10 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         string? ingestToken = null,
         string? existingRoot = null,
         bool preserveRootOnDispose = false,
+        string? existingWitnessRoot = null,
+        bool preserveWitnessOnDispose = false,
+        string? existingAnchorRoot = null,
+        bool preserveAnchorOnDispose = false,
         IReadOnlyList<AlertRule>? alertRules = null,
         string? alertWebhookUrl = null,
         bool alertEvaluationHoldForTests = false)
@@ -200,6 +223,8 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         // A restart test hands the previous host's root back in: certificate
         // material and the database are reused as a real restart would.
         var root = existingRoot ?? SiemTestFileSystem.CreateProtectedRoot("ptk-siem-host");
+        var witnessRoot = existingWitnessRoot ??
+            SiemTestFileSystem.CreateProtectedRoot("ptk-siem-witness-host");
         var certificatePath = Path.Combine(root, "server-cert.pem");
         var keyPath = Path.Combine(root, "server-key.pem");
         var authorityPath = Path.Combine(root, "client-roots.pem");
@@ -241,7 +266,11 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
             null,
             ingestToken: ingestToken,
             alertRules: alertRules,
-            alertWebhookUrl: alertWebhookUrl);
+            alertWebhookUrl: alertWebhookUrl,
+            custodyWitness: new CustodyWitnessOptions(
+                witnessRoot,
+                CheckpointIntervalSeconds: 3_600,
+                AnchorDirectoryPath: existingAnchorRoot));
 
         WebApplication? application = null;
         try
@@ -268,12 +297,18 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
                 new Uri(new Uri(ingestAddress), "/v1/logs"),
                 new Uri(operatorAddress),
                 databasePath,
-                preserveRootOnDispose);
+                preserveRootOnDispose,
+                witnessRoot,
+                preserveWitnessOnDispose,
+                existingAnchorRoot,
+                preserveAnchorOnDispose);
         }
         catch
         {
             if (application is not null) await application.DisposeAsync();
             if (existingRoot is null) Directory.Delete(root, recursive: true);
+            if (existingWitnessRoot is null)
+                Directory.Delete(witnessRoot, recursive: true);
             throw;
         }
     }
@@ -296,6 +331,9 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         await _application.StopAsync();
         await _application.DisposeAsync();
         if (!_preserveRootOnDispose) Directory.Delete(_root, recursive: true);
+        if (!_preserveWitnessOnDispose) Directory.Delete(_witnessRoot, recursive: true);
+        if (_anchorRoot is not null && !_preserveAnchorOnDispose)
+            Directory.Delete(_anchorRoot, recursive: true);
     }
 }
 

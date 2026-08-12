@@ -199,6 +199,15 @@ internal static class SiemProtectedPath
     internal static ProtectedPathIdentity CreateProtectedFile(string path) =>
         Sanitize(() => CreateProtectedFileCore(NormalizeAbsolute(path)));
 
+    /// <summary>Creates one owner-only file, writes its complete immutable
+    /// payload through the retained handle, and forces the bytes to stable
+    /// storage before exposing the resulting identity. Used for append-only
+    /// custody witness and file-drop anchor entries.</summary>
+    internal static ProtectedPathIdentity WriteNewProtectedFile(
+        string path,
+        byte[] bytes) =>
+        Sanitize(() => WriteNewProtectedFileCore(NormalizeAbsolute(path), bytes));
+
     internal static ProtectedPathIdentity ProtectCreatedFile(string path) =>
         Sanitize(() =>
         {
@@ -403,6 +412,29 @@ internal static class SiemProtectedPath
             MacProtectedPathNative.RemoveExtendedAcl(stream.SafeFileHandle);
 
         var identity = VerifyRetainedFile(path, stream.SafeFileHandle, testHooks: null);
+        stream.Flush(flushToDisk: true);
+        RequireSameIdentity(
+            VerifyRetainedFile(path, stream.SafeFileHandle, testHooks: null),
+            identity);
+        return identity;
+    }
+
+    private static ProtectedPathIdentity WriteNewProtectedFileCore(
+        string path,
+        byte[] bytes)
+    {
+        var parent = Path.GetDirectoryName(path) ??
+            throw new ProtectedPathException(ProtectedPathFailureKind.InvalidPath);
+        _ = VerifyExternalDirectoryCore(parent, testHooks: null);
+        RefuseLinkedPathComponents(path);
+        if (PathExistsWithoutFollowing(path))
+            throw new ProtectedPathException(ProtectedPathFailureKind.AlreadyExists);
+
+        using var stream = CreateOwnerOnlyFileStream(path);
+        if (OperatingSystem.IsMacOS())
+            MacProtectedPathNative.RemoveExtendedAcl(stream.SafeFileHandle);
+        var identity = VerifyRetainedFile(path, stream.SafeFileHandle, testHooks: null);
+        stream.Write(bytes);
         stream.Flush(flushToDisk: true);
         RequireSameIdentity(
             VerifyRetainedFile(path, stream.SafeFileHandle, testHooks: null),

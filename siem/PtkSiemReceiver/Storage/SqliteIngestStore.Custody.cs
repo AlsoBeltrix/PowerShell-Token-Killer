@@ -60,12 +60,24 @@ internal sealed partial class SqliteIngestStore
         string? ResumedUtc,
         string? ResumeEventId);
 
+    private sealed record RestoreSubjectState(
+        string DetectedUtc,
+        string AuthorizedUtc,
+        string OperatorActor,
+        string OperatorEndpoint,
+        long PriorCustodySequence,
+        string? PriorCustodyHash,
+        long RestoredCustodySequence,
+        string? RestoredCustodyHash,
+        long CustodySequence);
+
     private sealed record CustodySubjectSnapshot(
         IReadOnlyDictionary<string, string> EventEvidenceHashes,
         IReadOnlyDictionary<string, string> QuarantineEvidenceHashes,
         IReadOnlyDictionary<(string Kind, string Id), long> LatestReceiptSequences,
         IReadOnlyDictionary<string, AlertSubjectState> Alerts,
-        IReadOnlyDictionary<string, GapSubjectState> Gaps);
+        IReadOnlyDictionary<string, GapSubjectState> Gaps,
+        IReadOnlyDictionary<string, RestoreSubjectState> Restores);
 
     internal async Task<CustodyVerificationResult> VerifyCustodyAsync(
         CancellationToken cancellationToken)
@@ -517,7 +529,33 @@ internal sealed partial class SqliteIngestStore
             }
         }
 
-        return new CustodySubjectSnapshot(events, quarantine, latest, alerts, gaps);
+        var restores = new Dictionary<string, RestoreSubjectState>(StringComparer.Ordinal);
+        faultInjector?.CustodySnapshotQueryForTests("restores");
+        using (var command = CreateCommand(connection, null, """
+            SELECT restore_id, detected_utc, authorized_utc,
+                   operator_actor, operator_endpoint,
+                   prior_custody_sequence, prior_custody_hash,
+                   restored_custody_sequence, restored_custody_hash,
+                   custody_sequence
+            FROM custody_restore_events;
+            """))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                restores.Add(
+                    reader.GetString(0),
+                    new RestoreSubjectState(
+                        reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                        reader.GetString(4), reader.GetInt64(5),
+                        reader.IsDBNull(6) ? null : reader.GetString(6),
+                        reader.GetInt64(7),
+                        reader.IsDBNull(8) ? null : reader.GetString(8),
+                        reader.GetInt64(9)));
+            }
+        }
+
+        return new CustodySubjectSnapshot(events, quarantine, latest, alerts, gaps, restores);
     }
 
     private static bool VerifySubjectEvidence(
@@ -550,12 +588,42 @@ internal sealed partial class SqliteIngestStore
         if (subjectKind is "gap")
             return VerifyLatestGapState(
                 subjects, custodySequence, subjectId, evidence);
+        if (subjectKind is "restore")
+            return VerifyRestoreState(subjects, custodySequence, subjectId, evidence);
         if (subjectKind is not ("event" or "quarantine")) return true;
         var source = subjectKind == "event"
             ? subjects.EventEvidenceHashes
             : subjects.QuarantineEvidenceHashes;
         return source.TryGetValue(subjectId, out var rawHash) &&
                string.Equals(rawHash, evidenceHash, StringComparison.Ordinal);
+    }
+
+    private static bool VerifyRestoreState(
+        CustodySubjectSnapshot subjects,
+        long custodySequence,
+        string subjectId,
+        byte[]? evidence)
+    {
+        if (evidence is null ||
+            !subjects.Restores.TryGetValue(subjectId, out var restore) ||
+            restore.CustodySequence != custodySequence)
+        {
+            return false;
+        }
+
+        using var document = JsonDocument.Parse(evidence);
+        var root = document.RootElement;
+        return root.GetProperty("v").GetInt32() == 1 &&
+               string.Equals(RequiredJsonString(root, "kind"), "restore", StringComparison.Ordinal) &&
+               string.Equals(RequiredJsonString(root, "restore_id"), subjectId, StringComparison.Ordinal) &&
+               string.Equals(RequiredJsonString(root, "detected_utc"), restore.DetectedUtc, StringComparison.Ordinal) &&
+               string.Equals(RequiredJsonString(root, "authorized_utc"), restore.AuthorizedUtc, StringComparison.Ordinal) &&
+               string.Equals(RequiredJsonString(root, "operator_actor"), restore.OperatorActor, StringComparison.Ordinal) &&
+               string.Equals(RequiredJsonString(root, "operator_endpoint"), restore.OperatorEndpoint, StringComparison.Ordinal) &&
+               root.GetProperty("prior_custody_sequence").GetInt64() == restore.PriorCustodySequence &&
+               string.Equals(JsonNullableString(root, "prior_custody_hash"), restore.PriorCustodyHash, StringComparison.Ordinal) &&
+               root.GetProperty("restored_custody_sequence").GetInt64() == restore.RestoredCustodySequence &&
+               string.Equals(JsonNullableString(root, "restored_custody_hash"), restore.RestoredCustodyHash, StringComparison.Ordinal);
     }
 
     private static bool VerifyLatestAlertState(
@@ -669,6 +737,12 @@ internal sealed partial class SqliteIngestStore
     {
         var value = root.GetProperty(property);
         return value.ValueKind == JsonValueKind.Null ? null : value.GetInt64();
+    }
+
+    private static string? JsonNullableString(JsonElement root, string property)
+    {
+        var value = root.GetProperty(property);
+        return value.ValueKind == JsonValueKind.Null ? null : value.GetString();
     }
 
     private static CustodyVerificationResult Failure(

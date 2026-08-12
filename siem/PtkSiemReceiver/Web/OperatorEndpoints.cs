@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using PtkSiemReceiver.Configuration;
+using PtkSiemReceiver.Storage;
 
 namespace PtkSiemReceiver.Web;
 
@@ -61,6 +62,57 @@ internal static class OperatorEndpoints
         application.MapPost("/api/gaps/{gapId:long}/disposition", HandleGapDispositionAsync);
         application.MapGet("/api/alerts", HandleAlertsAsync);
         application.MapPost("/api/alerts/{alertId:long}/transition", HandleAlertTransitionAsync);
+        application.MapGet("/api/custody/health", HandleCustodyHealthAsync);
+        if (application.Services.GetService<CustodyWitness>() is not null)
+            application.MapPost("/api/custody/restore", HandleCustodyRestoreAsync);
+    }
+
+    private static async Task HandleCustodyHealthAsync(
+        HttpContext context,
+        SiemReceiverOptions options,
+        CustodyHealthState health)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+        var snapshot = health.Snapshot;
+        await WriteJsonAsync(context, 200, new
+        {
+            healthy = snapshot.Healthy,
+            failure_code = snapshot.FailureCode,
+            checked_utc = snapshot.CheckedUtc,
+            custody_sequence = snapshot.CustodySequence,
+            custody_hash = snapshot.CustodyHash,
+            witness_sequence = snapshot.WitnessSequence,
+            witness_hash = snapshot.WitnessHash,
+            restore_pending = snapshot.RestorePending,
+            anchor_configured = snapshot.AnchorConfigured,
+        }).ConfigureAwait(false);
+    }
+
+    private static async Task HandleCustodyRestoreAsync(
+        HttpContext context,
+        SiemReceiverOptions options,
+        CustodyWitness witness)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+        try
+        {
+            var outcome = await witness.AuthorizeRestoreAsync(
+                OperatorReceipt(context, options),
+                context.RequestAborted).ConfigureAwait(false);
+            await WriteJsonAsync(context, 200, new
+            {
+                restore_recorded = outcome.Created,
+                alert_id = outcome.AlertId,
+                custody_sequence = outcome.Head.Sequence,
+                custody_hash = outcome.Head.Hash,
+            }).ConfigureAwait(false);
+        }
+        catch (InvalidOperationException)
+        {
+            await WriteJsonAsync(
+                context, 409, new { error = "custody_restore_not_pending" })
+                .ConfigureAwait(false);
+        }
     }
 
     // ---- Admission ----

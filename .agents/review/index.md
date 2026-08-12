@@ -1,6 +1,16 @@
 # Review status
 
-## Active — cr10 (Claude review over S4b custody/retention, 2026-08-12)
+## Active — cr11 (Claude review over S4b independent witness/restore, 2026-08-12)
+
+Implementation is code-complete locally over base `9c6f89c`: protected
+hash-chained checkpoint files, optional anchor-first file drop, startup and
+periodic custody health with mutation gating, schema-v10 restore evidence, and
+operator-authenticated branch reconciliation with a one-time data-loss alert.
+SIEM suite passes 323/323; four load-bearing bypasses were proved to fail their
+named guards. Generation review is pending after the implementation landing;
+this major section has a maximum of two review rounds.
+
+## Closed — cr10 (Claude review over S4b custody/retention, 2026-08-12)
 
 Generation attempt: claude / claude-opus-5 / xhigh / frontier over the
 intended `53bb4aa..196b4f7` range. Claude independently resolved the real

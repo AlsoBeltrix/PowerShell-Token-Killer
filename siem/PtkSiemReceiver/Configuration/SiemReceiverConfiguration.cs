@@ -45,7 +45,8 @@ internal sealed class SiemReceiverOptions
         ProtectedPathIdentity? configurationIdentity = null,
         string? ingestToken = null,
         IReadOnlyList<AlertRule>? alertRules = null,
-        string? alertWebhookUrl = null)
+        string? alertWebhookUrl = null,
+        CustodyWitnessOptions? custodyWitness = null)
     {
         IngestBindAddress = ingestBindAddress;
         IngestPort = ingestPort;
@@ -68,6 +69,7 @@ internal sealed class SiemReceiverOptions
         IngestToken = ingestToken;
         AlertRules = alertRules ?? [];
         AlertWebhookUrl = alertWebhookUrl;
+        CustodyWitness = custodyWitness;
         AlertRuleConfigHash = AlertRules.Count > 0
             ? AlertRuleSet.ComputeConfigHash(AlertRules)
             : null;
@@ -133,6 +135,11 @@ internal sealed class SiemReceiverOptions
 
     internal string? AlertWebhookUrl { get; }
 
+    /// <summary>Independent custody checkpoints outside the SQLite data root.
+    /// Configuration-loaded production instances always carry this; direct
+    /// test instances may omit it when exercising unrelated seams.</summary>
+    internal CustodyWitnessOptions? CustodyWitness { get; }
+
     /// <summary>SHA-256 over the canonical rule text; stamped on every work
     /// item at enqueue and on every alert at evaluation, so a rule change
     /// across a crash is evident, never silent.</summary>
@@ -152,6 +159,11 @@ internal sealed record AlertRule(
     string? EventType,
     int? Threshold,
     int? WindowSeconds);
+
+internal sealed record CustodyWitnessOptions(
+    string DirectoryPath,
+    int CheckpointIntervalSeconds,
+    string? AnchorDirectoryPath);
 
 internal static class AlertRuleSet
 {
@@ -254,6 +266,14 @@ internal static class SiemReceiverConfigurationLoader
     {
         "sqlitePath",
         "retention",
+        "custodyWitness",
+    };
+
+    private static readonly HashSet<string> CustodyWitnessProperties = new(StringComparer.Ordinal)
+    {
+        "directoryPath",
+        "checkpointIntervalSeconds",
+        "anchorDirectoryPath",
     };
 
     private static readonly HashSet<string> RetentionProperties = new(StringComparer.Ordinal)
@@ -422,6 +442,21 @@ internal static class SiemReceiverConfigurationLoader
 
         var sqlitePath = RequiredAbsolutePath(
             storage, "sqlitePath", "storage_sqlite_path");
+        var witnessSection = RequiredObject(
+            storage, "custodyWitness", "custody_witness_section");
+        RejectUnknownProperties(witnessSection, CustodyWitnessProperties);
+        var witnessDirectoryPath = RequiredAbsolutePath(
+            witnessSection, "directoryPath", "custody_witness_path");
+        var checkpointIntervalSeconds = ParseOptionalPositiveInt32(
+            witnessSection,
+            "checkpointIntervalSeconds",
+            "custody_witness_interval") ?? 60;
+        if (checkpointIntervalSeconds > 86_400)
+            Fail("custody_witness_interval");
+        var anchorDirectoryPath = OptionalAbsolutePath(
+            witnessSection, "anchorDirectoryPath", "custody_anchor_path");
+        ValidateIndependentCustodyPaths(
+            sqlitePath, witnessDirectoryPath, anchorDirectoryPath);
 
         int? retentionMaxAgeDays = null;
         long? retentionMaxTotalBytes = null;
@@ -459,7 +494,38 @@ internal static class SiemReceiverConfigurationLoader
             configurationIdentity,
             ingestToken,
             alertRules,
-            alertWebhookUrl);
+            alertWebhookUrl,
+            new CustodyWitnessOptions(
+                witnessDirectoryPath,
+                checkpointIntervalSeconds,
+                anchorDirectoryPath));
+    }
+
+    private static void ValidateIndependentCustodyPaths(
+        string sqlitePath,
+        string witnessDirectoryPath,
+        string? anchorDirectoryPath)
+    {
+        var dataRoot = Path.GetDirectoryName(sqlitePath)!;
+        if (IsSameOrDescendant(witnessDirectoryPath, dataRoot))
+            Fail("custody_witness_independence");
+        if (anchorDirectoryPath is not null &&
+            (IsSameOrDescendant(anchorDirectoryPath, dataRoot) ||
+             IsSameOrDescendant(anchorDirectoryPath, witnessDirectoryPath) ||
+             IsSameOrDescendant(witnessDirectoryPath, anchorDirectoryPath)))
+        {
+            Fail("custody_anchor_independence");
+        }
+    }
+
+    private static bool IsSameOrDescendant(string candidate, string root)
+    {
+        var relative = Path.GetRelativePath(root, candidate);
+        return relative == "." ||
+               (!Path.IsPathFullyQualified(relative) &&
+                relative != ".." &&
+                !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
     private static IReadOnlyList<AlertRule> ParseAlertRules(JsonElement alerts)

@@ -65,7 +65,7 @@ public sealed class SqliteIngestStoreTests
             AssertExactProtection(database.Path, isDirectory: false);
             AssertExactProtection(database.Path + "-wal", isDirectory: false);
             AssertExactProtection(database.Path + "-shm", isDirectory: false);
-            Assert.Equal(9L, Scalar<long>(database.Path, "PRAGMA user_version;"));
+            Assert.Equal(10L, Scalar<long>(database.Path, "PRAGMA user_version;"));
             Assert.Equal("wal", Scalar<string>(database.Path, "PRAGMA journal_mode;"));
             receiverId = Scalar<string>(
                 database.Path,
@@ -575,7 +575,7 @@ public sealed class SqliteIngestStoreTests
     }
 
     [Fact]
-    public async Task Startup_subject_verification_uses_five_set_reads_independent_of_receipt_count()
+    public async Task Startup_subject_verification_uses_six_set_reads_independent_of_receipt_count()
     {
         using var database = new TestDatabase();
         using (var store = SqliteIngestStore.Open(database.Path))
@@ -598,7 +598,7 @@ public sealed class SqliteIngestStoreTests
         using var reopened = SqliteIngestStore.Open(
             database.Path, faultInjector: counter);
         Assert.Equal(
-            new[] { "events", "quarantine", "latest_lifecycle", "alerts", "gaps" },
+            new[] { "events", "quarantine", "latest_lifecycle", "alerts", "gaps", "restores" },
             counter.Subjects);
         Assert.True(reopened.StartupCustodyVerification.Healthy);
     }

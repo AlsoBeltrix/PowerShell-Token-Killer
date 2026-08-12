@@ -23,8 +23,8 @@ head run covering producer conformance, ingest integration, and the
 SQLite store passed 58/58; no product code changed in the
 reconciliation.
 
-**S4b UNDERWAY — custody verifier + retention tombstones implemented and
-through their final allowed Claude review round 2026-08-12.** SQLite schema v8
+**S4b UNDERWAY — custody/retention is closed at review cap; independent
+witness + restore is code-complete pending Claude review (2026-08-12).** SQLite schema v8
 adds v2 custody receipts with recomputable evidence digests, exact live
 evidence, and atomic event/quarantine/closed-alert retention tombstones.
 Startup refuses broken sequence/link/hash, changed event/quarantine
@@ -34,10 +34,23 @@ retention interruption rolls back source deletes, custody compaction, and
 tombstone creation together. New load-bearing guards were independently
 sabotaged: bypassing startup verification made the tampered-event guard
 fail; bypassing event tombstone creation made the retention guard fail.
-SIEM suite: 315/315 at the reviewed head. Remaining S4b sections: protected independent
-witness/checkpoints + periodic health/restore reconciliation, then the
-whole-process pre-commit/post-ack barriers and discriminators. Each major
-section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
+Schema v10 now adds the independent half: immutable protected checkpoint files
+outside the database root, optional anchor-first off-box/write-once file drop,
+startup and periodic health, authenticated health/manual-attestation surface,
+and mutation gating across ingest, alert evaluation, and retention. An older
+online backup starts in restore-pending state; authenticated operator approval
+appends a witnessed branch event, custody-records it, creates exactly one open
+data-loss alert, and permits replay without rewriting witnessed history.
+SIEM suite: 323/323. Load-bearing bypasses independently failed the tail-
+truncation/restore guard, live-checkpoint regression guard, restore-subject
+mutation guard, and protected-witness startup guard. Remaining S4b product
+section: whole-process pre-commit/post-ack barriers and discriminators. Each
+major section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
+
+**Active review loop cr11:** the S4b independent-witness/restore major section
+is locally complete and awaits its first Claude generation round; see
+`.agents/review/index.md`. Its base is `9c6f89c`; exact landed head is recorded
+at dispatch. No barrier-section code is included in this review scope.
 
 **cr10 CLOSED at its two-round cap:** the final Claude round accepted cr10-1
 and reopened cr10-2; `.agents/review/index.md` owns the verdict record. The
@@ -55,7 +68,7 @@ orphaned event plus gap/alert lifecycle receipts; removing the exemption
 reproduces `custody_integrity_subject`, restoring it passes.
 
 **cr10-2 fixed through locally proved post-cap repair (2026-08-12):** startup preloads event,
-quarantine, latest-lifecycle, alert, and gap state in five set reads rather
+quarantine, latest-lifecycle, alert, gap, and schema-v10 restore state in six set reads rather
 than querying per receipt; schema v9 adds the custody subject covering index.
 Retention uses one typed parameterized delete per selected set, with indexed
 event/quarantine lookups. A 64-receipt guard fails if the snapshot is loaded

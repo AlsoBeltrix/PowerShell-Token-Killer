@@ -19,19 +19,22 @@ internal sealed class RetentionService : BackgroundService
     private readonly ILogger<RetentionService> _logger;
     private readonly TimeSpan _interval;
     private readonly TimeProvider _timeProvider;
+    private readonly CustodyHealthState? _custodyHealth;
 
     public RetentionService(
         SiemReceiverOptions options,
         IIngestCommitter committer,
         ILogger<RetentionService> logger,
         TimeSpan? interval = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        CustodyHealthState? custodyHealth = null)
     {
         _options = options;
         _committer = committer;
         _logger = logger;
         _interval = interval ?? DefaultInterval;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _custodyHealth = custodyHealth;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -60,6 +63,7 @@ internal sealed class RetentionService : BackgroundService
     internal async Task<SiemRetentionOutcome?> SweepOnceAsync(CancellationToken cancellationToken)
     {
         if (_committer is not SqliteIngestStore store) return null;
+        if (_custodyHealth is not null && !_custodyHealth.CanMutate) return null;
         try
         {
             var outcome = await store.EnforceRetentionAsync(

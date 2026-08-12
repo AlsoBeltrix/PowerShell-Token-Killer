@@ -359,6 +359,11 @@ public sealed class ReceiverStartupProtectionTests
             storage = new
             {
                 sqlitePath = files.Options.SqlitePath,
+                custodyWitness = new
+                {
+                    directoryPath = Path.Combine(
+                        Path.GetTempPath(), "ptk-siem-mac-alias-witness"),
+                },
             },
         });
         File.WriteAllBytes(storageName, configurationBytes);
@@ -393,6 +398,32 @@ public sealed class ReceiverStartupProtectionTests
         Assert.DoesNotContain(canary, exception.ToString(), StringComparison.Ordinal);
         Assert.DoesNotContain("MATERIAL-CANARY", exception.ToString(), StringComparison.Ordinal);
         _ = SiemProtectedPath.ProtectCreatedFile(renamed);
+    }
+
+    [Fact]
+    public void Insecure_custody_witness_directory_is_rejected_before_listener_bind()
+    {
+        using var files = new ReceiverFiles(includeOperatorPair: false);
+        Broaden(files.WitnessRoot, isDirectory: true);
+
+        var exception = Assert.Throws<SiemReceiverStartupException>(() =>
+            ReceiverApplication.Build(files.Options));
+
+        Assert.Equal("custody_witness_protection", exception.FailureCode);
+        _ = SiemProtectedPath.ProtectCreatedDirectory(files.WitnessRoot);
+    }
+
+    [Fact]
+    public void Linked_custody_witness_directory_is_rejected_before_listener_bind()
+    {
+        using var files = new ReceiverFiles(includeOperatorPair: false);
+        var link = Path.Combine(Path.GetDirectoryName(files.WitnessRoot)!, "witness-link");
+        Directory.CreateSymbolicLink(link, files.WitnessRoot);
+
+        var exception = Assert.Throws<SiemReceiverStartupException>(() =>
+            ReceiverApplication.Build(files.OptionsWithWitnessPath(link)));
+
+        Assert.Equal("custody_witness_protection", exception.FailureCode);
     }
 
     [Fact]
@@ -606,6 +637,9 @@ public sealed class ReceiverStartupProtectionTests
             DataRoot = Path.Combine(_root, "data-parent");
             Directory.CreateDirectory(DataRoot);
             _ = SiemProtectedPath.ProtectCreatedDirectory(DataRoot);
+            WitnessRoot = Path.Combine(_root, "witness-parent");
+            Directory.CreateDirectory(WitnessRoot);
+            _ = SiemProtectedPath.ProtectCreatedDirectory(WitnessRoot);
             Options = CreateOptions(ingestPort: 0);
         }
 
@@ -631,7 +665,12 @@ public sealed class ReceiverStartupProtectionTests
 
         internal string DataRoot { get; }
 
+        internal string WitnessRoot { get; }
+
         internal SiemReceiverOptions OptionsWithIngestPort(int port) => CreateOptions(port);
+
+        internal SiemReceiverOptions OptionsWithWitnessPath(string path) =>
+            CreateOptions(ingestPort: 0, witnessDirectory: path);
 
         internal SiemReceiverOptions OptionsWithRolePath(string role, string path)
         {
@@ -703,7 +742,8 @@ public sealed class ReceiverStartupProtectionTests
             string? serverKey = null,
             IReadOnlyList<string>? authorities = null,
             string? operatorCertificate = null,
-            string? operatorKey = null) => new(
+            string? operatorKey = null,
+            string? witnessDirectory = null) => new(
             IPAddress.Loopback,
             ingestPort,
             serverCertificate ?? ServerCertificatePath,
@@ -719,7 +759,11 @@ public sealed class ReceiverStartupProtectionTests
             operatorKey ?? OperatorKeyPath,
             Path.Combine(DataRoot, "siem.db"),
             null,
-            null);
+            null,
+            custodyWitness: new CustodyWitnessOptions(
+                witnessDirectory ?? WitnessRoot,
+                CheckpointIntervalSeconds: 3_600,
+                AnchorDirectoryPath: null));
 
         private static ReceiverMaterial CreateMaterial()
         {

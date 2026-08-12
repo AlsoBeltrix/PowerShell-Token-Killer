@@ -70,7 +70,7 @@ internal sealed record CustodyAppendResult(long Sequence, string ReceiptHash);
 
 internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 9;
+    private const int CurrentSchemaVersion = 10;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -946,6 +946,29 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
                 ON custody(subject_kind, subject_id, receipt_sequence);
                 UPDATE meta SET value = '9' WHERE key = 'schema_version';
                 PRAGMA user_version=9;
+                """);
+            transaction.Commit();
+        }
+
+        if (version < 10)
+        {
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, """
+                CREATE TABLE IF NOT EXISTS custody_restore_events(
+                    restore_id TEXT PRIMARY KEY,
+                    detected_utc TEXT NOT NULL,
+                    authorized_utc TEXT NOT NULL,
+                    operator_actor TEXT NOT NULL,
+                    operator_endpoint TEXT NOT NULL,
+                    prior_custody_sequence INTEGER NOT NULL,
+                    prior_custody_hash TEXT NULL,
+                    restored_custody_sequence INTEGER NOT NULL,
+                    restored_custody_hash TEXT NULL,
+                    custody_sequence INTEGER NOT NULL UNIQUE,
+                    alert_id INTEGER NOT NULL UNIQUE
+                ) WITHOUT ROWID;
+                UPDATE meta SET value = '10' WHERE key = 'schema_version';
+                PRAGMA user_version=10;
                 """);
             transaction.Commit();
         }

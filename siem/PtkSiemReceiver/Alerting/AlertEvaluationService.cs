@@ -18,7 +18,8 @@ internal sealed class AlertEvaluationService(
     SiemReceiverOptions options,
     SqliteIngestStore store,
     ILogger<AlertEvaluationService> logger,
-    TimeProvider timeProvider) : BackgroundService
+    TimeProvider timeProvider,
+    CustodyHealthState? custodyHealth = null) : BackgroundService
 {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     internal const int WebhookAttempts = 3;
@@ -32,6 +33,11 @@ internal sealed class AlertEvaluationService(
         {
             try
             {
+                if (custodyHealth is not null && !custodyHealth.CanMutate)
+                {
+                    await Task.Delay(PollInterval, stoppingToken);
+                    continue;
+                }
                 var created = await store.EvaluateNextAlertWorkItemAsync(
                     options.AlertRules,
                     options.AlertRuleConfigHash,

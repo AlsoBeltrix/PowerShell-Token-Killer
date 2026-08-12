@@ -118,6 +118,7 @@ internal static class ReceiverApplication
                 }
             }
             Storage.SqliteIngestStore? ownedStore = null;
+            Storage.CustodyWitness? ownedWitness = null;
             WebApplication? application = null;
             try
             {
@@ -130,6 +131,14 @@ internal static class ReceiverApplication
                         protectedPathTestHooks,
                         protectedExternalIdentities,
                         options.AlertRuleConfigHash);
+                    if (options.CustodyWitness is not null)
+                    {
+                        ownedWitness = Storage.CustodyWitness.Open(
+                            options.CustodyWitness,
+                            ownedStore,
+                            timeProvider ?? TimeProvider.System,
+                            protectedPathTestHooks);
+                    }
                 }
 
                 var builder = WebApplication.CreateSlimBuilder(args ?? []);
@@ -195,6 +204,8 @@ internal static class ReceiverApplication
                 builder.Services.AddSingleton<ReceiverTrustStore>(_ => trustStore);
                 builder.Services.AddSingleton(_ => new Web.OperatorTlsMaterial(operatorCertificate));
                 builder.Services.AddSingleton(timeProvider ?? TimeProvider.System);
+                var custodyHealth = ownedWitness?.HealthState ?? new Storage.CustodyHealthState();
+                builder.Services.AddSingleton(custodyHealth);
                 builder.Services.AddSingleton<IngestAdmissionGate>(
                     _ => new IngestAdmissionGate(options.MaxConcurrentRequests));
                 if (ownedStore is not null)
@@ -203,6 +214,11 @@ internal static class ReceiverApplication
                     // The operator surface's gap-disposition write (S6) goes
                     // through the same serialized writer as ingest.
                     builder.Services.AddSingleton<Storage.SqliteIngestStore>(_ => ownedStore);
+                    if (ownedWitness is not null)
+                    {
+                        builder.Services.AddSingleton<Storage.CustodyWitness>(_ => ownedWitness);
+                        builder.Services.AddHostedService<Storage.CustodyWitnessService>();
+                    }
                 }
                 else
                 {
@@ -221,7 +237,8 @@ internal static class ReceiverApplication
                             serviceProvider.GetRequiredService<Storage.SqliteIngestStore>(),
                             serviceProvider.GetRequiredService<
                                 ILogger<Alerting.AlertEvaluationService>>(),
-                            serviceProvider.GetRequiredService<TimeProvider>()));
+                            serviceProvider.GetRequiredService<TimeProvider>(),
+                            serviceProvider.GetRequiredService<Storage.CustodyHealthState>()));
                 }
                 // Retention is enforced, not merely configured (rbc-11).
                 builder.Services.AddHostedService(serviceProvider =>
@@ -230,7 +247,8 @@ internal static class ReceiverApplication
                         serviceProvider.GetRequiredService<IIngestCommitter>(),
                         serviceProvider.GetRequiredService<
                             ILogger<PtkSiemReceiver.Storage.RetentionService>>(),
-                        timeProvider: serviceProvider.GetRequiredService<TimeProvider>()));
+                        timeProvider: serviceProvider.GetRequiredService<TimeProvider>(),
+                        custodyHealth: serviceProvider.GetRequiredService<Storage.CustodyHealthState>()));
 
                 application = builder.Build();
                 // Ensure the container owns all captured disposable singletons.
@@ -239,6 +257,21 @@ internal static class ReceiverApplication
                 _ = application.Services.GetRequiredService<IIngestCommitter>();
                 _ = application.Services.GetRequiredService<IngestAdmissionGate>();
                 _ = application.Services.GetRequiredService<Web.OperatorTlsMaterial>();
+                application.Use(async (context, next) =>
+                {
+                    if (context.Request.Path == "/v1/logs" &&
+                        !context.RequestServices
+                            .GetRequiredService<Storage.CustodyHealthState>()
+                            .CanMutate)
+                    {
+                        await OtlpHttpResponse.WriteTransientAsync(
+                            context.Response,
+                            "custody_unhealthy",
+                            context.RequestAborted).ConfigureAwait(false);
+                        return;
+                    }
+                    await next(context).ConfigureAwait(false);
+                });
                 application.MapPost("/v1/logs", HandleIngestAsync);
                 Web.OperatorEndpoints.Map(application);
                 return application;
@@ -251,6 +284,7 @@ internal static class ReceiverApplication
                 }
                 else
                 {
+                    ownedWitness?.Dispose();
                     ownedStore?.Dispose();
                     serverCertificate.Dispose();
                     trustStore.Dispose();
@@ -291,12 +325,35 @@ internal static class ReceiverApplication
             externalPaths.Add(options.OperatorHttpsCertificateKeyPath!);
         }
 
+        if (options.CustodyWitness is not null)
+        {
+            var dataRoot = Path.GetDirectoryName(options.SqlitePath)!;
+            if (IsSameOrDescendant(options.CustodyWitness.DirectoryPath, dataRoot) ||
+                (options.CustodyWitness.AnchorDirectoryPath is { } anchor &&
+                 (IsSameOrDescendant(anchor, dataRoot) ||
+                  IsSameOrDescendant(anchor, options.CustodyWitness.DirectoryPath) ||
+                  IsSameOrDescendant(options.CustodyWitness.DirectoryPath, anchor))))
+            {
+                throw new SiemReceiverStartupException("custody_witness_independence");
+            }
+        }
+
         if (externalPaths.Any(externalPath =>
                 storagePaths.Any(storagePath =>
                     string.Equals(externalPath, storagePath, comparison))))
         {
             throw new SiemReceiverStartupException("protected_path_collision");
         }
+    }
+
+    private static bool IsSameOrDescendant(string candidate, string root)
+    {
+        var relative = Path.GetRelativePath(root, candidate);
+        return relative == "." ||
+               (!Path.IsPathFullyQualified(relative) &&
+                relative != ".." &&
+                !relative.StartsWith($"..{Path.DirectorySeparatorChar}", StringComparison.Ordinal) &&
+                !relative.StartsWith($"..{Path.AltDirectorySeparatorChar}", StringComparison.Ordinal));
     }
 
     private static ProtectedFileRead ReadTlsMaterial(

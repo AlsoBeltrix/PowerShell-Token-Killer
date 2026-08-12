@@ -378,6 +378,54 @@ public sealed class RetentionEnforcementTests
         Assert.Equal(0L, Count(database.Path, "quarantine"));
     }
 
+    [Fact]
+    public async Task Spent_queue_rows_and_aged_closed_alerts_are_reclaimed()
+    {
+        // cr8-5: evaluated queue rows are deleted with the cursor advance,
+        // and closed alerts age out with a custody-chained tombstone; open
+        // alerts of the same age are live triage state and survive.
+        using var database = new TestDatabase();
+        var hash = new string('b', 64);
+        using var store = SqliteIngestStore.Open(
+            database.Path, alertRuleConfigHash: hash);
+        await CommitChainAsync(store, count: 2);
+        Assert.Equal(2L, Count(database.Path, "alert_queue"));
+
+        IReadOnlyList<PtkSiemReceiver.Configuration.AlertRule> rules =
+            [new("completed", "event_match", "tool.completed", null, null)];
+        while (await store.EvaluateNextAlertWorkItemAsync(
+                   rules, hash, Receipt.ReceivedUtc, CancellationToken.None) is not null)
+        {
+        }
+
+        Assert.Equal(0L, Count(database.Path, "alert_queue"));
+        Assert.Equal(2L, Count(database.Path, "alerts"));
+
+        // Close the first alert; leave the second open.
+        Assert.Equal(
+            AlertTransitionOutcome.Ok,
+            await store.TransitionAlertAsync(1, "acknowledged", Receipt, default));
+        Assert.Equal(
+            AlertTransitionOutcome.Ok,
+            await store.TransitionAlertAsync(1, "closed", Receipt, default));
+
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+
+        Assert.Equal(1L, Count(database.Path, "alerts"));
+        Assert.Equal(
+            "open",
+            Scalar<string>(database.Path, "SELECT state FROM alerts;"));
+        Assert.Equal(
+            1L,
+            Scalar<long>(
+                database.Path,
+                "SELECT COUNT(*) FROM custody WHERE disposition = 'alert:retention_deleted';"));
+    }
+
     private static string? LastHash { get; set; }
 
     private static async Task CommitChainAsync(
@@ -410,6 +458,22 @@ public sealed class RetentionEnforcementTests
         var validation = OtlpRequestValidator.Validate(request.ToByteArray());
         Assert.Null(validation.FailureCode);
         return Assert.IsType<ValidatedOtlpRecord>(validation.Record);
+    }
+
+    private static T Scalar<T>(string path, string sql)
+    {
+        using var connection = new SqliteConnection(
+            new SqliteConnectionStringBuilder
+            {
+                DataSource = path,
+                Mode = SqliteOpenMode.ReadOnly,
+                Pooling = false,
+            }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return (T)Convert.ChangeType(
+            command.ExecuteScalar()!, typeof(T), CultureInfo.InvariantCulture);
     }
 
     private static long Count(string path, string table)

@@ -439,6 +439,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 using var transaction = _writer.BeginTransaction(deferred: false);
                 eventsRemoved += DeleteAgedEvents(cutoff, transaction);
                 quarantineRemoved += DeleteAgedQuarantine(cutoff, transaction);
+                DeleteAgedClosedAlerts(cutoff, utcNow, transaction);
                 cancellationToken.ThrowIfCancellationRequested();
                 transaction.Commit();
             }
@@ -551,6 +552,54 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
         return command.ExecuteNonQuery();
+    }
+
+    /// <summary>cr8-5: the plan's rule — the only alert-row deletion is
+    /// retention-driven and itself custody-recorded. Only closed alerts
+    /// age out; open and acknowledged ones are live triage state.</summary>
+    private void DeleteAgedClosedAlerts(
+        string cutoffUtc,
+        DateTimeOffset utcNow,
+        SqliteTransaction transaction)
+    {
+        var alertIds = new List<long>();
+        using (var select = CreateCommand(_writer, transaction, """
+            SELECT alert_id FROM alerts
+            WHERE state = 'closed' AND updated_utc < $cutoff
+            ORDER BY alert_id ASC;
+            """))
+        {
+            select.Parameters.AddWithValue("$cutoff", cutoffUtc);
+            using var reader = select.ExecuteReader();
+            while (reader.Read()) alertIds.Add(reader.GetInt64(0));
+        }
+
+        if (alertIds.Count == 0) return;
+        using (var delete = CreateCommand(_writer, transaction, """
+            DELETE FROM alerts
+            WHERE state = 'closed' AND updated_utc < $cutoff;
+            """))
+        {
+            delete.Parameters.AddWithValue("$cutoff", cutoffUtc);
+            if (delete.ExecuteNonQuery() != alertIds.Count)
+                throw new InvalidOperationException("The closed-alert sweep did not match its selection.");
+        }
+
+        AppendCustody(
+            CustodySnapshotBytes(new
+            {
+                v = 1,
+                kind = "alert",
+                transition = "retention_deleted",
+                alert_ids = alertIds,
+                utc = FormatUtc(utcNow),
+            }),
+            new IngestReceiptContext(
+                utcNow.ToUniversalTime(), new string('0', 64), "receiver"),
+            "alert:retention_deleted",
+            "alert_retention",
+            alertIds.Count.ToString(CultureInfo.InvariantCulture),
+            transaction);
     }
 
     private long DeleteOldestEvents(int batch, SqliteTransaction transaction)
@@ -1018,6 +1067,16 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction,
                 "UPDATE meta SET value = $cursor WHERE key = 'alert_cursor';",
                 ("$cursor", itemId.ToString(CultureInfo.InvariantCulture)));
+
+            // cr8-5: the cursor is the durable memory; an evaluated row is
+            // spent, and keeping it would grow the queue one row per ingest
+            // forever.
+            using (var reclaim = CreateCommand(transaction.Connection!, transaction,
+                       "DELETE FROM alert_queue WHERE item_id <= $cursor;"))
+            {
+                reclaim.Parameters.AddWithValue("$cursor", itemId);
+                _ = reclaim.ExecuteNonQuery();
+            }
 
             cancellationToken.ThrowIfCancellationRequested();
             transaction.Commit();

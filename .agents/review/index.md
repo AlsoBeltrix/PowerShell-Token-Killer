@@ -1,5 +1,19 @@
 # Review status
 
+## Active — cr13 (Claude review over mini-SIEM S7 operator guide, 2026-08-12)
+
+Generation pass: Claude Code 2.1.228 / claude-fable-5 / xhigh / standard over
+`823386937d7dbe2999cd2b1f6bd12891269e29ac..421ef1d0d7a22cea607b2f0a2e882951d30bfb7b`.
+The original single invocation survived its caller's 300-second transport
+ceiling and was recovered without rerunning through its immutable
+`ptk_output` artifact. Its envelope was valid: `capability_ok=true`, both full
+SHA pins matched, and verdict `findings` contained one candidate. The candidate
+passed intake as a concrete LOW documentation defect.
+
+| ID | Severity | Impact (one line) | Status | Reviewer |
+|----|----------|-------------------|--------|----------|
+| cr13-1 | LOW | Guide claimed witness/anchor parents fail startup policy that code does not enforce | `[~]` pending verification | claude/claude-fable-5/xhigh/standard |
+
 ## Closed — cr12 (Claude review over S4b process barriers, 2026-08-12)
 
 Implementation landed at `9b14a7e` over base `1be29fc`: a real standalone-

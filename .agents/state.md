@@ -5,6 +5,9 @@ short and update it when important repo facts change.
 
 ## Now
 
+Active S7 Claude codereview loop: one LOW operator-guide accuracy finding is
+under repair verification; see `.agents/review/index.md` (`cr13-1`).
+
 **MINI-SIEM S1-S7 COMPLETE; S8 PACKAGING REMAINS SEPARATELY GATED (2026-08-12).**
 S7 replaced the receiver's implementation-oriented README with a standalone
 operator guide: per-OS dedicated-account layouts and exact path protection,

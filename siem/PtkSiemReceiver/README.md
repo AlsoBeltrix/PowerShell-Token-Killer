@@ -106,14 +106,17 @@ PEM file, and each state directory before startup.
 ### Protected-path startup gate
 
 Startup completes the filesystem gate before either listener binds. The
-configuration file, every referenced TLS file, SQLite database and its
-`-wal`/`-shm` sidecars, witness directory, anchor directory, and their
-immediate parents must satisfy the platform policy above. All configured
-paths must be absolute. Every existing lexical path component is checked
-without following it; symlinks, junctions, mount-point reparse points, and
-other redirects are refused. Existing insecure objects fail closed and are
-never repaired. The receiver creates missing SQLite files securely inside an
-already protected data directory.
+configuration file, every referenced TLS file, the SQLite database and its
+`-wal`/`-shm` sidecars, and the immediate directories containing those files
+must satisfy the platform policy above. The witness and anchor directories
+themselves must also satisfy that policy; their parents are checked for path
+redirection, but not for ownership, mode, or ACL policy. Provision those
+parents so no other principal can rename or delete the protected directories.
+All configured paths must be absolute. Every existing lexical path component
+is checked without following it; symlinks, junctions, mount-point reparse
+points, and other redirects are refused. Existing insecure objects covered by
+the gate fail closed and are never repaired. The receiver creates missing
+SQLite files securely inside an already protected data directory.
 
 These checks protect against another OS principal. They do not protect
 against malicious code already running as the receiver service identity.

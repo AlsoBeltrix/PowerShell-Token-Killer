@@ -212,14 +212,18 @@ execution routing.
 
 ## Audit status
 
-Ordinary PTK execution does not open audit storage, require a journal, or
-enable an OTLP producer. `ptk_state` reports audit disabled. This keeps warm
-PowerShell execution independent of optional operational evidence systems.
-
-The repository retains legacy local evidence administration and the standalone
-SIEM receiver's wire/ack contract for compatibility and future migration work.
-Those retained components do not make the current runtime an anchored audit
-producer. See [retained audit and receiver contracts](server/AUDIT-EXPORT.md).
+Auditing is base-level and non-bypassable. Every server boot opens a
+mandatory, fail-closed local journal (default `~/.ptk/audit`, override
+`PTK_AUDIT_ROOT`) before serving any tool call: a healthy root journals every
+invoke durably before it runs, and an unwritable root refuses invokes
+fail-closed while the transport stays up. The local journal is the only
+execution gate — SIEM export is an optional, asynchronous leg that never
+gates execution: one endpoint-plus-token contract covers Splunk HEC, any
+OTLP/HTTP collector, and PTK's own standalone receiver (`siem/`, the fallback
+for environments without a SIEM, with its own query dashboard and alerting).
+A loopback web UI (default port 8317) serves the journal, quarantine
+evidence, export health, and settings. See
+[the audit, export, and receiver contract](server/AUDIT-EXPORT.md).
 
 Scripts and output artifacts can contain passwords, tokens, customer data, or
 other secrets. Protect the PTK output root and any separately operated legacy
@@ -421,7 +425,9 @@ compound commands route without PTK modelling any of it.
 
 The currently implemented and live-verified redirect hook intercepts Claude
 Code shell calls and points the agent at `ptk_invoke`. It is an adoption aid,
-not a security control or an audited execution boundary. `PTK_DIRECT` in a
+not a security control: calls that reach PTK are journaled (see Audit
+status), but a command that bypasses the hook never reaches PTK or its
+journal. `PTK_DIRECT` in a
 command comment is the explicit escape hatch when PTK is unavailable or the
 command needs a real TTY. Other harnesses receive only the capabilities
 recorded in the support matrix below.
@@ -453,7 +459,7 @@ pwsh -NoProfile -File server/test-handshake.ps1
 ## More Documentation
 
 - [MCP server setup, configuration, and operations](server/README.md)
-- [Retained audit administration and SIEM receiver contract](server/AUDIT-EXPORT.md)
+- [Audit, export, and SIEM receiver contract](server/AUDIT-EXPORT.md)
 - [Harness capability matrix](docs/harness-support.md)
 - [Current implementation state](.agents/state.md)
 

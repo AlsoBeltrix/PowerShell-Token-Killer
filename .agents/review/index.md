@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr11 (Claude review over S4b independent witness/restore, 2026-08-12)
+## Closed — cr11 (Claude review over S4b independent witness/restore, 2026-08-12)
 
 Implementation landed at `87818e4` over base `9c6f89c`: protected
 hash-chained checkpoint files, optional anchor-first file drop, startup and
@@ -19,14 +19,16 @@ Intake is complete: cr11-1, cr11-2, and cr11-4 are admitted and locally
 repaired. cr11-3 is declined as an unmeasured capacity concern whose proposed
 repair would alter approved immutable-history semantics; cr11-5 is declined
 because its concrete macOS path-comparison premise is false on the current
-.NET runtime. This major section has one valid review round remaining.
+.NET runtime. Final round 2 independently accepted all three admitted repairs:
+each sabotage failed at its named guard, restored focused tests passed, and
+the full SIEM suite passed 325/325. cr11 is closed at its two-round cap.
 
 | ID     | Severity | Impact (one line)                                   | Status | Reviewer |
 |--------|----------|-----------------------------------------------------|--------|----------|
-| cr11-1 | HIGH     | routed path variant commits while custody is paused | `[~]` repair locally guard-proved | claude/claude-opus-5/xhigh/frontier |
-| cr11-2 | HIGH     | periodic integrity scan serializes every writer      | `[~]` repair locally guard-proved | claude/claude-opus-5/xhigh/frontier |
+| cr11-1 | HIGH     | routed path variant commits while custody is paused | `[x]` accepted `cc83275` | claude/claude-opus-5/xhigh/frontier |
+| cr11-2 | HIGH     | periodic integrity scan serializes every writer      | `[x]` accepted `fe4378e` | claude/claude-opus-5/xhigh/frontier |
 | cr11-3 | MEDIUM   | witness file count grows with configured cadence     | `[-]` no measured failure; security-semantic change | claude/claude-opus-5/xhigh/frontier |
-| cr11-4 | LOW      | background mutation pauses were optional and unproved | `[~]` both guards independently mutation-proved | claude/claude-opus-5/xhigh/frontier |
+| cr11-4 | LOW      | background mutation pauses were optional and unproved | `[x]` accepted `17a8524` | claude/claude-opus-5/xhigh/frontier |
 | cr11-5 | LOW      | case alias may place witness inside the data root      | `[-]` concrete macOS premise falsified | claude/claude-opus-5/xhigh/frontier |
 
 ## Closed — cr10 (Claude review over S4b custody/retention, 2026-08-12)

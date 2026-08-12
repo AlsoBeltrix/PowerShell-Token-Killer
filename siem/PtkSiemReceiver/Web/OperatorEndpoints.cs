@@ -59,6 +59,8 @@ internal static class OperatorEndpoints
         application.MapGet("/api/quarantine", HandleQuarantineAsync);
         application.MapGet("/api/gaps", HandleGapsAsync);
         application.MapPost("/api/gaps/{gapId:long}/disposition", HandleGapDispositionAsync);
+        application.MapGet("/api/alerts", HandleAlertsAsync);
+        application.MapPost("/api/alerts/{alertId:long}/transition", HandleAlertTransitionAsync);
     }
 
     // ---- Admission ----
@@ -463,20 +465,11 @@ internal static class OperatorEndpoints
             return;
         }
 
-        var timeProvider = context.RequestServices.GetRequiredService<TimeProvider>();
-        var address = context.Connection.RemoteIpAddress;
-        var endpoint = address is null
-            ? "unknown"
-            : $"{address}:{context.Connection.RemotePort}";
-        var receipt = new Ingest.IngestReceiptContext(
-            timeProvider.GetUtcNow().ToUniversalTime(),
-            Convert.ToHexString(
-                    SHA256.HashData(Encoding.UTF8.GetBytes(options.OperatorToken)))
-                .ToLowerInvariant(),
-            endpoint);
-
         var outcome = await store.DispositionGapAsync(
-            gapId, disposition, receipt, context.RequestAborted).ConfigureAwait(false);
+            gapId,
+            disposition,
+            OperatorReceipt(context, options),
+            context.RequestAborted).ConfigureAwait(false);
         var (status, payload) = outcome switch
         {
             Storage.GapDispositionOutcome.NotFound =>
@@ -486,6 +479,115 @@ internal static class OperatorEndpoints
             Storage.GapDispositionOutcome.Resumed =>
                 (200, new { gap_id = gapId, state = "resumed", disposition }),
             _ => (200, new { gap_id = gapId, state = "dispositioned", disposition }),
+        };
+        await WriteJsonAsync(context, status, payload).ConfigureAwait(false);
+    }
+
+    internal static async Task HandleAlertsAsync(
+        HttpContext context,
+        SiemReceiverOptions options)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+
+        var stateFilter = context.Request.Query["state"].ToString();
+        if (stateFilter is not ("" or "open" or "acknowledged" or "closed"))
+        {
+            await WriteJsonAsync(
+                context, 400, new { error = "state_filter" }).ConfigureAwait(false);
+            return;
+        }
+
+        using var connection = OpenReadOnly(options.SqlitePath);
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT alert_id, rule_name, subject_kind, subject_id, created_utc, state, " +
+            "enqueue_config_hash, evaluation_config_hash, detail, updated_utc, updated_by " +
+            "FROM alerts" +
+            (stateFilter.Length > 0 ? " WHERE state = $state" : string.Empty) +
+            " ORDER BY alert_id DESC LIMIT 200;";
+        if (stateFilter.Length > 0)
+            command.Parameters.AddWithValue("$state", stateFilter);
+        var alerts = new List<object>();
+        using (var reader = await command.ExecuteReaderAsync(context.RequestAborted)
+                   .ConfigureAwait(false))
+        {
+            while (await reader.ReadAsync(context.RequestAborted).ConfigureAwait(false))
+            {
+                alerts.Add(new
+                {
+                    alert_id = reader.GetInt64(0),
+                    rule = reader.GetString(1),
+                    subject_kind = reader.GetString(2),
+                    subject_id = reader.GetString(3),
+                    created_utc = reader.GetString(4),
+                    state = reader.GetString(5),
+                    enqueue_config_hash = reader.GetString(6),
+                    evaluation_config_hash = reader.GetString(7),
+                    detail = reader.GetString(8),
+                    updated_utc = reader.GetString(9),
+                    updated_by = reader.IsDBNull(10) ? null : reader.GetString(10),
+                });
+            }
+        }
+
+        await WriteJsonAsync(context, 200, new { alerts }).ConfigureAwait(false);
+    }
+
+    /// <summary>The alert-lifecycle API — the sole writer of alert custody
+    /// transitions: open → acknowledged → closed, nothing else, rows never
+    /// deleted here.</summary>
+    internal static async Task HandleAlertTransitionAsync(
+        HttpContext context,
+        SiemReceiverOptions options,
+        long alertId)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+
+        var store = context.RequestServices
+            .GetService<Storage.SqliteIngestStore>();
+        if (store is null)
+        {
+            await WriteJsonAsync(
+                context, 503, new { error = "store_unavailable" }).ConfigureAwait(false);
+            return;
+        }
+
+        string? targetState = null;
+        try
+        {
+            using var body = await JsonDocument.ParseAsync(
+                context.Request.Body,
+                cancellationToken: context.RequestAborted).ConfigureAwait(false);
+            if (body.RootElement.ValueKind == JsonValueKind.Object &&
+                body.RootElement.TryGetProperty("state", out var value) &&
+                value.ValueKind == JsonValueKind.String)
+            {
+                targetState = value.GetString();
+            }
+        }
+        catch (JsonException)
+        {
+        }
+
+        if (targetState is not ("acknowledged" or "closed"))
+        {
+            await WriteJsonAsync(
+                context, 400, new { error = "state" }).ConfigureAwait(false);
+            return;
+        }
+
+        var outcome = await store.TransitionAlertAsync(
+            alertId,
+            targetState,
+            OperatorReceipt(context, options),
+            context.RequestAborted).ConfigureAwait(false);
+        var (status, payload) = outcome switch
+        {
+            Storage.AlertTransitionOutcome.NotFound =>
+                (404, (object)new { error = "unknown_alert" }),
+            Storage.AlertTransitionOutcome.IllegalTransition =>
+                (409, new { error = "illegal_transition" }),
+            _ => (200, new { alert_id = alertId, state = targetState }),
         };
         await WriteJsonAsync(context, status, payload).ConfigureAwait(false);
     }
@@ -504,6 +606,25 @@ internal static class OperatorEndpoints
     }
 
     // ---- Plumbing ----
+
+    /// <summary>The custody actor identity for operator writes: the operator
+    /// token's SHA-256 (never the token) plus the caller's endpoint.</summary>
+    private static Ingest.IngestReceiptContext OperatorReceipt(
+        HttpContext context,
+        SiemReceiverOptions options)
+    {
+        var timeProvider = context.RequestServices.GetRequiredService<TimeProvider>();
+        var address = context.Connection.RemoteIpAddress;
+        var endpoint = address is null
+            ? "unknown"
+            : $"{address}:{context.Connection.RemotePort}";
+        return new Ingest.IngestReceiptContext(
+            timeProvider.GetUtcNow().ToUniversalTime(),
+            Convert.ToHexString(
+                    SHA256.HashData(Encoding.UTF8.GetBytes(options.OperatorToken)))
+                .ToLowerInvariant(),
+            endpoint);
+    }
 
     private static SqliteConnection OpenReadOnly(string sqlitePath)
     {
@@ -602,6 +723,7 @@ button{background:#265;color:#fff;border:0;padding:.4rem .8rem;border-radius:4px
 <input id="boot" placeholder="boot id" size="38"> <button>Filter</button>
 </form>
 <table id="events"><thead><tr><th>occurred</th><th>type</th><th>boot</th><th>seq</th><th>session</th><th>outcome</th></tr></thead><tbody></tbody></table>
+<h2>Alerts</h2><pre id="alerts">loading…</pre>
 <h2>Gaps</h2><pre id="gaps">loading…</pre>
 <h2>Quarantine</h2><pre id="quarantine">loading…</pre>
 <script>
@@ -635,6 +757,8 @@ async function refresh(){
  const c=await r.json();
  document.getElementById('chains').textContent=JSON.stringify(c.chains,null,1);
  await refreshEvents();
+ const a=await (await api('/api/alerts')).json();
+ document.getElementById('alerts').textContent=a.alerts.length?JSON.stringify(a.alerts,null,1):'none';
  const g=await (await api('/api/gaps')).json();
  document.getElementById('gaps').textContent=g.gaps.length?JSON.stringify(g.gaps,null,1):'none';
  const q=await (await api('/api/quarantine')).json();

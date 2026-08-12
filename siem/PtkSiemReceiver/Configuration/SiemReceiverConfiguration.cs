@@ -43,7 +43,9 @@ internal sealed class SiemReceiverOptions
         long? retentionMaxTotalBytes,
         string? configurationPath = null,
         ProtectedPathIdentity? configurationIdentity = null,
-        string? ingestToken = null)
+        string? ingestToken = null,
+        IReadOnlyList<AlertRule>? alertRules = null,
+        string? alertWebhookUrl = null)
     {
         IngestBindAddress = ingestBindAddress;
         IngestPort = ingestPort;
@@ -64,6 +66,11 @@ internal sealed class SiemReceiverOptions
         ConfigurationPath = configurationPath;
         ConfigurationIdentity = configurationIdentity;
         IngestToken = ingestToken;
+        AlertRules = alertRules ?? [];
+        AlertWebhookUrl = alertWebhookUrl;
+        AlertRuleConfigHash = AlertRules.Count > 0
+            ? AlertRuleSet.ComputeConfigHash(AlertRules)
+            : null;
     }
 
     internal IPAddress IngestBindAddress { get; }
@@ -120,9 +127,54 @@ internal sealed class SiemReceiverOptions
     /// </summary>
     internal string? IngestToken { get; }
 
+    /// <summary>Declarative alert rules (mini-SIEM S6), frozen at startup.
+    /// Empty means alerting is off and ingest enqueues no work items.</summary>
+    internal IReadOnlyList<AlertRule> AlertRules { get; }
+
+    internal string? AlertWebhookUrl { get; }
+
+    /// <summary>SHA-256 over the canonical rule text; stamped on every work
+    /// item at enqueue and on every alert at evaluation, so a rule change
+    /// across a crash is evident, never silent.</summary>
+    internal string? AlertRuleConfigHash { get; }
+
     // Never include the operator or ingest token (or anything derived from
     // them) here.
     public override string ToString() => "siem receiver configuration";
+}
+
+/// <summary>One declarative alert rule. <c>event_match</c> carries an event
+/// type; <c>ingest_rate</c> carries a threshold over a window;
+/// <c>chain_break</c> and <c>gap_detected</c> carry nothing further.</summary>
+internal sealed record AlertRule(
+    string Name,
+    string Type,
+    string? EventType,
+    int? Threshold,
+    int? WindowSeconds);
+
+internal static class AlertRuleSet
+{
+    internal static string ComputeConfigHash(IReadOnlyList<AlertRule> rules)
+    {
+        var builder = new System.Text.StringBuilder();
+        foreach (var rule in rules)
+        {
+            builder.Append(rule.Name).Append('\n')
+                .Append(rule.Type).Append('\n')
+                .Append(rule.EventType ?? string.Empty).Append('\n')
+                .Append(rule.Threshold?.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty)
+                .Append('\n')
+                .Append(rule.WindowSeconds?.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty)
+                .Append('\n');
+        }
+
+        return Convert.ToHexString(
+                SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(builder.ToString())))
+            .ToLowerInvariant();
+    }
 }
 
 /// <summary>
@@ -146,6 +198,30 @@ internal static class SiemReceiverConfigurationLoader
         "ingest",
         "operator",
         "storage",
+        "alerts",
+    };
+
+    private static readonly HashSet<string> AlertsProperties = new(StringComparer.Ordinal)
+    {
+        "rules",
+        "webhookUrl",
+    };
+
+    private static readonly HashSet<string> AlertRuleProperties = new(StringComparer.Ordinal)
+    {
+        "name",
+        "type",
+        "eventType",
+        "threshold",
+        "windowSeconds",
+    };
+
+    private static readonly HashSet<string> AlertRuleTypes = new(StringComparer.Ordinal)
+    {
+        "event_match",
+        "chain_break",
+        "gap_detected",
+        "ingest_rate",
     };
 
     private static readonly HashSet<string> IngestProperties = new(StringComparer.Ordinal)
@@ -331,6 +407,19 @@ internal static class SiemReceiverConfigurationLoader
             string.Equals(ingestToken, operatorToken, StringComparison.Ordinal))
             Fail("token_reuse");
 
+        IReadOnlyList<AlertRule> alertRules = [];
+        string? alertWebhookUrl = null;
+        if (root.TryGetProperty("alerts", out var alerts))
+        {
+            if (alerts.ValueKind != JsonValueKind.Object)
+                Fail("alerts_section");
+            RejectUnknownProperties(alerts, AlertsProperties);
+            alertRules = ParseAlertRules(alerts);
+            alertWebhookUrl = OptionalString(alerts, "webhookUrl", "alert_webhook");
+            if (alertWebhookUrl is not null)
+                ValidateAlertWebhookUrl(alertWebhookUrl);
+        }
+
         var sqlitePath = RequiredAbsolutePath(
             storage, "sqlitePath", "storage_sqlite_path");
 
@@ -368,7 +457,63 @@ internal static class SiemReceiverConfigurationLoader
             retentionMaxTotalBytes,
             configurationPath,
             configurationIdentity,
-            ingestToken);
+            ingestToken,
+            alertRules,
+            alertWebhookUrl);
+    }
+
+    private static IReadOnlyList<AlertRule> ParseAlertRules(JsonElement alerts)
+    {
+        if (!alerts.TryGetProperty("rules", out var rules) ||
+            rules.ValueKind != JsonValueKind.Array ||
+            rules.GetArrayLength() == 0)
+        {
+            Fail("alert_rules");
+        }
+
+        var parsed = new List<AlertRule>();
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rule in rules.EnumerateArray())
+        {
+            if (rule.ValueKind != JsonValueKind.Object)
+                Fail("alert_rule");
+            RejectUnknownProperties(rule, AlertRuleProperties);
+            var name = RequiredString(rule, "name", "alert_rule");
+            if (!names.Add(name)) Fail("alert_rule");
+            var type = RequiredString(rule, "type", "alert_rule");
+            if (!AlertRuleTypes.Contains(type)) Fail("alert_rule");
+
+            var eventType = OptionalString(rule, "eventType", "alert_rule");
+            var threshold = ParseOptionalPositiveInt32(rule, "threshold", "alert_rule");
+            var windowSeconds = ParseOptionalPositiveInt32(rule, "windowSeconds", "alert_rule");
+
+            // Each type's parameters are exact: a match rule names its event
+            // type, a rate rule names its bound, nothing else carries either.
+            var valid = type switch
+            {
+                "event_match" => eventType is not null && threshold is null && windowSeconds is null,
+                "ingest_rate" => eventType is null && threshold is not null && windowSeconds is not null,
+                _ => eventType is null && threshold is null && windowSeconds is null,
+            };
+            if (!valid) Fail("alert_rule");
+
+            parsed.Add(new AlertRule(name, type, eventType, threshold, windowSeconds));
+        }
+
+        return parsed;
+    }
+
+    /// <summary>The producer's webhook rule: HTTPS anywhere, plain HTTP only
+    /// to loopback — alert bodies name evidence subjects and must not travel
+    /// plaintext off-host.</summary>
+    private static void ValidateAlertWebhookUrl(string url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+            (parsed.Scheme != Uri.UriSchemeHttps &&
+             !(parsed.Scheme == Uri.UriSchemeHttp && parsed.IsLoopback)))
+        {
+            Fail("alert_webhook");
+        }
     }
 
     private static void RejectUnknownProperties(JsonElement element, HashSet<string> expected)

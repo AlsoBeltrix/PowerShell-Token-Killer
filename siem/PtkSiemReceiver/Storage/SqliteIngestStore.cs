@@ -41,26 +41,44 @@ internal enum GapDispositionOutcome
     Resumed,
 }
 
+internal enum AlertTransitionOutcome
+{
+    NotFound,
+    IllegalTransition,
+    Ok,
+}
+
+internal sealed record CreatedAlert(
+    long AlertId,
+    string RuleName,
+    string SubjectKind,
+    string SubjectId,
+    string CreatedUtc,
+    string Detail);
+
 internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
     private readonly SemaphoreSlim _writerGate = new(1, 1);
     private readonly ISqliteIngestFaultInjector? _faultInjector;
+    private readonly string? _alertRuleConfigHash;
     private int _disposed;
 
     private SqliteIngestStore(
         SqliteConnection writer,
         SqliteWriterPolicy writerPolicy,
         ISqliteIngestFaultInjector? faultInjector,
-        ProtectedDirectoryLease parentLease)
+        ProtectedDirectoryLease parentLease,
+        string? alertRuleConfigHash)
     {
         _writer = writer;
         _parentLease = parentLease;
         WriterPolicy = writerPolicy;
         _faultInjector = faultInjector;
+        _alertRuleConfigHash = alertRuleConfigHash;
     }
 
     internal SqliteWriterPolicy WriterPolicy { get; }
@@ -69,7 +87,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         string databasePath,
         ISqliteIngestFaultInjector? faultInjector = null,
         ProtectedPathTestHooks? protectedPathTestHooks = null,
-        IReadOnlySet<ProtectedPathIdentity>? protectedExternalIdentities = null)
+        IReadOnlySet<ProtectedPathIdentity>? protectedExternalIdentities = null,
+        string? alertRuleConfigHash = null)
     {
         SqliteConnection? connection = null;
         ProtectedDirectoryLease? parentLease = null;
@@ -165,7 +184,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 connection,
                 policy,
                 faultInjector,
-                parentLease);
+                parentLease,
+                alertRuleConfigHash);
             connection = null;
             parentLease = null;
             return store;
@@ -227,10 +247,15 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 }
 
                 var chain = ReadChain(record.SupervisorBootId, transaction);
-                AppendQuarantine(
+                var mismatchAttemptId = AppendQuarantine(
                     RejectedFrom(record, "duplicate_mismatch"),
                     receipt,
                     chain,
+                    transaction);
+                EnqueueAlertWork(
+                    "quarantine",
+                    mismatchAttemptId.ToString(CultureInfo.InvariantCulture),
+                    receipt,
                     transaction);
                 cancellationToken.ThrowIfCancellationRequested();
                 _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Quarantine);
@@ -267,6 +292,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                             "event",
                             FormatGuid(record.EventId),
                             transaction);
+                        EnqueueAlertWork(
+                            "event", FormatGuid(record.EventId), receipt, transaction);
                         if (activeGap.State == "dispositioned")
                         {
                             // The operator already authorized resumption; the
@@ -286,15 +313,25 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     chainFailure = postGapFailure;
                 }
 
-                AppendQuarantine(
+                var attemptId = AppendQuarantine(
                     RejectedFrom(record, chainFailure),
                     receipt,
                     currentHead,
                     transaction);
+                EnqueueAlertWork(
+                    "quarantine",
+                    attemptId.ToString(CultureInfo.InvariantCulture),
+                    receipt,
+                    transaction);
                 if (chainFailure == "chain_gap" &&
                     ReadActiveGap(record.SupervisorBootId, transaction) is null)
                 {
-                    OpenGap(record, currentHead, receipt, transaction);
+                    var gapId = OpenGap(record, currentHead, receipt, transaction);
+                    EnqueueAlertWork(
+                        "gap",
+                        gapId.ToString(CultureInfo.InvariantCulture),
+                        receipt,
+                        transaction);
                 }
 
                 cancellationToken.ThrowIfCancellationRequested();
@@ -312,6 +349,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 "event",
                 FormatGuid(record.EventId),
                 transaction);
+            EnqueueAlertWork("event", FormatGuid(record.EventId), receipt, transaction);
 
             cancellationToken.ThrowIfCancellationRequested();
             _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Event);
@@ -342,7 +380,12 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             if (Guid.TryParseExact(attempt.ClaimedSupervisorBootId, "D", out var bootId))
                 currentHead = ReadChain(bootId, transaction);
 
-            AppendQuarantine(attempt, receipt, currentHead, transaction);
+            var attemptId = AppendQuarantine(attempt, receipt, currentHead, transaction);
+            EnqueueAlertWork(
+                "quarantine",
+                attemptId.ToString(CultureInfo.InvariantCulture),
+                receipt,
+                transaction);
             cancellationToken.ThrowIfCancellationRequested();
             _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Quarantine);
             transaction.Commit();
@@ -633,6 +676,22 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             transaction.Commit();
         }
 
+        if (version < 3)
+        {
+            // Schema v3 (mini-SIEM S6, audit-restoration R5c): the alert
+            // pipeline — a durable work-item queue written in the ingest
+            // transaction, a persisted evaluation cursor, and
+            // custody-chained alerts.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, SchemaVersionThreeSql);
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "UPDATE meta SET value = '3' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=3;");
+            transaction.Commit();
+        }
+
         var recordedVersion = Convert.ToString(
             ExecuteScalar(
                 connection,
@@ -774,6 +833,320 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         if (command.ExecuteNonQuery() != 1)
             throw new InvalidOperationException("The chain head changed during the serialized ingest transaction.");
     }
+
+    // ---- Alert pipeline (mini-SIEM S6 / R5c) ----
+
+    /// <summary>
+    /// Evaluates the next unprocessed work item against the frozen rules.
+    /// The alert inserts, their custody entries, and the cursor advance
+    /// commit in ONE transaction, so a committed work item yields its alert
+    /// exactly once — a crash before this commit replays the item at
+    /// startup, a crash after it never re-evaluates. Returns null when the
+    /// queue is drained.
+    /// </summary>
+    internal async Task<IReadOnlyList<CreatedAlert>?> EvaluateNextAlertWorkItemAsync(
+        IReadOnlyList<Configuration.AlertRule> rules,
+        string evaluationConfigHash,
+        DateTimeOffset utcNow,
+        CancellationToken cancellationToken)
+    {
+        ThrowIfDisposed();
+        await _writerGate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            using var transaction = _writer.BeginTransaction(deferred: false);
+            var cursor = Convert.ToInt64(
+                ExecuteScalar(
+                    transaction.Connection!,
+                    transaction,
+                    "SELECT value FROM meta WHERE key = 'alert_cursor';"),
+                CultureInfo.InvariantCulture);
+
+            long itemId;
+            string kind;
+            string subjectId;
+            string enqueuedUtc;
+            string enqueueHash;
+            using (var command = CreateCommand(transaction.Connection!, transaction, """
+                SELECT item_id, kind, subject_id, enqueued_utc, rule_config_hash
+                FROM alert_queue WHERE item_id > $cursor
+                ORDER BY item_id ASC LIMIT 1;
+                """))
+            {
+                command.Parameters.AddWithValue("$cursor", cursor);
+                using var reader = command.ExecuteReader();
+                if (!reader.Read())
+                {
+                    transaction.Rollback();
+                    return null;
+                }
+
+                itemId = reader.GetInt64(0);
+                kind = reader.GetString(1);
+                subjectId = reader.GetString(2);
+                enqueuedUtc = reader.GetString(3);
+                enqueueHash = reader.GetString(4);
+            }
+
+            // The receiver itself is the actor of an evaluation-created
+            // alert; its custody credential identity is the all-zero
+            // sentinel, never a client credential.
+            var receipt = new IngestReceiptContext(
+                utcNow.ToUniversalTime(), new string('0', 64), "receiver");
+            var created = new List<CreatedAlert>();
+            var createdUtc = FormatUtc(utcNow);
+            foreach (var rule in rules)
+            {
+                var detail = EvaluateRule(
+                    rule, kind, subjectId, enqueuedUtc, transaction);
+                if (detail is null) continue;
+
+                long alertId;
+                using (var command = CreateCommand(transaction.Connection!, transaction, """
+                    INSERT OR IGNORE INTO alerts(
+                        rule_name, work_item_id, subject_kind, subject_id,
+                        created_utc, state, enqueue_config_hash,
+                        evaluation_config_hash, detail, updated_utc)
+                    VALUES(
+                        $rule_name, $work_item_id, $subject_kind, $subject_id,
+                        $created_utc, 'open', $enqueue_hash,
+                        $evaluation_hash, $detail, $created_utc);
+                    """))
+                {
+                    command.Parameters.AddWithValue("$rule_name", rule.Name);
+                    command.Parameters.AddWithValue("$work_item_id", itemId);
+                    command.Parameters.AddWithValue("$subject_kind", kind);
+                    command.Parameters.AddWithValue("$subject_id", subjectId);
+                    command.Parameters.AddWithValue("$created_utc", createdUtc);
+                    command.Parameters.AddWithValue("$enqueue_hash", enqueueHash);
+                    command.Parameters.AddWithValue("$evaluation_hash", evaluationConfigHash);
+                    command.Parameters.AddWithValue("$detail", detail);
+                    if (command.ExecuteNonQuery() != 1) continue;
+                }
+
+                alertId = Convert.ToInt64(
+                    ExecuteScalar(transaction.Connection!, transaction, "SELECT last_insert_rowid();"),
+                    CultureInfo.InvariantCulture);
+                AppendCustody(
+                    AlertCustodyBytes(alertId, rule.Name, itemId, "created"),
+                    receipt,
+                    "alert:created",
+                    "alert",
+                    alertId.ToString(CultureInfo.InvariantCulture),
+                    transaction);
+                created.Add(new CreatedAlert(
+                    alertId, rule.Name, kind, subjectId, createdUtc, detail));
+            }
+
+            ExecuteParameterized(
+                transaction,
+                "UPDATE meta SET value = $cursor WHERE key = 'alert_cursor';",
+                ("$cursor", itemId.ToString(CultureInfo.InvariantCulture)));
+
+            cancellationToken.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return created;
+        }
+        finally
+        {
+            _writerGate.Release();
+        }
+    }
+
+    /// <summary>Returns the alert detail JSON when the rule matches this work
+    /// item, null otherwise. A subject row already removed by retention
+    /// simply no longer matches — the queue never fails on it.</summary>
+    private static string? EvaluateRule(
+        Configuration.AlertRule rule,
+        string kind,
+        string subjectId,
+        string enqueuedUtc,
+        SqliteTransaction transaction)
+    {
+        switch (rule.Type)
+        {
+            case "event_match":
+            {
+                if (kind != "event") return null;
+                using var command = CreateCommand(transaction.Connection!, transaction,
+                    "SELECT event_type FROM events WHERE event_id = $id;");
+                command.Parameters.AddWithValue("$id", subjectId);
+                var eventType = command.ExecuteScalar() as string;
+                return string.Equals(eventType, rule.EventType, StringComparison.Ordinal)
+                    ? $$"""{"event_id":"{{subjectId}}","event_type":"{{eventType}}"}"""
+                    : null;
+            }
+
+            case "chain_break":
+            {
+                if (kind != "quarantine") return null;
+                using var command = CreateCommand(transaction.Connection!, transaction, """
+                    SELECT failure_code, claimed_supervisor_boot_id, claimed_sequence
+                    FROM quarantine WHERE attempt_id = $id;
+                    """);
+                command.Parameters.AddWithValue("$id", subjectId);
+                using var reader = command.ExecuteReader();
+                if (!reader.Read()) return null;
+                if (!string.Equals(reader.GetString(0), "chain_break", StringComparison.Ordinal))
+                    return null;
+                var boot = reader.IsDBNull(1) ? null : reader.GetString(1);
+                var sequence = reader.IsDBNull(2) ? (long?)null : reader.GetInt64(2);
+                return $$"""{"attempt_id":{{subjectId}},"supervisor_boot_id":{{(boot is null ? "null" : $"\"{boot}\"")}},"claimed_sequence":{{sequence?.ToString(CultureInfo.InvariantCulture) ?? "null"}}}""";
+            }
+
+            case "gap_detected":
+            {
+                if (kind != "gap") return null;
+                using var command = CreateCommand(transaction.Connection!, transaction, """
+                    SELECT supervisor_boot_id, claimed_sequence FROM gaps
+                    WHERE gap_id = $id;
+                    """);
+                command.Parameters.AddWithValue("$id", subjectId);
+                using var reader = command.ExecuteReader();
+                if (!reader.Read()) return null;
+                return $$"""{"gap_id":{{subjectId}},"supervisor_boot_id":"{{reader.GetString(0)}}","claimed_sequence":{{reader.GetInt64(1)}}}""";
+            }
+
+            case "ingest_rate":
+            {
+                if (kind != "event") return null;
+                if (!DateTimeOffset.TryParse(
+                        enqueuedUtc,
+                        CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal |
+                        System.Globalization.DateTimeStyles.AdjustToUniversal,
+                        out var enqueued))
+                {
+                    return null;
+                }
+
+                var windowStart = FormatUtc(enqueued.AddSeconds(-rule.WindowSeconds!.Value));
+                long count;
+                using (var command = CreateCommand(transaction.Connection!, transaction, """
+                    SELECT COUNT(*) FROM events
+                    WHERE received_utc > $start AND received_utc <= $end;
+                    """))
+                {
+                    command.Parameters.AddWithValue("$start", windowStart);
+                    command.Parameters.AddWithValue("$end", enqueuedUtc);
+                    count = Convert.ToInt64(
+                        command.ExecuteScalar(), CultureInfo.InvariantCulture);
+                }
+
+                if (count <= rule.Threshold!.Value) return null;
+
+                // One open rate alert per rule: the condition is a state,
+                // not an event, and every further item inside the burst
+                // would otherwise mint its own copy.
+                using (var command = CreateCommand(transaction.Connection!, transaction, """
+                    SELECT COUNT(*) FROM alerts
+                    WHERE rule_name = $rule AND state = 'open';
+                    """))
+                {
+                    command.Parameters.AddWithValue("$rule", rule.Name);
+                    if (Convert.ToInt64(
+                            command.ExecuteScalar(), CultureInfo.InvariantCulture) > 0)
+                    {
+                        return null;
+                    }
+                }
+
+                return $$"""{"count":{{count}},"threshold":{{rule.Threshold.Value}},"window_seconds":{{rule.WindowSeconds.Value}}}""";
+            }
+
+            default:
+                return null;
+        }
+    }
+
+    /// <summary>The alert-lifecycle writer: <c>open → acknowledged →
+    /// closed</c>, no other transitions, rows never deleted here. Each
+    /// transition commits with its custody entry recording who (the
+    /// operator credential's SHA-256), when, and the prior state.</summary>
+    internal async Task<AlertTransitionOutcome> TransitionAlertAsync(
+        long alertId,
+        string targetState,
+        IngestReceiptContext receipt,
+        CancellationToken cancellationToken)
+    {
+        if (targetState is not ("acknowledged" or "closed"))
+            throw new ArgumentException("Unknown alert state.", nameof(targetState));
+        ValidateReceipt(receipt);
+        ThrowIfDisposed();
+
+        await _writerGate.WaitAsync(cancellationToken);
+        try
+        {
+            ThrowIfDisposed();
+            using var transaction = _writer.BeginTransaction(deferred: false);
+            string? state = null;
+            long workItemId = 0;
+            string ruleName = string.Empty;
+            using (var command = CreateCommand(transaction.Connection!, transaction,
+                       "SELECT state, work_item_id, rule_name FROM alerts WHERE alert_id = $id;"))
+            {
+                command.Parameters.AddWithValue("$id", alertId);
+                using var reader = command.ExecuteReader();
+                if (reader.Read())
+                {
+                    state = reader.GetString(0);
+                    workItemId = reader.GetInt64(1);
+                    ruleName = reader.GetString(2);
+                }
+            }
+
+            if (state is null) return AlertTransitionOutcome.NotFound;
+            var legal = (state, targetState) is ("open", "acknowledged") or ("acknowledged", "closed");
+            if (!legal) return AlertTransitionOutcome.IllegalTransition;
+
+            ExecuteParameterized(
+                transaction,
+                """
+                UPDATE alerts SET state = $state, updated_utc = $utc, updated_by = $actor
+                WHERE alert_id = $id;
+                """,
+                ("$state", targetState),
+                ("$utc", FormatUtc(receipt.ReceivedUtc)),
+                ("$actor", receipt.ClientCertificateThumbprint),
+                ("$id", alertId.ToString(CultureInfo.InvariantCulture)));
+
+            AppendCustody(
+                AlertCustodyBytes(alertId, ruleName, workItemId, $"{state}->{targetState}"),
+                receipt,
+                $"alert:{targetState}",
+                "alert",
+                alertId.ToString(CultureInfo.InvariantCulture),
+                transaction);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            transaction.Commit();
+            return AlertTransitionOutcome.Ok;
+        }
+        finally
+        {
+            _writerGate.Release();
+        }
+    }
+
+    private void ExecuteParameterized(
+        SqliteTransaction transaction,
+        string commandText,
+        params (string Name, string Value)[] parameters)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, commandText);
+        foreach (var (name, value) in parameters)
+            command.Parameters.AddWithValue(name, value);
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("The write did not affect exactly one row.");
+    }
+
+    private static byte[] AlertCustodyBytes(
+        long alertId,
+        string ruleName,
+        long workItemId,
+        string transition) =>
+        Encoding.UTF8.GetBytes($"alert:{alertId}:{ruleName}:item={workItemId}:{transition}");
 
     // ---- Gap-disposition state machine (mini-SIEM S6 / R5c) ----
 
@@ -960,7 +1333,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             : "chain_break";
     }
 
-    private static void OpenGap(
+    private static long OpenGap(
         ValidatedOtlpRecord record,
         ChainHead? currentHead,
         IngestReceiptContext receipt,
@@ -993,6 +1366,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             "gap",
             gapId.ToString(CultureInfo.InvariantCulture),
             transaction);
+        return gapId;
     }
 
     private static void ResumeGap(
@@ -1071,7 +1445,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
         string State,
         long ClaimedSequence);
 
-    private static void AppendQuarantine(
+    private static long AppendQuarantine(
         RejectedOtlpAttempt attempt,
         IngestReceiptContext receipt,
         ChainHead? currentHead,
@@ -1115,6 +1489,29 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             "quarantine",
             attemptId.ToString(CultureInfo.InvariantCulture),
             transaction);
+        return attemptId;
+    }
+
+    /// <summary>Durably enqueues an alert-evaluation work item in the same
+    /// transaction as the row it describes, stamped with the startup-frozen
+    /// rule-configuration hash. No configured rules, no queue.</summary>
+    private void EnqueueAlertWork(
+        string kind,
+        string subjectId,
+        IngestReceiptContext receipt,
+        SqliteTransaction transaction)
+    {
+        if (_alertRuleConfigHash is null) return;
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            INSERT INTO alert_queue(kind, subject_id, enqueued_utc, rule_config_hash)
+            VALUES($kind, $subject_id, $enqueued_utc, $rule_config_hash);
+            """);
+        command.Parameters.AddWithValue("$kind", kind);
+        command.Parameters.AddWithValue("$subject_id", subjectId);
+        command.Parameters.AddWithValue("$enqueued_utc", FormatUtc(receipt.ReceivedUtc));
+        command.Parameters.AddWithValue("$rule_config_hash", _alertRuleConfigHash);
+        if (command.ExecuteNonQuery() != 1)
+            throw new InvalidOperationException("The alert work-item insert did not affect exactly one row.");
     }
 
     private static void AppendCustody(
@@ -1356,6 +1753,37 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             WHERE state != 'resumed';
         CREATE INDEX ix_gaps_opened
             ON gaps(opened_utc);
+        """;
+
+    private const string SchemaVersionThreeSql = """
+        CREATE TABLE alert_queue(
+            item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            kind TEXT NOT NULL CHECK(kind IN ('event','quarantine','gap')),
+            subject_id TEXT NOT NULL,
+            enqueued_utc TEXT NOT NULL,
+            rule_config_hash TEXT NOT NULL
+        );
+
+        CREATE TABLE alerts(
+            alert_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            rule_name TEXT NOT NULL,
+            work_item_id INTEGER NOT NULL,
+            subject_kind TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            created_utc TEXT NOT NULL,
+            state TEXT NOT NULL CHECK(state IN ('open','acknowledged','closed')),
+            enqueue_config_hash TEXT NOT NULL,
+            evaluation_config_hash TEXT NOT NULL,
+            detail TEXT NOT NULL,
+            updated_utc TEXT NOT NULL,
+            updated_by TEXT NULL,
+            UNIQUE(work_item_id, rule_name)
+        );
+
+        CREATE INDEX ix_alerts_state
+            ON alerts(state, alert_id);
+
+        INSERT INTO meta(key, value) VALUES('alert_cursor', '0');
         """;
 }
 

@@ -192,7 +192,10 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         ISqliteIngestFaultInjector? storageFaultInjector = null,
         string? ingestToken = null,
         string? existingRoot = null,
-        bool preserveRootOnDispose = false)
+        bool preserveRootOnDispose = false,
+        IReadOnlyList<AlertRule>? alertRules = null,
+        string? alertWebhookUrl = null,
+        bool alertEvaluationHoldForTests = false)
     {
         // A restart test hands the previous host's root back in: certificate
         // material and the database are reused as a real restart would.
@@ -236,7 +239,9 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
             databasePath,
             null,
             null,
-            ingestToken: ingestToken);
+            ingestToken: ingestToken,
+            alertRules: alertRules,
+            alertWebhookUrl: alertWebhookUrl);
 
         WebApplication? application = null;
         try
@@ -245,7 +250,8 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
                 options,
                 committer: committer,
                 timeProvider: timeProvider,
-                storageFaultInjector: storageFaultInjector);
+                storageFaultInjector: storageFaultInjector,
+                alertEvaluationHoldForTests: alertEvaluationHoldForTests);
             await application.StartAsync();
             var server = application.Services.GetRequiredService<IServer>();
             var addresses = server.Features.Get<IServerAddressesFeature>()?.Addresses ??

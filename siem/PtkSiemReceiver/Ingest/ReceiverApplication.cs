@@ -25,7 +25,8 @@ internal static class ReceiverApplication
         TimeProvider? timeProvider = null,
         Storage.ISqliteIngestFaultInjector? storageFaultInjector = null,
         ProtectedPathTestHooks? protectedPathTestHooks = null,
-        Action? tlsMaterialAcquiredForTests = null)
+        Action? tlsMaterialAcquiredForTests = null,
+        bool alertEvaluationHoldForTests = false)
     {
         ArgumentNullException.ThrowIfNull(options);
         RejectMutableStorageCollisions(options);
@@ -127,7 +128,8 @@ internal static class ReceiverApplication
                         options.SqlitePath,
                         storageFaultInjector,
                         protectedPathTestHooks,
-                        protectedExternalIdentities);
+                        protectedExternalIdentities,
+                        options.AlertRuleConfigHash);
                 }
 
                 var builder = WebApplication.CreateSlimBuilder(args ?? []);
@@ -207,6 +209,20 @@ internal static class ReceiverApplication
                     builder.Services.AddSingleton(committer!);
                 }
                 builder.Services.AddHostedService<ReceiverLifecycleService>();
+                // Alert evaluation is decoupled from the ack path but
+                // crash-safe: the queue rows were committed by ingest, and
+                // the hold flag exists so a test can crash "before alert
+                // persistence" deterministically.
+                if (ownedStore is not null && !alertEvaluationHoldForTests)
+                {
+                    builder.Services.AddHostedService(serviceProvider =>
+                        new Alerting.AlertEvaluationService(
+                            serviceProvider.GetRequiredService<SiemReceiverOptions>(),
+                            serviceProvider.GetRequiredService<Storage.SqliteIngestStore>(),
+                            serviceProvider.GetRequiredService<
+                                ILogger<Alerting.AlertEvaluationService>>(),
+                            serviceProvider.GetRequiredService<TimeProvider>()));
+                }
                 // Retention is enforced, not merely configured (rbc-11).
                 builder.Services.AddHostedService(serviceProvider =>
                     new PtkSiemReceiver.Storage.RetentionService(

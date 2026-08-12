@@ -203,6 +203,9 @@ public sealed class GapDispositionTests
             using var command = connection.CreateCommand();
             command.CommandText = """
                 DROP TABLE gaps;
+                DROP TABLE alert_queue;
+                DROP TABLE alerts;
+                DELETE FROM meta WHERE key = 'alert_cursor';
                 ALTER TABLE events DROP COLUMN post_gap;
                 UPDATE meta SET value = '1' WHERE key = 'schema_version';
                 PRAGMA user_version=1;

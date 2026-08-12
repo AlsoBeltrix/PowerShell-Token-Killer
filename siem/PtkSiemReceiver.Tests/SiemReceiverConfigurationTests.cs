@@ -666,6 +666,99 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
         Assert.Equal("operator_port", FailureCodeOf(WriteConfiguration(configuration)));
     }
 
+    // ---- alerts (mini-SIEM S6) --------------------------------------------
+
+    [Fact]
+    public void Alert_rules_load_and_freeze_a_config_hash()
+    {
+        var configuration = ValidConfiguration();
+        configuration.Node["alerts"] = new JsonObject
+        {
+            ["rules"] = new JsonArray(
+                new JsonObject
+                {
+                    ["name"] = "completed",
+                    ["type"] = "event_match",
+                    ["eventType"] = "tool.completed",
+                },
+                new JsonObject { ["name"] = "breaks", ["type"] = "chain_break" },
+                new JsonObject { ["name"] = "gaps", ["type"] = "gap_detected" },
+                new JsonObject
+                {
+                    ["name"] = "burst",
+                    ["type"] = "ingest_rate",
+                    ["threshold"] = 100,
+                    ["windowSeconds"] = 60,
+                }),
+            ["webhookUrl"] = "https://siem.example/alerts",
+        };
+
+        var options = SiemReceiverConfigurationLoader.Load(
+            WriteConfiguration(configuration));
+
+        Assert.Equal(4, options.AlertRules.Count);
+        Assert.Equal("tool.completed", options.AlertRules[0].EventType);
+        Assert.Equal(100, options.AlertRules[3].Threshold);
+        Assert.Equal("https://siem.example/alerts", options.AlertWebhookUrl);
+        Assert.NotNull(options.AlertRuleConfigHash);
+        Assert.Equal(64, options.AlertRuleConfigHash!.Length);
+
+        // Absent section: alerting off, no hash, no queue.
+        var without = SiemReceiverConfigurationLoader.Load(
+            WriteConfiguration(ValidConfiguration()));
+        Assert.Empty(without.AlertRules);
+        Assert.Null(without.AlertRuleConfigHash);
+    }
+
+    [Fact]
+    public void Invalid_alert_rules_are_rejected()
+    {
+        // Each shape is one exact refusal — no fallback defaults.
+        foreach (var (rules, code) in new (JsonNode, string)[]
+                 {
+                     (new JsonArray(), "alert_rules"),
+                     (new JsonArray(new JsonObject
+                     {
+                         ["name"] = "r", ["type"] = "made_up",
+                     }), "alert_rule"),
+                     (new JsonArray(new JsonObject
+                     {
+                         ["name"] = "r", ["type"] = "event_match",
+                     }), "alert_rule"),
+                     (new JsonArray(new JsonObject
+                     {
+                         ["name"] = "r",
+                         ["type"] = "chain_break",
+                         ["eventType"] = "tool.completed",
+                     }), "alert_rule"),
+                     (new JsonArray(new JsonObject
+                     {
+                         ["name"] = "r",
+                         ["type"] = "ingest_rate",
+                         ["threshold"] = 5,
+                     }), "alert_rule"),
+                     (new JsonArray(
+                         new JsonObject { ["name"] = "same", ["type"] = "chain_break" },
+                         new JsonObject { ["name"] = "same", ["type"] = "gap_detected" }),
+                         "alert_rule"),
+                 })
+        {
+            var configuration = ValidConfiguration();
+            configuration.Node["alerts"] = new JsonObject { ["rules"] = rules };
+            Assert.Equal(code, FailureCodeOf(WriteConfiguration(configuration)));
+        }
+
+        // Plain HTTP off loopback would carry evidence subjects plaintext.
+        var webhook = ValidConfiguration();
+        webhook.Node["alerts"] = new JsonObject
+        {
+            ["rules"] = new JsonArray(
+                new JsonObject { ["name"] = "r", ["type"] = "chain_break" }),
+            ["webhookUrl"] = "http://siem.example/alerts",
+        };
+        Assert.Equal("alert_webhook", FailureCodeOf(WriteConfiguration(webhook)));
+    }
+
     // ---- storage / retention ----------------------------------------------
 
     [Fact]

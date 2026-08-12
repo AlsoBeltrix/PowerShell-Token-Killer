@@ -57,9 +57,11 @@ writer serialization are admitted, independently reproduced, and locally
 repaired. cr11-3's unbounded-file-count candidate is declined as an unmeasured
 capacity concern whose proposed repair would weaken approved immutable-history
 semantics. cr11-4's nullable background mutation gates are admitted and both
-alert-evaluation and retention pause guards independently mutation-proved. One
-valid section review round remains. No barrier-section code is included in
-this review scope.
+alert-evaluation and retention pause guards independently mutation-proved.
+cr11-5's macOS case-alias candidate is declined after the runtime's
+case-insensitive relative-path behavior falsified its trigger. Intake is
+complete; one valid section review round remains. No barrier-section code is
+included in this review scope.
 
 **cr10 CLOSED at its two-round cap:** the final Claude round accepted cr10-1
 and reopened cr10-2; `.agents/review/index.md` owns the verdict record. The

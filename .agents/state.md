@@ -825,9 +825,25 @@ release leg as its own artifact `ptk-siem-receiver-<version>-<rid>`
 covers both payloads, no-config smoke naming PTK_SIEM_CONFIG, draft
 gate now ten artifacts — end-to-end proof rides the next `v*`
 tag/dispatch, an owner action). CI already carried the SIEM legs.
-Next: close the cr9 loop, then the audit-restoration end state is
-the mini-SIEM S7 manual smoke (owner-run: PTK driving a receiver on
-another host, events visible in the dashboard) plus S7's ops docs.
+
+**The cr9 loop is CLOSED — all five findings VERIFIED (2026-08-11).**
+`.agents/review/index.md` §cr9 owns the table. The generation pass
+caught three HIGHs the slice itself missed: the journaling gate was
+satisfiable by lifecycle records alone (now demands call.accepted, a
+terminal call outcome, and the proof's session name — 24 checks
+Windows / 22 elsewhere), server/README.md still said auditing was
+disabled, and the ACTIVE exact-script evidence store was documented
+as legacy-only (both docs now require protecting `~/.ptk/audit` as
+sensitive data). One frontier verification batch confirmed all five.
+
+**EVERY audit-restoration slice (R0–R6) is now EXECUTED with its
+codereview loop CLOSED.** What remains to the effort's end state is
+owner-facing: the mini-SIEM S7 slice (ops docs: siem/README install/
+backup/threat-model per the mini-SIEM plan) and the S7 manual smoke —
+PTK driving a receiver on another host, events visible in the
+dashboard — the "owner has seen it work" gate. The release legs'
+receiver artifacts get their end-to-end proof on the next `v*`
+tag/dispatch (owner action).
 The codex verification recipe that works: `-s workspace-write -c
 'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
 the socket), per-server MCP `enabled=false` overrides, `-o <file>`

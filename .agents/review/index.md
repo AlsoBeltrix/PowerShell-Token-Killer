@@ -1,5 +1,26 @@
 # Review status
 
+## Closed — cr9 (codereview over R6, 2026-08-11)
+
+Generation pass: codex / gpt-5.6-sol / high / standard over
+`a43e4e4..c9b41c8` (R6: CI/docs/packaging/release gates — the final
+audit-restoration slice). Verdict `findings` (5), capability_ok true,
+SHAs matched. All five admitted; none declined. Fixes one commit each;
+verification in ONE frontier batch (worktree `770dae5`) — verdict
+`confirmed`, all five, guard_confirmed true (the cr9-1 bite proved
+with a lifecycle-only root that satisfied the old substring check and
+fails all three new pins; doc claims verified against the code; two
+reviewer-environment blocks noted in the records, no product
+assertion failed).
+
+| ID    | Severity | Impact (one line)                                             | Status | Reviewer |
+|-------|----------|---------------------------------------------------------------|--------|----------|
+| cr9-1 | HIGH     | journaling gate passed on lifecycle records alone             | `[x]` `f38610c` | codex xhigh |
+| cr9-2 | HIGH     | server README still told operators auditing is disabled       | `[x]` `db59531` | codex xhigh |
+| cr9-3 | HIGH     | active exact-script evidence store documented as legacy-only  | `[x]` `de24c84` | codex xhigh |
+| cr9-4 | MEDIUM   | receiver response contract omitted the 401 row                | `[x]` `953e2c2` | codex xhigh |
+| cr9-5 | LOW      | proof's HOME-rooted audit dir not reliably cleaned up         | `[x]` `770dae5` | codex xhigh |
+
 ## Closed — cr8 (codereview over R5c, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over

@@ -1,24 +1,59 @@
-# Retained audit administration and receiver contract
+# Audit, export, and receiver contract
 
-## Current runtime boundary
+## Current runtime contract (audit-restoration, 2026-08)
 
-The production `PtkMcpServer` does not initialize local audit storage and does
-not run an OTLP audit producer. Ordinary execution has no journal or collector
-dependency, and `ptk_state` reports audit disabled.
+Auditing is base-level and non-bypassable. Every `PtkMcpServer` boot opens a
+mandatory, fail-closed local journal before serving any tool call:
 
-`PTK_AUDIT_ROOT` and `PTK_AUDIT_EXPORT_CONFIG` do not enable producer behavior
-in the ordinary runtime. The former anchored-startup instructions and
-`ptk.export-config/2` example are intentionally not reproduced here.
+- **The local journal is the ONLY execution gate.** A healthy audit root
+  means every invoke is journaled durably before it is served. An unwritable
+  or refused root keeps the transport up but refuses every invoke fail-closed
+  (`[operation not started]`); admission retries, so a repaired root heals
+  without a restart. `ptk_state` reports real audit health
+  (`audit: healthy mode=local-only` and export health when configured).
+- **The audit root** defaults to `~/.ptk/audit` and is overridden with
+  `PTK_AUDIT_ROOT`. Protected-path admission refuses symlinked
+  components, foreign ownership, and over-permissive modes; corrupt host
+  identity or boot-lineage artifacts are quarantined under
+  `<root>/quarantine/` with original bytes preserved, and the service
+  continues on fresh identity.
+- **Export never gates execution.** The optional export leg drains the
+  journal asynchronously behind a durable per-boot cursor and delivers
+  at-least-once. It is configured by `export.json` in the audit root
+  (written safely from the web UI's settings page through the loader's own
+  validation) or by `PTK_AUDIT_EXPORT_KIND` / `PTK_AUDIT_EXPORT_ENDPOINT` /
+  `PTK_AUDIT_EXPORT_TOKEN`. One contract, thin adapters: `splunk_hec`, or
+  `otlp_http` (any OTLP/HTTP collector — including the standalone
+  `PtkSiemReceiver` below, reached identically). Plaintext HTTP is accepted
+  only for loopback endpoints; credentials never reach the journal, logs, or
+  `ptk_state`. Delivery-loss detection rests on per-boot contiguous
+  sequences plus boot lineage; proven loss reports `EXPORT_GAPS`, suspicion
+  reports `unverified_boot_boundaries` — never conflated.
+- **The loopback web UI** (default port 8317, `PTK_AUDIT_UI_PORT`,
+  `PTK_AUDIT_UI_DISABLED=1` to disable) reads the journal directly: log
+  view, quarantine evidence, audit + export health, and the settings page.
+  Auth is a bearer token minted per bind into an owner-only `ui-token` file
+  in the audit root, plus loopback/Host pinning. One UI per root;
+  supervisors race for the port and losers stand by.
+- **The alert webhook** (optional `alert_webhook` in `export.json` or
+  `PTK_AUDIT_ALERT_WEBHOOK`, same HTTPS-or-loopback rule) posts
+  edge-triggered operator alerts; an undeliverable webhook keeps the edge
+  pending and can never gate anything.
 
-This repository still contains:
+The release gate proves the packaged bits journal
+(`server/direct-product-proof.ps1`), and the handshake proves it for a
+checkout.
+
+This repository also contains:
 
 - legacy local journal and exact-script evidence types needed to read and
   disposition existing stores;
 - the separate `PtkAuditAdmin` executable for that legacy administration; and
-- the standalone `PtkSiemReceiver` OTLP/HTTP wire and acknowledgment contract.
+- the standalone `PtkSiemReceiver` — the fallback SIEM destination for
+  environments without one (see `siem/PtkSiemReceiver/README.md`).
 
 `PtkAuditAdmin` is excluded from the runtime package. `PtkSiemReceiver` is a
-separate application, not a service enabled by `PtkMcpServer`.
+separately installed application, not a service enabled by `PtkMcpServer`.
 
 ## Legacy local evidence administration
 
@@ -91,8 +126,15 @@ and do not edit that held record as part of runtime documentation maintenance.
 
 `siem/PtkSiemReceiver` retains the binary-compatible OTLP logs subset in
 `siem/PtkSiemReceiver/Protos/audit_otlp.proto`. Its ingest endpoint is
-`POST /v1/logs` over TLS 1.2 or 1.3 with a required client certificate. Request
-and response media type is `application/x-protobuf`.
+`POST /v1/logs` over TLS 1.2 or 1.3. Client authentication is mTLS by
+default; with an `ingest.token` configured (audit-restoration R3c) a client
+may instead present `Authorization: Bearer` — a certificate that IS presented
+is still validated. Two encodings are accepted: `application/x-protobuf`
+(single record per request) and `application/json` (the generic-collector
+OTLP/HTTP JSON shape PTK's own exporter emits, batched; each record's JSONL
+body passes the same validation core, and batch responses aggregate — first
+transient stops the pass, any permanent yields `400` so the producer isolates
+record-by-record).
 
 The response contract is:
 
@@ -113,4 +155,7 @@ request bytes, event/quarantine state, and receiver custody records in SQLite.
 Its deployment status and storage warning remain in
 [`siem/PtkSiemReceiver/README.md`](../siem/PtkSiemReceiver/README.md). This
 receiver contract is retained for compatibility and future migration work; it
-does not imply that the current PTK runtime emits these requests.
+is what the current PTK runtime's export leg speaks when pointed at the
+receiver (`otlp_http` destination, JSON encoding), and the
+producer-to-receiver conformance suite pins the two ends against shared
+producer-owned golden corpora (mini-SIEM S4).

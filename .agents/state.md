@@ -809,10 +809,26 @@ accepting loss. Store schema is now v7 with in-place migrations from
 v1. SIEM suite 305/305; server suite 1,306/1,306 (plain shell)
 re-confirmed after the R5c base commits.
 
-Next: **R6** (CI legs, AUDIT-EXPORT.md/READMEs, receiver signing
-through release legs, release-gate positive journaling check) + its
-codereview — the LAST audit-restoration slice. The codex verification
-recipe that works: `-s workspace-write -c
+**R6 EXECUTED (2026-08-11), codereview cr9 dispatched over
+`a43e4e4..c9b41c8` — the LAST audit-restoration slice.** Four
+commits: `31e81cb` the release-gate positive journaling check
+(direct-product-proof runs its server on an isolated HOME-rooted
+`PTK_AUDIT_ROOT` — temp dirs are refused on macOS, /var is a symlink
+— and asserts nonempty artifacts carrying real records; bite proved
+both ways by env-var sabotage; proof is now 23 checks Windows / 21
+elsewhere); `eb6c6f9` AUDIT-EXPORT.md rewritten from the false
+"audit disabled" claim to the restored contract (every claim
+verified against the code); `7a1f8f7` README Audit status truth fix
++ hook clarification; `c9b41c8` the receiver ships signed from every
+release leg as its own artifact `ptk-siem-receiver-<version>-<rid>`
+(second Trusted Signing invocation, macOS codesign+notarize envelope
+covers both payloads, no-config smoke naming PTK_SIEM_CONFIG, draft
+gate now ten artifacts — end-to-end proof rides the next `v*`
+tag/dispatch, an owner action). CI already carried the SIEM legs.
+Next: close the cr9 loop, then the audit-restoration end state is
+the mini-SIEM S7 manual smoke (owner-run: PTK driving a receiver on
+another host, events visible in the dashboard) plus S7's ops docs.
+The codex verification recipe that works: `-s workspace-write -c
 'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
 the socket), per-server MCP `enabled=false` overrides, `-o <file>`
 for the verdict.

@@ -155,25 +155,25 @@ internal sealed record AlertRule(
 
 internal static class AlertRuleSet
 {
+    /// <summary>Versioned JSON serialization of the ordered rule list —
+    /// length-framed by construction, so no rule content can make two
+    /// different sets serialize identically (cr8-6: bare newline joins
+    /// collided over newline-bearing names).</summary>
     internal static string ComputeConfigHash(IReadOnlyList<AlertRule> rules)
     {
-        var builder = new System.Text.StringBuilder();
-        foreach (var rule in rules)
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new
         {
-            builder.Append(rule.Name).Append('\n')
-                .Append(rule.Type).Append('\n')
-                .Append(rule.EventType ?? string.Empty).Append('\n')
-                .Append(rule.Threshold?.ToString(
-                    System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty)
-                .Append('\n')
-                .Append(rule.WindowSeconds?.ToString(
-                    System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty)
-                .Append('\n');
-        }
-
-        return Convert.ToHexString(
-                SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(builder.ToString())))
-            .ToLowerInvariant();
+            v = 1,
+            rules = rules.Select(rule => new
+            {
+                name = rule.Name,
+                type = rule.Type,
+                eventType = rule.EventType,
+                threshold = rule.Threshold,
+                windowSeconds = rule.WindowSeconds,
+            }),
+        });
+        return Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
     }
 }
 

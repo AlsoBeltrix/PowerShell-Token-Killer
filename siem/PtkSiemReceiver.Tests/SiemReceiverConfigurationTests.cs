@@ -711,6 +711,26 @@ public sealed class SiemReceiverConfigurationTests : IDisposable
     }
 
     [Fact]
+    public void Different_rule_sets_never_share_a_config_hash()
+    {
+        // cr8-6: the reviewer's constructed pair — under bare-newline
+        // framing these serialized to identical bytes.
+        IReadOnlyList<AlertRule> two =
+        [
+            new("a", "event_match", "x", null, null),
+            new("b", "chain_break", null, null, null),
+        ];
+        IReadOnlyList<AlertRule> one =
+        [
+            new("a", "event_match", "x\n\n\nb\nchain_break\n", null, null),
+        ];
+
+        Assert.NotEqual(
+            AlertRuleSet.ComputeConfigHash(two),
+            AlertRuleSet.ComputeConfigHash(one));
+    }
+
+    [Fact]
     public void Invalid_alert_rules_are_rejected()
     {
         // Each shape is one exact refusal — no fallback defaults.

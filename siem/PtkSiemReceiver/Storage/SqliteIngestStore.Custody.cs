@@ -28,6 +28,39 @@ internal sealed partial class SqliteIngestStore
         string? PreviousEventHash,
         string? EventHash);
 
+    private sealed record AlertSubjectState(
+        string RuleName,
+        long WorkItemId,
+        string SubjectKind,
+        string SubjectId,
+        string CreatedUtc,
+        string State,
+        string EnqueueConfigHash,
+        string EvaluationConfigHash,
+        string Detail,
+        string UpdatedUtc,
+        string? UpdatedBy);
+
+    private sealed record GapSubjectState(
+        string SupervisorBootId,
+        long ClaimedSequence,
+        string OpenedUtc,
+        string State,
+        long? OpeningAttemptId,
+        string? Disposition,
+        string? DispositionActor,
+        string? DispositionEndpoint,
+        string? DispositionUtc,
+        string? ResumedUtc,
+        string? ResumeEventId);
+
+    private sealed record CustodySubjectSnapshot(
+        IReadOnlyDictionary<string, string> EventEvidenceHashes,
+        IReadOnlyDictionary<string, string> QuarantineEvidenceHashes,
+        IReadOnlyDictionary<(string Kind, string Id), long> LatestReceiptSequences,
+        IReadOnlyDictionary<string, AlertSubjectState> Alerts,
+        IReadOnlyDictionary<string, GapSubjectState> Gaps);
+
     internal async Task<CustodyVerificationResult> VerifyCustodyAsync(
         CancellationToken cancellationToken)
     {
@@ -36,7 +69,7 @@ internal sealed partial class SqliteIngestStore
         try
         {
             ThrowIfDisposed();
-            return VerifyCustodyCore(_writer);
+            return VerifyCustodyCore(_writer, _faultInjector);
         }
         finally
         {
@@ -92,11 +125,14 @@ internal sealed partial class SqliteIngestStore
         transaction.Commit();
     }
 
-    private static CustodyVerificationResult VerifyCustodyCore(SqliteConnection connection)
+    private static CustodyVerificationResult VerifyCustodyCore(
+        SqliteConnection connection,
+        ISqliteIngestFaultInjector? faultInjector)
     {
         try
         {
             var compacted = ReadCompactedEvidence(connection);
+            var subjects = ReadCustodySubjectSnapshot(connection, faultInjector);
             long expectedSequence = 1;
             long legacyUnverified = 0;
             string? previousHash = null;
@@ -203,7 +239,7 @@ internal sealed partial class SqliteIngestStore
                     return Failure("custody_integrity_hash", sequence, previousHash, legacyUnverified);
 
                 if (!VerifySubjectEvidence(
-                        connection,
+                        subjects,
                         sequence,
                         ledgerVersion,
                         subjectKind,
@@ -380,8 +416,106 @@ internal sealed partial class SqliteIngestStore
         return true;
     }
 
-    private static bool VerifySubjectEvidence(
+    private static CustodySubjectSnapshot ReadCustodySubjectSnapshot(
         SqliteConnection connection,
+        ISqliteIngestFaultInjector? faultInjector)
+    {
+        var events = new Dictionary<string, string>(StringComparer.Ordinal);
+        faultInjector?.CustodySnapshotQueryForTests("events");
+        using (var command = CreateCommand(
+                   connection, null, "SELECT event_id, raw_request FROM events;"))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                events.Add(
+                    reader.GetString(0),
+                    CustodyEvidenceHash.Compute(reader.GetFieldValue<byte[]>(1)));
+            }
+        }
+
+        var quarantine = new Dictionary<string, string>(StringComparer.Ordinal);
+        faultInjector?.CustodySnapshotQueryForTests("quarantine");
+        using (var command = CreateCommand(
+                   connection, null, "SELECT attempt_id, raw_request FROM quarantine;"))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                quarantine.Add(
+                    reader.GetInt64(0).ToString(CultureInfo.InvariantCulture),
+                    CustodyEvidenceHash.Compute(reader.GetFieldValue<byte[]>(1)));
+            }
+        }
+
+        var latest = new Dictionary<(string Kind, string Id), long>();
+        faultInjector?.CustodySnapshotQueryForTests("latest_lifecycle");
+        using (var command = CreateCommand(connection, null, """
+            SELECT subject_kind, subject_id, MAX(receipt_sequence)
+            FROM custody
+            WHERE subject_kind IN ('alert', 'gap')
+            GROUP BY subject_kind, subject_id;
+            """))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+                latest.Add((reader.GetString(0), reader.GetString(1)), reader.GetInt64(2));
+        }
+
+        var alerts = new Dictionary<string, AlertSubjectState>(StringComparer.Ordinal);
+        faultInjector?.CustodySnapshotQueryForTests("alerts");
+        using (var command = CreateCommand(connection, null, """
+            SELECT alert_id, rule_name, work_item_id, subject_kind, subject_id,
+                   created_utc, state, enqueue_config_hash,
+                   evaluation_config_hash, detail, updated_utc, updated_by
+            FROM alerts;
+            """))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                alerts.Add(
+                    reader.GetInt64(0).ToString(CultureInfo.InvariantCulture),
+                    new AlertSubjectState(
+                        reader.GetString(1), reader.GetInt64(2), reader.GetString(3),
+                        reader.GetString(4), reader.GetString(5), reader.GetString(6),
+                        reader.GetString(7), reader.GetString(8), reader.GetString(9),
+                        reader.GetString(10), reader.IsDBNull(11) ? null : reader.GetString(11)));
+            }
+        }
+
+        var gaps = new Dictionary<string, GapSubjectState>(StringComparer.Ordinal);
+        faultInjector?.CustodySnapshotQueryForTests("gaps");
+        using (var command = CreateCommand(connection, null, """
+            SELECT gap_id, supervisor_boot_id, claimed_sequence, opened_utc, state,
+                   opening_attempt_id, disposition, disposition_actor,
+                   disposition_endpoint, disposition_utc, resumed_utc,
+                   resume_event_id
+            FROM gaps;
+            """))
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                gaps.Add(
+                    reader.GetInt64(0).ToString(CultureInfo.InvariantCulture),
+                    new GapSubjectState(
+                        reader.GetString(1), reader.GetInt64(2), reader.GetString(3),
+                        reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetInt64(5),
+                        reader.IsDBNull(6) ? null : reader.GetString(6),
+                        reader.IsDBNull(7) ? null : reader.GetString(7),
+                        reader.IsDBNull(8) ? null : reader.GetString(8),
+                        reader.IsDBNull(9) ? null : reader.GetString(9),
+                        reader.IsDBNull(10) ? null : reader.GetString(10),
+                        reader.IsDBNull(11) ? null : reader.GetString(11)));
+            }
+        }
+
+        return new CustodySubjectSnapshot(events, quarantine, latest, alerts, gaps);
+    }
+
+    private static bool VerifySubjectEvidence(
+        CustodySubjectSnapshot subjects,
         long custodySequence,
         int ledgerVersion,
         string subjectKind,
@@ -406,45 +540,28 @@ internal sealed partial class SqliteIngestStore
         }
         if (subjectKind is "alert")
             return VerifyLatestAlertState(
-                connection, custodySequence, subjectId, evidence);
+                subjects, custodySequence, subjectId, evidence);
         if (subjectKind is "gap")
             return VerifyLatestGapState(
-                connection, custodySequence, subjectId, evidence);
+                subjects, custodySequence, subjectId, evidence);
         if (subjectKind is not ("event" or "quarantine")) return true;
-
-        var table = subjectKind == "event" ? "events" : "quarantine";
-        var idColumn = subjectKind == "event" ? "event_id" : "attempt_id";
-        using var command = CreateCommand(
-            connection,
-            null,
-            $"SELECT raw_request FROM {table} WHERE CAST({idColumn} AS TEXT) = $id;");
-        command.Parameters.AddWithValue("$id", subjectId);
-        var raw = command.ExecuteScalar() as byte[];
-        if (raw is null) return false;
-
-        var rawHash = CustodyEvidenceHash.Compute(raw);
-        return string.Equals(rawHash, evidenceHash, StringComparison.Ordinal) &&
-               (evidence is null || raw.AsSpan().SequenceEqual(evidence));
+        var source = subjectKind == "event"
+            ? subjects.EventEvidenceHashes
+            : subjects.QuarantineEvidenceHashes;
+        return source.TryGetValue(subjectId, out var rawHash) &&
+               string.Equals(rawHash, evidenceHash, StringComparison.Ordinal);
     }
 
     private static bool VerifyLatestAlertState(
-        SqliteConnection connection,
+        CustodySubjectSnapshot subjects,
         long custodySequence,
         string subjectId,
         byte[]? evidence)
     {
-        if (!IsLatestSubjectReceipt(connection, custodySequence, "alert", subjectId))
+        if (!IsLatestSubjectReceipt(subjects, custodySequence, "alert", subjectId))
             return true;
         if (evidence is null) return false;
-        using var command = CreateCommand(connection, null, """
-            SELECT rule_name, work_item_id, subject_kind, subject_id,
-                   created_utc, state, enqueue_config_hash,
-                   evaluation_config_hash, detail, updated_utc, updated_by
-            FROM alerts WHERE CAST(alert_id AS TEXT) = $id;
-            """);
-        command.Parameters.AddWithValue("$id", subjectId);
-        using var reader = command.ExecuteReader();
-        if (!reader.Read()) return false;
+        if (!subjects.Alerts.TryGetValue(subjectId, out var alert)) return false;
         using var document = JsonDocument.Parse(evidence);
         var root = document.RootElement;
         var transition = RequiredJsonString(root, "transition");
@@ -455,47 +572,38 @@ internal sealed partial class SqliteIngestStore
             "acknowledged->closed" => "closed",
             _ => null,
         };
-        if (expectedState is null || !string.Equals(reader.GetString(5), expectedState, StringComparison.Ordinal))
+        if (expectedState is null || !string.Equals(alert.State, expectedState, StringComparison.Ordinal))
             return false;
         if (root.GetProperty("alert_id").GetInt64().ToString(CultureInfo.InvariantCulture) != subjectId ||
-            !string.Equals(RequiredJsonString(root, "rule"), reader.GetString(0), StringComparison.Ordinal) ||
-            root.GetProperty("work_item_id").GetInt64() != reader.GetInt64(1))
+            !string.Equals(RequiredJsonString(root, "rule"), alert.RuleName, StringComparison.Ordinal) ||
+            root.GetProperty("work_item_id").GetInt64() != alert.WorkItemId)
         {
             return false;
         }
         if (transition == "created")
         {
-            return string.Equals(RequiredJsonString(root, "subject_kind"), reader.GetString(2), StringComparison.Ordinal) &&
-                   string.Equals(RequiredJsonString(root, "subject_id"), reader.GetString(3), StringComparison.Ordinal) &&
-                   string.Equals(RequiredJsonString(root, "created_utc"), reader.GetString(4), StringComparison.Ordinal) &&
-                   string.Equals(RequiredJsonString(root, "enqueue_config_hash"), reader.GetString(6), StringComparison.Ordinal) &&
-                   string.Equals(RequiredJsonString(root, "evaluation_config_hash"), reader.GetString(7), StringComparison.Ordinal) &&
-                   string.Equals(RequiredJsonString(root, "detail"), reader.GetString(8), StringComparison.Ordinal);
+            return string.Equals(RequiredJsonString(root, "subject_kind"), alert.SubjectKind, StringComparison.Ordinal) &&
+                   string.Equals(RequiredJsonString(root, "subject_id"), alert.SubjectId, StringComparison.Ordinal) &&
+                   string.Equals(RequiredJsonString(root, "created_utc"), alert.CreatedUtc, StringComparison.Ordinal) &&
+                   string.Equals(RequiredJsonString(root, "enqueue_config_hash"), alert.EnqueueConfigHash, StringComparison.Ordinal) &&
+                   string.Equals(RequiredJsonString(root, "evaluation_config_hash"), alert.EvaluationConfigHash, StringComparison.Ordinal) &&
+                   string.Equals(RequiredJsonString(root, "detail"), alert.Detail, StringComparison.Ordinal);
         }
-        return string.Equals(RequiredJsonString(root, "utc"), reader.GetString(9), StringComparison.Ordinal) &&
-               !reader.IsDBNull(10) &&
-               string.Equals(RequiredJsonString(root, "actor"), reader.GetString(10), StringComparison.Ordinal);
+        return string.Equals(RequiredJsonString(root, "utc"), alert.UpdatedUtc, StringComparison.Ordinal) &&
+               alert.UpdatedBy is not null &&
+               string.Equals(RequiredJsonString(root, "actor"), alert.UpdatedBy, StringComparison.Ordinal);
     }
 
     private static bool VerifyLatestGapState(
-        SqliteConnection connection,
+        CustodySubjectSnapshot subjects,
         long custodySequence,
         string subjectId,
         byte[]? evidence)
     {
-        if (!IsLatestSubjectReceipt(connection, custodySequence, "gap", subjectId))
+        if (!IsLatestSubjectReceipt(subjects, custodySequence, "gap", subjectId))
             return true;
         if (evidence is null) return false;
-        using var command = CreateCommand(connection, null, """
-            SELECT supervisor_boot_id, claimed_sequence, opened_utc, state,
-                   opening_attempt_id, disposition, disposition_actor,
-                   disposition_endpoint, disposition_utc, resumed_utc,
-                   resume_event_id
-            FROM gaps WHERE CAST(gap_id AS TEXT) = $id;
-            """);
-        command.Parameters.AddWithValue("$id", subjectId);
-        using var reader = command.ExecuteReader();
-        if (!reader.Read()) return false;
+        if (!subjects.Gaps.TryGetValue(subjectId, out var gap)) return false;
         using var document = JsonDocument.Parse(evidence);
         var root = document.RootElement;
         var transition = RequiredJsonString(root, "transition");
@@ -507,49 +615,45 @@ internal sealed partial class SqliteIngestStore
             _ when transition.StartsWith("dispositioned:", StringComparison.Ordinal) => "dispositioned",
             _ => null,
         };
-        if (expectedState is null || !string.Equals(reader.GetString(3), expectedState, StringComparison.Ordinal) ||
+        if (expectedState is null || !string.Equals(gap.State, expectedState, StringComparison.Ordinal) ||
             root.GetProperty("gap_id").GetInt64().ToString(CultureInfo.InvariantCulture) != subjectId ||
-            !string.Equals(RequiredJsonString(root, "supervisor_boot_id"), reader.GetString(0), StringComparison.Ordinal) ||
-            root.GetProperty("claimed_sequence").GetInt64() != reader.GetInt64(1))
+            !string.Equals(RequiredJsonString(root, "supervisor_boot_id"), gap.SupervisorBootId, StringComparison.Ordinal) ||
+            root.GetProperty("claimed_sequence").GetInt64() != gap.ClaimedSequence)
         {
             return false;
         }
         return transition switch
         {
             "opened" =>
-                string.Equals(RequiredJsonString(root, "opened_utc"), reader.GetString(2), StringComparison.Ordinal) &&
+                string.Equals(RequiredJsonString(root, "opened_utc"), gap.OpenedUtc, StringComparison.Ordinal) &&
                 JsonNullableInt64(root, "opening_attempt_id") ==
-                    (reader.IsDBNull(4) ? null : reader.GetInt64(4)),
+                    gap.OpeningAttemptId,
             "resumed" or "healed" =>
-                !reader.IsDBNull(9) &&
-                string.Equals(RequiredJsonString(root, "resumed_utc"), reader.GetString(9), StringComparison.Ordinal) &&
-                !reader.IsDBNull(10) &&
-                string.Equals(RequiredJsonString(root, "resume_event_id"), reader.GetString(10), StringComparison.Ordinal),
+                gap.ResumedUtc is not null &&
+                string.Equals(RequiredJsonString(root, "resumed_utc"), gap.ResumedUtc, StringComparison.Ordinal) &&
+                gap.ResumeEventId is not null &&
+                string.Equals(RequiredJsonString(root, "resume_event_id"), gap.ResumeEventId, StringComparison.Ordinal),
             _ =>
-                !reader.IsDBNull(5) &&
-                string.Equals(RequiredJsonString(root, "disposition"), reader.GetString(5), StringComparison.Ordinal) &&
-                !reader.IsDBNull(6) &&
-                string.Equals(RequiredJsonString(root, "actor"), reader.GetString(6), StringComparison.Ordinal) &&
-                !reader.IsDBNull(7) &&
-                string.Equals(RequiredJsonString(root, "endpoint"), reader.GetString(7), StringComparison.Ordinal) &&
-                !reader.IsDBNull(8) &&
-                string.Equals(RequiredJsonString(root, "utc"), reader.GetString(8), StringComparison.Ordinal),
+                gap.Disposition is not null &&
+                string.Equals(RequiredJsonString(root, "disposition"), gap.Disposition, StringComparison.Ordinal) &&
+                gap.DispositionActor is not null &&
+                string.Equals(RequiredJsonString(root, "actor"), gap.DispositionActor, StringComparison.Ordinal) &&
+                gap.DispositionEndpoint is not null &&
+                string.Equals(RequiredJsonString(root, "endpoint"), gap.DispositionEndpoint, StringComparison.Ordinal) &&
+                gap.DispositionUtc is not null &&
+                string.Equals(RequiredJsonString(root, "utc"), gap.DispositionUtc, StringComparison.Ordinal),
         };
     }
 
     private static bool IsLatestSubjectReceipt(
-        SqliteConnection connection,
+        CustodySubjectSnapshot subjects,
         long custodySequence,
         string subjectKind,
         string subjectId)
     {
-        using var command = CreateCommand(connection, null, """
-            SELECT MAX(receipt_sequence) FROM custody
-            WHERE subject_kind = $kind AND subject_id = $id;
-            """);
-        command.Parameters.AddWithValue("$kind", subjectKind);
-        command.Parameters.AddWithValue("$id", subjectId);
-        return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture) == custodySequence;
+        return subjects.LatestReceiptSequences.TryGetValue(
+                   (subjectKind, subjectId), out var latest) &&
+               latest == custodySequence;
     }
 
     private static string RequiredJsonString(JsonElement root, string property) =>
@@ -645,21 +749,29 @@ internal sealed partial class SqliteIngestStore
         string subjectId,
         SqliteTransaction transaction)
     {
-        var sourceJoin = subjectKind == "event"
-            ? "JOIN events s ON s.event_id = c.subject_id"
-            : "JOIN quarantine s ON CAST(s.attempt_id AS TEXT) = c.subject_id";
-        var sourceProjection = subjectKind == "event"
-            ? "s.supervisor_boot_id, s.sequence, s.previous_event_hash, s.event_hash"
-            : "NULL, NULL, NULL, NULL";
-        using var command = CreateCommand(_writer, transaction, $"""
-            SELECT c.receipt_sequence, c.evidence_hash, {sourceProjection}
-            FROM custody c
-            {sourceJoin}
-            WHERE c.subject_kind = $kind AND c.subject_id = $id
-            ORDER BY c.receipt_sequence DESC LIMIT 1;
-            """);
-        command.Parameters.AddWithValue("$kind", subjectKind);
+        var sql = subjectKind == "event"
+            ? """
+              SELECT c.receipt_sequence, c.evidence_hash,
+                     s.supervisor_boot_id, s.sequence,
+                     s.previous_event_hash, s.event_hash
+              FROM custody c
+              JOIN events s ON s.event_id = c.subject_id
+              WHERE c.subject_kind = 'event' AND c.subject_id = $id
+              ORDER BY c.receipt_sequence DESC LIMIT 1;
+              """
+            : """
+              SELECT c.receipt_sequence, c.evidence_hash,
+                     NULL, NULL, NULL, NULL
+              FROM custody c
+              JOIN quarantine s ON s.attempt_id = $numeric_id
+              WHERE c.subject_kind = 'quarantine' AND c.subject_id = $id
+              ORDER BY c.receipt_sequence DESC LIMIT 1;
+              """;
+        using var command = CreateCommand(_writer, transaction, sql);
         command.Parameters.AddWithValue("$id", subjectId);
+        if (subjectKind == "quarantine")
+            command.Parameters.AddWithValue(
+                "$numeric_id", long.Parse(subjectId, CultureInfo.InvariantCulture));
         using var reader = command.ExecuteReader();
         if (!reader.Read() || reader.IsDBNull(1))
             throw new InvalidOperationException("Retention source lacks verifiable custody evidence.");
@@ -803,16 +915,23 @@ internal sealed partial class SqliteIngestStore
         IReadOnlyList<string> subjectIds,
         SqliteTransaction transaction)
     {
-        long deleted = 0;
-        foreach (var subjectId in subjectIds)
+        if (subjectIds.Count == 0) return 0;
+        var parameters = subjectIds
+            .Select((_, index) => $"$id{index}")
+            .ToArray();
+        using var command = CreateCommand(
+            _writer,
+            transaction,
+            $"DELETE FROM {table} WHERE {idColumn} IN ({string.Join(",", parameters)});");
+        for (var index = 0; index < subjectIds.Count; index++)
         {
-            using var command = CreateCommand(
-                _writer,
-                transaction,
-                $"DELETE FROM {table} WHERE CAST({idColumn} AS TEXT) = $id;");
-            command.Parameters.AddWithValue("$id", subjectId);
-            deleted += command.ExecuteNonQuery();
+            object value = table == "events"
+                ? subjectIds[index]
+                : long.Parse(subjectIds[index], CultureInfo.InvariantCulture);
+            command.Parameters.AddWithValue(parameters[index], value);
         }
+        _faultInjector?.RetentionDeleteStatementForTests(table, subjectIds.Count);
+        var deleted = command.ExecuteNonQuery();
         if (deleted != subjectIds.Count)
             throw new InvalidOperationException("Retention selection changed inside its transaction.");
         return deleted;

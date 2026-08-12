@@ -56,6 +56,16 @@ still takes full verification. The guard rebuilds a faithful v7 schema with an
 orphaned event plus gap/alert lifecycle receipts; removing the exemption
 reproduces `custody_integrity_subject`, restoring it passes.
 
+**cr10-2 fixed, guards proved biting (2026-08-12):** startup preloads event,
+quarantine, latest-lifecycle, alert, and gap state in five set reads rather
+than querying per receipt; schema v9 adds the custody subject covering index.
+Retention uses one typed parameterized delete per selected set, with indexed
+event/quarantine lookups. A 64-receipt guard fails if the snapshot is loaded
+inside the receipt loop; a 23-subject guard fails if deletion returns to one
+statement per subject; query-plan guards pin both primary and covering index
+use. SIEM suite is 315/315. cr10 now awaits its single final Claude verification
+batch; no further generation round is authorized for this major section.
+
 **OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
 removal was never consciously owner-approved.** The owner's words: "I
 never consciously removed SIEM output. that's a p0 requirement." The

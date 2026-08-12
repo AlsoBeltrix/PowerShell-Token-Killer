@@ -752,6 +752,26 @@ public sealed class RetentionEnforcementTests
         Assert.True((await store.VerifyCustodyAsync(default)).Healthy);
     }
 
+    [Fact]
+    public async Task Retention_deletes_each_selected_set_with_one_statement()
+    {
+        using var database = new TestDatabase();
+        var counter = new RetentionDeleteCounter();
+        using var store = SqliteIngestStore.Open(
+            database.Path, faultInjector: counter);
+        await CommitChainAsync(store, count: 24);
+
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+
+        var statement = Assert.Single(counter.Statements);
+        Assert.Equal("events", statement.Table);
+        Assert.Equal(23, statement.SubjectCount);
+    }
+
     private static string? LastHash { get; set; }
 
     private static async Task CommitChainAsync(
@@ -828,6 +848,18 @@ public sealed class RetentionEnforcementTests
             if (writeKind == SqliteIngestWriteKind.Retention)
                 throw new IOException("retention interrupted");
         }
+    }
+
+    private sealed class RetentionDeleteCounter : ISqliteIngestFaultInjector
+    {
+        internal List<(string Table, int SubjectCount)> Statements { get; } = [];
+
+        public void BeforeCommit(SqliteIngestWriteKind writeKind)
+        {
+        }
+
+        public void RetentionDeleteStatementForTests(string table, int subjectCount) =>
+            Statements.Add((table, subjectCount));
     }
 
     private sealed class TestDatabase : IDisposable

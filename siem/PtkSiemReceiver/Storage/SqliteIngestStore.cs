@@ -31,6 +31,14 @@ internal interface ISqliteIngestFaultInjector
     void BeforeConnectionOpenForTests(string databasePath)
     {
     }
+
+    void CustodySnapshotQueryForTests(string subject)
+    {
+    }
+
+    void RetentionDeleteStatementForTests(string table, int subjectCount)
+    {
+    }
 }
 
 internal sealed record SqliteWriterPolicy(string JournalMode, int Synchronous);
@@ -62,7 +70,7 @@ internal sealed record CustodyAppendResult(long Sequence, string ReceiptHash);
 
 internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 8;
+    private const int CurrentSchemaVersion = 9;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -172,7 +180,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             SiemProtectedPath.VerifySqliteFileIsOpen(sharedMemoryIdentity.Value);
             ApplyMigrations(connection);
             BackfillLegacyCustodyEvidence(connection);
-            var custodyVerification = VerifyCustodyCore(connection);
+            var custodyVerification = VerifyCustodyCore(connection, faultInjector);
             if (!custodyVerification.Healthy)
                 throw new SiemReceiverStartupException(custodyVerification.FailureCode);
             faultInjector?.AfterStartupProtectionForTests(fullPath);
@@ -927,6 +935,18 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction,
                 "UPDATE meta SET value = '8' WHERE key = 'schema_version';");
             ExecuteNonQuery(connection, transaction, "PRAGMA user_version=8;");
+            transaction.Commit();
+        }
+
+        if (version < 9)
+        {
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, """
+                CREATE INDEX IF NOT EXISTS ix_custody_subject
+                ON custody(subject_kind, subject_id, receipt_sequence);
+                UPDATE meta SET value = '9' WHERE key = 'schema_version';
+                PRAGMA user_version=9;
+                """);
             transaction.Commit();
         }
 

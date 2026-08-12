@@ -65,7 +65,7 @@ public sealed class SqliteIngestStoreTests
             AssertExactProtection(database.Path, isDirectory: false);
             AssertExactProtection(database.Path + "-wal", isDirectory: false);
             AssertExactProtection(database.Path + "-shm", isDirectory: false);
-            Assert.Equal(8L, Scalar<long>(database.Path, "PRAGMA user_version;"));
+            Assert.Equal(9L, Scalar<long>(database.Path, "PRAGMA user_version;"));
             Assert.Equal("wal", Scalar<string>(database.Path, "PRAGMA journal_mode;"));
             receiverId = Scalar<string>(
                 database.Path,
@@ -575,6 +575,59 @@ public sealed class SqliteIngestStoreTests
     }
 
     [Fact]
+    public async Task Startup_subject_verification_uses_five_set_reads_independent_of_receipt_count()
+    {
+        using var database = new TestDatabase();
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            string? previousHash = null;
+            for (var index = 1; index <= 64; index++)
+            {
+                var record = Validate(OtlpTestRequest.Create(
+                    eventId: $"018f6a78-4c20-7a11-8a34-12345678{index:x4}",
+                    sequence: index,
+                    previousEventHash: previousHash));
+                Assert.Equal(
+                    IngestCommitResultKind.Accepted,
+                    (await store.CommitAsync(record, Receipt, default)).Kind);
+                previousHash = record.EventHash;
+            }
+        }
+
+        var counter = new CustodySnapshotQueryCounter();
+        using var reopened = SqliteIngestStore.Open(
+            database.Path, faultInjector: counter);
+        Assert.Equal(
+            new[] { "events", "quarantine", "latest_lifecycle", "alerts", "gaps" },
+            counter.Subjects);
+        Assert.True(reopened.StartupCustodyVerification.Healthy);
+    }
+
+    [Fact]
+    public void Custody_subject_index_and_event_primary_key_are_used_by_lookup_plans()
+    {
+        using var database = new TestDatabase();
+        using var store = SqliteIngestStore.Open(database.Path);
+
+        Assert.Contains(
+            "USING INDEX sqlite_autoindex_events_1",
+            QueryPlan(database.Path, """
+                EXPLAIN QUERY PLAN
+                SELECT raw_request FROM events WHERE event_id = 'missing';
+                """),
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "USING COVERING INDEX ix_custody_subject",
+            QueryPlan(database.Path, """
+                EXPLAIN QUERY PLAN
+                SELECT receipt_sequence FROM custody
+                WHERE subject_kind = 'alert' AND subject_id = '1'
+                ORDER BY receipt_sequence DESC LIMIT 1;
+                """),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Alert_custody_receipts_commit_the_evidence_fields()
     {
         // cr8-3: the receipt must break when the stored alert's evidence is
@@ -863,6 +916,17 @@ public sealed class SqliteIngestStoreTests
         command.ExecuteNonQuery();
     }
 
+    private static string QueryPlan(string path, string sql)
+    {
+        using var connection = Open(path, readOnly: true);
+        using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        using var reader = command.ExecuteReader();
+        var details = new List<string>();
+        while (reader.Read()) details.Add(reader.GetString(3));
+        return string.Join("\n", details);
+    }
+
     private static SqliteConnection Open(string path, bool readOnly)
     {
         var connection = new SqliteConnection(new SqliteConnectionStringBuilder
@@ -884,6 +948,17 @@ public sealed class SqliteIngestStoreTests
         {
             if (writeKind == target) throw exception;
         }
+    }
+
+    private sealed class CustodySnapshotQueryCounter : ISqliteIngestFaultInjector
+    {
+        internal List<string> Subjects { get; } = [];
+
+        public void BeforeCommit(SqliteIngestWriteKind writeKind)
+        {
+        }
+
+        public void CustodySnapshotQueryForTests(string subject) => Subjects.Add(subject);
     }
 
     private sealed class BlockingBeforeCommitFault : ISqliteIngestFaultInjector, IDisposable

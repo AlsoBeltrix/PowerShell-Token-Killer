@@ -14,7 +14,7 @@ second and final review round.
 | ID     | Severity | Impact (one line)                                      | Status | Reviewer |
 |--------|----------|--------------------------------------------------------|--------|----------|
 | cr10-1 | CRITICAL | v7 receipts brick the receiver during v8 upgrade       | `[~]` fixed, verification pending | pending |
-| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[ ]` | pending |
+| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[~]` fixed, verification pending | pending |
 
 ## Closed — cr9 (codereview over R6, 2026-08-11)
 

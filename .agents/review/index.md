@@ -2,13 +2,18 @@
 
 ## Active — cr11 (Claude review over S4b independent witness/restore, 2026-08-12)
 
-Implementation is code-complete locally over base `9c6f89c`: protected
+Implementation landed at `87818e4` over base `9c6f89c`: protected
 hash-chained checkpoint files, optional anchor-first file drop, startup and
 periodic custody health with mutation gating, schema-v10 restore evidence, and
 operator-authenticated branch reconciliation with a one-time data-loss alert.
 SIEM suite passes 323/323; four load-bearing bypasses were proved to fail their
-named guards. Generation review is pending after the implementation landing;
-this major section has a maximum of two review rounds.
+named guards. Claude Code 2.1.228 / claude-opus-5 / xhigh produced no verdict:
+the first headless dispatch exceeded the connector's 300-second call ceiling,
+and its one allowed fresh-process retry exceeded PTK's 290-second execution
+ceiling. Both processes were contained; neither returned a result envelope, so
+neither counts as a review round. Automatic dispatch stopped at the playbook's
+retry limit. Generation review remains pending owner direction on a long-call
+transport; this major section has a maximum of two valid review rounds.
 
 ## Closed — cr10 (Claude review over S4b custody/retention, 2026-08-12)
 

@@ -24,7 +24,7 @@ SQLite store passed 58/58; no product code changed in the
 reconciliation.
 
 **S4b UNDERWAY — custody/retention is closed at review cap; independent
-witness + restore is code-complete pending Claude review (2026-08-12).** SQLite schema v8
+witness + restore landed pending Claude review (2026-08-12).** SQLite schema v8
 adds v2 custody receipts with recomputable evidence digests, exact live
 evidence, and atomic event/quarantine/closed-alert retention tombstones.
 Startup refuses broken sequence/link/hash, changed event/quarantine
@@ -48,9 +48,12 @@ section: whole-process pre-commit/post-ack barriers and discriminators. Each
 major section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
 
 **Active review loop cr11:** the S4b independent-witness/restore major section
-is locally complete and awaits its first Claude generation round; see
-`.agents/review/index.md`. Its base is `9c6f89c`; exact landed head is recorded
-at dispatch. No barrier-section code is included in this review scope.
+landed at `87818e4` over base `9c6f89c`; see `.agents/review/index.md`. Claude
+Code 2.1.228 / claude-opus-5 / xhigh twice timed out at the headless transport
+boundary without a verdict envelope. Neither failed dispatch consumed one of
+the section's two valid review rounds, but the playbook's automatic retry is
+spent; owner direction on a longer-lived transport is required. No barrier-
+section code is included in this review scope.
 
 **cr10 CLOSED at its two-round cap:** the final Claude round accepted cr10-1
 and reopened cr10-2; `.agents/review/index.md` owns the verdict record. The

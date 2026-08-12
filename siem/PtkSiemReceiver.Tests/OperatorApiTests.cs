@@ -108,6 +108,37 @@ public sealed class OperatorApiTests
     }
 
     [Fact]
+    public async Task An_uppercase_event_id_finds_the_stored_event()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        var record = OtlpTestRequest.CreateRecord();
+        using (var response = await client.SendAsync(
+                   IngestJsonRequest(host.Endpoint, record.Body)))
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        // Uppercase is a valid D-format spelling of the same UUID; the
+        // lookup must normalize instead of 404ing on stored-case text
+        // (cr7-5).
+        using var detail = await OperatorGetAsync(
+            host,
+            client,
+            $"/api/events/{record.EventId.ToUpperInvariant()}");
+        Assert.Equal(HttpStatusCode.OK, detail.StatusCode);
+        using var payload = JsonDocument.Parse(await detail.Content.ReadAsStringAsync());
+        Assert.Equal(
+            record.EventId,
+            payload.RootElement.GetProperty("event").GetProperty("event_id").GetString());
+    }
+
+    [Fact]
     public async Task Quarantine_evidence_is_listed_without_raw_bytes()
     {
         using var authority = new TestCertificateAuthority();

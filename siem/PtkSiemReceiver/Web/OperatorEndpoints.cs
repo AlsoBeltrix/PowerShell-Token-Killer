@@ -200,12 +200,17 @@ internal static class OperatorEndpoints
         string eventId)
     {
         if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
-        if (!Guid.TryParseExact(eventId, "D", out _))
+        if (!Guid.TryParseExact(eventId, "D", out var parsedEventId))
         {
             await WriteJsonAsync(
                 context, 400, new { error = "event_id" }).ConfigureAwait(false);
             return;
         }
+
+        // Bind the parsed GUID's canonical lowercase form, not the route
+        // text: the store holds lowercase and TryParseExact accepts
+        // uppercase (cr7-5).
+        var canonicalEventId = parsedEventId.ToString("D");
 
         using var connection = OpenReadOnly(options.SqlitePath);
         using var command = connection.CreateCommand();
@@ -213,7 +218,7 @@ internal static class OperatorEndpoints
             "SELECT event_id, supervisor_boot_id, sequence, schema_version, event_type, " +
             "occurred_utc, observed_utc, previous_event_hash, event_hash, exact_json_body, " +
             "received_utc FROM events WHERE event_id = $id;";
-        command.Parameters.AddWithValue("$id", eventId);
+        command.Parameters.AddWithValue("$id", canonicalEventId);
         string bootId;
         long sequence;
         object detail;

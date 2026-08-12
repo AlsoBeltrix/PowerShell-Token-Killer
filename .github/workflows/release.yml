@@ -122,6 +122,19 @@ jobs:
             -Rid ${{ matrix.rid }} `
             -Version ${{ steps.version.outputs.version }}
 
+      # The standalone SIEM receiver ships per-RID from these same legs
+      # (audit-restoration R6; contract rule 7: it is signed exactly like the
+      # server). Published BEFORE the signing steps so they cover its
+      # binaries, archived as its own artifact because it is a separately
+      # installed product.
+      - name: Publish the SIEM receiver
+        shell: pwsh
+        run: |
+          dotnet publish siem/PtkSiemReceiver/PtkSiemReceiver.csproj `
+            -c Release -r ${{ matrix.rid }} --self-contained true `
+            -o out/ptk-siem
+          if ($LASTEXITCODE -ne 0) { throw 'receiver publish failed' }
+
       # Every Mach-O in the payload is Developer ID-signed with hardened
       # runtime BEFORE any gate runs, so the smoke test and product proof
       # below exercise the exact signed bits that ship — including that the
@@ -177,6 +190,23 @@ jobs:
           timestamp-rfc3161: http://timestamp.acs.microsoft.com
           timestamp-digest: SHA256
 
+      - name: Sign the Windows SIEM receiver payload
+        if: startsWith(matrix.rid, 'win-')
+        uses: azure/trusted-signing-action@v0.5.9
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.AZURE_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ secrets.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: public-trust
+          files-folder: ${{ github.workspace }}\out\ptk-siem
+          files-folder-filter: exe,dll
+          files-folder-recurse: true
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
       - name: Sign the macOS payload
         if: startsWith(matrix.rid, 'osx-')
         shell: bash
@@ -206,7 +236,7 @@ jobs:
             echo "no valid signing identity found in the imported certificate" >&2
             exit 1
           fi
-          find out/ptk/bin -type f -print0 | while IFS= read -r -d '' f; do
+          find out/ptk/bin out/ptk-siem -type f -print0 | while IFS= read -r -d '' f; do
             t=$(file -b "$f")
             case "$t" in
               *Mach-O*executable*)
@@ -217,6 +247,7 @@ jobs:
             esac
           done
           codesign --verify --strict -v out/ptk/bin/PtkMcpServer
+          codesign --verify --strict -v out/ptk-siem/PtkSiemReceiver
           # -dvv, not -dv: the Authority= lines only appear at the second
           # verbosity level, and this grep asserting on absent output failed
           # an otherwise fully successful first signing run.
@@ -292,6 +323,35 @@ jobs:
           }
           Write-Host "Startup gate ok: exit 78, message names PTK_RTK_PATH"
 
+      # The receiver's own startup contract on the exact packaged bits: with
+      # no configuration it must refuse fast (exit 1) naming PTK_SIEM_CONFIG
+      # — proving the binary launches on this RID and fails closed rather
+      # than serving unconfigured.
+      - name: Smoke-test the packaged SIEM receiver
+        shell: pwsh
+        run: |
+          $exe = if ('${{ matrix.rid }}'.StartsWith('win-')) {
+            'out/ptk-siem/PtkSiemReceiver.exe'
+          } else {
+            'out/ptk-siem/PtkSiemReceiver'
+          }
+          if (-not $IsWindows) { chmod +x $exe }
+          $psi = [Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = (Resolve-Path $exe)
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardError = $true
+          $psi.EnvironmentVariables.Remove('PTK_SIEM_CONFIG')
+          $p = [Diagnostics.Process]::Start($psi)
+          $text = $p.StandardError.ReadToEnd()
+          if (-not $p.WaitForExit(60000)) {
+            $p.Kill($true)
+            throw "receiver did not exit without configuration. stderr: $text"
+          }
+          if ($p.ExitCode -ne 1 -or $text -notmatch 'PTK_SIEM_CONFIG') {
+            throw "expected exit 1 naming PTK_SIEM_CONFIG, got $($p.ExitCode). stderr: $text"
+          }
+          Write-Host 'Receiver smoke ok: refuses without configuration, names PTK_SIEM_CONFIG'
+
       # Notarization is Apple's malware-scan-and-ticket service; Gatekeeper
       # consults it online when a user runs a browser-downloaded copy. Bare
       # executables in a tarball cannot carry a stapled ticket, so acceptance
@@ -316,7 +376,12 @@ jobs:
             echo "APPLE_ID secret is missing; the macOS release artifact must be notarized" >&2
             exit 1
           fi
-          ditto -c -k --keepParent out/ptk "$RUNNER_TEMP/ptk-notarize.zip"
+          # One submission covers both payloads: notarization records each
+          # Mach-O hash, so the receiver rides in the same envelope.
+          mkdir -p "$RUNNER_TEMP/notarize-staging"
+          cp -R out/ptk "$RUNNER_TEMP/notarize-staging/ptk"
+          cp -R out/ptk-siem "$RUNNER_TEMP/notarize-staging/ptk-siem"
+          ditto -c -k --keepParent "$RUNNER_TEMP/notarize-staging" "$RUNNER_TEMP/ptk-notarize.zip"
           SUBMIT_OUT=$(xcrun notarytool submit "$RUNNER_TEMP/ptk-notarize.zip" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \
@@ -364,6 +429,21 @@ jobs:
           "file=$file" >> $env:GITHUB_OUTPUT
           Write-Host "$hash  $(Split-Path $file -Leaf)"
 
+          # The receiver is its own artifact: a separately installed product
+          # for environments without a SIEM (audit-restoration R6).
+          $siemName = "ptk-siem-receiver-${{ steps.version.outputs.version }}-${{ matrix.rid }}"
+          if ('${{ matrix.archive }}' -eq 'zip') {
+            $siemFile = "dist/$siemName.zip"
+            Compress-Archive -Path out/ptk-siem/* -DestinationPath $siemFile
+          } else {
+            $siemFile = "dist/$siemName.tar.gz"
+            tar -czf $siemFile -C out/ptk-siem .
+            if ($LASTEXITCODE -ne 0) { throw 'receiver tar failed' }
+          }
+          $siemHash = (Get-FileHash $siemFile -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$siemHash  $(Split-Path $siemFile -Leaf)" | Set-Content "$siemFile.sha256"
+          Write-Host "$siemHash  $(Split-Path $siemFile -Leaf)"
+
       - uses: actions/upload-artifact@v4
         with:
           name: ptk-${{ matrix.rid }}
@@ -390,11 +470,12 @@ jobs:
           rm -f *.sha256
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
-          # Five RIDs must all be present; a missing artifact means a runner
-          # failed and the draft would silently ship short.
+          # Five RIDs, two artifacts each (server + SIEM receiver, R6); a
+          # missing artifact means a runner failed and the draft would
+          # silently ship short.
           count=$(ls -1 ptk-*.zip ptk-*.tar.gz 2>/dev/null | wc -l)
-          if [ "$count" -ne 5 ]; then
-            echo "expected 5 artifacts, found $count" >&2
+          if [ "$count" -ne 10 ]; then
+            echo "expected 10 artifacts, found $count" >&2
             ls -la >&2
             exit 1
           fi

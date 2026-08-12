@@ -122,7 +122,12 @@ throwaway home — never the operator's real `~/.ptk`. Install into an isolated 
 Release artifacts are built by `.github/workflows/release.yml` on a `v*` tag
 or `workflow_dispatch`. It builds each of the five RIDs on its own native
 runner, smoke-tests and RTK-gate-proves every artifact there, and assembles a
-**draft** release only — publishing is an owner action. The osx-arm64 leg
+**draft** release only — publishing is an owner action. Since
+audit-restoration R6, each leg also publishes, signs, smokes
+(no-config refusal naming `PTK_SIEM_CONFIG`), and archives the standalone
+SIEM receiver as its own artifact (`ptk-siem-receiver-<version>-<rid>`), so
+a draft carries ten artifacts, and the macOS notarization envelope covers
+both payloads. The osx-arm64 leg
 additionally Developer ID-signs every Mach-O (hardened runtime; executables
 get `server/macos-signing-entitlements.plist` — the JITting .NET runtime
 dies under hardening without it) **before** the gates run, then notarizes

@@ -30,7 +30,8 @@ public sealed class ReceiverAdmissionRefusalTests
             options: null!,
             committer: null!,
             TimeProvider.System,
-            gate);
+            gate,
+            custodyHealth: null!);
 
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, context.Response.StatusCode);
         Assert.Equal("1", context.Response.Headers.RetryAfter.ToString());

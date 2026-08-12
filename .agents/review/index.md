@@ -7,13 +7,20 @@ hash-chained checkpoint files, optional anchor-first file drop, startup and
 periodic custody health with mutation gating, schema-v10 restore evidence, and
 operator-authenticated branch reconciliation with a one-time data-loss alert.
 SIEM suite passes 323/323; four load-bearing bypasses were proved to fail their
-named guards. Claude Code 2.1.228 / claude-opus-5 / xhigh produced no verdict:
+named guards. Two initial Claude Code 2.1.228 / claude-opus-5 / xhigh
+foreground transports produced no verdict:
 the first headless dispatch exceeded the connector's 300-second call ceiling,
 and its one allowed fresh-process retry exceeded PTK's 290-second execution
 ceiling. Both processes were contained; neither returned a result envelope, so
 neither counts as a review round. Automatic dispatch stopped at the playbook's
-retry limit. Generation review remains pending owner direction on a long-call
-transport; this major section has a maximum of two valid review rounds.
+retry limit. Owner-authorized background generation round 1 then returned a
+valid five-candidate verdict over the exact landed range after 14 minutes.
+Intake is in progress; cr11-1 is admitted and locally repaired. This major
+section has one valid review round remaining.
+
+| ID     | Severity | Impact (one line)                                   | Status | Reviewer |
+|--------|----------|-----------------------------------------------------|--------|----------|
+| cr11-1 | HIGH     | routed path variant commits while custody is paused | `[~]` repair locally guard-proved | claude/claude-opus-5/xhigh/frontier |
 
 ## Closed — cr10 (Claude review over S4b custody/retention, 2026-08-12)
 

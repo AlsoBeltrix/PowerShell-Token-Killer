@@ -154,6 +154,12 @@ public sealed class CustodyWitnessTests
             {
                 Assert.Equal(HttpStatusCode.ServiceUnavailable, refused.StatusCode);
             }
+            using (var refusedVariant = await ingestClient.PostAsync(
+                       new Uri(restoredHost.Endpoint + "/"),
+                       OtlpTestRequest.Content(second)))
+            {
+                Assert.Equal(HttpStatusCode.ServiceUnavailable, refusedVariant.StatusCode);
+            }
 
             using var operatorClient = new HttpClient { BaseAddress = restoredHost.OperatorEndpoint };
             using (var unauthorized = await operatorClient.PostAsync(

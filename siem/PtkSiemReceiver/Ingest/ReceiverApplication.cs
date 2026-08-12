@@ -257,21 +257,6 @@ internal static class ReceiverApplication
                 _ = application.Services.GetRequiredService<IIngestCommitter>();
                 _ = application.Services.GetRequiredService<IngestAdmissionGate>();
                 _ = application.Services.GetRequiredService<Web.OperatorTlsMaterial>();
-                application.Use(async (context, next) =>
-                {
-                    if (context.Request.Path == "/v1/logs" &&
-                        !context.RequestServices
-                            .GetRequiredService<Storage.CustodyHealthState>()
-                            .CanMutate)
-                    {
-                        await OtlpHttpResponse.WriteTransientAsync(
-                            context.Response,
-                            "custody_unhealthy",
-                            context.RequestAborted).ConfigureAwait(false);
-                        return;
-                    }
-                    await next(context).ConfigureAwait(false);
-                });
                 application.MapPost("/v1/logs", HandleIngestAsync);
                 Web.OperatorEndpoints.Map(application);
                 return application;
@@ -389,7 +374,8 @@ internal static class ReceiverApplication
         SiemReceiverOptions options,
         IIngestCommitter committer,
         TimeProvider timeProvider,
-        IngestAdmissionGate admissionGate)
+        IngestAdmissionGate admissionGate,
+        Storage.CustodyHealthState custodyHealth)
     {
         // Ingest never serves on the operator surface (S5): the operator
         // credential must not become an ingest credential by port reuse.
@@ -412,6 +398,14 @@ internal static class ReceiverApplication
 
         try
         {
+            if (!custodyHealth.CanMutate)
+            {
+                await OtlpHttpResponse.WriteTransientAsync(
+                    context.Response,
+                    "custody_unhealthy",
+                    context.RequestAborted);
+                return;
+            }
             await HandleAdmittedIngestAsync(context, options, committer, timeProvider);
         }
         finally

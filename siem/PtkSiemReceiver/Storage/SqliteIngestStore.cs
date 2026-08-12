@@ -59,7 +59,7 @@ internal sealed record CreatedAlert(
 
 internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 6;
+    private const int CurrentSchemaVersion = 7;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -858,6 +858,45 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction,
                 "UPDATE meta SET value = '6' WHERE key = 'schema_version';");
             ExecuteNonQuery(connection, transaction, "PRAGMA user_version=6;");
+            transaction.Commit();
+        }
+
+        if (version < 7)
+        {
+            // Schema v7 (cr8-4 round-4): v6's receipt-instant match still
+            // collided when one JSON batch carried the non-opening attempt
+            // and the opener at a single instant. The append-only custody
+            // ledger holds the exact fact: the opening transaction writes
+            // the opener's quarantine receipt IMMEDIATELY before its gap's
+            // gap:opened receipt, and custody is never deleted. Re-link
+            // every gap the ledger can answer for; keep the old link
+            // otherwise.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, """
+                UPDATE gaps SET opening_attempt_id = (
+                    SELECT CAST(opener.subject_id AS INTEGER)
+                    FROM custody opened
+                    JOIN custody opener
+                      ON opener.receipt_sequence = opened.receipt_sequence - 1
+                    WHERE opened.disposition = 'gap:opened'
+                      AND opened.subject_kind = 'gap'
+                      AND CAST(opened.subject_id AS INTEGER) = gaps.gap_id
+                      AND opener.subject_kind = 'quarantine')
+                WHERE (
+                    SELECT CAST(opener.subject_id AS INTEGER)
+                    FROM custody opened
+                    JOIN custody opener
+                      ON opener.receipt_sequence = opened.receipt_sequence - 1
+                    WHERE opened.disposition = 'gap:opened'
+                      AND opened.subject_kind = 'gap'
+                      AND CAST(opened.subject_id AS INTEGER) = gaps.gap_id
+                      AND opener.subject_kind = 'quarantine') IS NOT NULL;
+                """);
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "UPDATE meta SET value = '7' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=7;");
             transaction.Commit();
         }
 

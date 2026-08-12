@@ -530,6 +530,96 @@ public sealed class RetentionEnforcementTests
     }
 
     [Fact]
+    public async Task The_backfill_links_the_opener_when_instants_collide()
+    {
+        // cr8-4 round-4 (verification reopen): one JSON batch shares a
+        // single receipt instant, so the instant heuristic could not tell
+        // the non-opening attempt from the true opener. The custody ledger
+        // can: the opener's quarantine receipt immediately precedes its
+        // gap's gap:opened receipt. Every receipt here shares one instant.
+        using var database = new TestDatabase();
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            var first = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890c1",
+                sequence: 1));
+            var second = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890c2",
+                sequence: 2,
+                previousEventHash: first.EventHash));
+            var third = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890c3",
+                sequence: 3,
+                previousEventHash: second.EventHash));
+            var skipper = Validate(OtlpTestRequest.Create(
+                eventId: "018f6a78-4c20-7a11-8a34-1234567890c8",
+                sequence: 8,
+                previousEventHash: new string('d', 64)));
+
+            // seq1 lands; seq3 opens gap 1 (attempt 1) then anchors
+            // post-gap; seq8 while gap 1 is active is non-opening attempt 2.
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(first, Receipt, default)).Kind);
+            Assert.Equal(
+                IngestCommitResultKind.PermanentFailure,
+                (await store.CommitAsync(third, Receipt, default)).Kind);
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(third, Receipt, default)).Kind);
+            Assert.Equal(
+                IngestCommitResultKind.PermanentFailure,
+                (await store.CommitAsync(skipper, Receipt, default)).Kind);
+            Assert.Equal(1L, Count(database.Path, "gaps"));
+
+            // The late seq2 heals gap 1 in-band; seq8's retry then opens
+            // gap 2 as attempt 3 — same instant as attempt 2.
+            Assert.Equal(
+                IngestCommitResultKind.Accepted,
+                (await store.CommitAsync(second, Receipt, default)).Kind);
+            Assert.Equal(
+                IngestCommitResultKind.PermanentFailure,
+                (await store.CommitAsync(skipper, Receipt, default)).Kind);
+            Assert.Equal(2L, Count(database.Path, "gaps"));
+        }
+
+        using (var connection = new SqliteConnection(
+                   new SqliteConnectionStringBuilder
+                   {
+                       DataSource = database.Path,
+                       Mode = SqliteOpenMode.ReadWrite,
+                       Pooling = false,
+                   }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+                ALTER TABLE gaps DROP COLUMN opening_attempt_id;
+                UPDATE meta SET value = '3' WHERE key = 'schema_version';
+                PRAGMA user_version=3;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        using (var reopened = SqliteIngestStore.Open(database.Path))
+        {
+            Assert.Equal(
+                3L,
+                Scalar<long>(
+                    database.Path,
+                    "SELECT opening_attempt_id FROM gaps WHERE state = 'open';"));
+            _ = await reopened.EnforceRetentionAsync(
+                maximumAgeDays: 30,
+                maximumTotalBytes: null,
+                utcNow: Receipt.ReceivedUtc.AddYears(1),
+                CancellationToken.None);
+            Assert.Equal(
+                3L,
+                Scalar<long>(database.Path, "SELECT attempt_id FROM quarantine;"));
+        }
+    }
+
+    [Fact]
     public async Task Spent_queue_rows_and_aged_closed_alerts_are_reclaimed()
     {
         // cr8-5: evaluated queue rows are deleted with the cursor advance,

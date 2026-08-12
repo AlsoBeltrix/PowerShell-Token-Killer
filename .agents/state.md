@@ -23,8 +23,8 @@ head run covering producer conformance, ingest integration, and the
 SQLite store passed 58/58; no product code changed in the
 reconciliation.
 
-**S4b UNDERWAY — custody verifier + retention tombstones code-complete
-2026-08-12, pending the owner-requested Claude review.** SQLite schema v8
+**S4b UNDERWAY — custody verifier + retention tombstones implemented and
+through their final allowed Claude review round 2026-08-12.** SQLite schema v8
 adds v2 custody receipts with recomputable evidence digests, exact live
 evidence, and atomic event/quarantine/closed-alert retention tombstones.
 Startup refuses broken sequence/link/hash, changed event/quarantine
@@ -34,19 +34,18 @@ retention interruption rolls back source deletes, custody compaction, and
 tombstone creation together. New load-bearing guards were independently
 sabotaged: bypassing startup verification made the tampered-event guard
 fail; bypassing event tombstone creation made the retention guard fail.
-SIEM suite: 311/311. Remaining S4b sections: protected independent
+SIEM suite: 315/315 at the reviewed head. Remaining S4b sections: protected independent
 witness/checkpoints + periodic health/restore reconciliation, then the
 whole-process pre-commit/post-ack barriers and discriminators. Each major
 section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
 
-**Active review loop cr10:** Claude's first-round S4b custody/retention pass
-produced two admitted findings; `.agents/review/index.md` owns status. cr10-1
-is a CRITICAL v7→v8 legacy-receipt startup brick; cr10-2 is HIGH quadratic
-startup/retention behavior. The generation envelope itself failed the literal
-SHA-pin check because the orchestrator expanded short SHAs incorrectly, so it
-is not recorded as an accepted range verdict; both findings are retained on
-their independently reproducible evidence. One fix commit per finding, then
-one final verification batch (the section's round-two cap).
+**Active review loop cr10:** the second and final allowed Claude round accepted
+cr10-1 and reopened cr10-2; `.agents/review/index.md` owns the verdict record.
+The remaining cr10-2 defect is concrete: age retention can select more than
+SQLite's 32,766 host-parameter limit, so the new one-statement set delete
+throws, rolls back, and retries the same permanently failing set forever. A
+bounded typed-batch repair plus local bite proof is next. The major section
+has reached its two-round cap and receives no third review dispatch.
 
 **cr10-1 fixed, guard proved biting (2026-08-12):** subject verification now
 exempts only ledger-v1 receipts whose exact evidence is unavailable, allowing
@@ -56,15 +55,18 @@ still takes full verification. The guard rebuilds a faithful v7 schema with an
 orphaned event plus gap/alert lifecycle receipts; removing the exemption
 reproduces `custody_integrity_subject`, restoring it passes.
 
-**cr10-2 fixed, guards proved biting (2026-08-12):** startup preloads event,
+**cr10-2 partially fixed, final review reopened one boundedness gap
+(2026-08-12):** startup preloads event,
 quarantine, latest-lifecycle, alert, and gap state in five set reads rather
 than querying per receipt; schema v9 adds the custody subject covering index.
 Retention uses one typed parameterized delete per selected set, with indexed
 event/quarantine lookups. A 64-receipt guard fails if the snapshot is loaded
 inside the receipt loop; a 23-subject guard fails if deletion returns to one
 statement per subject; query-plan guards pin both primary and covering index
-use. SIEM suite is 315/315. cr10 now awaits its single final Claude verification
-batch; no further generation round is authorized for this major section.
+use. Both original guards were independently confirmed biting, but an
+unbounded age-selected set can exceed SQLite's host-parameter ceiling. The
+repair must retain typed set deletion in bounded batches. No further review
+round is authorized for this major section.
 
 **OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
 removal was never consciously owner-approved.** The owner's words: "I

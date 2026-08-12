@@ -8,13 +8,16 @@ commits and returned two evidence-backed candidates, but the orchestrator had
 supplied invalid fabricated full-SHA expansions; returned SHAs therefore did
 not match the literal dispatch pins and the envelope is not accepted as a
 range verdict. Both candidates passed intake independently and are admitted.
-Fixes land one finding per commit; one verification batch is the section's
-second and final review round.
+Fixes landed one finding per commit. The second and final review round ran as
+one frontier batch: cr10-1 was accepted; cr10-2 was reopened after Claude
+reproduced an unbounded-parameter failure above SQLite's 32,766-variable
+ceiling. The section has reached its review cap; cr10-2 gets a bounded-batch
+repair and local bite proof, not a third review round.
 
 | ID     | Severity | Impact (one line)                                      | Status | Reviewer |
 |--------|----------|--------------------------------------------------------|--------|----------|
-| cr10-1 | CRITICAL | v7 receipts brick the receiver during v8 upgrade       | `[~]` fixed, verification pending | pending |
-| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[~]` fixed, verification pending | pending |
+| cr10-1 | CRITICAL | v7 receipts brick the receiver during v8 upgrade       | `[x]` `81b9118` | claude/claude-opus-5/xhigh/frontier esc:T2 |
+| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[~]` reopened; bounded-batch repair pending | claude/claude-opus-5/xhigh/frontier esc:T2 |
 
 ## Closed — cr9 (codereview over R6, 2026-08-11)
 

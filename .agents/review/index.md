@@ -1,5 +1,16 @@
 # Review status
 
+## Active — cr12 (Claude review over S4b process barriers, 2026-08-12)
+
+Implementation landed at `9b14a7e` over base `1be29fc`: a real standalone-
+receiver post-ack process-tree kill/restart proof, a separate test-only host
+for the deterministic pre-commit hold and ack-before-commit double, exact
+event/chain/custody/replay assertions, and a `synchronous=OFF` writer-policy
+mutant. Local sabotage proved all three discriminators bite; restored SIEM
+passes 329/329. Claude Code 2.1.228 / claude-opus-5 / xhigh generation round 1
+was dispatched through the qualified background transport as session
+`620f10ab`; result pending. This section permits at most two valid rounds.
+
 ## Closed — cr11 (Claude review over S4b independent witness/restore, 2026-08-12)
 
 Implementation landed at `87818e4` over base `9c6f89c`: protected

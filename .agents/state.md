@@ -27,6 +27,11 @@ changed C# file except the already-recorded pre-existing indentation block in
 run cr12 with Claude Code / claude-opus-5 / xhigh, maximum two valid rounds.
 S4b and the S7 gate remain open until that review closes.
 
+**cr12 ACTIVE — final S4b process-barrier review:** Claude Code 2.1.228 /
+`claude-opus-5` / `xhigh` generation round 1 is running over exact range
+`1be29fc..9b14a7e` through the previously qualified background transport.
+See `.agents/review/index.md`; maximum two valid rounds for this section.
+
 **cr11 CLOSED at its two-round cap:** the S4b independent-witness/restore major section
 landed at `87818e4` over base `9c6f89c`; see `.agents/review/index.md`. After
 two foreground transport timeouts returned no verdict, owner-authorized

@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr13 (Claude review over mini-SIEM S7 operator guide, 2026-08-12)
+## Closed — cr13 (Claude review over mini-SIEM S7 operator guide, 2026-08-12)
 
 Generation pass: Claude Code 2.1.228 / claude-fable-5 / xhigh / standard over
 `823386937d7dbe2999cd2b1f6bd12891269e29ac..421ef1d0d7a22cea607b2f0a2e882951d30bfb7b`.
@@ -8,11 +8,16 @@ The original single invocation survived its caller's 300-second transport
 ceiling and was recovered without rerunning through its immutable
 `ptk_output` artifact. Its envelope was valid: `capability_ok=true`, both full
 SHA pins matched, and verdict `findings` contained one candidate. The candidate
-passed intake as a concrete LOW documentation defect.
+passed intake as a concrete LOW documentation defect. The guide correction
+landed at `45e4ede`; a narrow repair-verification pass over
+`c3fc3ea..45e4ede` returned `accepted`, `guard_confirmed=true`,
+`capability_ok=true`, and exact full SHA pins. Fable independently followed the
+file-parent and directory-only security paths and found the revised wording
+matched the implementation with no adjacent defect. No review was rerun.
 
 | ID | Severity | Impact (one line) | Status | Reviewer |
 |----|----------|-------------------|--------|----------|
-| cr13-1 | LOW | Guide claimed witness/anchor parents fail startup policy that code does not enforce | `[~]` pending verification | claude/claude-fable-5/xhigh/standard |
+| cr13-1 | LOW | Guide claimed witness/anchor parents fail startup policy that code does not enforce | `[x]` `45e4ede` accepted | claude/claude-fable-5/xhigh/standard |
 
 ## Closed — cr12 (Claude review over S4b process barriers, 2026-08-12)
 

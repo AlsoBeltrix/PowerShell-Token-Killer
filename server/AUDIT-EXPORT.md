@@ -12,7 +12,12 @@ mandatory, fail-closed local journal before serving any tool call:
   without a restart. `ptk_state` reports real audit health
   (`audit: healthy mode=local-only` and export health when configured).
 - **The audit root** defaults to `~/.ptk/audit` and is overridden with
-  `PTK_AUDIT_ROOT`. Protected-path admission refuses symlinked
+  `PTK_AUDIT_ROOT`. It holds the journal AND owner-only exact-script
+  evidence: every invoke persists the exact submitted script bytes, which
+  can contain passwords, tokens, or customer data — protect the root, and
+  any backup or copy of it, as sensitive data. This is the CURRENT
+  contract, not only a legacy-store property; the legacy administration
+  section below applies the same care to pre-restoration stores. Protected-path admission refuses symlinked
   components, foreign ownership, and over-permissive modes; corrupt host
   identity or boot-lineage artifacts are quarantined under
   `<root>/quarantine/` with original bytes preserved, and the service

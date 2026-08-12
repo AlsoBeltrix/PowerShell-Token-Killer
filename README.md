@@ -226,8 +226,10 @@ evidence, export health, and settings. See
 [the audit, export, and receiver contract](server/AUDIT-EXPORT.md).
 
 Scripts and output artifacts can contain passwords, tokens, customer data, or
-other secrets. Protect the PTK output root and any separately operated legacy
-evidence stores accordingly.
+other secrets — and the audit journal persists the **exact submitted script
+bytes** of every invoke as protected evidence. Protect the PTK output root
+AND the audit root (default `~/.ptk/audit`), including any backups or copies
+of either, as sensitive data.
 
 ## Security and Containment
 

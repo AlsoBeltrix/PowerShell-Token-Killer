@@ -278,8 +278,7 @@ public sealed class ExportRetentionFloorTests : IDisposable
     {
         var path = Path.Combine(root, name);
         File.WriteAllText(path, json);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, SecureAuditStorage.OwnerFileMode);
+        SecureAuditStorage.ProtectExistingFile(path);
     }
 
     private string NewRoot(string label)

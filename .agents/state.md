@@ -48,6 +48,9 @@ leak by allowing unlink of an open file). The test host now clears idle pools
 after application disposal; checked-out connections remain valid. The same run
 also exposed separately repaired protected-file fixture creation in six Windows
 server tests. These are CI/test-lifetime defects, not shipped receiver behavior.
+The export-settings and retention-floor helpers now apply the same
+`SecureAuditStorage.ProtectExistingFile` boundary their assertions require,
+including the malformed-config fixture; focused server scope passes 48/48.
 
 **S4b COMPLETE (2026-08-12).**
 The custody/retention and independent-witness/restore sections are closed at

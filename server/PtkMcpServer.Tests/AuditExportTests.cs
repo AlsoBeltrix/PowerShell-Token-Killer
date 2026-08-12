@@ -58,7 +58,9 @@ public sealed class AuditExportTests : IDisposable
     public void An_unreadable_export_configuration_disables_delivery_without_throwing()
     {
         var root = NewRoot("export-broken-config");
-        File.WriteAllText(Path.Combine(root, AuditExportSettings.FileName), "{ not json");
+        var path = Path.Combine(root, AuditExportSettings.FileName);
+        File.WriteAllText(path, "{ not json");
+        SecureAuditStorage.ProtectExistingFile(path);
         var settings = AuditExportSettings.Load(root, out var failure);
         Assert.False(settings.IsConfigured);
         Assert.Equal("export.configuration_unreadable", failure);
@@ -1578,8 +1580,7 @@ public sealed class AuditExportTests : IDisposable
                 endpoint,
                 credential,
             }));
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(path, SecureAuditStorage.OwnerFileMode);
+        SecureAuditStorage.ProtectExistingFile(path);
     }
 
     private string NewRoot(string label)

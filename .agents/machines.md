@@ -25,8 +25,17 @@ entries during a `drift` pass.
 - Standing verification: Pester 112 passed/3 skipped; server 1,306/1,306;
   SIEM 329/329; registered five-tool handshake passed; server and SIEM
   vulnerable-package audits were clean; PSScriptAnalyzer, `actionlint`, and
-  `git diff --check` passed. This is local osx-arm64 evidence only. Hosted
-  Ubuntu/Windows/macOS native CI and the five-RID release draft remain pending.
+  `git diff --check` passed. This bullet is local osx-arm64 evidence only; the
+  subsequent bullet records hosted three-OS evidence.
+- Hosted follow-up `31650818998` at exact head
+  `b94bae5ce2aac239c26c9c497d9a488f840100a6` passed all six jobs. Its SIEM
+  matrix ran 329 tests and the native package builder/verifier on
+  `ubuntu-latest`, `windows-latest`, and `macos-latest`; the ordinary matrix
+  passed Pester, 1,306 server tests, and registered handshake on all three.
+  The preceding run `31649960173` is the Windows fail-before proof: idle SQLite
+  pools blocked test-root deletion and inherited-ACL export fixtures were
+  rejected; both exact failures disappear on the fixed head. Five-RID release
+  signing/archive proof remains pending.
 
 ## `nagatha.local` — mini-SIEM S7 isolated end-to-end smoke (2026-08-12)
 

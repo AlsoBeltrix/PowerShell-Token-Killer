@@ -5,8 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM S1-S7 COMPLETE; S8 PACKAGE CONTRACT IMPLEMENTED LOCALLY, HOSTED
-FIVE-RID PROOF PENDING (2026-08-12).**
+**MINI-SIEM S1-S7 COMPLETE; S8 PACKAGE CONTRACT + THREE-OS CI GREEN, SIGNED
+FIVE-RID DRAFT PENDING (2026-08-12).**
 S7 replaced the receiver's implementation-oriented README with a standalone
 operator guide: per-OS dedicated-account layouts and exact path protection,
 complete configuration, asynchronous producer export/cursor semantics,
@@ -36,9 +36,11 @@ guards. Exact artifact hash and host evidence are in `.agents/machines.md`.
 `actionlint`,
 PSScriptAnalyzer, and `git diff --check` pass. Standing verification is green:
 Pester 112 passed/3 skipped, server 1,306/1,306, SIEM 329/329, registered
-handshake, and server/SIEM dependency audits. **Next item: hosted native CI,
-then an owner-selected version for the five-RID draft workflow. No new draft,
-tag, package publication, or release exists yet.**
+handshake, and server/SIEM dependency audits. Hosted run `31650818998` at
+`b94bae5` passed all six Ubuntu/Windows/macOS jobs, including the native SIEM
+package builder/verifier on each OS. **Next item: an owner-selected version for
+the signed five-RID draft workflow. No new draft, tag, package publication, or
+release exists yet.**
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

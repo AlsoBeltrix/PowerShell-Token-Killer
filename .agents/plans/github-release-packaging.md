@@ -31,8 +31,9 @@ builder now stamps release/source identity and includes the operator guide and
 licenses; an independent verifier runs in ordinary native CI and the release
 workflow before archive. Exact-head local osx-arm64 proof is green at
 `a9576c2` as of 2026-08-12.
-Hosted current-head and five-RID evidence remains pending; no new version,
-draft, tag, or publication is implied by that local proof.
+Hosted three-OS native CI passed all six jobs at `b94bae5` in run
+`31650818998`. Five-RID signed-draft evidence remains pending; no new version,
+draft, tag, or publication is implied by that CI proof.
 
 **Slice 7.5 re-run status (all legs CLOSED at `9e1790e`, rc.3 run
 `31184671731`, 2026-08-07):**

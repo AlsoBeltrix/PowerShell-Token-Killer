@@ -5,7 +5,26 @@ short and update it when important repo facts change.
 
 ## Now
 
-**S4b COMPLETE; S7 UNBLOCKED (2026-08-12).**
+**MINI-SIEM S1-S7 COMPLETE; S8 PACKAGING REMAINS SEPARATELY GATED (2026-08-12).**
+S7 replaced the receiver's implementation-oriented README with a standalone
+operator guide: per-OS dedicated-account layouts and exact path protection,
+complete configuration, asynchronous producer export/cursor semantics,
+operator routes, retention/capacity, witness/manual attestation, SQLite online
+backup, witness-aware restore reconciliation, forward-only schema migration,
+threat-model acceptance rows 1/6/7/8/10/11, network/dependency inventory, and
+patch cadence. The two-host-equivalent manual proof used separately published
+receiver/producer roots under macOS sandboxes with mutual cross-root read/write
+denial and no permanent trust-store mutation. A real `ptk_invoke` advanced the
+accepted producer cursor from sequence 1/offset 2506 to sequence 3/offset 8148;
+receiver dashboard returned 200, API event detail returned the exact
+`call.completed` event `019ff7fe-235c-77ee-b5a2-157b0f1027b5`, custody stayed
+healthy with an anchor, and all disposable roots were removed. Exact hashes and
+host evidence live in `.agents/machines.md`. The sample JSON parses, `git diff
+--check` is clean, the full SIEM suite passes 329/329, and all three SIEM
+projects report no vulnerable direct or transitive packages. **Next item: S8
+packaging only on a separate explicit owner go.**
+
+**S4b COMPLETE (2026-08-12).**
 The custody/retention and independent-witness/restore sections are closed at
 their two-round review caps (cr10/cr11). The final durability-barrier section
 now runs the real standalone receiver in a separately contained process and
@@ -30,8 +49,7 @@ returned `clean`, capability proof true, with exact pins
 a valid clean result, so the two-round cap was not consumed further. Standing
 battery after the slice: server 1,306/1,306 (with the documented PTK-session
 `PSModulePath` correction), Pester 112 passed + 3 platform skips, and all five
-server projects have no vulnerable packages. **Next item: S7 ops/docs plus
-the two-host-equivalent manual receiver smoke.**
+server projects have no vulnerable packages.
 
 **cr11 CLOSED at its two-round cap:** the S4b independent-witness/restore major section
 landed at `87818e4` over base `9c6f89c`; see `.agents/review/index.md`. After
@@ -910,16 +928,11 @@ disabled, and the ACTIVE exact-script evidence store was documented
 as legacy-only (both docs now require protecting `~/.ptk/audit` as
 sensitive data). One frontier verification batch confirmed all five.
 
-**EVERY PTK audit-restoration slice (R0–R6) is now EXECUTED with its
-codereview loop CLOSED.** That does not complete the separately approved
-mini-SIEM plan: the S4b receiver durability/custody slice identified in
-the correction at the top of this file remains before S7. After S4b,
-the owner-facing remainder is the mini-SIEM S7 ops docs and manual smoke
-— PTK driving a receiver on another host, events visible in the
-dashboard — the "owner has seen it work" gate. The release legs'
-receiver artifacts get their end-to-end proof on a later explicitly
-authorized `v*` tag/dispatch, and must not be called release-ready before
-S4b/S7 close.
+**EVERY PTK audit-restoration slice (R0–R6) is EXECUTED with its
+codereview loop CLOSED.** The separately approved mini-SIEM S4b/S7 remainder
+subsequently completed on 2026-08-12; current evidence is at the top of this
+file. Release-artifact packaging/proof remains S8 and needs a separate owner
+go; no `v*` tag, dispatch, package, or release was created by S7.
 The codex verification recipe that works: `-s workspace-write -c
 'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
 the socket), per-server MCP `enabled=false` overrides, `-o <file>`
@@ -1274,11 +1287,6 @@ record a new gated finding.
 
 ## Open / Parked
 
-- Mini-SIEM S4a's fixture gate is complete under the later audit-restoration
-  amendment (producer-owned v1/v2 OTLP/HTTP JSON corpora; v3 deliberately
-  removed). S4b's durability/custody work remains open and gates S7; the
-  correction at the top of this file and the explicit S4b plan are the
-  current authority.
 - Warm-backend slice 7 is unblocked open work, currently unscheduled, and
   remains owner-run Windows validation: AD native import/warm reuse; Exchange
   implicit remoting with first-vs-repeated `Get-Queue` latency; EXO/Graph

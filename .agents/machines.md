@@ -3,6 +3,52 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha.local` — mini-SIEM S7 isolated end-to-end smoke (2026-08-12)
+
+_Manual two-host-equivalent acceptance at exact source head
+`823386937d7dbe2999cd2b1f6bd12891269e29ac`; macOS 26.6.1 arm64, .NET SDK
+10.0.302. Packaging/S8 was not exercised or authorized._
+
+- Receiver and producer were separately self-contained-published for
+  `osx-arm64` beneath
+  `/Users/michael/.ptk-s7-smoke-9d80d4a26f87483ab29645c2ee97019d/receiver-environment/install/PtkSiemReceiver`
+  and
+  `/Users/michael/.ptk-s7-smoke-9d80d4a26f87483ab29645c2ee97019d/producer-environment/install/PtkMcpServer`.
+  Their SHA-256 values were respectively
+  `f40f4b3718283e42e9590b30fc302dddaad259cd1e0143f10f57dd29fec1d301`
+  and
+  `633dfbef35d950ca2411421ce25269de1cbe652014a8d1dc67cd7b1a18cd8ed7`.
+- Each child ran under a macOS `sandbox-exec` profile that denied read and
+  write access to the other environment root. An active producer-side probe
+  could neither read the receiver config nor create a file in the receiver
+  root. This is the plan's equivalently isolated-machine proof, not a claim
+  that two physical hosts were used.
+- The receiver used a temporary CA and served real HTTPS at
+  `https://localhost:49764/v1/logs`; its operator endpoint was loopback HTTP at
+  `http://127.0.0.1:49765`. This host's .NET client did not honor a temporary
+  `SSL_CERT_FILE` on the first attempt (`export.unreachable`, cursor unchanged),
+  so the successful producer sandbox used loopback
+  `http://127.0.0.1:49766/v1/logs` through a temporary forwarder that validated
+  the receiver certificate with .NET `CustomRootTrust`. The forwarder SHA-256
+  was
+  `d67f2713bd6643713658edb68edffddaccd78527c59ff11fb78c89b4605e448e`.
+  No user or system Keychain/trust setting was changed.
+- A real MCP `ptk_invoke` returned marker
+  `PTK-S7-90371c809be54301b2160b81185a0414`. For supervisor boot
+  `d54c1f7d-b746-406a-a3d6-318f8cb86a77`, the protected producer cursor at
+  `producer-environment/audit/export-cursor.json` advanced from sequence 1,
+  offset 2506 to sequence 3, offset 8148 only after receiver acceptance.
+  `ptk_state` reported healthy `otlp_http`, delivered 3, pending bytes 0.
+- Receiver `/` returned 200 and identified PTK SIEM Receiver. Authenticated
+  `/api/events` and `/api/events/{id}` returned the resulting
+  `call.completed` event `019ff7fe-235c-77ee-b5a2-157b0f1027b5`, sequence 3,
+  hash
+  `2ac517873966a86524e1ce14749d3082364381113244eb6fa813dcdead9b7997`.
+  Custody advanced 0→1, witness sequence reached 3, health stayed true with
+  restore pending false, and the independent anchor was configured.
+- Both process trees stopped and the exact disposable root above was removed;
+  no smoke directory, certificate, token, database, or forwarder remains.
+
 ## `10.1.10.173` — Michael's Windows x64 dev machine (added 2026-08-07)
 
 Repo lives at `F:\dev\PowerShell-Token-Killer`. Reachable as

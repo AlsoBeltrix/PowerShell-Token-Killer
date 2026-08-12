@@ -88,7 +88,7 @@ changes.
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
 ```
-— 23/23 on Windows (21 elsewhere; the extra two are the Defender
+— 24/24 on Windows (22 elsewhere; the extra two are the Defender
 scan-completion and payload-survival checks, r806-4) against an
 **installed** candidate, not a checkout: the five
 tools, warm named sessions, object compression, trusted-type rendering, a

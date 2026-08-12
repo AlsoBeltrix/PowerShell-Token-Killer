@@ -229,11 +229,10 @@ finally {
 }
 
 # 14 (audit-restoration R6): the packaged product journaled the calls above.
-# Positive and content-level: the configured root must hold nonempty
-# artifacts, and at least one must carry a real audit record ("event_type"),
-# so an empty directory or zero-byte placeholder cannot pass. The handshake
-# proves this for a checkout; a release cannot ship a candidate whose
-# packaged bits stopped journaling.
+# Positive and CALL-level: lifecycle records (server.started) are journaled
+# independently of call auditing, so their presence proves nothing about the
+# call filter (cr9-1). The gate demands a call admission, a terminal call
+# outcome, and a record naming this proof's own named session.
 $auditArtifacts = if (Test-Path -LiteralPath $script:auditRoot) {
     @(Get-ChildItem -LiteralPath $script:auditRoot -Recurse -Force -File |
         Where-Object Length -gt 0)
@@ -243,14 +242,18 @@ else {
 }
 Report 'journals the proof''s calls under the audit root' `
     ($auditArtifacts.Count -gt 0) "artifacts=$($auditArtifacts.Count)"
-$hasRecord = $false
+$sawAccepted = $false
+$sawTerminal = $false
+$sawProofSession = $false
 foreach ($artifact in $auditArtifacts) {
-    if ((Get-Content -LiteralPath $artifact.FullName -Raw) -match '"event_type"') {
-        $hasRecord = $true
-        break
-    }
+    $text = Get-Content -LiteralPath $artifact.FullName -Raw
+    if ($text -match '"event_type":"call\.accepted"') { $sawAccepted = $true }
+    if ($text -match '"event_type":"call\.(completed|failed)"') { $sawTerminal = $true }
+    if ($text -match '"name":"proof"') { $sawProofSession = $true }
 }
-Report 'journal artifacts carry audit records' $hasRecord
+Report 'journal carries call admissions and terminal outcomes' `
+    ($sawAccepted -and $sawTerminal) "accepted=$sawAccepted terminal=$sawTerminal"
+Report 'journal attributes calls to the proof''s named session' $sawProofSession
 try { Remove-Item -LiteralPath $script:auditRoot -Recurse -Force } catch { }
 
 # 12. with RTK absent, startup fails with the actionable message

@@ -1107,8 +1107,14 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     "SELECT event_type FROM events WHERE event_id = $id;");
                 command.Parameters.AddWithValue("$id", subjectId);
                 var eventType = command.ExecuteScalar() as string;
+                // cr8-7: details are serialized, never interpolated — stored
+                // values may carry JSON metacharacters.
                 return string.Equals(eventType, rule.EventType, StringComparison.Ordinal)
-                    ? $$"""{"event_id":"{{subjectId}}","event_type":"{{eventType}}"}"""
+                    ? JsonSerializer.Serialize(new
+                    {
+                        event_id = subjectId,
+                        event_type = eventType,
+                    })
                     : null;
             }
 
@@ -1126,7 +1132,12 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     return null;
                 var boot = reader.IsDBNull(1) ? null : reader.GetString(1);
                 var sequence = reader.IsDBNull(2) ? (long?)null : reader.GetInt64(2);
-                return $$"""{"attempt_id":{{subjectId}},"supervisor_boot_id":{{(boot is null ? "null" : $"\"{boot}\"")}},"claimed_sequence":{{sequence?.ToString(CultureInfo.InvariantCulture) ?? "null"}}}""";
+                return JsonSerializer.Serialize(new
+                {
+                    attempt_id = long.Parse(subjectId, CultureInfo.InvariantCulture),
+                    supervisor_boot_id = boot,
+                    claimed_sequence = sequence,
+                });
             }
 
             case "gap_detected":
@@ -1139,7 +1150,12 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 command.Parameters.AddWithValue("$id", subjectId);
                 using var reader = command.ExecuteReader();
                 if (!reader.Read()) return null;
-                return $$"""{"gap_id":{{subjectId}},"supervisor_boot_id":"{{reader.GetString(0)}}","claimed_sequence":{{reader.GetInt64(1)}}}""";
+                return JsonSerializer.Serialize(new
+                {
+                    gap_id = long.Parse(subjectId, CultureInfo.InvariantCulture),
+                    supervisor_boot_id = reader.GetString(0),
+                    claimed_sequence = reader.GetInt64(1),
+                });
             }
 
             case "ingest_rate":
@@ -1186,7 +1202,12 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     }
                 }
 
-                return $$"""{"count":{{count}},"threshold":{{rule.Threshold.Value}},"window_seconds":{{rule.WindowSeconds.Value}}}""";
+                return JsonSerializer.Serialize(new
+                {
+                    count,
+                    threshold = rule.Threshold.Value,
+                    window_seconds = rule.WindowSeconds.Value,
+                });
             }
 
             default:

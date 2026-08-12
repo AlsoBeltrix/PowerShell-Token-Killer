@@ -191,6 +191,33 @@ public sealed class AlertPipelineTests
     }
 
     [Fact]
+    public async Task Detail_json_survives_metacharacters_in_event_type()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        // The stored event type contains a literal double quote (the record
+        // body carries it JSON-escaped); the rule names the same value.
+        const string QuotedType = "tool.\"q";
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken,
+            alertRules: [new AlertRule("quoted", "event_match", QuotedType, null, null)]);
+        using var client = host.CreateClient();
+
+        var record = OtlpTestRequest.CreateRecord(eventType: "tool.\\\"q");
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, record.Body));
+
+        // cr8-7: interpolation stored malformed detail here; a serializer
+        // must round-trip the exact value.
+        var alert = (await PollAlertsAsync(host, client, expectedCount: 1)).Single();
+        using var detail = JsonDocument.Parse(alert.GetProperty("detail").GetString()!);
+        Assert.Equal(
+            QuotedType, detail.RootElement.GetProperty("event_type").GetString());
+    }
+
+    [Fact]
     public async Task Webhook_failure_is_bounded_and_never_blocks_evaluation()
     {
         using var webhook = new RecordingWebhookServer(statusCode: 500);

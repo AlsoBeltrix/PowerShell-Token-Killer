@@ -247,8 +247,8 @@ internal static class ReceiverApplication
                         serviceProvider.GetRequiredService<IIngestCommitter>(),
                         serviceProvider.GetRequiredService<
                             ILogger<PtkSiemReceiver.Storage.RetentionService>>(),
-                        timeProvider: serviceProvider.GetRequiredService<TimeProvider>(),
-                        custodyHealth: serviceProvider.GetRequiredService<Storage.CustodyHealthState>()));
+                        serviceProvider.GetRequiredService<Storage.CustodyHealthState>(),
+                        timeProvider: serviceProvider.GetRequiredService<TimeProvider>()));
 
                 application = builder.Build();
                 // Ensure the container owns all captured disposable singletons.

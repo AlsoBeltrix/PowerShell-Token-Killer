@@ -2,6 +2,7 @@ using System.Globalization;
 using Google.Protobuf;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
+using PtkSiemReceiver.Alerting;
 using PtkSiemReceiver.Configuration;
 using PtkSiemReceiver.Ingest;
 using PtkSiemReceiver.Storage;
@@ -291,6 +292,7 @@ public sealed class RetentionEnforcementTests
             options,
             store,
             NullLogger<RetentionService>.Instance,
+            new CustodyHealthState(),
             interval: TimeSpan.FromMinutes(15),
             timeProvider: new FixedTimeProvider(Receipt.ReceivedUtc.AddYears(1)));
 
@@ -303,6 +305,67 @@ public sealed class RetentionEnforcementTests
         store.Dispose();
         var afterFailure = await service.SweepOnceAsync(CancellationToken.None);
         Assert.Null(afterFailure);
+    }
+
+    [Fact]
+    public async Task Unhealthy_custody_pauses_retention_and_alert_evaluation()
+    {
+        using var database = new TestDatabase();
+        var rules = new[]
+        {
+            new AlertRule("completed", "event_match", "tool.completed", null, null),
+        };
+        var ruleHash = AlertRuleSet.ComputeConfigHash(rules);
+        using var store = SqliteIngestStore.Open(
+            database.Path, alertRuleConfigHash: ruleHash);
+        await CommitChainAsync(store, count: 4);
+        var options = new SiemReceiverOptions(
+            System.Net.IPAddress.Loopback,
+            0,
+            "/unused/server.pem",
+            "/unused/server.key",
+            ["/unused/ca.pem"],
+            System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck,
+            maxRequestBytes: 1024 * 1024,
+            maxConcurrentRequests: 4,
+            operatorBindAddress: System.Net.IPAddress.Loopback,
+            operatorPort: 9,
+            operatorToken: new string('t', 32),
+            operatorHttpsCertificatePath: null,
+            operatorHttpsCertificateKeyPath: null,
+            sqlitePath: database.Path,
+            retentionMaxAgeDays: 30,
+            retentionMaxTotalBytes: null,
+            alertRules: rules);
+        var custodyHealth = new CustodyHealthState();
+        SetCustodyHealth(custodyHealth, healthy: false);
+        var retention = new RetentionService(
+            options,
+            store,
+            NullLogger<RetentionService>.Instance,
+            custodyHealth,
+            interval: TimeSpan.FromMinutes(15),
+            timeProvider: new FixedTimeProvider(Receipt.ReceivedUtc.AddYears(1)));
+        var alerts = new AlertEvaluationService(
+            options,
+            store,
+            NullLogger<AlertEvaluationService>.Instance,
+            new FixedTimeProvider(Receipt.ReceivedUtc.AddYears(1)),
+            custodyHealth);
+        using var client = new HttpClient();
+
+        Assert.Null(await retention.SweepOnceAsync(CancellationToken.None));
+        Assert.False(await alerts.EvaluateOnceAsync(client, CancellationToken.None));
+        Assert.Equal(4L, Count(database.Path, "events"));
+        Assert.Equal(0L, Count(database.Path, "alerts"));
+
+        SetCustodyHealth(custodyHealth, healthy: true);
+        while (await alerts.EvaluateOnceAsync(client, CancellationToken.None))
+        {
+        }
+        Assert.NotNull(await retention.SweepOnceAsync(CancellationToken.None));
+        Assert.True(Count(database.Path, "events") < 4L);
+        Assert.Equal(4L, Count(database.Path, "alerts"));
     }
 
     [Fact]
@@ -864,6 +927,18 @@ public sealed class RetentionEnforcementTests
         command.CommandText = $"SELECT COUNT(*) FROM {table};";
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
+
+    private static void SetCustodyHealth(CustodyHealthState health, bool healthy) =>
+        health.Set(new CustodyHealthSnapshot(
+            healthy,
+            healthy ? "healthy" : "test_unhealthy",
+            Receipt.ReceivedUtc.ToString("O", CultureInfo.InvariantCulture),
+            0,
+            null,
+            0,
+            null,
+            RestorePending: false,
+            AnchorConfigured: false));
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

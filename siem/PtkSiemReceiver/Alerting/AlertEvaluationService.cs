@@ -19,7 +19,7 @@ internal sealed class AlertEvaluationService(
     SqliteIngestStore store,
     ILogger<AlertEvaluationService> logger,
     TimeProvider timeProvider,
-    CustodyHealthState? custodyHealth = null) : BackgroundService
+    CustodyHealthState custodyHealth) : BackgroundService
 {
     internal static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(250);
     internal const int WebhookAttempts = 3;
@@ -33,24 +33,11 @@ internal sealed class AlertEvaluationService(
         {
             try
             {
-                if (custodyHealth is not null && !custodyHealth.CanMutate)
+                if (!await EvaluateOnceAsync(client, stoppingToken).ConfigureAwait(false))
                 {
                     await Task.Delay(PollInterval, stoppingToken);
                     continue;
                 }
-                var created = await store.EvaluateNextAlertWorkItemAsync(
-                    options.AlertRules,
-                    options.AlertRuleConfigHash,
-                    timeProvider.GetUtcNow(),
-                    stoppingToken);
-                if (created is null)
-                {
-                    await Task.Delay(PollInterval, stoppingToken);
-                    continue;
-                }
-
-                foreach (var alert in created)
-                    await DeliverWebhookAsync(client, alert, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -70,6 +57,23 @@ internal sealed class AlertEvaluationService(
                 }
             }
         }
+    }
+
+    internal async Task<bool> EvaluateOnceAsync(
+        HttpClient client,
+        CancellationToken cancellationToken)
+    {
+        if (!custodyHealth.CanMutate) return false;
+        var created = await store.EvaluateNextAlertWorkItemAsync(
+            options.AlertRules,
+            options.AlertRuleConfigHash!,
+            timeProvider.GetUtcNow(),
+            cancellationToken).ConfigureAwait(false);
+        if (created is null) return false;
+
+        foreach (var alert in created)
+            await DeliverWebhookAsync(client, alert, cancellationToken).ConfigureAwait(false);
+        return true;
     }
 
     private async Task DeliverWebhookAsync(

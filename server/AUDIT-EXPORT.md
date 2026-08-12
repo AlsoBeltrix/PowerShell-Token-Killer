@@ -148,6 +148,7 @@ The response contract is:
 | Durable acceptance or an identical already-committed duplicate | `200` with a serialized empty `ExportLogsServiceResponse`; `partial_success` is unset. |
 | Permanent validation or protocol refusal | `400` with protobuf `google.rpc.Status`. |
 | Transient storage failure, backpressure, or saturated admission | `503` with protobuf `google.rpc.Status` and `Retry-After: 1`. |
+| Missing or invalid client credential (no validated certificate, and no or wrong bearer token) | `401` with protobuf `google.rpc.Status` code 16 (UNAUTHENTICATED). PTK's exporter classifies this as retryable — an operator-fixable configuration failure, not data loss. |
 
 Success is written only after the receiver's commit operation reports
 acceptance. Delivery is therefore at least once: a client may retry after a

@@ -27,16 +27,20 @@ nor anchor may be the same as or below the SQLite data directory, and the
 anchor may not be the same as or below the witness directory (or vice versa).
 An anchor on off-host or write-once storage is the recommended default.
 
-Release packaging and native installer/service registration belong to S8. For
-a source-built installation, publish from the trusted revision into a staging
-directory and copy the resulting payload into the program directory:
+Release artifacts are named `ptk-siem-receiver-<version>-<RID>` and contain the
+native self-contained receiver, this guide, `VERSION`, the project license, and
+the vendored OpenTelemetry proto license. Extract the whole archive into the
+program directory; do not copy only the executable.
+
+For a source-built installation, build the same verified layout used by release
+CI from the trusted revision and copy it into the program directory:
 
 ```text
-dotnet publish siem/PtkSiemReceiver/PtkSiemReceiver.csproj -c Release -r <RID> --self-contained true -o <staging-directory>
+pwsh -NoProfile -File siem/build-package.ps1 -OutputDir <staging-directory> -Rid <RID> -Version <version>
 ```
 
-Use the RID for the receiver host, such as `linux-x64`, `linux-arm64`,
-`osx-x64`, `osx-arm64`, `win-x64`, or `win-arm64`.
+Supported release RIDs are `linux-x64`, `linux-arm64`, `osx-arm64`, `win-x64`,
+and `win-arm64`.
 
 ### Linux
 

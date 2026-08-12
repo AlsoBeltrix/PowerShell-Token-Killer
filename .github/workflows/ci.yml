@@ -89,3 +89,11 @@ jobs:
 
       - name: SIEM receiver tests
         run: dotnet test siem/PtkSiem.slnx
+
+      - name: Build and verify the native SIEM package
+        shell: pwsh
+        run: |
+          $rid = [Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
+          $output = Join-Path $env:RUNNER_TEMP 'ptk-siem-package'
+          ./siem/build-package.ps1 -OutputDir $output -Rid $rid -Version 0.0.0-ci
+          ./siem/verify-package.ps1 -PackageDir $output -Rid $rid -Version 0.0.0-ci

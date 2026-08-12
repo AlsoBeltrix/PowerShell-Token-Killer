@@ -5,7 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM S1-S7 COMPLETE; S8 PACKAGING REMAINS SEPARATELY GATED (2026-08-12).**
+**MINI-SIEM S1-S7 COMPLETE; S8 PACKAGE CONTRACT IMPLEMENTED LOCALLY, HOSTED
+FIVE-RID PROOF PENDING (2026-08-12).**
 S7 replaced the receiver's implementation-oriented README with a standalone
 operator guide: per-OS dedicated-account layouts and exact path protection,
 complete configuration, asynchronous producer export/cursor semantics,
@@ -21,8 +22,21 @@ receiver dashboard returned 200, API event detail returned the exact
 healthy with an anchor, and all disposable roots were removed. Exact hashes and
 host evidence live in `.agents/machines.md`. The sample JSON parses, `git diff
 --check` is clean, the full SIEM suite passes 329/329, and all three SIEM
-projects report no vulnerable direct or transitive packages. **Next item: S8
-packaging only on a separate explicit owner go.**
+projects report no vulnerable direct or transitive packages.
+
+S8 now has one package builder and one independent verifier used by local,
+ordinary CI, and release paths. The layout carries coherent requested-version
+plus source-commit assembly identity, `VERSION`, the operator guide, Apache-2.0
+project license, and vendored OpenTelemetry proto license; it fails closed if
+any is absent or stale and proves no-config startup exits 1 naming
+`PTK_SIEM_CONFIG`. A pre-commit local osx-arm64 self-contained package passed
+with test-only version `0.2.3-rc.1`; removing version stamping and removing the
+guide independently failed their intended guards. `actionlint`,
+PSScriptAnalyzer, and `git diff --check` pass. Standing verification is green:
+Pester 112 passed/3 skipped, server 1,306/1,306, SIEM 329/329, registered
+handshake, and server/SIEM dependency audits. **Next item: hosted native CI,
+then an owner-selected version for the five-RID draft workflow. No new draft,
+tag, package publication, or release exists yet.**
 
 **S4b COMPLETE (2026-08-12).**
 The custody/retention and independent-witness/restore sections are closed at

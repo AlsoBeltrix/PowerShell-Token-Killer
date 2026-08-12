@@ -78,7 +78,18 @@ New solution `siem/PtkSiem.slnx` (house `.slnx` format), all projects `net10.0`,
 - **S5 — Query API + dashboard (EXECUTED as audit-restoration R5b).** Read-only endpoints + embedded pages, operator token auth, loopback default. Endpoint handler tests + end-to-end ingest→query coverage.
 - **S6 — Alerts (EXECUTED as audit-restoration R5c).** Rule evaluation over the durable work-item queue + persisted evaluation cursor, alert persistence (with custody-ledger lifecycle entries), webhook action with bounded retry, dashboard surfacing, and gap disposition.
 - **S7 — Ops + docs (EXECUTED 2026-08-12).** `siem/PtkSiemReceiver/README.md` now covers per-OS separate-account installation, full configuration, retention/capacity, SQLite online backup, implemented witness-reconciliation restore, forward-only migration policy, threat-model rows 1/6/7/8/10/11, network/dependency inventory, and patch cadence. The two-host-equivalent isolated producer→receiver proof used real shipped publishes and a real `ptk_invoke`; exact host evidence is in `.agents/machines.md`.
-- **S8 — Packaging (follow-up gate).** `dotnet publish` release artifacts (tar/zip) wired into `release-distribution.md` conventions; MSI optional-component authoring is a separate later plan — explicitly out of scope here.
+- **S8 — Packaging (IMPLEMENTED LOCALLY 2026-08-12; hosted proof pending).**
+  `siem/build-package.ps1` is the one local/CI/release layout path for the five
+  supported RIDs. It stamps the requested version and source commit, includes
+  the operator guide, project license, vendored-proto license, and exact
+  `VERSION`, while `siem/verify-package.ps1` independently checks those bytes,
+  assembly/informational versions, executable mode, and no-config fail-closed
+  startup. Ordinary CI builds/verifies the native package on Ubuntu, Windows,
+  and macOS; release CI continues to sign and archive it separately on all five
+  native runners. Local osx-arm64 proof and both version/doc omission mutants
+  pass/fail as intended. S8 closes only after hosted current-head CI and the
+  five-RID draft workflow are green. MSI optional-component authoring remains a
+  separate later plan and is explicitly out of scope.
 
 ### S3H implementation contract
 

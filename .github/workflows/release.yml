@@ -130,10 +130,10 @@ jobs:
       - name: Publish the SIEM receiver
         shell: pwsh
         run: |
-          dotnet publish siem/PtkSiemReceiver/PtkSiemReceiver.csproj `
-            -c Release -r ${{ matrix.rid }} --self-contained true `
-            -o out/ptk-siem
-          if ($LASTEXITCODE -ne 0) { throw 'receiver publish failed' }
+          pwsh -NoProfile -File siem/build-package.ps1 `
+            -OutputDir out/ptk-siem `
+            -Rid ${{ matrix.rid }} `
+            -Version ${{ steps.version.outputs.version }}
 
       # Every Mach-O in the payload is Developer ID-signed with hardened
       # runtime BEFORE any gate runs, so the smoke test and product proof
@@ -330,27 +330,10 @@ jobs:
       - name: Smoke-test the packaged SIEM receiver
         shell: pwsh
         run: |
-          $exe = if ('${{ matrix.rid }}'.StartsWith('win-')) {
-            'out/ptk-siem/PtkSiemReceiver.exe'
-          } else {
-            'out/ptk-siem/PtkSiemReceiver'
-          }
-          if (-not $IsWindows) { chmod +x $exe }
-          $psi = [Diagnostics.ProcessStartInfo]::new()
-          $psi.FileName = (Resolve-Path $exe)
-          $psi.UseShellExecute = $false
-          $psi.RedirectStandardError = $true
-          $psi.EnvironmentVariables.Remove('PTK_SIEM_CONFIG')
-          $p = [Diagnostics.Process]::Start($psi)
-          $text = $p.StandardError.ReadToEnd()
-          if (-not $p.WaitForExit(60000)) {
-            $p.Kill($true)
-            throw "receiver did not exit without configuration. stderr: $text"
-          }
-          if ($p.ExitCode -ne 1 -or $text -notmatch 'PTK_SIEM_CONFIG') {
-            throw "expected exit 1 naming PTK_SIEM_CONFIG, got $($p.ExitCode). stderr: $text"
-          }
-          Write-Host 'Receiver smoke ok: refuses without configuration, names PTK_SIEM_CONFIG'
+          pwsh -NoProfile -File siem/verify-package.ps1 `
+            -PackageDir out/ptk-siem `
+            -Rid ${{ matrix.rid }} `
+            -Version ${{ steps.version.outputs.version }}
 
       # Notarization is Apple's malware-scan-and-ticket service; Gatekeeper
       # consults it online when a user runs a browser-downloaded copy. Bare
@@ -466,14 +449,14 @@ jobs:
         run: |
           set -euo pipefail
           cd staged
-          cat *.sha256 > SHA256SUMS
-          rm -f *.sha256
+          cat ./*.sha256 > SHA256SUMS
+          rm -f ./*.sha256
           echo "--- SHA256SUMS ---"
           cat SHA256SUMS
           # Five RIDs, two artifacts each (server + SIEM receiver, R6); a
           # missing artifact means a runner failed and the draft would
           # silently ship short.
-          count=$(ls -1 ptk-*.zip ptk-*.tar.gz 2>/dev/null | wc -l)
+          count=$(find . -maxdepth 1 -type f \( -name 'ptk-*.zip' -o -name 'ptk-*.tar.gz' \) -print | wc -l)
           if [ "$count" -ne 10 ]; then
             echo "expected 10 artifacts, found $count" >&2
             ls -la >&2

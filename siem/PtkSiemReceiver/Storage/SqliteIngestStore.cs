@@ -519,7 +519,12 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             WHERE received_utc < $cutoff
               AND event_id NOT IN (SELECT head_event_id FROM chains)
               AND NOT (post_gap = 1 AND supervisor_boot_id IN (
-                  SELECT supervisor_boot_id FROM gaps WHERE state != 'resumed'));
+                  SELECT supervisor_boot_id FROM gaps WHERE state != 'resumed'))
+              AND event_id NOT IN (
+                  SELECT subject_id FROM alert_queue
+                  WHERE kind = 'event' AND item_id > (
+                      SELECT CAST(value AS INTEGER) FROM meta
+                      WHERE key = 'alert_cursor'));
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
         return command.ExecuteNonQuery();
@@ -527,8 +532,17 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 
     private long DeleteAgedQuarantine(string cutoffUtc, SqliteTransaction transaction)
     {
+        // cr8-2: a subject still referenced by an unevaluated work item is
+        // not deletable — the committed enqueue promised an evaluation over
+        // durable inputs.
         using var command = CreateCommand(_writer, transaction, """
-            DELETE FROM quarantine WHERE received_utc < $cutoff;
+            DELETE FROM quarantine
+            WHERE received_utc < $cutoff
+              AND CAST(attempt_id AS TEXT) NOT IN (
+                  SELECT subject_id FROM alert_queue
+                  WHERE kind = 'quarantine' AND item_id > (
+                      SELECT CAST(value AS INTEGER) FROM meta
+                      WHERE key = 'alert_cursor'));
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
         return command.ExecuteNonQuery();
@@ -537,7 +551,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
     private long DeleteOldestEvents(int batch, SqliteTransaction transaction)
     {
         // An undecided gap's post-gap sub-chain is pending evidence: deleting
-        // any of it would break the continuity the resume depends on.
+        // any of it would break the continuity the resume depends on. A
+        // subject of an unevaluated work item is likewise pending (cr8-2).
         using var command = CreateCommand(_writer, transaction, """
             DELETE FROM events
             WHERE event_id IN (
@@ -545,6 +560,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 WHERE event_id NOT IN (SELECT head_event_id FROM chains)
                   AND NOT (post_gap = 1 AND supervisor_boot_id IN (
                       SELECT supervisor_boot_id FROM gaps WHERE state != 'resumed'))
+                  AND event_id NOT IN (
+                      SELECT subject_id FROM alert_queue
+                      WHERE kind = 'event' AND item_id > (
+                          SELECT CAST(value AS INTEGER) FROM meta
+                          WHERE key = 'alert_cursor'))
                 ORDER BY received_utc ASC
                 LIMIT $batch);
             """);
@@ -558,6 +578,11 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             DELETE FROM quarantine
             WHERE attempt_id IN (
                 SELECT attempt_id FROM quarantine
+                WHERE CAST(attempt_id AS TEXT) NOT IN (
+                    SELECT subject_id FROM alert_queue
+                    WHERE kind = 'quarantine' AND item_id > (
+                        SELECT CAST(value AS INTEGER) FROM meta
+                        WHERE key = 'alert_cursor'))
                 ORDER BY received_utc ASC
                 LIMIT $batch);
             """);

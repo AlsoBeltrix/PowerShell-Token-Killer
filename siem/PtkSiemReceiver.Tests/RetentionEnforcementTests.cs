@@ -294,6 +294,48 @@ public sealed class RetentionEnforcementTests
         Assert.Null(afterFailure);
     }
 
+    [Fact]
+    public async Task Retention_never_deletes_subjects_of_pending_alert_work()
+    {
+        // cr8-2: a committed work item promises an evaluation over durable
+        // inputs; sweeping its subject row away would silently suppress the
+        // alert while the cursor advances past it.
+        using var database = new TestDatabase();
+        var hash = new string('a', 64);
+        using var store = SqliteIngestStore.Open(
+            database.Path, alertRuleConfigHash: hash);
+        await CommitChainAsync(store, count: 3);
+        var outOfPlace = Validate(OtlpTestRequest.Create(eventType: "tool.rejected"));
+        var rejected = await store.CommitAsync(outOfPlace, Receipt, CancellationToken.None);
+        Assert.Equal(IngestCommitResultKind.PermanentFailure, rejected.Kind);
+        Assert.Equal(4L, Count(database.Path, "alert_queue"));
+
+        // Everything is a year stale, but every subject is still pending.
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+        Assert.Equal(3L, Count(database.Path, "events"));
+        Assert.Equal(1L, Count(database.Path, "quarantine"));
+
+        // Drained, the same sweep reclaims all of it (head excepted).
+        IReadOnlyList<PtkSiemReceiver.Configuration.AlertRule> rules =
+            [new("r", "chain_break", null, null, null)];
+        while (await store.EvaluateNextAlertWorkItemAsync(
+                   rules, hash, Receipt.ReceivedUtc, CancellationToken.None) is not null)
+        {
+        }
+
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+        Assert.Equal(1L, Count(database.Path, "events"));
+        Assert.Equal(0L, Count(database.Path, "quarantine"));
+    }
+
     private static string? LastHash { get; set; }
 
     private static async Task CommitChainAsync(

@@ -772,6 +772,35 @@ public sealed class RetentionEnforcementTests
         Assert.Equal(23, statement.SubjectCount);
     }
 
+    [Fact]
+    public async Task Retention_chunks_large_selected_sets_below_the_parameter_ceiling()
+    {
+        using var database = new TestDatabase();
+        var counter = new RetentionDeleteCounter();
+        using var store = SqliteIngestStore.Open(
+            database.Path, faultInjector: counter);
+        await CommitChainAsync(store, count: 131);
+
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+
+        Assert.Collection(
+            counter.Statements,
+            statement =>
+            {
+                Assert.Equal("events", statement.Table);
+                Assert.Equal(128, statement.SubjectCount);
+            },
+            statement =>
+            {
+                Assert.Equal("events", statement.Table);
+                Assert.Equal(2, statement.SubjectCount);
+            });
+    }
+
     private static string? LastHash { get; set; }
 
     private static async Task CommitChainAsync(

@@ -18,6 +18,12 @@ internal sealed record CustodyVerificationResult(
 
 internal sealed partial class SqliteIngestStore
 {
+    // Stay comfortably below both the bundled provider's 32,766-variable
+    // ceiling and SQLite builds retaining the historical 999-variable
+    // default. A retention selection may be arbitrarily large; only each
+    // individual delete statement is bounded.
+    private const int RetentionDeleteParameterBatch = 128;
+
     private sealed record RetentionEvidenceEntry(
         string SubjectKind,
         string SubjectId,
@@ -916,24 +922,33 @@ internal sealed partial class SqliteIngestStore
         SqliteTransaction transaction)
     {
         if (subjectIds.Count == 0) return 0;
-        var parameters = subjectIds
-            .Select((_, index) => $"$id{index}")
-            .ToArray();
-        using var command = CreateCommand(
-            _writer,
-            transaction,
-            $"DELETE FROM {table} WHERE {idColumn} IN ({string.Join(",", parameters)});");
-        for (var index = 0; index < subjectIds.Count; index++)
+        long totalDeleted = 0;
+        for (var offset = 0; offset < subjectIds.Count; offset += RetentionDeleteParameterBatch)
         {
-            object value = table == "events"
-                ? subjectIds[index]
-                : long.Parse(subjectIds[index], CultureInfo.InvariantCulture);
-            command.Parameters.AddWithValue(parameters[index], value);
+            var batchCount = Math.Min(
+                RetentionDeleteParameterBatch,
+                subjectIds.Count - offset);
+            var parameters = Enumerable.Range(0, batchCount)
+                .Select(index => $"$id{index}")
+                .ToArray();
+            using var command = CreateCommand(
+                _writer,
+                transaction,
+                $"DELETE FROM {table} WHERE {idColumn} IN ({string.Join(",", parameters)});");
+            for (var index = 0; index < batchCount; index++)
+            {
+                object value = table == "events"
+                    ? subjectIds[offset + index]
+                    : long.Parse(subjectIds[offset + index], CultureInfo.InvariantCulture);
+                command.Parameters.AddWithValue(parameters[index], value);
+            }
+
+            _faultInjector?.RetentionDeleteStatementForTests(table, batchCount);
+            var deleted = command.ExecuteNonQuery();
+            if (deleted != batchCount)
+                throw new InvalidOperationException("Retention selection changed inside its transaction.");
+            totalDeleted += deleted;
         }
-        _faultInjector?.RetentionDeleteStatementForTests(table, subjectIds.Count);
-        var deleted = command.ExecuteNonQuery();
-        if (deleted != subjectIds.Count)
-            throw new InvalidOperationException("Retention selection changed inside its transaction.");
-        return deleted;
+        return totalDeleted;
     }
 }

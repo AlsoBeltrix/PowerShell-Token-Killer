@@ -39,13 +39,12 @@ witness/checkpoints + periodic health/restore reconciliation, then the
 whole-process pre-commit/post-ack barriers and discriminators. Each major
 section gets `codereview claude claude-opus-5 xhigh`, maximum two rounds.
 
-**Active review loop cr10:** the second and final allowed Claude round accepted
-cr10-1 and reopened cr10-2; `.agents/review/index.md` owns the verdict record.
-The remaining cr10-2 defect is concrete: age retention can select more than
-SQLite's 32,766 host-parameter limit, so the new one-statement set delete
-throws, rolls back, and retries the same permanently failing set forever. A
-bounded typed-batch repair plus local bite proof is next. The major section
-has reached its two-round cap and receives no third review dispatch.
+**cr10 CLOSED at its two-round cap:** the final Claude round accepted cr10-1
+and reopened cr10-2; `.agents/review/index.md` owns the verdict record. The
+remaining failure was repaired without a prohibited third review: age-selected
+typed deletes now run in 128-parameter batches, so they cannot exceed SQLite's
+host-parameter ceiling. Its 130-subject guard failed under exact repair
+reversion and passed restored; SIEM suite passed 316/316.
 
 **cr10-1 fixed, guard proved biting (2026-08-12):** subject verification now
 exempts only ledger-v1 receipts whose exact evidence is unavailable, allowing
@@ -55,18 +54,18 @@ still takes full verification. The guard rebuilds a faithful v7 schema with an
 orphaned event plus gap/alert lifecycle receipts; removing the exemption
 reproduces `custody_integrity_subject`, restoring it passes.
 
-**cr10-2 partially fixed, final review reopened one boundedness gap
-(2026-08-12):** startup preloads event,
+**cr10-2 fixed through locally proved post-cap repair (2026-08-12):** startup preloads event,
 quarantine, latest-lifecycle, alert, and gap state in five set reads rather
 than querying per receipt; schema v9 adds the custody subject covering index.
 Retention uses one typed parameterized delete per selected set, with indexed
 event/quarantine lookups. A 64-receipt guard fails if the snapshot is loaded
 inside the receipt loop; a 23-subject guard fails if deletion returns to one
 statement per subject; query-plan guards pin both primary and covering index
-use. Both original guards were independently confirmed biting, but an
-unbounded age-selected set can exceed SQLite's host-parameter ceiling. The
-repair must retain typed set deletion in bounded batches. No further review
-round is authorized for this major section.
+use. Both original guards were independently confirmed biting. The final
+review found unbounded age-selected sets could exceed SQLite's host-parameter
+ceiling; typed deletion now chunks at 128 parameters. The new 130-subject guard
+failed on repair reversion and passed restored. No further review round is
+authorized for this major section.
 
 **OWNER CORRECTION (2026-08-10): SIEM output is a P0 requirement; its
 removal was never consciously owner-approved.** The owner's words: "I

@@ -12,12 +12,14 @@ Fixes landed one finding per commit. The second and final review round ran as
 one frontier batch: cr10-1 was accepted; cr10-2 was reopened after Claude
 reproduced an unbounded-parameter failure above SQLite's 32,766-variable
 ceiling. The section has reached its review cap; cr10-2 gets a bounded-batch
-repair and local bite proof, not a third review round.
+repair and local bite proof, not a third review round. That repair now chunks
+typed deletes at 128 parameters; its 130-subject guard failed on exact repair
+reversion and passed restored, followed by SIEM 316/316. cr10 is closed at cap.
 
 | ID     | Severity | Impact (one line)                                      | Status | Reviewer |
 |--------|----------|--------------------------------------------------------|--------|----------|
 | cr10-1 | CRITICAL | v7 receipts brick the receiver during v8 upgrade       | `[x]` `81b9118` | claude/claude-opus-5/xhigh/frontier esc:T2 |
-| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[~]` reopened; bounded-batch repair pending | claude/claude-opus-5/xhigh/frontier esc:T2 |
+| cr10-2 | HIGH     | startup and retention become quadratic at scale        | `[x]` bounded repair locally guard-proved; review cap reached | claude/claude-opus-5/xhigh/frontier esc:T2 (reopened) |
 
 ## Closed — cr9 (codereview over R6, 2026-08-11)
 

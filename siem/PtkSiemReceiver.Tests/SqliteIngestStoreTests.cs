@@ -604,6 +604,33 @@ public sealed class SqliteIngestStoreTests
     }
 
     [Fact]
+    public async Task Periodic_custody_scan_does_not_hold_the_ingest_writer_gate()
+    {
+        using var database = new TestDatabase();
+        using var blocker = new BlockingCustodySnapshotFault();
+        using var store = SqliteIngestStore.Open(database.Path, faultInjector: blocker);
+        blocker.Arm();
+
+        var verification = Task.Run(() => store.VerifyCustodyAsync(default));
+        Assert.True(blocker.Entered.Wait(TimeSpan.FromSeconds(5)));
+        var commit = store.CommitAsync(
+            Validate(OtlpTestRequest.Create()), Receipt, default);
+        try
+        {
+            Assert.Same(
+                commit,
+                await Task.WhenAny(commit, Task.Delay(TimeSpan.FromSeconds(1))));
+        }
+        finally
+        {
+            blocker.Release.Set();
+        }
+
+        Assert.Equal(IngestCommitResultKind.Accepted, (await commit).Kind);
+        Assert.True((await verification).Healthy);
+    }
+
+    [Fact]
     public void Custody_subject_index_and_event_primary_key_are_used_by_lookup_plans()
     {
         using var database = new TestDatabase();
@@ -979,6 +1006,43 @@ public sealed class SqliteIngestStoreTests
             Entered.Set();
             if (!Release.Wait(TimeSpan.FromSeconds(5)))
                 throw new TimeoutException("The fork-test barrier was not released.");
+        }
+
+        public void Dispose()
+        {
+            Release.Set();
+            Entered.Dispose();
+            Release.Dispose();
+        }
+    }
+
+    private sealed class BlockingCustodySnapshotFault : ISqliteIngestFaultInjector, IDisposable
+    {
+        private int _armed;
+        private int _blocked;
+
+        internal ManualResetEventSlim Entered { get; } = new(false);
+
+        internal ManualResetEventSlim Release { get; } = new(false);
+
+        internal void Arm() => Volatile.Write(ref _armed, 1);
+
+        public void BeforeCommit(SqliteIngestWriteKind writeKind)
+        {
+        }
+
+        public void CustodySnapshotQueryForTests(string subject)
+        {
+            // The event read has already established the WAL snapshot. Hold
+            // before the second set read so a concurrent commit proves both
+            // writer independence and cross-query snapshot consistency.
+            if (subject != "quarantine" || Volatile.Read(ref _armed) == 0 ||
+                Interlocked.Exchange(ref _blocked, 1) != 0)
+                return;
+
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(5)))
+                throw new TimeoutException("The custody-scan test barrier was not released.");
         }
 
         public void Dispose()

@@ -52,9 +52,10 @@ landed at `87818e4` over base `9c6f89c`; see `.agents/review/index.md`. After
 two foreground transport timeouts returned no verdict, owner-authorized
 background Claude Code 2.1.228 / claude-opus-5 / xhigh generation round 1
 returned five candidates with valid pins and capability proof. Intake is in
-progress; cr11-1's routed-path custody-gate bypass is admitted, independently
-reproduced, and locally repaired. One valid section review round remains. No
-barrier-section code is included in this review scope.
+progress; cr11-1's routed-path custody-gate bypass and cr11-2's periodic-scan
+writer serialization are admitted, independently reproduced, and locally
+repaired. One valid section review round remains. No barrier-section code is
+included in this review scope.
 
 **cr10 CLOSED at its two-round cap:** the final Claude round accepted cr10-1
 and reopened cr10-2; `.agents/review/index.md` owns the verdict record. The

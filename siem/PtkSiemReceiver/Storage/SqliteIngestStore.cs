@@ -72,6 +72,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
 {
     private const int CurrentSchemaVersion = 10;
     private const int BusyTimeoutSeconds = 5;
+    private readonly string _databasePath;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
     private readonly SemaphoreSlim _writerGate = new(1, 1);
@@ -80,6 +81,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
     private int _disposed;
 
     private SqliteIngestStore(
+        string databasePath,
         SqliteConnection writer,
         SqliteWriterPolicy writerPolicy,
         ISqliteIngestFaultInjector? faultInjector,
@@ -87,6 +89,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         string? alertRuleConfigHash,
         CustodyVerificationResult startupCustodyVerification)
     {
+        _databasePath = databasePath;
         _writer = writer;
         _parentLease = parentLease;
         WriterPolicy = writerPolicy;
@@ -201,6 +204,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             SiemProtectedPath.VerifySqliteFileIsOpen(walIdentity.Value);
             SiemProtectedPath.VerifySqliteFileIsOpen(sharedMemoryIdentity.Value);
             var store = new SqliteIngestStore(
+                fullPath,
                 connection,
                 policy,
                 faultInjector,

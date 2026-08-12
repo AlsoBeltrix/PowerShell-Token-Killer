@@ -83,15 +83,31 @@ internal sealed partial class SqliteIngestStore
         CancellationToken cancellationToken)
     {
         ThrowIfDisposed();
-        await _writerGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = _databasePath,
+            Mode = SqliteOpenMode.ReadOnly,
+            Cache = SqliteCacheMode.Private,
+            Pooling = false,
+            DefaultTimeout = BusyTimeoutSeconds,
+        }.ToString());
+        await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        // A WAL read transaction pins one coherent snapshot across every
+        // evidence query without taking the serialized ingest writer gate.
+        // Use SQL BEGIN/ROLLBACK so the existing verification query helpers
+        // naturally participate without threading a provider transaction
+        // object through each read-only command.
+        ExecuteNonQuery(connection, null, "BEGIN;");
         try
         {
             ThrowIfDisposed();
-            return VerifyCustodyCore(_writer, _faultInjector);
+            return VerifyCustodyCore(connection, _faultInjector);
         }
         finally
         {
-            _writerGate.Release();
+            ExecuteNonQuery(connection, null, "ROLLBACK;");
         }
     }
 

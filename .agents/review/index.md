@@ -15,12 +15,13 @@ ceiling. Both processes were contained; neither returned a result envelope, so
 neither counts as a review round. Automatic dispatch stopped at the playbook's
 retry limit. Owner-authorized background generation round 1 then returned a
 valid five-candidate verdict over the exact landed range after 14 minutes.
-Intake is in progress; cr11-1 is admitted and locally repaired. This major
-section has one valid review round remaining.
+Intake is in progress; cr11-1 and cr11-2 are admitted and locally repaired.
+This major section has one valid review round remaining.
 
 | ID     | Severity | Impact (one line)                                   | Status | Reviewer |
 |--------|----------|-----------------------------------------------------|--------|----------|
 | cr11-1 | HIGH     | routed path variant commits while custody is paused | `[~]` repair locally guard-proved | claude/claude-opus-5/xhigh/frontier |
+| cr11-2 | HIGH     | periodic integrity scan serializes every writer      | `[~]` repair locally guard-proved | claude/claude-opus-5/xhigh/frontier |
 
 ## Closed — cr10 (Claude review over S4b custody/retention, 2026-08-12)
 

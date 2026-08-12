@@ -40,6 +40,15 @@ handshake, and server/SIEM dependency audits. **Next item: hosted native CI,
 then an owner-selected version for the five-RID draft workflow. No new draft,
 tag, package publication, or release exists yet.**
 
+First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
+packages, but Windows stopped before its package gate on test-host cleanup:
+after the application disposed, Microsoft.Data.Sqlite's idle pool still held
+`siem.db`, so recursive fixture cleanup failed on Windows (POSIX had hidden the
+leak by allowing unlink of an open file). The test host now clears idle pools
+after application disposal; checked-out connections remain valid. The same run
+also exposed separately repaired protected-file fixture creation in six Windows
+server tests. These are CI/test-lifetime defects, not shipped receiver behavior.
+
 **S4b COMPLETE (2026-08-12).**
 The custody/retention and independent-witness/restore sections are closed at
 their two-round review caps (cr10/cr11). The final durability-barrier section

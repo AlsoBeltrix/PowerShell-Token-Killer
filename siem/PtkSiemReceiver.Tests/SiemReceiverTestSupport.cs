@@ -8,6 +8,7 @@ using Google.Protobuf;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using PtkMcpServer.Audit.OtlpWire;
 using PtkSiemReceiver.Configuration;
@@ -330,6 +331,12 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
     {
         await _application.StopAsync();
         await _application.DisposeAsync();
+        // Microsoft.Data.Sqlite pooling retains idle native handles after the
+        // host has disposed every scoped store. POSIX permits unlinking those
+        // files, but Windows correctly refuses the recursive cleanup while the
+        // pool still owns siem.db. Clearing idle pools is test-process cleanup;
+        // checked-out connections remain valid and close when returned.
+        SqliteConnection.ClearAllPools();
         if (!_preserveRootOnDispose) Directory.Delete(_root, recursive: true);
         if (!_preserveWitnessOnDispose) Directory.Delete(_witnessRoot, recursive: true);
         if (_anchorRoot is not null && !_preserveAnchorOnDispose)

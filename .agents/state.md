@@ -29,9 +29,11 @@ ordinary CI, and release paths. The layout carries coherent requested-version
 plus source-commit assembly identity, `VERSION`, the operator guide, Apache-2.0
 project license, and vendored OpenTelemetry proto license; it fails closed if
 any is absent or stale and proves no-config startup exits 1 naming
-`PTK_SIEM_CONFIG`. A pre-commit local osx-arm64 self-contained package passed
-with test-only version `0.2.3-rc.1`; removing version stamping and removing the
-guide independently failed their intended guards. `actionlint`,
+`PTK_SIEM_CONFIG`. Exact implementation head `a9576c2` produced and re-read a
+local osx-arm64 archive with test-only version `0.2.3-rc.1+a9576c2`; removing
+version stamping and removing the guide independently failed their intended
+guards. Exact artifact hash and host evidence are in `.agents/machines.md`.
+`actionlint`,
 PSScriptAnalyzer, and `git diff --check` pass. Standing verification is green:
 Pester 112 passed/3 skipped, server 1,306/1,306, SIEM 329/329, registered
 handshake, and server/SIEM dependency audits. **Next item: hosted native CI,

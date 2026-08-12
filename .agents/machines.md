@@ -3,6 +3,31 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha.local` — mini-SIEM S8 local package proof (2026-08-12)
+
+- Exact implementation head
+  `a9576c2b52cff1c99d3e16951352081430c153b3`; macOS 26.6.1 arm64,
+  .NET SDK 10.0.302, PowerShell 7.6.3 inside the PTK worker.
+- `siem/build-package.ps1` produced the self-contained `osx-arm64` layout
+  under the test-only version `0.2.3-rc.1`; this is proof input, not a release
+  version ruling. `siem/verify-package.ps1` accepted exact `VERSION`, assembly
+  `0.2.3.0`, informational version `0.2.3-rc.1+a9576c2`, executable mode,
+  byte-identical operator guide and project/proto licenses, and exit 1 naming
+  `PTK_SIEM_CONFIG` with empty stdout when configuration was absent.
+- The 343-file layout archived and extracted successfully as a 40,814,996-byte
+  tarball with SHA-256
+  `57a9f71f4b2932eabdb5a6be9802ad24a1a9d7e5327097fcc6079b2f60eaec50`;
+  the verifier passed again against the extracted layout.
+- Two independent guard mutations bit before commit: omitting the version
+  property failed on assembly `0.2.0.0` versus expected `0.2.3.0`; omitting
+  the guide failed on missing `README.md`. Both were restored and the exact
+  committed-head package passed.
+- Standing verification: Pester 112 passed/3 skipped; server 1,306/1,306;
+  SIEM 329/329; registered five-tool handshake passed; server and SIEM
+  vulnerable-package audits were clean; PSScriptAnalyzer, `actionlint`, and
+  `git diff --check` passed. This is local osx-arm64 evidence only. Hosted
+  Ubuntu/Windows/macOS native CI and the five-RID release draft remain pending.
+
 ## `nagatha.local` — mini-SIEM S7 isolated end-to-end smoke (2026-08-12)
 
 _Manual two-host-equivalent acceptance at exact source head

@@ -29,7 +29,8 @@ change (`opr-53`). Slice 7.5 must be re-run per RID before publishing.
 Mini-SIEM S8 extends the R6 receiver artifact at the current head: one shared
 builder now stamps release/source identity and includes the operator guide and
 licenses; an independent verifier runs in ordinary native CI and the release
-workflow before archive. Local osx-arm64 proof is green as of 2026-08-12.
+workflow before archive. Exact-head local osx-arm64 proof is green at
+`a9576c2` as of 2026-08-12.
 Hosted current-head and five-RID evidence remains pending; no new version,
 draft, tag, or publication is implied by that local proof.
 

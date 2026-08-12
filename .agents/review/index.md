@@ -1,5 +1,33 @@
 # Review status
 
+## Closed — cr8 (codereview over R5c, 2026-08-11)
+
+Generation pass: codex / gpt-5.6-sol / high / standard over
+`b093dea..782d345` (R5c: mini-SIEM S6 — gap-disposition state machine
++ alert pipeline). Verdict `findings` (7), capability_ok true, SHAs
+matched. All seven admitted; none declined. Fixes landed one commit
+each, every guard proved biting (stash-revert or faithful sabotage).
+Verification in ONE frontier batch (four HIGHs → T2 ceiling), then
+cr8-4 took FOUR frontier rounds — three real reopens, each a deeper
+hole in the migration backfill: v3 gaps migrated NULL-linked (v5
+backfill), MIN(attempt_id) ambiguous across resumed gaps (v6 instant
+match), one JSON batch sharing a single instant (v7 custody-ledger
+adjacency — the opener's quarantine receipt immediately precedes its
+gap:opened receipt, exact and instant-independent). Round 4 confirmed
+with the adjacency sabotage biting and the history-wide invariant
+checked. cr8-1's fix records a deliberate design divergence
+(heal-by-proof instead of freeze-and-wait), accepted at verification.
+
+| ID    | Severity | Impact (one line)                                               | Status | Reviewer |
+|-------|----------|-----------------------------------------------------------------|--------|----------|
+| cr8-1 | HIGH     | late hole filling silently resumed past an open gap             | `[x]` `fc78886` | codex xhigh |
+| cr8-2 | HIGH     | retention erased queued subjects, permanently suppressing alerts | `[x]` `9da3da5` | codex xhigh |
+| cr8-3 | HIGH     | alert/gap custody receipts verified over forged evidence        | `[x]` `6648223` | codex xhigh |
+| cr8-4 | HIGH     | an unresolved gap's opening attempt was sweepable               | `[x]` `c0b4889`+`675e44b`+`a28f458`+`1fe69b6` | codex xhigh ×4 |
+| cr8-5 | MEDIUM   | queue rows and closed alerts grew without bound                 | `[x]` `2506a97` | codex xhigh |
+| cr8-6 | MEDIUM   | newline-framed rule-config hashes collided                     | `[x]` `78c0579` | codex xhigh |
+| cr8-7 | LOW      | detail JSON interpolated unescaped stored values               | `[x]` `0c2b2c6` | codex xhigh |
+
 ## Closed — cr7 (codereview over R5b, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over

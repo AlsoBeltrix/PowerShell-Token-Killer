@@ -795,13 +795,27 @@ a v4 event id 400s at ingest.
   `alertEvaluationHoldForTests` seam; enqueue-drop and
   transition-unguard sabotages both bit. SIEM suite 294/294.
 
-Next: close the cr8 loop (triage → fix per finding → verify), then
-**R6** (CI legs, AUDIT-EXPORT.md/READMEs, receiver signing through
-release legs, release-gate positive journaling check) + its
-codereview. The codex verification recipe that works:
-`-s workspace-write -c 'sandbox_workspace_write.network_access=true'`
-(VSTest testhost needs the socket), per-server MCP `enabled=false`
-overrides, `-o <file>` for the verdict.
+**The cr8 loop is CLOSED — all seven findings VERIFIED (2026-08-11).**
+`.agents/review/index.md` §cr8 owns the table. Seven fixes one commit
+each; verification one frontier batch; cr8-4 took FOUR frontier
+rounds (three real reopens, each a deeper migration-backfill hole,
+ending at the v7 custody-ledger adjacency link — the opener's
+quarantine receipt immediately precedes its gap:opened receipt,
+instant-independent; the reviewer checked the adjacency invariant
+across the whole shipped history). Notable design call recorded in
+cr8-1: verified arrival HEALS a gap automatically (hash proof needs
+no human); operator disposition remains the sole authority for
+accepting loss. Store schema is now v7 with in-place migrations from
+v1. SIEM suite 305/305; server suite 1,306/1,306 (plain shell)
+re-confirmed after the R5c base commits.
+
+Next: **R6** (CI legs, AUDIT-EXPORT.md/READMEs, receiver signing
+through release legs, release-gate positive journaling check) + its
+codereview — the LAST audit-restoration slice. The codex verification
+recipe that works: `-s workspace-write -c
+'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
+the socket), per-server MCP `enabled=false` overrides, `-o <file>`
+for the verdict.
 
 **Housekeeping note (2026-08-11):** `git stash` holds one pre-existing
 entry — an *hcc-7* prompt-flush WIP for `scripts/ptk_init.ps1`

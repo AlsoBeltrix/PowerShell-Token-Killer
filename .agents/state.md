@@ -745,15 +745,38 @@ recorded four-probe StateToolTests failure; earlier same-day a default-
 session run was clean, so the truncation is worker-inheritance
 roulette, exactly as `.agents/machines.md` records.**
 
-Next: **R5b — mini-SIEM S5** (receiver query API + dashboard + operator
-auth; `Web/` does not exist yet under `siem/PtkSiemReceiver/`), then
-**R5c — S6** (alert rules, work-item queue, gap-disposition state
-machine), then R6 (CI/docs/packaging, release-gate journaling check),
-per `.agents/plans/audit-restoration.md` and the mini-SIEM plan's slice
-definitions. The codex verification recipe that works:
-`-s workspace-write -c 'sandbox_workspace_write.network_access=true'`
-(VSTest testhost needs the socket), per-server MCP `enabled=false`
-overrides, `-o <file>` for the verdict.
+**R5b EXECUTED and its review loop CLOSED (2026-08-11): mini-SIEM S5
+exists.** `1422bec`: read-only operator query API + dashboard
+(`siem/PtkSiemReceiver/Web/OperatorEndpoints.cs`) on its own Kestrel
+listener with a connection-marker feature so neither surface can serve
+the other's routes; distinct operator credential; Host pinning on
+plain-HTTP loopback; per-request read-only SQLite; parameterized
+filters with limit clamps; embedded plain-JS dashboard (recorded
+deviation: no htmx). **The cr7 codereview over `47fd8e2..1422bec`
+returned five findings, all admitted, all fixed one commit each
+(cr7-1 `89f5284` query-string auth removed — evidence endpoints are
+header-only, the zero-evidence page serves token-free and takes the
+pasted token into sessionStorage; cr7-2 `47c33e6` `token_reuse`
+loader refusal; cr7-3 `4011f44` bounded chains list + non-overlapping
+poll; cr7-4 `a7edc20` parsed canonical time filters; cr7-5 `99c5c7f`
+canonical lowercase event-id binding), and ONE frontier verification
+batch CONFIRMED all five with every guard independently re-proved.**
+`.agents/review/index.md` §cr7 owns the table. SIEM suite 285/285.
+Receiver corpus note: event IDs must be UUIDv7, boot/host IDs v4 —
+a v4 event id 400s at ingest.
+
+Next: **R5c — mini-SIEM S6 IN PROGRESS** (gap-disposition state
+machine + post-gap storage first — schema v2 migration adds
+`events.post_gap` + `gaps`; then alert rules over a durable work-item
+queue + evaluation cursor, custody-chained alert lifecycle, webhook
+with bounded retry, dashboard surfacing, the crash-before-alert-
+persistence kill test), then R6 (CI/docs/packaging, release-gate
+journaling check), per `.agents/plans/audit-restoration.md` and the
+mini-SIEM plan's slice definitions. The codex verification recipe that
+works: `-s workspace-write -c
+'sandbox_workspace_write.network_access=true'` (VSTest testhost needs
+the socket), per-server MCP `enabled=false` overrides, `-o <file>` for
+the verdict.
 
 **Housekeeping note (2026-08-11):** `git stash` holds one pre-existing
 entry — an *hcc-7* prompt-flush WIP for `scripts/ptk_init.ps1`

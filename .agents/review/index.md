@@ -1,5 +1,27 @@
 # Review status
 
+## Closed — cr7 (codereview over R5b, 2026-08-11)
+
+Generation pass: codex / gpt-5.6-sol / high / standard over
+`47fd8e2..1422bec` (R5b: read-only operator query API + dashboard,
+mini-SIEM S5). Verdict `findings` (5), capability_ok true, SHAs
+matched. All five admitted against the code at intake; none declined.
+Fixes landed one commit each, every guard proved biting
+(stash-revert, or faithful sabotage where the revert would be a
+compile error). Verification in ONE frontier batch (three HIGHs → T2
+ceiling covers all): codex / gpt-5.6-sol / xhigh, network-enabled
+workspace-write worktree at `99c5c7f` — verdict `confirmed`,
+guard_confirmed true, every guard independently re-proved
+(fail-on-sabotage/revert, pass restored), suite 285/285.
+
+| ID    | Severity | Impact (one line)                                              | Status | Reviewer |
+|-------|----------|----------------------------------------------------------------|--------|----------|
+| cr7-1 | HIGH     | query-string auth put the operator credential in logs/history  | `[x]` `89f5284` | codex xhigh |
+| cr7-2 | HIGH     | equal ingest/operator tokens collapsed the two authorities     | `[x]` `47c33e6` | codex xhigh |
+| cr7-3 | HIGH     | unbounded /api/chains + overlapping dashboard poll             | `[x]` `4011f44` | codex xhigh |
+| cr7-4 | MEDIUM   | lexicographic time filters silently dropped same-second events | `[x]` `a7edc20` | codex xhigh |
+| cr7-5 | LOW      | uppercase event ID 404'd its own stored event                  | `[x]` `99c5c7f` | codex xhigh |
+
 ## Closed — cr6 (codereview over R5a, 2026-08-11)
 
 Generation pass: codex / gpt-5.6-sol / high / standard over

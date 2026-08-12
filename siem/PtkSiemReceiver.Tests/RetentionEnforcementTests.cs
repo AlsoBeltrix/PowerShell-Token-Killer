@@ -336,6 +336,48 @@ public sealed class RetentionEnforcementTests
         Assert.Equal(0L, Count(database.Path, "quarantine"));
     }
 
+    [Fact]
+    public async Task An_unresolved_gaps_opening_attempt_survives_retention()
+    {
+        // cr8-4: the rejected record that opened a gap is the gap's proof —
+        // its claimed hashes and raw bytes must outlive every sweep until
+        // the gap resumes.
+        using var database = new TestDatabase();
+        using var store = SqliteIngestStore.Open(database.Path);
+        await CommitChainAsync(store, count: 1);
+        var gapped = Validate(OtlpTestRequest.Create(
+            eventId: "018f6a78-4c20-7a11-8a34-1234567890f3",
+            sequence: 3,
+            previousEventHash: LastHash));
+        Assert.Equal(
+            IngestCommitResultKind.PermanentFailure,
+            (await store.CommitAsync(gapped, Receipt, default)).Kind);
+        Assert.Equal(1L, Count(database.Path, "quarantine"));
+        Assert.Equal(1L, Count(database.Path, "gaps"));
+
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+        Assert.Equal(1L, Count(database.Path, "quarantine"));
+
+        // Resumed (post-gap anchor stored, operator disposition), the
+        // evidence becomes ordinarily sweepable.
+        Assert.Equal(
+            IngestCommitResultKind.Accepted,
+            (await store.CommitAsync(gapped, Receipt, default)).Kind);
+        Assert.Equal(
+            GapDispositionOutcome.Resumed,
+            await store.DispositionGapAsync(1, "accepted-loss", Receipt, default));
+        _ = await store.EnforceRetentionAsync(
+            maximumAgeDays: 30,
+            maximumTotalBytes: null,
+            utcNow: Receipt.ReceivedUtc.AddYears(1),
+            CancellationToken.None);
+        Assert.Equal(0L, Count(database.Path, "quarantine"));
+    }
+
     private static string? LastHash { get; set; }
 
     private static async Task CommitChainAsync(

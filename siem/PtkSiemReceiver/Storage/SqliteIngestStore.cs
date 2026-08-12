@@ -59,7 +59,7 @@ internal sealed record CreatedAlert(
 
 internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -327,7 +327,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 if (chainFailure == "chain_gap" &&
                     ReadActiveGap(record.SupervisorBootId, transaction) is null)
                 {
-                    var gapId = OpenGap(record, currentHead, receipt, transaction);
+                    var gapId = OpenGap(
+                        record, currentHead, attemptId, receipt, transaction);
                     EnqueueAlertWork(
                         "gap",
                         gapId.ToString(CultureInfo.InvariantCulture),
@@ -543,7 +544,10 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                   SELECT subject_id FROM alert_queue
                   WHERE kind = 'quarantine' AND item_id > (
                       SELECT CAST(value AS INTEGER) FROM meta
-                      WHERE key = 'alert_cursor'));
+                      WHERE key = 'alert_cursor'))
+              AND attempt_id NOT IN (
+                  SELECT opening_attempt_id FROM gaps
+                  WHERE state != 'resumed' AND opening_attempt_id IS NOT NULL);
             """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
         return command.ExecuteNonQuery();
@@ -575,6 +579,8 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 
     private long DeleteOldestQuarantine(int batch, SqliteTransaction transaction)
     {
+        // The attempt that opened an unresolved gap is the gap's proof
+        // (cr8-4); it outlives the sweep until the gap resumes.
         using var command = CreateCommand(_writer, transaction, """
             DELETE FROM quarantine
             WHERE attempt_id IN (
@@ -584,6 +590,9 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                     WHERE kind = 'quarantine' AND item_id > (
                         SELECT CAST(value AS INTEGER) FROM meta
                         WHERE key = 'alert_cursor'))
+                  AND attempt_id NOT IN (
+                      SELECT opening_attempt_id FROM gaps
+                      WHERE state != 'resumed' AND opening_attempt_id IS NOT NULL)
                 ORDER BY received_utc ASC
                 LIMIT $batch);
             """);
@@ -723,6 +732,24 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction,
                 "UPDATE meta SET value = '3' WHERE key = 'schema_version';");
             ExecuteNonQuery(connection, transaction, "PRAGMA user_version=3;");
+            transaction.Commit();
+        }
+
+        if (version < 4)
+        {
+            // Schema v4 (cr8-4): a gap remembers the quarantine attempt that
+            // opened it, so retention can keep that evidence alive while the
+            // gap is unresolved.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "ALTER TABLE gaps ADD COLUMN opening_attempt_id INTEGER NULL;");
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "UPDATE meta SET value = '4' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=4;");
             transaction.Commit();
         }
 
@@ -1406,20 +1433,23 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
     private static long OpenGap(
         ValidatedOtlpRecord record,
         ChainHead? currentHead,
+        long openingAttemptId,
         IngestReceiptContext receipt,
         SqliteTransaction transaction)
     {
         using (var command = CreateCommand(transaction.Connection!, transaction, """
             INSERT INTO gaps(
                 supervisor_boot_id, observed_head_sequence, claimed_sequence,
-                opened_utc, state)
-            VALUES($boot_id, $head_sequence, $claimed_sequence, $opened_utc, 'open');
+                opened_utc, state, opening_attempt_id)
+            VALUES($boot_id, $head_sequence, $claimed_sequence, $opened_utc, 'open',
+                   $opening_attempt_id);
             """))
         {
             command.Parameters.AddWithValue("$boot_id", FormatGuid(record.SupervisorBootId));
             AddNullable(command, "$head_sequence", currentHead?.Sequence);
             command.Parameters.AddWithValue("$claimed_sequence", record.Sequence);
             command.Parameters.AddWithValue("$opened_utc", FormatUtc(receipt.ReceivedUtc));
+            command.Parameters.AddWithValue("$opening_attempt_id", openingAttemptId);
             if (command.ExecuteNonQuery() != 1)
                 throw new InvalidOperationException("The gap insert did not affect exactly one row.");
         }
@@ -1438,6 +1468,7 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 observed_head_sequence = currentHead?.Sequence,
                 claimed_sequence = record.Sequence,
                 opened_utc = FormatUtc(receipt.ReceivedUtc),
+                opening_attempt_id = openingAttemptId,
             }),
             receipt,
             "gap:opened",

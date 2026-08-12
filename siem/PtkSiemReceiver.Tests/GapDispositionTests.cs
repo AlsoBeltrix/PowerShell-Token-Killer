@@ -168,6 +168,75 @@ public sealed class GapDispositionTests
     }
 
     [Fact]
+    public async Task A_late_missing_record_heals_the_gap_by_verification()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        var chain = BuildChain(6);
+
+        // cr8-1's exact scenario: seq1 lands, seq3 opens a gap, the missing
+        // seq2 arrives LATE and verifies against the head. Nothing was ever
+        // lost — the gap heals by proof and the replayed seq3 chains on.
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[0].Body));
+        Assert.Equal(
+            HttpStatusCode.BadRequest, await IngestAsync(client, host, chain[2].Body));
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[1].Body));
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[2].Body));
+        Assert.Equal(3, await HeadSequenceAsync(host, client));
+        var gap = await SingleGapAsync(host, client);
+        Assert.Equal("resumed", gap.GetProperty("state").GetString());
+
+        // The healed gap no longer blocks new gap evidence for this boot.
+        Assert.Equal(
+            HttpStatusCode.BadRequest, await IngestAsync(client, host, chain[5].Body));
+        using var list = await OperatorGetAsync(host, client, "/api/gaps");
+        using var payload = JsonDocument.Parse(await list.Content.ReadAsStringAsync());
+        var gaps = payload.RootElement.GetProperty("gaps").EnumerateArray().ToList();
+        Assert.Equal(2, gaps.Count);
+        Assert.Equal("open", gaps[0].GetProperty("state").GetString());
+        Assert.Equal(6, gaps[0].GetProperty("claimed_sequence").GetInt64());
+    }
+
+    [Fact]
+    public async Task Stored_post_gap_records_are_absorbed_when_the_hole_fills()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        var chain = BuildChain(4);
+
+        // A post-gap sub-chain accumulates, then the missing record arrives:
+        // the head must absorb the whole verified sub-chain, not stop at the
+        // filler.
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[0].Body));
+        Assert.Equal(
+            HttpStatusCode.BadRequest, await IngestAsync(client, host, chain[2].Body));
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[2].Body));
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[3].Body));
+        Assert.Equal(1, await HeadSequenceAsync(host, client));
+
+        Assert.Equal(HttpStatusCode.OK, await IngestAsync(client, host, chain[1].Body));
+        Assert.Equal(4, await HeadSequenceAsync(host, client));
+        var gap = await SingleGapAsync(host, client);
+        Assert.Equal("resumed", gap.GetProperty("state").GetString());
+        Assert.Equal(
+            chain[3].EventId, gap.GetProperty("resume_event_id").GetString());
+    }
+
+    [Fact]
     public async Task A_version_one_store_migrates_to_the_gap_capable_schema()
     {
         using var authority = new TestCertificateAuthority();

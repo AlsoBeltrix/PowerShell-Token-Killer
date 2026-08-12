@@ -351,6 +351,14 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction);
             EnqueueAlertWork("event", FormatGuid(record.EventId), receipt, transaction);
 
+            // cr8-1: a verified record can FILL an active gap's hole — the
+            // head then absorbs any stored post-gap sub-chain it proves, and
+            // a gap whose claimed range became verified-contiguous is healed
+            // by that proof. Operator disposition stays the sole authority
+            // for accepting LOSS; arithmetic that verifies needs no human.
+            if (ReadActiveGap(record.SupervisorBootId, transaction) is { } activeAfterAdvance)
+                HealGapIfVerified(activeAfterAdvance, record, receipt, transaction);
+
             cancellationToken.ThrowIfCancellationRequested();
             _faultInjector?.BeforeCommit(SqliteIngestWriteKind.Event);
             transaction.Commit();
@@ -1368,6 +1376,70 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
             transaction);
         return gapId;
     }
+
+    /// <summary>After a normal head advance while a gap is active: absorb
+    /// every stored post-gap record that now chains contiguously onto the
+    /// head, and when the head reaches the gap's claimed sequence the gap is
+    /// resumed as healed — nothing turned out to be missing.</summary>
+    private static void HealGapIfVerified(
+        GapRow gap,
+        ValidatedOtlpRecord record,
+        IngestReceiptContext receipt,
+        SqliteTransaction transaction)
+    {
+        var head = ReadChain(record.SupervisorBootId, transaction)!;
+        while (true)
+        {
+            var next = ReadEventAt(
+                record.SupervisorBootId, head.Sequence + 1, transaction);
+            if (next is null ||
+                !string.Equals(next.PreviousEventHash, head.EventHash, StringComparison.Ordinal))
+            {
+                break;
+            }
+
+            head = new ChainHead(next.Sequence, next.EventId, next.EventHash);
+            SetChainHead(gap.SupervisorBootId, head, transaction);
+        }
+
+        if (head.Sequence < gap.ClaimedSequence) return;
+        MarkGapResumed(
+            gap.GapId, FormatUtc(receipt.ReceivedUtc), head.EventId, transaction);
+        AppendCustody(
+            GapCustodyBytes(gap, "healed"),
+            receipt,
+            "gap:resumed",
+            "gap",
+            gap.GapId.ToString(CultureInfo.InvariantCulture),
+            transaction);
+    }
+
+    private static StoredEventLink? ReadEventAt(
+        Guid supervisorBootId,
+        long sequence,
+        SqliteTransaction transaction)
+    {
+        using var command = CreateCommand(transaction.Connection!, transaction, """
+            SELECT sequence, event_id, event_hash, previous_event_hash FROM events
+            WHERE supervisor_boot_id = $boot_id AND sequence = $sequence;
+            """);
+        command.Parameters.AddWithValue("$boot_id", FormatGuid(supervisorBootId));
+        command.Parameters.AddWithValue("$sequence", sequence);
+        using var reader = command.ExecuteReader();
+        return reader.Read()
+            ? new StoredEventLink(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.IsDBNull(3) ? null : reader.GetString(3))
+            : null;
+    }
+
+    private sealed record StoredEventLink(
+        long Sequence,
+        string EventId,
+        string EventHash,
+        string? PreviousEventHash);
 
     private static void ResumeGap(
         GapRow gap,

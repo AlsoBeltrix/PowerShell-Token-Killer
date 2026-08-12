@@ -59,7 +59,7 @@ internal sealed record CreatedAlert(
 
 internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 5;
+    private const int CurrentSchemaVersion = 6;
     private const int BusyTimeoutSeconds = 5;
     private readonly SqliteConnection _writer;
     private readonly ProtectedDirectoryLease _parentLease;
@@ -824,6 +824,40 @@ internal sealed class SqliteIngestStore : IIngestCommitter, IDisposable
                 transaction,
                 "UPDATE meta SET value = '5' WHERE key = 'schema_version';");
             ExecuteNonQuery(connection, transaction, "PRAGMA user_version=5;");
+            transaction.Commit();
+        }
+
+        if (version < 6)
+        {
+            // Schema v6 (cr8-4 round-3): v5's MIN(attempt_id) backfill was
+            // ambiguous — a later gap could link to an earlier NON-opening
+            // chain_gap attempt sharing boot + claimed sequence, leaving the
+            // true opener sweepable. The opener is written in the SAME
+            // transaction as its gap with the same receipt instant, so
+            // received_utc = opened_utc identifies it precisely. Re-link
+            // wherever a precise match exists; keep the old link otherwise
+            // (over-protection beats nulling when the opener is already
+            // gone).
+            using var transaction = connection.BeginTransaction(deferred: false);
+            ExecuteNonQuery(connection, transaction, """
+                UPDATE gaps SET opening_attempt_id = (
+                    SELECT MIN(attempt_id) FROM quarantine
+                    WHERE quarantine.claimed_supervisor_boot_id = gaps.supervisor_boot_id
+                      AND quarantine.claimed_sequence = gaps.claimed_sequence
+                      AND quarantine.failure_code = 'chain_gap'
+                      AND quarantine.received_utc = gaps.opened_utc)
+                WHERE (
+                    SELECT MIN(attempt_id) FROM quarantine
+                    WHERE quarantine.claimed_supervisor_boot_id = gaps.supervisor_boot_id
+                      AND quarantine.claimed_sequence = gaps.claimed_sequence
+                      AND quarantine.failure_code = 'chain_gap'
+                      AND quarantine.received_utc = gaps.opened_utc) IS NOT NULL;
+                """);
+            ExecuteNonQuery(
+                connection,
+                transaction,
+                "UPDATE meta SET value = '6' WHERE key = 'schema_version';");
+            ExecuteNonQuery(connection, transaction, "PRAGMA user_version=6;");
             transaction.Commit();
         }
 

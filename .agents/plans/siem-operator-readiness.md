@@ -6,11 +6,14 @@
 approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
-evidence artifact PTK captures must be exposed in the receiver and external
-SIEM; sensitive evidence is protected rather than suppressed. Decision B is
-also settled: supported clients must supply per-call agent/model identity when
-technically possible, with source/trust recorded and no guessing. Decisions C-D
-remain owner gates. Two owner-authorized,
+evidence artifact PTK captures must be exposed by either supported destination
+type independently; sensitive evidence is protected rather than suppressed.
+This does not authorize simultaneous export to both destination types.
+Decision B is also settled: supported clients must supply per-call agent/model
+identity when technically possible, with source/trust recorded and no guessing.
+Decision C is settled as one operator-chosen export destination: a real SIEM
+when available, or an explicitly deployed mini-SIEM when it is not. Decision D
+remains the only owner gate. Two owner-authorized,
 unprimed Claude Fable 5 `openreview` attempts over the committed plan produced
 no verdict. The first failed in the harness before model output. After the owner
 explicitly authorized one fresh attempt, Anthropic's cyber safeguard refused it
@@ -19,10 +22,10 @@ rule, no further Fable call was made. Canonical latest record:
 `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 An owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over the
 same pins returned a valid `best_approach` verdict with no material changes or
-candidate findings on the plan before the owner settled Decisions A-B. Its
+candidate findings on the plan before the owner settled Decisions A-C. Its
 canonical record is `.agents/review/siem-operator-readiness-kimi-r1.md`. Review
-endorsement does not approve implementation or settle Decisions C-D; it does
-not review the post-review Decision A-B amendments.
+endorsement does not approve implementation or settle Decision D; it does not
+review the post-review Decision A-C amendments.
 
 This plan supersedes any interpretation of “mini-SIEM S1-S8 complete” as an
 operator-readiness or release-readiness claim. The completed work in
@@ -34,13 +37,14 @@ who did what.
 
 ## Goal
 
-Ship one supported path from installation to investigation that lets an
+Ship supported workflows from installation to investigation that let an
 operator:
 
-1. install PTK and its matching receiver from published artifacts;
-2. configure a safe local evaluation without inventing certificates, tokens,
-   paths, or process-management commands;
-3. connect a PTK producer and prove delivery;
+1. install PTK from published artifacts and, only when chosen, deploy the
+   matching mini-SIEM package at an explicit operator-selected location;
+2. select and configure exactly one SIEM destination without hidden local or
+   fallback copies;
+3. connect a PTK producer and prove complete delivery to that destination;
 4. see one activity row per PTK operation rather than raw lifecycle noise;
 5. identify the client, any supplied agent/model identity, working context,
    exact submitted operation, complete captured response/output and errors, and
@@ -62,8 +66,9 @@ The durable host transcript belongs in `.agents/machines.md` under the
 2026-08-13 published-artifact acceptance entry. The implementation must begin
 by reproducing these observations at the then-current head:
 
-- `scripts/install.ps1` installs PTK but has no receiver installation or setup
-  path. The receiver is a second release archive.
+- `scripts/install.ps1` installs PTK only. The mini-SIEM is a separate release
+  archive with no explicit deployment workflow yet; PTK installation must
+  remain separate from mini-SIEM deployment.
 - The installed PTK local page on port 8317 exposes health plus raw event time,
   type, session, and outcome. It has no activity correlation, drill-down,
   actor, command, duration, search, or investigation workflow.
@@ -99,10 +104,12 @@ by reproducing these observations at the then-current head:
 
 Use these terms consistently in code, UI, documentation, and release records:
 
-- **Local audit journal:** mandatory, fail-closed PTK tool-call evidence stored
-  on the producer. The local web page is a viewer, not a SIEM.
-- **PTK receiver:** optional remote or local-evaluation destination providing
-  durable storage, query, alerts, gaps, quarantine, and custody verification.
+- **Local audit journal:** mandatory, fail-closed PTK source journal/spool on the
+  producer for admission, replay, and delivery proof. It is not an export
+  destination or SIEM and has no operator investigation dashboard.
+- **PTK mini-SIEM:** an optional, separately and explicitly deployed SIEM
+  destination providing durable storage, query, alerts, gaps, quarantine, and
+  custody verification when a full SIEM is unavailable.
 - **External SIEM:** a separately maintained product receiving PTK audit events
   through a documented adapter such as Splunk HEC or OTLP/HTTP.
 - **Activity:** the operator-facing correlation of one admitted PTK operation
@@ -119,12 +126,14 @@ Use these terms consistently in code, UI, documentation, and release records:
   attribution, execution context, and custody records. It may contain secrets;
   that changes its protection and retention requirements, not whether it is
   exported or available to an authorized operator.
-- **Anchored deployment:** receiver custody under a separately administered
-  principal/host. A loopback evaluation remains explicitly non-anchored.
+- **Selected destination:** the single mini-SIEM or external-SIEM endpoint to
+  which PTK exports. Its identity and delivery state are always explicit.
 
 ## Operator-facing activity contract
 
-Both local and receiver APIs expose the same versioned activity projection.
+The mini-SIEM API/dashboard and each external-SIEM mapping/query expose the same
+versioned activity projection. The producer's local journal and delivery-status
+surface do not expose this investigation projection.
 The projection is derived from immutable audit events; it does not replace or
 rewrite them.
 
@@ -159,13 +168,13 @@ request.timeout_ms | null
 command.evidence_id | null
 command.sha256 | null
 command.byte_count | null
-command.availability        receiver_and_external | not_observed |
+command.availability        destination | not_observed |
                             retained_then_purged | delivery_incomplete
 command.preview | null
 response.evidence_id | null
 response.sha256 | null
 response.byte_count | null
-response.availability       receiver_and_external | not_observed |
+response.availability       destination | not_observed |
                             retained_then_purged | delivery_incomplete
 outcome.exit_code | null
 outcome.duration_ms | null
@@ -191,20 +200,22 @@ as if each were a user command.
 
 ## Owner decisions required before implementation
 
-Decisions A-B below are settled. Decisions C-D record recommendations, not
-approvals; ask and record each separately.
+Decisions A-C below are settled. Decision D records a recommendation, not an
+approval; ask and record it separately.
 
 ### Decision A — full-fidelity evidence at SIEM destinations
 
-**SETTLED 2026-08-13:** the receiver and external SIEM are full-fidelity
-forensic destinations. Every possibly relevant fact and evidence artifact PTK
-captures must be exported and available to an authorized operator, including
-exact command bytes and complete captured response/output and errors. There is
-no metadata-only mode. Summary lists may remain bounded, but they must drill
-into the complete record. Authentication, authorization, encrypted transport,
-protected storage, access auditing, and retention protect sensitive evidence;
-field suppression does not. A fact PTK never received is labeled unavailable,
-not inferred. Canonical ruling: `.agents/decisions.md`.
+**SETTLED 2026-08-13:** the mini-SIEM and external SIEM are each independently
+capable full-fidelity forensic destinations. Whichever single destination an
+operator selects must receive every possibly relevant fact and evidence
+artifact PTK captures, including exact command bytes and complete captured
+response/output and errors. This requirement does not permit simultaneous
+delivery to both destination types. There is no metadata-only mode. Summary
+lists may remain bounded, but they must drill into the complete record.
+Authentication, authorization, encrypted transport, protected storage, access
+auditing, and retention protect sensitive evidence; field suppression does not.
+A fact PTK never received is labeled unavailable, not inferred. Canonical
+ruling: `.agents/decisions.md`.
 
 ### Decision B — model/agent attribution source
 
@@ -221,22 +232,14 @@ capability/source reason. Canonical ruling: `.agents/decisions.md`.
 
 ### Decision C — supported first-run deployment
 
-The receiver's production security model requires a separately administered
-identity, while the immediate evaluation need is same-user loopback.
-
-**Recommendation:** ship both profiles without conflating them:
-
-- `local-evaluation`: same-user, loopback only, explicitly non-anchored; one
-  setup command creates owner-only roots/tokens, starts or prints the exact
-  foreground command, writes validated PTK export settings, performs a delivery
-  test, and opens the dashboard. Permit token-authenticated plaintext ingest
-  only when the receiver bind and producer endpoint are both loopback, matching
-  PTK's existing loopback-only plaintext rule. This removes custom trust-store
-  mutations and the undocumented forwarder.
-- `anchored`: TLS, dedicated service identity, separate host/equivalent
-  boundary, witness and anchor required; the setup tool validates provided
-  paths/material and emits exact OS service instructions. It must refuse to
-  label a same-user loopback installation anchored.
+**SETTLED 2026-08-13:** PTK exports one full-fidelity SIEM-compliant stream to
+exactly one operator-chosen destination. If a real SIEM exists, PTK sends
+directly to it. If no full SIEM is available and visibility is wanted, the
+operator explicitly deploys the mini-SIEM at a chosen location and selects it
+as the destination. PTK never automatically installs a local mini-SIEM and
+never duplicates exported evidence to both destinations. The mandatory local
+audit journal remains the disclosed fail-closed source journal/spool, not a
+second SIEM or operator dashboard. Canonical ruling: `.agents/decisions.md`.
 
 ### Decision D — external SIEM acceptance target
 
@@ -298,8 +301,8 @@ Decision A is settled; this slice implements its full-fidelity requirement.
 - Inventory every operation fact and artifact PTK captures, including exact
   command bytes, caller-visible response/output, error evidence, auxiliary
   immutable output artifacts, lifecycle records, and disposition/custody
-  records. Any captured item absent from the remote forensic record is a test
-  failure.
+  records. Any captured item absent from the selected destination's forensic
+  record is a test failure.
 - Introduce a versioned typed-evidence envelope keyed to evidence ID, with
   evidence kind, digest, byte count, encoding, producer boot/event/call IDs,
   retention class, and chunk/reassembly metadata for destination size limits.
@@ -320,32 +323,44 @@ Decision A is settled; this slice implements its full-fidelity requirement.
 - Add lost-response replay, duplicate, mismatch, event-before-evidence,
   evidence-before-event, disk-full, purge, backup/restore, and custody tests.
 
-Exit evidence: an authorized operator retrieves and verifies the exact command,
-complete captured result/error evidence, raw events, attribution, context, and
-custody chain for a published-producer marker from both the receiver and the
-external-SIEM adapter. Removing any evidence kind fails the acceptance guard.
+Exit evidence: in separate mini-SIEM-only and external-SIEM-only tests, an
+authorized operator retrieves and verifies the exact command, complete captured
+result/error evidence, raw events, attribution, context, and custody chain for a
+published-producer marker from the selected destination. Removing any evidence
+kind fails the corresponding destination acceptance guard.
 
-### S3 — local activity viewer
+### S3 — exclusive destination configuration and delivery status
 
-- Replace the raw-record-first page with an activity list derived from the
-  journal. Retain health and a separate raw/system-evidence view.
-- Show client, supplied model/agent or explicit absence, tool/action, session,
-  effective context, state, duration, exit code, and full-evidence delivery and
-  retention status.
-- Make rows keyboard-accessible links to a detail page joining accepted and
-  terminal events, command evidence, correlation IDs, and chain context.
-- Require authenticated drill-down for exact command, response/output, errors,
-  and other retained evidence, with clear sensitive-data handling. Do not put
-  bearer tokens or evidence in URLs; use an operator-token prompt/session
-  header pattern.
-- Add time, client, model, session, tool, state, and free-text digest/ID filters
-  within bounded journal-reading limits. State the retained search window.
+- Replace ambiguous or multi-export configuration with one versioned selected-
+  destination record: destination type, operator label, endpoint, adapter,
+  credential reference, configuration revision, and activation time. Secrets
+  never appear in status output or process logs.
+- Reject zero, multiple, fallback, broadcast, or independently enabled exporter
+  configurations. Runtime construction permits exactly one exporter for the
+  selected destination.
+- Provide a transactional destination-selection command/API that validates the
+  proposed endpoint and credentials, stops export, atomically replaces the
+  selected-destination record, then resumes export. It never makes two
+  destinations active. Refuse a switch while evidence remains unacknowledged by
+  the old destination; never silently reroute that evidence to the new one.
+- Replace the producer's raw-event web page with configuration and delivery
+  status only: selected destination type/label/redacted endpoint, configuration
+  revision, connection health, last attempt and acknowledgment, event and
+  evidence cursors, pending record/byte counts, oldest pending time, last error,
+  and local journal capacity. It exposes no event list, activity query, command,
+  output, error, or evidence drill-down.
+- Keep the disclosed local journal as the fail-closed delivery/replay source.
+  Destination failure remains visible and queued; it never activates a local
+  investigation view or falls back to another destination.
+- Add configuration migration, concurrent update, crash boundary, credential
+  redaction, destination-switch refusal, single-exporter, no-fallback, and
+  delivery-status accuracy tests.
 
-Exit evidence: a published-artifact acceptance marker is findable with its
-client, exact command, complete captured result/errors, raw events, context,
-attribution, and custody evidence visible without reading JSON or SQLite.
+Exit evidence: an operator can identify exactly where PTK is sending evidence
+and whether every event/evidence item was acknowledged, while no producer-local
+surface can be used to investigate the sensitive record itself.
 
-### S4 — receiver activity API and dashboard
+### S4 — mini-SIEM activity API and dashboard
 
 - Add `/api/activities` and `/api/activities/{activityId}` projections over
   stored immutable events, with bounded filters and stable pagination.
@@ -354,7 +369,7 @@ attribution, and custody evidence visible without reading JSON or SQLite.
 - Make dashboard activity rows clickable and display the complete activity
   contract. Link alert/gap/quarantine subjects to relevant activity/event
   detail.
-- Add human-readable health summaries for delivery, chain integrity, custody,
+- Add human-readable health summaries for ingest, chain integrity, custody,
   full-evidence delivery completeness, retention, and anchor status. Raw JSON
   remains available behind disclosure controls.
 - Add alert acknowledge/close and gap disposition UI with actor/time/result,
@@ -367,37 +382,41 @@ where, what exactly was submitted, what exactly came back, and with what
 result?” from the dashboard and can descend to every retained raw event and
 evidence artifact. Genuinely unobserved or retention-purged facts say why.
 
-### S5 — install, local setup, connection test, and lifecycle
+### S5 — explicit mini-SIEM deployment and destination connection
 
-This slice is gated on Decision C.
+Decision C is settled; this slice implements separate deployment and exclusive
+destination selection.
 
-- Extend `scripts/install.ps1` with an explicit receiver component that fetches
-  the same version/RID receiver archive as PTK, verifies `SHA256SUMS`, and
-  installs it under a version-coherent receiver root. No implicit receiver
-  installation or release mutation.
-- Ship a supported `ptk-siem` administration entry point with at least:
-  `setup-local`, `run`, `status`, `doctor`, `connect`, `open`, and
-  `uninstall-local`. Commands are idempotent or fail with exact recovery text.
-- `setup-local` creates owner-only paths, distinct random ingest/operator
-  tokens, bounded retention, witness directory, explicit non-anchored label,
-  and loopback-only endpoints. It always enables full-fidelity evidence export
-  and performs no trust-store mutation.
-- `connect` writes validated producer export configuration transactionally and
-  explains that settings activate at the next PTK start. `doctor` validates
-  receiver health/auth, submits or observes a named synthetic/no-op activity,
-  waits for the producer cursor, queries it back, and reports each boundary.
-- Use OS-native service templates for anchored deployment. Do not build a
-  general process/job manager. The local evaluation command may run foreground
-  and print one exact second-terminal command if portable background lifecycle
-  cannot be made trustworthy.
-- Uninstall removes only manifest-owned receiver files/configuration and never
-  deletes evidence/database roots without a separately named destructive
-  option and confirmation.
+- Keep `scripts/install.ps1` PTK-only. It must not fetch, install, start,
+  configure, or select the mini-SIEM. Add an installer guard proving a clean PTK
+  installation leaves no mini-SIEM binary, service, data root, token, endpoint,
+  or selected-destination change.
+- Retain the version/RID/checksum-verified mini-SIEM archive as a separate
+  product package. Add an explicit deployment entry point in that package for
+  operator-chosen local or remote paths, bind/endpoints, TLS material,
+  ingest/operator credentials, retention, witness, anchor, and service identity.
+  Defaults must not silently turn a same-user local deployment into an anchored
+  claim.
+- Use OS-native service definitions and documented foreground execution. Do not
+  build a general process or job manager.
+- Provide mini-SIEM administration for deployment validation, run/service
+  instructions, status, doctor, dashboard open, upgrade, and uninstall.
+  Uninstall removes only manifest-owned program/configuration files; it never
+  deletes evidence/database roots without a separately named destructive action
+  and confirmation.
+- Use S3's destination-selection interface to configure PTK for the deployed
+  mini-SIEM or an external SIEM. Selection is transactional, names the one
+  destination, validates authentication/TLS without trust-store mutation, and
+  reports when a PTK restart is required.
+- `doctor` validates the chosen destination health/auth, submits or observes a
+  named synthetic/no-op activity, waits for event and evidence acknowledgment,
+  queries it back from that destination, and reports each boundary. It refuses
+  to inspect or contact any unselected destination.
 
-Exit evidence: from a clean supported OS, documented commands install matching
-published artifacts, create a local evaluation, connect a producer, and open a
-populated dashboard without hand-writing JSON, certificates, or forwarding
-code.
+Exit evidence: from a clean supported OS, one documented workflow deploys the
+mini-SIEM separately and selects it; a separate workflow selects an external
+SIEM without installing the mini-SIEM. Neither workflow requires hand-written
+JSON, undocumented certificates, forwarding code, or a second destination.
 
 ### S6 — real external SIEM integration
 
@@ -422,28 +441,36 @@ query, returned event ID/call ID, and digest-verified full-evidence result.
 
 ### S7 — published-artifact operator acceptance and corrective release
 
-- Run the complete path on macOS arm64, Windows x64, Linux x64, and packaging
-  smoke on the remaining published RIDs. Host-specific gaps remain explicit.
-- Acceptance uses a fresh home and only archived artifacts plus public setup
-  commands. It may not read source-tree test fixtures, call internal APIs, edit
+- Run complete paths on macOS arm64, Windows x64, and Linux x64, with packaging
+  smoke on remaining published RIDs. Host-specific gaps remain explicit.
+- Acceptance uses fresh homes, archived artifacts, and public deployment/setup
+  commands only. It may not read source-tree fixtures, call internal APIs, edit
   generated configuration, or introduce an undocumented proxy.
-- The witnessed scenario installs, sets up local evaluation, connects PTK,
-  executes a recognizable successful command and a failing command, finds both
-  activities, retrieves exact command and complete captured response/error
-  evidence from receiver and Splunk, displays attribution strength, investigates
-  an alert, verifies zero unexplained gaps/quarantine or evidence-delivery gaps,
-  restarts both products, and finds the records again.
-- Run the real-Splunk gate and all existing producer/receiver durability,
+- Run a mini-SIEM-only scenario: install PTK, explicitly deploy the matching
+  mini-SIEM at the chosen location, select it as PTK's sole destination, execute
+  recognizable successful and failing commands, find both activities, retrieve
+  exact command and complete captured response/error evidence, display
+  attribution strength, investigate an alert, prove zero unexplained
+  gaps/quarantine/evidence-delivery gaps, restart PTK and the mini-SIEM, and find
+  the records again. Prove no external-SIEM endpoint was configured or contacted.
+- Run an external-SIEM-only scenario: install PTK without installing or starting
+  the mini-SIEM, select the Decision D SIEM as PTK's sole destination, execute
+  recognizable successful and failing commands, query both activities and every
+  required full-fidelity evidence kind, and prove no mini-SIEM endpoint, data
+  root, process, service, or received evidence exists.
+- For both scenarios, record selected-destination status, destination-side event
+  IDs and evidence digests, producer event/evidence acknowledgment cursors, and
+  a controlled unselected-endpoint witness proving it received zero requests.
+- Run the external-SIEM gate and all existing producer/mini-SIEM durability,
   custody, security, compatibility, packaging, and dependency checks.
 - Publish only after the owner explicitly approves the version/tag/release.
-  Release notes state whether model attribution depends on client support and
-  state that supported SIEM destinations receive the full retained forensic
-  record.
+  Release notes state attribution client dependencies, the single-destination
+  rule, the disclosed local replay journal, and that the selected supported SIEM
+  receives the full retained forensic record.
 
-Exit evidence: the owner can reproduce the primary workflow from public
-instructions. `.agents/state.md` may say “operator-ready” only after this slice
-and the owner release decision, never merely because unit/integration counts
-are green.
+Exit evidence: the owner can reproduce both exclusive public workflows. State
+may say “operator-ready” only after this slice and the owner's release decision,
+never merely because unit/integration counts are green.
 
 ## Verification
 
@@ -460,13 +487,21 @@ Mandatory focused gates include:
 - actor/model absence and spoofing-strength labeling;
 - exact command/output/error evidence round-trip, chunking, authorization, and
   non-leakage into process logs, URLs, or unauthorized responses;
-- receiver durable-before-ack and custody barriers for evidence as well as core
+- mini-SIEM durable-before-ack and custody barriers for evidence as well as core
   events;
-- installer version/RID/checksum coherence and older-release verification;
+- PTK-installer non-installation/non-configuration of the mini-SIEM;
+- mini-SIEM package/deployment version, RID, checksum, upgrade, and uninstall
+  coherence;
+- selected-destination schema migration, transactional update, exactly-one
+  exporter construction, credential redaction, and switch-with-backlog refusal;
+- delivery-status cursor/pending/error accuracy without local evidence display;
 - loopback-only plaintext refusal on any non-loopback bind/endpoint;
-- local and receiver UI escaping, auth, accessibility, and detail navigation;
-- published-artifact local-evaluation acceptance; and
-- real Splunk acceptance before corrective release.
+- mini-SIEM UI escaping, auth, accessibility, and detail navigation;
+- published-artifact mini-SIEM-only acceptance proving zero external-SIEM
+  delivery;
+- published-artifact external-SIEM-only acceptance proving no installed/running
+  mini-SIEM or delivery to one; and
+- the Decision D real-SIEM acceptance before the corrective release.
 
 Docs-only planning/review commits require `git diff --check`. Implementation
 verification results and mutation transcripts belong in `.agents/machines.md`
@@ -474,19 +509,21 @@ or `.agents/review/`, with stable pointers from `.agents/state.md`.
 
 ## Non-goals
 
-- Replacing the local fail-closed journal with the receiver or external SIEM.
-- Claiming hostile same-user isolation for local evaluation.
+- Replacing the local fail-closed journal with a SIEM destination, or presenting
+  the journal as an investigation store.
+- Automatically installing, starting, or configuring the mini-SIEM with PTK.
+- Sending evidence to multiple SIEM destinations, including fallback or shadow
+  copies.
 - Inventing prompts, reasoning, chat transcripts, model identity, or other
   client-only facts PTK did not receive. Any such context deliberately supplied
   to PTK is part of the full-fidelity forensic record.
 - Inferring model identity from process names, executable paths, session names,
   or command text.
-- Building a general orchestration/job manager for receiver lifecycle.
+- Building a general orchestration/job manager for mini-SIEM lifecycle.
 - Supporting every SIEM vendor in the first corrective release.
 - Weakening TLS, path protection, retention, custody, or durable-before-ack
-  behavior for anchored deployments.
-- Calling a receiver protocol test or dashboard HTTP 200 an operator acceptance
-  test.
+  behavior for mini-SIEM deployments.
+- Calling a protocol test or dashboard HTTP 200 an operator acceptance test.
 
 ## File ownership map
 
@@ -496,9 +533,10 @@ or `.agents/review/`, with stable pointers from `.agents/state.md`.
 - Prior backend plan: `.agents/plans/mini-siem-implementation.md`
 - Producer schema/capture/export: `server/PtkMcpServer/Audit/`,
   `server/PtkMcpServer.Tests/`
-- Local viewer: `server/PtkMcpServer/Audit/Web/AuditWebUiService.cs`
-- Receiver ingest/store/query/UI: `siem/PtkSiemReceiver/`
-- Receiver tests: `siem/PtkSiemReceiver.Tests/`
+- Producer destination/delivery status:
+  `server/PtkMcpServer/Audit/Web/AuditWebUiService.cs`
+- Mini-SIEM ingest/store/query/UI: `siem/PtkSiemReceiver/`
+- Mini-SIEM tests: `siem/PtkSiemReceiver.Tests/`
 - Installer and transaction helpers: `scripts/install.ps1`,
   `scripts/ptk_install_transaction.psm1`
 - Package builder/verifier: `siem/build-package.ps1`,

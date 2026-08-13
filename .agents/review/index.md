@@ -8,20 +8,20 @@ Openreview Claude Code 2.1.231 / `claude-fable-5` / max / frontier over
 output because `--print` received no prompt. The owner's later “review again”
 authorized one fresh process; Anthropic's cyber safeguard refused it before
 repository inspection or capability proof. The second process was not retried.
-No candidate findings entered intake; the plan remains DRAFT. Canonical latest
-attempt record: `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
+No candidate findings entered intake. Canonical latest attempt record:
+`.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 
-Openreview Kimi Code 0.35.0 / `k3` / transcript `high` / inline owner-selected
-default over the same fixed range: **valid `best_approach` verdict**. Exact SHA
-pins and capability proof match; `material_changes` and `findings` are empty.
-This review does not approve implementation or settle Decisions A-D. Canonical
-record: `.agents/review/siem-operator-readiness-kimi-r1.md`.
-The owner subsequently amended the plan by settling Decision A in favor of
-mandatory full-fidelity receiver and external-SIEM evidence and Decision B in
-favor of source-labeled per-call agent/model identity from every supported
-identity-capable client, with explicit absence and no guessing otherwise. The
-Kimi verdict remains valid only for its recorded pre-amendment SHA pins; no
-post-amendment review has been requested.
+Openreview Kimi Code 0.35.0 / `k3` / transcript `high` over the same fixed
+range returned a valid `best_approach` verdict. Exact SHA pins and capability
+proof matched; `material_changes` and `findings` were empty. Canonical record:
+`.agents/review/siem-operator-readiness-kimi-r1.md`.
+
+The Kimi verdict covers only the pre-amendment plan at its recorded SHA pins.
+The owner subsequently settled Decisions A-C: mandatory full-fidelity evidence
+at whichever one destination is selected, source-labeled per-call agent/model
+identity when clients can supply it, and explicit exclusive choice of an
+external SIEM or separately deployed mini-SIEM. It does not review those
+amendments, approve implementation, or settle Decision D.
 
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 

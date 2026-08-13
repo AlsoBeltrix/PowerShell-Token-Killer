@@ -7,33 +7,37 @@ short and update it when important repo facts change.
 
 **MINI-SIEM BACKEND/PACKAGING S1-S8 COMPLETE; OPERATOR READINESS FAILED
 PUBLISHED-ARTIFACT ACCEPTANCE (2026-08-13).** The signed five-RID
-`0.3.0-rc.1` prerelease contains a functioning separately packaged receiver,
-but the PTK installer does not install/configure it, this machine's installed
-PTK is local-only, the receiver dashboard suppresses stored actor/detail data,
-exact script evidence is not exported, and MCP supplies no model identity.
+`0.3.0-rc.1` prerelease contains a functioning, separately packaged
+mini-SIEM, but the PTK installer does not configure a usable SIEM workflow, the
+receiver dashboard does not expose stored attribution/detail, exact script
+evidence is not exported, and MCP supplies no model identity.
 `.agents/plans/siem-operator-readiness.md` is the owner-directed DRAFT repair
-plan; no implementation is approved. Two owner-authorized Claude Code 2.1.231 /
-`claude-fable-5` / max openreview attempts produced no verdict: the first failed
-before model output, and the one fresh attempt later authorized by the owner was
-refused by Anthropic's cyber safeguard before repository inspection. It was not
-retried under the owner's expensive-review rule;
-`.agents/review/siem-operator-readiness-fable5-r2-refused.md` is canonical. A
-later owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over
-the same plan pins returned a valid `best_approach` verdict with no material
-changes or findings; `.agents/review/siem-operator-readiness-kimi-r1.md` is its
-canonical record. It did not approve implementation. The owner subsequently
-settled Decision A: every possibly relevant fact and evidence artifact PTK
-captures, including exact command and complete captured response/output/error
-evidence, must be exposed in the receiver and external SIEM; access controls
-protect it, and metadata-only export is not a supported mode. The owner also
-settled Decision B: PTK-supported client integrations must supply per-call
-agent/model identity whenever technically possible, with source/trust recorded;
-PTK never guesses, and unavailable identity is explicit. Decisions C-D remain
-open and no implementation is approved. A live disposable published-artifact
-proof remains under `~/.ptk-siem-live-proof` on loopback ports 19418/19443
-(plus TLS-validating forwarder 19466) for owner inspection; it did not alter or
-restart installed PTK. Host evidence is in `.agents/machines.md`.
+plan; no implementation is approved.
 
+Two owner-authorized Claude Fable 5 openreview attempts produced no verdict and
+were not retried under the owner's expensive-review rule; the canonical record
+is `.agents/review/siem-operator-readiness-fable5-r2-refused.md`. A later
+owner-requested Kimi review over the pre-decision plan pins returned
+`best_approach` with no findings; its scope and record are
+`.agents/review/siem-operator-readiness-kimi-r1.md`. It did not approve
+implementation and does not cover the later Decision A-C amendments.
+
+The owner has settled Decisions A-C. The selected destination must receive every
+possibly relevant fact/evidence artifact PTK captures, including exact commands
+and complete captured output/error evidence. Supported clients supply per-call
+agent/model identity when technically possible; PTK records provenance and
+explicit absence, never guesses. PTK exports to exactly one operator-chosen
+destination: the organization's real SIEM, or a separately and explicitly
+deployed mini-SIEM. PTK never automatically installs the mini-SIEM or sends
+sensitive exports to both. The mandatory local fail-closed journal is only the
+disclosed admission/replay/delivery source, not a second SIEM or investigation
+dashboard. Decision D—the first real external-SIEM acceptance target—is the only
+remaining owner gate. No implementation is approved.
+
+A live disposable published-artifact proof remains under
+`~/.ptk-siem-live-proof` on loopback ports 19418/19443 (plus TLS-validating
+forwarder 19466) for owner inspection; it did not alter or restart the installed
+PTK. Host evidence is in `.agents/machines.md`.
 **Historical S1-S8 backend evidence follows; it is not an operator-readiness
 claim.**
 S7 replaced the receiver's implementation-oriented README with a standalone

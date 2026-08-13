@@ -1,5 +1,24 @@
 # Review status
 
+## Active — cr14 (Claude review over 0.3.0-rc.1 upgrade compatibility, 2026-08-13)
+
+Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over
+`b7853d777b4ce87ab918efc94299af3ef0e04fb5..ed2e406e0543581e799df961600caf8deebc23c5`.
+The original foreground invocation outlived the caller's 300-second MCP wait
+but continued under the same PTK worker; its immutable `ptk_output` artifact
+was recovered after 10m31s without rerunning. The envelope is valid:
+`capability_ok=true`, both full SHA pins match, and verdict `findings` carries
+one candidate. Independent tag/code inspection confirms the candidate:
+published v0.2.x wrote `ptk.audit/2` before
+`producer.previous_supervisor_boot_id` existed, while the first compatibility
+repair accepts that old producer set only under `ptk.audit/1`. cr14-1 is
+admitted and in repair. This major section has at most one repair-verification
+round remaining.
+
+| ID | Severity | Impact (one line) | Status | Reviewer |
+|----|----------|-------------------|--------|----------|
+| cr14-1 | CRITICAL | every published v0.2.x audit spool can brick an in-place upgrade | `[~]` repaired; verification pending | claude/claude-opus-5/xhigh/standard |
+
 ## Closed — cr13 (Claude review over mini-SIEM S7 operator guide, 2026-08-12)
 
 Generation pass: Claude Code 2.1.228 / claude-fable-5 / xhigh / standard over

@@ -617,8 +617,8 @@ internal static class AuditEvidenceSpoolScanner
         _ = RequireExactObject(
             root.GetProperty("producer"),
             version == AuditCoreSchemaVersion.V1
-                ? V1ProducerProperties
-                : V2ProducerProperties);
+                ? [V1ProducerProperties]
+                : [V1ProducerProperties, V2ProducerProperties]);
         _ = RequireExactObject(root.GetProperty("session"), SessionProperties);
         _ = RequireExactObject(root.GetProperty("actor"), ActorProperties);
         _ = RequireExactObject(root.GetProperty("correlation"), CorrelationProperties);
@@ -643,16 +643,24 @@ internal static class AuditEvidenceSpoolScanner
     private static JsonElement RequireExactObject(
         JsonElement element,
         IReadOnlySet<string> expectedProperties)
+        => RequireExactObject(element, [expectedProperties]);
+
+    private static JsonElement RequireExactObject(
+        JsonElement element,
+        IReadOnlyList<IReadOnlySet<string>> expectedPropertySets)
     {
         if (element.ValueKind != JsonValueKind.Object)
             throw new IOException("An evidence-proof audit container is not an object.");
+        var permittedProperties = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var expectedProperties in expectedPropertySets)
+            permittedProperties.UnionWith(expectedProperties);
         var observed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in element.EnumerateObject())
         {
-            if (!observed.Add(property.Name) || !expectedProperties.Contains(property.Name))
+            if (!observed.Add(property.Name) || !permittedProperties.Contains(property.Name))
                 throw new IOException("An evidence-proof audit object shape is invalid.");
         }
-        if (!observed.SetEquals(expectedProperties))
+        if (!expectedPropertySets.Any(observed.SetEquals))
             throw new IOException("An evidence-proof audit object is incomplete.");
         return element;
     }

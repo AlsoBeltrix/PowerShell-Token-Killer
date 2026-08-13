@@ -34,6 +34,23 @@ public sealed class AuditEvidenceSpoolScannerTests
     }
 
     [Fact]
+    public void Exact_envelope_shape_and_chain_codec_accept_pre_lineage_v2()
+    {
+        var source = AuditCoreSchemaTestRecords.Create();
+        var preLineageV2 = AuditCoreSchemaTestRecords.ToPreLineageV2(
+            source.Utf8Line);
+
+        AuditEvidenceSpoolScanner.ValidateExactEnvelopeShapeForTests(
+            preLineageV2[..^1]);
+        var parsed = AuditSpoolRecordCodec.Parse(
+            preLineageV2.AsSpan(0, preLineageV2.Length - 1),
+            AuditCoreSchemaTestRecords.SupervisorBootId);
+
+        Assert.Equal(source.EventId, parsed.EventId);
+        Assert.Equal(source.Sequence, parsed.Sequence);
+    }
+
+    [Fact]
     public void Chain_codec_preserves_hash_linkage_across_supported_schema_versions()
     {
         var firstV2 = AuditCoreSchemaTestRecords.Create();
@@ -85,6 +102,20 @@ public sealed class AuditEvidenceSpoolScannerTests
         var malformed = Encoding.UTF8.GetBytes(text.Replace(
             "\"operator_disposition\":{",
             "\"operator_disposition\":{\"unexpected\":null,",
+            StringComparison.Ordinal));
+
+        Assert.Throws<IOException>(() =>
+            AuditEvidenceSpoolScanner.ValidateExactEnvelopeShapeForTests(malformed));
+    }
+
+    [Fact]
+    public void Exact_envelope_shape_rejects_an_unknown_v2_producer_property()
+    {
+        var source = AuditCoreSchemaTestRecords.Create();
+        var text = Encoding.UTF8.GetString(source.Utf8Line.Span[..^1]);
+        var malformed = Encoding.UTF8.GetBytes(text.Replace(
+            "\"producer\":{",
+            "\"producer\":{\"unexpected\":null,",
             StringComparison.Ordinal));
 
         Assert.Throws<IOException>(() =>

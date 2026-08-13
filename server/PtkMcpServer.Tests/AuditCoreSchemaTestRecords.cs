@@ -131,6 +131,12 @@ internal static class AuditCoreSchemaTestRecords
     internal static byte[] RelabelV2AsV1WithoutShrinking(ReadOnlyMemory<byte> v2Line) =>
         WithRecomputedHash(ReplaceOnce(PreHashText(v2Line), V2, V1));
 
+    internal static byte[] ToPreLineageV2(ReadOnlyMemory<byte> v2Line) =>
+        WithRecomputedHash(ReplaceOnce(
+            PreHashText(v2Line),
+            PreviousSupervisorBootId,
+            string.Empty));
+
     internal static byte[] RelabelV1AsV2WithoutExpanding(ReadOnlyMemory<byte> v1Line) =>
         WithRecomputedHash(ReplaceOnce(PreHashText(v1Line), V1, V2));
 

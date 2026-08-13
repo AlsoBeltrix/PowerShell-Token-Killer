@@ -93,6 +93,22 @@ independent mutations prove the guard catches return to `/releases/latest`,
 draft inclusion, and prerelease exclusion. **Next item:** codereview the landed
 `0.3.0-rc.1` upgrade-compatibility range with Claude Opus 5 xhigh.
 
+**cr14 upgrade-compatibility review ACTIVE (2026-08-13).** Claude Code
+2.1.229 / claude-opus-5 / xhigh returned one valid CRITICAL finding over
+`b7853d7..ed2e406`: published v0.2.x wrote `ptk.audit/2` before
+`producer.previous_supervisor_boot_id` existed, but the first compatibility
+repair permits the old producer set only under `ptk.audit/1`. Tag and shared
+startup-code inspection independently confirm cr14-1. Its repair permits only
+the two exact historical/current v2 producer sets; v1 and every other object
+remain exact. The genuine pre-lineage-v2 guard fails with the original
+incomplete-object exception when the compatibility arm is removed and passes
+restored; unknown v2 producer fields remain rejected. Focused scanner tests
+pass 7/7. A PTK-inherited `PSModulePath` first caused only the four
+repo-recorded `StateToolTests` failures (1,306 others passed); removing that
+environment contamination made those four pass 4/4 and the full server suite
+pass 1,310/1,310. Repair-verification is pending; `.agents/review/index.md`
+owns the loop.
+
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:
 after the application disposed, Microsoft.Data.Sqlite's idle pool still held

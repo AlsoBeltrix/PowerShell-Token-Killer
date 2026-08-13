@@ -11,6 +11,12 @@ repository inspection or capability proof. The second process was not retried.
 No candidate findings entered intake; the plan remains DRAFT. Canonical latest
 attempt record: `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 
+Openreview Kimi Code 0.35.0 / `k3` / transcript `high` / inline owner-selected
+default over the same fixed range: **valid `best_approach` verdict**. Exact SHA
+pins and capability proof match; `material_changes` and `findings` are empty.
+This review does not approve implementation or settle Decisions A-D. Canonical
+record: `.agents/review/siem-operator-readiness-kimi-r1.md`.
+
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over

@@ -18,7 +18,11 @@ before model output, and the one fresh attempt later authorized by the owner was
 refused by Anthropic's cyber safeguard before repository inspection. It was not
 retried under the owner's expensive-review rule;
 `.agents/review/siem-operator-readiness-fable5-r2-refused.md` is canonical. A
-live disposable published-artifact
+later owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over
+the same plan pins returned a valid `best_approach` verdict with no material
+changes or findings; `.agents/review/siem-operator-readiness-kimi-r1.md` is its
+canonical record. Decisions A-D remain owner gates and no implementation is
+approved. A live disposable published-artifact
 proof remains under `~/.ptk-siem-live-proof` on loopback ports 19418/19443
 (plus TLS-validating forwarder 19466) for owner inspection; it did not alter or
 restart installed PTK. Host evidence is in `.agents/machines.md`.

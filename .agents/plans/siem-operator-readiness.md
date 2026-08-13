@@ -12,6 +12,11 @@ explicitly authorized one fresh attempt, Anthropic's cyber safeguard refused it
 before any repository read or git command. Per the owner's expensive-review
 rule, no further Fable call was made. Canonical latest record:
 `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
+An owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over the
+same pins returned a valid `best_approach` verdict with no material changes or
+candidate findings. Its canonical record is
+`.agents/review/siem-operator-readiness-kimi-r1.md`. Review endorsement does
+not approve implementation or settle Decisions A-D.
 
 This plan supersedes any interpretation of “mini-SIEM S1-S8 complete” as an
 operator-readiness or release-readiness claim. The completed work in

@@ -231,11 +231,8 @@ jobs:
           security import "$RUNNER_TEMP/DeveloperIDG2CA.cer" -k "$KC"
           security set-key-partition-list -S apple-tool:,apple: -k "$KCPW" "$KC" > /dev/null
           security list-keychains -d user -s "$KC" login.keychain
-          IDENTITY=$(security find-identity -v -p codesigning "$KC" | awk 'NR==1 {print $2}')
-          if [ -z "$IDENTITY" ]; then
-            echo "no valid signing identity found in the imported certificate" >&2
-            exit 1
-          fi
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" \
+            | bash scripts/select-developer-id-identity.sh)
           find out/ptk/bin out/ptk-siem -type f -print0 | while IFS= read -r -d '' f; do
             t=$(file -b "$f")
             case "$t" in

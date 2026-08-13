@@ -76,6 +76,11 @@ jobs:
         shell: bash
         run: bash scripts/test-notarize-macos.sh
 
+      - name: Developer ID identity selection tests
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/test-select-developer-id-identity.sh
+
       - name: Server tests
         run: dotnet test server/PtkMcpServer.slnx
 

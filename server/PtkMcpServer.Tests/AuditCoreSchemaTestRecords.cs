@@ -34,6 +34,8 @@ internal static class AuditCoreSchemaTestRecords
 
     private const string V1 = "\"schema_version\":\"ptk.audit/1\"";
     private const string V2 = "\"schema_version\":\"ptk.audit/2\"";
+    private const string PreviousSupervisorBootId =
+        ",\"previous_supervisor_boot_id\":null";
     private const string DestinationFields =
         ",\"destination_kind\":null,\"destination_path\":null";
     private const string RetentionFields =
@@ -119,6 +121,7 @@ internal static class AuditCoreSchemaTestRecords
     {
         var preHash = PreHashText(v2Line);
         preHash = ReplaceOnce(preHash, V2, V1);
+        preHash = ReplaceOnce(preHash, PreviousSupervisorBootId, string.Empty);
         preHash = ReplaceOnce(preHash, DestinationFields, string.Empty);
         preHash = ReplaceOnce(preHash, RetentionFields, string.Empty);
         preHash = ReplaceOnce(preHash, NullDisposition, string.Empty);

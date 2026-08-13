@@ -51,7 +51,14 @@ internal static class AuditEvidenceSpoolScanner
         ],
         StringComparer.Ordinal);
 
-    private static readonly HashSet<string> ProducerProperties = new(
+    private static readonly HashSet<string> V1ProducerProperties = new(
+        [
+            "host_id", "supervisor_boot_id", "worker_boot_id", "pid",
+            "version", "binary_digest",
+        ],
+        StringComparer.Ordinal);
+
+    private static readonly HashSet<string> V2ProducerProperties = new(
         [
             "host_id", "supervisor_boot_id", "previous_supervisor_boot_id",
             "worker_boot_id", "pid", "version", "binary_digest",
@@ -607,7 +614,11 @@ internal static class AuditEvidenceSpoolScanner
             version == AuditCoreSchemaVersion.V1
                 ? V1RootProperties
                 : V2RootProperties);
-        _ = RequireExactObject(root.GetProperty("producer"), ProducerProperties);
+        _ = RequireExactObject(
+            root.GetProperty("producer"),
+            version == AuditCoreSchemaVersion.V1
+                ? V1ProducerProperties
+                : V2ProducerProperties);
         _ = RequireExactObject(root.GetProperty("session"), SessionProperties);
         _ = RequireExactObject(root.GetProperty("actor"), ActorProperties);
         _ = RequireExactObject(root.GetProperty("correlation"), CorrelationProperties);

@@ -53,9 +53,26 @@ Decision 5 and release `v0.3.0-rc.1` was published as a GitHub prerelease at
 `0c8ed87635ef37db548d086ada78a2020c4b390f`; its ten expected archives plus
 `SHA256SUMS` remain uploaded, and every manifest entry matches GitHub's asset
 digest. The workflow passes `$GITHUB_SHA` as the release target so later branch
-movement cannot change the artifact/tag provenance. **Next item: collect public
-installation feedback; propose fixing any verified release defect under the
-repo's known-broken blanket.**
+movement cannot change the artifact/tag provenance.
+
+**First `0.3.0-rc.1` installation feedback found two upgrade defects.** A real
+upgrade over July audit data first failed closed as `evidence.storage`: twelve
+retained artifacts used the legacy `GUID.script` name, while current inventory
+requires `GUID.sha256.script`. Owner-approved transactional recovery renamed
+those exact one-link, owner-only files from their computed SHA-256 without
+changing their bytes. Startup then reached `evidence.reconciliation` and
+exposed a separate compatibility bug: every authentic `ptk.audit/1` record
+predates `producer.previous_supervisor_boot_id`, but the scanner used the V2
+producer shape for both versions. The scanner now has exact V1/V2 producer
+property sets; the V1 test converter removes the post-V1 field, and both
+producer-owned V1 SIEM wire goldens were deliberately regenerated while V2
+goldens remained byte-identical. The focused scanner scope passes 5/5, removing
+the repair fails the original-V1 guard, the full server suite passes 1,306/1,306,
+both staged and installed package handshakes pass, and the live MCP reports a
+healthy local-only audit under version `0.3.0-rc.1.local-reconciliation`.
+**Next items:** add a guarded product migration for the observed legacy evidence
+names, then make unversioned `-FromRelease` select the newest published release
+including prereleases (GitHub `/releases/latest` selected stable `v0.2.2`).
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

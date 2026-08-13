@@ -1,14 +1,22 @@
 # PtkSiemReceiver operator guide
 
+> **Operator-readiness status:** the published `0.3.0-rc.1` receiver backend
+> ingests, stores, verifies, queries, and alerts on PTK audit events, but it is
+> not yet an operator-ready SIEM. Its dashboard lacks activity correlation and
+> drill-down, agent/model identity, and destination-side exact command and
+> complete response evidence. Backend/package tests do not close that release
+> gate.
+
 PtkSiemReceiver is PTK's standalone OTLP/HTTP audit destination for sites that
 do not already have a SIEM. It accepts PTK audit records at `/v1/logs`, stores
 the exact record evidence in SQLite, verifies the producer hash chain, and
 serves a separate operator API and dashboard.
 
-Export is additive to PTK's local journal. PTK executes and journals locally
-even while this receiver is unavailable; a background pump retries delivery
-at least once and advances `<audit-root>/export-cursor.json` only after the
-destination accepts a batch.
+PTK's mandatory local journal is admission/replay/delivery infrastructure,
+not another SIEM destination. PTK executes and journals locally even while
+this receiver is unavailable; a background pump retries delivery at least
+once and advances `<audit-root>/export-cursor.json` only after the explicitly
+configured destination accepts a batch.
 
 ## Deployment boundary
 

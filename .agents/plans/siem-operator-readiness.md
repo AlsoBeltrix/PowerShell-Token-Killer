@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**DRAFT — owner-directed planning work, 2026-08-13. No implementation is
-approved.** This plan follows a published-artifact acceptance run that proved
+**ACTIVE — owner-directed plan, 2026-08-13. S0 was approved and executed;
+S1-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -264,7 +264,7 @@ Each slice lands as one or more focused commits with its tests and durable
 records. No later slice may weaken backend durability/custody gates from the
 original mini-SIEM plan.
 
-### S0 — truth reset and executable acceptance specification
+### S0 — truth reset and executable acceptance specification — EXECUTED 2026-08-13
 
 - Replace “mini-SIEM complete” product wording with the backend/operator split
   in `.agents/state.md`, user documentation, and release-readiness records.
@@ -279,6 +279,15 @@ original mini-SIEM plan.
 
 Exit evidence: the specification names every required visible field and fails
 against `0.3.0-rc.1` for the intended reasons.
+
+Execution evidence: `siem/operator-readiness-acceptance.ps1` extracted the
+authentic published producer and receiver archives into a fresh isolated home,
+verified both release identities, and evaluated the durable live-proof record.
+Eight artifact/provenance requirements passed and 23 named operator-readiness
+requirements failed. `siem/test-verify-package.ps1` rejected a deliberate
+checkout-coupled verifier regression, then passed after restoration. Package
+verification now accepts either the release's seven-character stamped source
+identity or its full commit ID and never consults checkout `HEAD`.
 
 ### S1 — attribution and execution-context contract
 

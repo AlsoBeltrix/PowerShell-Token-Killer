@@ -212,6 +212,17 @@ execution routing.
 
 ## Audit status
 
+The mandatory local journal is admission, replay, and delivery
+infrastructure—not a SIEM destination or investigation dashboard. An operator
+explicitly selects one SIEM destination; additional destinations require
+deliberate opt-in. PTK never installs or selects a hidden destination, and its
+mini-SIEM is deployed separately when a full SIEM is unavailable.
+
+The published `0.3.0-rc.1` mini-SIEM backend stores and queries audit events,
+but it is not operator-ready: it has no activity-level investigation view,
+agent/model attribution, or destination-side exact command and complete
+response evidence. Backend test success is not a release-readiness result.
+
 Auditing is base-level and non-bypassable. Every server boot opens a
 mandatory, fail-closed local journal (default `~/.ptk/audit`, override
 `PTK_AUDIT_ROOT`) before serving any tool call: a healthy root journals every

@@ -113,5 +113,7 @@ jobs:
         run: |
           $rid = [Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier
           $output = Join-Path $env:RUNNER_TEMP 'ptk-siem-package'
+          $sourceCommit = (git rev-parse --short $env:GITHUB_SHA).Trim()
           ./siem/build-package.ps1 -OutputDir $output -Rid $rid -Version 0.0.0-ci
-          ./siem/verify-package.ps1 -PackageDir $output -Rid $rid -Version 0.0.0-ci
+          ./siem/test-verify-package.ps1 -PackageDir $output -Rid $rid `
+            -Version 0.0.0-ci -SourceCommit $sourceCommit -SourceRoot $PWD

@@ -179,6 +179,40 @@ _Manual two-host-equivalent acceptance at exact source head
   not changed or restarted. This is a disposable non-anchored evaluation, not
   production deployment.
 
+## `nagatha.local` — SIEM operator-readiness S0 executable gate (2026-08-13)
+
+- Ran `siem/operator-readiness-acceptance.ps1` against the preserved authentic
+  public `0.3.0-rc.1` osx-arm64 producer/receiver archives and
+  `~/.ptk-siem-live-proof/LIVE-PROOF.json`. The script extracted both archives
+  beneath a fresh isolated home and used no checkout-built product binary.
+- Eight requirements passed: both published SHA-256 values, fresh isolation,
+  producer and receiver release/source identity, separately deployed
+  mini-SIEM, and observation release/archive provenance.
+- Twenty-three named requirements failed: public setup without the documented
+  TLS-validating forwarder gap; exact-one and zero-hidden-destination proof;
+  correlated activity plus client/agent/model/provenance/context/exact
+  command/complete response/outcome/chain fields; dashboard activity fields,
+  drill-down, and system-event separation; alert/gap/quarantine/custody use;
+  restart durability; real-product external-SIEM acceptance; and explicit
+  multiple-destination independent failure/replay accounting. This is the
+  expected `0.3.0-rc.1` failure, not a backend regression.
+- The authentic receiver verified with release source `0c8ed87` and the full
+  `0c8ed87635ef37db548d086ada78a2020c4b390f`; it rejected current checkout
+  source `dc246de`. A deliberate verifier regression that read checkout
+  `HEAD` made `siem/test-verify-package.ps1` fail because the deliberately
+  wrong supplied source commit was accepted. Restoring release-bound identity
+  made the guard pass.
+
+- Final S0 verification: SIEM 330/330; server 1,310/1,310; PowerShell
+  112 passed, 3 platform-skipped; registered-command handshake passed;
+  producer and SIEM dependency scans reported no vulnerable packages; rebuilt
+  osx-arm64 receiver package and release-bound verifier guard passed;
+  `git diff --check` passed. The first server run from the PTK MCP worker had
+  the documented narrowed-`PSModulePath` artifact: exactly four
+  `StateToolTests` failed to find `Microsoft.PowerShell.Utility` while 1,306
+  passed. With only that inherited variable removed for the child process, all
+  15 focused state tests and then the full 1,310-test suite passed.
+
 ## `10.1.10.173` — Michael's Windows x64 dev machine (added 2026-08-07)
 
 Repo lives at `F:\dev\PowerShell-Token-Killer`. Reachable as

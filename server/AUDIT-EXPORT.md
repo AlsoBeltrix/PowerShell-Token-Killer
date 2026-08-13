@@ -1,5 +1,20 @@
 # Audit, export, and receiver contract
 
+## Operator-readiness status
+
+The local audit journal is mandatory admission/replay/delivery
+infrastructure, not a SIEM destination or investigation dashboard. PTK
+exports to one explicitly selected SIEM destination by default; additional
+destinations require deliberate opt-in and each receives the full stream with
+independent delivery accounting. The mini-SIEM is a separate deployment for
+sites without a full SIEM and is never installed or selected automatically.
+
+Published `0.3.0-rc.1` proves the producer/export and receiver storage/query
+backend, but not a usable operator workflow. It does not provide correlated
+activity drill-down, agent/model identity, or destination-side exact command
+and complete response evidence. Treat it as backend-complete and
+operator-not-ready; passing backend suites does not close the release gate.
+
 ## Current runtime contract (audit-restoration, 2026-08)
 
 Auditing is base-level and non-bypassable. Every `PtkMcpServer` boot opens a

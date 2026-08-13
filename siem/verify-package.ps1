@@ -14,15 +14,22 @@ param(
 
     [Parameter(Mandatory)]
     [ValidatePattern('^[vV]?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?$')]
-    [string]$Version
+    [string]$Version,
+
+    [Parameter(Mandatory)]
+    [ValidatePattern('^[0-9a-fA-F]{7,40}$')]
+    [string]$SourceCommit,
+
+    [ValidateNotNullOrEmpty()]
+    [string]$SourceRoot
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$repoRoot = Split-Path -Parent $PSScriptRoot
 $root = [IO.Path]::GetFullPath($PackageDir)
 $payloadVersion = $Version -replace '^[vV]', ''
+$expectedSourceCommit = $SourceCommit.ToLowerInvariant().Substring(0, 7)
 if (-not (Test-Path -LiteralPath $root -PathType Container)) {
     throw "SIEM package directory does not exist: $root"
 }
@@ -53,17 +60,23 @@ if ($versionText -cne $payloadVersion) {
     throw "SIEM VERSION mismatch: expected '$payloadVersion', found '$versionText'."
 }
 
-foreach ($pair in @(
-        @((Join-Path $root 'README.md'),
-          (Join-Path $PSScriptRoot 'PtkSiemReceiver' 'README.md')),
-        @((Join-Path $root 'LICENSE'), (Join-Path $repoRoot 'LICENSE')),
-        @((Join-Path $root 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt'),
-          (Join-Path $PSScriptRoot 'PtkSiemReceiver' 'Protos' 'LICENSE.OpenTelemetry-Apache-2.0.txt'))
-    )) {
-    $packagedHash = (Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash
-    $sourceHash = (Get-FileHash -LiteralPath $pair[1] -Algorithm SHA256).Hash
-    if ($packagedHash -cne $sourceHash) {
-        throw "Packaged file '$($pair[0])' does not match its source."
+if ($PSBoundParameters.ContainsKey('SourceRoot')) {
+    $sourceRootPath = [IO.Path]::GetFullPath($SourceRoot)
+    foreach ($pair in @(
+            @((Join-Path $root 'README.md'),
+              (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'README.md')),
+            @((Join-Path $root 'LICENSE'), (Join-Path $sourceRootPath 'LICENSE')),
+            @((Join-Path $root 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt'),
+              (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'Protos' 'LICENSE.OpenTelemetry-Apache-2.0.txt'))
+        )) {
+        if (-not (Test-Path -LiteralPath $pair[1] -PathType Leaf)) {
+            throw "SIEM source root is missing required file '$($pair[1])'."
+        }
+        $packagedHash = (Get-FileHash -LiteralPath $pair[0] -Algorithm SHA256).Hash
+        $sourceHash = (Get-FileHash -LiteralPath $pair[1] -Algorithm SHA256).Hash
+        if ($packagedHash -cne $sourceHash) {
+            throw "Packaged file '$($pair[0])' does not match '$($pair[1])'."
+        }
     }
 }
 
@@ -79,11 +92,7 @@ if ($assemblyVersion -ne $expectedAssemblyVersion) {
     throw "SIEM assembly version mismatch: expected '$expectedAssemblyVersion', found '$assemblyVersion'."
 }
 
-$sourceCommit = (git -C $repoRoot rev-parse --short HEAD).Trim()
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($sourceCommit)) {
-    throw 'Cannot resolve the source commit for SIEM package verification.'
-}
-$expectedProductVersion = "$payloadVersion+$sourceCommit"
+$expectedProductVersion = "$payloadVersion+$expectedSourceCommit"
 $versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($assemblyPath)
 if ($versionInfo.ProductVersion -cne $expectedProductVersion) {
     throw "SIEM informational version mismatch: expected '$expectedProductVersion', found '$($versionInfo.ProductVersion)'."

@@ -327,10 +327,13 @@ jobs:
       - name: Smoke-test the packaged SIEM receiver
         shell: pwsh
         run: |
+          $sourceCommit = (git rev-parse --short $env:GITHUB_SHA).Trim()
           pwsh -NoProfile -File siem/verify-package.ps1 `
             -PackageDir out/ptk-siem `
             -Rid ${{ matrix.rid }} `
-            -Version ${{ steps.version.outputs.version }}
+            -Version ${{ steps.version.outputs.version }} `
+            -SourceCommit $sourceCommit `
+            -SourceRoot $PWD
 
       # Notarization is Apple's malware-scan-and-ticket service; Gatekeeper
       # consults it online when a user runs a browser-downloaded copy. Bare

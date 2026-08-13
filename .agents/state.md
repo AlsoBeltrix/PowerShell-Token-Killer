@@ -8,11 +8,15 @@ short and update it when important repo facts change.
 **MINI-SIEM BACKEND/PACKAGING S1-S8 COMPLETE; OPERATOR READINESS FAILED
 PUBLISHED-ARTIFACT ACCEPTANCE (2026-08-13).** The signed five-RID
 `0.3.0-rc.1` prerelease contains a functioning, separately packaged
-mini-SIEM, but the PTK installer does not configure a usable SIEM workflow, the
-receiver dashboard does not expose stored attribution/detail, exact script
-evidence is not exported, and MCP supplies no model identity.
-`.agents/plans/siem-operator-readiness.md` is the owner-directed DRAFT repair
-plan; no implementation is approved.
+mini-SIEM, but there is no public receiver-deployment plus destination-setup
+workflow, the receiver dashboard does not expose stored attribution/detail,
+exact script evidence is not exported, and MCP supplies no model identity.
+S0 is executed: `siem/operator-readiness-acceptance.ps1` verifies published
+artifact identity in a fresh isolated home and names the release gate;
+`siem/test-verify-package.ps1` guards release-bound source identity. Authentic
+`0.3.0-rc.1` evidence passed eight artifact/provenance requirements and failed
+23 operator-readiness requirements. S1-S7 remain unapproved; Decision D remains
+open. Canonical plan: `.agents/plans/siem-operator-readiness.md`.
 
 Two owner-authorized Claude Fable 5 openreview attempts produced no verdict and
 were not retried under the owner's expensive-review rule; the canonical record

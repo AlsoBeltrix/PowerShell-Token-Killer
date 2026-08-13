@@ -1,5 +1,24 @@
 # Review status
 
+## SIEM operator-readiness S0 release gate (2026-08-13)
+
+The executable published-artifact gate in
+`siem/operator-readiness-acceptance.ps1` ran against the authentic
+`0.3.0-rc.1` osx-arm64 producer and receiver archives and the preserved live
+observation. Artifact hashes, isolated extraction, package identities,
+separate deployment, and observation provenance passed. Twenty-three named
+operator-readiness requirements failed: public setup without an undocumented
+forwarder; explicit/hidden-destination proof; activity correlation and all
+required client/agent/model/context/evidence/outcome/chain fields; dashboard
+drill-down and system-event separation; alerts/gaps/quarantine/custody use;
+restart durability; real-product external-SIEM acceptance; and explicit
+multiple-destination independent delivery/replay.
+
+The release-bound verifier guard was proven to bite by replacing source-commit
+use with checkout `HEAD`: it failed because the deliberately wrong supplied
+commit was accepted. After restoration it passed. No S1 or later behavior is
+implemented or approved by this record.
+
 ## SIEM operator-readiness plan (2026-08-13)
 
 Openreview Claude Code 2.1.231 / `claude-fable-5` / max / frontier over

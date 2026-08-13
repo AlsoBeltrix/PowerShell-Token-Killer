@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr14 (Claude review over 0.3.0-rc.1 upgrade compatibility, 2026-08-13)
+## Closed — cr14 (Claude review over 0.3.0-rc.1 upgrade compatibility, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over
 `b7853d777b4ce87ab918efc94299af3ef0e04fb5..ed2e406e0543581e799df961600caf8deebc23c5`.
@@ -12,12 +12,16 @@ one candidate. Independent tag/code inspection confirms the candidate:
 published v0.2.x wrote `ptk.audit/2` before
 `producer.previous_supervisor_boot_id` existed, while the first compatibility
 repair accepts that old producer set only under `ptk.audit/1`. cr14-1 is
-admitted and in repair. This major section has at most one repair-verification
-round remaining.
+admitted and repaired at `9c0af0f`. Final round 2 routed frontier under T2 and
+returned `accepted`, `guard_confirmed=true`, `capability_ok=true`, with exact
+full SHA pins after independently reproducing fail-under-sabotage and
+pass-restored in a disposable worktree. The canonical-tree process slip and
+independent clean audit are recorded in the finding. cr14 is closed at its
+two-round cap.
 
 | ID | Severity | Impact (one line) | Status | Reviewer |
 |----|----------|-------------------|--------|----------|
-| cr14-1 | CRITICAL | every published v0.2.x audit spool can brick an in-place upgrade | `[~]` repaired; verification pending | claude/claude-opus-5/xhigh/standard |
+| cr14-1 | CRITICAL | every published v0.2.x audit spool can brick an in-place upgrade | `[x]` `9c0af0f` accepted | claude/claude-opus-5/xhigh/frontier esc:T2 |
 
 ## Closed — cr13 (Claude review over mini-SIEM S7 operator guide, 2026-08-12)
 

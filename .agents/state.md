@@ -93,7 +93,7 @@ independent mutations prove the guard catches return to `/releases/latest`,
 draft inclusion, and prerelease exclusion. **Next item:** codereview the landed
 `0.3.0-rc.1` upgrade-compatibility range with Claude Opus 5 xhigh.
 
-**cr14 upgrade-compatibility review ACTIVE (2026-08-13).** Claude Code
+**cr14 upgrade-compatibility review CLOSED (2026-08-13).** Claude Code
 2.1.229 / claude-opus-5 / xhigh returned one valid CRITICAL finding over
 `b7853d7..ed2e406`: published v0.2.x wrote `ptk.audit/2` before
 `producer.previous_supervisor_boot_id` existed, but the first compatibility
@@ -106,8 +106,12 @@ restored; unknown v2 producer fields remain rejected. Focused scanner tests
 pass 7/7. A PTK-inherited `PSModulePath` first caused only the four
 repo-recorded `StateToolTests` failures (1,306 others passed); removing that
 environment contamination made those four pass 4/4 and the full server suite
-pass 1,310/1,310. Repair-verification is pending; `.agents/review/index.md`
-owns the loop.
+pass 1,310/1,310. Final round 2 routed frontier under T2 and independently
+reproduced fail-under-sabotage/pass-restored in a disposable worktree; verdict
+`accepted`, `guard_confirmed=true`, `capability_ok=true`, exact SHA pins. The
+canonical-tree process slip was independently audited clean; cr14 closed at
+its two-round cap. `.agents/review/index.md` owns the record. **Next item:**
+select the next major queued section from current repository and GitHub state.
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

@@ -1,5 +1,15 @@
 # Review status
 
+## SIEM operator-readiness plan (2026-08-13)
+
+Openreview Claude Code 2.1.231 / `claude-fable-5` / max / frontier over
+`d8992e94fcb70889498aa2f3911e00066a3856d4..f16719f1fa5a30c24a22d1f574c6adee3c01bae3`:
+**no verdict accepted**. The sole Fable process exited 1 in 1.9 seconds with no
+model output because the harness reported that `--print` received no prompt.
+Owner's explicit no-rerun rule applies. No candidate findings entered intake;
+the plan remains DRAFT. Canonical attempt record:
+`.agents/review/siem-operator-readiness-fable5-r1-failed.md`.
+
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over

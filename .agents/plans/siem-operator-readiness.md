@@ -7,6 +7,11 @@ approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decisions A-D below remain owner gates. Review is pending an
 owner-requested, unprimed Claude Fable 5 `openreview` over the committed plan.
+The single Claude Code 2.1.231 / `claude-fable-5` / max attempt over
+`d8992e94fcb70889498aa2f3911e00066a3856d4..f16719f1fa5a30c24a22d1f574c6adee3c01bae3`
+failed in the harness before model output (`--print` received no prompt). Per
+the owner's no-rerun rule, review remains unavailable; canonical record:
+`.agents/review/siem-operator-readiness-fable5-r1-failed.md`.
 
 This plan supersedes any interpretation of “mini-SIEM S1-S8 complete” as an
 operator-readiness or release-readiness claim. The completed work in
@@ -453,4 +458,3 @@ or `.agents/review/`, with stable pointers from `.agents/state.md`.
   `siem/verify-package.ps1`, `.github/workflows/release.yml`
 - Operator documentation: `README.md`, `server/README.md`,
   `siem/PtkSiemReceiver/README.md`, future `docs/integrations/`
-

@@ -131,6 +131,17 @@ failure, restored clean bytes, passed focused 1/1 and SIEM 330/330; verdict
 Hosted CI `31675780336` passed all six jobs, including native Windows SIEM.
 cr15 closed at its two-round cap; `.agents/review/index.md` owns the record.
 
+**cr16 release-signing review ACTIVE (2026-08-13).** Claude Code 2.1.229 /
+claude-opus-5 / xhigh returned four valid candidates over the path-bounded
+signing/notarization range `05b5df7..648d264`; exact SHA pins and capability
+proof pass. Independent intake admitted three: cr16-1's one-shot Apple status
+re-read false-fails healthy `In Progress`, cr16-3's zero-identity output parses
+as signing identity `valid`, and cr16-4's unqualified signed-binary docs include
+unsigned Linux assets. cr16-2's timeout claim was declined: exact hosted macOS
+jobs reach notarization in about one minute, leaving ~44 minutes around the
+30-minute notary allowance. Repairs are pending; one Claude verification round
+remains. `.agents/review/index.md` owns the loop.
+
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:
 after the application disposed, Microsoft.Data.Sqlite's idle pool still held

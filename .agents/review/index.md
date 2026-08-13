@@ -1,5 +1,24 @@
 # Review status
 
+## Active — cr16 (Claude review over release signing/notarization, 2026-08-13)
+
+Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over
+the signing-path subset of
+`05b5df7e9f81ff60f1ea1473ffdc0066611e57b8..648d264a27bab2505355bb0921ac4934d11b3086`:
+`.github/workflows/release.yml`, `server/macos-signing-entitlements.plist`, and
+signing claims in `README.md`. The 8m29s result is schema-valid,
+`capability_ok=true`, both full SHA pins match, and four candidates carry
+concrete evidence. Independent intake admitted cr16-1, cr16-3, and cr16-4;
+cr16-2 was declined against exact hosted timing. Repairs are in progress; one
+final verification round remains for this major section.
+
+| ID | Severity | Impact (one line) | Status | Reviewer |
+|----|----------|-------------------|--------|----------|
+| cr16-1 | MEDIUM | detached Apple submission still false-fails when its first status is healthy `In Progress` | `[~]` admitted; repair pending | claude/claude-opus-5/xhigh/standard |
+| cr16-2 | MEDIUM candidate | 45-minute job bound allegedly cannot contain 30-minute notary wait plus prior work | `[-]` exact-head jobs reach notarization in ~1 minute and finish in 1.5–2.25 minutes | claude/claude-opus-5/xhigh/standard |
+| cr16-3 | LOW | zero signing identities are parsed as the literal identity `valid`, hiding the intended diagnosis | `[~]` admitted; repair pending | claude/claude-opus-5/xhigh/standard |
+| cr16-4 | LOW | public docs call all release binaries signed although both Linux assets are unsigned | `[~]` admitted; repair pending | claude/claude-opus-5/xhigh/standard |
+
 ## Closed — cr15 (Claude review over mini-SIEM S8 packaging, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over

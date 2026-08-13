@@ -41,8 +41,16 @@ Linux ARM64 build blocker in the receiver: `Grpc.Tools` 2.82.0's bundled
 `linux_arm64/protoc` exited 139 under MSBuild. Upstream fixed that regression in
 2.83.0 (`grpc/grpc#38538`), so the receiver and its pin records now use 2.83.0.
 Local SIEM 329/329, dependency audit, and osx-arm64 package build/verifier are
-green. A new exact-head five-RID draft run is still required; publication and
-tagging remain outside this authorization.
+green. Repair commit `0c8ed87` is pushed. Exact-head retry `31654609624` passed
+all five native RID jobs and draft assembly: both Windows payload sets were
+Trusted Signed before their gates, and both macOS payloads were Developer
+ID-signed and notarized together before archive. Draft `v0.3.0-rc.1` is
+unpublished, targets full SHA `0c8ed87635ef37db548d086ada78a2020c4b390f`,
+and carries ten archives plus `SHA256SUMS`; all ten manifest entries match the
+GitHub asset digests. No remote tag exists. Verification caught that the first
+draft metadata targeted moving `master`; the draft was pinned to the exact SHA
+and `release.yml` now supplies `$GITHUB_SHA` on creation. Publication and
+tagging remain outside this authorization under Decision 5.
 
 **Slice 7.5 re-run status (all legs CLOSED at `9e1790e`, rc.3 run
 `31184671731`, 2026-08-07):**

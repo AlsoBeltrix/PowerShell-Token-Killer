@@ -53,8 +53,37 @@ entries during a `drift` pass.
   builder produced an `osx-arm64` layout stamped `0.3.0-rc.1`, and the
   independent verifier accepted the required payload, version/provenance,
   guide, and licenses. The temporary package root was removed and
-  `git diff --check` passed. Native Linux ARM64 confirmation remains the next
-  exact-head draft-run gate.
+  `git diff --check` passed.
+- Exact-head retry `31654609624`
+  (`https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/31654609624`)
+  at `0c8ed87635ef37db548d086ada78a2020c4b390f` passed `linux-x64`,
+  `linux-arm64`, `osx-arm64`, `win-x64`, `win-arm64`, and draft assembly.
+  Linux ARM64's formerly failing receiver publish completed in seven seconds,
+  then its exact package verifier, product proof, archive, and upload passed.
+  Both Windows jobs passed Trusted Signing for PTK and receiver payloads before
+  their smoke/product/Defender gates. The macOS job passed Developer ID signing
+  of both payloads and joint notarization before archive.
+- Draft release ID `369612019`, tag metadata `v0.3.0-rc.1`, title
+  `ptk 0.3.0-rc.1`, remains draft with `published_at=null`, targets exact full
+  SHA `0c8ed87635ef37db548d086ada78a2020c4b390f`, and has no remote tag. It has
+  exactly eleven uploaded assets: five PTK archives, five receiver archives,
+  and `SHA256SUMS` (1,042 bytes, SHA-256
+  `ea694f1285de98c37e8bd881f1ea031fa4a607b4921b3e66b478de11cd301f30`).
+  Every manifest entry matched GitHub's independently reported asset digest:
+  PTK win-x64 `9d80e2805d03ac77960b08186bf8350b79101a5d639f103d409ac7c35be1e18e`,
+  win-arm64 `c57d25c53f07c776c3d124bac19fbc12c9a7ed6a7d928f21c49c67631d273056`,
+  linux-x64 `ac05f4f14a090a4d60a6fc17d7e02356f945da1a40739d8714534a29b3d285d7`,
+  linux-arm64 `199768af827630df52b37416bca5bd539a416670238bc59618232efcbee8cdce`,
+  osx-arm64 `bfdb7eb2b4c7d67dbf88ab2f8ae4faa20dfeefffeb463cfebe551d61d65cbfc1`;
+  receiver win-x64 `e6598d7ef1cbb243d690d8a7ef2979b5c033305d1b18cd1483d2df0f6a10f335`,
+  win-arm64 `c1da164e0df1609dea71319d1c2c930b0659549004d318c8f70fd8d25d98cb82`,
+  linux-x64 `9a7c2c437a73a47c7aaea2d8414332923c450fce19c28f8512749ba8a59e1074`,
+  linux-arm64 `a09227ad2a09a9ceb6d30d6cd24b884a5416d1cf79771f5cf13ccce644e32204`,
+  osx-arm64 `6f0f042a5a26d56b363587bc3ecd5453726e2279fccafa76fcfe6f542ecbf387`.
+- Draft verification initially found `target_commitish=master`; this would let a
+  later paperwork push move the eventual tag away from the artifact source.
+  The draft was corrected in place to the exact SHA without publication or tag
+  creation, and `release.yml` now passes `$GITHUB_SHA` to future draft creation.
 
 ## `nagatha.local` — mini-SIEM S7 isolated end-to-end smoke (2026-08-12)
 

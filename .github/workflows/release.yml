@@ -488,6 +488,7 @@ jobs:
           fi
           gh release create "$tag" \
             --draft \
+            --target "$GITHUB_SHA" \
             --title "ptk ${{ steps.version.outputs.version }}" \
             --notes "Draft build for ${{ steps.version.outputs.version }}. Every asset was built and smoke-tested on its own native runner. Verify downloads against SHA256SUMS." \
             staged/* \

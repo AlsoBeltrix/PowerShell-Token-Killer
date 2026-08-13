@@ -150,8 +150,13 @@ only its 40-hex fingerprint before any `codesign` call; its static selector
 guards zero identities, unrelated-first ordering, valid Developer ID, and
 malformed/short fingerprints. Separate validation and identity-type mutations
 fail the intended zero/unrelated guards; restored suite, Bash syntax,
-ShellCheck, `actionlint`, and diff hygiene pass. cr16-4 remains pending; one
-Claude verification round remains.
+ShellCheck, `actionlint`, and diff hygiene pass. cr16-4 now qualifies the public
+release contract by platform: Windows Authenticode, macOS Developer ID plus
+Apple notarization, and Linux `SHA256SUMS` integrity without publisher code
+signing. A cross-platform static documentation guard rejects the former
+unqualified claims and is mutation-proved fail-before/pass-restored.
+PSScriptAnalyzer, `actionlint`, and diff hygiene pass. One Claude verification
+round remains.
 `.agents/review/index.md` owns the loop.
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM

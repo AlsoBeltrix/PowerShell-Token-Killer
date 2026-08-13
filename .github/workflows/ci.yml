@@ -71,6 +71,10 @@ jobs:
         shell: pwsh
         run: ./server/test-release-selection.ps1
 
+      - name: Release signing documentation tests
+        shell: pwsh
+        run: ./server/test-release-signing-docs.ps1
+
       - name: Notarization recovery tests
         if: runner.os == 'macOS'
         shell: bash

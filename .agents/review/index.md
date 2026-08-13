@@ -17,7 +17,7 @@ final verification round remains for this major section.
 | cr16-1 | MEDIUM | detached Apple submission still false-fails when its first status is healthy `In Progress` | `[x]` repaired; final verification pending | claude/claude-opus-5/xhigh/standard |
 | cr16-2 | MEDIUM candidate | 45-minute job bound allegedly cannot contain 30-minute notary wait plus prior work | `[-]` exact-head jobs reach notarization in ~1 minute and finish in 1.5–2.25 minutes | claude/claude-opus-5/xhigh/standard |
 | cr16-3 | LOW | zero signing identities are parsed as the literal identity `valid`, hiding the intended diagnosis | `[x]` repaired; final verification pending | claude/claude-opus-5/xhigh/standard |
-| cr16-4 | LOW | public docs call all release binaries signed although both Linux assets are unsigned | `[~]` admitted; repair pending | claude/claude-opus-5/xhigh/standard |
+| cr16-4 | LOW | public docs call all release binaries signed although both Linux assets are unsigned | `[x]` repaired; final verification pending | claude/claude-opus-5/xhigh/standard |
 
 ## Closed — cr15 (Claude review over mini-SIEM S8 packaging, 2026-08-13)
 

@@ -250,8 +250,10 @@ elevated still launches PTK elevated.
 
 ### Public install
 
-Installs self-contained, **signed** binaries without cloning this repository
-or requiring the .NET SDK:
+Installs self-contained release binaries without cloning this repository or
+requiring the .NET SDK. Windows and macOS assets carry the platform signatures
+described below; Linux assets use checksum integrity and are not publisher
+code-signed:
 
 ```powershell
 pwsh -File scripts/install.ps1 -FromRelease
@@ -294,7 +296,7 @@ post-v0.2.0 follow-up, not a currently working install path.
 
 ### Signing
 
-Release binaries are signed, from v0.2.1 onward:
+Release authenticity differs by platform from v0.2.1 onward:
 
 - **Windows** assets are Authenticode-signed with Azure Trusted Signing and
   countersigned by a timestamp authority, so signatures stay valid after the
@@ -308,12 +310,15 @@ Release binaries are signed, from v0.2.1 onward:
   CLI binary cannot carry a stapled notarization ticket, so Gatekeeper
   checks acceptance online; `spctl -t exec` declines to assess it as an
   "app", which is expected and not a signing failure.
+- **Linux** assets are not publisher code-signed. The installer verifies each
+  asset against the release's `SHA256SUMS` before extraction.
 
-`-FromRelease` preserves those signatures: it verifies the asset against
-`SHA256SUMS`, extracts it byte-for-byte, and never rewrites a binary.
+`-FromRelease` preserves the Windows and macOS signatures and verifies every
+platform asset against `SHA256SUMS`; it extracts byte-for-byte and never
+rewrites a binary.
 **Binaries you build yourself are unsigned**, which is expected for the
 from-source path below and may prompt SmartScreen if you move them between
-machines. v0.2.0 predates signing entirely.
+machines. v0.2.0 predates the Windows and macOS signing described above.
 
 ### Installing from source
 

@@ -5,8 +5,20 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM S1-S8 COMPLETE; SIGNED FIVE-RID `0.3.0-rc.1` PRERELEASE
-PUBLISHED (2026-08-12).**
+**MINI-SIEM BACKEND/PACKAGING S1-S8 COMPLETE; OPERATOR READINESS FAILED
+PUBLISHED-ARTIFACT ACCEPTANCE (2026-08-13).** The signed five-RID
+`0.3.0-rc.1` prerelease contains a functioning separately packaged receiver,
+but the PTK installer does not install/configure it, this machine's installed
+PTK is local-only, the receiver dashboard suppresses stored actor/detail data,
+exact script evidence is not exported, and MCP supplies no model identity.
+`.agents/plans/siem-operator-readiness.md` is the owner-directed DRAFT repair
+plan; no implementation is approved. A live disposable published-artifact
+proof remains under `~/.ptk-siem-live-proof` on loopback ports 19418/19443
+(plus TLS-validating forwarder 19466) for owner inspection; it did not alter or
+restart installed PTK. Host evidence is in `.agents/machines.md`.
+
+**Historical S1-S8 backend evidence follows; it is not an operator-readiness
+claim.**
 S7 replaced the receiver's implementation-oriented README with a standalone
 operator guide: per-OS dedicated-account layouts and exact path protection,
 complete configuration, asynchronous producer export/cursor semantics,

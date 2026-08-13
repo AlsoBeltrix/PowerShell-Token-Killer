@@ -138,6 +138,47 @@ _Manual two-host-equivalent acceptance at exact source head
 - Both process trees stopped and the exact disposable root above was removed;
   no smoke directory, certificate, token, database, or forwarder remains.
 
+## `nagatha.local` — published `0.3.0-rc.1` SIEM operator acceptance (2026-08-13)
+
+- Downloaded the public osx-arm64 producer and receiver archives from canonical
+  GitHub release `v0.3.0-rc.1`. Their SHA-256 values matched published assets:
+  producer `bfdb7eb2b4c7d67dbf88ab2f8ae4faa20dfeefffeb463cfebe551d61d65cbfc1`,
+  receiver `6f0f042a5a26d56b363587bc3ecd5453726e2279fccafa76fcfe6f542ecbf387`.
+  Both report product version `0.3.0-rc.1+0c8ed87`; receiver `codesign --verify
+  --strict` passed.
+- `siem/verify-package.ps1` rejected the authentic receiver because it expected
+  current checkout SHA `d8992e9` instead of packaged source SHA `0c8ed87`.
+  Package verification is incorrectly checkout-coupled for older releases.
+- Started the released receiver from disposable
+  `~/.ptk-siem-live-proof` with protected configuration/storage/witness/anchor,
+  HTTPS token ingest on 19418, and loopback operator HTTP on 19443. It accepted
+  the producer-owned v2 golden request, stored three events and one intact
+  chain, produced three alerts, and reported healthy custody with no gaps or
+  quarantine.
+- Started the released PTK producer from its public archive against an isolated
+  audit/output root. Its direct HTTPS export did not trust the disposable CA
+  through `SSL_CERT_FILE`, matching the prior S7 smoke. A disposable loopback
+  forwarder on 19466 validated receiver TLS with that CA. No user/system trust
+  store changed.
+- Through real MCP stdio, client `ptk-live-siem-proof` invoked exact marker
+  `PTK-LIVE-SIEM-PROOF-20260813`. The released producer returned the marker;
+  the receiver stored boot `954d66dd-5201-4565-9a75-bb85cb232dd8` sequences
+  1-3 (`server.started`, `call.accepted`, `call.completed`), with terminal event
+  `019ffbe6-dbd5-70f5-a9c1-4910bf583d87`, outcome `completed`, duration 680 ms,
+  and client-asserted name/version `ptk-live-siem-proof`/`0.3.0-rc.1`.
+  Producer export cursor advanced through sequence 3; receiver custody remained
+  healthy.
+- Operator API detail exposes client identity, tool/action, outcome, duration,
+  and evidence ID. The embedded dashboard exposes none of the actor fields,
+  has no clickable/detail rows, and cannot show the command because exact
+  script bytes remain only in the producer evidence store. The UI therefore
+  cannot answer which model did what; model identity is not supplied by MCP.
+- Published receiver and TLS-validating forwarder remain running for owner
+  inspection at `http://127.0.0.1:19443/`. Durable proof summary is
+  `~/.ptk-siem-live-proof/LIVE-PROOF.json`; the installed PTK process/config was
+  not changed or restarted. This is a disposable non-anchored evaluation, not
+  production deployment.
+
 ## `10.1.10.173` — Michael's Windows x64 dev machine (added 2026-08-07)
 
 Repo lives at `F:\dev\PowerShell-Token-Killer`. Reachable as

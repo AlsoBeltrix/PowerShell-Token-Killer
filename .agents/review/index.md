@@ -4,11 +4,12 @@
 
 Openreview Claude Code 2.1.231 / `claude-fable-5` / max / frontier over
 `d8992e94fcb70889498aa2f3911e00066a3856d4..f16719f1fa5a30c24a22d1f574c6adee3c01bae3`:
-**no verdict accepted**. The sole Fable process exited 1 in 1.9 seconds with no
-model output because the harness reported that `--print` received no prompt.
-Owner's explicit no-rerun rule applies. No candidate findings entered intake;
-the plan remains DRAFT. Canonical attempt record:
-`.agents/review/siem-operator-readiness-fable5-r1-failed.md`.
+**no verdict accepted**. The first owner-authorized process failed before model
+output because `--print` received no prompt. The owner's later “review again”
+authorized one fresh process; Anthropic's cyber safeguard refused it before
+repository inspection or capability proof. The second process was not retried.
+No candidate findings entered intake; the plan remains DRAFT. Canonical latest
+attempt record: `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 

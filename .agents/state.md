@@ -12,10 +12,12 @@ but the PTK installer does not install/configure it, this machine's installed
 PTK is local-only, the receiver dashboard suppresses stored actor/detail data,
 exact script evidence is not exported, and MCP supplies no model identity.
 `.agents/plans/siem-operator-readiness.md` is the owner-directed DRAFT repair
-plan; no implementation is approved. Its single owner-requested Claude Code
-2.1.231 / `claude-fable-5` / max openreview attempt failed in the harness before
-model output and was not rerun under the owner's expensive-review rule;
-`.agents/review/siem-operator-readiness-fable5-r1-failed.md` is canonical. A
+plan; no implementation is approved. Two owner-authorized Claude Code 2.1.231 /
+`claude-fable-5` / max openreview attempts produced no verdict: the first failed
+before model output, and the one fresh attempt later authorized by the owner was
+refused by Anthropic's cyber safeguard before repository inspection. It was not
+retried under the owner's expensive-review rule;
+`.agents/review/siem-operator-readiness-fable5-r2-refused.md` is canonical. A
 live disposable published-artifact
 proof remains under `~/.ptk-siem-live-proof` on loopback ports 19418/19443
 (plus TLS-validating forwarder 19466) for owner inspection; it did not alter or

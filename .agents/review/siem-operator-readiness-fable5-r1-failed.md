@@ -1,6 +1,8 @@
 # SIEM operator-readiness plan — Claude Fable 5 openreview attempt
 
-**Status:** Review unavailable; no verdict accepted and no retry permitted.
+**Status:** Superseded by the owner's later authorization for one fresh attempt.
+No verdict was accepted from this attempt. The second attempt is recorded in
+`.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 
 ## Dispatch
 

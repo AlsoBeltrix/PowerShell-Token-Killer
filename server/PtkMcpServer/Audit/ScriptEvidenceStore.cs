@@ -107,6 +107,7 @@ public sealed class ScriptEvidenceStore
         LocalCommitted,
         Unreferenced,
         Temporary,
+        LegacyAwaitingAnchor,
     }
 
     public ScriptEvidenceStore(
@@ -163,8 +164,11 @@ public sealed class ScriptEvidenceStore
             _quotaLockPath = Path.Combine(_root, QuotaLockFileName);
             EnsureQuotaLockFile();
             lock (_gate)
-            using (AcquireQuotaLock())
-                _ = MeasureWithoutRetention(requiredPayloadBytes: null);
+                using (AcquireQuotaLock())
+                {
+                    MigrateLegacyArtifactsWhileQuotaHeld();
+                    _ = MeasureWithoutRetention(requiredPayloadBytes: null);
+                }
         }
         catch (ArgumentException)
         {
@@ -759,7 +763,37 @@ public sealed class ScriptEvidenceStore
         }
     }
 
-    private EvidenceInventory InventoryArtifacts()
+    private void MigrateLegacyArtifactsWhileQuotaHeld()
+    {
+        using var inventory = InventoryArtifacts(allowLegacyNames: true);
+        var legacy = inventory.Artifacts
+            .Where(value => value.State == ArtifactState.LegacyAwaitingAnchor)
+            .ToArray();
+        foreach (var artifact in legacy)
+        {
+            if (inventory.Artifacts.Any(value =>
+                    !ReferenceEquals(value, artifact) &&
+                    string.Equals(
+                        value.EvidenceId,
+                        artifact.EvidenceId,
+                        StringComparison.Ordinal)))
+            {
+                throw new ScriptEvidenceControlException(
+                    "A legacy evidence identity conflicts with another protected artifact.");
+            }
+        }
+        foreach (var artifact in legacy)
+        {
+            RenameArtifact(
+                artifact,
+                EvidencePath(
+                    artifact.EvidenceId,
+                    artifact.Digest,
+                    ArtifactState.AwaitingAnchor));
+        }
+    }
+
+    private EvidenceInventory InventoryArtifacts(bool allowLegacyNames = false)
     {
         try
         {
@@ -807,6 +841,13 @@ public sealed class ScriptEvidenceStore
                     state = ArtifactState.Temporary;
                     anchorPosition = null;
                 }
+                else if (allowLegacyNames &&
+                         TryParseLegacyEvidenceName(file.Name, out evidenceId))
+                {
+                    expectedDigest = string.Empty;
+                    state = ArtifactState.LegacyAwaitingAnchor;
+                    anchorPosition = null;
+                }
                 else if (!TryParseEvidenceName(
                              file.Name,
                              out evidenceId,
@@ -850,7 +891,8 @@ public sealed class ScriptEvidenceStore
                         throw new ScriptEvidenceControlException(
                             "An evidence artifact exceeds its configured bound.");
                     var actualDigest = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-                    if (state == ArtifactState.Temporary)
+                    if (state is ArtifactState.Temporary or
+                        ArtifactState.LegacyAwaitingAnchor)
                     {
                         expectedDigest = actualDigest;
                     }
@@ -1543,6 +1585,17 @@ public sealed class ScriptEvidenceStore
         {
             return false;
         }
+        evidenceId = id;
+        return true;
+    }
+
+    private static bool TryParseLegacyEvidenceName(string name, out string evidenceId)
+    {
+        evidenceId = string.Empty;
+        if (name.Length != 43 || !name.EndsWith(".script", StringComparison.Ordinal))
+            return false;
+        var id = name[..^7];
+        if (!IsCanonicalEvidenceId(id)) return false;
         evidenceId = id;
         return true;
     }

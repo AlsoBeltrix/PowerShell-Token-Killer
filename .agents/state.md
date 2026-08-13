@@ -70,9 +70,15 @@ goldens remained byte-identical. The focused scanner scope passes 5/5, removing
 the repair fails the original-V1 guard, the full server suite passes 1,306/1,306,
 both staged and installed package handshakes pass, and the live MCP reports a
 healthy local-only audit under version `0.3.0-rc.1.local-reconciliation`.
-**Next items:** add a guarded product migration for the observed legacy evidence
-names, then make unversioned `-FromRelease` select the newest published release
-including prereleases (GitHub `/releases/latest` selected stable `v0.2.2`).
+The product now also migrates the observed legacy names during evidence-store
+construction: only canonical UUIDv4 `GUID.script` direct children are admitted,
+their retained protected bytes determine the SHA-256 destination, migration runs
+under the cross-process evidence quota lock, and any same-ID artifact makes the
+whole preflight fail closed before a rename. The focused store scope passes
+23/23, removing migration activation fails its exact guard, and the full server
+suite passes 1,308/1,308. **Next item:** make unversioned `-FromRelease` select
+the newest published release including prereleases (GitHub `/releases/latest`
+selected stable `v0.2.2`).
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

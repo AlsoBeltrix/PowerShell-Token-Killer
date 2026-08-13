@@ -201,6 +201,47 @@ public sealed class ScriptEvidenceStoreTests : IDisposable
     }
 
     [Fact]
+    public void Constructor_migrates_digestless_legacy_evidence_without_changing_payload()
+    {
+        var root = Path.Combine(_parent, "legacy-evidence");
+        _ = new ScriptEvidenceStore(root);
+        var evidenceId = Guid.NewGuid().ToString("D");
+        var legacyPath = Path.Combine(root, evidenceId + ".script");
+        var payload = new UTF8Encoding(false, true).GetBytes("legacy evidence\r\nexact bytes");
+        WriteProtectedFile(root, legacyPath, payload);
+        var digest = Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant();
+        var migratedPath = Path.Combine(root, evidenceId + "." + digest + ".script");
+
+        _ = new ScriptEvidenceStore(root);
+
+        Assert.False(File.Exists(legacyPath));
+        Assert.Equal(payload, File.ReadAllBytes(migratedPath));
+        _ = new ScriptEvidenceStore(root);
+        Assert.Equal(payload, File.ReadAllBytes(migratedPath));
+    }
+
+    [Fact]
+    public void Constructor_refuses_ambiguous_legacy_evidence_without_overwriting_either_file()
+    {
+        var root = Path.Combine(_parent, "ambiguous-legacy-evidence");
+        _ = new ScriptEvidenceStore(root);
+        var evidenceId = Guid.NewGuid().ToString("D");
+        var legacyPath = Path.Combine(root, evidenceId + ".script");
+        var payload = Encoding.UTF8.GetBytes("legacy protected bytes");
+        var currentPayload = Encoding.UTF8.GetBytes("different current protected bytes");
+        var digest = Convert.ToHexString(SHA256.HashData(currentPayload)).ToLowerInvariant();
+        var currentPath = Path.Combine(root, evidenceId + "." + digest + ".script");
+        WriteProtectedFile(root, legacyPath, payload);
+        WriteProtectedFile(root, currentPath, currentPayload);
+
+        Assert.Throws<ScriptEvidenceStorageException>(() =>
+            new ScriptEvidenceStore(root));
+
+        Assert.Equal(payload, File.ReadAllBytes(legacyPath));
+        Assert.Equal(currentPayload, File.ReadAllBytes(currentPath));
+    }
+
+    [Fact]
     public void Local_only_committed_evidence_enters_quota_retention()
     {
         var options = EvidenceOptions(
@@ -525,6 +566,17 @@ public sealed class ScriptEvidenceStoreTests : IDisposable
             root,
             reference.EvidenceId + "." + reference.ScriptDigest + ".local-committed.script");
         return File.Exists(localCommitted) ? localCommitted : awaiting;
+    }
+
+    private static void WriteProtectedFile(string root, string path, byte[] payload)
+    {
+        using var stream = SecureAuditStorage.CreateExclusiveFile(path);
+        stream.Write(payload);
+        stream.Flush(flushToDisk: true);
+        SecureAuditStorage.ConfirmRetainedCreatedFileDurability(
+            root,
+            path,
+            stream.SafeFileHandle);
     }
 
     private static AuditJournal CreateJournal(AuditOptions options)

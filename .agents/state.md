@@ -21,8 +21,13 @@ retried under the owner's expensive-review rule;
 later owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over
 the same plan pins returned a valid `best_approach` verdict with no material
 changes or findings; `.agents/review/siem-operator-readiness-kimi-r1.md` is its
-canonical record. Decisions A-D remain owner gates and no implementation is
-approved. A live disposable published-artifact
+canonical record. It did not approve implementation. The owner subsequently
+settled Decision A: every possibly relevant fact and evidence artifact PTK
+captures, including exact command and complete captured response/output/error
+evidence, must be exposed in the receiver and external SIEM; access controls
+protect it, and metadata-only export is not a supported mode. Decisions B-D
+remain open and no implementation is approved. A live disposable
+published-artifact
 proof remains under `~/.ptk-siem-live-proof` on loopback ports 19418/19443
 (plus TLS-validating forwarder 19466) for owner inspection; it did not alter or
 restart installed PTK. Host evidence is in `.agents/machines.md`.

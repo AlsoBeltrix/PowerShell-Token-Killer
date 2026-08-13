@@ -16,6 +16,10 @@ default over the same fixed range: **valid `best_approach` verdict**. Exact SHA
 pins and capability proof match; `material_changes` and `findings` are empty.
 This review does not approve implementation or settle Decisions A-D. Canonical
 record: `.agents/review/siem-operator-readiness-kimi-r1.md`.
+The owner subsequently amended the plan by settling Decision A in favor of
+mandatory full-fidelity receiver and external-SIEM evidence. The Kimi verdict
+remains valid only for its recorded pre-amendment SHA pins; no post-amendment
+review has been requested.
 
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 

@@ -5,7 +5,10 @@
 **DRAFT — owner-directed planning work, 2026-08-13. No implementation is
 approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
-operator workflow. Decisions A-D below remain owner gates. Two owner-authorized,
+operator workflow. Decision A is settled: every possibly relevant fact and
+evidence artifact PTK captures must be exposed in the receiver and external
+SIEM; sensitive evidence is protected rather than suppressed. Decisions B-D
+remain owner gates. Two owner-authorized,
 unprimed Claude Fable 5 `openreview` attempts over the committed plan produced
 no verdict. The first failed in the harness before model output. After the owner
 explicitly authorized one fresh attempt, Anthropic's cyber safeguard refused it
@@ -14,9 +17,10 @@ rule, no further Fable call was made. Canonical latest record:
 `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 An owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over the
 same pins returned a valid `best_approach` verdict with no material changes or
-candidate findings. Its canonical record is
-`.agents/review/siem-operator-readiness-kimi-r1.md`. Review endorsement does
-not approve implementation or settle Decisions A-D.
+candidate findings on the plan before the owner settled Decision A. Its
+canonical record is `.agents/review/siem-operator-readiness-kimi-r1.md`. Review
+endorsement does not approve implementation or settle Decisions B-D; it does
+not review the post-review Decision A amendment.
 
 This plan supersedes any interpretation of “mini-SIEM S1-S8 complete” as an
 operator-readiness or release-readiness claim. The completed work in
@@ -37,9 +41,11 @@ operator:
 3. connect a PTK producer and prove delivery;
 4. see one activity row per PTK operation rather than raw lifecycle noise;
 5. identify the client, any supplied agent/model identity, working context,
-   submitted operation, and terminal result without reading JSONL or SQLite;
-6. open the underlying evidence and chain context under an explicit sensitive
-   data policy;
+   exact submitted operation, complete captured response/output and errors, and
+   terminal result without reading JSONL or SQLite;
+6. open every retained raw event and evidence artifact that could help
+   reconstruct the activity, with sensitive data protected by access controls
+   rather than omitted;
 7. investigate and disposition alerts, gaps, and quarantine records; and
 8. follow and pass one tested integration with an independently maintained
    SIEM.
@@ -105,8 +111,12 @@ Use these terms consistently in code, UI, documentation, and release records:
 - **Agent/model identity:** optional per-call context supplied by the initiating
   client under the attribution contract. Absence is displayed as “not supplied
   by client.”
-- **Command evidence:** exact submitted bytes. It is sensitive and distinct
-  from a command digest, tool/action metadata, or a human-readable summary.
+- **Forensic evidence:** every possibly relevant fact or evidence artifact PTK
+  captures for an activity, including exact submitted command bytes, complete
+  captured response/output and error evidence, raw lifecycle events,
+  attribution, execution context, and custody records. It may contain secrets;
+  that changes its protection and retention requirements, not whether it is
+  exported or available to an authorized operator.
 - **Anchored deployment:** receiver custody under a separately administered
   principal/host. A loopback evaluation remains explicitly non-anchored.
 
@@ -146,9 +156,15 @@ request.route | null
 request.timeout_ms | null
 command.evidence_id | null
 command.sha256 | null
-command.availability        local | receiver | external | not_collected |
-                            not_exported | retained_then_purged
+command.byte_count | null
+command.availability        receiver_and_external | not_observed |
+                            retained_then_purged | delivery_incomplete
 command.preview | null
+response.evidence_id | null
+response.sha256 | null
+response.byte_count | null
+response.availability       receiver_and_external | not_observed |
+                            retained_then_purged | delivery_incomplete
 outcome.exit_code | null
 outcome.duration_ms | null
 outcome.bytes_returned | null
@@ -159,11 +175,12 @@ chain.last_sequence
 chain.status
 ```
 
-The list response includes bounded non-secret fields and a safely encoded
-preview only when the selected evidence policy permits it. Exact script bytes
-are returned only by an explicit detail/evidence endpoint. Every response
-labels the attribution strength and evidence availability; blank UI cells are
-not allowed for these facts.
+The list response may use bounded summaries and safely encoded previews, but
+every activity links to authenticated detail/evidence endpoints exposing all
+retained correlated raw events, exact command bytes, complete captured
+response/output and error evidence, and custody context. Every response labels
+attribution strength and evidence availability; blank UI cells are not allowed
+for unavailable, purged, or incompletely delivered facts.
 
 Activities with no terminal record remain visibly in progress or incomplete.
 Lifecycle, evidence-retention, disposition, and server events are available in
@@ -172,23 +189,20 @@ as if each were a user command.
 
 ## Owner decisions required before implementation
 
-The plan records recommendations, not approvals. Ask and record each decision
-separately after the independent review.
+Decision A below is settled. Decisions B-D record recommendations, not
+approvals; ask and record each separately.
 
-### Decision A — exact command evidence at remote destinations
+### Decision A — full-fidelity evidence at SIEM destinations
 
-Choose whether receiver/external-SIEM setup exports exact submitted script
-bytes. The metadata-only mode can identify client/tool/outcome but cannot answer
-what command ran. Full evidence can contain credentials, tokens, customer data,
-and arbitrary secrets.
-
-**Recommendation:** support two explicit policies: `metadata` and
-`full_command`. Make the setup flow require an affirmative selection, recommend
-`full_command` for a dedicated protected receiver, and default unattended setup
-to `metadata`. Never claim command visibility under `metadata`. Full-command
-records use a separately typed evidence envelope with digest, length, retention
-class, producer event reference, and destination acknowledgment; do not add raw
-script text to every core event or searchable list response.
+**SETTLED 2026-08-13:** the receiver and external SIEM are full-fidelity
+forensic destinations. Every possibly relevant fact and evidence artifact PTK
+captures must be exported and available to an authorized operator, including
+exact command bytes and complete captured response/output and errors. There is
+no metadata-only mode. Summary lists may remain bounded, but they must drill
+into the complete record. Authentication, authorization, encrypted transport,
+protected storage, access auditing, and retention protect sensitive evidence;
+field suppression does not. A fact PTK never received is labeled unavailable,
+not inferred. Canonical ruling: `.agents/decisions.md`.
 
 ### Decision B — model/agent attribution source
 
@@ -270,46 +284,59 @@ against `0.3.0-rc.1` for the intended reasons.
 Exit evidence: a supplied model appears as `client_asserted`; an unsupplied
 model is explicitly absent; no test can promote either to authenticated.
 
-### S2 — evidence export and destination retention
+### S2 — full-fidelity evidence export, destination storage, and retention
 
-This slice is gated on Decision A.
+Decision A is settled; this slice implements its full-fidelity requirement.
 
-- Introduce a versioned command-evidence envelope keyed to evidence ID, digest,
-  byte count, producer boot/event/call IDs, content policy, and retention class.
+- Inventory every operation fact and artifact PTK captures, including exact
+  command bytes, caller-visible response/output, error evidence, auxiliary
+  immutable output artifacts, lifecycle records, and disposition/custody
+  records. Any captured item absent from the remote forensic record is a test
+  failure.
+- Introduce a versioned typed-evidence envelope keyed to evidence ID, with
+  evidence kind, digest, byte count, encoding, producer boot/event/call IDs,
+  retention class, and chunk/reassembly metadata for destination size limits.
 - Preserve core event ordering and at-least-once behavior. Destination
   acknowledgment advances evidence delivery only after durable storage. Event
   and evidence cursors must survive either arrival order and restart.
-- Receiver storage separates exact command bytes from indexed activity fields.
-  Exact bytes are never placed in alert detail, logs, URL parameters, table
-  rows, or unauthenticated dashboard HTML.
-- Metadata mode exports digest/availability only. Full-command mode exports
-  exact bytes over the authenticated destination and applies receiver
-  retention/tombstone/custody semantics.
-- Splunk mapping uses an explicit sensitive field/event type and documents its
-  indexing/retention consequences.
+- Receiver storage separates large exact evidence blobs from indexed activity
+  fields while preserving authenticated correlation and search. Exact evidence
+  never leaks into process logs, URL parameters, unauthenticated HTML, or an
+  unauthorized role, but it is always retrievable by an authorized operator.
+- Every supported adapter exports the complete retained evidence. Chunking,
+  replay, destination acknowledgments, and manifest digests must prove that
+  large command/output evidence arrived intact; core-event success with missing
+  evidence is a visible incomplete-delivery failure.
+- Splunk mapping uses explicit sensitive evidence event types and documents
+  indexing, role, search, and retention consequences without dropping unknown
+  fields or evidence bodies.
 - Add lost-response replay, duplicate, mismatch, event-before-evidence,
   evidence-before-event, disk-full, purge, backup/restore, and custody tests.
 
-Exit evidence: a published producer's marker can be revealed from a protected
-receiver in full mode and is accurately reported `not_exported` in metadata
-mode.
+Exit evidence: an authorized operator retrieves and verifies the exact command,
+complete captured result/error evidence, raw events, attribution, context, and
+custody chain for a published-producer marker from both the receiver and the
+external-SIEM adapter. Removing any evidence kind fails the acceptance guard.
 
 ### S3 — local activity viewer
 
 - Replace the raw-record-first page with an activity list derived from the
   journal. Retain health and a separate raw/system-evidence view.
 - Show client, supplied model/agent or explicit absence, tool/action, session,
-  effective context, state, duration, exit code, and command availability.
+  effective context, state, duration, exit code, and full-evidence delivery and
+  retention status.
 - Make rows keyboard-accessible links to a detail page joining accepted and
   terminal events, command evidence, correlation IDs, and chain context.
-- Require an explicit reveal action for exact script bytes and warn that they
-  may contain secrets. Do not put bearer tokens or evidence in URLs; use an
-  operator-token prompt/session header pattern.
+- Require authenticated drill-down for exact command, response/output, errors,
+  and other retained evidence, with clear sensitive-data handling. Do not put
+  bearer tokens or evidence in URLs; use an operator-token prompt/session
+  header pattern.
 - Add time, client, model, session, tool, state, and free-text digest/ID filters
   within bounded journal-reading limits. State the retained search window.
 
-Exit evidence: the published-artifact acceptance marker is findable and its
-client, command, and outcome are visible without hovering or reading JSON.
+Exit evidence: a published-artifact acceptance marker is findable with its
+client, exact command, complete captured result/errors, raw events, context,
+attribution, and custody evidence visible without reading JSON or SQLite.
 
 ### S4 — receiver activity API and dashboard
 
@@ -321,16 +348,17 @@ client, command, and outcome are visible without hovering or reading JSON.
   contract. Link alert/gap/quarantine subjects to relevant activity/event
   detail.
 - Add human-readable health summaries for delivery, chain integrity, custody,
-  evidence policy, retention, and anchor status. Raw JSON remains available
-  behind disclosure controls.
+  full-evidence delivery completeness, retention, and anchor status. Raw JSON
+  remains available behind disclosure controls.
 - Add alert acknowledge/close and gap disposition UI with actor/time/result,
   using the existing authenticated transition APIs.
 - Add accessibility, escaping/XSS, authorization, pagination, large-evidence,
   and explicit-missing-attribution tests.
 
-Exit evidence: an operator can answer “which client did what, where, and with
-what result?” from the dashboard. When model or command bytes are absent, the
-reason is shown rather than hidden.
+Exit evidence: an authorized operator can answer “which client/model did what,
+where, what exactly was submitted, what exactly came back, and with what
+result?” from the dashboard and can descend to every retained raw event and
+evidence artifact. Genuinely unobserved or retention-purged facts say why.
 
 ### S5 — install, local setup, connection test, and lifecycle
 
@@ -345,7 +373,8 @@ This slice is gated on Decision C.
   `uninstall-local`. Commands are idempotent or fail with exact recovery text.
 - `setup-local` creates owner-only paths, distinct random ingest/operator
   tokens, bounded retention, witness directory, explicit non-anchored label,
-  and loopback-only endpoints. It performs no trust-store mutation.
+  and loopback-only endpoints. It always enables full-fidelity evidence export
+  and performs no trust-store mutation.
 - `connect` writes validated producer export configuration transactionally and
   explains that settings activate at the next PTK start. `doctor` validates
   receiver health/auth, submits or observes a named synthetic/no-op activity,
@@ -365,22 +394,24 @@ code.
 
 ### S6 — real external SIEM integration
 
-This slice is gated on Decision D and, for exact command search, Decision A.
+This slice is gated on Decision D. Decision A already requires full-fidelity
+evidence export.
 
 - Publish a Splunk guide covering HEC creation, index and sourcetype, TLS,
   credential storage, PTK configuration, field extraction, retention, and
-  searches for client/model availability/tool/outcome/evidence status.
+  searches for client/model availability/tool/outcome, exact command and
+  response evidence, raw events, and evidence/custody status.
 - Provide a checked, versioned Splunk field mapping and sample dashboard/search
   definitions. Unknown fields remain preserved rather than dropped.
 - Add a manual release-gate harness against a real, version-pinned Splunk
   instance. It uses published PTK artifacts, performs a recognizable call,
   waits for cursor acceptance, then queries Splunk and proves the expected
-  fields and evidence policy.
+  fields and complete evidence bodies and manifests.
 - Keep protocol fakes in ordinary CI for determinism, but label them adapter
   conformance—not external-SIEM acceptance.
 
 Exit evidence: the release record names the Splunk version, PTK artifact SHA,
-query, returned event ID/call ID, and evidence policy.
+query, returned event ID/call ID, and digest-verified full-evidence result.
 
 ### S7 — published-artifact operator acceptance and corrective release
 
@@ -391,14 +422,16 @@ query, returned event ID/call ID, and evidence policy.
   generated configuration, or introduce an undocumented proxy.
 - The witnessed scenario installs, sets up local evaluation, connects PTK,
   executes a recognizable successful command and a failing command, finds both
-  activities, reveals or explains command evidence, displays attribution
-  strength, investigates an alert, verifies zero unexplained gaps/quarantine,
+  activities, retrieves exact command and complete captured response/error
+  evidence from receiver and Splunk, displays attribution strength, investigates
+  an alert, verifies zero unexplained gaps/quarantine or evidence-delivery gaps,
   restarts both products, and finds the records again.
 - Run the real-Splunk gate and all existing producer/receiver durability,
   custody, security, compatibility, packaging, and dependency checks.
 - Publish only after the owner explicitly approves the version/tag/release.
   Release notes state whether model attribution depends on client support and
-  which evidence policy is active by default.
+  state that supported SIEM destinations receive the full retained forensic
+  record.
 
 Exit evidence: the owner can reproduce the primary workflow from public
 instructions. `.agents/state.md` may say “operator-ready” only after this slice
@@ -418,7 +451,8 @@ Mandatory focused gates include:
 - activity correlation with missing, duplicate, terminal-late, and malformed
   pairs;
 - actor/model absence and spoofing-strength labeling;
-- exact evidence policy and secret non-disclosure in lists/logs/URLs;
+- exact command/output/error evidence round-trip, chunking, authorization, and
+  non-leakage into process logs, URLs, or unauthorized responses;
 - receiver durable-before-ack and custody barriers for evidence as well as core
   events;
 - installer version/RID/checksum coherence and older-release verification;
@@ -435,8 +469,9 @@ or `.agents/review/`, with stable pointers from `.agents/state.md`.
 
 - Replacing the local fail-closed journal with the receiver or external SIEM.
 - Claiming hostile same-user isolation for local evaluation.
-- Capturing prompts, reasoning, chat transcripts, or output contents by
-  default.
+- Inventing prompts, reasoning, chat transcripts, model identity, or other
+  client-only facts PTK did not receive. Any such context deliberately supplied
+  to PTK is part of the full-fidelity forensic record.
 - Inferring model identity from process names, executable paths, session names,
   or command text.
 - Building a general orchestration/job manager for receiver lifecycle.

@@ -34,6 +34,36 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-08-13): SIEM is a full-fidelity forensic record, not a metadata feed
+
+**Status:** Active — ruled by the owner on 2026-08-13 for Decision A in
+`.agents/plans/siem-operator-readiness.md`.
+
+- Every fact and evidence artifact PTK captures that could help reconstruct or
+  investigate an operation must be available in the PTK receiver and forwarded
+  to the external SIEM. This includes exact submitted command bytes, complete
+  captured response/output and error evidence, actor/client and supplied
+  agent/model attribution with its trust source, requested and effective
+  execution context, tool/action/route/timeout, lifecycle and terminal details,
+  and chain, custody, gap, quarantine, disposition, and retention records.
+- There is no `metadata` versus `full_command` product mode and no unattended
+  default that suppresses command or output evidence. A destination that lacks
+  the complete retained evidence is visibly incomplete and cannot satisfy the
+  SIEM acceptance gate.
+- Summary tables may remain bounded, but every activity must drill into the
+  complete correlated raw events and retained evidence. Sensitive content is
+  protected by authentication, authorization, encrypted transport, protected
+  storage, access auditing, and retention — not by silently omitting it from
+  the forensic record.
+- PTK must label genuinely unavailable facts as unavailable and must not infer
+  model identity or other facts it did not receive. This decision does not
+  require PTK to invent client-only prompts, reasoning, or chat transcripts it
+  cannot observe; any such context a client deliberately supplies becomes part
+  of the full-fidelity record.
+
+This supersedes the plan's former recommendation for optional `metadata` and
+`full_command` policies.
+
 ### ACTIVE (2026-08-06): PTK's own verdict travels as structured data, never as text
 
 **Status:** Active — ruled by the owner on 2026-08-06 (finding `opr-53`,

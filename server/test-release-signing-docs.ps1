@@ -2,11 +2,14 @@
 #Requires -Version 7
 
 [CmdletBinding()]
-param()
+param(
+    [string]$ReadmePath = (Join-Path (Split-Path -Parent $PSScriptRoot) 'README.md')
+)
 
 $ErrorActionPreference = 'Stop'
-$readmePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'README.md'
-$readme = [IO.File]::ReadAllText($readmePath)
+$readme = [IO.File]::ReadAllText($ReadmePath).
+    Replace("`r`n", "`n", [StringComparison]::Ordinal).
+    Replace("`r", "`n", [StringComparison]::Ordinal)
 
 function Assert-Match {
     param(

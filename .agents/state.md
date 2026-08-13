@@ -159,6 +159,14 @@ PSScriptAnalyzer, `actionlint`, and diff hygiene pass. One Claude verification
 round remains.
 `.agents/review/index.md` owns the loop.
 
+First cr16 repair CI run `31682414857` passed five of six jobs but the Windows
+test leg stopped at the new signing-doc guard: checkout CRLF made its exact-line
+`$` assertions falsely miss the present Windows Authenticode contract. Linux
+and macOS test legs, all three SIEM legs, and the two macOS shell guards passed.
+The docs guard now normalizes line endings and accepts an explicit README path
+so a local CRLF-copy proof covers the Windows condition; hosted re-proof is
+pending.
+
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:
 after the application disposed, Microsoft.Data.Sqlite's idle pool still held

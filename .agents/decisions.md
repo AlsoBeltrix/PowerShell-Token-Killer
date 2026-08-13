@@ -442,6 +442,28 @@ not-a-security-boundary threat model.
 
 ## Open Decisions (deferred - not yet adopted)
 
+### OPEN (2026-08-13): First external-SIEM acceptance product and test access
+
+**Status:** Open — Decision D in
+`.agents/plans/siem-operator-readiness.md`; no product or access method selected.
+
+**Verified constraint:** the owner has no access to Splunk or any other SIEM
+instance for testing. Do not assume the owner will provide credentials, a
+license, infrastructure, or an existing deployment.
+
+**Question:** Which real external SIEM is PTK's first witnessed acceptance
+target, and what lawful, authorized, reproducible path gives the project access
+to that product for published-artifact ingestion and operator-query proof?
+
+- Splunk remains a candidate because PTK already ships a `splunk_hec` adapter,
+  but the existing recommendation is not actionable without an approved access
+  path.
+- This constraint does not choose an open-source replacement, remove
+  real-product validation, or authorize representing protocol-fake conformance
+  as product acceptance.
+- Decision D must settle the product and access path together before S6 or the
+  external-SIEM portions of final acceptance can run.
+
 ### OPEN (2026-07-08): Destructive-cmdlet policy gate (carried out of the archived go/no-go entry)
 
 **Status:** Open — parked on its own criterion, which survives the

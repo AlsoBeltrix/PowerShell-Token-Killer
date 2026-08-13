@@ -34,7 +34,11 @@ installs or selects the mini-SIEM and never silently duplicates evidence. The
 mandatory local fail-closed journal is only the disclosed
 admission/replay/delivery source, not a SIEM destination or investigation
 dashboard. Decision D—the first real external-SIEM acceptance target—is the
-only remaining owner gate. No implementation is approved.
+only remaining owner gate. The owner has no access to Splunk or another SIEM
+test instance; Decision D must settle both a product and an authorized,
+reproducible access path without assuming owner-provided infrastructure. This
+constraint does not choose a replacement or waive real-product validation. No
+implementation is approved.
 
 A live disposable published-artifact proof remains under
 `~/.ptk-siem-live-proof` on loopback ports 19418/19443 (plus TLS-validating

@@ -202,8 +202,8 @@ as if each were a user command.
 
 ## Owner decisions required before implementation
 
-Decisions A-C below are settled. Decision D records a recommendation, not an
-approval; ask and record it separately.
+Decisions A-C below are settled. Decision D is open with a verified access
+constraint; product and access path require a separate owner ruling.
 
 ### Decision A — full-fidelity evidence at SIEM destinations
 
@@ -245,13 +245,18 @@ mini-SIEM. The mandatory local audit journal remains the disclosed fail-closed
 source journal/spool, not a SIEM destination or operator dashboard. Canonical
 ruling: `.agents/decisions.md`.
 
-### Decision D — external SIEM acceptance target
+### Decision D — external SIEM acceptance target and test access
 
-**Recommendation:** use Splunk Enterprise/HEC for the first witnessed external
-integration because PTK already ships a `splunk_hec` adapter. Gate release on a
-real Splunk instance accepting a recognizable published-artifact PTK event and
-an operator query returning client, command availability, and outcome. Retain a
-generic OTLP/HTTP guide, but do not call protocol-shape tests a real-SIEM proof.
+**OPEN — verified constraint:** the owner has no access to Splunk or any other
+external SIEM instance for testing. This does not select another product, remove
+real-product validation, or waive the external-SIEM acceptance requirement.
+The earlier Splunk recommendation remains only a candidate because PTK already
+ships a `splunk_hec` adapter; it is not actionable until a lawful, authorized,
+reproducible test-access path is identified and separately approved. Decision D
+must settle both the first product and how PTK obtains test access without
+assuming an owner-provided instance. Protocol-shape tests remain adapter
+conformance and must not be called real-SIEM proof. Canonical open record:
+`.agents/decisions.md`.
 
 ## Implementation slices
 
@@ -443,24 +448,30 @@ undocumented certificates, or forwarding code.
 
 ### S6 — real external SIEM integration
 
-This slice is gated on Decision D. Decision A already requires full-fidelity
+This slice is gated on Decision D settling both the product and an authorized,
+reproducible access path. The implementation may not assume the owner will
+provide an existing SIEM instance. Decision A already requires full-fidelity
 evidence export.
 
-- Publish a Splunk guide covering HEC creation, index and sourcetype, TLS,
-  credential storage, PTK configuration, field extraction, retention, and
-  searches for client/model availability/tool/outcome, exact command and
-  response evidence, raw events, and evidence/custody status.
-- Provide a checked, versioned Splunk field mapping and sample dashboard/search
-  definitions. Unknown fields remain preserved rather than dropped.
-- Add a manual release-gate harness against a real, version-pinned Splunk
-  instance. It uses published PTK artifacts, performs a recognizable call,
-  waits for cursor acceptance, then queries Splunk and proves the expected
-  fields and complete evidence bodies and manifests.
+- Publish a guide for the selected Decision D product covering its ingest
+  endpoint, storage/indexing, TLS, credential storage, PTK configuration, field
+  extraction, retention, and searches for client/model
+  availability/tool/outcome, exact command and response evidence, raw events,
+  and evidence/custody status.
+- Provide a checked, versioned field mapping and sample dashboard/search
+  definitions for that product. Unknown fields remain preserved rather than
+  dropped.
+- Add a manual release-gate harness against the real, version-pinned Decision D
+  product through the approved access path. It uses published PTK artifacts,
+  performs a recognizable call, waits for cursor acceptance, then queries the
+  SIEM and proves the expected fields plus complete evidence bodies and
+  manifests.
 - Keep protocol fakes in ordinary CI for determinism, but label them adapter
   conformance—not external-SIEM acceptance.
 
-Exit evidence: the release record names the Splunk version, PTK artifact SHA,
-query, returned event ID/call ID, and digest-verified full-evidence result.
+Exit evidence: the release record names the SIEM product/version, approved
+access method, PTK artifact SHA, query, returned event ID/call ID, and
+digest-verified full-evidence result.
 
 ### S7 — published-artifact operator acceptance and corrective release
 

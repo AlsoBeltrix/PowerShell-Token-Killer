@@ -22,7 +22,9 @@ at every explicitly configured destination, source-labeled per-call agent/model
 identity when clients can supply it, and operator-controlled destination setup:
 one by default with additional destinations available only by deliberate
 opt-in; the mini-SIEM remains separately deployed. It does not review those
-amendments, approve implementation, or settle Decision D.
+amendments, approve implementation, or settle Decision D. The owner later
+recorded no access to Splunk or another SIEM test instance; that is an unreviewed
+constraint on Decision D, not a product choice or waiver.
 
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 

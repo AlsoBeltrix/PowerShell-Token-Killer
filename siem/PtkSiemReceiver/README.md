@@ -455,7 +455,7 @@ Direct package inventory at this revision:
 |---|---:|---|
 | .NET / ASP.NET Core | 10.0 target | Host, Kestrel TLS/HTTP, cryptography, JSON |
 | Google.Protobuf | 3.35.1 | OTLP protobuf parsing |
-| Grpc.Tools | 2.82.0 | Build-time protobuf code generation; not a runtime dependency |
+| Grpc.Tools | 2.83.0 | Build-time protobuf code generation; not a runtime dependency |
 | Microsoft.Data.Sqlite / Core | 10.0.10 | Managed SQLite provider |
 | SQLitePCLRaw bundle/core/provider/native `e_sqlite3` | 2.1.12 | Native SQLite engine and provider |
 

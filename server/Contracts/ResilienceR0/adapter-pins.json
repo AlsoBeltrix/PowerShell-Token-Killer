@@ -3,7 +3,7 @@
   "otlp_wire": {
     "opentelemetry_proto": "v1.10.0",
     "google_protobuf": "3.35.1",
-    "grpc_tools": "2.82.0",
+    "grpc_tools": "2.83.0",
     "source": "https://github.com/open-telemetry/opentelemetry-proto/releases/tag/v1.10.0"
   },
   "otelcol_contrib": {

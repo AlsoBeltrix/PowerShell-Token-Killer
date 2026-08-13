@@ -37,6 +37,25 @@ entries during a `drift` pass.
   rejected; both exact failures disappear on the fixed head. Five-RID release
   signing/archive proof remains pending.
 
+### Linux ARM64 package-tool repair proof (2026-08-12)
+
+- Signed-draft run `31654128120` at exact source head
+  `0c05a81ee82452f18f16fbf3f25b3ed142554763` reached the native
+  `ubuntu-24.04-arm` runner. PTK's `linux-arm64` layout built, but the SIEM
+  receiver publish failed when `Grpc.Tools` 2.82.0's bundled
+  `tools/linux_arm64/protoc` exited 139 under MSBuild. This exactly reproduced
+  the already recorded clean-build caveat later in this file; upstream records
+  the regression across 2.69.0-2.82.0 and its fix in 2.83.0 at
+  `grpc/grpc#38538`.
+- On `nagatha.local`, after raising only the build-time `Grpc.Tools` pin to
+  2.83.0, restore and the complete SIEM suite passed 329/329; all three SIEM
+  projects reported no vulnerable direct or transitive packages. The shared
+  builder produced an `osx-arm64` layout stamped `0.3.0-rc.1`, and the
+  independent verifier accepted the required payload, version/provenance,
+  guide, and licenses. The temporary package root was removed and
+  `git diff --check` passed. Native Linux ARM64 confirmation remains the next
+  exact-head draft-run gate.
+
 ## `nagatha.local` — mini-SIEM S7 isolated end-to-end smoke (2026-08-12)
 
 _Manual two-host-equivalent acceptance at exact source head

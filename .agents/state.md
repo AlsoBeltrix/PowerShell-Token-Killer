@@ -6,7 +6,7 @@ short and update it when important repo facts change.
 ## Now
 
 **MINI-SIEM S1-S7 COMPLETE; S8 PACKAGE CONTRACT + THREE-OS CI GREEN, SIGNED
-FIVE-RID DRAFT PENDING (2026-08-12).**
+FIVE-RID DRAFT RETRY PENDING AFTER LINUX ARM64 TOOLCHAIN REPAIR (2026-08-12).**
 S7 replaced the receiver's implementation-oriented README with a standalone
 operator guide: per-OS dedicated-account layouts and exact path protection,
 complete configuration, asynchronous producer export/cursor semantics,
@@ -38,9 +38,15 @@ PSScriptAnalyzer, and `git diff --check` pass. Standing verification is green:
 Pester 112 passed/3 skipped, server 1,306/1,306, SIEM 329/329, registered
 handshake, and server/SIEM dependency audits. Hosted run `31650818998` at
 `b94bae5` passed all six Ubuntu/Windows/macOS jobs, including the native SIEM
-package builder/verifier on each OS. **Next item: an owner-selected version for
-the signed five-RID draft workflow. No new draft, tag, package publication, or
-release exists yet.**
+package builder/verifier on each OS. The owner selected `0.3.0-rc.1`; first
+draft attempt `31654128120` at `0c05a81` reached all five native runners but
+the receiver publish on `ubuntu-24.04-arm` reproduced upstream's known
+`Grpc.Tools` 2.69.0-2.82.0 Linux ARM64 regression: bundled `protoc` exited 139.
+The package pin is now 2.83.0, the upstream-fixed release. Local verification
+passes 329/329, the dependency audit is clean, and an osx-arm64
+`0.3.0-rc.1` package builds and independently verifies. **Next item: push this
+repair and rerun the same draft workflow at its exact head. No new draft, tag,
+package publication, or release exists yet.**
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

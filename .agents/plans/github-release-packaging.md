@@ -35,6 +35,15 @@ Hosted three-OS native CI passed all six jobs at `b94bae5` in run
 `31650818998`. Five-RID signed-draft evidence remains pending; no new version,
 draft, tag, or publication is implied by that CI proof.
 
+The owner selected `0.3.0-rc.1` for the next draft. First dispatch
+`31654128120` at exact head `0c05a81` exposed the previously recorded native
+Linux ARM64 build blocker in the receiver: `Grpc.Tools` 2.82.0's bundled
+`linux_arm64/protoc` exited 139 under MSBuild. Upstream fixed that regression in
+2.83.0 (`grpc/grpc#38538`), so the receiver and its pin records now use 2.83.0.
+Local SIEM 329/329, dependency audit, and osx-arm64 package build/verifier are
+green. A new exact-head five-RID draft run is still required; publication and
+tagging remain outside this authorization.
+
 **Slice 7.5 re-run status (all legs CLOSED at `9e1790e`, rc.3 run
 `31184671731`, 2026-08-07):**
 

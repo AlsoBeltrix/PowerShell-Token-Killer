@@ -5,8 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM S1-S8 COMPLETE; SIGNED FIVE-RID `0.3.0-rc.1` DRAFT GREEN
-(2026-08-12).**
+**MINI-SIEM S1-S8 COMPLETE; SIGNED FIVE-RID `0.3.0-rc.1` PRERELEASE
+PUBLISHED (2026-08-12).**
 S7 replaced the receiver's implementation-oriented README with a standalone
 operator guide: per-OS dedicated-account layouts and exact path protection,
 complete configuration, asynchronous producer export/cursor semantics,
@@ -47,13 +47,15 @@ passes 329/329, the dependency audit is clean, and an osx-arm64
 `0.3.0-rc.1` package builds and independently verifies. Repair commit
 `0c8ed87` is pushed; exact-head run `31654609624` passed all five native RID
 jobs and draft assembly, including Windows Trusted Signing and macOS Developer
-ID signing/notarization before package gates. Draft release `v0.3.0-rc.1` is
-unpublished and pinned to full source SHA `0c8ed87635ef37db548d086ada78a2020c4b390f`;
-its ten expected archives plus `SHA256SUMS` are uploaded, and every manifest
-entry matches GitHub's asset digest. No remote tag exists. The workflow now
-passes `$GITHUB_SHA` as the draft target so later branch movement cannot change
-the eventual tag target. **Next item: Decision 5 remains unruled; publication
-or tag creation requires a separate explicit owner go.**
+ID signing/notarization before package gates. Owner authorization ruled
+Decision 5 and release `v0.3.0-rc.1` was published as a GitHub prerelease at
+2026-08-13T01:38:18Z. Its tag points exactly to full source SHA
+`0c8ed87635ef37db548d086ada78a2020c4b390f`; its ten expected archives plus
+`SHA256SUMS` remain uploaded, and every manifest entry matches GitHub's asset
+digest. The workflow passes `$GITHUB_SHA` as the release target so later branch
+movement cannot change the artifact/tag provenance. **Next item: collect public
+installation feedback; propose fixing any verified release defect under the
+repo's known-broken blanket.**
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

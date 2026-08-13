@@ -63,9 +63,9 @@ entries during a `drift` pass.
   Both Windows jobs passed Trusted Signing for PTK and receiver payloads before
   their smoke/product/Defender gates. The macOS job passed Developer ID signing
   of both payloads and joint notarization before archive.
-- Draft release ID `369612019`, tag metadata `v0.3.0-rc.1`, title
-  `ptk 0.3.0-rc.1`, remains draft with `published_at=null`, targets exact full
-  SHA `0c8ed87635ef37db548d086ada78a2020c4b390f`, and has no remote tag. It has
+- Release ID `369612019`, tag `v0.3.0-rc.1`, title `ptk 0.3.0-rc.1`, was first
+  verified as an unpublished draft targeting exact full SHA
+  `0c8ed87635ef37db548d086ada78a2020c4b390f`, with no remote tag. It has
   exactly eleven uploaded assets: five PTK archives, five receiver archives,
   and `SHA256SUMS` (1,042 bytes, SHA-256
   `ea694f1285de98c37e8bd881f1ea031fa4a607b4921b3e66b478de11cd301f30`).
@@ -84,6 +84,13 @@ entries during a `drift` pass.
   later paperwork push move the eventual tag away from the artifact source.
   The draft was corrected in place to the exact SHA without publication or tag
   creation, and `release.yml` now passes `$GITHUB_SHA` to future draft creation.
+- Owner authorization then published the same release as a GitHub prerelease at
+  `2026-08-13T01:38:18Z`. Post-publication verification found `draft=false`,
+  `prerelease=true`, stable URL
+  `https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/tag/v0.3.0-rc.1`,
+  all eleven uploaded assets unchanged, and all ten `SHA256SUMS` entries still
+  matching GitHub's asset digests. Remote lightweight tag `v0.3.0-rc.1`
+  resolves directly to `0c8ed87635ef37db548d086ada78a2020c4b390f`.
 
 ## `nagatha.local` — mini-SIEM S7 isolated end-to-end smoke (2026-08-12)
 

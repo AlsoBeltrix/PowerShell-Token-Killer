@@ -643,3 +643,18 @@ not authorize a push, PR, merge, installation, deployment, canary, branch
 deletion, history rewrite, or any other outward/destructive action. The older
 broad decision-log reconciliation hold remains in force outside these two
 salvage decisions.
+
+## 2026-08-12: Publish `v0.3.0-rc.1` as the first signed five-RID prerelease
+
+**Decision:** After receiving the complete verified-draft report and the
+explicit statement that publication and prerelease marking required a separate
+go, the owner answered `go`. This rules and authorizes Decision 5 in
+`.agents/plans/github-release-packaging.md` for `v0.3.0-rc.1` only.
+
+**Effect:** GitHub release `v0.3.0-rc.1` is published as a prerelease. Its
+lightweight tag resolves exactly to artifact source
+`0c8ed87635ef37db548d086ada78a2020c4b390f`; all five PTK and five standalone
+SIEM receiver archives plus `SHA256SUMS` remain attached and verified. This
+supersedes the 2026-07-31 parked-release-readiness decision for this release.
+It does not authorize mutation of this release or creation/publication of a
+later version.

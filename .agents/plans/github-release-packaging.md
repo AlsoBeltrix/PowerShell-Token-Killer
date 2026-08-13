@@ -1,15 +1,17 @@
 # Plan: GitHub release — five-RID packaging, installers, direct proof
 
-**Status:** DRAFT 2026-08-03. Decision 2 is RULED: five RIDs (owner,
+**Status:** COMPLETE 2026-08-12. Decision 2 is RULED: five RIDs (owner,
 2026-08-03 — "packaging for Windows x64 & ARM64, macOS ARM64, Linux x64 &
-ARM64 ... GH CIs should cover it"). Decisions A–D are all RULED 2026-08-04:
-emulated x64 rtk on win-arm64, Apache-2.0, `v0.2.0`, fetch-on-install.
-Decision 3 is WITHDRAWN as mis-scoped and replaced by Slice 7.0.
+ARM64 ... GH CIs should cover it"). Decisions A, B, and D were RULED
+2026-08-04: emulated x64 rtk on win-arm64, Apache-2.0, fetch-on-install.
+Decision C's earlier `v0.2.0` was superseded by the owner's 2026-08-12
+selection of `v0.3.0-rc.1`. Decision 3 is WITHDRAWN as mis-scoped and replaced
+by Slice 7.0.
 
 Slices 7.0 and 7.1 are EXECUTED. Slices 7.2–7.5 are authorized and
-unblocked. **Decision 5 (tag and publish) remains UNRULED and is terminal**:
-CI assembles a draft release only; no tag, no publication, no `v*` ref push
-without a separate explicit owner go.
+executed. **Decision 5 (tag and publish) was RULED and executed 2026-08-12**:
+after the verified draft report, the owner gave the separately required
+explicit `go`; `v0.3.0-rc.1` is published as a GitHub prerelease.
 
 | Slice | Status |
 | --- | --- |
@@ -21,10 +23,9 @@ without a separate explicit owner go.
 | 7.4 installers | `141793d`, `eec2ccd` |
 | 7.5 direct proof | `db5601c` |
 
-**All slices are executed, but the recorded proof below is against
-`fb6d951` and is STALE.** As of `935b8b2` there are ~50 code commits since
-that head, including the whole install rewrite (#42) and the tool-surface
-change (`opr-53`). Slice 7.5 must be re-run per RID before publishing.
+**All slices are executed and the ship-head proof is closed.** Historical
+proof at `fb6d951` is retained below; exact source head `0c8ed87` was re-run on
+all five native RIDs before publication.
 
 Mini-SIEM S8 extends the R6 receiver artifact at the current head: one shared
 builder now stamps release/source identity and includes the operator guide and
@@ -50,7 +51,10 @@ and carries ten archives plus `SHA256SUMS`; all ten manifest entries match the
 GitHub asset digests. No remote tag exists. Verification caught that the first
 draft metadata targeted moving `master`; the draft was pinned to the exact SHA
 and `release.yml` now supplies `$GITHUB_SHA` on creation. Publication and
-tagging remain outside this authorization under Decision 5.
+tagging were then separately owner-authorized. GitHub published the release as
+a prerelease at 2026-08-13T01:38:18Z; lightweight tag `v0.3.0-rc.1` resolves
+directly to `0c8ed87635ef37db548d086ada78a2020c4b390f`, with all eleven assets
+unchanged and all ten archive checksums reverified.
 
 **Slice 7.5 re-run status (all legs CLOSED at `9e1790e`, rc.3 run
 `31184671731`, 2026-08-07):**
@@ -256,11 +260,14 @@ supported; PTK does not invoke active/lazy/COM getters to enrich output; the
 limitation is documented and GitHub #8 stays open. Making active COM values
 mandatory instead is a separate product slice that blocks packaging.
 
-## Decision 5 — publish (UNRULED, terminal)
+## Decision 5 — publish (RULED AND EXECUTED 2026-08-12)
 
-Tagging and publishing are owner actions. CI assembles a **draft** release
-only. Nothing in this plan authorizes a tag, a public release, or a push of
-a `v*` ref.
+After the verified-draft report stated that publication and prerelease marking
+required a separate explicit go, the owner answered `go`. Release
+`v0.3.0-rc.1` was published as a GitHub prerelease; its tag is pinned to exact
+artifact source `0c8ed87635ef37db548d086ada78a2020c4b390f`. This ruling authorizes
+only that release and does not authorize later release mutation or a next
+version.
 
 ## Slice 7.0 — the shaper renders unknown types instead of dropping them
 

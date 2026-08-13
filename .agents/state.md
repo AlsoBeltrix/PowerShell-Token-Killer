@@ -139,8 +139,14 @@ re-read false-fails healthy `In Progress`, cr16-3's zero-identity output parses
 as signing identity `valid`, and cr16-4's unqualified signed-binary docs include
 unsigned Linux assets. cr16-2's timeout claim was declined: exact hosted macOS
 jobs reach notarization in about one minute, leaving ~44 minutes around the
-30-minute notary allowance. Repairs are pending; one Claude verification round
-remains. `.agents/review/index.md` owns the loop.
+30-minute notary allowance. cr16-1 is repaired with a durable submission-id
+helper that resumes `notarytool wait` within one bounded allowance instead of
+failing a healthy `In Progress`; local fake-Apple tests cover transport-drop
+recovery, rejection, and missing/malformed ids without a real submission. The
+load-bearing `In Progress` arm is mutation-proved fail-before/pass-restored;
+Bash syntax, ShellCheck, `actionlint`, and diff hygiene pass.
+cr16-3 and cr16-4 remain pending; one Claude verification round remains.
+`.agents/review/index.md` owns the loop.
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

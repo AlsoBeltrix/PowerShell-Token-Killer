@@ -339,13 +339,10 @@ jobs:
       # consults it online when a user runs a browser-downloaded copy. Bare
       # executables in a tarball cannot carry a stapled ticket, so acceptance
       # is recorded on Apple's side — the zip below exists only as the
-      # submission envelope and is discarded. notarytool's exit code does not
-      # reliably reflect the verdict, so acceptance is asserted from the
-      # output — and the --wait poll stream itself can drop on a transient
-      # network error after Apple has already accepted (v0.2.2 first run),
-      # so a missing acceptance is re-read from the authoritative
-      # `notarytool info` before the failure log is fetched and the step
-      # declares failure.
+      # submission envelope and is discarded. The helper captures the durable
+      # submission id first, then resumes `notarytool wait` by id after a
+      # transport drop. A healthy In Progress status therefore keeps polling
+      # inside one bounded 30-minute allowance; only Accepted succeeds.
       - name: Notarize the macOS payload
         if: startsWith(matrix.rid, 'osx-')
         shell: bash
@@ -365,33 +362,7 @@ jobs:
           cp -R out/ptk "$RUNNER_TEMP/notarize-staging/ptk"
           cp -R out/ptk-siem "$RUNNER_TEMP/notarize-staging/ptk-siem"
           ditto -c -k --keepParent "$RUNNER_TEMP/notarize-staging" "$RUNNER_TEMP/ptk-notarize.zip"
-          SUBMIT_OUT=$(xcrun notarytool submit "$RUNNER_TEMP/ptk-notarize.zip" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait --timeout 30m 2>&1) || true
-          echo "$SUBMIT_OUT"
-          if ! echo "$SUBMIT_OUT" | grep -q 'status: Accepted'; then
-            SUBMISSION_ID=$(echo "$SUBMIT_OUT" | awk '/^  id: / {print $2; exit}')
-            INFO_OUT=''
-            if [ -n "$SUBMISSION_ID" ]; then
-              INFO_OUT=$(xcrun notarytool info "$SUBMISSION_ID" \
-                --apple-id "$APPLE_ID" \
-                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                --team-id "$APPLE_TEAM_ID" 2>&1) || true
-              echo "$INFO_OUT"
-            fi
-            if ! echo "$INFO_OUT" | grep -q 'status: Accepted'; then
-              if [ -n "$SUBMISSION_ID" ]; then
-                xcrun notarytool log "$SUBMISSION_ID" \
-                  --apple-id "$APPLE_ID" \
-                  --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-                  --team-id "$APPLE_TEAM_ID" || true
-              fi
-              echo "notarization was not accepted" >&2
-              exit 1
-            fi
-          fi
+          bash scripts/notarize-macos.sh "$RUNNER_TEMP/ptk-notarize.zip"
 
       - name: Archive
         id: archive

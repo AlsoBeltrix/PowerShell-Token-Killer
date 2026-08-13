@@ -71,6 +71,11 @@ jobs:
         shell: pwsh
         run: ./server/test-release-selection.ps1
 
+      - name: Notarization recovery tests
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash scripts/test-notarize-macos.sh
+
       - name: Server tests
         run: dotnet test server/PtkMcpServer.slnx
 

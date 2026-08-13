@@ -76,9 +76,22 @@ their retained protected bytes determine the SHA-256 destination, migration runs
 under the cross-process evidence quota lock, and any same-ID artifact makes the
 whole preflight fail closed before a rename. The focused store scope passes
 23/23, removing migration activation fails its exact guard, and the full server
-suite passes 1,308/1,308. **Next item:** make unversioned `-FromRelease` select
-the newest published release including prereleases (GitHub `/releases/latest`
-selected stable `v0.2.2`).
+suite passes 1,308/1,308.
+
+**The unversioned release installer now includes prereleases (2026-08-13).**
+GitHub's `/releases/latest` endpoint selected stable `v0.2.2` even though the
+newest published release was `v0.3.0-rc.1`. Unversioned `-FromRelease` now
+enumerates the first 100 releases, excludes drafts and unpublished entries, and
+selects the unique greatest `published_at`; explicit `-Version` remains
+tag-exact, and malformed or tied responses fail closed. The deterministic
+selector test passes; live GitHub selection returned `v0.3.0-rc.1`; a real
+osx-arm64 archive was downloaded, checksum-verified, and read back with layout
+`VERSION` `0.3.0-rc.1` without installing. Runtime package-boundary tests pass
+7/7, Pester passes 112 with 3 platform skips, `actionlint` and `git diff
+--check` pass, and PSScriptAnalyzer is unavailable on this host. Three
+independent mutations prove the guard catches return to `/releases/latest`,
+draft inclusion, and prerelease exclusion. **Next item:** codereview the landed
+`0.3.0-rc.1` upgrade-compatibility range with Claude Opus 5 xhigh.
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

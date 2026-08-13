@@ -67,6 +67,10 @@ jobs:
         shell: pwsh
         run: Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Detailed -CI
 
+      - name: Release selection tests
+        shell: pwsh
+        run: ./server/test-release-selection.ps1
+
       - name: Server tests
         run: dotnet test server/PtkMcpServer.slnx
 

@@ -343,6 +343,85 @@ function Assert-PtkPayloadComplete {
 # published release and building this checkout. Everything downstream -
 # transaction, validation, registration, harness init - is shared.
 
+function Select-PtkLatestPublishedReleaseTag {
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyCollection()]
+        [object[]]$Release
+    )
+
+    $eligible = foreach ($candidate in $Release) {
+        if ($null -eq $candidate) {
+            throw 'GitHub returned an invalid null release entry.'
+        }
+        $draft = $candidate.PSObject.Properties['draft']
+        $published = $candidate.PSObject.Properties['published_at']
+        if ($null -eq $draft -or $draft.Value -isnot [bool] -or $null -eq $published) {
+            throw 'GitHub returned an invalid release entry.'
+        }
+        if ($draft.Value) { continue }
+        if ($null -eq $published.Value) { continue }
+
+        [DateTimeOffset]$publishedAt = [DateTimeOffset]::MinValue
+        if ($published.Value -is [DateTimeOffset]) {
+            $publishedAt = $published.Value.ToUniversalTime()
+        }
+        elseif ($published.Value -is [DateTime]) {
+            $date = $published.Value
+            if ($date.Kind -eq [DateTimeKind]::Unspecified) {
+                $date = [DateTime]::SpecifyKind($date, [DateTimeKind]::Utc)
+            }
+            $publishedAt = [DateTimeOffset]::new($date).ToUniversalTime()
+        }
+        else {
+            $text = [Convert]::ToString(
+                $published.Value,
+                [Globalization.CultureInfo]::InvariantCulture)
+            $parsed = [DateTimeOffset]::TryParse(
+                $text,
+                [Globalization.CultureInfo]::InvariantCulture,
+                [Globalization.DateTimeStyles]::AssumeUniversal -bor
+                    [Globalization.DateTimeStyles]::AdjustToUniversal,
+                [ref]$publishedAt)
+            if (-not $parsed) {
+                throw 'GitHub returned a release with an invalid published_at value.'
+            }
+        }
+
+        $tagProperty = $candidate.PSObject.Properties['tag_name']
+        $tag = if ($null -eq $tagProperty) { $null } else { $tagProperty.Value }
+        if ($tag -isnot [string] -or [string]::IsNullOrWhiteSpace($tag)) {
+            throw 'GitHub returned a published release without a valid tag_name.'
+        }
+        [pscustomobject]@{
+            Tag = $tag
+            PublishedAt = $publishedAt
+        }
+    }
+
+    $ordered = @($eligible | Sort-Object PublishedAt -Descending)
+    if ($ordered.Count -eq 0) {
+        throw 'GitHub returned no published releases.'
+    }
+    $latest = @($ordered | Where-Object { $_.PublishedAt -eq $ordered[0].PublishedAt })
+    if ($latest.Count -ne 1) {
+        throw 'GitHub returned an ambiguous latest published release.'
+    }
+    $latest[0].Tag
+}
+
+function Get-PtkLatestPublishedReleaseTag {
+    param([Parameter(Mandatory)][string]$Repository)
+
+    $releaseResponse = Invoke-RestMethod `
+        -Uri "https://api.github.com/repos/$Repository/releases?per_page=100" `
+        -Headers @{
+            Accept = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+        }
+    Select-PtkLatestPublishedReleaseTag -Release @($releaseResponse)
+}
+
 function Get-PtkReleaseLayout {
     param(
         [Parameter(Mandatory)][string]$Destination,
@@ -356,8 +435,7 @@ function Get-PtkReleaseLayout {
         $tag = if ($ReleaseVersion.StartsWith('v')) { $ReleaseVersion } else { "v$ReleaseVersion" }
     }
     else {
-        $latest = Invoke-RestMethod "https://api.github.com/repos/$repository/releases/latest"
-        $tag = $latest.tag_name
+        $tag = Get-PtkLatestPublishedReleaseTag -Repository $repository
     }
     $number = $tag.TrimStart('v')
     $asset = "ptk-$number-$TargetRid.$extension"

@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr16 (Claude review over release signing/notarization, 2026-08-13)
+## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over
 the signing-path subset of
@@ -9,15 +9,20 @@ the signing-path subset of
 signing claims in `README.md`. The 8m29s result is schema-valid,
 `capability_ok=true`, both full SHA pins match, and four candidates carry
 concrete evidence. Independent intake admitted cr16-1, cr16-3, and cr16-4;
-cr16-2 was declined against exact hosted timing. Repairs are in progress; one
-final verification round remains for this major section.
+cr16-2 was declined against exact hosted timing. All three admitted findings
+are repaired and independently mutation-proved; hosted run `31687784932`
+passed all six jobs. The second/final Claude call timed out at its 3,600-second
+bound without a verdict and was not rerun under the owner's explicit
+expensive-review rule. `.agents/review/cr16-final-failed.md` is the canonical
+round record. cr16 closes at its two-round cap without claiming reviewer
+acceptance.
 
 | ID | Severity | Impact (one line) | Status | Reviewer |
 |----|----------|-------------------|--------|----------|
-| cr16-1 | MEDIUM | detached Apple submission still false-fails when its first status is healthy `In Progress` | `[x]` repaired; final verification pending | claude/claude-opus-5/xhigh/standard |
+| cr16-1 | MEDIUM | detached Apple submission still false-fails when its first status is healthy `In Progress` | `[x]` repaired; independent guards green; final Claude unavailable | claude/claude-opus-5/xhigh/standard |
 | cr16-2 | MEDIUM candidate | 45-minute job bound allegedly cannot contain 30-minute notary wait plus prior work | `[-]` exact-head jobs reach notarization in ~1 minute and finish in 1.5–2.25 minutes | claude/claude-opus-5/xhigh/standard |
-| cr16-3 | LOW | zero signing identities are parsed as the literal identity `valid`, hiding the intended diagnosis | `[x]` repaired; final verification pending | claude/claude-opus-5/xhigh/standard |
-| cr16-4 | LOW | public docs call all release binaries signed although both Linux assets are unsigned | `[x]` repaired; final verification pending | claude/claude-opus-5/xhigh/standard |
+| cr16-3 | LOW | zero signing identities are parsed as the literal identity `valid`, hiding the intended diagnosis | `[x]` repaired; independent guards green; final Claude unavailable | claude/claude-opus-5/xhigh/standard |
+| cr16-4 | LOW | public docs call all release binaries signed although both Linux assets are unsigned | `[x]` repaired; independent guards green; final Claude unavailable | claude/claude-opus-5/xhigh/standard |
 
 ## Closed — cr15 (Claude review over mini-SIEM S8 packaging, 2026-08-13)
 

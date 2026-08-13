@@ -131,7 +131,7 @@ failure, restored clean bytes, passed focused 1/1 and SIEM 330/330; verdict
 Hosted CI `31675780336` passed all six jobs, including native Windows SIEM.
 cr15 closed at its two-round cap; `.agents/review/index.md` owns the record.
 
-**cr16 release-signing review ACTIVE (2026-08-13).** Claude Code 2.1.229 /
+**cr16 release-signing review CLOSED at its two-round cap (2026-08-13).** Claude Code 2.1.229 /
 claude-opus-5 / xhigh returned four valid candidates over the path-bounded
 signing/notarization range `05b5df7..648d264`; exact SHA pins and capability
 proof pass. Independent intake admitted three: cr16-1's one-shot Apple status
@@ -154,18 +154,23 @@ ShellCheck, `actionlint`, and diff hygiene pass. cr16-4 now qualifies the public
 release contract by platform: Windows Authenticode, macOS Developer ID plus
 Apple notarization, and Linux `SHA256SUMS` integrity without publisher code
 signing. A cross-platform static documentation guard rejects the former
-unqualified claims and is mutation-proved fail-before/pass-restored.
-PSScriptAnalyzer, `actionlint`, and diff hygiene pass. One Claude verification
-round remains.
-`.agents/review/index.md` owns the loop.
+unqualified claims and is mutation-proved fail-before/pass-restored. Its first
+hosted run exposed CRLF-only Windows false failure; `bfa2cd0` normalizes input
+and its explicit CRLF-copy guard fails without the repair. Hosted run
+`31687784932` passed all six jobs. Local Pester 112/112 plus 3 skips, server
+1,310/1,310 under clean `PSModulePath`, and SIEM 330/330 pass. The second/final
+Claude call timed out at 3,600 seconds without any verdict and was not rerun by
+owner rule. `.agents/review/cr16-final-failed.md` owns that failure record;
+`.agents/review/index.md` owns closure status. Do not claim final reviewer
+acceptance.
 
 First cr16 repair CI run `31682414857` passed five of six jobs but the Windows
 test leg stopped at the new signing-doc guard: checkout CRLF made its exact-line
 `$` assertions falsely miss the present Windows Authenticode contract. Linux
 and macOS test legs, all three SIEM legs, and the two macOS shell guards passed.
 The docs guard now normalizes line endings and accepts an explicit README path
-so a local CRLF-copy proof covers the Windows condition; hosted re-proof is
-pending.
+so a local CRLF-copy proof covers the Windows condition. Hosted re-proof
+`31687784932` passed every job.
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

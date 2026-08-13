@@ -219,7 +219,8 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         bool preserveAnchorOnDispose = false,
         IReadOnlyList<AlertRule>? alertRules = null,
         string? alertWebhookUrl = null,
-        bool alertEvaluationHoldForTests = false)
+        bool alertEvaluationHoldForTests = false,
+        SiemReceiverTestHostFailureHooks? failureHooks = null)
     {
         // A restart test hands the previous host's root back in: certificate
         // material and the database are reused as a real restart would.
@@ -282,7 +283,10 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
                 timeProvider: timeProvider,
                 storageFaultInjector: storageFaultInjector,
                 alertEvaluationHoldForTests: alertEvaluationHoldForTests);
-            await application.StartAsync();
+            if (failureHooks is null)
+                await application.StartAsync();
+            else
+                await failureHooks.StartApplication(application);
             var server = application.Services.GetRequiredService<IServer>();
             var addresses = server.Features.Get<IServerAddressesFeature>()?.Addresses ??
                             throw new InvalidOperationException("Kestrel did not publish an address.");
@@ -306,10 +310,17 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
         }
         catch
         {
-            if (application is not null) await application.DisposeAsync();
-            if (existingRoot is null) Directory.Delete(root, recursive: true);
-            if (existingWitnessRoot is null)
-                Directory.Delete(witnessRoot, recursive: true);
+            await DisposeApplicationAndDeleteOwnedRootsAsync(
+                application,
+                stopApplication: false,
+                root,
+                preserveRoot: existingRoot is not null,
+                witnessRoot,
+                preserveWitnessRoot: existingWitnessRoot is not null,
+                anchorRoot: null,
+                preserveAnchorRoot: true,
+                failureHooks?.ClearSqlitePools ?? SqliteConnection.ClearAllPools,
+                failureHooks?.DeleteDirectory ?? Directory.Delete);
             throw;
         }
     }
@@ -329,20 +340,53 @@ internal sealed class SiemReceiverTestHost : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await _application.StopAsync();
-        await _application.DisposeAsync();
+        await DisposeApplicationAndDeleteOwnedRootsAsync(
+            _application,
+            stopApplication: true,
+            _root,
+            _preserveRootOnDispose,
+            _witnessRoot,
+            _preserveWitnessOnDispose,
+            _anchorRoot,
+            _preserveAnchorOnDispose,
+            SqliteConnection.ClearAllPools,
+            Directory.Delete);
+    }
+
+    private static async ValueTask DisposeApplicationAndDeleteOwnedRootsAsync(
+        WebApplication? application,
+        bool stopApplication,
+        string root,
+        bool preserveRoot,
+        string witnessRoot,
+        bool preserveWitnessRoot,
+        string? anchorRoot,
+        bool preserveAnchorRoot,
+        Action clearSqlitePools,
+        Action<string, bool> deleteDirectory)
+    {
+        if (application is not null)
+        {
+            if (stopApplication) await application.StopAsync();
+            await application.DisposeAsync();
+        }
         // Microsoft.Data.Sqlite pooling retains idle native handles after the
         // host has disposed every scoped store. POSIX permits unlinking those
         // files, but Windows correctly refuses the recursive cleanup while the
         // pool still owns siem.db. Clearing idle pools is test-process cleanup;
         // checked-out connections remain valid and close when returned.
-        SqliteConnection.ClearAllPools();
-        if (!_preserveRootOnDispose) Directory.Delete(_root, recursive: true);
-        if (!_preserveWitnessOnDispose) Directory.Delete(_witnessRoot, recursive: true);
-        if (_anchorRoot is not null && !_preserveAnchorOnDispose)
-            Directory.Delete(_anchorRoot, recursive: true);
+        clearSqlitePools();
+        if (!preserveRoot) deleteDirectory(root, true);
+        if (!preserveWitnessRoot) deleteDirectory(witnessRoot, true);
+        if (anchorRoot is not null && !preserveAnchorRoot)
+            deleteDirectory(anchorRoot, true);
     }
 }
+
+internal sealed record SiemReceiverTestHostFailureHooks(
+    Func<WebApplication, Task> StartApplication,
+    Action ClearSqlitePools,
+    Action<string, bool> DeleteDirectory);
 
 internal sealed class RecordingIngestCommitter : IIngestCommitter
 {

@@ -113,6 +113,21 @@ canonical-tree process slip was independently audited clean; cr14 closed at
 its two-round cap. `.agents/review/index.md` owns the record. **Next item:**
 select the next major queued section from current repository and GitHub state.
 
+**cr15 S8 packaging review ACTIVE (2026-08-13).** Claude Code 2.1.229 /
+claude-opus-5 / xhigh reviewed the unreviewed S8 range
+`22ca2ab..0c8ed87`. Its otherwise concrete three-candidate payload was
+formally invalid because candidate 2 omitted required severity; the one allowed
+same-session schema recovery failed before inference and the review was not
+rerun. Independent intake admitted cr15-1: failed test-host startup omits the
+SQLite pool clear that normal disposal requires on Windows, so cleanup can mask
+the real exception. The PDB claim and ARM64-per-PR-CI claim were declined with
+evidence in `.agents/review/cr15-declined.contested.md`. cr15-1 now routes both
+normal and failed disposal through one pool-clear-before-delete primitive. Its
+real-store injected-start-failure guard fails under exact clear removal and
+passes restored. Full SIEM passes 330/330; changed-file formatting and diff
+hygiene pass. The one remaining Claude round is pending.
+`.agents/review/index.md` owns the loop.
+
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:
 after the application disposed, Microsoft.Data.Sqlite's idle pool still held

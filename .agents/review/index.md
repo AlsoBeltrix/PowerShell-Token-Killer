@@ -1,5 +1,24 @@
 # Review status
 
+## Active — cr15 (Claude review over mini-SIEM S8 packaging, 2026-08-13)
+
+Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over
+`22ca2ab278249543c90b676b63cd76b3a7846215..0c8ed87635ef37db548d086ada78a2020c4b390f`.
+The 12m04s background pass returned three concrete candidates with correct
+full SHA pins and `capability_ok=true`, but its payload was formally invalid:
+the second candidate omitted required `severity`. The one permitted same-
+session re-emission could not run because Claude retained background ownership;
+the supported fork then failed before inference on missing internal tool
+`EndConversation` (`total_cost_usd=0`). The review was not rerun. Its candidates
+were independently triaged as ordinary findings: cr15-1 admitted; cr15-2 and
+cr15-3 declined. One repair-verification round remains for this major section.
+
+| ID | Severity | Impact (one line) | Status | Reviewer |
+|----|----------|-------------------|--------|----------|
+| cr15-1 | MEDIUM | Windows test-host construction cleanup can mask the real startup failure with a locked `siem.db` error | `[~]` repaired; verification pending | claude/claude-opus-5/xhigh/standard |
+| cr15-2 | LOW candidate | release PDB allegedly discloses private build paths and violates a closed package set | `[-]` published PDB maps only a generic runner path to the public repo/commit; no closed-set contract | claude/claude-opus-5/xhigh/standard |
+| cr15-3 | LOW | ordinary CI omits two ARM64 RIDs | `[-]` approved S8 contract is three-OS ordinary CI plus five-RID release CI; closing five-RID run passed | claude/claude-opus-5/xhigh/standard |
+
 ## Closed — cr14 (Claude review over 0.3.0-rc.1 upgrade compatibility, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over

@@ -1,6 +1,6 @@
 # Review status
 
-## Active — cr15 (Claude review over mini-SIEM S8 packaging, 2026-08-13)
+## Closed — cr15 (Claude review over mini-SIEM S8 packaging, 2026-08-13)
 
 Generation pass: Claude Code 2.1.229 / claude-opus-5 / xhigh / standard over
 `22ca2ab278249543c90b676b63cd76b3a7846215..0c8ed87635ef37db548d086ada78a2020c4b390f`.
@@ -11,11 +11,15 @@ session re-emission could not run because Claude retained background ownership;
 the supported fork then failed before inference on missing internal tool
 `EndConversation` (`total_cost_usd=0`). The review was not rerun. Its candidates
 were independently triaged as ordinary findings: cr15-1 admitted; cr15-2 and
-cr15-3 declined. One repair-verification round remains for this major section.
+cr15-3 declined. cr15-1 landed at `9ef78a2`; final round 2 returned `accepted`,
+`guard_confirmed=true`, `capability_ok=true`, with exact full SHA pins after
+independent fail-under-sabotage/pass-restored proof and SIEM 330/330. Hosted CI
+`31675780336` passed all six jobs, including native Windows SIEM. cr15 is
+closed at its two-round cap.
 
 | ID | Severity | Impact (one line) | Status | Reviewer |
 |----|----------|-------------------|--------|----------|
-| cr15-1 | MEDIUM | Windows test-host construction cleanup can mask the real startup failure with a locked `siem.db` error | `[~]` repaired; verification pending | claude/claude-opus-5/xhigh/standard |
+| cr15-1 | MEDIUM | Windows test-host construction cleanup can mask the real startup failure with a locked `siem.db` error | `[x]` `9ef78a2` accepted | claude/claude-opus-5/xhigh/standard |
 | cr15-2 | LOW candidate | release PDB allegedly discloses private build paths and violates a closed package set | `[-]` published PDB maps only a generic runner path to the public repo/commit; no closed-set contract | claude/claude-opus-5/xhigh/standard |
 | cr15-3 | LOW | ordinary CI omits two ARM64 RIDs | `[-]` approved S8 contract is three-OS ordinary CI plus five-RID release CI; closing five-RID run passed | claude/claude-opus-5/xhigh/standard |
 

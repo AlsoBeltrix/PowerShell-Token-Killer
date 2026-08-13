@@ -113,7 +113,7 @@ canonical-tree process slip was independently audited clean; cr14 closed at
 its two-round cap. `.agents/review/index.md` owns the record. **Next item:**
 select the next major queued section from current repository and GitHub state.
 
-**cr15 S8 packaging review ACTIVE (2026-08-13).** Claude Code 2.1.229 /
+**cr15 S8 packaging review CLOSED (2026-08-13).** Claude Code 2.1.229 /
 claude-opus-5 / xhigh reviewed the unreviewed S8 range
 `22ca2ab..0c8ed87`. Its otherwise concrete three-candidate payload was
 formally invalid because candidate 2 omitted required severity; the one allowed
@@ -125,8 +125,11 @@ evidence in `.agents/review/cr15-declined.contested.md`. cr15-1 now routes both
 normal and failed disposal through one pool-clear-before-delete primitive. Its
 real-store injected-start-failure guard fails under exact clear removal and
 passes restored. Full SIEM passes 330/330; changed-file formatting and diff
-hygiene pass. The one remaining Claude round is pending.
-`.agents/review/index.md` owns the loop.
+hygiene pass. Final round 2 independently reproduced the exact sabotage
+failure, restored clean bytes, passed focused 1/1 and SIEM 330/330; verdict
+`accepted`, `guard_confirmed=true`, `capability_ok=true`, exact SHA pins.
+Hosted CI `31675780336` passed all six jobs, including native Windows SIEM.
+cr15 closed at its two-round cap; `.agents/review/index.md` owns the record.
 
 First exact-head hosted run `31649960173` proved Ubuntu and macOS native SIEM
 packages, but Windows stopped before its package gate on test-host cleanup:

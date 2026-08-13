@@ -22,17 +22,19 @@ owner-requested Kimi review over the pre-decision plan pins returned
 `.agents/review/siem-operator-readiness-kimi-r1.md`. It did not approve
 implementation and does not cover the later Decision A-C amendments.
 
-The owner has settled Decisions A-C. The selected destination must receive every
-possibly relevant fact/evidence artifact PTK captures, including exact commands
-and complete captured output/error evidence. Supported clients supply per-call
+The owner has settled Decisions A-C. Every configured destination must receive
+every possibly relevant fact/evidence artifact PTK captures, including exact
+commands and complete captured output/error evidence. Supported clients supply per-call
 agent/model identity when technically possible; PTK records provenance and
-explicit absence, never guesses. PTK exports to exactly one operator-chosen
-destination: the organization's real SIEM, or a separately and explicitly
-deployed mini-SIEM. PTK never automatically installs the mini-SIEM or sends
-sensitive exports to both. The mandatory local fail-closed journal is only the
-disclosed admission/replay/delivery source, not a second SIEM or investigation
-dashboard. Decision D—the first real external-SIEM acceptance target—is the only
-remaining owner gate. No implementation is approved.
+explicit absence, never guesses. PTK setup defaults to one operator-chosen
+destination and never forces another. Operators may explicitly opt into
+multiple destinations; every configured destination receives the full stream
+and has independent delivery/backlog/error accounting. PTK never automatically
+installs or selects the mini-SIEM and never silently duplicates evidence. The
+mandatory local fail-closed journal is only the disclosed
+admission/replay/delivery source, not a SIEM destination or investigation
+dashboard. Decision D—the first real external-SIEM acceptance target—is the
+only remaining owner gate. No implementation is approved.
 
 A live disposable published-artifact proof remains under
 `~/.ptk-siem-live-proof` on loopback ports 19418/19443 (plus TLS-validating

@@ -18,9 +18,10 @@ proof matched; `material_changes` and `findings` were empty. Canonical record:
 
 The Kimi verdict covers only the pre-amendment plan at its recorded SHA pins.
 The owner subsequently settled Decisions A-C: mandatory full-fidelity evidence
-at whichever one destination is selected, source-labeled per-call agent/model
-identity when clients can supply it, and explicit exclusive choice of an
-external SIEM or separately deployed mini-SIEM. It does not review those
+at every explicitly configured destination, source-labeled per-call agent/model
+identity when clients can supply it, and operator-controlled destination setup:
+one by default with additional destinations available only by deliberate
+opt-in; the mini-SIEM remains separately deployed. It does not review those
 amendments, approve implementation, or settle Decision D.
 
 ## Closed — cr16 (Claude review over release signing/notarization, 2026-08-13)

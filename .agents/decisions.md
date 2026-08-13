@@ -34,34 +34,46 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
-### ACTIVE (2026-08-13): PTK exports to exactly one operator-chosen SIEM destination
+### ACTIVE (2026-08-13, amended): SIEM destinations are explicit and operator-chosen
 
-**Status:** Active — ruled by the owner on 2026-08-13 for Decision C in
-`.agents/plans/siem-operator-readiness.md`.
+**Status:** Active — Decision C ruled by the owner on 2026-08-13 and amended
+the same day in `.agents/plans/siem-operator-readiness.md`.
 
-- PTK produces one full-fidelity, SIEM-compliant audit stream and exports it to
-  exactly one configured destination. It never silently or automatically sends
-  the same sensitive evidence to both the PTK mini-SIEM and another SIEM.
-- When an organization has a real SIEM, PTK exports directly to that SIEM. When
-  no full SIEM is available and an operator wants visibility, the operator may
+- PTK produces one full-fidelity, SIEM-compliant audit stream. The default setup
+  configures one operator-chosen destination; PTK never forces a second
+  destination.
+- An operator may explicitly opt into multiple destinations. PTK never silently
+  adds, discovers, enables, or duplicates evidence to a destination. Each
+  configured destination is named and independently removable by an explicit
+  operator action.
+- Every configured destination receives the same full-fidelity record required
+  by Decision A. Each has independent event/evidence acknowledgment cursors,
+  backlog, health, and errors so success at one cannot hide failure at another.
+- Each admitted record fixes its required destination set from the destinations
+  enabled at admission. Adding a destination does not silently copy historical
+  evidence to it; historical backfill is a separately confirmed action with an
+  explicit range and destination.
+- When an organization has a real SIEM, PTK can export directly to it. When no
+  full SIEM is available and an operator wants visibility, the operator may
   deploy the PTK mini-SIEM at an explicitly chosen location and configure it as
-  PTK's one destination.
+  a destination. An operator may also explicitly select both.
 - The mini-SIEM is a real deployable SIEM destination, not an automatically
-  installed local dashboard. The PTK installer must not install, start, or
-  configure it implicitly. Its package and deployment workflow remain separate
-  and explicit.
+  installed local dashboard. The PTK installer must not install, start,
+  configure, or select it implicitly. Its package and deployment workflow remain
+  separate and explicit.
 - PTK's mandatory local audit journal remains the disclosed fail-closed source
-  journal/spool needed for admission, replay, and delivery proof. It is not a
-  second export destination or a local SIEM deployment, and it must not grow a
-  duplicate operator investigation dashboard that obscures where sensitive
-  exported evidence resides.
-- Configuration, health, and acceptance must name the selected destination and
-  prove exclusive routing. Changing destinations is an explicit transactional
-  operator action; incomplete delivery remains visible and is not hidden by
-  falling back to a second destination.
+  journal/spool needed for admission, replay, and delivery proof. It is not an
+  export destination or local SIEM deployment and must not grow a duplicate
+  operator investigation dashboard.
+- Adding, changing, or removing a destination is transactional and explicit.
+  Removing a destination with unacknowledged evidence requires a separately
+  confirmed abandonment action whose undelivered range and custody consequence
+  are recorded; PTK never treats another destination's acknowledgment as that
+  destination's acknowledgment.
 
-This settles Decision C and supersedes the plan's former local-evaluation versus
-anchored-receiver deployment split.
+This settles the amended Decision C and supersedes both the former
+local-evaluation/anchored-receiver split and the briefly recorded hard
+single-destination exclusion.
 
 ### ACTIVE (2026-08-13): supported clients supply per-call agent/model identity when possible
 
@@ -96,16 +108,17 @@ does not expose.
 `.agents/plans/siem-operator-readiness.md`.
 
 - Every fact and evidence artifact PTK captures that could help reconstruct or
-  investigate an operation must be available in whichever single destination
-  the operator selected: the PTK mini-SIEM or an external SIEM. This includes
+  investigate an operation must be available in every explicitly configured
+  destination: the PTK mini-SIEM, an external SIEM, or both when the operator
+  opts in. This includes
   exact submitted command bytes, complete
   captured response/output and error evidence, actor/client and supplied
   agent/model attribution with its trust source, requested and effective
   execution context, tool/action/route/timeout, lifecycle and terminal details,
   and chain, custody, gap, quarantine, disposition, and retention records.
 - There is no `metadata` versus `full_command` product mode and no unattended
-  default that suppresses command or output evidence. The selected destination
-  must receive the complete stream; a destination that lacks
+  default that suppresses command or output evidence. Every configured
+  destination must receive the complete stream; a destination that lacks
   the complete retained evidence is visibly incomplete and cannot satisfy the
   SIEM acceptance gate.
 - Summary tables may remain bounded, but every activity must drill into the
@@ -120,8 +133,8 @@ does not expose.
   of the full-fidelity record.
 
 This supersedes the plan's former recommendation for optional `metadata` and
-`full_command` policies. Decision C separately forbids simultaneous export to
-the mini-SIEM and an external SIEM.
+`full_command` policies. Decision C governs explicit destination selection and
+permits operator-opted-in multiple destinations without making them the default.
 
 ### ACTIVE (2026-08-06): PTK's own verdict travels as structured data, never as text
 

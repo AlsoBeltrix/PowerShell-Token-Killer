@@ -7,7 +7,9 @@ approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed in the receiver and external
-SIEM; sensitive evidence is protected rather than suppressed. Decisions B-D
+SIEM; sensitive evidence is protected rather than suppressed. Decision B is
+also settled: supported clients must supply per-call agent/model identity when
+technically possible, with source/trust recorded and no guessing. Decisions C-D
 remain owner gates. Two owner-authorized,
 unprimed Claude Fable 5 `openreview` attempts over the committed plan produced
 no verdict. The first failed in the harness before model output. After the owner
@@ -17,10 +19,10 @@ rule, no further Fable call was made. Canonical latest record:
 `.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
 An owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over the
 same pins returned a valid `best_approach` verdict with no material changes or
-candidate findings on the plan before the owner settled Decision A. Its
+candidate findings on the plan before the owner settled Decisions A-B. Its
 canonical record is `.agents/review/siem-operator-readiness-kimi-r1.md`. Review
-endorsement does not approve implementation or settle Decisions B-D; it does
-not review the post-review Decision A amendment.
+endorsement does not approve implementation or settle Decisions C-D; it does
+not review the post-review Decision A-B amendments.
 
 This plan supersedes any interpretation of “mini-SIEM S1-S8 complete” as an
 operator-readiness or release-readiness claim. The completed work in
@@ -189,7 +191,7 @@ as if each were a user command.
 
 ## Owner decisions required before implementation
 
-Decision A below is settled. Decisions B-D record recommendations, not
+Decisions A-B below are settled. Decisions C-D record recommendations, not
 approvals; ask and record each separately.
 
 ### Decision A — full-fidelity evidence at SIEM destinations
@@ -206,17 +208,16 @@ not inferred. Canonical ruling: `.agents/decisions.md`.
 
 ### Decision B — model/agent attribution source
 
-PTK currently receives no model identity. A static server label cannot reliably
-describe clients that switch models, and a model-authored tool argument can lie.
-
-**Recommendation:** define an optional, namespaced per-call MCP metadata
-extension supplied by the initiating client and label it `client_asserted`.
-Continue recording initialize client identity independently. Do not infer model
-from executable names, process inspection, prompts, or session names. Provide a
-documented operator-configured source label only for grouping a dedicated MCP
-registration, label it `operator_configuration`, and never present either form
-as authenticated. If Codex or Claude cannot send per-call metadata, their UI
-records must say “model not supplied by client” until those integrations exist.
+**SETTLED 2026-08-13:** define a namespaced per-call attribution contract and
+require every client integration PTK claims to support to supply agent/model
+identity and useful task/run context whenever the client makes them technically
+available. Record exact source and trust: client values are `client_asserted`;
+dedicated static configuration is `operator_configuration`; neither becomes
+`authenticated` without an authenticated binding. Keep initialize client
+identity separate. Never infer identity from process names, executable paths,
+prompts, session names, or command text. When a client cannot or does not supply
+identity, the record and UI say “not supplied by client” and preserve the known
+capability/source reason. Canonical ruling: `.agents/decisions.md`.
 
 ### Decision C — supported first-run deployment
 
@@ -269,20 +270,26 @@ against `0.3.0-rc.1` for the intended reasons.
 
 ### S1 — attribution and execution-context contract
 
-- Extend the audit schema compatibly for optional agent/model attribution and
-  its source/strength. Preserve v1/v2 readers and exact historical field sets.
-- Investigate the MCP SDK's request `_meta` path first. If it cannot carry
-  per-call metadata through the call filter, stop and return Decision B to the
-  owner; do not silently substitute tool arguments or process heuristics.
+- Extend the audit schema compatibly for per-call agent/model attribution,
+  task/run context, source/strength, and an explicit unavailable reason.
+  Preserve v1/v2 readers and exact historical field sets.
+- Investigate the MCP SDK's request `_meta` path first, then documented client
+  integration hooks. If a client cannot carry per-call metadata through the
+  call filter, record that capability gap and display identity as unavailable;
+  do not silently substitute tool arguments or process heuristics.
 - Capture effective execution working directory at the dispatch boundary.
   Derive repository identity only as a bounded path/root value; do not invoke
   arbitrary repository hooks or include remote credentials.
-- Keep initialize client identity and per-call model metadata separate.
+- Keep initialize client identity and per-call model metadata separate. Update
+  every PTK-supported client adapter, registration template, and setup guide to
+  send attribution when its client exposes it.
 - Add schema, serialization, exporter, receiver-conformance, spoofing-label,
   absence-label, and backward-compatibility tests.
 
-Exit evidence: a supplied model appears as `client_asserted`; an unsupplied
-model is explicitly absent; no test can promote either to authenticated.
+Exit evidence: each supported identity-capable client sends exact per-call
+agent/model values and they appear with their real provenance; an incapable or
+omitting client is explicitly unattributed with a reason; no test can promote
+client/configuration assertions to authenticated.
 
 ### S2 — full-fidelity evidence export, destination storage, and retention
 

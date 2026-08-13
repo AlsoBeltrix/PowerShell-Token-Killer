@@ -34,6 +34,33 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-08-13): supported clients supply per-call agent/model identity when possible
+
+**Status:** Active — ruled by the owner on 2026-08-13 for Decision B in
+`.agents/plans/siem-operator-readiness.md`.
+
+- Define a namespaced per-call attribution contract for agent name, model
+  provider/name, and any useful client task/run context. Every client adapter,
+  registration template, or integration PTK claims to support must send these
+  fields when the client makes them technically available.
+- Record where each attribution value came from and its trust strength.
+  Client-supplied values are `client_asserted`; a label fixed in a dedicated
+  operator configuration is `operator_configuration`; neither is
+  `authenticated` without an independently authenticated binding.
+- Keep MCP initialize client name/version/session distinct from per-call
+  agent/model identity. A static server or registration label must not be shown
+  as the model responsible for a call that may select models dynamically.
+- Never infer missing identity from executable names, process inspection,
+  prompts, session names, or command text. If a client or transport cannot
+  supply a field, store and display it as “not supplied by client,” including
+  the source/capability reason where known.
+- Acceptance must prove both cases: a supported identity-capable client appears
+  with the exact supplied values and provenance, and an incapable/omitting
+  client remains explicitly unattributed without guessed values.
+
+This settles Decision B. It does not require PTK to fabricate identity a client
+does not expose.
+
 ### ACTIVE (2026-08-13): SIEM is a full-fidelity forensic record, not a metadata feed
 
 **Status:** Active — ruled by the owner on 2026-08-13 for Decision A in

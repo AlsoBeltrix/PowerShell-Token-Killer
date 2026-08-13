@@ -25,9 +25,11 @@ canonical record. It did not approve implementation. The owner subsequently
 settled Decision A: every possibly relevant fact and evidence artifact PTK
 captures, including exact command and complete captured response/output/error
 evidence, must be exposed in the receiver and external SIEM; access controls
-protect it, and metadata-only export is not a supported mode. Decisions B-D
-remain open and no implementation is approved. A live disposable
-published-artifact
+protect it, and metadata-only export is not a supported mode. The owner also
+settled Decision B: PTK-supported client integrations must supply per-call
+agent/model identity whenever technically possible, with source/trust recorded;
+PTK never guesses, and unavailable identity is explicit. Decisions C-D remain
+open and no implementation is approved. A live disposable published-artifact
 proof remains under `~/.ptk-siem-live-proof` on loopback ports 19418/19443
 (plus TLS-validating forwarder 19466) for owner inspection; it did not alter or
 restart installed PTK. Host evidence is in `.agents/machines.md`.

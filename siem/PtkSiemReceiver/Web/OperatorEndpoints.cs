@@ -53,6 +53,7 @@ internal static class OperatorEndpoints
 
     internal static void Map(WebApplication application)
     {
+        ActivityEndpoints.Map(application);
         application.MapGet("/", HandleDashboardAsync);
         application.MapGet("/api/events", HandleEventsAsync);
         application.MapGet("/api/events/{eventId}", HandleEventDetailAsync);
@@ -118,7 +119,7 @@ internal static class OperatorEndpoints
 
     // ---- Admission ----
 
-    private static async Task<bool> AdmitAsync(HttpContext context, SiemReceiverOptions options)
+    internal static async Task<bool> AdmitAsync(HttpContext context, SiemReceiverOptions options)
     {
         if (!await AdmitSurfaceAsync(context, options).ConfigureAwait(false)) return false;
 
@@ -984,7 +985,7 @@ internal static class OperatorEndpoints
             endpoint);
     }
 
-    private static SqliteConnection OpenReadOnly(string sqlitePath)
+    internal static SqliteConnection OpenReadOnly(string sqlitePath)
     {
         var connection = new SqliteConnection(
             new SqliteConnectionStringBuilder
@@ -1038,7 +1039,7 @@ internal static class OperatorEndpoints
             ? limit
             : DefaultEventLimit;
 
-    private static async Task WriteJsonAsync(HttpContext context, int status, object payload)
+    internal static async Task WriteJsonAsync(HttpContext context, int status, object payload)
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         context.Response.StatusCode = status;
@@ -1059,40 +1060,152 @@ internal static class OperatorEndpoints
 <meta charset="utf-8">
 <title>PTK SIEM Receiver</title>
 <style>
-body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:1.5rem;background:#111;color:#ddd}
-h1{font-size:1.2rem} h2{font-size:1rem;margin-top:1.5rem;color:#9cf}
-pre{background:#1a1a1a;padding:.75rem;overflow:auto;border-radius:6px}
-table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid #333;padding:.25rem .5rem;text-align:left;font-size:.85rem}
-input,select{background:#222;color:#ddd;border:1px solid #444;padding:.3rem;border-radius:4px}
-button{background:#265;color:#fff;border:0;padding:.4rem .8rem;border-radius:4px;cursor:pointer}
-.warn{color:#fa5}
+ body{font-family:ui-monospace,Menlo,Consolas,monospace;margin:1.5rem;background:#111;color:#ddd}
+ h1{font-size:1.35rem} h2{font-size:1rem;margin-top:1.5rem;color:#9cf}
+ pre{background:#1a1a1a;padding:.75rem;overflow:auto;border-radius:6px}
+ table{border-collapse:collapse;width:100%} td,th{border-bottom:1px solid #333;padding:.25rem .5rem;text-align:left;font-size:.85rem}
+ input,select{background:#222;color:#ddd;border:1px solid #444;padding:.3rem;border-radius:4px}
+ button{background:#265;color:#fff;border:0;padding:.4rem .8rem;border-radius:4px;cursor:pointer}
+ .warn{color:#fa5}.muted{color:#999}.activity-row{cursor:pointer}.activity-row:hover,.activity-row:focus{background:#1d2d2d;outline:1px solid #476}
+ .evidence{border-left:3px solid #476;padding-left:.75rem}.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;margin:.5rem 0}.hidden{display:none}
 </style>
 </head>
 <body>
-<h1>PTK SIEM Receiver — stored audit evidence</h1>
+<h1>PTK mini-SIEM</h1>
+<p class="muted">One row is one PTK invocation. Agent and model values are shown only when PTK actually received them.</p>
 <form id="auth" onsubmit="return saveToken(event)" style="display:none">
 <input id="tok" type="password" placeholder="operator token" size="40"> <button>Unlock</button>
 <span class="warn">token required</span>
 </form>
+<h2>Health</h2><pre id="health">loading…</pre>
+<h2>Activities</h2>
+<form class="toolbar" onsubmit="return refreshActivities(event,true)">
+<input id="a-query" placeholder="search">
+<input id="a-agent" placeholder="agent">
+<input id="a-model" placeholder="model">
+<input id="a-client" placeholder="client">
+<input id="a-session" placeholder="session">
+<input id="a-tool" placeholder="tool">
+<select id="a-state"><option value="">any state</option><option>accepted</option><option>completed</option><option>failed</option><option>canceled</option><option>timed_out</option><option>outcome_unknown</option><option>not_started</option></select>
+<button>Filter</button>
+</form>
+<table id="activities"><thead><tr><th>started</th><th>state</th><th>client</th><th>agent</th><th>model</th><th>session</th><th>tool</th><th>command evidence</th></tr></thead><tbody></tbody></table>
+<div class="toolbar"><button id="next-activities" class="hidden" type="button" onclick="nextActivities()">Next page</button></div>
+<h2>Activity detail</h2>
+<pre id="activity-detail">Select an activity row.</pre>
+<div id="activity-evidence"></div>
+<details>
+<summary>System events, alerts, gaps, and quarantine</summary>
+<p class="muted">These are receiver and audit-lifecycle records, not additional PTK commands.</p>
 <h2>Chains</h2><pre id="chains">loading…</pre>
-<h2>Events</h2>
+<h2>Raw events</h2>
 <form onsubmit="return refreshEvents(event)">
 <input id="type" placeholder="event_type"> <input id="session" placeholder="session">
 <input id="boot" placeholder="boot id" size="38"> <button>Filter</button>
 </form>
 <table id="events"><thead><tr><th>occurred</th><th>type</th><th>boot</th><th>seq</th><th>session</th><th>outcome</th></tr></thead><tbody></tbody></table>
-<h2>Alerts</h2><pre id="alerts">loading…</pre>
-<h2>Gaps</h2><pre id="gaps">loading…</pre>
-<h2>Quarantine</h2><pre id="quarantine">loading…</pre>
+<h2>Alerts</h2><div id="alerts">loading…</div>
+<h2>Gaps</h2><div id="gaps">loading…</div>
+<h2>Quarantine</h2><div id="quarantine">loading…</div>
+</details>
 <script>
 let token=sessionStorage.getItem('ptk_operator_token')||'';
+let activityCursor=null;
 const api=(p)=>fetch(p,{headers:{Authorization:'Bearer '+token}});
+const postApi=(p,body)=>fetch(p,{method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)});
 function saveToken(e){
  e.preventDefault();
  token=document.getElementById('tok').value.trim();
  sessionStorage.setItem('ptk_operator_token',token);
  refresh();
  return false;
+}
+const shown=(value,reason)=>value===null||value===undefined||value===''?'unavailable: '+(reason||'not observed'):String(value);
+async function refreshActivities(e,reset){
+ if(e)e.preventDefault();
+ if(reset)activityCursor=null;
+ const q=new URLSearchParams();
+ for(const [id,name] of [['a-query','query'],['a-agent','agent'],['a-model','model'],['a-client','client'],['a-session','session'],['a-tool','tool'],['a-state','state']]){
+  const value=document.getElementById(id).value;if(value)q.set(name,value);
+ }
+ if(activityCursor)q.set('cursor',activityCursor);
+ const response=await api('/api/activities?'+q);
+ if(response.status===401){document.getElementById('auth').style.display='';return false;}
+ const result=await response.json();
+ const body=document.querySelector('#activities tbody');body.textContent='';
+ for(const activity of result.activities){
+  const row=document.createElement('tr');row.className='activity-row';row.tabIndex=0;
+  const model=[activity.model.provider,activity.model.name].filter(Boolean).join('/')||shown(null,activity.model.unavailable_reason);
+  const values=[activity.started_utc,activity.state,shown(activity.client.name),shown(activity.agent.name,activity.agent.unavailable_reason),model,shown(activity.session.name),shown(activity.request.tool),activity.command.preview||activity.command.availability];
+  for(const value of values){const cell=document.createElement('td');cell.textContent=value;row.appendChild(cell);}
+  row.addEventListener('click',()=>openActivity(activity.activity_id));
+  row.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();openActivity(activity.activity_id);}});
+  body.appendChild(row);
+ }
+ activityCursor=result.next_cursor;
+ document.getElementById('next-activities').classList.toggle('hidden',!activityCursor);
+ return false;
+}
+async function nextActivities(){if(activityCursor)await refreshActivities(null,false);}
+async function openActivity(id){
+ const response=await api('/api/activities/'+encodeURIComponent(id));
+ const result=await response.json();
+ const detail=document.getElementById('activity-detail');detail.textContent=JSON.stringify(result.activity,null,2);
+ const container=document.getElementById('activity-evidence');container.textContent='';
+ for(const evidence of result.activity.evidence){
+  const section=document.createElement('section');section.className='evidence';
+  const heading=document.createElement('h3');heading.textContent=evidence.kind+' — '+evidence.availability;section.appendChild(heading);
+  const content=document.createElement('pre');content.textContent=evidence.unavailable_reason||'loading exact evidence…';section.appendChild(content);container.appendChild(section);
+  if(evidence.href){
+   const evidenceResponse=await api(evidence.href);const evidenceResult=await evidenceResponse.json();
+   content.textContent=evidenceResponse.ok?evidenceResult.evidence.text:JSON.stringify(evidenceResult,null,2);
+  }
+ }
+}
+async function openEventSubject(eventId){
+ const response=await api('/api/events/'+encodeURIComponent(eventId));const result=await response.json();
+ if(!response.ok){document.getElementById('activity-detail').textContent=JSON.stringify(result,null,2);return;}
+ const body=JSON.parse(result.event.body);const callId=body.correlation&&body.correlation.call_id;
+ if(callId)await openActivity(callId);else document.getElementById('activity-detail').textContent=JSON.stringify(result,null,2);
+}
+function addJsonCard(container,item,actions){
+ const section=document.createElement('section');section.className='evidence';
+ const content=document.createElement('pre');content.textContent=JSON.stringify(item,null,2);section.appendChild(content);
+ const toolbar=document.createElement('div');toolbar.className='toolbar';
+ for(const action of actions){const button=document.createElement('button');button.type='button';button.textContent=action.label;button.addEventListener('click',action.run);toolbar.appendChild(button);}
+ section.appendChild(toolbar);container.appendChild(section);
+}
+async function transitionAlert(id,state){
+ const response=await postApi('/api/alerts/'+id+'/transition',{state});const result=await response.json();
+ document.getElementById('activity-detail').textContent=JSON.stringify(result,null,2);await refreshSystemViews();
+}
+async function disposeGap(id,disposition){
+ const response=await postApi('/api/gaps/'+id+'/disposition',{disposition});const result=await response.json();
+ document.getElementById('activity-detail').textContent=JSON.stringify(result,null,2);await refreshSystemViews();
+}
+async function refreshSystemViews(){
+ const alertResult=await (await api('/api/alerts')).json();const alerts=document.getElementById('alerts');alerts.textContent='';
+ for(const item of alertResult.alerts){const actions=[];
+  if(item.subject_kind==='event')actions.push({label:'Open activity or event',run:()=>openEventSubject(item.subject_id)});
+  if(item.state==='open')actions.push({label:'Acknowledge',run:()=>transitionAlert(item.alert_id,'acknowledged')});
+  if(item.state==='acknowledged')actions.push({label:'Close',run:()=>transitionAlert(item.alert_id,'closed')});
+  addJsonCard(alerts,item,actions);
+ }
+ if(!alertResult.alerts.length)alerts.textContent='none';
+ const gapResult=await (await api('/api/gaps')).json();const gaps=document.getElementById('gaps');gaps.textContent='';
+ for(const item of gapResult.gaps){const actions=[];
+  if(item.resume_event_id)actions.push({label:'Open resumed event',run:()=>openEventSubject(item.resume_event_id)});
+  if(item.state==='open'){actions.push({label:'Resolve',run:()=>disposeGap(item.gap_id,'resolved')});actions.push({label:'Accept data loss',run:()=>disposeGap(item.gap_id,'accepted-loss')});}
+  addJsonCard(gaps,item,actions);
+ }
+ if(!gapResult.gaps.length)gaps.textContent='none';
+ const quarantineResult=await (await api('/api/quarantine')).json();const quarantine=document.getElementById('quarantine');quarantine.textContent='';
+  for(const item of quarantineResult.items){const actions=[{label:'Open rejected evidence',run:()=>openQuarantine(item.attempt_id)}];if(item.claimed_event_id)actions.push({label:'Open claimed event',run:()=>openEventSubject(item.claimed_event_id)});addJsonCard(quarantine,item,actions);}
+  if(!quarantineResult.items.length)quarantine.textContent='none';
+}
+async function openQuarantine(id){
+ const response=await api('/api/quarantine/'+id);const result=await response.json();
+ document.getElementById('activity-detail').textContent=JSON.stringify(result,null,2);
 }
 async function refreshEvents(e){
  if(e)e.preventDefault();
@@ -1109,18 +1222,16 @@ async function refreshEvents(e){
  return false;
 }
 async function refresh(){
- const r=await api('/api/chains');
+ const r=await api('/api/health');
  if(r.status===401){document.getElementById('auth').style.display='';return;}
  document.getElementById('auth').style.display='none';
- const c=await r.json();
+ const health=await r.json();
+ document.getElementById('health').textContent=JSON.stringify(health,null,1);
+ await refreshActivities(null,true);
+ const c=await (await api('/api/chains')).json();
  document.getElementById('chains').textContent=JSON.stringify(c.chains,null,1);
  await refreshEvents();
- const a=await (await api('/api/alerts')).json();
- document.getElementById('alerts').textContent=a.alerts.length?JSON.stringify(a.alerts,null,1):'none';
- const g=await (await api('/api/gaps')).json();
- document.getElementById('gaps').textContent=g.gaps.length?JSON.stringify(g.gaps,null,1):'none';
- const q=await (await api('/api/quarantine')).json();
- document.getElementById('quarantine').textContent=q.items.length?JSON.stringify(q.items,null,1):'none';
+ await refreshSystemViews();
 }
 async function loop(){try{await refresh();}finally{setTimeout(loop,10000);}}
 loop();

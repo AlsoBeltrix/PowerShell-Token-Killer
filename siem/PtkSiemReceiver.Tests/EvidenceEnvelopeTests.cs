@@ -540,7 +540,7 @@ public sealed class EvidenceEnvelopeTests
         if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
     }
 
-    private sealed record EvidenceSet(
+    internal sealed record EvidenceSet(
         Guid ArtifactId,
         Guid CallId,
         IReadOnlyList<string> Records,
@@ -550,10 +550,11 @@ public sealed class EvidenceEnvelopeTests
             Guid sourceEventId,
             string evidenceKind,
             byte[] payload,
-            int chunkBytes = 96 * 1024)
+            int chunkBytes = 96 * 1024,
+            Guid? activityCallId = null)
         {
             var artifactId = Guid.NewGuid();
-            var callId = Guid.CreateVersion7();
+            var callId = activityCallId ?? Guid.CreateVersion7();
             var artifactDigest = Digest(payload);
             var count = Math.Max(1, (payload.Length + chunkBytes - 1) / chunkBytes);
             var records = new List<string>(count);

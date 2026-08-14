@@ -1,10 +1,9 @@
 # PtkSiemReceiver operator guide
 
 > **Operator-readiness status:** published `0.3.0-rc.1` predates full evidence
-> export. Current source ingests, verifies, indexes, and reassembles exact PTK
-> command/response/output evidence through authenticated APIs, but the dashboard
-> still lacks the planned correlated activity drill-down. Later readiness and
-> external-SIEM acceptance slices remain open.
+> export and activity investigation. Current source correlates each PTK call into
+> an attributable activity with exact retained evidence drill-down. Deployment,
+> packaging, and real external-SIEM acceptance slices remain open.
 
 PtkSiemReceiver is PTK's standalone OTLP/HTTP audit destination for sites that
 do not already have a SIEM. It accepts PTK audit records at `/v1/logs`, stores
@@ -265,6 +264,17 @@ Do not put either token in a URL.
 
 Available routes are:
 
+- `GET /api/activities` returns one row per PTK call. Optional filters are
+  `from`, `to`, `state`, `agent`, `model`, `client`, `session`, `tool`, and
+  `query`; `limit` and the returned `next_cursor` provide stable pagination.
+  Missing agent/model facts include their recorded unavailable reason and are
+  never inferred.
+- `GET /api/activities/{activityId}` returns the complete correlated activity,
+  evidence metadata/links, chain status, and every retained raw event. Follow
+  an evidence `href` with the same operator bearer token to retrieve exact
+  command, caller-response, or captured-output bytes.
+- `GET /api/health` summarizes ingest, evidence completeness, integrity,
+  quarantine/alerts, retention tombstones, and custody in operator language.
 - `GET /api/events` with optional `from`, `to`, `type`, `session`, `boot`,
   `call`, `source`, `artifact`, and `limit` filters. Evidence rows expose the
   indexed kind, artifact/chunk, capture-state, and correlation fields.
@@ -278,6 +288,9 @@ Available routes are:
   evidence_integrity`.
 - `GET /api/chains`, `/api/quarantine`, `/api/gaps`, and `/api/alerts`.
   Alerts accept the optional `state` filter.
+- `GET /api/quarantine/{attemptId}` returns the complete rejected request and,
+  when isolation succeeded, the exact rejected record body. This sensitive
+  evidence is intentionally absent from the quarantine list.
 - `POST /api/gaps/{gapId}/disposition` with
   `{"disposition":"resolved"}` or `{"disposition":"accepted-loss"}`.
 - `POST /api/alerts/{alertId}/transition` with
@@ -285,6 +298,13 @@ Available routes are:
   is `open` → `acknowledged` → `closed`.
 - `GET /api/custody/health` and, only during a detected older-database
   restore, `POST /api/custody/restore`.
+
+Start with the dashboard rather than `/api/events`: filter the activity table
+by agent/model/client/session/tool, then select a row to read the complete
+command, response/output, outcome, attribution source, working directory, and
+chain status. Alerts, gaps, quarantine, and raw lifecycle events remain in the
+separate **System events** section. Alert acknowledge/close and gap disposition
+actions record the operator token digest, time, endpoint, and result in custody.
 
 Use an SSH/management tunnel to a loopback operator listener when practical.
 If remote binding is required, configure a separately protected HTTPS

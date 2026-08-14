@@ -19,6 +19,7 @@ internal enum AuditCoreSchemaVersion
     V1,
     V2,
     V4,
+    V5,
 }
 
 internal readonly record struct AuditCoreEnvelopeShape(
@@ -54,6 +55,17 @@ internal static class AuditEvidenceSpoolScanner
     private static readonly HashSet<string> V4RootProperties = new(
         V2RootProperties.Concat(
             ["call_attribution", "client_context", "execution_context"]),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> V5RootProperties = new(
+        V4RootProperties.Append("evidence_manifest"),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> EvidenceManifestProperties = new(
+        [
+            "evidence_id", "envelope_event_id", "evidence_kind", "digest",
+            "byte_count", "encoding", "artifact_id", "artifact_digest",
+            "artifact_byte_count", "chunk_index", "chunk_count", "chunk_offset",
+            "retention_class", "capture_state",
+        ],
         StringComparer.Ordinal);
     private static readonly HashSet<string> CallAttributionProperties = new(
         [
@@ -614,7 +626,7 @@ internal static class AuditEvidenceSpoolScanner
         var scriptDigest = NullableString(request, "original_script_digest");
         if ((evidenceId is null) != (scriptDigest is null))
             throw new IOException("An audit record has a partial evidence reference.");
-        if (evidenceId is not null)
+                    if (evidenceId is not null)
         {
             if (!IsCanonicalEvidenceId(evidenceId) || !IsLowerHex(scriptDigest!, 64))
                 throw new IOException("An audit record has an invalid evidence reference.");
@@ -625,9 +637,34 @@ internal static class AuditEvidenceSpoolScanner
                     throw new IOException(
                         "An awaiting evidence identity has a conflicting audit digest.");
                 }
-                referenced.Add(new AuditEvidenceIdentity(evidenceId, scriptDigest!));
-            }
-        }
+                        referenced.Add(new AuditEvidenceIdentity(evidenceId, scriptDigest!));
+                    }
+
+                    if (shape.Version == AuditCoreSchemaVersion.V5)
+                    {
+                        foreach (var item in document.RootElement
+                                     .GetProperty("evidence_manifest")
+                                     .EnumerateArray())
+                        {
+                            var evidence = RequireExactObject(item, EvidenceManifestProperties);
+                            var manifestId = NullableString(evidence, "evidence_id");
+                            var manifestDigest = NullableString(evidence, "digest");
+                            if (manifestId is null || manifestDigest is null ||
+                                !IsCanonicalEvidenceId(manifestId) ||
+                                !IsLowerHex(manifestDigest, 64))
+                            {
+                                throw new IOException("An audit record has an invalid manifest evidence reference.");
+                            }
+                            if (candidateDigests.TryGetValue(manifestId, out var manifestCandidateDigest) &&
+                                !string.Equals(manifestCandidateDigest, manifestDigest, StringComparison.Ordinal))
+                            {
+                                throw new IOException(
+                                    "An awaiting evidence identity has a conflicting manifest digest.");
+                            }
+                            referenced.Add(new AuditEvidenceIdentity(manifestId, manifestDigest));
+                        }
+                    }
+                }
 
         expectedSequence = checked(expectedSequence + 1);
         expectedPreviousHash = parsed.EventHash;
@@ -647,6 +684,7 @@ internal static class AuditEvidenceSpoolScanner
             AuditEventSerializer.LegacySchemaVersion => AuditCoreSchemaVersion.V1,
             AuditEventSerializer.CurrentSchemaVersion => AuditCoreSchemaVersion.V2,
             AuditEventSerializer.CallContextSchemaVersion => AuditCoreSchemaVersion.V4,
+            AuditEventSerializer.FullEvidenceSchemaVersion => AuditCoreSchemaVersion.V5,
             _ => throw new IOException("An evidence-proof audit schema is unsupported."),
         };
         root = RequireExactObject(
@@ -655,7 +693,8 @@ internal static class AuditEvidenceSpoolScanner
             {
                 AuditCoreSchemaVersion.V1 => V1RootProperties,
                 AuditCoreSchemaVersion.V2 => V2RootProperties,
-                _ => V4RootProperties,
+                AuditCoreSchemaVersion.V4 => V4RootProperties,
+                _ => V5RootProperties,
             });
         _ = RequireExactObject(
             root.GetProperty("producer"),
@@ -664,7 +703,7 @@ internal static class AuditEvidenceSpoolScanner
                 : [V1ProducerProperties, V2ProducerProperties]);
         _ = RequireExactObject(root.GetProperty("session"), SessionProperties);
         _ = RequireExactObject(root.GetProperty("actor"), ActorProperties);
-        if (version == AuditCoreSchemaVersion.V4)
+        if (version is AuditCoreSchemaVersion.V4 or AuditCoreSchemaVersion.V5)
         {
             _ = RequireExactObject(
                 root.GetProperty("call_attribution"),
@@ -676,13 +715,21 @@ internal static class AuditEvidenceSpoolScanner
                 root.GetProperty("execution_context"),
                 ExecutionContextProperties);
         }
+        if (version == AuditCoreSchemaVersion.V5)
+        {
+            var manifest = root.GetProperty("evidence_manifest");
+            if (manifest.ValueKind != JsonValueKind.Array || manifest.GetArrayLength() is < 1 or > 128)
+                throw new IOException("An evidence-proof manifest is invalid.");
+            foreach (var item in manifest.EnumerateArray())
+                _ = RequireExactObject(item, EvidenceManifestProperties);
+        }
         _ = RequireExactObject(root.GetProperty("correlation"), CorrelationProperties);
         var request = RequireExactObject(
             root.GetProperty("request"),
             version == AuditCoreSchemaVersion.V1
                 ? V1RequestProperties
                 : V2RequestProperties);
-        if (version is AuditCoreSchemaVersion.V2 or AuditCoreSchemaVersion.V4)
+        if (version is AuditCoreSchemaVersion.V2 or AuditCoreSchemaVersion.V4 or AuditCoreSchemaVersion.V5)
         {
             var disposition = root.GetProperty("operator_disposition");
             if (disposition.ValueKind != JsonValueKind.Null)

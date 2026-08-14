@@ -24,6 +24,7 @@ internal sealed record AuditEventInput
     public AuditCallAttribution? CallAttribution { get; init; }
     public AuditClientCallContext? ClientCallContext { get; init; }
     public AuditExecutionContext? ExecutionContext { get; init; }
+    public IReadOnlyList<AuditEvidenceManifestEntry>? EvidenceManifest { get; init; }
     public required AuditCorrelation Correlation { get; init; }
     public required AuditRequest Request { get; init; }
     public AuditOperatorDispositionFacts? OperatorDisposition { get; init; }
@@ -192,6 +193,7 @@ internal static class AuditEventSerializer
     internal const string LegacySchemaVersion = "ptk.audit/1";
     internal const string CurrentSchemaVersion = "ptk.audit/2";
     internal const string CallContextSchemaVersion = "ptk.audit/4";
+    internal const string FullEvidenceSchemaVersion = "ptk.audit/5";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
@@ -385,6 +387,7 @@ internal static class AuditEventSerializer
         ValidateSession(input.Session);
         ValidateActor(input.Actor);
         ValidateCallContext(input);
+        ValidateEvidenceManifest(input.EvidenceManifest);
         ValidateCorrelation(input.Correlation);
         var providedFields = NormalizeProvidedFields(input.Request.ProvidedFields);
         ValidateRequest(input.EventType, input.Request);
@@ -571,6 +574,88 @@ internal static class AuditEventSerializer
             hasRepository == (execution.RepositoryUnavailableReason is not null))
         {
             throw Invalid("execution_context.repository", "root/path and absence reason are inconsistent");
+        }
+    }
+
+    private static void ValidateEvidenceManifest(
+        IReadOnlyList<AuditEvidenceManifestEntry>? manifest)
+    {
+        if (manifest is null)
+            return;
+        if (manifest.Count is < 1 or > AuditEvidenceManifest.MaximumEntries)
+            throw Invalid("evidence_manifest", "entry count is outside the bounded contract");
+
+        var evidenceIds = new HashSet<Guid>();
+        var envelopeIds = new HashSet<Guid>();
+        foreach (var entry in manifest)
+        {
+            RequireUuid(entry.EvidenceId, 4, "evidence_manifest.evidence_id");
+            if (!evidenceIds.Add(entry.EvidenceId))
+                throw Invalid("evidence_manifest.evidence_id", "must be unique");
+            RequireUuid(entry.EnvelopeEventId, 7, "evidence_manifest.envelope_event_id");
+            if (!envelopeIds.Add(entry.EnvelopeEventId))
+                throw Invalid("evidence_manifest.envelope_event_id", "must be unique");
+            RequireEnum(
+                entry.EvidenceKind,
+                new HashSet<string>(
+                    ["submitted_command", "caller_response", "captured_output"],
+                    StringComparer.Ordinal),
+                "evidence_manifest.evidence_kind",
+                nullable: false);
+            RequireLowerHex(entry.Digest, 64, "evidence_manifest.digest", nullable: false);
+            RequireNonNegative(entry.ByteCount, "evidence_manifest.byte_count");
+            RequireEnum(
+                entry.Encoding,
+                new HashSet<string>(["utf-8"], StringComparer.Ordinal),
+                "evidence_manifest.encoding",
+                nullable: false);
+            RequireUuid(entry.ArtifactId, 4, "evidence_manifest.artifact_id");
+            RequireLowerHex(
+                entry.ArtifactDigest,
+                64,
+                "evidence_manifest.artifact_digest",
+                nullable: false);
+            RequireNonNegative(entry.ArtifactByteCount, "evidence_manifest.artifact_byte_count");
+            RequireNonNegative(entry.ChunkIndex, "evidence_manifest.chunk_index");
+            if (entry.ChunkCount < 1 || entry.ChunkCount > AuditEvidenceManifest.MaximumEntries)
+                throw Invalid("evidence_manifest.chunk_count", "is outside the bounded contract");
+            RequireNonNegative(entry.ChunkOffset, "evidence_manifest.chunk_offset");
+            RequireEnum(
+                entry.RetentionClass,
+                new HashSet<string>(["forensic"], StringComparer.Ordinal),
+                "evidence_manifest.retention_class",
+                nullable: false);
+            RequireEnum(
+                entry.CaptureState,
+                new HashSet<string>(["complete", "incomplete"], StringComparer.Ordinal),
+                "evidence_manifest.capture_state",
+                nullable: false);
+        }
+
+        foreach (var artifact in manifest.GroupBy(entry => entry.ArtifactId))
+        {
+            var ordered = artifact.OrderBy(entry => entry.ChunkIndex).ToArray();
+            var first = ordered[0];
+            if (ordered.Length != first.ChunkCount ||
+                ordered.Any(entry =>
+                    entry.ArtifactDigest != first.ArtifactDigest ||
+                    entry.ArtifactByteCount != first.ArtifactByteCount ||
+                    entry.EvidenceKind != first.EvidenceKind ||
+                    entry.Encoding != first.Encoding ||
+                    entry.RetentionClass != first.RetentionClass ||
+                    entry.CaptureState != first.CaptureState))
+            {
+                throw Invalid("evidence_manifest", "artifact metadata is inconsistent");
+            }
+            long offset = 0;
+            for (var index = 0; index < ordered.Length; index++)
+            {
+                if (ordered[index].ChunkIndex != index || ordered[index].ChunkOffset != offset)
+                    throw Invalid("evidence_manifest", "artifact chunks are not contiguous");
+                offset = checked(offset + ordered[index].ByteCount);
+            }
+            if (offset != first.ArtifactByteCount)
+                throw Invalid("evidence_manifest", "artifact byte count does not match chunks");
         }
     }
 
@@ -967,9 +1052,11 @@ internal static class AuditEventSerializer
         writer.WriteStartObject();
         writer.WriteString(
             "schema_version",
-            input.CallAttribution is null
-                ? CurrentSchemaVersion
-                : CallContextSchemaVersion);
+            input.EvidenceManifest is not null
+                ? FullEvidenceSchemaVersion
+                : input.CallAttribution is null
+                    ? CurrentSchemaVersion
+                    : CallContextSchemaVersion);
         writer.WriteString("event_id", FormatUuid(eventId));
         writer.WriteString("event_type", input.EventType);
         writer.WriteString("occurred_utc", FormatTimestamp(occurredUtc));
@@ -1056,6 +1143,31 @@ internal static class AuditEventSerializer
                 "repository_unavailable_reason",
                 executionContext.RepositoryUnavailableReason);
             writer.WriteEndObject();
+        }
+
+        if (input.EvidenceManifest is { } manifest)
+        {
+            writer.WriteStartArray("evidence_manifest");
+            foreach (var evidence in manifest)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("evidence_id", FormatUuid(evidence.EvidenceId));
+                writer.WriteString("envelope_event_id", FormatUuid(evidence.EnvelopeEventId));
+                writer.WriteString("evidence_kind", evidence.EvidenceKind);
+                writer.WriteString("digest", evidence.Digest);
+                writer.WriteNumber("byte_count", evidence.ByteCount);
+                writer.WriteString("encoding", evidence.Encoding);
+                writer.WriteString("artifact_id", FormatUuid(evidence.ArtifactId));
+                writer.WriteString("artifact_digest", evidence.ArtifactDigest);
+                writer.WriteNumber("artifact_byte_count", evidence.ArtifactByteCount);
+                writer.WriteNumber("chunk_index", evidence.ChunkIndex);
+                writer.WriteNumber("chunk_count", evidence.ChunkCount);
+                writer.WriteNumber("chunk_offset", evidence.ChunkOffset);
+                writer.WriteString("retention_class", evidence.RetentionClass);
+                writer.WriteString("capture_state", evidence.CaptureState);
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
         }
 
         writer.WriteStartObject("correlation");

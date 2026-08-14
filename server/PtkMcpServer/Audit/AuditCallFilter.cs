@@ -150,7 +150,10 @@ internal static class AuditCallFilter
             if (!admittedAudit.TerminalWritten)
             {
                 var terminal = ResolveFallbackTerminal(result, authorizationRefused);
-                admittedAudit.CompleteFromFilter(terminal.State, terminal.BytesReturned);
+                admittedAudit.CompleteFromFilter(
+                    terminal.State,
+                    terminal.BytesReturned,
+                    authorizationRefused ? string.Empty : ReturnedText(result));
             }
 
             if (authorizationRefused)
@@ -251,6 +254,17 @@ internal static class AuditCallFilter
                 bytes = checked(bytes + Utf8.GetByteCount(text.Text ?? string.Empty));
         }
         return bytes;
+    }
+
+    private static string ReturnedText(CallToolResult result)
+    {
+        var builder = new StringBuilder();
+        foreach (var block in result.Content ?? [])
+        {
+            if (block is TextContentBlock text)
+                builder.Append(text.Text ?? string.Empty);
+        }
+        return builder.ToString();
     }
 
     private static CallToolResult Refusal(string? sanitizedFailure)

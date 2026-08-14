@@ -26,7 +26,25 @@ internal sealed record ValidatedOtlpRecord(
     long? SessionGeneration,
     string? CallId,
     long? JobId,
-    string? OutcomeState);
+    string? OutcomeState,
+    EvidenceRecordMetadata? Evidence = null);
+
+internal sealed record EvidenceRecordMetadata(
+    Guid ProducerSupervisorBootId,
+    Guid SourceEventId,
+    Guid EvidenceId,
+    string EvidenceKind,
+    string Digest,
+    long ByteCount,
+    string Encoding,
+    Guid ArtifactId,
+    string ArtifactDigest,
+    long ArtifactByteCount,
+    long ChunkIndex,
+    long ChunkCount,
+    long ChunkOffset,
+    string RetentionClass,
+    string CaptureState);
 
 internal sealed record RejectedOtlpAttempt(
     byte[] RawRequestBytes,
@@ -151,6 +169,8 @@ internal static class OtlpRequestValidator
     private const string V2 = "ptk.audit/2";
     private const string V3 = "ptk.audit/3";
     private const string V4 = "ptk.audit/4";
+    private const string V5 = "ptk.audit/5";
+    private const string EvidenceV1 = "ptk.evidence/1";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private const string EventHashMarker = ",\"event_hash\":\"";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -179,6 +199,33 @@ internal static class OtlpRequestValidator
     private static readonly HashSet<string> V4RootProperties = new(
         V2RootProperties.Concat(
             ["call_attribution", "client_context", "execution_context"]),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> V5RootProperties = new(
+        V4RootProperties.Append("evidence_manifest"),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> EvidenceManifestProperties = new(
+        [
+            "evidence_id", "envelope_event_id", "evidence_kind", "digest",
+            "byte_count", "encoding", "artifact_id", "artifact_digest",
+            "artifact_byte_count", "chunk_index", "chunk_count", "chunk_offset",
+            "retention_class", "capture_state",
+        ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> EvidenceRootProperties = new(
+        [
+            "schema_version", "event_id", "event_type", "occurred_utc", "observed_utc",
+            "producer", "stream", "source_event_id", "call_id", "evidence_id",
+            "evidence_kind", "digest", "byte_count", "encoding", "artifact_id",
+            "artifact_digest", "artifact_byte_count", "chunk_index", "chunk_count",
+            "chunk_offset", "retention_class", "capture_state", "payload_base64",
+            "event_hash",
+        ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> EvidenceProducerProperties = new(
+        ["host_id", "supervisor_boot_id", "version"],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> EvidenceStreamProperties = new(
+        ["stream_id", "sequence", "previous_event_hash"],
         StringComparer.Ordinal);
 
     private static readonly HashSet<string> AllowedHostStates = new(
@@ -394,11 +441,14 @@ internal static class OtlpRequestValidator
                 V2 => V2RootProperties,
                 V3 => V3RootProperties,
                 V4 => V4RootProperties,
+                V5 => V5RootProperties,
                 _ => throw new OtlpValidationException("schema_version"),
             };
             RequireExactProperties(root, expectedRoot, "body_shape");
-            if (schemaVersion == V4)
-                ValidateCallContext(root);
+        if (schemaVersion is V4 or V5)
+            ValidateCallContext(root);
+        if (schemaVersion == V5)
+            ValidateEvidenceManifest(root);
 
             var eventIdText = RequireString(root, "event_id", "event_id");
             var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
@@ -607,6 +657,16 @@ internal static class OtlpRequestValidator
             }
 
             exactBody = StrictUtf8.GetBytes(stringValue.GetString()!);
+            using (var probe = JsonDocument.Parse(exactBody))
+            {
+                if (probe.RootElement.ValueKind == JsonValueKind.Object &&
+                    probe.RootElement.TryGetProperty("schema_version", out var schema) &&
+                    schema.ValueKind == JsonValueKind.String &&
+                    string.Equals(schema.GetString(), EvidenceV1, StringComparison.Ordinal))
+                {
+                    return ValidateEvidenceJsonRecord(rawRecordBytes, exactBody, logRecord);
+                }
+            }
             using var body = ValidateBody(exactBody);
             RequireTruthfulJsonHints(logRecord, body.EventType, body.EventIdText);
 
@@ -640,6 +700,168 @@ internal static class OtlpRequestValidator
             return OtlpValidationResult.Invalid(
                 DescribeRejectedJsonRecord(rawRecordBytes, exactBody, "invalid_record"));
         }
+    }
+
+    private static OtlpValidationResult ValidateEvidenceJsonRecord(
+        byte[] rawRecordBytes,
+        byte[] exactBody,
+        JsonElement logRecord)
+    {
+        using var document = JsonDocument.Parse(
+            exactBody,
+            new JsonDocumentOptions
+            {
+                AllowTrailingCommas = false,
+                CommentHandling = JsonCommentHandling.Disallow,
+                MaxDepth = 16,
+            });
+        var root = RequireObject(document.RootElement, "evidence_shape");
+        EnsureNoDuplicateProperties(root);
+        RequireExactProperties(root, EvidenceRootProperties, "evidence_shape");
+        if (RequireString(root, "schema_version", "schema_version") != EvidenceV1)
+            Fail("schema_version");
+
+        var eventIdText = RequireString(root, "event_id", "event_id");
+        var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
+        var kind = RequireString(root, "evidence_kind", "evidence_kind");
+        if (kind is not ("submitted_command" or "caller_response" or "captured_output"))
+            Fail("evidence_kind");
+        var eventType = RequireString(root, "event_type", "event_type");
+        if (!string.Equals(eventType, $"evidence.{kind}", StringComparison.Ordinal))
+            Fail("event_type");
+        var occurred = RequireUtc(root, "occurred_utc", "occurred_utc");
+        var observed = RequireUtc(root, "observed_utc", "observed_utc");
+
+        var producer = RequireObjectProperty(root, "producer", "producer");
+        RequireExactProperties(producer, EvidenceProducerProperties, "producer");
+        var hostId = RequireCanonicalUuid(
+            RequireString(producer, "host_id", "producer"),
+            4,
+            "producer");
+        var producerSupervisorBootId = RequireCanonicalUuid(
+            RequireString(producer, "supervisor_boot_id", "producer"),
+            4,
+            "producer");
+        _ = RequireNonemptyString(producer, "version", "producer");
+
+        var stream = RequireObjectProperty(root, "stream", "stream");
+        RequireExactProperties(stream, EvidenceStreamProperties, "stream");
+        var streamId = RequireCanonicalUuid(
+            RequireString(stream, "stream_id", "stream"),
+            4,
+            "stream");
+        var sequence = RequireInt64(stream, "sequence", "stream");
+        if (sequence < 1)
+            Fail("stream");
+        var previousHash = OptionalString(stream, "previous_event_hash", "stream");
+        if ((sequence == 1) != (previousHash is null) ||
+            (previousHash is not null && !IsLowerHex(previousHash, 64)))
+        {
+            Fail("stream");
+        }
+
+        var sourceEventId = RequireCanonicalUuid(
+            RequireString(root, "source_event_id", "source_event_id"),
+            7,
+            "source_event_id");
+        var callId = OptionalString(root, "call_id", "call_id");
+        if (callId is not null)
+            _ = RequireCanonicalUuid(callId, 7, "call_id");
+        var evidenceId = RequireCanonicalUuid(
+            RequireString(root, "evidence_id", "evidence_id"),
+            4,
+            "evidence_id");
+        var digest = RequireString(root, "digest", "digest");
+        if (!IsLowerHex(digest, 64))
+            Fail("digest");
+        var byteCount = RequireInt64(root, "byte_count", "byte_count");
+        if (byteCount < 0 || byteCount > 131_072)
+            Fail("byte_count");
+        var encoding = RequireString(root, "encoding", "encoding");
+        if (encoding != "utf-8")
+            Fail("encoding");
+        var artifactId = RequireCanonicalUuid(
+            RequireString(root, "artifact_id", "artifact_id"),
+            4,
+            "artifact_id");
+        if (artifactId != streamId)
+            Fail("artifact_id");
+        var artifactDigest = RequireString(root, "artifact_digest", "artifact_digest");
+        if (!IsLowerHex(artifactDigest, 64))
+            Fail("artifact_digest");
+        var artifactBytes = RequireInt64(root, "artifact_byte_count", "artifact_byte_count");
+        var chunkIndex = RequireInt64(root, "chunk_index", "chunk_index");
+        var chunkCount = RequireInt64(root, "chunk_count", "chunk_count");
+        var chunkOffset = RequireInt64(root, "chunk_offset", "chunk_offset");
+        if (artifactBytes is < 0 or > 16_777_216 || chunkIndex < 0 || chunkCount < 1 ||
+            chunkCount > 128 || chunkIndex >= chunkCount || sequence != chunkIndex + 1 ||
+            chunkOffset < 0 || chunkOffset > artifactBytes ||
+            byteCount > artifactBytes - chunkOffset)
+        {
+            Fail("chunk");
+        }
+        var retentionClass = RequireString(root, "retention_class", "retention_class");
+        var captureState = RequireString(root, "capture_state", "capture_state");
+        if (retentionClass != "forensic" ||
+            captureState is not ("complete" or "incomplete"))
+        {
+            Fail("evidence_policy");
+        }
+        var payloadElement = root.GetProperty("payload_base64");
+        byte[]? payload = [];
+        if (payloadElement.ValueKind != JsonValueKind.String ||
+            !payloadElement.TryGetBytesFromBase64(out payload) ||
+            payload is null || payload.LongLength != byteCount)
+        {
+            Fail("payload");
+        }
+        if (!string.Equals(
+                Convert.ToHexString(SHA256.HashData(payload!)).ToLowerInvariant(),
+                digest,
+                StringComparison.Ordinal))
+        {
+            Fail("payload");
+        }
+        var eventHash = RequireString(root, "event_hash", "event_hash");
+        if (!IsLowerHex(eventHash, 64) || !HasValidEventHash(exactBody, eventHash))
+            Fail("event_hash");
+
+        RequireTruthfulJsonHints(logRecord, eventType, eventIdText);
+        return OtlpValidationResult.Valid(new ValidatedOtlpRecord(
+            rawRecordBytes,
+            exactBody,
+            EvidenceV1,
+            eventId,
+            eventType,
+            occurred,
+            observed,
+            hostId,
+            eventHash,
+            previousHash,
+            streamId,
+            WorkerBootId: null,
+            sequence,
+            SessionName: null,
+            SessionGeneration: null,
+            callId,
+            JobId: null,
+            OutcomeState: null,
+            Evidence: new EvidenceRecordMetadata(
+                producerSupervisorBootId,
+                sourceEventId,
+                evidenceId,
+                kind,
+                digest,
+                byteCount,
+                encoding,
+                artifactId,
+                artifactDigest,
+                artifactBytes,
+                chunkIndex,
+                chunkCount,
+                chunkOffset,
+                retentionClass,
+                captureState)));
     }
 
     /// <summary>
@@ -894,6 +1116,137 @@ internal static class OtlpRequestValidator
             hasRepository == (repositoryReason is not null))
         {
             Fail("execution_context");
+        }
+    }
+
+    private static void ValidateEvidenceManifest(JsonElement root)
+    {
+        var manifest = root.GetProperty("evidence_manifest");
+        if (manifest.ValueKind != JsonValueKind.Array || manifest.GetArrayLength() is < 1 or > 128)
+            Fail("evidence_manifest");
+        var evidenceIds = new HashSet<Guid>();
+        var envelopeIds = new HashSet<Guid>();
+        var artifacts = new Dictionary<Guid, List<JsonElement>>();
+        foreach (var item in manifest.EnumerateArray())
+        {
+            RequireExactProperties(item, EvidenceManifestProperties, "evidence_manifest");
+            var evidenceId = RequireCanonicalUuid(
+                RequireString(item, "evidence_id", "evidence_manifest"),
+                4,
+                "evidence_manifest");
+            var envelopeId = RequireCanonicalUuid(
+                RequireString(item, "envelope_event_id", "evidence_manifest"),
+                7,
+                "evidence_manifest");
+            if (!evidenceIds.Add(evidenceId) || !envelopeIds.Add(envelopeId))
+                Fail("evidence_manifest");
+            var kind = RequireString(item, "evidence_kind", "evidence_manifest");
+            if (kind is not ("submitted_command" or "caller_response" or "captured_output"))
+                Fail("evidence_manifest");
+            if (!IsLowerHex(RequireString(item, "digest", "evidence_manifest"), 64) ||
+                !IsLowerHex(RequireString(item, "artifact_digest", "evidence_manifest"), 64))
+            {
+                Fail("evidence_manifest");
+            }
+            var byteCount = RequireInt64(item, "byte_count", "evidence_manifest");
+            var artifactByteCount = RequireInt64(
+                item,
+                "artifact_byte_count",
+                "evidence_manifest");
+            var chunkIndex = RequireInt64(item, "chunk_index", "evidence_manifest");
+            var chunkCount = RequireInt64(item, "chunk_count", "evidence_manifest");
+            var chunkOffset = RequireInt64(item, "chunk_offset", "evidence_manifest");
+            if (byteCount is < 0 or > 131_072 ||
+                artifactByteCount is < 0 or > 16_777_216 ||
+                chunkIndex < 0 ||
+                chunkCount is < 1 or > 128 ||
+                chunkIndex >= chunkCount ||
+                chunkOffset < 0 ||
+                chunkOffset > artifactByteCount ||
+                byteCount > artifactByteCount - chunkOffset)
+            {
+                Fail("evidence_manifest");
+            }
+            if (RequireString(item, "encoding", "evidence_manifest") != "utf-8" ||
+                RequireString(item, "retention_class", "evidence_manifest") != "forensic" ||
+                RequireString(item, "capture_state", "evidence_manifest") is not ("complete" or "incomplete"))
+            {
+                Fail("evidence_manifest");
+            }
+            var artifactId = RequireCanonicalUuid(
+                RequireString(item, "artifact_id", "evidence_manifest"),
+                4,
+                "evidence_manifest");
+            if (!artifacts.TryGetValue(artifactId, out var chunks))
+            {
+                chunks = [];
+                artifacts.Add(artifactId, chunks);
+            }
+            chunks.Add(item);
+        }
+
+        foreach (var chunks in artifacts.Values)
+        {
+            var ordered = chunks
+                .OrderBy(item => RequireInt64(item, "chunk_index", "evidence_manifest"))
+                .ToArray();
+            var first = ordered[0];
+            var artifactByteCount = RequireInt64(
+                first,
+                "artifact_byte_count",
+                "evidence_manifest");
+            var chunkCount = RequireInt64(first, "chunk_count", "evidence_manifest");
+            var artifactDigest = RequireString(
+                first,
+                "artifact_digest",
+                "evidence_manifest");
+            var kind = RequireString(first, "evidence_kind", "evidence_manifest");
+            var encoding = RequireString(first, "encoding", "evidence_manifest");
+            var retentionClass = RequireString(
+                first,
+                "retention_class",
+                "evidence_manifest");
+            var captureState = RequireString(first, "capture_state", "evidence_manifest");
+            if (ordered.LongLength != chunkCount)
+                Fail("evidence_manifest");
+
+            long expectedOffset = 0;
+            for (var index = 0; index < ordered.Length; index++)
+            {
+                var item = ordered[index];
+                var byteCount = RequireInt64(item, "byte_count", "evidence_manifest");
+                if (RequireInt64(item, "chunk_index", "evidence_manifest") != index ||
+                    RequireInt64(item, "chunk_count", "evidence_manifest") != chunkCount ||
+                    RequireInt64(item, "chunk_offset", "evidence_manifest") != expectedOffset ||
+                    RequireInt64(item, "artifact_byte_count", "evidence_manifest") != artifactByteCount ||
+                    !string.Equals(
+                        RequireString(item, "artifact_digest", "evidence_manifest"),
+                        artifactDigest,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(
+                        RequireString(item, "evidence_kind", "evidence_manifest"),
+                        kind,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(
+                        RequireString(item, "encoding", "evidence_manifest"),
+                        encoding,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(
+                        RequireString(item, "retention_class", "evidence_manifest"),
+                        retentionClass,
+                        StringComparison.Ordinal) ||
+                    !string.Equals(
+                        RequireString(item, "capture_state", "evidence_manifest"),
+                        captureState,
+                        StringComparison.Ordinal) ||
+                    byteCount > artifactByteCount - expectedOffset)
+                {
+                    Fail("evidence_manifest");
+                }
+                expectedOffset += byteCount;
+            }
+            if (expectedOffset != artifactByteCount)
+                Fail("evidence_manifest");
         }
     }
 

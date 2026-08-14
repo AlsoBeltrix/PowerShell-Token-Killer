@@ -33,6 +33,17 @@ internal interface IScriptEvidencePublication : IDisposable
     bool ReconcileAfterAmbiguousAuditAppend(AuditJournal journal);
 }
 
+internal interface IAuditEvidenceBatchPublication : IDisposable
+{
+    IReadOnlyList<ScriptEvidenceReference> References { get; }
+
+    void CompleteAfterAuditAppend();
+
+    void AbandonBeforeAuditAppend();
+
+    bool ReconcileAfterAmbiguousAuditAppend(AuditJournal journal);
+}
+
 internal interface IAuditEvidenceAnchorLease : IDisposable
 {
     /// <summary>
@@ -98,6 +109,8 @@ public sealed class ScriptEvidenceStore
     private readonly object _gate = new();
     private readonly Action<SecureAuditStorageFaultStage>? _faultInjector;
     private readonly Action<AuditEvidenceRetentionFaultPoint>? _retentionFaultInjector;
+
+    internal int MaximumEvidenceBytes => _maximumBytes;
 
     private enum ArtifactState
     {
@@ -215,6 +228,82 @@ public sealed class ScriptEvidenceStore
     {
         ArgumentNullException.ThrowIfNull(retentionJournal);
         return PublishCore(script, retentionJournal, retentionContext);
+    }
+
+    internal IAuditEvidenceBatchPublication PublishBatch(
+        IReadOnlyList<ReadOnlyMemory<byte>> payloads,
+        AuditJournal retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
+    {
+        ArgumentNullException.ThrowIfNull(payloads);
+        ArgumentNullException.ThrowIfNull(retentionJournal);
+        if (payloads.Count == 0)
+            throw new ArgumentException("An evidence batch cannot be empty.", nameof(payloads));
+        if (payloads.Any(payload => payload.Length > _maximumBytes))
+            throw new ArgumentOutOfRangeException(
+                nameof(payloads),
+                "An evidence batch member exceeds the configured per-artifact limit.");
+
+        var temporaryPaths = new List<string>();
+        var publishedPaths = new List<string>();
+        IDisposable? quota = null;
+        try
+        {
+            lock (_gate)
+            {
+                quota = AcquireQuotaLock();
+                _ = RetainAndMeasureBatch(
+                    payloads.Count,
+                    retentionJournal,
+                    retentionContext);
+
+                var references = new List<ScriptEvidenceReference>(payloads.Count);
+                foreach (var payload in payloads)
+                {
+                    var bytes = payload.Span;
+                    var evidenceId = Guid.NewGuid().ToString("D");
+                    var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+                    var reference = new ScriptEvidenceReference(evidenceId, digest, bytes.Length);
+                    var temporaryPath = Path.Combine(_root, $".{evidenceId}.tmp");
+                    var publishedPath = Path.Combine(_root, $"{evidenceId}.{digest}.script");
+                    temporaryPaths.Add(temporaryPath);
+
+                    using (var stream = SecureAuditStorage.CreateExclusiveFile(
+                               temporaryPath,
+                               preallocationSize: bytes.Length))
+                    {
+                        InvokeFault(SecureAuditStorageFaultStage.Write);
+                        stream.Write(bytes);
+                        InvokeFault(SecureAuditStorageFaultStage.Flush);
+                        stream.Flush(flushToDisk: true);
+                    }
+
+                    InvokeFault(SecureAuditStorageFaultStage.Publish);
+                    SecureAuditStorage.PublishAtomically(temporaryPath, publishedPath, _root);
+                    temporaryPaths.Remove(temporaryPath);
+                    publishedPaths.Add(publishedPath);
+                    references.Add(reference);
+                }
+
+                var publication = new EvidenceBatchPublication(this, references, quota);
+                quota = null;
+                return publication;
+            }
+        }
+        catch (AuditUnavailableException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            foreach (var path in temporaryPaths.Concat(publishedPaths))
+                SecureAuditStorage.TryDelete(path);
+            throw new ScriptEvidenceStorageException();
+        }
+        finally
+        {
+            quota?.Dispose();
+        }
     }
 
     private IScriptEvidencePublication PublishCore(
@@ -644,7 +733,10 @@ public sealed class ScriptEvidenceStore
     internal IDisposable AcquireQuotaLockForTests() => AcquireQuotaLock();
 
     private long MeasureWithoutRetention(int? requiredPayloadBytes) =>
-        ProcessRetention(requiredPayloadBytes, retentionJournal: null);
+        ProcessRetention(
+            requiredPayloadBytes,
+            requiredPayloadBytes.HasValue ? 1 : 0,
+            retentionJournal: null);
 
     private long RetainAndMeasure(
         int? requiredPayloadBytes,
@@ -652,21 +744,47 @@ public sealed class ScriptEvidenceStore
         AuditEvidenceRetentionContext? retentionContext)
     {
         ArgumentNullException.ThrowIfNull(retentionJournal);
-        return ProcessRetention(requiredPayloadBytes, retentionJournal, retentionContext);
+        return ProcessRetention(
+            requiredPayloadBytes,
+            requiredPayloadBytes.HasValue ? 1 : 0,
+            retentionJournal,
+            retentionContext);
+    }
+
+    private long RetainAndMeasureBatch(
+        int requiredArtifactCount,
+        AuditJournal retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
+    {
+        ArgumentNullException.ThrowIfNull(retentionJournal);
+        if (requiredArtifactCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(requiredArtifactCount));
+        return ProcessRetention(
+            requiredPayloadBytes: null,
+            requiredArtifactCount,
+            retentionJournal,
+            retentionContext);
     }
 
     private long ProcessRetention(
         int? requiredPayloadBytes,
+        int requiredArtifactCount,
         AuditJournal? retentionJournal,
         AuditEvidenceRetentionContext? retentionContext = null)
     {
         if (requiredPayloadBytes is < 0 || requiredPayloadBytes > _maximumBytes)
             throw new IOException("Evidence reservation exceeds its configured bound.");
+        if (requiredArtifactCount < 0 ||
+            (requiredPayloadBytes.HasValue && requiredArtifactCount != 1) ||
+            (!requiredPayloadBytes.HasValue && retentionJournal is null && requiredArtifactCount != 0))
+        {
+            throw new IOException("Evidence reservation count is invalid.");
+        }
         // Charge every artifact at its configured worst case, including an
         // empty script. Besides reserving payload capacity before publish,
         // this freezes a finite artifact-count ceiling and prevents an
         // unbounded population of zero/tiny files and full-directory scans.
-        var requiredCharge = requiredPayloadBytes.HasValue ? _maximumBytes : 0L;
+        var requiredCharge = checked((long)requiredArtifactCount * _maximumBytes);
 
         var inventory = InventoryArtifacts();
         try
@@ -749,7 +867,7 @@ public sealed class ScriptEvidenceStore
 
             if (retained.Count > maximumRetained)
             {
-                if (!requiredPayloadBytes.HasValue)
+                if (requiredArtifactCount == 0)
                     return checked((long)retained.Count * _maximumBytes);
                 if (retentionAuditBlocked)
                     throw new AuditUnavailableException();
@@ -1520,6 +1638,100 @@ public sealed class ScriptEvidenceStore
                 failure ??= exception;
             }
             if (failure is not null) throw new ScriptEvidenceStorageException();
+        }
+    }
+
+    private sealed class EvidenceBatchPublication(
+        ScriptEvidenceStore owner,
+        IReadOnlyList<ScriptEvidenceReference> references,
+        IDisposable quota) : IAuditEvidenceBatchPublication
+    {
+        private readonly object _gate = new();
+        private IDisposable? _quota = quota;
+
+        public IReadOnlyList<ScriptEvidenceReference> References { get; } = references;
+
+        public void CompleteAfterAuditAppend()
+        {
+            lock (_gate)
+            {
+                if (_quota is null)
+                    throw new ObjectDisposedException(nameof(EvidenceBatchPublication));
+                foreach (var reference in References)
+                    owner.MarkLocalCommittedWhileQuotaHeld(reference);
+                ReleaseLocked();
+            }
+        }
+
+        public void AbandonBeforeAuditAppend()
+        {
+            lock (_gate)
+            {
+                if (_quota is null)
+                    throw new ObjectDisposedException(nameof(EvidenceBatchPublication));
+                foreach (var reference in References)
+                    owner.MarkUnreferencedWhileQuotaHeld(reference);
+                ReleaseLocked();
+            }
+        }
+
+        public bool ReconcileAfterAmbiguousAuditAppend(AuditJournal journal)
+        {
+            lock (_gate)
+            {
+                if (_quota is null)
+                    throw new ObjectDisposedException(nameof(EvidenceBatchPublication));
+                try
+                {
+                    foreach (var reference in References)
+                    {
+                        if (!owner.ReconcilePublicationWhileQuotaHeld(reference, journal))
+                            return false;
+                    }
+                    return true;
+                }
+                catch (ScriptEvidenceStorageException)
+                {
+                    throw;
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    throw new ScriptEvidenceStorageException();
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+                ReleaseLocked();
+        }
+
+        private void ReleaseLocked()
+        {
+            var value = _quota;
+            _quota = null;
+            if (value is null)
+                return;
+            Exception? failure = null;
+            try
+            {
+                owner.InvokeFault(SecureAuditStorageFaultStage.Release);
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                failure = exception;
+            }
+            try
+            {
+                value.Dispose();
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                failure ??= exception;
+            }
+            if (failure is not null)
+                throw new ScriptEvidenceStorageException();
         }
     }
 

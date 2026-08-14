@@ -1,11 +1,10 @@
 # PtkSiemReceiver operator guide
 
-> **Operator-readiness status:** the published `0.3.0-rc.1` receiver backend
-> ingests, stores, verifies, queries, and alerts on PTK audit events, but it is
-> not yet an operator-ready SIEM. Its dashboard lacks activity correlation and
-> drill-down, agent/model identity, and destination-side exact command and
-> complete response evidence. Backend/package tests do not close that release
-> gate.
+> **Operator-readiness status:** published `0.3.0-rc.1` predates full evidence
+> export. Current source ingests, verifies, indexes, and reassembles exact PTK
+> command/response/output evidence through authenticated APIs, but the dashboard
+> still lacks the planned correlated activity drill-down. Later readiness and
+> external-SIEM acceptance slices remain open.
 
 PtkSiemReceiver is PTK's standalone OTLP/HTTP audit destination for sites that
 do not already have a SIEM. It accepts PTK audit records at `/v1/logs`, stores
@@ -266,8 +265,17 @@ Do not put either token in a URL.
 
 Available routes are:
 
-- `GET /api/events` with optional `from`, `to`, `type`, `session`, `boot`, and
-  `limit` filters; `GET /api/events/{eventId}` includes chain context.
+- `GET /api/events` with optional `from`, `to`, `type`, `session`, `boot`,
+  `call`, `source`, `artifact`, and `limit` filters. Evidence rows expose the
+  indexed kind, artifact/chunk, capture-state, and correlation fields.
+- `GET /api/events/{eventId}` includes chain context. For a `ptk.audit/5` core
+  event it also reports `evidence_delivery` as `complete` or `incomplete`, with
+  expected/received counts and missing envelope event IDs.
+- `GET /api/evidence/{artifactId}` verifies every retained chunk and the
+  artifact-wide digest, then returns exact `payload_base64` and UTF-8 `text`.
+  Missing authorization is `401`; a retention-purged partial artifact is
+  `409 evidence_incomplete`; a stored integrity failure is `500
+  evidence_integrity`.
 - `GET /api/chains`, `/api/quarantine`, `/api/gaps`, and `/api/alerts`.
   Alerts accept the optional `state` filter.
 - `POST /api/gaps/{gapId}/disposition` with
@@ -389,7 +397,9 @@ protocol is designed to preserve.
 
 ## Upgrade and schema migration
 
-This revision's SQLite schema is version 10. Migrations are automatic,
+This revision's SQLite schema is version 11. Version 11 adds indexed typed
+evidence metadata, durable v5 manifest rows, and the evidence-delivery status
+view used for arrival-order-independent completeness checks. Migrations are automatic,
 transactional, and forward-only at receiver startup. A database with a schema
 newer than the binary is refused (`storage_schema_newer`); binary downgrade is
 unsupported.

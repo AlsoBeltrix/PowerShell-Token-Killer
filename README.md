@@ -218,10 +218,12 @@ explicitly selects one SIEM destination; additional destinations require
 deliberate opt-in. PTK never installs or selects a hidden destination, and its
 mini-SIEM is deployed separately when a full SIEM is unavailable.
 
-The published `0.3.0-rc.1` mini-SIEM backend stores and queries audit events,
-but it is not operator-ready: it has no activity-level investigation view,
-agent/model attribution, or destination-side exact command and complete
-response evidence. Backend test success is not a release-readiness result.
+Published `0.3.0-rc.1` predates full-fidelity evidence export. Current source
+exports typed exact command, caller-response, and captured output/error
+artifacts. The standalone receiver indexes their correlation metadata, tracks
+manifest completeness, and serves authorized exact reassembly. The dashboard
+still lacks the planned activity-level investigation view, so later readiness
+and external-SIEM acceptance work remains open.
 
 Auditing is base-level and non-bypassable. Every server boot opens a
 mandatory, fail-closed local journal (default `~/.ptk/audit`, override

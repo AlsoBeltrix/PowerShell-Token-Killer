@@ -92,6 +92,58 @@ public sealed class ProducerConformanceTests
     }
 
     [Fact]
+    public async Task The_exact_producer_evidence_golden_is_stored_reassembled_and_idempotent()
+    {
+        var golden = ProducerGoldenBytes("otlp-http-evidence-v1.golden.json");
+        var deliveredBodies = LogRecordBodies(golden);
+        Assert.Equal(2, deliveredBodies.Count);
+        var expected = deliveredBodies
+            .Select(body => JsonDocument.Parse(body))
+            .Select(document => document.RootElement
+                .GetProperty("payload_base64").GetBytesFromBase64())
+            .SelectMany(bytes => bytes)
+            .ToArray();
+        using var firstBody = JsonDocument.Parse(deliveredBodies[0]);
+        var artifactId = firstBody.RootElement.GetProperty("artifact_id").GetString()!;
+
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+
+        using (var response = await client.SendAsync(GoldenRequest(host.Endpoint, golden)))
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(2L, DatabaseInt64(host.DatabasePath, "SELECT COUNT(*) FROM events;"));
+        Assert.Equal(2L, DatabaseInt64(host.DatabasePath, "SELECT COUNT(*) FROM custody;"));
+        Assert.Equal(2L, DatabaseInt64(
+            host.DatabasePath,
+            "SELECT COUNT(*) FROM events WHERE schema_version = 'ptk.evidence/1' " +
+            $"AND artifact_id = '{artifactId}';"));
+
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            new Uri(host.OperatorEndpoint, $"/api/evidence/{artifactId}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Bearer", SiemReceiverTestHost.OperatorToken);
+        using var exact = await client.SendAsync(request);
+        Assert.Equal(HttpStatusCode.OK, exact.StatusCode);
+        using var exactPayload = JsonDocument.Parse(await exact.Content.ReadAsStringAsync());
+        Assert.Equal(
+            expected,
+            exactPayload.RootElement.GetProperty("evidence")
+                .GetProperty("payload_base64").GetBytesFromBase64());
+
+        using (var replay = await client.SendAsync(GoldenRequest(host.Endpoint, golden)))
+            Assert.Equal(HttpStatusCode.OK, replay.StatusCode);
+        Assert.Equal(2L, DatabaseInt64(host.DatabasePath, "SELECT COUNT(*) FROM events;"));
+        Assert.Equal(0L, DatabaseInt64(host.DatabasePath, "SELECT COUNT(*) FROM quarantine;"));
+    }
+
+    [Fact]
     public void The_fixture_gate_fails_closed_when_the_producer_corpus_is_absent()
     {
         // The locator must throw a message naming the producer ownership

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 
 namespace PtkMcpServer.Audit.Export;
@@ -24,6 +25,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private readonly AuditExportCursorStore _cursorStore;
     private readonly AuditExportGapStore _gapStore;
     private readonly AuditExportHealth _health;
+    private readonly ScriptEvidenceStoreProvider? _evidence;
     private readonly Func<AuditJournal?>? _liveJournalSource;
     private readonly AuditExportLease _lease = new();
     private readonly TimeSpan _idleInterval;
@@ -41,7 +43,8 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         TimeSpan? idleInterval = null,
         TimeSpan? initialRetryDelay = null,
         TimeSpan? maximumRetryDelay = null,
-        Func<AuditJournal?>? liveJournalSource = null)
+        Func<AuditJournal?>? liveJournalSource = null,
+        ScriptEvidenceStoreProvider? evidence = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(cursorStore);
@@ -51,6 +54,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         _cursorStore = cursorStore;
         _gapStore = new AuditExportGapStore(options.RootDirectory);
         _health = health;
+        _evidence = evidence;
         _liveJournalSource = liveJournalSource;
         // Gaps recorded by earlier processes are evidence and stay visible,
         // including any that an earlier process could not write to the
@@ -260,33 +264,42 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                         _ = _gapStore.TryRecordAttestation(claimedPrevious, bootKey);
                     }
 
-                    var result = await _destination
-                        .DeliverAsync(batch, cancellationToken)
-                        .ConfigureAwait(false);
-                    if (result.Disposition == AuditDeliveryDisposition.Retryable)
+                    var hasEvidence = batch.Any(record =>
+                        record.Contains(
+                            $"\"schema_version\":\"{AuditEventSerializer.FullEvidenceSchemaVersion}\"",
+                            StringComparison.Ordinal));
+                    if (hasEvidence)
                     {
-                        _health.RecordFailure(result.DetailCode ?? "export.failed");
-                        return delivered;
-                    }
-                    if (result.Disposition == AuditDeliveryDisposition.Permanent)
-                    {
-                        // A refusal is isolated to the offending record,
-                        // never applied to the whole batch (cr3-5): every
-                        // record is retried individually, so one poison
-                        // record costs one record. A record that is
-                        // individually refused is reported and stepped over
-                        // — the local journal remains complete.
-                        var isolated = await DeliverIndividuallyAsync(
-                            batch,
-                            result.DetailCode ?? "export.refused",
-                            cancellationToken).ConfigureAwait(false);
-                        if (isolated.Retry) return delivered;
-                        delivered += isolated.Delivered;
+                        if (!await DeliverLogicalBatchAsync(batch, cancellationToken).ConfigureAwait(false))
+                            return delivered;
+                        delivered += batch.Count;
+                        _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
                     }
                     else
                     {
-                        delivered += batch.Count;
-                        _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                        var result = await _destination
+                            .DeliverAsync(batch, cancellationToken)
+                            .ConfigureAwait(false);
+                        if (result.Disposition == AuditDeliveryDisposition.Retryable)
+                        {
+                            _health.RecordFailure(result.DetailCode ?? "export.failed");
+                            return delivered;
+                        }
+                        if (result.Disposition == AuditDeliveryDisposition.Permanent)
+                        {
+                            var isolated = await DeliverIndividuallyAsync(
+                                batch,
+                                result.DetailCode ?? "export.refused",
+                                cancellationToken).ConfigureAwait(false);
+                            if (isolated.Retry)
+                                return delivered;
+                            delivered += isolated.Delivered;
+                        }
+                        else
+                        {
+                            delivered += batch.Count;
+                            _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                        }
                     }
 
                     startOffset = nextOffset;
@@ -473,10 +486,17 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private async Task<(bool Retry, int Delivered)> DeliverIndividuallyAsync(
         IReadOnlyList<string> batch,
         string batchDetailCode,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, bool>? holdPermanentRefusal = null)
     {
         if (batch.Count == 1)
         {
+            if (AuditEvidenceEnvelope.IsEvidenceRecord(batch[0]) ||
+                holdPermanentRefusal?.Invoke(batch[0]) == true)
+            {
+                _health.RecordFailure("export.evidence_refused");
+                return (true, 0);
+            }
             _health.SetRefusedRecords(_gapStore.RecordRefusedRecord().RefusedRecords);
             _health.RecordFailure(batchDetailCode);
             return (false, 0);
@@ -498,6 +518,12 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                     _health.RecordFailure(single.DetailCode ?? "export.failed");
                     return (true, delivered);
                 default:
+                    if (AuditEvidenceEnvelope.IsEvidenceRecord(record) ||
+                        holdPermanentRefusal?.Invoke(record) == true)
+                    {
+                        _health.RecordFailure("export.evidence_refused");
+                        return (true, delivered);
+                    }
                     refused++;
                     // Durable: a refused record is never delivered, so the
                     // signal must outlive the next success and a restart
@@ -513,6 +539,94 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         if (refused > 0)
             _health.RecordFailure(batchDetailCode);
         return (false, delivered);
+    }
+
+    private async Task<bool> DeliverLogicalBatchAsync(
+        IReadOnlyList<string> coreRecords,
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<string> records = coreRecords;
+        if (coreRecords.Any(record =>
+                record.Contains(
+                    $"\"schema_version\":\"{AuditEventSerializer.FullEvidenceSchemaVersion}\"",
+                    StringComparison.Ordinal)))
+        {
+            string? expansionFailure = null;
+            if (_evidence is null ||
+                !AuditEvidenceEnvelope.TryExpand(
+                    coreRecords,
+                    _evidence,
+                    out records,
+                    out expansionFailure))
+            {
+                _health.RecordFailure(expansionFailure ?? "export.evidence_unavailable");
+                return false;
+            }
+        }
+
+        foreach (var group in GroupDeliveryRecords(records))
+        {
+            var result = await _destination!
+                .DeliverAsync(group, cancellationToken)
+                .ConfigureAwait(false);
+            if (result.Disposition == AuditDeliveryDisposition.Retryable)
+            {
+                _health.RecordFailure(result.DetailCode ?? "export.failed");
+                return false;
+            }
+            if (result.Disposition != AuditDeliveryDisposition.Permanent)
+                continue;
+
+            var isolated = await DeliverIndividuallyAsync(
+                group,
+                result.DetailCode ?? "export.refused",
+                cancellationToken,
+                RequiresFullEvidenceAcknowledgment).ConfigureAwait(false);
+            if (isolated.Retry)
+                return false;
+        }
+        return true;
+    }
+
+    private static bool RequiresFullEvidenceAcknowledgment(string record)
+    {
+        if (AuditEvidenceEnvelope.IsEvidenceRecord(record)) return true;
+        try
+        {
+            using var document = JsonDocument.Parse(record);
+            return string.Equals(
+                document.RootElement.GetProperty("schema_version").GetString(),
+                AuditEventSerializer.FullEvidenceSchemaVersion,
+                StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            return false;
+        }
+    }
+
+    private static IReadOnlyList<IReadOnlyList<string>> GroupDeliveryRecords(
+        IReadOnlyList<string> records)
+    {
+        var groups = new List<IReadOnlyList<string>>();
+        var current = new List<string>();
+        var bytes = 0;
+        foreach (var record in records)
+        {
+            var recordBytes = System.Text.Encoding.UTF8.GetByteCount(record) + 1;
+            if (current.Count > 0 &&
+                (current.Count == MaximumBatchRecords || bytes + recordBytes > MaximumBatchBytes))
+            {
+                groups.Add(current);
+                current = [];
+                bytes = 0;
+            }
+            current.Add(record);
+            bytes = checked(bytes + recordBytes);
+        }
+        if (current.Count > 0)
+            groups.Add(current);
+        return groups;
     }
 
     private async Task PumpAsync(CancellationToken cancellationToken)

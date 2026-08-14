@@ -45,14 +45,16 @@ var producerVersion =
 builder.Services.AddSingleton(auditStartup.AuditOptions);
 builder.Services.AddSingleton(
     sp => new AuditHealth(sp.GetRequiredService<AuditOptions>()));
+builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
 builder.Services.AddSingleton(sp => new ScriptEvidenceStoreProvider(
     sp.GetRequiredService<AuditOptions>()));
 builder.Services.AddScoped<AuditCallContextAccessor>();
 builder.Services.AddSingleton(sp => new AuditRuntimeGate(
     sp.GetRequiredService<AuditOptions>(),
-    sp.GetRequiredService<AuditHealth>(),
-    sp.GetRequiredService<ScriptEvidenceStoreProvider>(),
-    producerVersion));
+        sp.GetRequiredService<AuditHealth>(),
+        sp.GetRequiredService<ScriptEvidenceStoreProvider>(),
+        producerVersion,
+        outputStore: sp.GetRequiredService<OutputStore>()));
 // The gate's hosted service is registered before the supervisor lifecycle so
 // audit startup is durable before any session infrastructure starts.
 builder.Services.AddSingleton<IHostedService>(
@@ -94,8 +96,9 @@ builder.Services.AddSingleton<IHostedService>(sp => new AuditExportService(
     // The live segment is held FileShare.None by the journal writer; the
     // exporter reads its durably committed tail through the writer's own
     // handle instead of a second file handle (cr3-1/R3d).
-    liveJournalSource: () =>
-        sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport));
+        liveJournalSource: () =>
+            sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport,
+        evidence: sp.GetRequiredService<ScriptEvidenceStoreProvider>()));
 
 // One supervisor owns this MCP connection's bounded worker/session registry.
 // Submitted scripts execute only in contained worker processes. Constructing
@@ -103,7 +106,6 @@ builder.Services.AddSingleton<IHostedService>(sp => new AuditExportService(
 // hosted service starts first, so a failed audit startup aborts the host
 // before the supervisor lifecycle or the MCP transport ever start, and the
 // audit call filter refuses any call that is not admitted to the journal.
-builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
 builder.Services.AddSingleton(sp =>
 {
     var health = sp.GetRequiredService<AuditHealth>();

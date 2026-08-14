@@ -74,7 +74,7 @@ internal sealed record CustodyAppendResult(long Sequence, string ReceiptHash);
 
 internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 10;
+    private const int CurrentSchemaVersion = 11;
     private const int BusyTimeoutSeconds = 5;
     private readonly string _databasePath;
     private readonly SqliteConnection _writer;
@@ -186,6 +186,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             SiemProtectedPath.VerifySqliteFileIsOpen(walIdentity.Value);
             SiemProtectedPath.VerifySqliteFileIsOpen(sharedMemoryIdentity.Value);
             ApplyMigrations(connection);
+            BackfillEvidenceManifests(connection);
             BackfillLegacyCustodyEvidence(connection);
             var custodyVerification = VerifyCustodyCore(connection, faultInjector);
             if (!custodyVerification.Healthy)
@@ -239,7 +240,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         {
             connection?.Dispose();
             parentLease?.Dispose();
-            throw new SiemReceiverStartupException("storage");
+            throw new SiemReceiverStartupException("storage", exception);
         }
     }
 
@@ -562,7 +563,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
                       SELECT CAST(value AS INTEGER) FROM meta
                       WHERE key = 'alert_cursor'))
             ORDER BY supervisor_boot_id, sequence;
-            """);
+        """);
         command.Parameters.AddWithValue("$cutoff", cutoffUtc);
         return PurgeSelectedEvents(ReadStringColumn(command), utcNow, transaction);
     }
@@ -984,6 +985,101 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             transaction.Commit();
         }
 
+        if (version < 11)
+        {
+            // S2 full-fidelity evidence: keep chain/custody behavior in the
+            // event ledger while indexing the typed evidence fields needed
+            // for correlation and complete artifact retrieval. Sensitive
+            // payload bytes remain inside exact_json_body.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            var evidenceColumns = new (string Name, string Definition)[]
+            {
+                ("producer_supervisor_boot_id", "TEXT NULL"),
+                ("source_event_id", "TEXT NULL"),
+                ("evidence_id", "TEXT NULL"),
+                ("evidence_kind", "TEXT NULL"),
+                ("evidence_digest", "TEXT NULL"),
+                ("evidence_byte_count", "INTEGER NULL"),
+                ("evidence_encoding", "TEXT NULL"),
+                ("artifact_id", "TEXT NULL"),
+                ("artifact_digest", "TEXT NULL"),
+                ("artifact_byte_count", "INTEGER NULL"),
+                ("chunk_index", "INTEGER NULL"),
+                ("chunk_count", "INTEGER NULL"),
+                ("chunk_offset", "INTEGER NULL"),
+                ("retention_class", "TEXT NULL"),
+                ("capture_state", "TEXT NULL"),
+            };
+            foreach (var column in evidenceColumns)
+            {
+                if (!ColumnExists(connection, transaction, "events", column.Name))
+                {
+                    ExecuteNonQuery(
+                        connection,
+                        transaction,
+                        $"ALTER TABLE events ADD COLUMN {column.Name} {column.Definition};");
+                }
+            }
+            ExecuteNonQuery(connection, transaction, """
+            CREATE INDEX IF NOT EXISTS ix_events_call_occurred
+            ON events(call_id, occurred_utc)
+            WHERE call_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_events_source_event
+            ON events(source_event_id, chunk_index)
+            WHERE source_event_id IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS ix_events_artifact_chunk
+            ON events(artifact_id, chunk_index)
+            WHERE artifact_id IS NOT NULL;
+            CREATE TABLE IF NOT EXISTS evidence_manifest_items(
+                source_event_id TEXT NOT NULL,
+                envelope_event_id TEXT PRIMARY KEY NOT NULL,
+                evidence_id TEXT NOT NULL,
+                evidence_kind TEXT NOT NULL,
+                digest TEXT NOT NULL,
+                byte_count INTEGER NOT NULL,
+                encoding TEXT NOT NULL,
+                artifact_id TEXT NOT NULL,
+                artifact_digest TEXT NOT NULL,
+                artifact_byte_count INTEGER NOT NULL,
+                chunk_index INTEGER NOT NULL,
+                chunk_count INTEGER NOT NULL,
+                chunk_offset INTEGER NOT NULL,
+                retention_class TEXT NOT NULL,
+                capture_state TEXT NOT NULL,
+                FOREIGN KEY(source_event_id) REFERENCES events(event_id) ON DELETE CASCADE
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_evidence_manifest_source
+            ON evidence_manifest_items(source_event_id, chunk_index);
+            CREATE VIEW IF NOT EXISTS evidence_delivery_status AS
+            SELECT m.source_event_id,
+                   COUNT(*) AS expected_chunks,
+                   SUM(CASE WHEN e.event_id IS NULL THEN 0 ELSE 1 END) AS received_chunks,
+                   CASE WHEN COUNT(*) = SUM(CASE WHEN e.event_id IS NULL THEN 0 ELSE 1 END)
+                        THEN 'complete' ELSE 'incomplete' END AS state
+            FROM evidence_manifest_items m
+            LEFT JOIN events e
+              ON e.event_id = m.envelope_event_id
+             AND e.source_event_id = m.source_event_id
+             AND e.evidence_id = m.evidence_id
+             AND e.evidence_kind = m.evidence_kind
+             AND e.evidence_digest = m.digest
+             AND e.evidence_byte_count = m.byte_count
+             AND e.evidence_encoding = m.encoding
+             AND e.artifact_id = m.artifact_id
+             AND e.artifact_digest = m.artifact_digest
+             AND e.artifact_byte_count = m.artifact_byte_count
+             AND e.chunk_index = m.chunk_index
+             AND e.chunk_count = m.chunk_count
+             AND e.chunk_offset = m.chunk_offset
+             AND e.retention_class = m.retention_class
+             AND e.capture_state = m.capture_state
+            GROUP BY m.source_event_id;
+            UPDATE meta SET value = '11' WHERE key = 'schema_version';
+            PRAGMA user_version=11;
+            """);
+            transaction.Commit();
+        }
+
         var recordedVersion = Convert.ToString(
             ExecuteScalar(
                 connection,
@@ -1080,19 +1176,25 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         bool postGap = false)
     {
         using var command = CreateCommand(transaction.Connection!, transaction, """
-            INSERT INTO events(
-                event_id, supervisor_boot_id, sequence, schema_version, event_type,
-                occurred_utc, observed_utc, host_id, worker_boot_id,
-                previous_event_hash, event_hash, session_name, session_generation,
-                call_id, job_id, outcome_state, raw_request, exact_json_body,
-                received_utc, post_gap)
-            VALUES(
-                $event_id, $boot_id, $sequence, $schema_version, $event_type,
-                $occurred_utc, $observed_utc, $host_id, $worker_boot_id,
-                $previous_event_hash, $event_hash, $session_name, $session_generation,
-                $call_id, $job_id, $outcome_state, $raw_request, $exact_json_body,
-                $received_utc, $post_gap);
-            """);
+        INSERT INTO events(
+            event_id, supervisor_boot_id, sequence, schema_version, event_type,
+            occurred_utc, observed_utc, host_id, worker_boot_id,
+            previous_event_hash, event_hash, session_name, session_generation,
+            call_id, job_id, outcome_state, raw_request, exact_json_body,
+            received_utc, post_gap, producer_supervisor_boot_id, source_event_id,
+            evidence_id, evidence_kind, evidence_digest, evidence_byte_count,
+            evidence_encoding, artifact_id, artifact_digest, artifact_byte_count,
+            chunk_index, chunk_count, chunk_offset, retention_class, capture_state)
+        VALUES(
+            $event_id, $boot_id, $sequence, $schema_version, $event_type,
+            $occurred_utc, $observed_utc, $host_id, $worker_boot_id,
+            $previous_event_hash, $event_hash, $session_name, $session_generation,
+            $call_id, $job_id, $outcome_state, $raw_request, $exact_json_body,
+            $received_utc, $post_gap, $producer_boot_id, $source_event_id,
+            $evidence_id, $evidence_kind, $evidence_digest, $evidence_byte_count,
+            $evidence_encoding, $artifact_id, $artifact_digest, $artifact_byte_count,
+            $chunk_index, $chunk_count, $chunk_offset, $retention_class, $capture_state);
+        """);
         command.Parameters.AddWithValue("$post_gap", postGap ? 1 : 0);
         command.Parameters.AddWithValue("$event_id", FormatGuid(record.EventId));
         command.Parameters.AddWithValue("$boot_id", FormatGuid(record.SupervisorBootId));
@@ -1113,8 +1215,117 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         command.Parameters.AddWithValue("$raw_request", record.RawRequestBytes);
         command.Parameters.AddWithValue("$exact_json_body", record.ExactJsonBody);
         command.Parameters.AddWithValue("$received_utc", FormatUtc(receipt.ReceivedUtc));
+        AddNullable(command, "$producer_boot_id", record.Evidence?.ProducerSupervisorBootId.ToString("D"));
+        AddNullable(command, "$source_event_id", record.Evidence?.SourceEventId.ToString("D"));
+        AddNullable(command, "$evidence_id", record.Evidence?.EvidenceId.ToString("D"));
+        AddNullable(command, "$evidence_kind", record.Evidence?.EvidenceKind);
+        AddNullable(command, "$evidence_digest", record.Evidence?.Digest);
+        AddNullable(command, "$evidence_byte_count", record.Evidence?.ByteCount);
+        AddNullable(command, "$evidence_encoding", record.Evidence?.Encoding);
+        AddNullable(command, "$artifact_id", record.Evidence?.ArtifactId.ToString("D"));
+        AddNullable(command, "$artifact_digest", record.Evidence?.ArtifactDigest);
+        AddNullable(command, "$artifact_byte_count", record.Evidence?.ArtifactByteCount);
+        AddNullable(command, "$chunk_index", record.Evidence?.ChunkIndex);
+        AddNullable(command, "$chunk_count", record.Evidence?.ChunkCount);
+        AddNullable(command, "$chunk_offset", record.Evidence?.ChunkOffset);
+        AddNullable(command, "$retention_class", record.Evidence?.RetentionClass);
+        AddNullable(command, "$capture_state", record.Evidence?.CaptureState);
         if (command.ExecuteNonQuery() != 1)
             throw new InvalidOperationException("The event insert did not affect exactly one row.");
+
+        if (string.Equals(record.SchemaVersion, "ptk.audit/5", StringComparison.Ordinal))
+            InsertEvidenceManifest(record, transaction);
+    }
+
+    private static void InsertEvidenceManifest(
+        ValidatedOtlpRecord record,
+        SqliteTransaction transaction)
+        => InsertEvidenceManifest(
+            FormatGuid(record.EventId),
+            record.ExactJsonBody,
+            transaction);
+
+    private static void InsertEvidenceManifest(
+        string sourceEventId,
+        byte[] exactJsonBody,
+        SqliteTransaction transaction)
+    {
+        using var document = JsonDocument.Parse(exactJsonBody);
+        foreach (var item in document.RootElement
+                     .GetProperty("evidence_manifest")
+                     .EnumerateArray())
+        {
+            using var command = CreateCommand(transaction.Connection!, transaction, """
+                INSERT INTO evidence_manifest_items(
+                    source_event_id, envelope_event_id, evidence_id, evidence_kind,
+                    digest, byte_count, encoding, artifact_id, artifact_digest,
+                    artifact_byte_count, chunk_index, chunk_count, chunk_offset,
+                    retention_class, capture_state)
+                VALUES(
+                    $source_event_id, $envelope_event_id, $evidence_id, $evidence_kind,
+                    $digest, $byte_count, $encoding, $artifact_id, $artifact_digest,
+                    $artifact_byte_count, $chunk_index, $chunk_count, $chunk_offset,
+                    $retention_class, $capture_state);
+                """);
+            command.Parameters.AddWithValue("$source_event_id", sourceEventId);
+            command.Parameters.AddWithValue(
+                "$envelope_event_id", item.GetProperty("envelope_event_id").GetString());
+            command.Parameters.AddWithValue(
+                "$evidence_id", item.GetProperty("evidence_id").GetString());
+            command.Parameters.AddWithValue(
+                "$evidence_kind", item.GetProperty("evidence_kind").GetString());
+            command.Parameters.AddWithValue("$digest", item.GetProperty("digest").GetString());
+            command.Parameters.AddWithValue(
+                "$byte_count", item.GetProperty("byte_count").GetInt64());
+            command.Parameters.AddWithValue(
+                "$encoding", item.GetProperty("encoding").GetString());
+            command.Parameters.AddWithValue(
+                "$artifact_id", item.GetProperty("artifact_id").GetString());
+            command.Parameters.AddWithValue(
+                "$artifact_digest", item.GetProperty("artifact_digest").GetString());
+            command.Parameters.AddWithValue(
+                "$artifact_byte_count", item.GetProperty("artifact_byte_count").GetInt64());
+            command.Parameters.AddWithValue(
+                "$chunk_index", item.GetProperty("chunk_index").GetInt64());
+            command.Parameters.AddWithValue(
+                "$chunk_count", item.GetProperty("chunk_count").GetInt64());
+            command.Parameters.AddWithValue(
+                "$chunk_offset", item.GetProperty("chunk_offset").GetInt64());
+            command.Parameters.AddWithValue(
+                "$retention_class", item.GetProperty("retention_class").GetString());
+            command.Parameters.AddWithValue(
+                "$capture_state", item.GetProperty("capture_state").GetString());
+            if (command.ExecuteNonQuery() != 1)
+            {
+                throw new InvalidOperationException(
+                    "The evidence manifest insert did not affect exactly one row.");
+            }
+        }
+    }
+
+    private static void BackfillEvidenceManifests(SqliteConnection connection)
+    {
+        var missing = new List<(string EventId, byte[] ExactJsonBody)>();
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT event_id, exact_json_body
+                FROM events
+                WHERE schema_version = 'ptk.audit/5'
+                  AND NOT EXISTS(
+                      SELECT 1 FROM evidence_manifest_items m
+                      WHERE m.source_event_id = events.event_id);
+                """;
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+                missing.Add((reader.GetString(0), (byte[])reader.GetValue(1)));
+        }
+        if (missing.Count == 0) return;
+
+        using var transaction = connection.BeginTransaction(deferred: false);
+        foreach (var item in missing)
+            InsertEvidenceManifest(item.EventId, item.ExactJsonBody, transaction);
+        transaction.Commit();
     }
 
     private static void AdvanceChain(

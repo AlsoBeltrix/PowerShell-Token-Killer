@@ -65,7 +65,7 @@ public sealed class SqliteIngestStoreTests
             AssertExactProtection(database.Path, isDirectory: false);
             AssertExactProtection(database.Path + "-wal", isDirectory: false);
             AssertExactProtection(database.Path + "-shm", isDirectory: false);
-            Assert.Equal(10L, Scalar<long>(database.Path, "PRAGMA user_version;"));
+            Assert.Equal(11L, Scalar<long>(database.Path, "PRAGMA user_version;"));
             Assert.Equal("wal", Scalar<string>(database.Path, "PRAGMA journal_mode;"));
             receiverId = Scalar<string>(
                 database.Path,

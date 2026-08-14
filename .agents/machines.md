@@ -3,6 +3,14 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha.local` SIEM operator-readiness S2 full-fidelity evidence (2026-08-14)
+
+- Implemented and verified in the commit containing this entry, based on `c0428e5f1dd97d79632f8250e14fd7c1d2494600`; `origin/master` matched that base before the slice. Scope is S2 only: `ptk.audit/5`, `ptk.evidence/1`, producer replay/acknowledgment, receiver schema v11 storage/retrieval/completeness, retention, custody, online backup, and restore. S3-S7 were not started.
+- Full suites passed: server 1,330/1,330; receiver 344/344 after the final ingest-integrity guards; Pester 112 passed with 3 platform skips. The registered-command five-tool handshake passed. Server and receiver vulnerable-package scans listed no vulnerable packages. Both solutions build; receiver build is warning-free. Server compilation retains the pre-existing warning in unchanged `AuditExportCursorStore.cs:191`.
+- Focused evidence verification passed producer S2 14/14, final receiver evidence 11/11, and producer conformance 7/7. Producer-owned OTLP and Splunk evidence goldens are the only new conformance goldens.
+- Mutation proof 1 removed the v5-core cursor hold: `V5_core_refusal_is_not_stepped_over_as_an_ordinary_poison_record` failed, then passed after restoration. Mutation proof 2 removed the receiver's chunk-offset contiguity check: `V5_manifest_with_overlapping_chunks_is_rejected_before_storage` failed because the malformed manifest was accepted, then passed after restoration. Mutation proof 3 restored the overflowing addition in evidence-envelope bounds validation: `Evidence_chunk_bounds_cannot_overflow` failed because the impossible chunk was accepted, then passed after restoration.
+- This is protocol and standalone-receiver evidence, not real-Splunk acceptance. Decision D remains open because no authorized external SIEM test instance is available.
+
 ## `nagatha.local` — SIEM operator-readiness S1 attribution contract (2026-08-13)
 
 - Implemented and verified in a working tree based on

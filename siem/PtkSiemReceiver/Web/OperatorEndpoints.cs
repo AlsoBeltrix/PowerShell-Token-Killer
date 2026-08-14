@@ -56,6 +56,7 @@ internal static class OperatorEndpoints
         application.MapGet("/", HandleDashboardAsync);
         application.MapGet("/api/events", HandleEventsAsync);
         application.MapGet("/api/events/{eventId}", HandleEventDetailAsync);
+        application.MapGet("/api/evidence/{artifactId}", HandleEvidenceAsync);
         application.MapGet("/api/chains", HandleChainsAsync);
         application.MapGet("/api/quarantine", HandleQuarantineAsync);
         application.MapGet("/api/gaps", HandleGapsAsync);
@@ -216,10 +217,19 @@ internal static class OperatorEndpoints
             "$session", context.Request.Query["session"].ToString());
         AddOptionalFilter(command, filters, "supervisor_boot_id = $boot",
             "$boot", context.Request.Query["boot"].ToString());
+        AddOptionalFilter(command, filters, "call_id = $call",
+            "$call", context.Request.Query["call"].ToString());
+        AddOptionalFilter(command, filters, "source_event_id = $source",
+            "$source", context.Request.Query["source"].ToString());
+        AddOptionalFilter(command, filters, "artifact_id = $artifact",
+            "$artifact", context.Request.Query["artifact"].ToString());
         command.CommandText =
             "SELECT event_id, supervisor_boot_id, sequence, schema_version, event_type, " +
             "occurred_utc, observed_utc, session_name, session_generation, outcome_state, " +
-            "received_utc, post_gap FROM events" +
+            "received_utc, post_gap, call_id, source_event_id, evidence_kind, artifact_id, " +
+            "chunk_index, chunk_count, capture_state, " +
+            "(SELECT state FROM evidence_delivery_status d " +
+            " WHERE d.source_event_id = events.event_id) FROM events" +
             (filters.Count > 0 ? " WHERE " + string.Join(" AND ", filters) : string.Empty) +
             " ORDER BY occurred_utc DESC, sequence DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
@@ -244,6 +254,14 @@ internal static class OperatorEndpoints
                     outcome_state = reader.IsDBNull(9) ? null : reader.GetString(9),
                     received_utc = reader.GetString(10),
                     post_gap = reader.GetInt64(11) != 0,
+                    call_id = reader.IsDBNull(12) ? null : reader.GetString(12),
+                    source_event_id = reader.IsDBNull(13) ? null : reader.GetString(13),
+                    evidence_kind = reader.IsDBNull(14) ? null : reader.GetString(14),
+                    artifact_id = reader.IsDBNull(15) ? null : reader.GetString(15),
+                    chunk_index = reader.IsDBNull(16) ? (long?)null : reader.GetInt64(16),
+                    chunk_count = reader.IsDBNull(17) ? (long?)null : reader.GetInt64(17),
+                    capture_state = reader.IsDBNull(18) ? null : reader.GetString(18),
+                    evidence_delivery_state = reader.IsDBNull(19) ? null : reader.GetString(19),
                 });
             }
         }
@@ -349,8 +367,290 @@ internal static class OperatorEndpoints
             }
         }
 
+        object? evidenceDelivery = null;
+        using (var deliveryCommand = connection.CreateCommand())
+        {
+            deliveryCommand.CommandText = """
+                SELECT expected_chunks, received_chunks, state
+                FROM evidence_delivery_status
+                WHERE source_event_id = $event_id;
+            """;
+            deliveryCommand.Parameters.AddWithValue("$event_id", canonicalEventId);
+            long expectedChunks = 0;
+            long receivedChunks = 0;
+            string? deliveryState = null;
+            await using (var reader = await deliveryCommand
+                             .ExecuteReaderAsync(context.RequestAborted)
+                             .ConfigureAwait(false))
+            {
+                if (await reader.ReadAsync(context.RequestAborted).ConfigureAwait(false))
+                {
+                    expectedChunks = reader.GetInt64(0);
+                    receivedChunks = reader.GetInt64(1);
+                    deliveryState = reader.GetString(2);
+                }
+            }
+            if (deliveryState is not null)
+            {
+                var missing = new List<string>();
+                using (var missingCommand = connection.CreateCommand())
+                {
+                    missingCommand.CommandText = """
+                        SELECT m.envelope_event_id
+                        FROM evidence_manifest_items m
+                        LEFT JOIN events e
+                          ON e.event_id = m.envelope_event_id
+                         AND e.source_event_id = m.source_event_id
+                         AND e.evidence_id = m.evidence_id
+                         AND e.evidence_kind = m.evidence_kind
+                         AND e.evidence_digest = m.digest
+                         AND e.evidence_byte_count = m.byte_count
+                         AND e.evidence_encoding = m.encoding
+                         AND e.artifact_id = m.artifact_id
+                         AND e.artifact_digest = m.artifact_digest
+                         AND e.artifact_byte_count = m.artifact_byte_count
+                         AND e.chunk_index = m.chunk_index
+                         AND e.chunk_count = m.chunk_count
+                         AND e.chunk_offset = m.chunk_offset
+                         AND e.retention_class = m.retention_class
+                         AND e.capture_state = m.capture_state
+                        WHERE m.source_event_id = $event_id
+                          AND e.event_id IS NULL
+                        ORDER BY m.artifact_id, m.chunk_index;
+                        """;
+                    missingCommand.Parameters.AddWithValue("$event_id", canonicalEventId);
+                    using var missingReader = await missingCommand
+                        .ExecuteReaderAsync(context.RequestAborted)
+                        .ConfigureAwait(false);
+                    while (await missingReader.ReadAsync(context.RequestAborted)
+                               .ConfigureAwait(false))
+                    {
+                        missing.Add(missingReader.GetString(0));
+                    }
+                }
+                evidenceDelivery = new
+                {
+                    expected_chunks = expectedChunks,
+                    received_chunks = receivedChunks,
+                    state = deliveryState,
+                    missing_event_ids = missing,
+                };
+            }
+        }
+
         await WriteJsonAsync(
-            context, 200, new { @event = detail, neighbors, chain }).ConfigureAwait(false);
+            context, 200, new
+            {
+                @event = detail,
+                neighbors,
+                chain,
+                evidence_delivery = evidenceDelivery,
+            }).ConfigureAwait(false);
+    }
+
+    internal static async Task HandleEvidenceAsync(
+        HttpContext context,
+        SiemReceiverOptions options,
+        string artifactId)
+    {
+        if (!await AdmitAsync(context, options).ConfigureAwait(false)) return;
+        if (!Guid.TryParseExact(artifactId, "D", out var parsedArtifactId))
+        {
+            await WriteJsonAsync(
+                context, 400, new { error = "artifact_id" }).ConfigureAwait(false);
+            return;
+        }
+
+        var canonicalArtifactId = parsedArtifactId.ToString("D");
+        var chunks = new List<EvidenceChunkRow>();
+        using (var connection = OpenReadOnly(options.SqlitePath))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                SELECT event_id, source_event_id, call_id, evidence_id, evidence_kind,
+                       evidence_digest, evidence_byte_count, evidence_encoding,
+                       artifact_digest, artifact_byte_count, chunk_index, chunk_count,
+                       chunk_offset, retention_class, capture_state, exact_json_body
+                FROM events
+                WHERE artifact_id = $artifact
+                ORDER BY chunk_index;
+                """;
+            command.Parameters.AddWithValue("$artifact", canonicalArtifactId);
+            using var reader = await command.ExecuteReaderAsync(context.RequestAborted)
+                .ConfigureAwait(false);
+            while (await reader.ReadAsync(context.RequestAborted).ConfigureAwait(false))
+            {
+                chunks.Add(new EvidenceChunkRow(
+                    reader.GetString(0),
+                    reader.GetString(1),
+                    reader.IsDBNull(2) ? null : reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4),
+                    reader.GetString(5),
+                    reader.GetInt64(6),
+                    reader.GetString(7),
+                    reader.GetString(8),
+                    reader.GetInt64(9),
+                    reader.GetInt64(10),
+                    reader.GetInt64(11),
+                    reader.GetInt64(12),
+                    reader.GetString(13),
+                    reader.GetString(14),
+                    (byte[])reader.GetValue(15)));
+            }
+        }
+
+        if (chunks.Count == 0)
+        {
+            await WriteJsonAsync(
+                context, 404, new { error = "not_found" }).ConfigureAwait(false);
+            return;
+        }
+
+        byte[]? payload = null;
+        try
+        {
+            payload = ReassembleEvidence(canonicalArtifactId, chunks);
+            var first = chunks[0];
+            var text = new UTF8Encoding(false, true).GetString(payload);
+            await WriteJsonAsync(context, 200, new
+            {
+                evidence = new
+                {
+                    artifact_id = canonicalArtifactId,
+                    source_event_id = first.SourceEventId,
+                    call_id = first.CallId,
+                    evidence_kind = first.EvidenceKind,
+                    encoding = first.Encoding,
+                    retention_class = first.RetentionClass,
+                    capture_state = first.CaptureState,
+                    artifact_digest = first.ArtifactDigest,
+                    artifact_byte_count = first.ArtifactByteCount,
+                    chunk_count = first.ChunkCount,
+                    event_ids = chunks.Select(chunk => chunk.EventId).ToArray(),
+                    evidence_ids = chunks.Select(chunk => chunk.EvidenceId).ToArray(),
+                    payload_base64 = Convert.ToBase64String(payload),
+                    text,
+                },
+            }).ConfigureAwait(false);
+        }
+        catch (EvidenceIncompleteException)
+        {
+            await WriteJsonAsync(
+                context, 409, new { error = "evidence_incomplete" }).ConfigureAwait(false);
+        }
+        catch (Exception exception) when (exception is
+            InvalidDataException or OverflowException or DecoderFallbackException or JsonException)
+        {
+            await WriteJsonAsync(
+                context, 500, new { error = "evidence_integrity" }).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (payload is not null)
+                CryptographicOperations.ZeroMemory(payload);
+            foreach (var chunk in chunks)
+                CryptographicOperations.ZeroMemory(chunk.ExactJsonBody);
+        }
+    }
+
+    private static byte[] ReassembleEvidence(
+        string artifactId,
+        IReadOnlyList<EvidenceChunkRow> chunks)
+    {
+        var first = chunks[0];
+        if (first.ChunkCount != chunks.Count ||
+            first.ArtifactByteCount < 0 ||
+            first.ArtifactByteCount > 128L * 131_072L)
+        {
+            throw new EvidenceIncompleteException();
+        }
+
+        using var buffer = new MemoryStream(checked((int)first.ArtifactByteCount));
+        long expectedOffset = 0;
+        for (var index = 0; index < chunks.Count; index++)
+        {
+            var chunk = chunks[index];
+            if (chunk.ChunkIndex != index ||
+                chunk.ChunkCount != first.ChunkCount ||
+                chunk.ChunkOffset != expectedOffset ||
+                chunk.ArtifactByteCount != first.ArtifactByteCount ||
+                !string.Equals(chunk.SourceEventId, first.SourceEventId, StringComparison.Ordinal) ||
+                !string.Equals(chunk.CallId, first.CallId, StringComparison.Ordinal) ||
+                !string.Equals(chunk.EvidenceKind, first.EvidenceKind, StringComparison.Ordinal) ||
+                !string.Equals(chunk.Encoding, first.Encoding, StringComparison.Ordinal) ||
+                !string.Equals(chunk.ArtifactDigest, first.ArtifactDigest, StringComparison.Ordinal) ||
+                !string.Equals(chunk.RetentionClass, first.RetentionClass, StringComparison.Ordinal) ||
+                !string.Equals(chunk.CaptureState, first.CaptureState, StringComparison.Ordinal))
+            {
+                throw new EvidenceIncompleteException();
+            }
+
+            using var document = JsonDocument.Parse(chunk.ExactJsonBody);
+            var root = document.RootElement;
+            if (!string.Equals(
+                    root.GetProperty("artifact_id").GetString(),
+                    artifactId,
+                    StringComparison.Ordinal) ||
+                root.GetProperty("chunk_index").GetInt64() != index ||
+                root.GetProperty("chunk_offset").GetInt64() != expectedOffset)
+            {
+                throw new InvalidDataException("Evidence envelope does not match its index.");
+            }
+
+            var bytes = root.GetProperty("payload_base64").GetBytesFromBase64();
+            try
+            {
+                if (bytes.LongLength != chunk.ByteCount ||
+                    !string.Equals(
+                        Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
+                        chunk.Digest,
+                        StringComparison.Ordinal))
+                {
+                    throw new InvalidDataException("Evidence chunk digest is invalid.");
+                }
+                buffer.Write(bytes);
+                expectedOffset = checked(expectedOffset + bytes.LongLength);
+            }
+            finally
+            {
+                CryptographicOperations.ZeroMemory(bytes);
+            }
+        }
+
+        var payload = buffer.ToArray();
+        if (payload.LongLength != first.ArtifactByteCount ||
+            !string.Equals(
+                Convert.ToHexString(SHA256.HashData(payload)).ToLowerInvariant(),
+                first.ArtifactDigest,
+                StringComparison.Ordinal))
+        {
+            CryptographicOperations.ZeroMemory(payload);
+            throw new InvalidDataException("Evidence artifact digest is invalid.");
+        }
+        return payload;
+    }
+
+    private sealed record EvidenceChunkRow(
+        string EventId,
+        string SourceEventId,
+        string? CallId,
+        string EvidenceId,
+        string EvidenceKind,
+        string Digest,
+        long ByteCount,
+        string Encoding,
+        string ArtifactDigest,
+        long ArtifactByteCount,
+        long ChunkIndex,
+        long ChunkCount,
+        long ChunkOffset,
+        string RetentionClass,
+        string CaptureState,
+        byte[] ExactJsonBody);
+
+    private sealed class EvidenceIncompleteException : Exception
+    {
     }
 
     internal static async Task HandleChainsAsync(

@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**ACTIVE — owner-directed plan, 2026-08-13. S0-S1 were approved and executed;
-S2-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
+**ACTIVE — owner-directed plan, 2026-08-14. S0-S2 were approved and executed;
+S3-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -328,7 +328,7 @@ calls, so they truthfully emit explicit absence unless the client supplies
 `_meta`; no static identity guess is substituted. Verification and mutation
 evidence is in `.agents/machines.md`.
 
-### S2 — full-fidelity evidence export, destination storage, and retention
+### S2 — full-fidelity evidence export, destination storage, and retention — EXECUTED 2026-08-14
 
 Decision A is settled; this slice implements its full-fidelity requirement.
 
@@ -362,6 +362,22 @@ tests, an authorized operator retrieves and verifies the exact command,
 complete captured result/error evidence, raw events, attribution, context, and
 custody chain for a published-producer marker from every configured destination.
 Removing any evidence kind fails that destination's acceptance guard.
+
+Execution evidence: terminal production calls publish `ptk.audit/5` core records
+with typed manifests for exact submitted command, caller response, and retained
+captured output, plus replay-stable `ptk.evidence/1` envelopes carrying chunk and
+artifact digests. OTLP preserves complete bodies; Splunk assigns evidence to
+`ptk:evidence`. The producer holds its cursor before the whole logical core/evidence
+unit on missing local evidence, retryable or lost responses, and permanent refusal
+of either evidence or the v5 core. Receiver schema v11 indexes evidence correlation
+and delivery completeness, accepts either arrival order and duplicate replay across
+restart, provides token-protected exact reassembly, reports purged partial artifacts
+as incomplete, and includes evidence in retention, custody, online backup, and
+restore. Strict ingest validation rejects noncontiguous, internally inconsistent,
+or arithmetically impossible chunk sets before storage. Fixed-head suite and
+mutation evidence is in `.agents/machines.md`. Decision D remains open:
+producer-owned Splunk protocol
+conformance is not a real-Splunk acceptance claim, and S3-S7 remain unapproved.
 
 ### S3 — explicit destination configuration and per-destination delivery status
 

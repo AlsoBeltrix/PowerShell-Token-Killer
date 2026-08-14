@@ -115,7 +115,9 @@ internal sealed class HttpAuditDestination : IAuditDestination
         var builder = new StringBuilder();
         foreach (var record in records)
         {
-            builder.Append("{\"sourcetype\":\"ptk:audit\",\"event\":");
+            builder.Append(AuditEvidenceEnvelope.IsEvidenceRecord(record)
+                ? "{\"sourcetype\":\"ptk:evidence\",\"event\":"
+                : "{\"sourcetype\":\"ptk:audit\",\"event\":");
             AppendRecord(builder, record);
             builder.Append('}');
         }

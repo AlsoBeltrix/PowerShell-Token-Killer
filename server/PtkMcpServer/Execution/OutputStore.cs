@@ -628,6 +628,23 @@ public sealed class OutputStore : IDisposable
         }
     }
 
+    internal byte[] ReadExactForAudit(string handle, long expectedBytes)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(handle);
+        if (expectedBytes < 0 || expectedBytes > _options.MaximumArtifactBytes || expectedBytes > int.MaxValue)
+            throw new IOException("The retained output artifact length is invalid.");
+
+        lock (_gate)
+        {
+            ThrowIfDisposed();
+            var entry = FindReadableLocked(handle) ??
+                throw new IOException("The retained output artifact is unavailable.");
+            if (entry.Bytes != expectedBytes || entry.Stream is null)
+                throw new IOException("The retained output artifact length changed.");
+            return ReadExact(entry.Stream.SafeFileHandle, 0, checked((int)expectedBytes));
+        }
+    }
+
     /// <summary>Starts one storage task only when the connection-wide lane is
     /// immediately available. Retained for the legacy in-process capture path.</summary>
     internal bool TryStartForegroundOperation<T>(

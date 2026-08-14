@@ -462,7 +462,8 @@ internal static class OtlpTestRequest
         long sequence = 1,
         string? previousEventHash = null,
         string eventType = "tool.completed",
-        string? previousSupervisorBootId = null)
+        string? previousSupervisorBootId = null,
+        string? evidenceManifestJson = null)
     {
         eventId ??= DefaultEventId;
         supervisorBootId ??= DefaultSupervisorBootId;
@@ -478,7 +479,7 @@ internal static class OtlpTestRequest
         var disposition = schemaVersion == "ptk.audit/1"
             ? string.Empty
             : ",\"operator_disposition\":null";
-        var callContext = schemaVersion == "ptk.audit/4"
+        var callContext = schemaVersion is "ptk.audit/4" or "ptk.audit/5"
             ? "\"call_attribution\":{\"agent_name\":null," +
               "\"agent_unavailable_reason\":\"not_supplied_by_client\"," +
               "\"model_provider\":null,\"model_name\":null," +
@@ -496,6 +497,9 @@ internal static class OtlpTestRequest
               "\"effective_cwd_unavailable_reason\":\"not_dispatched\"," +
               "\"repository_root\":null,\"repository_relative_path\":null," +
               "\"repository_unavailable_reason\":\"not_dispatched\"},"
+            : string.Empty;
+        var evidenceManifest = schemaVersion == "ptk.audit/5"
+            ? $"\"evidence_manifest\":{evidenceManifestJson ?? "[]"},"
             : string.Empty;
         var preHash =
             "{" +
@@ -516,6 +520,7 @@ internal static class OtlpTestRequest
             "\"session\":{\"name\":null,\"generation\":null}," +
             "\"actor\":{}," +
             callContext +
+            evidenceManifest +
             "\"correlation\":{\"call_id\":null,\"job_id\":null,\"trace_id\":null}," +
             $"\"request\":{{{requestFields}}}" +
             disposition +

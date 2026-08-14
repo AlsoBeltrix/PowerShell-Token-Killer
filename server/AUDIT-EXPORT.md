@@ -2,8 +2,11 @@
 
 ## Operator-readiness status
 
-Current source adds truthful per-call attribution and execution context to the
-exported record, but no dashboard exposes it yet.
+Current source adds truthful per-call attribution, execution context, and
+full-fidelity command/response/output evidence to the exported stream. The
+standalone receiver indexes and exposes that evidence through authenticated
+operator APIs, but its dashboard does not yet provide the planned correlated
+activity drill-down.
 
 The local audit journal is mandatory admission/replay/delivery
 infrastructure, not a SIEM destination or investigation dashboard. PTK
@@ -12,11 +15,10 @@ destinations require deliberate opt-in and each receives the full stream with
 independent delivery accounting. The mini-SIEM is a separate deployment for
 sites without a full SIEM and is never installed or selected automatically.
 
-Published `0.3.0-rc.1` proves the producer/export and receiver storage/query
-backend, but not a usable operator workflow. It does not provide correlated
-activity drill-down, agent/model identity, or destination-side exact command
-and complete response evidence. Treat it as backend-complete and
-operator-not-ready; passing backend suites does not close the release gate.
+Published `0.3.0-rc.1` predates the full-evidence contract described below. It
+does not provide destination-side exact command and complete response evidence.
+Current source remains operator-not-ready until the later investigation and
+acceptance slices land; passing backend suites alone does not close that gate.
 
 ## Current runtime contract (audit-restoration, 2026-08)
 
@@ -80,7 +82,8 @@ separately installed application, not a service enabled by `PtkMcpServer`.
 
 ## Per-call attribution and execution context
 
-Calls admitted through the MCP boundary emit `ptk.audit/4`. Server and receiver
+Nonterminal calls admitted through the MCP boundary emit `ptk.audit/4`;
+terminal call records carrying an evidence manifest emit `ptk.audit/5`. Server and receiver
 continue accepting the exact historical `ptk.audit/1` and `ptk.audit/2` field
 sets; host-state `ptk.audit/3` remains a separate established contract.
 
@@ -126,6 +129,54 @@ clients therefore appear with initialize client identity and explicit
 per-call `not_supplied_by_client` labels unless the client itself sends the
 namespace. This is an honest capability gap, not a fallback to static model
 labels.
+
+## Full-fidelity SIEM evidence
+
+For every production MCP call, the terminal `ptk.audit/5` record carries an
+`evidence_manifest`. The manifest names every retained exact artifact by
+evidence ID, kind, SHA-256 digest, byte count, UTF-8 encoding, producer
+event/call lineage, forensic retention class, capture state, and bounded
+chunk/reassembly metadata. Current artifact kinds are:
+
+- `submitted_command` — exact submitted command bytes;
+- `caller_response` — the complete text returned to the MCP caller;
+- `captured_output` — the immutable unshaped output/error/warning recovery
+  artifact when the invocation produced one.
+
+Each manifest entry is exported as a `ptk.evidence/1` envelope. Chunks have
+independent digests and an artifact-wide digest. A chunk stream starts at
+sequence 1, links subsequent chunks by event hash, and can be replayed
+idempotently. The exporter treats a v5 core record and all of its evidence as
+one logical delivery unit: the durable journal cursor cannot advance past it
+until every required record receives a successful destination acknowledgment.
+A retryable response or lost response replays the unit. Missing/corrupt local
+evidence reports `export.evidence_unavailable` or `export.evidence_invalid`;
+permanent refusal reports `export.evidence_refused`; all hold the cursor.
+
+The OTLP adapter sends evidence as ordinary OTLP log records without dropping
+unknown fields. The Splunk HEC adapter uses explicit sourcetype
+`ptk:evidence` (core records remain `ptk:audit`) and retains the complete event
+body. Evidence bodies are sensitive: restrict the destination index, roles,
+search access, retention, backup, and replication accordingly.
+
+The standalone receiver validates both chunk and artifact metadata, stores the
+exact envelope under the same commit/custody transaction as other events,
+indexes call/source/artifact fields, and correlates received chunks against the
+v5 manifest. An authorized operator can use:
+
+```text
+GET /api/events?call=<call-uuid>
+GET /api/events?source=<core-event-uuid>
+GET /api/events?artifact=<artifact-uuid>
+GET /api/events/<core-event-uuid>       # evidence_delivery complete/incomplete
+GET /api/evidence/<artifact-uuid>       # exact reassembled bytes + UTF-8 text
+```
+
+All require the operator bearer token in the `Authorization` header. Exact
+evidence is never accepted in a URL parameter, returned by the unauthenticated
+dashboard shell, or written to process logs. Retention may purge old chunks;
+the retained core then reports incomplete delivery and exact-artifact retrieval
+returns `409 evidence_incomplete`, while custody/tombstone evidence remains.
 
 ## Legacy local evidence administration
 

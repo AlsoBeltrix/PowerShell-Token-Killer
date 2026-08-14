@@ -5,7 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-**OPERATOR-READINESS S1 EXECUTED; S2-S7 NOT APPROVED (2026-08-13).** The signed five-RID
+**OPERATOR-READINESS S2 EXECUTED; S3-S7 NOT APPROVED (2026-08-14).** The signed five-RID
 `0.3.0-rc.1` prerelease contains a functioning, separately packaged
 mini-SIEM, but there is no public receiver-deployment plus destination-setup
 workflow, the receiver dashboard does not expose stored attribution/detail,
@@ -14,8 +14,17 @@ S0 is executed: `siem/operator-readiness-acceptance.ps1` verifies published
 artifact identity in a fresh isolated home and names the release gate;
 `siem/test-verify-package.ps1` guards release-bound source identity. Authentic
 `0.3.0-rc.1` evidence passed eight artifact/provenance requirements and failed
-23 operator-readiness requirements. S1 is executed; S2-S7 remain unapproved; Decision D remains
+23 operator-readiness requirements. S2 is executed in current source; S3-S7 remain unapproved; Decision D remains
 open. Canonical plan: `.agents/plans/siem-operator-readiness.md`.
+
+S2 adds full-fidelity forensic export without changing destination policy: every configured
+destination receives `ptk.audit/5` core plus exact command, caller-response, and captured-output
+evidence in replay-stable `ptk.evidence/1` envelopes. The producer advances only after the whole
+logical unit is acknowledged. Receiver schema v11 persists and correlates either arrival order,
+survives replay/restart, reports completeness, and provides token-protected exact retrieval with
+retention, custody, backup, and restore coverage. OTLP and Splunk protocol conformance are proven;
+Decision D still prevents calling this real-external-SIEM acceptance. Verification and mutation
+evidence is in `.agents/machines.md`.
 
 Two owner-authorized Claude Fable 5 openreview attempts produced no verdict and
 were not retried under the owner's expensive-review rule; the canonical record

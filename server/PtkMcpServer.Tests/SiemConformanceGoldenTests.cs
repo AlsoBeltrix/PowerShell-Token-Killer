@@ -1,6 +1,8 @@
 using System.Net;
 using System.Runtime.CompilerServices;
+using System.Security.Cryptography;
 using System.Text;
+using PtkMcpServer.Audit;
 using PtkMcpServer.Audit.Export;
 
 namespace PtkMcpServer.Tests;
@@ -26,9 +28,11 @@ public sealed class SiemConformanceGoldenTests
         "otlp-http-v1.golden.json",
         "otlp-http-v2.golden.json",
         "otlp-http-v4.golden.json",
+        "otlp-http-evidence-v1.golden.json",
         "splunk-hec-v1.golden.json",
         "splunk-hec-v2.golden.json",
-        "splunk-hec-v4.golden.json");
+        "splunk-hec-v4.golden.json",
+        "splunk-hec-evidence-v1.golden.json");
 
     [Theory]
     [MemberData(nameof(GoldenNames))]
@@ -125,9 +129,68 @@ public sealed class SiemConformanceGoldenTests
         return [Line(first.Utf8Line), Line(second.Utf8Line), Line(third.Utf8Line)];
     }
 
+    internal static IReadOnlyList<string> EvidenceV1CorpusRecords()
+    {
+        var chunks = new[]
+        {
+            Encoding.UTF8.GetBytes("submitted command: Get-Secret Ω\n"),
+            Encoding.UTF8.GetBytes("complete output/error: denied ✓\n"),
+        };
+        var artifactBytes = chunks.SelectMany(bytes => bytes).ToArray();
+        var artifactDigest = Digest(artifactBytes);
+        var artifactId = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+        var entries = new[]
+        {
+            Entry(
+                "11111111-1111-4111-8111-111111111111",
+                "019f5ee1-2384-7eac-8f88-2eb4e7ec5ea1",
+                "submitted_command",
+                chunks[0],
+                artifactId,
+                artifactDigest,
+                artifactBytes.LongLength,
+                0,
+                chunks.Length,
+                0),
+            Entry(
+                "22222222-2222-4222-8222-222222222222",
+                "019f5ee1-2384-7eac-8f88-2eb4e7ec5ea2",
+                "submitted_command",
+                chunks[1],
+                artifactId,
+                artifactDigest,
+                artifactBytes.LongLength,
+                1,
+                chunks.Length,
+                chunks[0].LongLength),
+        };
+        var records = new List<string>(entries.Length);
+        string? previousHash = null;
+        for (var index = 0; index < entries.Length; index++)
+        {
+            records.Add(AuditEvidenceEnvelope.CreateRecord(
+                entries[index],
+                chunks[index],
+                Guid.Parse("92874c03-05a7-4aa6-8094-b2e87cad5696"),
+                Guid.Parse("7b297f65-646d-4f5d-9a40-f6c7c6ec45b1"),
+                "1.2.3",
+                Guid.Parse("019f5ee1-2384-7eac-8f88-2eb4e7ec5eaf"),
+                Guid.Parse("019f5ee1-2384-7eac-8f88-2eb4e7ec5eb0"),
+                DateTimeOffset.Parse(
+                    "2026-07-11T12:34:56.1234567Z",
+                    System.Globalization.CultureInfo.InvariantCulture),
+                previousHash,
+                out var eventHash));
+            previousHash = eventHash;
+        }
+        return records;
+    }
+
     private static async Task<byte[]> BuildRequestBodyAsync(string goldenName)
     {
-        var records = goldenName.Contains("-v1.", StringComparison.Ordinal)
+        var records = goldenName.Contains("-evidence-", StringComparison.Ordinal)
+            ? EvidenceV1CorpusRecords()
+            : goldenName.Contains("-v1.", StringComparison.Ordinal)
             ? V1CorpusRecords()
             : goldenName.Contains("-v4.", StringComparison.Ordinal)
                 ? V4CorpusRecords()
@@ -148,6 +211,37 @@ public sealed class SiemConformanceGoldenTests
         Assert.NotNull(handler.Body);
         return handler.Body!;
     }
+
+    private static AuditEvidenceManifestEntry Entry(
+        string evidenceId,
+        string envelopeEventId,
+        string evidenceKind,
+        byte[] bytes,
+        Guid artifactId,
+        string artifactDigest,
+        long artifactByteCount,
+        int chunkIndex,
+        int chunkCount,
+        long chunkOffset) => new()
+    {
+        EvidenceId = Guid.Parse(evidenceId),
+        EnvelopeEventId = Guid.Parse(envelopeEventId),
+        EvidenceKind = evidenceKind,
+        Digest = Digest(bytes),
+        ByteCount = bytes.Length,
+        Encoding = "utf-8",
+        ArtifactId = artifactId,
+        ArtifactDigest = artifactDigest,
+        ArtifactByteCount = artifactByteCount,
+        ChunkIndex = chunkIndex,
+        ChunkCount = chunkCount,
+        ChunkOffset = chunkOffset,
+        RetentionClass = "forensic",
+        CaptureState = "complete",
+    };
+
+    private static string Digest(byte[] bytes) =>
+        Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
     private static string Line(ReadOnlyMemory<byte> line) =>
         Encoding.UTF8.GetString(line.Span).TrimEnd('\n');

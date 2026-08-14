@@ -28,6 +28,15 @@ internal sealed class ScriptEvidenceStoreProvider
         _factory = () => store;
     }
 
+    internal int MaximumEvidenceBytes
+    {
+        get
+        {
+            lock (_gate)
+                return _store?.MaximumEvidenceBytes ?? _options.MaxEvidenceBytes;
+        }
+    }
+
     internal ScriptEvidenceReference Store(string script)
     {
         lock (_gate)
@@ -67,6 +76,67 @@ internal sealed class ScriptEvidenceStoreProvider
     {
         ArgumentNullException.ThrowIfNull(retentionJournal);
         return PublishCore(script, retentionJournal, retentionContext);
+    }
+
+    internal IAuditEvidenceBatchPublication PublishBatch(
+        IReadOnlyList<ReadOnlyMemory<byte>> payloads,
+        AuditJournal retentionJournal,
+        AuditEvidenceRetentionContext? retentionContext)
+    {
+        ArgumentNullException.ThrowIfNull(payloads);
+        ArgumentNullException.ThrowIfNull(retentionJournal);
+        lock (_gate)
+        {
+            try
+            {
+                return GetOrCreateLocked().PublishBatch(
+                    payloads,
+                    retentionJournal,
+                    retentionContext);
+            }
+            catch (AuditUnavailableException)
+            {
+                throw;
+            }
+            catch (ScriptEvidenceStorageException)
+            {
+                _store = null;
+                throw;
+            }
+            catch (ArgumentException)
+            {
+                throw;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                _store = null;
+                throw new ScriptEvidenceStorageException();
+            }
+        }
+    }
+
+    internal ScriptEvidenceReference ReadExactForExport(
+        string evidenceId,
+        Action<ReadOnlyMemory<byte>> consume)
+    {
+        ArgumentNullException.ThrowIfNull(consume);
+        lock (_gate)
+        {
+            try
+            {
+                return GetOrCreateLocked().ReadExact(evidenceId, consume);
+            }
+            catch (ScriptEvidenceStorageException)
+            {
+                _store = null;
+                throw;
+            }
+            catch (Exception exception) when (!IsFatal(exception))
+            {
+                _store = null;
+                throw new ScriptEvidenceStorageException();
+            }
+        }
     }
 
     private IScriptEvidencePublication PublishCore(

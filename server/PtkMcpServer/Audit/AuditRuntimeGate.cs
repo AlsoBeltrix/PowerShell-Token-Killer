@@ -18,6 +18,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
     private readonly AuditOptions _options;
     private readonly AuditHealth _health;
     private readonly ScriptEvidenceStoreProvider _evidence;
+    private readonly OutputStore? _outputStore;
     private readonly string _producerVersion;
     private readonly Func<AuditRuntimeResources> _openRuntime;
 
@@ -39,7 +40,8 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
         ScriptEvidenceStoreProvider evidence,
         string producerVersion,
         Func<AuditJournal>? openJournal = null,
-        Func<AuditRuntimeResources>? openRuntime = null)
+        Func<AuditRuntimeResources>? openRuntime = null,
+        OutputStore? outputStore = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -49,6 +51,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
         _options = options;
         _health = health;
         _evidence = evidence;
+        _outputStore = outputStore;
         _producerVersion = producerVersion;
         if (openJournal is not null && openRuntime is not null)
         {
@@ -154,7 +157,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
                     return false;
                 }
 
-                context = new AuditCallContext(_journal!, _evidence);
+                context = new AuditCallContext(_journal!, _evidence, _outputStore);
                 return true;
             }
         }
@@ -236,7 +239,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
                 }
             }
 
-            var candidate = new AuditCallContext(_journal!, _evidence);
+            var candidate = new AuditCallContext(_journal!, _evidence, _outputStore);
             if (!candidate.TryBegin(metadata, exactSubmittedScript, out failureClass))
                 return false;
 

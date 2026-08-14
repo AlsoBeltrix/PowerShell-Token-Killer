@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text;
 
 namespace PtkMcpServer.Audit;
@@ -16,10 +17,14 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
 
     private readonly AuditJournal _journal;
     private readonly ScriptEvidenceStoreProvider _evidence;
+    private readonly OutputStore? _outputStore;
     private AuditReservation? _reservation;
     private AuditCallMetadata? _metadata;
     private AuditRequest? _request;
     private AuditExecutionContext _executionContext = AuditExecutionContext.NotSupplied;
+    private ScriptEvidenceReference? _scriptEvidenceReference;
+    private IReadOnlyList<AuditEvidenceManifestEntry>? _evidenceManifest;
+    private IAuditEvidenceBatchPublication? _pendingEvidencePublication;
     private AuditRouting _routing = new();
     private Guid _callId;
     private Guid? _parentEventId;
@@ -36,14 +41,18 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     private DateTimeOffset _startedUtc;
 
     internal AuditCallContext(AuditJournal journal, ScriptEvidenceStore evidence)
-        : this(journal, new ScriptEvidenceStoreProvider(evidence))
+        : this(journal, new ScriptEvidenceStoreProvider(evidence), outputStore: null)
     {
     }
 
-    internal AuditCallContext(AuditJournal journal, ScriptEvidenceStoreProvider evidence)
+    internal AuditCallContext(
+        AuditJournal journal,
+        ScriptEvidenceStoreProvider evidence,
+        OutputStore? outputStore = null)
     {
         _journal = journal;
         _evidence = evidence;
+        _outputStore = outputStore;
     }
 
     internal bool Accepted => _accepted;
@@ -132,6 +141,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
                 }
 
                 var evidence = evidencePublication.Reference;
+                _scriptEvidenceReference = evidence;
                 _request = _request with
                 {
                     OriginalScriptDigest = evidence.ScriptDigest,
@@ -575,6 +585,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
                 terminationCertainty: "confirmed");
         }
 
+        CaptureTerminalEvidence(result, response);
+
         CompleteCall(
             result.Disposition == InvokeDisposition.NotStarted
                 ? "not_started"
@@ -596,8 +608,13 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             "not_started" => "call.not_started",
             _ => "call.failed",
         };
+        if (_evidenceManifest is null)
+            CaptureTerminalEvidence(result: null, response);
+        var publication = _pendingEvidencePublication;
+        var appendAttempted = false;
         try
         {
+            appendAttempted = true;
             Append(
                 eventType,
                 state,
@@ -605,21 +622,127 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
                 terminationCertainty: terminationCertainty,
                 rootCoverage: "not_applicable");
             _terminalWritten = true;
+            publication?.CompleteAfterAuditAppend();
         }
         catch (AuditUnavailableException)
         {
             // The journal already poisoned itself. Preserve the actual tool
             // result while admission fails closed for every later call.
         }
+        catch (ScriptEvidenceStorageException)
+        {
+            _journal.EnterExternalUnavailable("evidence.storage");
+        }
         finally
         {
+            if (!_terminalWritten && publication is not null)
+            {
+                try
+                {
+                    if (!appendAttempted)
+                        publication.AbandonBeforeAuditAppend();
+                    else
+                        _ = publication.ReconcileAfterAmbiguousAuditAppend(_journal);
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    _journal.EnterExternalUnavailable("evidence.storage");
+                }
+            }
+            if (publication is not null)
+            {
+                try
+                {
+                    publication.Dispose();
+                }
+                catch (Exception exception) when (!IsFatal(exception))
+                {
+                    _journal.EnterExternalUnavailable("evidence.storage");
+                }
+            }
+            _pendingEvidencePublication = null;
             _reservation?.Release();
         }
     }
 
-    internal void CompleteFromFilter(string state, long bytesReturned)
+    internal void CompleteFromFilter(
+        string state,
+        long bytesReturned,
+        string responseEvidence = "")
     {
-        CompleteCall(state, string.Empty, bytesReturnedOverride: bytesReturned);
+        CompleteCall(state, responseEvidence, bytesReturnedOverride: bytesReturned);
+    }
+
+    private void CaptureTerminalEvidence(InvokeResult? result, string response)
+    {
+        if (_evidenceManifest is not null || _pendingEvidencePublication is not null)
+            return;
+        // Production MCP calls always arrive through AuditRuntimeGate with the
+        // singleton output store. Direct administration/test contexts that do
+        // not own that store retain the historical v4 terminal contract.
+        if (_outputStore is null)
+            return;
+
+        var responseBytes = Utf8.GetBytes(response ?? string.Empty);
+        byte[]? outputBytes = null;
+        try
+        {
+            var payloads = new List<AuditEvidencePayload>
+            {
+                new(
+                    "caller_response",
+                    "utf-8",
+                    "forensic",
+                    "complete",
+                    responseBytes),
+            };
+
+            if (result?.OutputRecovery is { Handle: { } handle } recovery)
+            {
+                if (_outputStore is null)
+                    throw new IOException("The audit boundary cannot resolve retained output evidence.");
+                outputBytes = _outputStore.ReadExactForAudit(handle, recovery.Bytes);
+                payloads.Add(new AuditEvidencePayload(
+                    "captured_output",
+                    "utf-8",
+                    "forensic",
+                    recovery.State == OutputArtifactState.Available ? "complete" : "incomplete",
+                    outputBytes));
+            }
+
+            var plan = AuditEvidenceManifest.Plan(payloads, _evidence.MaximumEvidenceBytes);
+            var publication = _evidence.PublishBatch(
+                plan.Payloads,
+                _journal,
+                new AuditEvidenceRetentionContext(
+                    _callId,
+                    CallSession(),
+                    Metadata.Actor));
+            var manifest = new List<AuditEvidenceManifestEntry>(plan.Chunks.Count + 1);
+            if (_scriptEvidenceReference is not null)
+                manifest.Add(AuditEvidenceManifest.ExistingScript(_scriptEvidenceReference));
+            manifest.AddRange(AuditEvidenceManifest.Bind(plan, publication.References));
+            _evidenceManifest = manifest;
+            _pendingEvidencePublication = publication;
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            _journal.EnterExternalUnavailable("evidence.limit");
+        }
+        catch (ScriptEvidenceStorageException)
+        {
+            _journal.EnterExternalUnavailable("evidence.storage");
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            _journal.EnterExternalUnavailable("evidence.storage");
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(responseBytes);
+            if (outputBytes is not null)
+                CryptographicOperations.ZeroMemory(outputBytes);
+        }
     }
 
     internal void Abandon()
@@ -730,6 +853,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             CallAttribution = Metadata.Attribution,
             ClientCallContext = Metadata.ClientContext,
             ExecutionContext = _executionContext,
+            EvidenceManifest = _evidenceManifest,
             Correlation = correlation,
             Request = request,
             Routing = routing,
@@ -775,9 +899,10 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     // session while request.session_requested carried the truth (cr2-2).
     private AuditSession CallSession()
     {
-        var name = string.IsNullOrEmpty(_request.SessionRequested)
+        var requested = _request?.SessionRequested;
+        var name = string.IsNullOrEmpty(requested)
             ? "default"
-            : _request.SessionRequested;
+            : requested;
         return new()
         {
             Name = name,

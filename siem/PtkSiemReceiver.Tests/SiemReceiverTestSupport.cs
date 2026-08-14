@@ -478,6 +478,25 @@ internal static class OtlpTestRequest
         var disposition = schemaVersion == "ptk.audit/1"
             ? string.Empty
             : ",\"operator_disposition\":null";
+        var callContext = schemaVersion == "ptk.audit/4"
+            ? "\"call_attribution\":{\"agent_name\":null," +
+              "\"agent_unavailable_reason\":\"not_supplied_by_client\"," +
+              "\"model_provider\":null,\"model_name\":null," +
+              "\"model_unavailable_reason\":\"not_supplied_by_client\"," +
+              "\"source\":null,\"strength\":\"transport_only\"}," +
+              "\"client_context\":{\"task_id\":null,\"task_name\":null," +
+              "\"mcp_task_ttl_ms\":null," +
+              "\"task_unavailable_reason\":\"not_supplied_by_client\"," +
+              "\"run_id\":null," +
+              "\"run_unavailable_reason\":\"not_supplied_by_client\"," +
+              "\"source\":null,\"strength\":\"transport_only\"}," +
+              "\"execution_context\":{\"requested_cwd\":null," +
+              "\"requested_cwd_unavailable_reason\":\"not_supplied_by_client\"," +
+              "\"effective_cwd\":null," +
+              "\"effective_cwd_unavailable_reason\":\"not_dispatched\"," +
+              "\"repository_root\":null,\"repository_relative_path\":null," +
+              "\"repository_unavailable_reason\":\"not_dispatched\"},"
+            : string.Empty;
         var preHash =
             "{" +
             $"\"schema_version\":\"{schemaVersion}\"," +
@@ -496,6 +515,7 @@ internal static class OtlpTestRequest
             "," +
             "\"session\":{\"name\":null,\"generation\":null}," +
             "\"actor\":{}," +
+            callContext +
             "\"correlation\":{\"call_id\":null,\"job_id\":null,\"trace_id\":null}," +
             $"\"request\":{{{requestFields}}}" +
             disposition +

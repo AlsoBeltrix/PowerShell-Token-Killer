@@ -19,6 +19,15 @@ public sealed class AuditEvidenceSpoolScannerTests
     }
 
     [Fact]
+    public void Exact_envelope_shape_accepts_v4_call_context()
+    {
+        var record = AuditCoreSchemaTestRecords.CreateV4();
+
+        AuditEvidenceSpoolScanner.ValidateExactEnvelopeShapeForTests(
+            record.Utf8Line[..^1]);
+    }
+
+    [Fact]
     public void Exact_envelope_shape_and_chain_codec_accept_original_v1()
     {
         var source = AuditCoreSchemaTestRecords.Create();

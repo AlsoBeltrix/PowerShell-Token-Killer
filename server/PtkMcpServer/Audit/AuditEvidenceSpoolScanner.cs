@@ -18,6 +18,7 @@ internal enum AuditCoreSchemaVersion
 {
     V1,
     V2,
+    V4,
 }
 
 internal readonly record struct AuditCoreEnvelopeShape(
@@ -48,6 +49,44 @@ internal static class AuditEvidenceSpoolScanner
             "observed_utc", "producer", "sequence", "previous_event_hash",
             "session", "actor", "correlation", "request", "operator_disposition", "routing",
             "outcome", "coverage", "audit", "event_hash",
+        ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> V4RootProperties = new(
+        V2RootProperties.Concat(
+            ["call_attribution", "client_context", "execution_context"]),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> CallAttributionProperties = new(
+        [
+            "agent_name",
+            "agent_unavailable_reason",
+            "model_provider",
+            "model_name",
+            "model_unavailable_reason",
+            "source",
+            "strength",
+        ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> ClientContextProperties = new(
+        [
+            "task_id",
+            "task_name",
+            "mcp_task_ttl_ms",
+            "task_unavailable_reason",
+            "run_id",
+            "run_unavailable_reason",
+            "source",
+            "strength",
+        ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> ExecutionContextProperties = new(
+        [
+            "requested_cwd",
+            "requested_cwd_unavailable_reason",
+            "effective_cwd",
+            "effective_cwd_unavailable_reason",
+            "repository_root",
+            "repository_relative_path",
+            "repository_unavailable_reason",
         ],
         StringComparer.Ordinal);
 
@@ -607,13 +646,17 @@ internal static class AuditEvidenceSpoolScanner
         {
             AuditEventSerializer.LegacySchemaVersion => AuditCoreSchemaVersion.V1,
             AuditEventSerializer.CurrentSchemaVersion => AuditCoreSchemaVersion.V2,
+            AuditEventSerializer.CallContextSchemaVersion => AuditCoreSchemaVersion.V4,
             _ => throw new IOException("An evidence-proof audit schema is unsupported."),
         };
         root = RequireExactObject(
             root,
-            version == AuditCoreSchemaVersion.V1
-                ? V1RootProperties
-                : V2RootProperties);
+            version switch
+            {
+                AuditCoreSchemaVersion.V1 => V1RootProperties,
+                AuditCoreSchemaVersion.V2 => V2RootProperties,
+                _ => V4RootProperties,
+            });
         _ = RequireExactObject(
             root.GetProperty("producer"),
             version == AuditCoreSchemaVersion.V1
@@ -621,13 +664,25 @@ internal static class AuditEvidenceSpoolScanner
                 : [V1ProducerProperties, V2ProducerProperties]);
         _ = RequireExactObject(root.GetProperty("session"), SessionProperties);
         _ = RequireExactObject(root.GetProperty("actor"), ActorProperties);
+        if (version == AuditCoreSchemaVersion.V4)
+        {
+            _ = RequireExactObject(
+                root.GetProperty("call_attribution"),
+                CallAttributionProperties);
+            _ = RequireExactObject(
+                root.GetProperty("client_context"),
+                ClientContextProperties);
+            _ = RequireExactObject(
+                root.GetProperty("execution_context"),
+                ExecutionContextProperties);
+        }
         _ = RequireExactObject(root.GetProperty("correlation"), CorrelationProperties);
         var request = RequireExactObject(
             root.GetProperty("request"),
             version == AuditCoreSchemaVersion.V1
                 ? V1RequestProperties
                 : V2RequestProperties);
-        if (version == AuditCoreSchemaVersion.V2)
+        if (version is AuditCoreSchemaVersion.V2 or AuditCoreSchemaVersion.V4)
         {
             var disposition = root.GetProperty("operator_disposition");
             if (disposition.ValueKind != JsonValueKind.Null)

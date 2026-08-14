@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**ACTIVE — owner-directed plan, 2026-08-13. S0 was approved and executed;
-S1-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
+**ACTIVE — owner-directed plan, 2026-08-13. S0-S1 were approved and executed;
+S2-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -289,7 +289,7 @@ checkout-coupled verifier regression, then passed after restoration. Package
 verification now accepts either the release's seven-character stamped source
 identity or its full commit ID and never consults checkout `HEAD`.
 
-### S1 — attribution and execution-context contract
+### S1 — attribution and execution-context contract — EXECUTED 2026-08-13
 
 - Extend the audit schema compatibly for per-call agent/model attribution,
   task/run context, source/strength, and an explicit unavailable reason.
@@ -311,6 +311,22 @@ Exit evidence: each supported identity-capable client sends exact per-call
 agent/model values and they appear with their real provenance; an incapable or
 omitting client is explicitly unattributed with a reason; no test can promote
 client/configuration assertions to authenticated.
+
+Execution evidence: PTK accepts the strict namespaced MCP `_meta` contract
+`io.github.also-beltrix.ptk/call-context/v1`; records bounded agent, model,
+task, run, and requested-working-directory values as `client_asserted`; and
+records omitted identity as `not_supplied_by_client`. Initialize client identity
+stays separate. Effective working directory is captured at dispatch. Bounded
+repository root/relative-path context is derived only from parent `.git`
+markers, without invoking Git or reading remotes. `ptk.audit/4` carries the new
+call context while v1/v2 bytes/readers remain unchanged and v3 retains its
+distinct host-state contract. Strict v4 spool recovery, OTLP/Splunk export,
+receiver validation, producer-owned goldens, and operator documentation landed
+with spoofing, absence, and backward-compatibility coverage. Current supported
+client registrations cannot inject selected agent/model/task metadata into MCP
+calls, so they truthfully emit explicit absence unless the client supplies
+`_meta`; no static identity guess is substituted. Verification and mutation
+evidence is in `.agents/machines.md`.
 
 ### S2 — full-fidelity evidence export, destination storage, and retention
 

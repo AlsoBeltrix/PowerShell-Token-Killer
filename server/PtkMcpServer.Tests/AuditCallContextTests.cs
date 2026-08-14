@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
 
@@ -413,6 +414,71 @@ public sealed class AuditCallContextTests : IDisposable
             events.Select(EventType));
         AssertOutcome(events[^2], "not_started", "not_applicable", "none");
         AssertOutcome(events[^1], "not_started", "not_applicable", "not_applicable");
+    }
+
+    [Fact]
+    public async Task Dispatch_records_effective_working_directory_and_repository_context()
+    {
+        const string script = "git status";
+        var call = Call("ptk_invoke", ("script", script));
+        call.Meta = new JsonObject
+        {
+            [AuditCallMetadataCapture.CallContextMetadataKey] = new JsonObject
+            {
+                ["agent_name"] = "codex",
+                ["model_provider"] = "openai",
+                ["model_name"] = "gpt-5.6-sol",
+                ["requested_cwd"] = "/client/requested",
+            },
+        };
+        var repository = Directory.CreateTempSubdirectory("ptk-context-repo-").FullName;
+        _roots.Add(repository);
+        Directory.CreateDirectory(Path.Combine(repository, ".git"));
+        var workingDirectory = Directory.CreateDirectory(
+            Path.Combine(repository, "src", "module")).FullName;
+
+        using var fixture = CreateFixture(call, exactScript: script);
+        Assert.True(fixture.Context.BeginValidation());
+        var plan = new ExecutionPlan(
+            script,
+            executionScript: "rtk " + script,
+            ExecutionDomain.NativeTerminal,
+            ExecutionPath.Rtk,
+            PreExecutionValidation.None,
+            ResolutionContext.Warm,
+            RequestedExecutionRoute.Auto,
+            OutputProvenance.RtkUnknown,
+            ImmutableArray.Create(ExecutionPath.PowerShellDirect),
+            fallbackReason: null,
+            new RtkExecutableIdentity(Path.Combine(repository, "rtk")),
+            workingDirectory,
+            directFallbackProvenance: OutputProvenance.PowerShellObjects);
+
+        Assert.True(await fixture.Context.AuthorizePlanAsync(plan, CancellationToken.None));
+        Assert.True(await fixture.Context.AuthorizeDispatchAsync(
+            ExecutionDispatch.FromPlan(plan),
+            CancellationToken.None));
+        fixture.Context.CompleteFromFilter("completed", 0);
+
+        var events = fixture.Events();
+        var accepted = events.Single(value => EventType(value) == "call.accepted");
+        Assert.Equal("ptk.audit/4", accepted.GetProperty("schema_version").GetString());
+        Assert.Equal(
+            "not_dispatched",
+            accepted.GetProperty("execution_context")
+                .GetProperty("effective_cwd_unavailable_reason").GetString());
+
+        var dispatched = events.Single(value => EventType(value) == "execution.dispatched");
+        var execution = dispatched.GetProperty("execution_context");
+        Assert.Equal("/client/requested", execution.GetProperty("requested_cwd").GetString());
+        Assert.Equal(workingDirectory, execution.GetProperty("effective_cwd").GetString());
+        Assert.Equal(repository, execution.GetProperty("repository_root").GetString());
+        Assert.Equal(
+            Path.Combine("src", "module"),
+            execution.GetProperty("repository_relative_path").GetString());
+        Assert.Equal(
+            "client_asserted",
+            dispatched.GetProperty("call_attribution").GetProperty("strength").GetString());
     }
 
     private ContextFixture CreateFixture(

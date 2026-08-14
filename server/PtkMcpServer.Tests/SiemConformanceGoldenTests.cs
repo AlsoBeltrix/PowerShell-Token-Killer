@@ -25,8 +25,10 @@ public sealed class SiemConformanceGoldenTests
     public static TheoryData<string> GoldenNames => new(
         "otlp-http-v1.golden.json",
         "otlp-http-v2.golden.json",
+        "otlp-http-v4.golden.json",
         "splunk-hec-v1.golden.json",
-        "splunk-hec-v2.golden.json");
+        "splunk-hec-v2.golden.json",
+        "splunk-hec-v4.golden.json");
 
     [Theory]
     [MemberData(nameof(GoldenNames))]
@@ -56,6 +58,7 @@ public sealed class SiemConformanceGoldenTests
         // on the wire, so the pin decodes the record and compares the value.
         Assert.Equal(3, V1CorpusRecords().Count);
         Assert.Equal(3, V2CorpusRecords().Count);
+        Assert.Equal(3, V4CorpusRecords().Count);
         Assert.Equal(UnicodePurpose, DeclaredPurposeOf(V2CorpusRecords()[2]));
         Assert.Equal(UnicodePurpose, DeclaredPurposeOf(V1CorpusRecords()[2]));
     }
@@ -107,11 +110,28 @@ public sealed class SiemConformanceGoldenTests
         return [Line(first), Line(second), Line(third)];
     }
 
+    internal static IReadOnlyList<string> V4CorpusRecords()
+    {
+        var first = AuditCoreSchemaTestRecords.CreateV4();
+        var second = AuditCoreSchemaTestRecords.CreateV4(
+            sequence: 2,
+            previousEventHash: first.EventHash,
+            eventId: AuditCoreSchemaTestRecords.SecondEventId);
+        var third = AuditCoreSchemaTestRecords.CreateV4(
+            sequence: 3,
+            previousEventHash: second.EventHash,
+            eventId: AuditCoreSchemaTestRecords.UnicodeEventId,
+            declaredPurpose: UnicodePurpose);
+        return [Line(first.Utf8Line), Line(second.Utf8Line), Line(third.Utf8Line)];
+    }
+
     private static async Task<byte[]> BuildRequestBodyAsync(string goldenName)
     {
         var records = goldenName.Contains("-v1.", StringComparison.Ordinal)
             ? V1CorpusRecords()
-            : V2CorpusRecords();
+            : goldenName.Contains("-v4.", StringComparison.Ordinal)
+                ? V4CorpusRecords()
+                : V2CorpusRecords();
         var kind = goldenName.StartsWith("splunk-hec-", StringComparison.Ordinal)
             ? AuditDestinationKind.SplunkHec
             : AuditDestinationKind.OtlpHttp;

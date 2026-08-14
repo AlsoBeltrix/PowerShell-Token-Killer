@@ -2,6 +2,9 @@
 
 ## Operator-readiness status
 
+Current source adds truthful per-call attribution and execution context to the
+exported record, but no dashboard exposes it yet.
+
 The local audit journal is mandatory admission/replay/delivery
 infrastructure, not a SIEM destination or investigation dashboard. PTK
 exports to one explicitly selected SIEM destination by default; additional
@@ -74,6 +77,55 @@ This repository also contains:
 
 `PtkAuditAdmin` is excluded from the runtime package. `PtkSiemReceiver` is a
 separately installed application, not a service enabled by `PtkMcpServer`.
+
+## Per-call attribution and execution context
+
+Calls admitted through the MCP boundary emit `ptk.audit/4`. Server and receiver
+continue accepting the exact historical `ptk.audit/1` and `ptk.audit/2` field
+sets; host-state `ptk.audit/3` remains a separate established contract.
+
+An MCP client that knows its active agent, model, or task/run identity can send
+this optional namespaced `_meta` member on each `tools/call` request:
+
+```json
+{
+  "_meta": {
+    "io.github.also-beltrix.ptk/call-context/v1": {
+      "agent_name": "codex",
+      "model_provider": "openai",
+      "model_name": "gpt-5.6-sol",
+      "task_id": "task-17",
+      "task_name": "SIEM attribution",
+      "run_id": "run-29",
+      "requested_cwd": "/operator/requested/path"
+    }
+  }
+}
+```
+
+All members are optional bounded strings, but the namespaced object is strict:
+unknown fields, wrong JSON kinds, empty values, and oversized values refuse the
+call before execution. PTK labels values from this object as source `client`
+and strength `client_asserted`; the client cannot promote them to
+`authenticated`. A future dedicated static setting may use source
+`operator_configuration`, but it likewise cannot become authenticated without
+an independently authenticated binding.
+
+The initialize handshake's client name/version/session stays in `actor` and is
+not treated as the per-call agent or model. When the client omits identity,
+`call_attribution` stores `not_supplied_by_client` rather than guessing from
+the executable, process, prompt, session, or command. `client_context` stores
+bounded task/run values and the MCP task TTL when supplied. At dispatch,
+`execution_context` records the effective working directory and, when found by
+walking parent paths for a `.git` marker, only the bounded repository root and
+relative path. PTK does not invoke Git or read repository remotes.
+
+The PTK registrations installed by `scripts/ptk_init.ps1` currently launch the
+server but do not have a documented per-call metadata injection surface. Those
+clients therefore appear with initialize client identity and explicit
+per-call `not_supplied_by_client` labels unless the client itself sends the
+namespace. This is an honest capability gap, not a fallback to static model
+labels.
 
 ## Legacy local evidence administration
 

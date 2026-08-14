@@ -150,6 +150,7 @@ internal static class OtlpRequestValidator
     private const string V1 = "ptk.audit/1";
     private const string V2 = "ptk.audit/2";
     private const string V3 = "ptk.audit/3";
+    private const string V4 = "ptk.audit/4";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private const string EventHashMarker = ",\"event_hash\":\"";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -174,6 +175,10 @@ internal static class OtlpRequestValidator
 
     private static readonly HashSet<string> V3RootProperties = new(
         V2RootProperties.Append("host"),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> V4RootProperties = new(
+        V2RootProperties.Concat(
+            ["call_attribution", "client_context", "execution_context"]),
         StringComparer.Ordinal);
 
     private static readonly HashSet<string> AllowedHostStates = new(
@@ -274,7 +279,7 @@ internal static class OtlpRequestValidator
                 "ptk.termination.certainty",
                 OptionalString(outcome, "termination_certainty", "outcome"));
 
-            if (schemaVersion is V2 or V3)
+            if (schemaVersion is V2 or V3 or V4)
             {
                 AddOptional(
                     expectedAttributes,
@@ -388,9 +393,12 @@ internal static class OtlpRequestValidator
                 V1 => V1RootProperties,
                 V2 => V2RootProperties,
                 V3 => V3RootProperties,
+                V4 => V4RootProperties,
                 _ => throw new OtlpValidationException("schema_version"),
             };
             RequireExactProperties(root, expectedRoot, "body_shape");
+            if (schemaVersion == V4)
+                ValidateCallContext(root);
 
             var eventIdText = RequireString(root, "event_id", "event_id");
             var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
@@ -738,6 +746,156 @@ internal static class OtlpRequestValidator
         value.TryGetInt64(out var result)
             ? result
             : null;
+
+    private static void ValidateCallContext(JsonElement root)
+    {
+        var attribution = RequireObjectProperty(root, "call_attribution", "call_attribution");
+        RequireExactProperties(
+            attribution,
+            new HashSet<string>(
+                [
+                    "agent_name",
+                    "agent_unavailable_reason",
+                    "model_provider",
+                    "model_name",
+                    "model_unavailable_reason",
+                    "source",
+                    "strength",
+                ],
+                StringComparer.Ordinal),
+            "call_attribution");
+        var agentName = OptionalString(attribution, "agent_name", "call_attribution");
+        var agentReason = OptionalString(
+            attribution, "agent_unavailable_reason", "call_attribution");
+        var modelProvider = OptionalString(attribution, "model_provider", "call_attribution");
+        var modelName = OptionalString(attribution, "model_name", "call_attribution");
+        var modelReason = OptionalString(
+            attribution, "model_unavailable_reason", "call_attribution");
+        var source = OptionalString(attribution, "source", "call_attribution");
+        var strength = RequireString(attribution, "strength", "call_attribution");
+        if (agentReason is not (null or "not_supplied_by_client") ||
+            modelReason is not (null or "not_supplied_by_client"))
+        {
+            Fail("call_attribution");
+        }
+        if ((agentName is null) != (agentReason is not null))
+            Fail("call_attribution");
+        var modelIncomplete = modelProvider is null || modelName is null;
+        if (modelIncomplete != (modelReason is not null))
+            Fail("call_attribution");
+        var hasIdentity = agentName is not null || modelProvider is not null || modelName is not null;
+        if (hasIdentity)
+        {
+            if (source is not ("client" or "operator_configuration") ||
+                strength != "client_asserted")
+            {
+                Fail("call_attribution");
+            }
+        }
+        else if (source is not null || strength != "transport_only")
+        {
+            Fail("call_attribution");
+        }
+
+        var clientContext = RequireObjectProperty(root, "client_context", "client_context");
+        RequireExactProperties(
+            clientContext,
+            new HashSet<string>(
+                [
+                    "task_id",
+                    "task_name",
+                    "mcp_task_ttl_ms",
+                    "task_unavailable_reason",
+                    "run_id",
+                    "run_unavailable_reason",
+                    "source",
+                    "strength",
+                ],
+                StringComparer.Ordinal),
+            "client_context");
+        var taskId = OptionalString(clientContext, "task_id", "client_context");
+        var taskName = OptionalString(clientContext, "task_name", "client_context");
+        var taskTtl = OptionalInt64(clientContext, "mcp_task_ttl_ms", "client_context");
+        var taskReason = OptionalString(
+            clientContext, "task_unavailable_reason", "client_context");
+        var runId = OptionalString(clientContext, "run_id", "client_context");
+        var runReason = OptionalString(
+            clientContext, "run_unavailable_reason", "client_context");
+        source = OptionalString(clientContext, "source", "client_context");
+        strength = RequireString(clientContext, "strength", "client_context");
+        if (taskReason is not (null or "not_supplied_by_client") ||
+            runReason is not (null or "not_supplied_by_client"))
+        {
+            Fail("client_context");
+        }
+        if (taskTtl is < 0)
+            Fail("client_context");
+        var hasTaskIdentity = taskId is not null || taskName is not null;
+        if (hasTaskIdentity == (taskReason is not null) ||
+            (runId is null) != (runReason is not null))
+        {
+            Fail("client_context");
+        }
+        var hasClientContext = hasTaskIdentity || runId is not null || taskTtl is not null;
+        if (hasClientContext)
+        {
+            if (source is not ("client" or "operator_configuration") ||
+                strength != "client_asserted")
+            {
+                Fail("client_context");
+            }
+        }
+        else if (source is not null || strength != "transport_only")
+        {
+            Fail("client_context");
+        }
+
+        var execution = RequireObjectProperty(root, "execution_context", "execution_context");
+        RequireExactProperties(
+            execution,
+            new HashSet<string>(
+                [
+                    "requested_cwd",
+                    "requested_cwd_unavailable_reason",
+                    "effective_cwd",
+                    "effective_cwd_unavailable_reason",
+                    "repository_root",
+                    "repository_relative_path",
+                    "repository_unavailable_reason",
+                ],
+                StringComparer.Ordinal),
+            "execution_context");
+        var requestedCwd = OptionalString(execution, "requested_cwd", "execution_context");
+        var requestedReason = OptionalString(
+            execution, "requested_cwd_unavailable_reason", "execution_context");
+        var effectiveCwd = OptionalString(execution, "effective_cwd", "execution_context");
+        var effectiveReason = OptionalString(
+            execution, "effective_cwd_unavailable_reason", "execution_context");
+        var repositoryRoot = OptionalString(
+            execution, "repository_root", "execution_context");
+        var repositoryPath = OptionalString(
+            execution, "repository_relative_path", "execution_context");
+        var repositoryReason = OptionalString(
+            execution, "repository_unavailable_reason", "execution_context");
+        if (requestedReason is not (null or "not_supplied_by_client") ||
+            effectiveReason is not (null or "not_dispatched" or "not_available_at_dispatch") ||
+            repositoryReason is not (
+                null or "not_dispatched" or "effective_cwd_unavailable" or "repository_not_detected"))
+        {
+            Fail("execution_context");
+        }
+        if ((requestedCwd is null) != (requestedReason is not null) ||
+            (effectiveCwd is null) != (effectiveReason is not null))
+        {
+            Fail("execution_context");
+        }
+        var hasRepository = repositoryRoot is not null;
+        if (hasRepository != (repositoryPath is not null) ||
+            hasRepository == (repositoryReason is not null))
+        {
+            Fail("execution_context");
+        }
+    }
 
     private static void AddHostAttributes(
         JsonElement root,

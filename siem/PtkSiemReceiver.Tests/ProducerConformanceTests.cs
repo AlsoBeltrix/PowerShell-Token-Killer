@@ -24,6 +24,7 @@ public sealed class ProducerConformanceTests
     [Theory]
     [InlineData("otlp-http-v1.golden.json")]
     [InlineData("otlp-http-v2.golden.json")]
+    [InlineData("otlp-http-v4.golden.json")]
     public async Task The_exact_producer_golden_request_is_accepted_stored_and_idempotent(
         string goldenName)
     {

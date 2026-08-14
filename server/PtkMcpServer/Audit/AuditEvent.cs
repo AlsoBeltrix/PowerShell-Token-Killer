@@ -21,6 +21,9 @@ internal sealed record AuditEventInput
     public required string EventType { get; init; }
     public required AuditSession Session { get; init; }
     public required AuditActor Actor { get; init; }
+    public AuditCallAttribution? CallAttribution { get; init; }
+    public AuditClientCallContext? ClientCallContext { get; init; }
+    public AuditExecutionContext? ExecutionContext { get; init; }
     public required AuditCorrelation Correlation { get; init; }
     public required AuditRequest Request { get; init; }
     public AuditOperatorDispositionFacts? OperatorDisposition { get; init; }
@@ -71,6 +74,15 @@ internal sealed record AuditActor
     public string? ClientVersion { get; init; }
     public string? ClientSessionId { get; init; }
     public required string AttributionStrength { get; init; }
+
+    internal AuditCallAttribution CallAttribution { get; init; } =
+        AuditCallAttribution.NotSupplied;
+
+    internal AuditClientCallContext ClientCallContext { get; init; } =
+        AuditClientCallContext.NotSupplied;
+
+    internal AuditExecutionContext InitialExecutionContext { get; init; } =
+        AuditExecutionContext.NotSupplied;
 }
 
 internal sealed record AuditCorrelation
@@ -170,7 +182,7 @@ internal readonly record struct SerializedAuditEvent(
 internal sealed class AuditEventValidationException(string message) : Exception(message);
 
 /// <summary>
-/// Validates and serializes one strict ptk.audit/2 core record. The returned
+/// Validates and serializes one strict ptk.audit/2 or ptk.audit/4 core record. The returned
 /// bytes are the authoritative bytes: callers must persist/export them as-is,
 /// never reserialize the event after its hash has been computed.
 /// </summary>
@@ -179,6 +191,7 @@ internal static class AuditEventSerializer
     internal const int MaximumLineBytes = 65_536;
     internal const string LegacySchemaVersion = "ptk.audit/1";
     internal const string CurrentSchemaVersion = "ptk.audit/2";
+    internal const string CallContextSchemaVersion = "ptk.audit/4";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
@@ -188,6 +201,18 @@ internal static class AuditEventSerializer
         new(["mcp_stdio"], StringComparer.Ordinal);
     private static readonly HashSet<string> AttributionStrengths =
         new(["unknown", "transport_only", "client_asserted", "authenticated"], StringComparer.Ordinal);
+    private static readonly HashSet<string> CallContextSources =
+        new(["client", "operator_configuration"], StringComparer.Ordinal);
+    private static readonly HashSet<string> CallContextStrengths =
+        new(["transport_only", "client_asserted"], StringComparer.Ordinal);
+    private static readonly HashSet<string> NotSuppliedReasons =
+        new(["not_supplied_by_client"], StringComparer.Ordinal);
+    private static readonly HashSet<string> EffectiveCwdUnavailableReasons =
+        new(["not_dispatched", "not_available_at_dispatch"], StringComparer.Ordinal);
+    private static readonly HashSet<string> RepositoryUnavailableReasons =
+        new(
+            ["not_dispatched", "effective_cwd_unavailable", "repository_not_detected"],
+            StringComparer.Ordinal);
     private static readonly HashSet<string> Routes =
         new(["auto", "pwsh", "rtk"], StringComparer.Ordinal);
     private static readonly HashSet<string> DestinationKinds =
@@ -359,6 +384,7 @@ internal static class AuditEventSerializer
 
         ValidateSession(input.Session);
         ValidateActor(input.Actor);
+        ValidateCallContext(input);
         ValidateCorrelation(input.Correlation);
         var providedFields = NormalizeProvidedFields(input.Request.ProvidedFields);
         ValidateRequest(input.EventType, input.Request);
@@ -432,6 +458,120 @@ internal static class AuditEventSerializer
         RequireText(value.ClientVersion, 256, "actor.client_version", nullable: true);
         RequireText(value.ClientSessionId, 256, "actor.client_session_id", nullable: true);
         RequireEnum(value.AttributionStrength, AttributionStrengths, "actor.attribution_strength", nullable: false);
+    }
+
+    private static void ValidateCallContext(AuditEventInput input)
+    {
+        var present =
+            (input.CallAttribution is null ? 0 : 1) +
+            (input.ClientCallContext is null ? 0 : 1) +
+            (input.ExecutionContext is null ? 0 : 1);
+        if (present == 0)
+            return;
+        if (present != 3)
+            throw Invalid("call_context", "all ptk.audit/4 call-context objects are required together");
+
+        var attribution = input.CallAttribution!;
+        RequireText(attribution.AgentName, 256, "call_attribution.agent_name", nullable: true);
+        RequireEnum(
+            attribution.AgentUnavailableReason,
+            NotSuppliedReasons,
+            "call_attribution.agent_unavailable_reason",
+            nullable: true);
+        RequireText(attribution.ModelProvider, 256, "call_attribution.model_provider", nullable: true);
+        RequireText(attribution.ModelName, 256, "call_attribution.model_name", nullable: true);
+        RequireEnum(
+            attribution.ModelUnavailableReason,
+            NotSuppliedReasons,
+            "call_attribution.model_unavailable_reason",
+            nullable: true);
+        RequireEnum(attribution.Source, CallContextSources, "call_attribution.source", nullable: true);
+        RequireEnum(attribution.Strength, CallContextStrengths, "call_attribution.strength", nullable: false);
+        if ((attribution.AgentName is null) != (attribution.AgentUnavailableReason is not null))
+            throw Invalid("call_attribution.agent_unavailable_reason", "must label exactly missing agent name");
+        var modelIncomplete = attribution.ModelProvider is null || attribution.ModelName is null;
+        if (modelIncomplete != (attribution.ModelUnavailableReason is not null))
+            throw Invalid("call_attribution.model_unavailable_reason", "must label incomplete model identity");
+        var hasIdentity = attribution.AgentName is not null ||
+            attribution.ModelProvider is not null || attribution.ModelName is not null;
+        if (hasIdentity)
+        {
+            if (attribution.Source is null || attribution.Strength != "client_asserted")
+                throw Invalid("call_attribution", "supplied identity must remain an asserted source");
+        }
+        else if (attribution.Source is not null || attribution.Strength != "transport_only")
+        {
+            throw Invalid("call_attribution", "absent identity must remain transport_only with no source");
+        }
+
+        var clientContext = input.ClientCallContext!;
+        RequireText(clientContext.TaskId, 256, "client_context.task_id", nullable: true);
+        RequireText(clientContext.TaskName, 256, "client_context.task_name", nullable: true);
+        RequireNonNegative(clientContext.McpTaskTtlMs, "client_context.mcp_task_ttl_ms");
+        RequireEnum(
+            clientContext.TaskUnavailableReason,
+            NotSuppliedReasons,
+            "client_context.task_unavailable_reason",
+            nullable: true);
+        RequireText(clientContext.RunId, 256, "client_context.run_id", nullable: true);
+        RequireEnum(
+            clientContext.RunUnavailableReason,
+            NotSuppliedReasons,
+            "client_context.run_unavailable_reason",
+            nullable: true);
+        RequireEnum(clientContext.Source, CallContextSources, "client_context.source", nullable: true);
+        RequireEnum(clientContext.Strength, CallContextStrengths, "client_context.strength", nullable: false);
+        var hasTaskIdentity = clientContext.TaskId is not null || clientContext.TaskName is not null;
+        if (hasTaskIdentity == (clientContext.TaskUnavailableReason is not null))
+            throw Invalid("client_context.task_unavailable_reason", "must label exactly missing task identity");
+        if ((clientContext.RunId is null) != (clientContext.RunUnavailableReason is not null))
+            throw Invalid("client_context.run_unavailable_reason", "must label exactly missing run identity");
+        var hasClientContext = hasTaskIdentity ||
+            clientContext.RunId is not null || clientContext.McpTaskTtlMs is not null;
+        if (hasClientContext)
+        {
+            if (clientContext.Source is null || clientContext.Strength != "client_asserted")
+                throw Invalid("client_context", "supplied context must remain an asserted source");
+        }
+        else if (clientContext.Source is not null || clientContext.Strength != "transport_only")
+        {
+            throw Invalid("client_context", "absent context must remain transport_only with no source");
+        }
+
+        var execution = input.ExecutionContext!;
+        RequireText(execution.RequestedCwd, 4_096, "execution_context.requested_cwd", nullable: true);
+        RequireEnum(
+            execution.RequestedCwdUnavailableReason,
+            NotSuppliedReasons,
+            "execution_context.requested_cwd_unavailable_reason",
+            nullable: true);
+        RequirePath(execution.EffectiveCwd, "execution_context.effective_cwd", nullable: true);
+        RequireEnum(
+            execution.EffectiveCwdUnavailableReason,
+            EffectiveCwdUnavailableReasons,
+            "execution_context.effective_cwd_unavailable_reason",
+            nullable: true);
+        RequirePath(execution.RepositoryRoot, "execution_context.repository_root", nullable: true);
+        RequireText(
+            execution.RepositoryRelativePath,
+            4_096,
+            "execution_context.repository_relative_path",
+            nullable: true);
+        RequireEnum(
+            execution.RepositoryUnavailableReason,
+            RepositoryUnavailableReasons,
+            "execution_context.repository_unavailable_reason",
+            nullable: true);
+        if ((execution.RequestedCwd is null) != (execution.RequestedCwdUnavailableReason is not null))
+            throw Invalid("execution_context.requested_cwd_unavailable_reason", "must label exactly missing requested cwd");
+        if ((execution.EffectiveCwd is null) != (execution.EffectiveCwdUnavailableReason is not null))
+            throw Invalid("execution_context.effective_cwd_unavailable_reason", "must label exactly missing effective cwd");
+        var hasRepository = execution.RepositoryRoot is not null;
+        if (hasRepository != (execution.RepositoryRelativePath is not null) ||
+            hasRepository == (execution.RepositoryUnavailableReason is not null))
+        {
+            throw Invalid("execution_context.repository", "root/path and absence reason are inconsistent");
+        }
     }
 
     private static void ValidateCorrelation(AuditCorrelation value)
@@ -825,7 +965,11 @@ internal static class AuditEventSerializer
         string[] permittedFallbacks)
     {
         writer.WriteStartObject();
-        writer.WriteString("schema_version", CurrentSchemaVersion);
+        writer.WriteString(
+            "schema_version",
+            input.CallAttribution is null
+                ? CurrentSchemaVersion
+                : CallContextSchemaVersion);
         writer.WriteString("event_id", FormatUuid(eventId));
         writer.WriteString("event_type", input.EventType);
         writer.WriteString("occurred_utc", FormatTimestamp(occurredUtc));
@@ -865,6 +1009,54 @@ internal static class AuditEventSerializer
         WriteString(writer, "client_session_id", input.Actor.ClientSessionId);
         writer.WriteString("attribution_strength", input.Actor.AttributionStrength);
         writer.WriteEndObject();
+
+        if (input.CallAttribution is { } attribution)
+        {
+            writer.WriteStartObject("call_attribution");
+            WriteString(writer, "agent_name", attribution.AgentName);
+            WriteString(writer, "agent_unavailable_reason", attribution.AgentUnavailableReason);
+            WriteString(writer, "model_provider", attribution.ModelProvider);
+            WriteString(writer, "model_name", attribution.ModelName);
+            WriteString(writer, "model_unavailable_reason", attribution.ModelUnavailableReason);
+            WriteString(writer, "source", attribution.Source);
+            writer.WriteString("strength", attribution.Strength);
+            writer.WriteEndObject();
+
+            var clientContext = input.ClientCallContext!;
+            writer.WriteStartObject("client_context");
+            WriteString(writer, "task_id", clientContext.TaskId);
+            WriteString(writer, "task_name", clientContext.TaskName);
+            WriteNumber(writer, "mcp_task_ttl_ms", clientContext.McpTaskTtlMs);
+            WriteString(writer, "task_unavailable_reason", clientContext.TaskUnavailableReason);
+            WriteString(writer, "run_id", clientContext.RunId);
+            WriteString(writer, "run_unavailable_reason", clientContext.RunUnavailableReason);
+            WriteString(writer, "source", clientContext.Source);
+            writer.WriteString("strength", clientContext.Strength);
+            writer.WriteEndObject();
+
+            var executionContext = input.ExecutionContext!;
+            writer.WriteStartObject("execution_context");
+            WriteString(writer, "requested_cwd", executionContext.RequestedCwd);
+            WriteString(
+                writer,
+                "requested_cwd_unavailable_reason",
+                executionContext.RequestedCwdUnavailableReason);
+            WriteString(writer, "effective_cwd", executionContext.EffectiveCwd);
+            WriteString(
+                writer,
+                "effective_cwd_unavailable_reason",
+                executionContext.EffectiveCwdUnavailableReason);
+            WriteString(writer, "repository_root", executionContext.RepositoryRoot);
+            WriteString(
+                writer,
+                "repository_relative_path",
+                executionContext.RepositoryRelativePath);
+            WriteString(
+                writer,
+                "repository_unavailable_reason",
+                executionContext.RepositoryUnavailableReason);
+            writer.WriteEndObject();
+        }
 
         writer.WriteStartObject("correlation");
         WriteUuid(writer, "call_id", input.Correlation.CallId);

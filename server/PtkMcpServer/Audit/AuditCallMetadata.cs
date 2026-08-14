@@ -1,9 +1,14 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ModelContextProtocol.Protocol;
 
 namespace PtkMcpServer.Audit;
+
+// MCP task metadata is experimental in the pinned SDK. Keeping the use in
+// this boundary file means a future SDK shape change still fails compilation.
+#pragma warning disable MCPEXP001
 
 internal sealed record AuditClientContext(
     string? ClientName = null,
@@ -26,7 +31,15 @@ internal sealed record AuditOperationProfile(
 internal sealed record AuditCallMetadata(
     AuditActor Actor,
     AuditRequest Request,
-    AuditOperationProfile OperationProfile);
+    AuditOperationProfile OperationProfile)
+{
+    internal AuditCallAttribution Attribution => Actor.CallAttribution;
+
+    internal AuditClientCallContext ClientContext => Actor.ClientCallContext;
+
+    internal AuditExecutionContext InitialExecutionContext =>
+        Actor.InitialExecutionContext;
+}
 
 /// <summary>
 /// Pure validation and normalization at the MCP call boundary. It never
@@ -35,9 +48,24 @@ internal sealed record AuditCallMetadata(
 /// </summary>
 internal static class AuditCallMetadataCapture
 {
+    internal const string CallContextMetadataKey =
+        "io.github.also-beltrix.ptk/call-context/v1";
+
     private const int MaximumScriptUtf8Bytes = 131_072;
     private const int MaximumClientScalars = 256;
+    private const int MaximumContextPathUtf8Bytes = 4_096;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+    private static readonly HashSet<string> CallContextFields = new(
+        [
+            "agent_name",
+            "model_provider",
+            "model_name",
+            "task_id",
+            "task_name",
+            "run_id",
+            "requested_cwd",
+        ],
+        StringComparer.Ordinal);
 
     private static readonly HashSet<string> InvokeFields =
         new(["script", "raw", "route", "timeoutSeconds", "session"], StringComparer.Ordinal);
@@ -79,6 +107,22 @@ internal static class AuditCallMetadataCapture
 
         if (!TryCaptureActor(client, out var actor, out sanitizedFailure))
             return false;
+        if (!TryCaptureCallContext(
+                call.Meta,
+                call.Task,
+                out var attribution,
+                out var clientContext,
+                out var executionContext,
+                out sanitizedFailure))
+        {
+            return false;
+        }
+        actor = actor with
+        {
+            CallAttribution = attribution,
+            ClientCallContext = clientContext,
+            InitialExecutionContext = executionContext,
+        };
 
         var arguments = call.Arguments ?? new Dictionary<string, JsonElement>(StringComparer.Ordinal);
         var providedFields = arguments.Keys.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
@@ -462,6 +506,138 @@ internal static class AuditCallMetadataCapture
                 MaximumRecordSlots: 3,
                 RequiresScriptEvidence: false,
                 MayHaveSideEffects: false));
+        return true;
+    }
+
+    private static bool TryCaptureCallContext(
+        JsonObject? meta,
+        McpTaskMetadata? task,
+        out AuditCallAttribution attribution,
+        out AuditClientCallContext clientContext,
+        out AuditExecutionContext executionContext,
+        out string? failure)
+    {
+        attribution = AuditCallAttribution.NotSupplied;
+        clientContext = AuditClientCallContext.NotSupplied;
+        executionContext = AuditExecutionContext.NotSupplied;
+        failure = null;
+
+        JsonObject? submitted = null;
+        if (meta is not null &&
+            meta.TryGetPropertyValue(CallContextMetadataKey, out var submittedNode))
+        {
+            if (submittedNode is not JsonObject submittedObject)
+            {
+                return Fail(
+                    "audit_boundary_invalid: namespaced call context must be an object",
+                    out failure);
+            }
+            submitted = submittedObject;
+            if (submitted.Any(entry => !CallContextFields.Contains(entry.Key)))
+            {
+                return Fail(
+                    "audit_boundary_invalid: namespaced call context has an unknown field",
+                    out failure);
+            }
+        }
+
+        if (!TryOptionalCallContextText(
+                submitted, "agent_name", MaximumClientScalars, out var agentName, out failure) ||
+            !TryOptionalCallContextText(
+                submitted, "model_provider", MaximumClientScalars, out var modelProvider, out failure) ||
+            !TryOptionalCallContextText(
+                submitted, "model_name", MaximumClientScalars, out var modelName, out failure) ||
+            !TryOptionalCallContextText(
+                submitted, "task_id", MaximumClientScalars, out var taskId, out failure) ||
+            !TryOptionalCallContextText(
+                submitted, "task_name", MaximumClientScalars, out var taskName, out failure) ||
+            !TryOptionalCallContextText(
+                submitted, "run_id", MaximumClientScalars, out var runId, out failure) ||
+            !TryOptionalCallContextText(
+                submitted, "requested_cwd", MaximumContextPathUtf8Bytes, out var requestedCwd, out failure))
+        {
+            return false;
+        }
+
+        long? taskTtlMs = null;
+        if (task?.TimeToLive is { } timeToLive)
+        {
+            if (timeToLive < TimeSpan.Zero)
+            {
+                return Fail(
+                    "audit_boundary_invalid: MCP task TTL is not representable",
+                    out failure);
+            }
+            taskTtlMs = checked((long)timeToLive.TotalMilliseconds);
+        }
+
+        var hasAttribution =
+            agentName is not null || modelProvider is not null || modelName is not null;
+        attribution = new AuditCallAttribution
+        {
+            AgentName = agentName,
+            AgentUnavailableReason = agentName is null ? "not_supplied_by_client" : null,
+            ModelProvider = modelProvider,
+            ModelName = modelName,
+            ModelUnavailableReason = modelProvider is null || modelName is null
+                ? "not_supplied_by_client"
+                : null,
+            Source = hasAttribution ? "client" : null,
+            Strength = hasAttribution ? "client_asserted" : "transport_only",
+        };
+
+        var hasClientContext =
+            taskId is not null || taskName is not null || runId is not null || taskTtlMs is not null;
+        clientContext = new AuditClientCallContext
+        {
+            TaskId = taskId,
+            TaskName = taskName,
+            McpTaskTtlMs = taskTtlMs,
+            TaskUnavailableReason = taskId is null && taskName is null
+                ? "not_supplied_by_client"
+                : null,
+            RunId = runId,
+            RunUnavailableReason = runId is null ? "not_supplied_by_client" : null,
+            Source = hasClientContext ? "client" : null,
+            Strength = hasClientContext ? "client_asserted" : "transport_only",
+        };
+
+        executionContext = new AuditExecutionContext
+        {
+            RequestedCwd = requestedCwd,
+            RequestedCwdUnavailableReason = requestedCwd is null
+                ? "not_supplied_by_client"
+                : null,
+            EffectiveCwdUnavailableReason = "not_dispatched",
+            RepositoryUnavailableReason = "not_dispatched",
+        };
+        return true;
+    }
+
+    private static bool TryOptionalCallContextText(
+        JsonObject? context,
+        string property,
+        int maximumUtf8Bytes,
+        out string? value,
+        out string? failure)
+    {
+        value = null;
+        failure = null;
+        if (context is null || !context.TryGetPropertyValue(property, out var node) || node is null)
+            return true;
+        if (node is not JsonValue jsonValue || !jsonValue.TryGetValue<string>(out value))
+        {
+            return Fail(
+                "audit_boundary_invalid: namespaced call context field has wrong JSON kind",
+                out failure);
+        }
+        if (string.IsNullOrWhiteSpace(value) || !TryStrictUtf8Length(value, maximumUtf8Bytes))
+        {
+            value = null;
+            return Fail(
+                "audit_boundary_invalid: namespaced call context field is not representable",
+                out failure);
+        }
         return true;
     }
 

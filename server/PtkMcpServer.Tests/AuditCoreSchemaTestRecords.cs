@@ -67,6 +67,66 @@ internal static class AuditCoreSchemaTestRecords
             Occurred,
             Observed);
 
+    internal static SerializedAuditEvent CreateV4(
+        long sequence = 1,
+        string? previousEventHash = null,
+        Guid? eventId = null,
+        string attributionStrength = "client_asserted",
+        string? declaredPurpose = null)
+    {
+        var input = CompleteInput(
+            includeOptionalQueryValues: true,
+            outcomeState: null,
+            operatorDisposition: null) with
+        {
+            CallAttribution = new AuditCallAttribution
+            {
+                AgentName = "codex",
+                ModelProvider = "openai",
+                ModelName = "gpt-5.6-sol",
+                Source = "client",
+                Strength = attributionStrength,
+            },
+            ClientCallContext = new AuditClientCallContext
+            {
+                TaskId = "task-17",
+                TaskName = "SIEM attribution",
+                McpTaskTtlMs = 120_000,
+                RunId = "run-29",
+                Source = "client",
+                Strength = "client_asserted",
+            },
+            ExecutionContext = new AuditExecutionContext
+            {
+                RequestedCwd = "/tmp/work",
+                EffectiveCwd = "/tmp/work",
+                RepositoryRoot = "/tmp",
+                RepositoryRelativePath = "work",
+            },
+        };
+        if (declaredPurpose is not null)
+        {
+            input = input with
+            {
+                Session = input.Session with { DeclaredPurpose = declaredPurpose },
+            };
+        }
+        return AuditEventSerializer.Serialize(
+            sequence,
+            previousEventHash,
+            new AuditProducerContext(
+                HostId,
+                SupervisorBootId,
+                WorkerBootId,
+                4321,
+                "1.2.3-test",
+                HashA),
+            input,
+            eventId ?? EventId,
+            Occurred,
+            Observed);
+    }
+
     /// <summary>A second distinct record identity for multi-record corpora
     /// (R5 conformance): the receiver's events are keyed by event id, so a
     /// chain of distinct records must never reuse <see cref="EventId"/>.</summary>

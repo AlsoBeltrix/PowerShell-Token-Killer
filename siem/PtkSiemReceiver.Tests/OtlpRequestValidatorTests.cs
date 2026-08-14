@@ -10,6 +10,7 @@ public sealed class OtlpRequestValidatorTests
     [InlineData("ptk.audit/1")]
     [InlineData("ptk.audit/2")]
     [InlineData("ptk.audit/3")]
+    [InlineData("ptk.audit/4")]
     public void Exact_supported_request_is_accepted(string schemaVersion)
     {
         var request = OtlpTestRequest.Create(schemaVersion);

@@ -3,6 +3,30 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha.local` — SIEM operator-readiness S1 attribution contract (2026-08-13)
+
+- Implemented and verified in a working tree based on
+  `971916f4a1dc39acf17b40b67c9b8c934c19dbff`, which matched
+  `origin/master` before the slice. Host was macOS 26.6.1 arm64, .NET SDK
+  10.0.302, and PowerShell 7.6.3.
+- `dotnet test server/PtkMcpServer.slnx` passed 1,323/1,323;
+  `dotnet test siem/PtkSiem.slnx` passed 332/332; `pwsh -NoProfile -Command
+  "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"`
+  passed 112 with 3 skips; registered-command handshake passed. Server and
+  SIEM `dotnet list ... package --vulnerable --include-transitive` scans listed
+  no vulnerable packages. `git diff --check` and changed-file whitespace checks
+  passed; historical v1/v2 goldens had no diff.
+- Mutation proofs independently disabled attribution source propagation,
+  effective-working-directory capture, receiver v4 acceptance, and v4 schema
+  labeling. Each focused test failed for the intended assertion and passed after
+  restoration. Full-suite testing also exposed the evidence spool scanner's
+  initial v1/v2-only recovery path; adding strict v4 recognition made its focused
+  recovery test and the final full server suite pass.
+- Whole-repository `dotnet format --verify-no-changes` still reports extensive
+  pre-existing formatting debt. The only touched existing failure is around
+  `siem/PtkSiemReceiver.Tests/ProducerConformanceTests.cs` lines 214-218; this
+  slice adds one inline v4 case elsewhere and does not alter that debt.
+
 ## `nagatha.local` — mini-SIEM S8 local package proof (2026-08-12)
 
 - Exact implementation head

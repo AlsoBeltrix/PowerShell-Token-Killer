@@ -19,6 +19,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
     private AuditReservation? _reservation;
     private AuditCallMetadata? _metadata;
     private AuditRequest? _request;
+    private AuditExecutionContext _executionContext = AuditExecutionContext.NotSupplied;
     private AuditRouting _routing = new();
     private Guid _callId;
     private Guid? _parentEventId;
@@ -67,6 +68,8 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         ArgumentNullException.ThrowIfNull(metadata);
         if (_accepted || _reservation is not null)
             throw new InvalidOperationException("Audit call was already initialized.");
+
+        _executionContext = metadata.InitialExecutionContext;
 
         if (metadata.OperationProfile.RequiresScriptEvidence)
         {
@@ -317,7 +320,11 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         // then inherits this actual dispatch.
 
         var previousRouting = _routing;
+        var previousExecutionContext = _executionContext;
         ProjectDispatchRouting(dispatch, includePermittedFallbacks: true);
+        _executionContext = AuditExecutionContextCapture.Capture(
+            _executionContext.RequestedCwd,
+            dispatch.WorkingDirectory);
 
         try
         {
@@ -339,6 +346,7 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             // record crossed the durable barrier. In particular, a failed
             // fallback append must leave the initial RTK route intact.
             _routing = previousRouting;
+            _executionContext = previousExecutionContext;
             _authorizationPersistenceFailed = true;
             return ValueTask.FromResult(false);
         }
@@ -719,6 +727,9 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
             EventType = eventType,
             Session = CallSession(),
             Actor = actor,
+            CallAttribution = Metadata.Attribution,
+            ClientCallContext = Metadata.ClientContext,
+            ExecutionContext = _executionContext,
             Correlation = correlation,
             Request = request,
             Routing = routing,

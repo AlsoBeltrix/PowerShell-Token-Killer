@@ -5,8 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM BACKEND/PACKAGING S1-S8 COMPLETE; OPERATOR READINESS FAILED
-PUBLISHED-ARTIFACT ACCEPTANCE (2026-08-13).** The signed five-RID
+**OPERATOR-READINESS S1 EXECUTED; S2-S7 NOT APPROVED (2026-08-13).** The signed five-RID
 `0.3.0-rc.1` prerelease contains a functioning, separately packaged
 mini-SIEM, but there is no public receiver-deployment plus destination-setup
 workflow, the receiver dashboard does not expose stored attribution/detail,
@@ -15,7 +14,7 @@ S0 is executed: `siem/operator-readiness-acceptance.ps1` verifies published
 artifact identity in a fresh isolated home and names the release gate;
 `siem/test-verify-package.ps1` guards release-bound source identity. Authentic
 `0.3.0-rc.1` evidence passed eight artifact/provenance requirements and failed
-23 operator-readiness requirements. S1-S7 remain unapproved; Decision D remains
+23 operator-readiness requirements. S1 is executed; S2-S7 remain unapproved; Decision D remains
 open. Canonical plan: `.agents/plans/siem-operator-readiness.md`.
 
 Two owner-authorized Claude Fable 5 openreview attempts produced no verdict and
@@ -41,13 +40,26 @@ dashboard. Decision D—the first real external-SIEM acceptance target—is the
 only remaining owner gate. The owner has no access to Splunk or another SIEM
 test instance; Decision D must settle both a product and an authorized,
 reproducible access path without assuming owner-provided infrastructure. This
-constraint does not choose a replacement or waive real-product validation. No
-implementation is approved.
+constraint does not choose a replacement or waive real-product validation. Only
+S1 is implemented; S2-S7 are not approved.
 
 A live disposable published-artifact proof remains under
 `~/.ptk-siem-live-proof` on loopback ports 19418/19443 (plus TLS-validating
 forwarder 19466) for owner inspection; it did not alter or restart the installed
 PTK. Host evidence is in `.agents/machines.md`.
+S1 added strict per-call attribution and execution context through namespaced
+MCP `_meta` `io.github.also-beltrix.ptk/call-context/v1`, with every supplied
+value labeled `client_asserted` and omitted identity labeled
+`not_supplied_by_client`. Effective working directory is captured at dispatch;
+repository root/relative path is bounded and derived from `.git` markers only.
+Audit schema `ptk.audit/4`, strict spool recovery, OTLP/Splunk export, and the
+standalone receiver support the fields. Historical v1/v2 bytes/readers remain
+unchanged; v3 remains the distinct host-state contract. Supported registrations
+currently cannot inject selected agent/model/task metadata, so absence is
+reported explicitly instead of guessed. Full verification and mutation evidence
+is in `.agents/machines.md`; operator contract is in `server/AUDIT-EXPORT.md` and
+the capability gap is in `docs/harness-support.md`.
+
 **Historical S1-S8 backend evidence follows; it is not an operator-readiness
 claim.**
 S7 replaced the receiver's implementation-oriented README with a standalone

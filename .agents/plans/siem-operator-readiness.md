@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**ACTIVE — owner-directed plan, 2026-08-14. S0-S2 were approved and executed;
-S3-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
+**ACTIVE — owner-directed plan, 2026-08-14. S0-S3 were approved and executed;
+S4-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -377,9 +377,9 @@ restore. Strict ingest validation rejects noncontiguous, internally inconsistent
 or arithmetically impossible chunk sets before storage. Fixed-head suite and
 mutation evidence is in `.agents/machines.md`. Decision D remains open:
 producer-owned Splunk protocol
-conformance is not a real-Splunk acceptance claim, and S3-S7 remain unapproved.
+conformance is not a real-Splunk acceptance claim, and S4-S7 remain unapproved.
 
-### S3 — explicit destination configuration and per-destination delivery status
+### S3 — explicit destination configuration and per-destination delivery status — EXECUTED 2026-08-14
 
 - Replace ambiguous exporter configuration with one versioned destination set.
   Each entry has a stable destination ID, type, operator label, endpoint,
@@ -421,6 +421,13 @@ conformance is not a real-Splunk acceptance claim, and S3-S7 remain unapproved.
   default-one, explicit-multiple, independent-cursor,
   partial-destination-failure, no-implicit-failover, and delivery-status accuracy
   tests.
+
+Execution evidence is recorded in `.agents/machines.md`: destination-set and
+v6/evidence-v2 persistence, prospective add, live add/update/enable/disable/
+remove, independent partial failure/recovery, bounded restart-safe backfill,
+backlog refusal and explicit abandonment ranges, conservative retention,
+producer status-only non-disclosure, migration, concurrency, and failed-write
+guards all pass and are mutation-proven.
 
 Exit evidence: an operator can identify every destination receiving PTK
 evidence and independently prove whether each event/evidence item was

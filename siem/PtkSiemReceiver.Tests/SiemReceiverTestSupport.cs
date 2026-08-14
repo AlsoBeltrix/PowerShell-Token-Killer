@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Text.Json;
 using Google.Protobuf;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting.Server;
@@ -463,7 +464,8 @@ internal static class OtlpTestRequest
         string? previousEventHash = null,
         string eventType = "tool.completed",
         string? previousSupervisorBootId = null,
-        string? evidenceManifestJson = null)
+        string? evidenceManifestJson = null,
+        IReadOnlyList<Guid>? requiredDestinationIds = null)
     {
         eventId ??= DefaultEventId;
         supervisorBootId ??= DefaultSupervisorBootId;
@@ -479,7 +481,7 @@ internal static class OtlpTestRequest
         var disposition = schemaVersion == "ptk.audit/1"
             ? string.Empty
             : ",\"operator_disposition\":null";
-        var callContext = schemaVersion is "ptk.audit/4" or "ptk.audit/5"
+        var callContext = schemaVersion is "ptk.audit/4" or "ptk.audit/5" or "ptk.audit/6"
             ? "\"call_attribution\":{\"agent_name\":null," +
               "\"agent_unavailable_reason\":\"not_supplied_by_client\"," +
               "\"model_provider\":null,\"model_name\":null," +
@@ -498,8 +500,16 @@ internal static class OtlpTestRequest
               "\"repository_root\":null,\"repository_relative_path\":null," +
               "\"repository_unavailable_reason\":\"not_dispatched\"},"
             : string.Empty;
-        var evidenceManifest = schemaVersion == "ptk.audit/5"
+        var evidenceManifest = schemaVersion == "ptk.audit/5" ||
+            (schemaVersion == "ptk.audit/6" && evidenceManifestJson is not null)
             ? $"\"evidence_manifest\":{evidenceManifestJson ?? "[]"},"
+            : string.Empty;
+        var destinationObligations = schemaVersion == "ptk.audit/6"
+            ? $"\"required_destination_ids\":" +
+              JsonSerializer.Serialize(
+                  (requiredDestinationIds ?? [])
+                      .Order()
+                      .Select(destinationId => destinationId.ToString("D"))) + ","
             : string.Empty;
         var preHash =
             "{" +
@@ -521,6 +531,7 @@ internal static class OtlpTestRequest
             "\"actor\":{}," +
             callContext +
             evidenceManifest +
+            destinationObligations +
             "\"correlation\":{\"call_id\":null,\"job_id\":null,\"trace_id\":null}," +
             $"\"request\":{{{requestFields}}}" +
             disposition +
@@ -548,7 +559,8 @@ internal static class OtlpTestRequest
         long sequence = 1,
         string? previousEventHash = null,
         string eventType = "tool.completed",
-        string? previousSupervisorBootId = null)
+        string? previousSupervisorBootId = null,
+        IReadOnlyList<Guid>? requiredDestinationIds = null)
     {
         var testRecord = CreateRecord(
             schemaVersion,
@@ -557,7 +569,8 @@ internal static class OtlpTestRequest
             sequence,
             previousEventHash,
             eventType,
-            previousSupervisorBootId);
+            previousSupervisorBootId,
+            requiredDestinationIds: requiredDestinationIds);
         eventId = testRecord.EventId;
         supervisorBootId = testRecord.SupervisorBootId;
         var eventHash = testRecord.EventHash;

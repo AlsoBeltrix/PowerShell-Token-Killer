@@ -22,7 +22,18 @@ internal sealed record AuditExportHealthSnapshot(
     bool AlertWebhookConfigured = false,
     long AlertWebhookConsecutiveFailures = 0,
     string? AlertWebhookLastFailure = null,
-    DateTimeOffset? AlertWebhookLastSuccessUtc = null)
+    DateTimeOffset? AlertWebhookLastSuccessUtc = null,
+    Guid? DestinationId = null,
+    string? OperatorLabel = null,
+    string? EndpointSummary = null,
+    bool Enabled = true,
+    long PendingEventRecords = 0,
+    long PendingEvidenceRecords = 0,
+    long PendingEvidenceBytes = 0,
+    DateTimeOffset? OldestPendingUtc = null,
+    DateTimeOffset? LastAttemptUtc = null,
+    DateTimeOffset? LastAcknowledgmentUtc = null,
+    DateTimeOffset? LastScanUtc = null)
 {
     /// <summary>
     /// The operator-facing line in ptk_state. Export health is reported
@@ -126,6 +137,37 @@ internal sealed class AuditExportHealth
             _snapshot = _snapshot with { Configured = true, Destination = destination };
     }
 
+    internal void SetDestination(
+        Guid destinationId,
+        string operatorLabel,
+        string endpointSummary,
+        bool enabled)
+    {
+        lock (_gate)
+        {
+            _snapshot = _snapshot with
+            {
+                Configured = true,
+                DestinationId = destinationId,
+                OperatorLabel = operatorLabel,
+                EndpointSummary = endpointSummary,
+                Enabled = enabled,
+            };
+        }
+    }
+
+    internal void SetEnabled(bool enabled)
+    {
+        lock (_gate)
+            _snapshot = _snapshot with { Enabled = enabled };
+    }
+
+    internal void RecordAttempt(DateTimeOffset utcNow)
+    {
+        lock (_gate)
+            _snapshot = _snapshot with { LastAttemptUtc = utcNow };
+    }
+
     internal void RecordDelivery(int records, DateTimeOffset utcNow)
     {
         lock (_gate)
@@ -144,6 +186,7 @@ internal sealed class AuditExportHealth
                         ? "export.records_refused"
                         : null,
                 LastDeliveryUtc = utcNow,
+                LastAcknowledgmentUtc = utcNow,
             };
         }
     }
@@ -221,6 +264,22 @@ internal sealed class AuditExportHealth
             _snapshot = _snapshot with { PendingBytes = Math.Max(0, pendingBytes) };
     }
 
+    internal void RecordPending(AuditExportPendingMetrics pending)
+    {
+        lock (_gate)
+        {
+            _snapshot = _snapshot with
+            {
+                PendingBytes = Math.Max(0, pending.EventBytes + pending.EvidenceBytes),
+                PendingEventRecords = Math.Max(0, pending.EventRecords),
+                PendingEvidenceRecords = Math.Max(0, pending.EvidenceRecords),
+                PendingEvidenceBytes = Math.Max(0, pending.EvidenceBytes),
+                OldestPendingUtc = pending.OldestPendingUtc,
+                LastScanUtc = DateTimeOffset.UtcNow,
+            };
+        }
+    }
+
     internal void SetStandby(bool standby)
     {
         lock (_gate)
@@ -261,4 +320,15 @@ internal sealed class AuditExportHealth
             };
         }
     }
+}
+
+internal sealed record AuditExportPendingMetrics(
+    long EventRecords,
+    long EventBytes,
+    long EvidenceRecords,
+    long EvidenceBytes,
+    DateTimeOffset? OldestPendingUtc)
+{
+    internal static AuditExportPendingMetrics Empty { get; } =
+        new(0, 0, 0, 0, null);
 }

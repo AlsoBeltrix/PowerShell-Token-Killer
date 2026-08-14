@@ -2169,3 +2169,37 @@ green product as a regression.
   commits. Treated as a runner-environment flake in the audit ACL fixture,
   not a product failure. A recurrence with a product change nearby deserves a
   fresh look.
+
+## Operator-readiness S3 destination delivery proof (2026-08-14, Michael's Mac)
+
+- Exact implementation worktree was based on clean, remotely current
+  `73660fdb4dfa9b7e4fb1cf986cd0981a278da38d`. S3 alone was implemented; S4-S7
+  were not started.
+- Focused S3 destination coverage passed 14/14. It covers protected migration,
+  explicit sensitive-duplication confirmation before credential probing,
+  producer admission obligations, prospective add, independent cursors,
+  partial failure and recovery without failover, live update/enable/disable/
+  remove, permanent refusal, cold-start backlog refusal, durable abandonment
+  ranges, bounded restart-safe backfill, conservative retention, registry
+  concurrency/stale-instance refresh/failed-write preservation, and harmless
+  credential probing. The producer status-only UI plus composition/evidence
+  focused set passed 18/18.
+- Receiver destination-obligation persistence, v6 evidence-manifest storage,
+  both event APIs, and schema v11-to-v12 migration passed focused 2/2. The
+  complete receiver suite passed 346/346.
+- The complete server suite passed 1,346/1,346 with the repo-recorded PTK
+  session `PSModulePath` correction. Pester passed 112 with 3 platform skips.
+  The registered five-tool handshake passed, including positive audit
+  journaling and fail-closed audit refusal. All five server and all three SIEM
+  projects reported no vulnerable direct or transitive NuGet packages.
+- Mutation proof deliberately disabled and restored: v11 migration; v6
+  manifest persistence; cold-backlog scan; bounded backfill filtering;
+  destination-set refresh and failed-publish guard; evidence-v2 obligation
+  propagation; production status-only routing; pending-backlog HTTP 409
+  mapping; abandonment ranges; second-destination pre-probe confirmation; and
+  production DI construction. Every named focused test failed under its
+  corresponding sabotage and passed after restoration.
+- The first complete server run exposed the new operations constructor as
+  invisible to dependency injection and an old composition test pinned to the
+  single-exporter type. Both were repaired and independently re-run before the
+  final complete green run. `git diff --check` was clean.

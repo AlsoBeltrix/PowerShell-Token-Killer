@@ -20,6 +20,7 @@ internal enum AuditCoreSchemaVersion
     V2,
     V4,
     V5,
+    V6,
 }
 
 internal readonly record struct AuditCoreEnvelopeShape(
@@ -58,6 +59,9 @@ internal static class AuditEvidenceSpoolScanner
         StringComparer.Ordinal);
     private static readonly HashSet<string> V5RootProperties = new(
         V4RootProperties.Append("evidence_manifest"),
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> V6BaseRootProperties = new(
+        V2RootProperties.Append("required_destination_ids"),
         StringComparer.Ordinal);
     private static readonly HashSet<string> EvidenceManifestProperties = new(
         [
@@ -640,11 +644,12 @@ internal static class AuditEvidenceSpoolScanner
                         referenced.Add(new AuditEvidenceIdentity(evidenceId, scriptDigest!));
                     }
 
-                    if (shape.Version == AuditCoreSchemaVersion.V5)
+                    if (document.RootElement.TryGetProperty(
+                            "evidence_manifest",
+                            out var manifestElement) &&
+                        manifestElement.ValueKind == JsonValueKind.Array)
                     {
-                        foreach (var item in document.RootElement
-                                     .GetProperty("evidence_manifest")
-                                     .EnumerateArray())
+                        foreach (var item in manifestElement.EnumerateArray())
                         {
                             var evidence = RequireExactObject(item, EvidenceManifestProperties);
                             var manifestId = NullableString(evidence, "evidence_id");
@@ -685,17 +690,20 @@ internal static class AuditEvidenceSpoolScanner
             AuditEventSerializer.CurrentSchemaVersion => AuditCoreSchemaVersion.V2,
             AuditEventSerializer.CallContextSchemaVersion => AuditCoreSchemaVersion.V4,
             AuditEventSerializer.FullEvidenceSchemaVersion => AuditCoreSchemaVersion.V5,
+            AuditEventSerializer.DestinationObligationSchemaVersion => AuditCoreSchemaVersion.V6,
             _ => throw new IOException("An evidence-proof audit schema is unsupported."),
+        };
+        var expectedRoot = version switch
+        {
+            AuditCoreSchemaVersion.V1 => V1RootProperties,
+            AuditCoreSchemaVersion.V2 => V2RootProperties,
+            AuditCoreSchemaVersion.V4 => V4RootProperties,
+            AuditCoreSchemaVersion.V5 => V5RootProperties,
+            _ => V6ExpectedRoot(root),
         };
         root = RequireExactObject(
             root,
-            version switch
-            {
-                AuditCoreSchemaVersion.V1 => V1RootProperties,
-                AuditCoreSchemaVersion.V2 => V2RootProperties,
-                AuditCoreSchemaVersion.V4 => V4RootProperties,
-                _ => V5RootProperties,
-            });
+            expectedRoot);
         _ = RequireExactObject(
             root.GetProperty("producer"),
             version == AuditCoreSchemaVersion.V1
@@ -703,7 +711,10 @@ internal static class AuditEvidenceSpoolScanner
                 : [V1ProducerProperties, V2ProducerProperties]);
         _ = RequireExactObject(root.GetProperty("session"), SessionProperties);
         _ = RequireExactObject(root.GetProperty("actor"), ActorProperties);
-        if (version is AuditCoreSchemaVersion.V4 or AuditCoreSchemaVersion.V5)
+        var hasCallContext = version is AuditCoreSchemaVersion.V4 or AuditCoreSchemaVersion.V5 ||
+            version == AuditCoreSchemaVersion.V6 &&
+            root.TryGetProperty("call_attribution", out _);
+        if (hasCallContext)
         {
             _ = RequireExactObject(
                 root.GetProperty("call_attribution"),
@@ -715,7 +726,9 @@ internal static class AuditEvidenceSpoolScanner
                 root.GetProperty("execution_context"),
                 ExecutionContextProperties);
         }
-        if (version == AuditCoreSchemaVersion.V5)
+        if (version == AuditCoreSchemaVersion.V5 ||
+            version == AuditCoreSchemaVersion.V6 &&
+            root.TryGetProperty("evidence_manifest", out _))
         {
             var manifest = root.GetProperty("evidence_manifest");
             if (manifest.ValueKind != JsonValueKind.Array || manifest.GetArrayLength() is < 1 or > 128)
@@ -723,13 +736,34 @@ internal static class AuditEvidenceSpoolScanner
             foreach (var item in manifest.EnumerateArray())
                 _ = RequireExactObject(item, EvidenceManifestProperties);
         }
+        if (version == AuditCoreSchemaVersion.V6)
+        {
+            var destinations = root.GetProperty("required_destination_ids");
+            if (destinations.ValueKind != JsonValueKind.Array ||
+                destinations.GetArrayLength() > 16)
+            {
+                throw new IOException("An evidence-proof destination obligation is invalid.");
+            }
+            var unique = new HashSet<Guid>();
+            foreach (var item in destinations.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.String ||
+                    !Guid.TryParseExact(item.GetString(), "D", out var destinationId) ||
+                    destinationId.Version != 4 ||
+                    !unique.Add(destinationId))
+                {
+                    throw new IOException("An evidence-proof destination obligation is invalid.");
+                }
+            }
+        }
         _ = RequireExactObject(root.GetProperty("correlation"), CorrelationProperties);
         var request = RequireExactObject(
             root.GetProperty("request"),
             version == AuditCoreSchemaVersion.V1
                 ? V1RequestProperties
                 : V2RequestProperties);
-        if (version is AuditCoreSchemaVersion.V2 or AuditCoreSchemaVersion.V4 or AuditCoreSchemaVersion.V5)
+        if (version is AuditCoreSchemaVersion.V2 or AuditCoreSchemaVersion.V4 or
+            AuditCoreSchemaVersion.V5 or AuditCoreSchemaVersion.V6)
         {
             var disposition = root.GetProperty("operator_disposition");
             if (disposition.ValueKind != JsonValueKind.Null)
@@ -740,6 +774,20 @@ internal static class AuditEvidenceSpoolScanner
         _ = RequireExactObject(root.GetProperty("coverage"), CoverageProperties);
         _ = RequireExactObject(root.GetProperty("audit"), AuditProperties);
         return new AuditCoreEnvelopeShape(version, request);
+    }
+
+    private static HashSet<string> V6ExpectedRoot(JsonElement root)
+    {
+        var expected = new HashSet<string>(V6BaseRootProperties, StringComparer.Ordinal);
+        if (root.TryGetProperty("call_attribution", out _) ||
+            root.TryGetProperty("client_context", out _) ||
+            root.TryGetProperty("execution_context", out _))
+        {
+            expected.UnionWith(["call_attribution", "client_context", "execution_context"]);
+        }
+        if (root.TryGetProperty("evidence_manifest", out _))
+            expected.Add("evidence_manifest");
+        return expected;
     }
 
     private static JsonElement RequireExactObject(

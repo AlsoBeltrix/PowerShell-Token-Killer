@@ -42,24 +42,26 @@ mandatory, fail-closed local journal before serving any tool call:
   identity or boot-lineage artifacts are quarantined under
   `<root>/quarantine/` with original bytes preserved, and the service
   continues on fresh identity.
-- **Export never gates execution.** The optional export leg drains the
-  journal asynchronously behind a durable per-boot cursor and delivers
-  at-least-once. It is configured by `export.json` in the audit root
-  (written safely from the web UI's settings page through the loader's own
-  validation) or by `PTK_AUDIT_EXPORT_KIND` / `PTK_AUDIT_EXPORT_ENDPOINT` /
-  `PTK_AUDIT_EXPORT_TOKEN`. One contract, thin adapters: `splunk_hec`, or
-  `otlp_http` (any OTLP/HTTP collector — including the standalone
-  `PtkSiemReceiver` below, reached identically). Plaintext HTTP is accepted
-  only for loopback endpoints; credentials never reach the journal, logs, or
-  `ptk_state`. Delivery-loss detection rests on per-boot contiguous
-  sequences plus boot lineage; proven loss reports `EXPORT_GAPS`, suspicion
-  reports `unverified_boot_boundaries` — never conflated.
-- **The loopback web UI** (default port 8317, `PTK_AUDIT_UI_PORT`,
-  `PTK_AUDIT_UI_DISABLED=1` to disable) reads the journal directly: log
-  view, quarantine evidence, audit + export health, and the settings page.
-  Auth is a bearer token minted per bind into an owner-only `ui-token` file
-  in the audit root, plus loopback/Host pinning. One UI per root;
-  supervisors race for the port and losers stand by.
+- **Export never gates execution.** The destination coordinator drains the
+  journal asynchronously. Protected `destinations.json` is the versioned
+  authority. Each enabled destination has its own cursor, gap ledger, lease,
+  retry state, pending counts, and acknowledgment time; one acknowledgment
+  never advances another destination. Existing `export.json` or
+  `PTK_AUDIT_EXPORT_*` configuration migrates once to one stable
+  legacy-inclusive destination, not a second delivery path. Adapters are
+  `splunk_hec` and `otlp_http`, including a separately deployed
+  `PtkSiemReceiver`. Plaintext HTTP is accepted only for loopback endpoints;
+  credentials never reach the journal, logs, status JSON, HTML, or
+  `ptk_state`. Proven loss reports `EXPORT_GAPS`; suspicion reports
+  `unverified_boot_boundaries` — never conflated.
+- **The loopback producer UI** (default port 8317, `PTK_AUDIT_UI_PORT`,
+  `PTK_AUDIT_UI_DISABLED=1` to disable) is configuration and delivery status
+  only. It shows redacted destination identity, each independent delivery and
+  backfill state, and local journal capacity. It does not expose event lists,
+  quarantine, commands, output, errors, or evidence. Auth is a bearer token
+  minted per bind into an owner-only `ui-token` file in the audit root, plus
+  loopback/Host pinning. One UI per root; supervisors race for the port and
+  losers stand by.
 - **The alert webhook** (optional `alert_webhook` in `export.json` or
   `PTK_AUDIT_ALERT_WEBHOOK`, same HTTPS-or-loopback rule) posts
   edge-triggered operator alerts; an undeliverable webhook keeps the edge
@@ -80,12 +82,66 @@ This repository also contains:
 `PtkAuditAdmin` is excluded from the runtime package. `PtkSiemReceiver` is a
 separately installed application, not a service enabled by `PtkMcpServer`.
 
+## Destination configuration and delivery operations
+
+Open `http://127.0.0.1:8317/` and use the bearer token in
+`<audit-root>/ui-token`, or call the same loopback API directly:
+
+```text
+GET  /api/status
+POST /api/destinations
+PUT  /api/destinations/<destination-id>
+POST /api/destinations/<destination-id>/enable
+POST /api/destinations/<destination-id>/disable
+POST /api/destinations/<destination-id>/remove
+POST /api/destinations/<destination-id>/abandon
+POST /api/destinations/<destination-id>/backfill
+```
+
+Add and update bodies contain `operator_label`, `kind`, `endpoint`, and
+`credential`. Adding a second destination also requires
+`confirm_sensitive_duplication: true`; PTK rejects the request before probing
+credentials when that confirmation is absent. PTK validates an activated
+endpoint with a non-ingesting `OPTIONS` request. A 401 or 403 is a credential
+refusal; another HTTP response proves reachability but cannot prove a bearer
+token when that endpoint does not authenticate `OPTIONS`.
+
+`GET /api/status` returns every destination ID, label, adapter, redacted
+endpoint, opaque credential reference, configuration revision, activation and
+enabled state. Delivery state is independent per destination: pending core and
+evidence records/bytes, oldest pending time, last scan, attempt and
+acknowledgment, failures, gaps, refusals, and standby state. It also reports an
+active or completed backfill and local journal/evidence capacity. It never
+returns the credential, endpoint path, or forensic records.
+
+New `ptk.audit/6` core events and their `ptk.evidence/2` envelopes carry a
+sorted immutable `required_destination_ids` set captured at admission. A new
+destination therefore applies prospectively and does not receive older
+evidence silently. Historical delivery is a separate confirmed backfill with
+an explicit half-open UTC range (`from_utc` inclusive, `to_utc` exclusive) and
+`actor`; its cursor, failures, pending counts, and completion survive restart
+independently of live delivery.
+
+Ordinary disable or remove returns HTTP 409 while any obligation remains.
+`abandon` requires nonempty `actor` and `reason`; it first writes a durable
+owner-only `export-abandonment-<id>.json` with counts, observed event/evidence
+source ranges, cursor positions, action, and custody consequence, then disables
+or removes the destination. Retention takes the most conservative floor across
+all enabled destinations and active backfills. A missing or unreadable required
+cursor retains everything rather than guessing acknowledgment.
+
+PTK never discovers or automatically enables a destination. A separately
+deployed mini-SIEM is simply an `otlp_http` destination chosen by the operator;
+it is not installed locally, used as fallback, or silently added alongside a
+real SIEM.
+
 ## Per-call attribution and execution context
 
-Nonterminal calls admitted through the MCP boundary emit `ptk.audit/4`;
-terminal call records carrying an evidence manifest emit `ptk.audit/5`. Server and receiver
-continue accepting the exact historical `ptk.audit/1` and `ptk.audit/2` field
-sets; host-state `ptk.audit/3` remains a separate established contract.
+Current journal admission emits `ptk.audit/6` with destination obligations.
+Historical attribution-only `ptk.audit/4` and full-evidence `ptk.audit/5`
+records remain accepted without changing their field sets. Server and receiver
+also continue accepting the exact `ptk.audit/1` and `ptk.audit/2` field sets;
+host-state `ptk.audit/3` remains a separate established contract.
 
 An MCP client that knows its active agent, model, or task/run identity can send
 this optional namespaced `_meta` member on each `tools/call` request:
@@ -132,7 +188,7 @@ labels.
 
 ## Full-fidelity SIEM evidence
 
-For every production MCP call, the terminal `ptk.audit/5` record carries an
+For every production MCP call, the terminal `ptk.audit/6` record carries an
 `evidence_manifest`. The manifest names every retained exact artifact by
 evidence ID, kind, SHA-256 digest, byte count, UTF-8 encoding, producer
 event/call lineage, forensic retention class, capture state, and bounded
@@ -143,10 +199,12 @@ chunk/reassembly metadata. Current artifact kinds are:
 - `captured_output` — the immutable unshaped output/error/warning recovery
   artifact when the invocation produced one.
 
-Each manifest entry is exported as a `ptk.evidence/1` envelope. Chunks have
+Each current manifest entry is exported as a `ptk.evidence/2` envelope carrying
+the same destination obligations. Historical `ptk.audit/5` expands to
+`ptk.evidence/1`. Chunks have
 independent digests and an artifact-wide digest. A chunk stream starts at
 sequence 1, links subsequent chunks by event hash, and can be replayed
-idempotently. The exporter treats a v5 core record and all of its evidence as
+idempotently. The exporter treats a v5 or v6 core record and all of its evidence as
 one logical delivery unit: the durable journal cursor cannot advance past it
 until every required record receives a successful destination acknowledgment.
 A retryable response or lost response replays the unit. Missing/corrupt local
@@ -162,7 +220,7 @@ search access, retention, backup, and replication accordingly.
 The standalone receiver validates both chunk and artifact metadata, stores the
 exact envelope under the same commit/custody transaction as other events,
 indexes call/source/artifact fields, and correlates received chunks against the
-v5 manifest. An authorized operator can use:
+the core manifest. An authorized operator can use:
 
 ```text
 GET /api/events?call=<call-uuid>

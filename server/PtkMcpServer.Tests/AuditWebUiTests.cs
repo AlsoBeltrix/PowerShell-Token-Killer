@@ -412,6 +412,118 @@ public sealed class AuditWebUiTests : IDisposable
     }
 
     [Fact]
+    public async Task Production_ui_is_destination_status_only_and_redacts_forensic_data()
+    {
+        const string credential = "STATUS-UI-MUST-NOT-EXPOSE-THIS";
+        const string forensicMarker = "RAW-FORENSIC-RECORD-MUST-NOT-APPEAR";
+        var root = NewRoot("webui-destination-status-only");
+        var options = AuditOptions.Create(root);
+        Directory.CreateDirectory(options.SpoolDirectory);
+        Directory.CreateDirectory(options.EvidenceDirectory);
+        var health = new AuditHealth(options);
+        var exportHealth = new AuditExportHealth();
+        var registry = AuditDestinationRegistry.Open(
+            root,
+            AuditExportSettings.Disabled,
+            out var openFailure);
+        Assert.Null(openFailure);
+        Assert.True(registry.TryAdd(
+            new AuditDestinationDraft(
+                AuditDestinationKind.OtlpHttp,
+                "primary",
+                new Uri("https://siem.example/private/collector/path"),
+                credential),
+            confirmedSensitiveDuplication: false,
+            DateTimeOffset.UtcNow,
+            out var destination,
+            out var addFailure), addFailure);
+
+        var bootId = Guid.NewGuid();
+        var record = JsonSerializer.Serialize(new
+        {
+            schema_version = AuditEventSerializer.DestinationObligationSchemaVersion,
+            event_id = Guid.NewGuid(),
+            event_type = "call.completed",
+            occurred_utc = "2026-08-14T10:00:00Z",
+            required_destination_ids = new[] { destination!.DestinationId.ToString("D") },
+            marker = forensicMarker,
+        });
+        File.WriteAllText(
+            Path.Combine(
+                options.SpoolDirectory,
+                AuditSpoolSegmentIdentity.Create(bootId, 0).FileName),
+            record + Environment.NewLine,
+            new UTF8Encoding(false));
+
+        var backfills = new AuditBackfillRegistry(root);
+        var evidence = new ScriptEvidenceStoreProvider(options);
+        await using var coordinator = new AuditExportCoordinator(
+            options,
+            registry,
+            backfills,
+            evidence,
+            () => null,
+            exportHealth);
+        using var validator = new AuditDestinationCredentialValidator();
+        var operations = new AuditDestinationOperations(
+            options,
+            registry,
+            backfills,
+            coordinator,
+            validator);
+        var port = FreePort();
+        await using var service = new AuditWebUiService(
+            options,
+            health,
+            exportHealth,
+            () => null,
+            port: port,
+            coordinator: coordinator,
+            destinationOperations: operations);
+        await service.StartAsync(CancellationToken.None);
+        var token = await WaitForTokenAsync(root);
+        using var client = new HttpClient();
+
+        using (var response = await GetAsync(client, port, "/api/status", token))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var json = await response.Content.ReadAsStringAsync();
+            Assert.Contains(destination.DestinationId.ToString("D"), json, StringComparison.Ordinal);
+            Assert.DoesNotContain(credential, json, StringComparison.Ordinal);
+            Assert.DoesNotContain("/private/collector/path", json, StringComparison.Ordinal);
+            Assert.DoesNotContain(forensicMarker, json, StringComparison.Ordinal);
+        }
+
+        using (var response = await GetAsync(client, port, "/", token))
+        {
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var html = await response.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(credential, html, StringComparison.Ordinal);
+            Assert.DoesNotContain("/private/collector/path", html, StringComparison.Ordinal);
+            Assert.DoesNotContain(forensicMarker, html, StringComparison.Ordinal);
+        }
+
+        foreach (var path in new[] { "/api/records", "/api/quarantine", "/api/settings" })
+        {
+            using var response = await GetAsync(client, port, path, token);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        }
+
+        using (var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"http://127.0.0.1:{port}/api/destinations/{destination.DestinationId:D}/disable"))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var response = await client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+            Assert.Contains(
+                "pending_obligations_require_abandonment",
+                await response.Content.ReadAsStringAsync(),
+                StringComparison.Ordinal);
+        }
+    }
+
+    [Fact]
     public async Task A_stale_live_tail_does_not_outrank_newer_closed_evidence()
     {
         // cr5-4 reopen round 1: with several supervisors on one root, the

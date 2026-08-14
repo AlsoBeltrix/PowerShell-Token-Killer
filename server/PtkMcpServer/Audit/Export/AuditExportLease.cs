@@ -13,7 +13,21 @@ internal sealed class AuditExportLease : IDisposable
 {
     internal const string FileName = "export-lease.lock";
 
+    private readonly string _fileName;
     private FileStream? _stream;
+
+    internal AuditExportLease(string? fileName = null)
+    {
+        _fileName = fileName ?? FileName;
+        if (!string.Equals(Path.GetFileName(_fileName), _fileName, StringComparison.Ordinal) ||
+            _fileName.Length > 128)
+        {
+            throw new ArgumentException("Export lease file name is invalid.", nameof(fileName));
+        }
+    }
+
+    internal static string DestinationFileName(Guid destinationId) =>
+        $"export-lease-{destinationId:N}.lock";
 
     internal bool IsHeld => _stream is not null;
 
@@ -25,7 +39,7 @@ internal sealed class AuditExportLease : IDisposable
         try
         {
             _stream = new FileStream(
-                Path.Combine(auditRootDirectory, FileName),
+                Path.Combine(auditRootDirectory, _fileName),
                 FileMode.OpenOrCreate,
                 FileAccess.ReadWrite,
                 FileShare.None,

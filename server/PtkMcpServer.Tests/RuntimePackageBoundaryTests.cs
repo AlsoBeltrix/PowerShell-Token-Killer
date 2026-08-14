@@ -110,7 +110,7 @@ public sealed class RuntimePackageBoundaryTests
 
         // Exactly five hosted services: the audit runtime gate (registered
         // first — audit startup is durable before session infrastructure;
-        // audit-restoration R2), the audit export service (R3, additive and
+        // audit-restoration R2), the audit export coordinator (R3, additive and
         // non-gating), the loopback audit web UI and the alert webhook (R4,
         // both incapable of gating execution), and the supervisor lifecycle.
         // Idle lifecycle machinery stays banned below.
@@ -123,7 +123,7 @@ public sealed class RuntimePackageBoundaryTests
         // as a startup dependency: it is registered after the gate and owns
         // no admission coupling.
         Assert.Contains(
-            "new AuditExportService(",
+            "new AuditExportCoordinator(",
             program,
             StringComparison.Ordinal);
         Assert.Contains(

@@ -5,7 +5,7 @@ short and update it when important repo facts change.
 
 ## Now
 
-**OPERATOR-READINESS S2 EXECUTED; S3-S7 NOT APPROVED (2026-08-14).** The signed five-RID
+**OPERATOR-READINESS S3 EXECUTED; S4-S7 NOT APPROVED (2026-08-14).** The signed five-RID
 `0.3.0-rc.1` prerelease contains a functioning, separately packaged
 mini-SIEM, but there is no public receiver-deployment plus destination-setup
 workflow, the receiver dashboard does not expose stored attribution/detail,
@@ -14,8 +14,12 @@ S0 is executed: `siem/operator-readiness-acceptance.ps1` verifies published
 artifact identity in a fresh isolated home and names the release gate;
 `siem/test-verify-package.ps1` guards release-bound source identity. Authentic
 `0.3.0-rc.1` evidence passed eight artifact/provenance requirements and failed
-23 operator-readiness requirements. S2 is executed in current source; S3-S7 remain unapproved; Decision D remains
+23 operator-readiness requirements. S3 is now executed in current source: one protected versioned destination set,
+prospective per-record obligations, independent delivery cursors/status, explicit bounded backfill and abandonment,
+conservative retention, and a producer status-only UI. S4-S7 remain unapproved; Decision D remains
 open. Canonical plan: `.agents/plans/siem-operator-readiness.md`.
+Current admissions use `ptk.audit/6` and destination-bound `ptk.evidence/2`;
+historical v1-v5 core and `ptk.evidence/1` readers remain intact.
 
 S2 adds full-fidelity forensic export without changing destination policy: every configured
 destination receives `ptk.audit/5` core plus exact command, caller-response, and captured-output
@@ -50,7 +54,7 @@ only remaining owner gate. The owner has no access to Splunk or another SIEM
 test instance; Decision D must settle both a product and an authorized,
 reproducible access path without assuming owner-provided infrastructure. This
 constraint does not choose a replacement or waive real-product validation. Only
-S1 is implemented; S2-S7 are not approved.
+S0-S3 are implemented; S4-S7 are not approved.
 
 A live disposable published-artifact proof remains under
 `~/.ptk-siem-live-proof` on loopback ports 19418/19443 (plus TLS-validating
@@ -68,6 +72,10 @@ currently cannot inject selected agent/model/task metadata, so absence is
 reported explicitly instead of guessed. Full verification and mutation evidence
 is in `.agents/machines.md`; operator contract is in `server/AUDIT-EXPORT.md` and
 the capability gap is in `docs/harness-support.md`.
+
+**Next item:** decide whether to approve S4, the separately deployed
+mini-SIEM's activity API and investigation dashboard. No S4 implementation is
+authorized yet.
 
 **Historical S1-S8 backend evidence follows; it is not an operator-readiness
 claim.**

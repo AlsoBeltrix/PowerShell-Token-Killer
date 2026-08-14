@@ -29,12 +29,23 @@ internal sealed class AuditExportGapStore
     private readonly string _directory;
     private readonly object _gate = new();
 
-    internal AuditExportGapStore(string auditRootDirectory)
+    internal AuditExportGapStore(
+        string auditRootDirectory,
+        string? fileName = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(auditRootDirectory);
         _directory = auditRootDirectory;
-        _path = Path.Combine(auditRootDirectory, FileName);
+        var selected = fileName ?? FileName;
+        if (!string.Equals(Path.GetFileName(selected), selected, StringComparison.Ordinal) ||
+            selected.Length > 128)
+        {
+            throw new ArgumentException("Export gap file name is invalid.", nameof(fileName));
+        }
+        _path = Path.Combine(auditRootDirectory, selected);
     }
+
+    internal static string DestinationFileName(Guid destinationId) =>
+        $"export-gaps-{destinationId:N}.json";
 
     /// <summary>
     /// Every read path quarantines a corrupt ledger. Quarantine used to fire

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using ModelContextProtocol.Protocol;
 using PtkMcpServer.Audit;
 using PtkMcpServer.Audit.Export;
@@ -56,6 +57,91 @@ public sealed class AuditFullEvidenceExportTests
         AssertCursorBeforeEnd(cursorStore, scenario);
         Assert.Equal("export.evidence_refused", health.Snapshot().LastFailureDetail);
         Assert.Equal(0, health.Snapshot().RefusedRecords);
+    }
+
+    [Fact]
+    public async Task V6_destination_filter_counts_and_delivers_v2_evidence_obligations()
+    {
+        using var scenario = FullEvidenceScenario.Create(
+            "destination-evidence",
+            "exact destination response");
+        var destinationId = Guid.NewGuid();
+        var terminalEventId = scenario.TerminalRecord
+            .GetProperty("event_id")
+            .GetString();
+        var rewritten = File.ReadAllLines(scenario.SegmentPath)
+            .Select(line =>
+            {
+                var node = JsonNode.Parse(line)!.AsObject();
+                if (string.Equals(
+                    node["event_id"]?.GetValue<string>(),
+                    terminalEventId,
+                    StringComparison.Ordinal))
+                {
+                    node["schema_version"] = AuditEventSerializer.DestinationObligationSchemaVersion;
+                    node["required_destination_ids"] = new JsonArray(
+                        JsonValue.Create(destinationId.ToString("D")));
+                }
+
+                return node.ToJsonString();
+            });
+        File.WriteAllText(
+            scenario.SegmentPath,
+            string.Concat(rewritten.Select(line => line + "\n")),
+            new UTF8Encoding(false));
+
+        using var receiver = new FakeDestination();
+        var definition = new AuditDestinationDefinition(
+            destinationId,
+            AuditDestinationKind.OtlpHttp,
+            "primary",
+            receiver.BaseUri,
+            "otlp_http",
+            "destination-reference",
+            string.Empty,
+            1,
+            DateTimeOffset.UtcNow,
+            Enabled: true);
+        var cursor = new AuditExportCursorStore(
+            scenario.Options.RootDirectory,
+            AuditExportCursorStore.DestinationFileName(destinationId));
+        var health = new AuditExportHealth();
+        await using var service = new AuditExportService(
+            scenario.Options,
+            new HttpAuditDestination(definition.ToExportSettings()),
+            cursor,
+            health,
+            evidence: scenario.Evidence,
+            gapStore: new AuditExportGapStore(
+                scenario.Options.RootDirectory,
+                AuditExportGapStore.DestinationFileName(destinationId)),
+            lease: new AuditExportLease(
+                AuditExportLease.DestinationFileName(destinationId)),
+            recordFilter: record => AuditExportCoordinator.IsRequiredBy(record, definition),
+            holdAllPermanentRefusals: true);
+
+        Assert.True(service.HasPendingObligations());
+        Assert.Equal(1, health.Snapshot().PendingEventRecords);
+        Assert.True(health.Snapshot().PendingEvidenceRecords > 0);
+        Assert.True(health.Snapshot().PendingEvidenceBytes > 0);
+        Assert.Equal(1, await service.DrainOnceAsync(CancellationToken.None));
+        AssertCursorAtEnd(cursor, scenario);
+
+        var delivered = receiver.Requests
+            .SelectMany(ReadDeliveredRecords)
+            .ToArray();
+        Assert.Single(delivered, record =>
+            record.GetProperty("schema_version").GetString() ==
+                AuditEventSerializer.DestinationObligationSchemaVersion);
+        var evidence = delivered.Where(record =>
+            record.GetProperty("schema_version").GetString() ==
+                AuditEvidenceEnvelope.DestinationSchemaVersion).ToArray();
+        Assert.NotEmpty(evidence);
+        Assert.All(evidence, record => Assert.Equal(
+            new[] { destinationId.ToString("D") },
+            record.GetProperty("required_destination_ids")
+                .EnumerateArray()
+                .Select(item => item.GetString())));
     }
 
     [Fact]

@@ -229,7 +229,7 @@ internal static class OperatorEndpoints
             "received_utc, post_gap, call_id, source_event_id, evidence_kind, artifact_id, " +
             "chunk_index, chunk_count, capture_state, " +
             "(SELECT state FROM evidence_delivery_status d " +
-            " WHERE d.source_event_id = events.event_id) FROM events" +
+            " WHERE d.source_event_id = events.event_id), required_destination_ids FROM events" +
             (filters.Count > 0 ? " WHERE " + string.Join(" AND ", filters) : string.Empty) +
             " ORDER BY occurred_utc DESC, sequence DESC LIMIT $limit;";
         command.Parameters.AddWithValue("$limit", limit);
@@ -262,6 +262,9 @@ internal static class OperatorEndpoints
                     chunk_count = reader.IsDBNull(17) ? (long?)null : reader.GetInt64(17),
                     capture_state = reader.IsDBNull(18) ? null : reader.GetString(18),
                     evidence_delivery_state = reader.IsDBNull(19) ? null : reader.GetString(19),
+                    required_destination_ids = reader.IsDBNull(20)
+                        ? null
+                        : JsonSerializer.Deserialize<string[]>(reader.GetString(20)),
                 });
             }
         }
@@ -292,7 +295,7 @@ internal static class OperatorEndpoints
         command.CommandText =
             "SELECT event_id, supervisor_boot_id, sequence, schema_version, event_type, " +
             "occurred_utc, observed_utc, previous_event_hash, event_hash, exact_json_body, " +
-            "received_utc FROM events WHERE event_id = $id;";
+            "received_utc, required_destination_ids FROM events WHERE event_id = $id;";
         command.Parameters.AddWithValue("$id", canonicalEventId);
         string bootId;
         long sequence;
@@ -322,6 +325,9 @@ internal static class OperatorEndpoints
                 event_hash = reader.GetString(8),
                 body = Encoding.UTF8.GetString((byte[])reader.GetValue(9)),
                 received_utc = reader.GetString(10),
+                required_destination_ids = reader.IsDBNull(11)
+                    ? null
+                    : JsonSerializer.Deserialize<string[]>(reader.GetString(11)),
             };
         }
 

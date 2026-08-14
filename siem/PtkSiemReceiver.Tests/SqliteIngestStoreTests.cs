@@ -65,7 +65,7 @@ public sealed class SqliteIngestStoreTests
             AssertExactProtection(database.Path, isDirectory: false);
             AssertExactProtection(database.Path + "-wal", isDirectory: false);
             AssertExactProtection(database.Path + "-shm", isDirectory: false);
-            Assert.Equal(11L, Scalar<long>(database.Path, "PRAGMA user_version;"));
+            Assert.Equal(12L, Scalar<long>(database.Path, "PRAGMA user_version;"));
             Assert.Equal("wal", Scalar<string>(database.Path, "PRAGMA journal_mode;"));
             receiverId = Scalar<string>(
                 database.Path,
@@ -79,6 +79,49 @@ public sealed class SqliteIngestStoreTests
         Assert.Equal(
             receiverId,
             Scalar<string>(database.Path, "SELECT value FROM meta WHERE key = 'receiver_id';"));
+    }
+
+    [Fact]
+    public async Task Version_11_migrates_destination_obligations_without_losing_events()
+    {
+        using var database = new TestDatabase();
+        var record = Validate(OtlpTestRequest.Create());
+        using (var store = SqliteIngestStore.Open(database.Path))
+        {
+            await store.CommitAsync(record, Receipt, default);
+        }
+
+        using (var connection = Open(database.Path, readOnly: false))
+        using (var command = connection.CreateCommand())
+        {
+            command.CommandText = """
+                ALTER TABLE events DROP COLUMN required_destination_ids;
+                UPDATE meta SET value = '11' WHERE key = 'schema_version';
+                PRAGMA user_version=11;
+                """;
+            command.ExecuteNonQuery();
+        }
+
+        using (var reopened = SqliteIngestStore.Open(database.Path))
+        {
+            Assert.Equal(2, reopened.WriterPolicy.Synchronous);
+        }
+
+        Assert.Equal(12L, Scalar<long>(database.Path, "PRAGMA user_version;"));
+        Assert.Equal(
+            1L,
+            Scalar<long>(
+                database.Path,
+                "SELECT COUNT(*) FROM pragma_table_info('events') " +
+                    "WHERE name = 'required_destination_ids';"));
+        Assert.Equal(1L, Count(database.Path, "events"));
+        Assert.Equal(
+            1L,
+            Scalar<long>(
+                database.Path,
+                "SELECT COUNT(*) FROM events " +
+                    "WHERE event_id = '" + record.EventId.ToString("D") + "' " +
+                    "AND required_destination_ids IS NULL;"));
     }
 
     [Fact]

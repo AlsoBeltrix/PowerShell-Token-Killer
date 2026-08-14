@@ -93,12 +93,17 @@ internal sealed class AuditExportCursorStore
     private readonly string _path;
     private readonly string _directory;
 
-    internal AuditExportCursorStore(string auditRootDirectory)
+    internal AuditExportCursorStore(
+        string auditRootDirectory,
+        string? fileName = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(auditRootDirectory);
         _directory = auditRootDirectory;
-        _path = Path.Combine(auditRootDirectory, FileName);
+        _path = Path.Combine(auditRootDirectory, ValidateFileName(fileName ?? FileName));
     }
+
+    internal static string DestinationFileName(Guid destinationId) =>
+        $"export-cursor-{destinationId:N}.json";
 
     internal string CursorPath => _path;
 
@@ -190,7 +195,7 @@ internal sealed class AuditExportCursorStore
                 Version = 2,
                 Boots = cursor.Boots.ToDictionary(
                     entry => entry.Key,
-                    entry => new BootFile
+                entry => (BootFile?)new BootFile
                     {
                         SegmentFileName = entry.Value.SegmentFileName,
                         ByteOffset = entry.Value.ByteOffset,
@@ -225,6 +230,17 @@ internal sealed class AuditExportCursorStore
 
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
+
+    private static string ValidateFileName(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName) ||
+            !string.Equals(Path.GetFileName(fileName), fileName, StringComparison.Ordinal) ||
+            fileName.Length > 128)
+        {
+            throw new ArgumentException("Export cursor file name is invalid.", nameof(fileName));
+        }
+        return fileName;
+    }
 
     private sealed class CursorFile
     {

@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Hosting;
 
@@ -27,7 +28,9 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
     private readonly AuditExportHealth _health;
     private readonly ScriptEvidenceStoreProvider? _evidence;
     private readonly Func<AuditJournal?>? _liveJournalSource;
-    private readonly AuditExportLease _lease = new();
+    private readonly AuditExportLease _lease;
+    private readonly Func<string, bool>? _recordFilter;
+    private readonly bool _holdAllPermanentRefusals;
     private readonly TimeSpan _idleInterval;
     private readonly TimeSpan _initialRetryDelay;
     private readonly TimeSpan _maximumRetryDelay;
@@ -44,7 +47,11 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         TimeSpan? initialRetryDelay = null,
         TimeSpan? maximumRetryDelay = null,
         Func<AuditJournal?>? liveJournalSource = null,
-        ScriptEvidenceStoreProvider? evidence = null)
+        ScriptEvidenceStoreProvider? evidence = null,
+        AuditExportGapStore? gapStore = null,
+        AuditExportLease? lease = null,
+        Func<string, bool>? recordFilter = null,
+        bool holdAllPermanentRefusals = false)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(cursorStore);
@@ -52,7 +59,10 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         _options = options;
         _destination = destination;
         _cursorStore = cursorStore;
-        _gapStore = new AuditExportGapStore(options.RootDirectory);
+        _gapStore = gapStore ?? new AuditExportGapStore(options.RootDirectory);
+        _lease = lease ?? new AuditExportLease();
+        _recordFilter = recordFilter;
+        _holdAllPermanentRefusals = holdAllPermanentRefusals;
         _health = health;
         _evidence = evidence;
         _liveJournalSource = liveJournalSource;
@@ -111,6 +121,24 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
     /// <summary>One drain pass; separated so tests drive delivery
     /// deterministically instead of racing the timer.</summary>
+    internal bool HasPendingObligations()
+    {
+        try
+        {
+            var pending = MeasurePending(EnumerateBootGroups(), _cursorStore.Read());
+            _health.RecordPending(pending);
+            return pending.EventRecords > 0 ||
+                pending.EventBytes > 0 ||
+                pending.EvidenceRecords > 0 ||
+                pending.EvidenceBytes > 0;
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            _health.RecordFailure("export.pending_scan_failed");
+            return true;
+        }
+    }
+
     internal async Task<int> DrainOnceAsync(CancellationToken cancellationToken)
     {
         if (_destination is null) return 0;
@@ -166,7 +194,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         // positions are order-independent: a blocked or still-growing boot
         // halts only ITSELF, and no other boot's progress can move past it.
         var groups = EnumerateBootGroups();
-        _health.RecordPendingBytes(PendingBytes(groups, cursor));
+        _health.RecordPending(MeasurePending(groups, cursor));
         var ledger = _gapStore.ReadOrQuarantine(out var ledgerWasCorrupt);
         if (ledgerWasCorrupt)
             _health.RecordUnverifiedBootBoundary("ledger-unreadable", 0);
@@ -264,21 +292,29 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                         _ = _gapStore.TryRecordAttestation(claimedPrevious, bootKey);
                     }
 
-                    var hasEvidence = batch.Any(record =>
-                        record.Contains(
-                            $"\"schema_version\":\"{AuditEventSerializer.FullEvidenceSchemaVersion}\"",
-                            StringComparison.Ordinal));
-                    if (hasEvidence)
+                    IReadOnlyList<string> deliveryBatch = _recordFilter is null
+                        ? batch
+                        : batch.Where(_recordFilter).ToArray();
+                    var hasEvidence = deliveryBatch.Any(RequiresEvidenceExpansion);
+                    if (deliveryBatch.Count == 0)
                     {
-                        if (!await DeliverLogicalBatchAsync(batch, cancellationToken).ConfigureAwait(false))
+                        // This destination never owned these records. Walking the
+                        // journal chain and advancing its independent cursor is
+                        // still required so prospective destinations do not build
+                        // an artificial historical backlog.
+                    }
+                    else if (hasEvidence)
+                    {
+                        if (!await DeliverLogicalBatchAsync(deliveryBatch, cancellationToken).ConfigureAwait(false))
                             return delivered;
-                        delivered += batch.Count;
-                        _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                        delivered += deliveryBatch.Count;
+                        _health.RecordDelivery(deliveryBatch.Count, DateTimeOffset.UtcNow);
                     }
                     else
                     {
+                        _health.RecordAttempt(DateTimeOffset.UtcNow);
                         var result = await _destination
-                            .DeliverAsync(batch, cancellationToken)
+                            .DeliverAsync(deliveryBatch, cancellationToken)
                             .ConfigureAwait(false);
                         if (result.Disposition == AuditDeliveryDisposition.Retryable)
                         {
@@ -288,17 +324,19 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                         if (result.Disposition == AuditDeliveryDisposition.Permanent)
                         {
                             var isolated = await DeliverIndividuallyAsync(
-                                batch,
+                                deliveryBatch,
                                 result.DetailCode ?? "export.refused",
-                                cancellationToken).ConfigureAwait(false);
+                                cancellationToken,
+                                _holdAllPermanentRefusals ? static _ => true : null)
+                                .ConfigureAwait(false);
                             if (isolated.Retry)
                                 return delivered;
                             delivered += isolated.Delivered;
                         }
                         else
                         {
-                            delivered += batch.Count;
-                            _health.RecordDelivery(batch.Count, DateTimeOffset.UtcNow);
+                            delivered += deliveryBatch.Count;
+                            _health.RecordDelivery(deliveryBatch.Count, DateTimeOffset.UtcNow);
                         }
                     }
 
@@ -342,7 +380,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         }
 
         JudgeLineageClaims(cursor, ledger, groups, incompleteBoots);
-        _health.RecordPendingBytes(PendingBytes(EnumerateBootGroups(), cursor));
+        _health.RecordPending(MeasurePending(EnumerateBootGroups(), cursor));
         return delivered;
     }
 
@@ -506,6 +544,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         var refused = 0;
         foreach (var record in batch)
         {
+            _health.RecordAttempt(DateTimeOffset.UtcNow);
             var single = await _destination!
                 .DeliverAsync([record], cancellationToken)
                 .ConfigureAwait(false);
@@ -546,10 +585,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         CancellationToken cancellationToken)
     {
         IReadOnlyList<string> records = coreRecords;
-        if (coreRecords.Any(record =>
-                record.Contains(
-                    $"\"schema_version\":\"{AuditEventSerializer.FullEvidenceSchemaVersion}\"",
-                    StringComparison.Ordinal)))
+        if (coreRecords.Any(RequiresEvidenceExpansion))
         {
             string? expansionFailure = null;
             if (_evidence is null ||
@@ -566,6 +602,7 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
 
         foreach (var group in GroupDeliveryRecords(records))
         {
+            _health.RecordAttempt(DateTimeOffset.UtcNow);
             var result = await _destination!
                 .DeliverAsync(group, cancellationToken)
                 .ConfigureAwait(false);
@@ -581,7 +618,8 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
                 group,
                 result.DetailCode ?? "export.refused",
                 cancellationToken,
-                RequiresFullEvidenceAcknowledgment).ConfigureAwait(false);
+                record => _holdAllPermanentRefusals ||
+                    RequiresFullEvidenceAcknowledgment(record)).ConfigureAwait(false);
             if (isolated.Retry)
                 return false;
         }
@@ -709,6 +747,142 @@ internal sealed class AuditExportService : IHostedService, IAsyncDisposable
         {
             return [];
         }
+    }
+
+    private static bool RequiresEvidenceExpansion(string record) =>
+        record.Contains(
+            $"\"schema_version\":\"{AuditEventSerializer.FullEvidenceSchemaVersion}\"",
+            StringComparison.Ordinal) ||
+        record.Contains(
+            $"\"schema_version\":\"{AuditEventSerializer.DestinationObligationSchemaVersion}\"",
+            StringComparison.Ordinal);
+
+    private AuditExportPendingMetrics MeasurePending(
+        IReadOnlyList<BootGroup> groups,
+        AuditExportCursor cursor)
+    {
+        long eventRecords = 0;
+        long eventBytes = 0;
+        long evidenceRecords = 0;
+        long evidenceBytes = 0;
+        DateTimeOffset? oldestPendingUtc = null;
+
+        foreach (var group in groups)
+        {
+            var position = cursor.For(group.BootId);
+            foreach (var segment in group.Segments)
+            {
+                if (!AuditSpoolSegmentIdentity.TryParse(segment.Name, out var identity))
+                    continue;
+                if (position?.SegmentFileName is not null &&
+                    AuditSpoolSegmentIdentity.TryParse(
+                        position.SegmentFileName,
+                        out var positionIdentity) &&
+                    identity.Index < positionIdentity.Index)
+                {
+                    continue;
+                }
+
+                var offset = position is not null &&
+                    string.Equals(
+                        segment.Name,
+                        position.SegmentFileName,
+                        StringComparison.Ordinal)
+                    ? position.ByteOffset
+                    : 0;
+
+                while (true)
+                {
+                    var records = ReadBatch(
+                        segment.FullName,
+                        offset,
+                        out var nextOffset,
+                        out var readFailure);
+                    if (readFailure is not null &&
+                        !TryReadLiveCommitted(
+                            segment.Name,
+                            offset,
+                            out records,
+                            out nextOffset))
+                    {
+                        // The byte count remains conservative even when another
+                        // process currently owns the live segment. Record counts
+                        // become exact on the next readable pass.
+                        try
+                        {
+                            eventBytes += Math.Max(0, segment.Length - offset);
+                        }
+                        catch (IOException)
+                        {
+                            // Delivery health already reports the read failure.
+                        }
+                        break;
+                    }
+
+                    if (records.Count == 0 || nextOffset <= offset)
+                        break;
+
+                    foreach (var record in records)
+                    {
+                        if (_recordFilter is not null && !_recordFilter(record))
+                            continue;
+
+                        eventRecords++;
+                        eventBytes += Encoding.UTF8.GetByteCount(record) + 1;
+                        var occurredUtc = TryReadOccurredUtc(record);
+                        if (occurredUtc is not null &&
+                            (oldestPendingUtc is null || occurredUtc < oldestPendingUtc))
+                        {
+                            oldestPendingUtc = occurredUtc;
+                        }
+
+                        if (!RequiresEvidenceExpansion(record) || _evidence is null)
+                            continue;
+                        if (!AuditEvidenceEnvelope.TryExpand(
+                                [record],
+                                _evidence,
+                                out var expanded,
+                                out _))
+                        {
+                            continue;
+                        }
+                        foreach (var evidenceRecord in expanded.Skip(1))
+                        {
+                            evidenceRecords++;
+                            evidenceBytes += Encoding.UTF8.GetByteCount(evidenceRecord) + 1;
+                        }
+                    }
+
+                    offset = nextOffset;
+                }
+            }
+        }
+
+        return new AuditExportPendingMetrics(
+            eventRecords,
+            eventBytes,
+            evidenceRecords,
+            evidenceBytes,
+            oldestPendingUtc);
+    }
+
+    private static DateTimeOffset? TryReadOccurredUtc(string record)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(record);
+            if (document.RootElement.TryGetProperty("occurred_utc", out var occurred) &&
+                occurred.ValueKind == JsonValueKind.String &&
+                occurred.TryGetDateTimeOffset(out var occurredUtc))
+            {
+                return occurredUtc.ToUniversalTime();
+            }
+        }
+        catch (JsonException)
+        {
+            // Invalid records are handled by the existing chain/delivery path.
+        }
+        return null;
     }
 
     private static long PendingBytes(

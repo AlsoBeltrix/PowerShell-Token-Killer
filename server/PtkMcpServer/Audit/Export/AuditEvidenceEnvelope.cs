@@ -8,6 +8,7 @@ namespace PtkMcpServer.Audit.Export;
 internal static class AuditEvidenceEnvelope
 {
     internal const string SchemaVersion = "ptk.evidence/1";
+    internal const string DestinationSchemaVersion = "ptk.evidence/2";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
@@ -28,10 +29,12 @@ internal static class AuditEvidenceEnvelope
                 expanded.Add(auditRecord);
                 using var document = JsonDocument.Parse(auditRecord);
                 var root = document.RootElement;
-                if (!string.Equals(
-                        root.GetProperty("schema_version").GetString(),
-                        AuditEventSerializer.FullEvidenceSchemaVersion,
-                        StringComparison.Ordinal))
+                var schemaVersion = root.GetProperty("schema_version").GetString();
+                if (schemaVersion is not (
+                        AuditEventSerializer.FullEvidenceSchemaVersion or
+                        AuditEventSerializer.DestinationObligationSchemaVersion) ||
+                    !root.TryGetProperty("evidence_manifest", out var manifest) ||
+                    manifest.ValueKind != JsonValueKind.Array)
                 {
                     continue;
                 }
@@ -56,10 +59,8 @@ internal static class AuditEvidenceEnvelope
         try
         {
             using var document = JsonDocument.Parse(record);
-            return string.Equals(
-                document.RootElement.GetProperty("schema_version").GetString(),
-                SchemaVersion,
-                StringComparison.Ordinal);
+            var schemaVersion = document.RootElement.GetProperty("schema_version").GetString();
+            return schemaVersion is SchemaVersion or DestinationSchemaVersion;
         }
         catch (Exception exception) when (!IsFatal(exception))
         {
@@ -109,7 +110,8 @@ internal static class AuditEvidenceEnvelope
                 callId?.ToString("D"),
                 observedUtc.ToUniversalTime().ToString(
                     TimestampFormat, CultureInfo.InvariantCulture),
-                previousHash);
+                previousHash,
+                requiredDestinationIds: null);
             eventHash = envelope.Hash;
             return envelope.Record;
         }
@@ -135,6 +137,14 @@ internal static class AuditEvidenceEnvelope
             .EnumerateArray()
             .Select(ParseManifest)
             .ToArray();
+        var requiredDestinationIds = root.TryGetProperty(
+                "required_destination_ids",
+                out var requiredDestinations)
+            ? requiredDestinations.EnumerateArray()
+                .Select(item => item.GetString() ?? throw new IOException(
+                    "Evidence destination obligation is invalid."))
+                .ToArray()
+            : null;
 
         foreach (var artifact in manifest.GroupBy(item => item.ArtifactId))
         {
@@ -182,9 +192,10 @@ internal static class AuditEvidenceEnvelope
                         sourceBootId,
                         producerVersion,
                         sourceEventId,
-                        callId,
-                        observedUtc,
-                        previousHash);
+                    callId,
+                    observedUtc,
+                    previousHash,
+                    requiredDestinationIds);
                     expanded.Add(envelope.Record);
                     previousHash = envelope.Hash;
                 }
@@ -222,7 +233,8 @@ internal static class AuditEvidenceEnvelope
         string sourceEventId,
         string? callId,
         string observedUtc,
-        string? previousHash)
+        string? previousHash,
+        IReadOnlyList<string>? requiredDestinationIds)
     {
         var hashInput = SerializeCore(
             item,
@@ -234,6 +246,7 @@ internal static class AuditEvidenceEnvelope
             callId,
             observedUtc,
             previousHash,
+            requiredDestinationIds,
             eventHash: null);
         var hash = Convert.ToHexString(SHA256.HashData(hashInput)).ToLowerInvariant();
         var record = SerializeCore(
@@ -246,6 +259,7 @@ internal static class AuditEvidenceEnvelope
             callId,
             observedUtc,
             previousHash,
+            requiredDestinationIds,
             hash);
         return new SerializedEnvelope(StrictUtf8.GetString(record), hash);
     }
@@ -260,13 +274,16 @@ internal static class AuditEvidenceEnvelope
         string? callId,
         string observedUtc,
         string? previousHash,
+        IReadOnlyList<string>? requiredDestinationIds,
         string? eventHash)
     {
         using var buffer = new MemoryStream();
         using (var writer = new Utf8JsonWriter(buffer))
         {
             writer.WriteStartObject();
-            writer.WriteString("schema_version", SchemaVersion);
+            writer.WriteString(
+                "schema_version",
+                requiredDestinationIds is null ? SchemaVersion : DestinationSchemaVersion);
             writer.WriteString("event_id", item.EnvelopeEventId);
             writer.WriteString("event_type", $"evidence.{item.EvidenceKind}");
             writer.WriteString("occurred_utc", observedUtc);
@@ -297,6 +314,13 @@ internal static class AuditEvidenceEnvelope
             writer.WriteString("retention_class", item.RetentionClass);
             writer.WriteString("capture_state", item.CaptureState);
             writer.WriteBase64String("payload_base64", payload);
+            if (requiredDestinationIds is not null)
+            {
+                writer.WriteStartArray("required_destination_ids");
+                foreach (var destinationId in requiredDestinationIds.Order(StringComparer.Ordinal))
+                    writer.WriteStringValue(destinationId);
+                writer.WriteEndArray();
+            }
             if (eventHash is not null)
                 writer.WriteString("event_hash", eventHash);
             writer.WriteEndObject();

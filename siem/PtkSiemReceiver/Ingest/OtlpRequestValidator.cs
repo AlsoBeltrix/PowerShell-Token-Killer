@@ -27,7 +27,8 @@ internal sealed record ValidatedOtlpRecord(
     string? CallId,
     long? JobId,
     string? OutcomeState,
-    EvidenceRecordMetadata? Evidence = null);
+    EvidenceRecordMetadata? Evidence = null,
+    IReadOnlyList<Guid>? RequiredDestinationIds = null);
 
 internal sealed record EvidenceRecordMetadata(
     Guid ProducerSupervisorBootId,
@@ -170,7 +171,9 @@ internal static class OtlpRequestValidator
     private const string V3 = "ptk.audit/3";
     private const string V4 = "ptk.audit/4";
     private const string V5 = "ptk.audit/5";
+    private const string V6 = "ptk.audit/6";
     private const string EvidenceV1 = "ptk.evidence/1";
+    private const string EvidenceV2 = "ptk.evidence/2";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private const string EventHashMarker = ",\"event_hash\":\"";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
@@ -203,6 +206,9 @@ internal static class OtlpRequestValidator
     private static readonly HashSet<string> V5RootProperties = new(
         V4RootProperties.Append("evidence_manifest"),
         StringComparer.Ordinal);
+    private static readonly HashSet<string> V6BaseRootProperties = new(
+        V2RootProperties.Append("required_destination_ids"),
+        StringComparer.Ordinal);
     private static readonly HashSet<string> EvidenceManifestProperties = new(
         [
             "evidence_id", "envelope_event_id", "evidence_kind", "digest",
@@ -220,6 +226,9 @@ internal static class OtlpRequestValidator
             "chunk_offset", "retention_class", "capture_state", "payload_base64",
             "event_hash",
         ],
+        StringComparer.Ordinal);
+    private static readonly HashSet<string> EvidenceV2RootProperties = new(
+        EvidenceRootProperties.Append("required_destination_ids"),
         StringComparer.Ordinal);
     private static readonly HashSet<string> EvidenceProducerProperties = new(
         ["host_id", "supervisor_boot_id", "version"],
@@ -401,7 +410,11 @@ internal static class OtlpRequestValidator
                 OptionalInt64(session, "generation", "session"),
                 OptionalString(correlation, "call_id", "correlation"),
                 OptionalInt64(correlation, "job_id", "correlation"),
-                OptionalString(outcome, "state", "outcome")));
+                OptionalString(outcome, "state", "outcome"),
+                Evidence: null,
+                RequiredDestinationIds: schemaVersion == V6
+                    ? ValidateRequiredDestinations(root)
+                    : null));
         }
         catch (OtlpValidationException exception)
         {
@@ -442,13 +455,18 @@ internal static class OtlpRequestValidator
                 V3 => V3RootProperties,
                 V4 => V4RootProperties,
                 V5 => V5RootProperties,
+                V6 => V6ExpectedRoot(root),
                 _ => throw new OtlpValidationException("schema_version"),
             };
             RequireExactProperties(root, expectedRoot, "body_shape");
-        if (schemaVersion is V4 or V5)
-            ValidateCallContext(root);
-        if (schemaVersion == V5)
-            ValidateEvidenceManifest(root);
+            if (schemaVersion is V4 or V5 ||
+                schemaVersion == V6 && root.TryGetProperty("call_attribution", out _))
+                ValidateCallContext(root);
+            if (schemaVersion == V5 ||
+                schemaVersion == V6 && root.TryGetProperty("evidence_manifest", out _))
+                ValidateEvidenceManifest(root);
+            if (schemaVersion == V6)
+                _ = ValidateRequiredDestinations(root);
 
             var eventIdText = RequireString(root, "event_id", "event_id");
             var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
@@ -662,7 +680,7 @@ internal static class OtlpRequestValidator
                 if (probe.RootElement.ValueKind == JsonValueKind.Object &&
                     probe.RootElement.TryGetProperty("schema_version", out var schema) &&
                     schema.ValueKind == JsonValueKind.String &&
-                    string.Equals(schema.GetString(), EvidenceV1, StringComparison.Ordinal))
+                    schema.GetString() is EvidenceV1 or EvidenceV2)
                 {
                     return ValidateEvidenceJsonRecord(rawRecordBytes, exactBody, logRecord);
                 }
@@ -688,7 +706,11 @@ internal static class OtlpRequestValidator
                 OptionalInt64(body.Session, "generation", "session"),
                 OptionalString(body.Correlation, "call_id", "correlation"),
                 OptionalInt64(body.Correlation, "job_id", "correlation"),
-                OptionalString(body.Outcome, "state", "outcome")));
+                OptionalString(body.Outcome, "state", "outcome"),
+                Evidence: null,
+                RequiredDestinationIds: body.SchemaVersion == V6
+                    ? ValidateRequiredDestinations(body.Root)
+                    : null));
         }
         catch (OtlpValidationException exception)
         {
@@ -717,9 +739,16 @@ internal static class OtlpRequestValidator
             });
         var root = RequireObject(document.RootElement, "evidence_shape");
         EnsureNoDuplicateProperties(root);
-        RequireExactProperties(root, EvidenceRootProperties, "evidence_shape");
-        if (RequireString(root, "schema_version", "schema_version") != EvidenceV1)
+        var schemaVersion = RequireString(root, "schema_version", "schema_version");
+        RequireExactProperties(
+            root,
+            schemaVersion == EvidenceV2 ? EvidenceV2RootProperties : EvidenceRootProperties,
+            "evidence_shape");
+        if (schemaVersion is not (EvidenceV1 or EvidenceV2))
             Fail("schema_version");
+        var requiredDestinationIds = schemaVersion == EvidenceV2
+            ? ValidateRequiredDestinations(root)
+            : null;
 
         var eventIdText = RequireString(root, "event_id", "event_id");
         var eventId = RequireCanonicalUuid(eventIdText, 7, "event_id");
@@ -830,7 +859,7 @@ internal static class OtlpRequestValidator
         return OtlpValidationResult.Valid(new ValidatedOtlpRecord(
             rawRecordBytes,
             exactBody,
-            EvidenceV1,
+            schemaVersion,
             eventId,
             eventType,
             occurred,
@@ -861,7 +890,8 @@ internal static class OtlpRequestValidator
                 chunkCount,
                 chunkOffset,
                 retentionClass,
-                captureState)));
+                captureState),
+            RequiredDestinationIds: requiredDestinationIds));
     }
 
     /// <summary>
@@ -1117,6 +1147,40 @@ internal static class OtlpRequestValidator
         {
             Fail("execution_context");
         }
+    }
+
+    private static HashSet<string> V6ExpectedRoot(JsonElement root)
+    {
+        var expected = new HashSet<string>(V6BaseRootProperties, StringComparer.Ordinal);
+        if (root.TryGetProperty("call_attribution", out _) ||
+            root.TryGetProperty("client_context", out _) ||
+            root.TryGetProperty("execution_context", out _))
+        {
+            expected.UnionWith(["call_attribution", "client_context", "execution_context"]);
+        }
+        if (root.TryGetProperty("evidence_manifest", out _))
+            expected.Add("evidence_manifest");
+        return expected;
+    }
+
+    private static IReadOnlyList<Guid> ValidateRequiredDestinations(JsonElement root)
+    {
+        var destinations = root.GetProperty("required_destination_ids");
+        if (destinations.ValueKind != JsonValueKind.Array || destinations.GetArrayLength() > 16)
+            Fail("required_destination_ids");
+        var unique = new HashSet<Guid>();
+        foreach (var item in destinations.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String)
+                Fail("required_destination_ids");
+            var destinationId = RequireCanonicalUuid(
+                item.GetString()!,
+                4,
+                "required_destination_ids");
+            if (!unique.Add(destinationId))
+                Fail("required_destination_ids");
+        }
+        return unique.Order().ToArray();
     }
 
     private static void ValidateEvidenceManifest(JsonElement root)

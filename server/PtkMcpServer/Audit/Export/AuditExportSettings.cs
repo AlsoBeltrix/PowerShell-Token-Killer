@@ -123,7 +123,7 @@ internal sealed record AuditExportSettings(
         _ => "none",
     };
 
-    private static AuditDestinationKind ParseKind(string? value) =>
+    internal static AuditDestinationKind ParseKind(string? value) =>
         value?.Trim().ToLowerInvariant() switch
         {
             "splunk_hec" or "splunk" => AuditDestinationKind.SplunkHec,
@@ -135,7 +135,7 @@ internal sealed record AuditExportSettings(
     /// Plaintext HTTP is accepted only for loopback — the zero-config local
     /// receiver — so a remote SIEM can never be configured without TLS.
     /// </summary>
-    private static Uri? ParseEndpoint(string? value)
+    internal static Uri? ParseEndpoint(string? value)
     {
         var text = Trim(value);
         if (text is null || text.Length > MaximumEndpointLength) return null;

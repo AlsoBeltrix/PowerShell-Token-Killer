@@ -17,7 +17,8 @@ internal static class AuditJournalFactory
         Func<DateTimeOffset, Guid>? uuidV7Factory = null,
         Func<FileAuditSinkFaultPoint, int, bool>? sinkFaultInjector = null,
         Action<string>? hostIdentityReadCompletedForTests = null,
-        Action? hostIdentityDestinationCheckedForTests = null)
+        Action? hostIdentityDestinationCheckedForTests = null,
+        Func<IReadOnlyList<Guid>>? requiredDestinationIds = null)
     {
         return OpenCore(
             options,
@@ -28,7 +29,8 @@ internal static class AuditJournalFactory
             uuidV7Factory,
             sinkFaultInjector,
             hostIdentityReadCompletedForTests,
-            hostIdentityDestinationCheckedForTests);
+            hostIdentityDestinationCheckedForTests,
+            requiredDestinationIds);
     }
 
     private static AuditJournal OpenCore(
@@ -40,7 +42,8 @@ internal static class AuditJournalFactory
         Func<DateTimeOffset, Guid>? uuidV7Factory,
         Func<FileAuditSinkFaultPoint, int, bool>? sinkFaultInjector,
         Action<string>? hostIdentityReadCompletedForTests,
-        Action? hostIdentityDestinationCheckedForTests)
+        Action? hostIdentityDestinationCheckedForTests,
+        Func<IReadOnlyList<Guid>>? requiredDestinationIds)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -71,7 +74,8 @@ internal static class AuditJournalFactory
             hostId,
             binaryDigest,
             utcNow,
-            uuidV7Factory);
+            uuidV7Factory,
+            requiredDestinationIds);
         if (quarantineDetail is not null)
             journal.RecordPendingStartupQuarantine(quarantineDetail);
         return journal;
@@ -87,7 +91,8 @@ internal static class AuditJournalFactory
         AuditOptions options,
         AuditHealth health,
         string producerVersion,
-        ScriptEvidenceStoreProvider evidence)
+        ScriptEvidenceStoreProvider evidence,
+        Func<IReadOnlyList<Guid>>? requiredDestinationIds = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -113,7 +118,8 @@ internal static class AuditJournalFactory
             uuidV7Factory: null,
             sinkFaultInjector: null,
             hostIdentityReadCompletedForTests: null,
-            hostIdentityDestinationCheckedForTests: null);
+            hostIdentityDestinationCheckedForTests: null,
+            requiredDestinationIds);
     }
 
     /// <summary>
@@ -127,7 +133,8 @@ internal static class AuditJournalFactory
         FileAuditJournalSink sink,
         string? binaryDigest = null,
         Func<DateTimeOffset>? utcNow = null,
-        Func<DateTimeOffset, Guid>? uuidV7Factory = null)
+        Func<DateTimeOffset, Guid>? uuidV7Factory = null,
+        Func<IReadOnlyList<Guid>>? requiredDestinationIds = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -165,7 +172,8 @@ internal static class AuditJournalFactory
             hostId,
             binaryDigest,
             utcNow,
-            uuidV7Factory);
+            uuidV7Factory,
+            requiredDestinationIds);
         if (anchoredQuarantineDetail is not null)
             anchoredJournal.RecordPendingStartupQuarantine(anchoredQuarantineDetail);
         return anchoredJournal;
@@ -180,7 +188,8 @@ internal static class AuditJournalFactory
         Guid hostId,
         string? binaryDigest,
         Func<DateTimeOffset>? utcNow,
-        Func<DateTimeOffset, Guid>? uuidV7Factory)
+        Func<DateTimeOffset, Guid>? uuidV7Factory,
+        Func<IReadOnlyList<Guid>>? requiredDestinationIds)
     {
         try
         {
@@ -192,9 +201,10 @@ internal static class AuditJournalFactory
                 binaryDigest,
                 hostId,
                 supervisorBootId,
-                previousSupervisorBootId: null,
-                utcNow,
-                uuidV7Factory);
+            previousSupervisorBootId: null,
+            utcNow,
+            uuidV7Factory,
+            requiredDestinationIds);
         }
         catch
         {

@@ -1,4 +1,5 @@
 using System.Runtime.ExceptionServices;
+using PtkMcpServer.Audit.Export;
 
 namespace PtkMcpServer.Audit;
 
@@ -32,7 +33,8 @@ internal sealed class AuditRuntimeResources : IDisposable
         AuditOptions options,
         AuditHealth health,
         string producerVersion,
-        ScriptEvidenceStoreProvider evidence)
+        ScriptEvidenceStoreProvider evidence,
+        AuditDestinationRegistry? destinations = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -53,10 +55,11 @@ internal sealed class AuditRuntimeResources : IDisposable
             // this point, so capacity recovery cannot turn uncertainty into
             // deletion.
             journal = AuditJournalFactory.OpenReconciledLocal(
-                options,
-                health,
-                producerVersion,
-                evidence);
+            options,
+            health,
+            producerVersion,
+            evidence,
+            destinations is null ? null : destinations.EnabledDestinationIds);
             var resources = new AuditRuntimeResources(journal);
             journal = null;
             return resources;

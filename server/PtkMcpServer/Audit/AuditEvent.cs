@@ -25,6 +25,7 @@ internal sealed record AuditEventInput
     public AuditClientCallContext? ClientCallContext { get; init; }
     public AuditExecutionContext? ExecutionContext { get; init; }
     public IReadOnlyList<AuditEvidenceManifestEntry>? EvidenceManifest { get; init; }
+    public IReadOnlyList<Guid>? RequiredDestinationIds { get; init; }
     public required AuditCorrelation Correlation { get; init; }
     public required AuditRequest Request { get; init; }
     public AuditOperatorDispositionFacts? OperatorDisposition { get; init; }
@@ -194,6 +195,7 @@ internal static class AuditEventSerializer
     internal const string CurrentSchemaVersion = "ptk.audit/2";
     internal const string CallContextSchemaVersion = "ptk.audit/4";
     internal const string FullEvidenceSchemaVersion = "ptk.audit/5";
+    internal const string DestinationObligationSchemaVersion = "ptk.audit/6";
     private const string TimestampFormat = "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'";
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
 
@@ -388,6 +390,7 @@ internal static class AuditEventSerializer
         ValidateActor(input.Actor);
         ValidateCallContext(input);
         ValidateEvidenceManifest(input.EvidenceManifest);
+        ValidateRequiredDestinations(input.RequiredDestinationIds);
         ValidateCorrelation(input.Correlation);
         var providedFields = NormalizeProvidedFields(input.Request.ProvidedFields);
         ValidateRequest(input.EventType, input.Request);
@@ -656,6 +659,21 @@ internal static class AuditEventSerializer
             }
             if (offset != first.ArtifactByteCount)
                 throw Invalid("evidence_manifest", "artifact byte count does not match chunks");
+        }
+    }
+
+    private static void ValidateRequiredDestinations(IReadOnlyList<Guid>? destinationIds)
+    {
+        if (destinationIds is null)
+            return;
+        if (destinationIds.Count > 16)
+            throw Invalid("required_destination_ids", "may contain at most 16 destinations");
+        var unique = new HashSet<Guid>();
+        foreach (var destinationId in destinationIds)
+        {
+            RequireUuid(destinationId, 4, "required_destination_ids[]");
+            if (!unique.Add(destinationId))
+                throw Invalid("required_destination_ids", "must contain unique identifiers");
         }
     }
 
@@ -1052,11 +1070,13 @@ internal static class AuditEventSerializer
         writer.WriteStartObject();
         writer.WriteString(
             "schema_version",
-            input.EvidenceManifest is not null
-                ? FullEvidenceSchemaVersion
-                : input.CallAttribution is null
-                    ? CurrentSchemaVersion
-                    : CallContextSchemaVersion);
+            input.RequiredDestinationIds is not null
+                ? DestinationObligationSchemaVersion
+                : input.EvidenceManifest is not null
+                    ? FullEvidenceSchemaVersion
+                    : input.CallAttribution is null
+                        ? CurrentSchemaVersion
+                        : CallContextSchemaVersion);
         writer.WriteString("event_id", FormatUuid(eventId));
         writer.WriteString("event_type", input.EventType);
         writer.WriteString("occurred_utc", FormatTimestamp(occurredUtc));
@@ -1167,6 +1187,14 @@ internal static class AuditEventSerializer
                 writer.WriteString("capture_state", evidence.CaptureState);
                 writer.WriteEndObject();
             }
+            writer.WriteEndArray();
+        }
+
+        if (input.RequiredDestinationIds is { } destinationIds)
+        {
+            writer.WriteStartArray("required_destination_ids");
+            foreach (var destinationId in destinationIds.Order())
+                writer.WriteStringValue(FormatUuid(destinationId));
             writer.WriteEndArray();
         }
 

@@ -42,7 +42,22 @@ using var auditStartup = AuditStartupConfiguration.LoadFromEnvironment();
 using var outputRequestProtector = new AuditOutputRequestProtector();
 var producerVersion =
     typeof(RunspaceHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+var exportSettings = AuditExportSettings.Load(
+    auditStartup.AuditOptions.RootDirectory,
+    out var exportConfigurationFailure);
+var destinationRegistry = AuditDestinationRegistry.Open(
+    auditStartup.AuditOptions.RootDirectory,
+    exportSettings,
+    out var destinationConfigurationFailure);
+if (exportConfigurationFailure is not null || destinationConfigurationFailure is not null)
+{
+    await Console.Error.WriteLineAsync(
+        $"[ptk audit] export configuration ignored " +
+        $"({destinationConfigurationFailure ?? exportConfigurationFailure}); " +
+        "PTK continues journaling locally.").ConfigureAwait(false);
+}
 builder.Services.AddSingleton(auditStartup.AuditOptions);
+builder.Services.AddSingleton(destinationRegistry);
 builder.Services.AddSingleton(
     sp => new AuditHealth(sp.GetRequiredService<AuditOptions>()));
 builder.Services.AddSingleton(_ => new OutputStore(OutputStoreOptions.Production()));
@@ -54,7 +69,8 @@ builder.Services.AddSingleton(sp => new AuditRuntimeGate(
         sp.GetRequiredService<AuditHealth>(),
         sp.GetRequiredService<ScriptEvidenceStoreProvider>(),
         producerVersion,
-        outputStore: sp.GetRequiredService<OutputStore>()));
+        outputStore: sp.GetRequiredService<OutputStore>(),
+        destinations: sp.GetRequiredService<AuditDestinationRegistry>()));
 // The gate's hosted service is registered before the supervisor lifecycle so
 // audit startup is durable before any session infrastructure starts.
 builder.Services.AddSingleton<IHostedService>(
@@ -63,16 +79,9 @@ builder.Services.AddSingleton<IHostedService>(
 // Export is additive: it delivers the local journal onward and never gates
 // execution (audit-restoration R3, contract rule 2). A missing, invalid, or
 // unreachable destination costs delivery lag, never a refused call.
-var exportSettings = AuditExportSettings.Load(
-    auditStartup.AuditOptions.RootDirectory,
-    out var exportConfigurationFailure);
-if (exportConfigurationFailure is not null)
-{
-    await Console.Error.WriteLineAsync(
-        $"[ptk audit] export configuration ignored ({exportConfigurationFailure}); " +
-        "PTK continues journaling locally.").ConfigureAwait(false);
-}
 builder.Services.AddSingleton(new AuditExportHealth());
+builder.Services.AddSingleton(sp => new AuditBackfillRegistry(
+    sp.GetRequiredService<AuditOptions>().RootDirectory));
 // The loopback audit web UI (R4): journal-backed log view, quarantine
 // evidence, export health, and the settings page. One UI per audit root —
 // supervisors race for the port, losers stand by. Never gates execution.
@@ -80,7 +89,9 @@ builder.Services.AddSingleton<IHostedService>(sp => new PtkMcpServer.Audit.Web.A
     sp.GetRequiredService<AuditOptions>(),
     sp.GetRequiredService<AuditHealth>(),
     sp.GetRequiredService<AuditExportHealth>(),
-    () => sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport));
+    () => sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport,
+    coordinator: sp.GetRequiredService<AuditExportCoordinator>(),
+    destinationOperations: sp.GetRequiredService<AuditDestinationOperations>()));
 // Operator alert webhook (R4, reporting surface (c)): edge-triggered POSTs
 // for conditions that demand a human. Absent configuration means no service.
 builder.Services.AddSingleton<IHostedService>(sp => new PtkMcpServer.Audit.Web.AuditAlertWebhookService(
@@ -88,17 +99,21 @@ builder.Services.AddSingleton<IHostedService>(sp => new PtkMcpServer.Audit.Web.A
     sp.GetRequiredService<AuditHealth>(),
     sp.GetRequiredService<AuditExportHealth>(),
     exportSettings.AlertWebhook));
-builder.Services.AddSingleton<IHostedService>(sp => new AuditExportService(
+builder.Services.AddSingleton(sp => new AuditExportCoordinator(
     sp.GetRequiredService<AuditOptions>(),
-    exportSettings.IsConfigured ? new HttpAuditDestination(exportSettings) : null,
-    new AuditExportCursorStore(sp.GetRequiredService<AuditOptions>().RootDirectory),
+    sp.GetRequiredService<AuditDestinationRegistry>(),
+    sp.GetRequiredService<AuditBackfillRegistry>(),
+    sp.GetRequiredService<ScriptEvidenceStoreProvider>(),
+    // The live segment is held FileShare.None by the journal writer; each
+    // destination exporter reads the committed tail through this owner.
+    () => sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport,
     sp.GetRequiredService<AuditExportHealth>(),
-    // The live segment is held FileShare.None by the journal writer; the
-    // exporter reads its durably committed tail through the writer's own
-    // handle instead of a second file handle (cr3-1/R3d).
-        liveJournalSource: () =>
-            sp.GetRequiredService<AuditRuntimeGate>().JournalForLiveExport,
-        evidence: sp.GetRequiredService<ScriptEvidenceStoreProvider>()));
+    exportSettings.AlertWebhook));
+builder.Services.AddSingleton<IHostedService>(sp =>
+    sp.GetRequiredService<AuditExportCoordinator>());
+builder.Services.AddSingleton<IAuditDestinationCredentialValidator>(
+    _ => new AuditDestinationCredentialValidator());
+builder.Services.AddSingleton<AuditDestinationOperations>();
 
 // One supervisor owns this MCP connection's bounded worker/session registry.
 // Submitted scripts execute only in contained worker processes. Constructing

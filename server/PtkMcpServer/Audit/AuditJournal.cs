@@ -209,6 +209,7 @@ internal sealed class AuditJournal : IDisposable
     private readonly string? _binaryDigest;
     private readonly Func<DateTimeOffset> _utcNow;
     private readonly Func<DateTimeOffset, Guid> _uuidV7Factory;
+    private readonly Func<IReadOnlyList<Guid>>? _requiredDestinationIds;
     private long _sequence;
     private string? _previousEventHash;
     private Guid? _lastEventId;
@@ -233,7 +234,8 @@ internal sealed class AuditJournal : IDisposable
         Guid supervisorBootId,
         Guid? previousSupervisorBootId = null,
         Func<DateTimeOffset>? utcNow = null,
-        Func<DateTimeOffset, Guid>? uuidV7Factory = null)
+        Func<DateTimeOffset, Guid>? uuidV7Factory = null,
+        Func<IReadOnlyList<Guid>>? requiredDestinationIds = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -262,6 +264,7 @@ internal sealed class AuditJournal : IDisposable
         }
         _utcNow = utcNow ?? (() => DateTimeOffset.UtcNow);
         _uuidV7Factory = uuidV7Factory ?? Guid.CreateVersion7;
+        _requiredDestinationIds = requiredDestinationIds;
         _lastKnownTotalBytes = _sink.TotalBytes;
         UpdateHealthMetricsLocked();
     }
@@ -530,6 +533,16 @@ internal sealed class AuditJournal : IDisposable
     {
         ArgumentNullException.ThrowIfNull(reservation);
         ArgumentNullException.ThrowIfNull(input);
+        if (input.RequiredDestinationIds is null && _requiredDestinationIds is not null)
+        {
+            input = input with
+            {
+                RequiredDestinationIds = _requiredDestinationIds()
+                    .Distinct()
+                    .Order()
+                    .ToArray(),
+            };
+        }
 
         lock (_gate)
         {

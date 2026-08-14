@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Hosting;
+using PtkMcpServer.Audit.Export;
 using PtkMcpServer.Sessions;
 
 namespace PtkMcpServer.Audit;
@@ -19,6 +20,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
     private readonly AuditHealth _health;
     private readonly ScriptEvidenceStoreProvider _evidence;
     private readonly OutputStore? _outputStore;
+    private readonly AuditDestinationRegistry? _destinations;
     private readonly string _producerVersion;
     private readonly Func<AuditRuntimeResources> _openRuntime;
 
@@ -41,7 +43,8 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
         string producerVersion,
         Func<AuditJournal>? openJournal = null,
         Func<AuditRuntimeResources>? openRuntime = null,
-        OutputStore? outputStore = null)
+        OutputStore? outputStore = null,
+        AuditDestinationRegistry? destinations = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(health);
@@ -52,6 +55,7 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
         _health = health;
         _evidence = evidence;
         _outputStore = outputStore;
+        _destinations = destinations;
         _producerVersion = producerVersion;
         if (openJournal is not null && openRuntime is not null)
         {
@@ -64,7 +68,8 @@ internal sealed class AuditRuntimeGate : IHostedService, IDisposable
                 _options,
                 _health,
                 _producerVersion,
-                _evidence));
+                _evidence,
+                _destinations));
     }
 
     private AuditRuntimeGate(

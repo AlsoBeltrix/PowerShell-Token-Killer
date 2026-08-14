@@ -74,7 +74,7 @@ internal sealed record CustodyAppendResult(long Sequence, string ReceiptHash);
 
 internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
 {
-    private const int CurrentSchemaVersion = 11;
+    private const int CurrentSchemaVersion = 12;
     private const int BusyTimeoutSeconds = 5;
     private readonly string _databasePath;
     private readonly SqliteConnection _writer;
@@ -1079,6 +1079,25 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             """);
             transaction.Commit();
         }
+        if (version < 12)
+        {
+            // S3 destination obligations: retain the producer's immutable,
+            // sorted destination-ID set as canonical JSON for event APIs and
+            // custody investigations. Historical records remain NULL.
+            using var transaction = connection.BeginTransaction(deferred: false);
+            if (!ColumnExists(connection, transaction, "events", "required_destination_ids"))
+            {
+                ExecuteNonQuery(
+                    connection,
+                    transaction,
+                    "ALTER TABLE events ADD COLUMN required_destination_ids TEXT NULL;");
+            }
+            ExecuteNonQuery(connection, transaction, """
+                UPDATE meta SET value = '12' WHERE key = 'schema_version';
+                PRAGMA user_version=12;
+                """);
+            transaction.Commit();
+        }
 
         var recordedVersion = Convert.ToString(
             ExecuteScalar(
@@ -1184,7 +1203,8 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             received_utc, post_gap, producer_supervisor_boot_id, source_event_id,
             evidence_id, evidence_kind, evidence_digest, evidence_byte_count,
             evidence_encoding, artifact_id, artifact_digest, artifact_byte_count,
-            chunk_index, chunk_count, chunk_offset, retention_class, capture_state)
+            chunk_index, chunk_count, chunk_offset, retention_class, capture_state,
+            required_destination_ids)
         VALUES(
             $event_id, $boot_id, $sequence, $schema_version, $event_type,
             $occurred_utc, $observed_utc, $host_id, $worker_boot_id,
@@ -1193,7 +1213,8 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             $received_utc, $post_gap, $producer_boot_id, $source_event_id,
             $evidence_id, $evidence_kind, $evidence_digest, $evidence_byte_count,
             $evidence_encoding, $artifact_id, $artifact_digest, $artifact_byte_count,
-            $chunk_index, $chunk_count, $chunk_offset, $retention_class, $capture_state);
+            $chunk_index, $chunk_count, $chunk_offset, $retention_class, $capture_state,
+            $required_destination_ids);
         """);
         command.Parameters.AddWithValue("$post_gap", postGap ? 1 : 0);
         command.Parameters.AddWithValue("$event_id", FormatGuid(record.EventId));
@@ -1230,10 +1251,20 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         AddNullable(command, "$chunk_offset", record.Evidence?.ChunkOffset);
         AddNullable(command, "$retention_class", record.Evidence?.RetentionClass);
         AddNullable(command, "$capture_state", record.Evidence?.CaptureState);
+        AddNullable(
+            command,
+            "$required_destination_ids",
+            record.RequiredDestinationIds is null
+                ? null
+                : JsonSerializer.Serialize(
+                    record.RequiredDestinationIds
+                        .Order()
+                        .Select(destinationId => destinationId.ToString("D"))));
         if (command.ExecuteNonQuery() != 1)
             throw new InvalidOperationException("The event insert did not affect exactly one row.");
 
-        if (string.Equals(record.SchemaVersion, "ptk.audit/5", StringComparison.Ordinal))
+        if (string.Equals(record.SchemaVersion, "ptk.audit/5", StringComparison.Ordinal) ||
+            string.Equals(record.SchemaVersion, "ptk.audit/6", StringComparison.Ordinal))
             InsertEvidenceManifest(record, transaction);
     }
 
@@ -1251,9 +1282,10 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
         SqliteTransaction transaction)
     {
         using var document = JsonDocument.Parse(exactJsonBody);
-        foreach (var item in document.RootElement
-                     .GetProperty("evidence_manifest")
-                     .EnumerateArray())
+        if (!document.RootElement.TryGetProperty("evidence_manifest", out var manifest))
+            return;
+
+        foreach (var item in manifest.EnumerateArray())
         {
             using var command = CreateCommand(transaction.Connection!, transaction, """
                 INSERT INTO evidence_manifest_items(
@@ -1311,7 +1343,7 @@ internal sealed partial class SqliteIngestStore : IIngestCommitter, IDisposable
             command.CommandText = """
                 SELECT event_id, exact_json_body
                 FROM events
-                WHERE schema_version = 'ptk.audit/5'
+                WHERE schema_version IN ('ptk.audit/5', 'ptk.audit/6')
                   AND NOT EXISTS(
                       SELECT 1 FROM evidence_manifest_items m
                       WHERE m.source_event_id = events.event_id);

@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**ACTIVE — owner-directed plan, 2026-08-14. S0-S3 were approved and executed;
-S4-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
+**ACTIVE — owner-directed plan, 2026-08-14. S0-S4 were approved and executed;
+S5-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -377,7 +377,7 @@ restore. Strict ingest validation rejects noncontiguous, internally inconsistent
 or arithmetically impossible chunk sets before storage. Fixed-head suite and
 mutation evidence is in `.agents/machines.md`. Decision D remains open:
 producer-owned Splunk protocol
-conformance is not a real-Splunk acceptance claim, and S4-S7 remain unapproved.
+conformance is not a real-Splunk acceptance claim, and S5-S7 remain unapproved.
 
 ### S3 — explicit destination configuration and per-destination delivery status — EXECUTED 2026-08-14
 
@@ -434,7 +434,7 @@ evidence and independently prove whether each event/evidence item was
 acknowledged, while a default setup exposes data to only the one destination the
 operator selected and no producer-local surface reveals the forensic record.
 
-### S4 — mini-SIEM activity API and dashboard
+### S4 — mini-SIEM activity API and dashboard — EXECUTED 2026-08-14
 
 - Add `/api/activities` and `/api/activities/{activityId}` projections over
   stored immutable events, with bounded filters and stable pagination.
@@ -450,6 +450,19 @@ operator selected and no producer-local surface reveals the forensic record.
   using the existing authenticated transition APIs.
 - Add accessibility, escaping/XSS, authorization, pagination, large-evidence,
   and explicit-missing-attribution tests.
+
+Execution evidence: commit `a022fa3` adds authenticated activity list/detail,
+command search/preview, exact evidence links, raw correlated events, explicit
+absence/provenance, health, lifecycle actions, and quarantine detail. Focused
+S4 tests passed 5/5 and failed 5/5 when activity routes were deliberately
+removed, then passed after restoration. Complete receiver 351/351, server
+1,346/1,346, Pester 112 passed with 3 platform skips, registered handshake,
+and both NuGet vulnerability audits passed. A fresh protected `osx-arm64`
+`0.3.0-s4` package built and verified source identity
+`a022fa3d15b0707f674a63ef4bf410aeff1a5c97`; its packaged executable served
+the activity dashboard plus authenticated empty activity and truthful health
+APIs before its temporary proof root was removed. Host detail is in
+`.agents/machines.md`.
 
 Exit evidence: an authorized operator can answer “which client/model did what,
 where, what exactly was submitted, what exactly came back, and with what

@@ -201,6 +201,16 @@ function ConvertTo-UriHost {
     return $Value
 }
 
+function Resolve-WindowsAclIdentity([string]$Identity) {
+    switch ($Identity) {
+        'LocalSystem' { return '*S-1-5-18' }
+        'NT AUTHORITY\SYSTEM' { return '*S-1-5-18' }
+        'NT AUTHORITY\LocalService' { return '*S-1-5-19' }
+        'NT AUTHORITY\NetworkService' { return '*S-1-5-20' }
+        default { return $Identity }
+    }
+}
+
 function Set-ServicePathOwner {
     param([string[]]$Paths)
     $currentIdentity = if ($IsWindows) {
@@ -213,10 +223,11 @@ function Set-ServicePathOwner {
         throw "ServiceIdentity '$ServiceIdentity' differs from installer identity '$currentIdentity'. Run Install as the service identity or pass -ApplyServiceIdentityOwnership from an administrator."
     }
     if ($IsWindows) {
+        $aclIdentity = Resolve-WindowsAclIdentity $ServiceIdentity
         foreach ($path in $Paths) {
-            & icacls.exe $path /setowner $ServiceIdentity /T /C | Out-Host
+            & icacls.exe $path /setowner $aclIdentity /T /C | Out-Host
             if ($LASTEXITCODE -ne 0) { throw "Could not set service ownership on '$path'." }
-            & icacls.exe $path /inheritance:r /grant:r "${ServiceIdentity}:(OI)(CI)F" /T /C |
+            & icacls.exe $path /inheritance:r /grant:r "${aclIdentity}:(OI)(CI)F" /T /C |
                 Out-Host
             if ($LASTEXITCODE -ne 0) { throw "Could not protect service path '$path'." }
         }
@@ -237,7 +248,8 @@ function Set-ServiceProgramAccess {
     }
     if ($currentIdentity -ceq $Identity) { return }
     if ($IsWindows) {
-        & icacls.exe $Path /grant:r "${Identity}:(OI)(CI)RX" /T /C | Out-Host
+        $aclIdentity = Resolve-WindowsAclIdentity $Identity
+        & icacls.exe $Path /grant:r "${aclIdentity}:(OI)(CI)RX" /T /C | Out-Host
         if ($LASTEXITCODE -ne 0) {
             throw "Could not grant service read/execute access to '$Path'."
         }

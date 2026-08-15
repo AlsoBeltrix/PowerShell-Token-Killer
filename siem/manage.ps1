@@ -159,13 +159,19 @@ function Set-PrivateFile {
 
 function Test-SameOrDescendant {
     param([string]$Candidate, [string]$Root)
-    $relative = [IO.Path]::GetRelativePath($Root, $Candidate)
-    return $relative -ceq '.' -or
-        (-not [IO.Path]::IsPathFullyQualified($relative) -and
-         $relative -cne '..' -and
-         -not $relative.StartsWith(
-             '..' + [IO.Path]::DirectorySeparatorChar,
-             [StringComparison]::Ordinal))
+    $candidatePath = [IO.Path]::GetFullPath($Candidate)
+    $rootPath = [IO.Path]::GetFullPath($Root)
+    $comparison = if ($IsWindows) {
+        [StringComparison]::OrdinalIgnoreCase
+    } else {
+        [StringComparison]::Ordinal
+    }
+    if ($candidatePath.Equals($rootPath, $comparison)) { return $true }
+    if (-not $rootPath.EndsWith([IO.Path]::DirectorySeparatorChar) -and
+        -not $rootPath.EndsWith([IO.Path]::AltDirectorySeparatorChar)) {
+        $rootPath += [IO.Path]::DirectorySeparatorChar
+    }
+    return $candidatePath.StartsWith($rootPath, $comparison)
 }
 
 function Test-PathsOverlap {

@@ -3,6 +3,7 @@
 ## Status and authority
 
 **ACTIVE — owner-directed plan, 2026-08-14. S0-S5 were approved and executed;
+S5R operator access/settings correction was planned 2026-08-15 and awaits Decision E;
 S6-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
@@ -532,6 +533,147 @@ fresh `osx-arm64` `0.3.0-s5` PTK and receiver packages, and all three packaged S
 operator workflows. This supersedes the implementation-head package identities in
 the execution paragraph above. Exact hashes and repair evidence are in
 `.agents/machines.md`. No release or tag was created; S6 remains unapproved.
+
+### S5R — mini-SIEM operator access and setup/settings correction — PLANNED 2026-08-15; NOT IMPLEMENTATION-APPROVED
+
+The owner authorized planning this correction after the exact-head live receiver was handed
+over as a bare dashboard URL. The page required an operator token the owner had never received,
+and no settings or setup surface explained how production operators obtain it or connect PTK.
+This is a failed operator workflow and invalidates any interpretation of S5 exit evidence as
+proving that a human can open and use the product. Backend/API, capture, custody, and delivery
+evidence remain valid.
+
+Current implementation evidence:
+
+- `siem/manage.ps1 -Action Install -GenerateCredentials` creates distinct ingest and operator
+  bearer tokens and writes both only to protected `receiver.json`.
+- `ConnectionInfo` deliberately returns token-free endpoints, certificate pin, and configuration
+  path.
+- `OpenDashboard` only calls `Start-Process` with the bare operator URI and returns
+  `opened = true`; it neither transfers the credential nor gives the operator a retrieval step.
+- The locked page presents a password input and keeps a submitted token in browser
+  `sessionStorage`; it does not explain what the token is, where it is administered, or how local
+  and remote operators receive it.
+- The authenticated page is an investigation surface (health, activities, evidence, system
+  events, alerts, gaps, quarantine). It has no setup/settings surface. Receiver deployment and
+  producer destination configuration are command/file workflows outside the page.
+
+#### Required outcome
+
+A cold operator with the receiver package and appropriate host authorization can deploy the
+receiver, start it through the emitted OS-native service workflow, obtain dashboard access
+without exposing either bearer token, connect one PTK producer, prove delivery, and find a
+captured PTK activity from the dashboard. The product must explain the same workflow for a
+receiver reached through a management/SSH tunnel. No acceptance step may depend on repository
+knowledge, an agent reading `receiver.json`, or an operator being told an undisclosed path after
+deployment.
+
+#### Security and product invariants
+
+- Keep the mini-SIEM separately installed and explicitly selected as a destination. Do not add it
+  to the PTK installer or silently configure a producer.
+- Never put ingest or operator bearer credentials in a URL, process arguments, deployment
+  manifest, normal command result, log, custody record, generated service definition, or
+  repository artifact.
+- Keep `ConnectionInfo`, `Status`, and ordinary `OpenDashboard` output token-free. Any transfer of
+  an operator credential to a workstation must be explicit, bounded, and named as sensitive.
+- Preserve the protected configuration boundary, separate ingest/operator credentials,
+  loopback-by-default operator listener, TLS requirement off-host, service identity, custody, and
+  retention rules.
+- Do not create pairing/enrollment machinery or a general service/job manager.
+- The receiver cannot claim that a producer is configured merely because it has accepted traffic;
+  distinguish receiver configuration, observed producer activity, and producer destination
+  health.
+
+#### R1 — dashboard access and credential handoff
+
+- Make install output end with a complete next-action sequence: install/start the generated
+  service definition, retrieve/distribute the operator credential through the named protected
+  path or site secret manager, connect the producer, run Doctor, and open the dashboard.
+  Generated secrets remain absent from normal output.
+- Replace the false-success `OpenDashboard` result with an operator-access workflow. It must
+  validate the manifest and receiver reachability, open the correct URI when supported, and
+  either complete the owner-selected credential handoff or return one exact safe action that does.
+  Headless and remote-host cases must report `opened = false` with usable tunnel/access
+  instructions rather than claim success.
+- Add locked-page human guidance explaining that this is the receiver's operator credential, not
+  the PTK ingest credential; where the deployment administrator stores it; how a same-host
+  administrator retrieves it; how a remote operator should receive it through the organization's
+  secret-management channel; and why it is not embedded in the link.
+- Add an explicit Lock/Clear action that removes `ptk_operator_token` from `sessionStorage`.
+  Continue to prohibit `localStorage`, cookies, query parameters, fragments, HTML embedding, and
+  server-rendered credential material.
+- Exercise wrong, expired/rotated, absent, and valid credentials without reflecting secret bytes.
+  Authentication failure must keep setup help visible.
+
+#### R2 — setup/settings surface
+
+- Add a clearly named Setup/Settings destination in dashboard navigation; do not hide setup inside
+  raw events.
+- Before authentication, expose only generic access help. After authentication, show a redacted
+  effective configuration summary: receiver version/RID, ingest and operator endpoints, TLS/pin
+  state, service kind/name/identity, retention bounds, storage/witness/anchor state,
+  alert-rule/webhook state, manifest/configuration locations, and whether a restart is required for
+  a pending change. Never render a token value, token prefix/suffix, private-key contents, or
+  credential digest.
+- Show a short producer-connection workflow using the installed `ptk-audit-destination.ps1`: add
+  one destination, run Doctor, inspect independent delivery health, and deliberately add a second
+  destination only with the existing sensitive-duplication confirmation. Generate commands from
+  deployment facts rather than hard-coded example ports or paths.
+- Show receiver lifecycle actions and boundaries in human language: installed/running/reachable,
+  upgrade available/current, uninstall program/config versus separately confirmed evidence
+  removal, and which changes require an OS service restart. Do not imply the web process
+  supervises the service.
+- Decision E determines whether the page is a read-only operational/setup view whose changes
+  remain protected manager/secret-store actions, or a write-capable receiver administration plane.
+  No write API, config mutation, token rotation, or service integration may be implemented before
+  that ruling.
+
+#### Decision E — settings authority — OPEN
+
+Choose one:
+
+1. **Authenticated setup/status surface; protected changes remain manager/secret-store operations
+   (standing recommendation).** The page shows effective redacted settings, state, exact generated
+   commands, and restart requirements. This keeps the browser bearer token from becoming authority
+   to rewrite TLS, retention, storage, custody, alert, or authentication configuration. Cost:
+   configuration changes are guided but not click-to-apply.
+2. **Write-capable receiver administration surface.** The operator bearer token authorizes selected
+   configuration changes in the browser. This requires a separately threat-modeled atomic
+   protected-file write boundary, CSRF/replay defenses, concurrency and rollback behavior,
+   token-rotation reauthentication, per-setting live-versus-restart semantics, custody records for
+   every change, and cross-platform service-control boundaries. Cost and attack surface are
+   materially larger.
+
+The ruling applies only to receiver administration. Producer destination changes remain explicit
+producer-side operations because the receiver must not gain control of remote PTK installations.
+
+#### R3 — acceptance and release evidence
+
+- Extend `siem/test-manage.ps1` for honest open/reachability/headless results, credential
+  non-disclosure, generated next steps, and both local and tunneled access instructions.
+- Extend operator endpoint/browser tests for locked help, valid unlock, Lock/Clear, settings
+  redaction, navigation, escaping, accessibility, and Decision E's selected authority boundary.
+  Prove secret-leak tests bite by mutating each prohibited output/storage surface.
+- Extend packaged `siem/operator-workflow-proof.ps1` to begin with released artifacts and a fresh
+  isolated home, deploy/start the receiver, follow only printed/documented actions, connect PTK,
+  run Doctor, open/unlock the dashboard through the supported handoff, select the synthetic
+  activity, and retrieve exact command/response/output evidence. A dashboard HTTP 200 or direct
+  API call is insufficient.
+- Run a second packaged proof in headless/remote-receiver mode through a loopback management tunnel.
+  The operator workstation must not read the remote `receiver.json`; credential delivery uses an
+  explicit simulated site secret channel and leaves no secret in arguments, URLs, logs, manifests,
+  reports, or retained browser storage after Lock.
+- Re-run full SIEM, server, Pester, package verification, dependency scans, and exact
+  supported-platform CI required by `.agents/repo-guidance.md`. Record complete mutation and
+  packaged-workflow evidence in `.agents/machines.md`; keep only a stable closure pointer in
+  `.agents/state.md`.
+
+Exit evidence: an uninformed operator can follow product-emitted instructions from package to
+attributable activity without repository assistance; both local and remote dashboard access are
+usable; the page explains and exposes every non-secret operational fact needed to use the receiver;
+credentials remain protected; and Decision E's chosen settings boundary is mutation-proven. S5R
+closure does not approve S6, release, tag, or push.
 
 ### S6 — real external SIEM integration
 

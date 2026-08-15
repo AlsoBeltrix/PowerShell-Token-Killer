@@ -21,6 +21,13 @@ implemented or approved by this record.
 
 ## SIEM operator-readiness plan (2026-08-13)
 
+Openreview Claude Code 2.1.233 / `claude-fable-5` / max / frontier / competitive over
+`8d1d39c88adb464a2a62051195eceb8051b0f86a..0a1206e8f3c028c79a6344b68c103415d5fbaa64`:
+**no verdict accepted**. Anthropic's safeguard refused before repository inspection, the required
+git capability command, or model output. The owner-authorized attempt was not retried. No material
+change or candidate finding entered intake. Canonical record:
+`.agents/review/siem-operator-readiness-fable5-r3-refused.md`.
+
 Openreview Claude Code 2.1.231 / `claude-fable-5` / max / frontier over
 `d8992e94fcb70889498aa2f3911e00066a3856d4..f16719f1fa5a30c24a22d1f574c6adee3c01bae3`:
 **no verdict accepted**. The first owner-authorized process failed before model

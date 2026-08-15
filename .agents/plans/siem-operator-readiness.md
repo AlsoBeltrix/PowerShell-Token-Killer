@@ -2,9 +2,16 @@
 
 ## Status and authority
 
-**ACTIVE — owner-directed plan, 2026-08-14. S0-S5 were approved and executed;
-S5R operator access/settings correction was planned 2026-08-15 and awaits Decision E;
-S6-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
+**HISTORICAL EXECUTION RECORD — S0-S5 were approved and executed. S5R-S7 are superseded
+for future work by `.agents/plans/siem-sentinel-validation.md` (draft, 2026-08-15).**
+
+Exact-head operator use showed the mini-SIEM activity response exposes recursive forensic storage
+internals instead of a searchable SIEM investigation record. The replacement plan uses Microsoft
+Sentinel as the first real-product candidate, defines a typed KQL activity projection, and defers
+settings/dashboard expansion until observed real-SIEM use justifies it. No replacement-plan
+implementation or Azure mutation is approved.
+
+This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -14,13 +21,12 @@ identity when technically possible, with source/trust recorded and no guessing.
 Decision C is settled as explicit operator-chosen destination configuration:
 one destination by default, with multiple destinations available only by
 deliberate opt-in. The mini-SIEM remains separately deployed and is never
-silently installed or selected. Decision D remains the only owner gate. Two owner-authorized,
-unprimed Claude Fable 5 `openreview` attempts over the committed plan produced
-no verdict. The first failed in the harness before model output. After the owner
-explicitly authorized one fresh attempt, Anthropic's cyber safeguard refused it
-before any repository read or git command. Per the owner's expensive-review
-rule, no further Fable call was made. Canonical latest record:
-`.agents/review/siem-operator-readiness-fable5-r2-refused.md`.
+silently installed or selected. Decision D remains the only owner gate. Three owner-authorized,
+unprimed Claude Fable 5 `openreview` attempts over corrective-plan ranges produced no verdict. The
+first failed in the harness before model output. The second and the owner-authorized 2026-08-15
+attempt were refused by Anthropic's safeguard before any repository read or git command. Neither
+refusal was retried. Canonical latest record:
+`.agents/review/siem-operator-readiness-fable5-r3-refused.md`.
 An owner-requested Kimi Code 0.35.0 / `k3` / transcript-high openreview over the
 same pins returned a valid `best_approach` verdict with no material changes or
 candidate findings on the plan before the owner settled Decisions A-C. Its

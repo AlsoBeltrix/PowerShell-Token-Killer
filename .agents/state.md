@@ -5,15 +5,20 @@ short and update it when important repo facts change.
 
 ## Now
 
-**MINI-SIEM OPERATOR ACCESS/SETTINGS CORRECTION PLANNED; IMPLEMENTATION NOT APPROVED
-(2026-08-15).** Exact-head live handoff exposed that `OpenDashboard` opens a bare URL while the
-page requires an undisclosed operator token, and no setup/settings surface explains production
-access or connection. `.agents/plans/siem-operator-readiness.md` now contains corrective slice S5R
-with local/remote access, locked-page guidance, authenticated redacted setup/settings, and packaged
-human-workflow acceptance. Decision E remains open: read-only setup/status with protected manager
-operations (standing recommendation) versus a write-capable receiver admin plane. S0-S5
-backend/capture evidence remains valid; the prior S5 human-workflow completeness claim does not.
-No implementation, release, tag, or push is authorized.
+**MICROSOFT SENTINEL REAL-SIEM VALIDATION PLANNED; NO AZURE ACCESS OR RESOURCES AUTHORIZED
+(2026-08-15).** Direct use showed the mini-SIEM activity response collapses the immutable event
+stream, evidence artifacts, and investigation projection into recursive JSON/base64 and even
+projects admission duration (16 ms) instead of terminal duration (1,218 ms). The new canonical
+future-work plan is `.agents/plans/siem-sentinel-validation.md`: preserve forensic source data,
+create a typed searchable Sentinel/KQL activity projection, validate decoded command/output and
+client-asserted model attribution in a real product, and defer mini-SIEM settings/dashboard growth
+until observed use. Microsoft documents that an Azure subscription can host Sentinel with adequate
+RBAC, but Trusted Signing grants no included Sentinel consumption; Sentinel/Log Analytics is
+separately billed, with a conditional new-workspace 10-GB/day, 31-day trial. Decision D is narrowed
+to one next gate: S0 read-only Azure feasibility discovery. No Azure account inspection, resource
+creation, implementation, release, tag, or push is authorized. Owner-requested Claude Fable 5
+openreview over `8d1d39c..0a1206e` was refused before repository access or output; canonical record
+is `.agents/review/siem-operator-readiness-fable5-r3-refused.md`, and no Fable judgment is claimed.
 
 **SIEM INVOKE COMPLETION EVIDENCE FIXED AND LIVE-PROVED (2026-08-15, `dfcda26`; producer boundary `b89ef46`).** `b89ef46` carries actual dispatch cwd, execution-start state, and available output recovery across the contained-worker/supervisor boundary; the request-scoped audit capability now travels through a scoped operations facade instead of becoming MCP input. Terminal `ptk.audit/6` records derive repository root/relative path and publish `submitted_command`, `caller_response`, and `captured_output`. A live exact-head capture then exposed and `dfcda26` fixed the mini-SIEM projection combining terminal values with earlier `not_dispatched` reasons. Full server 1,353/1,353, SIEM 357/357, Pester 112 passed/3 platform-skipped; server and SIEM dependency scans list no vulnerable packages. Regression mutations fail when output recovery/cwd mapping or projection reconciliation is removed. Exact-head `osx-arm64` activity `01a005e1-d491-7717-82a0-a5aec0cc6d07` identifies `codex` / `openai` / `gpt-5`, reports requested/effective/repository cwd with null unavailable reasons, and exposes byte/digest-verified 125-byte command, 33,358-byte caller response, and 166,000-byte captured output. Producer delivery is healthy with zero pending/refused/missing records; receiver evidence is complete. Protected token-free report and live-process details are in `.agents/machines.md`. No push or release was performed.
 

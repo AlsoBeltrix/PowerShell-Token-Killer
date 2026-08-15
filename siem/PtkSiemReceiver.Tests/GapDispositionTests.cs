@@ -111,6 +111,45 @@ public sealed class GapDispositionTests
     }
 
     [Fact]
+    public async Task A_batched_gap_opener_stops_before_later_chain_records_and_replays_cleanly()
+    {
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            ingestToken: IngestToken);
+        using var client = host.CreateClient();
+        var chain = BuildChain(3);
+
+        // A prospective destination can first see sequence 2. The receiver
+        // opens a visible gap, but must not commit sequence 3 from the same
+        // request before the producer isolates and retries sequence 2.
+        Assert.Equal(
+            HttpStatusCode.BadRequest,
+            await IngestAsync(client, host, chain[1].Body, chain[2].Body));
+        Assert.Empty(await EventsAsync(host, client));
+
+        var gap = await SingleGapAsync(host, client);
+        Assert.Equal("open", gap.GetProperty("state").GetString());
+        Assert.Equal(2, gap.GetProperty("claimed_sequence").GetInt64());
+        Assert.Equal(JsonValueKind.Null, gap.GetProperty("observed_head_sequence").ValueKind);
+
+        Assert.Equal(
+            HttpStatusCode.OK,
+            await IngestAsync(client, host, chain[1].Body, chain[2].Body));
+
+        var events = await EventsAsync(host, client);
+        Assert.Equal(
+            [2L, 3L],
+            events.Select(item => item.GetProperty("sequence").GetInt64())
+                .Order()
+                .ToArray());
+        Assert.All(events, item => Assert.True(item.GetProperty("post_gap").GetBoolean()));
+    }
+
+    [Fact]
     public async Task A_disposition_without_stored_post_gap_records_survives_restart_and_resumes()
     {
         using var authority = new TestCertificateAuthority();
@@ -325,15 +364,20 @@ public sealed class GapDispositionTests
     private static async Task<HttpStatusCode> IngestAsync(
         HttpClient client,
         SiemReceiverTestHost host,
-        string recordBody)
+        params string[] recordBodies)
     {
+        var logRecords = string.Join(
+            ",",
+            recordBodies.Select(recordBody =>
+                "{\"body\":{\"stringValue\":" +
+                JsonSerializer.Serialize(recordBody) +
+                "}}"));
         var request = new HttpRequestMessage(HttpMethod.Post, host.Endpoint)
         {
             Content = new ByteArrayContent(Encoding.UTF8.GetBytes(
                 "{\"resourceLogs\":[{\"scopeLogs\":[{\"logRecords\":[" +
-                "{\"body\":{\"stringValue\":" +
-                JsonSerializer.Serialize(recordBody) +
-                "}}]}]}]}")),
+                logRecords +
+                "]}]}]}")),
         };
         request.Content.Headers.ContentType =
             new MediaTypeHeaderValue("application/json") { CharSet = "utf-8" };

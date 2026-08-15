@@ -573,7 +573,14 @@ internal static class ReceiverApplication
                 return;
             }
             if (commitResult.Kind == IngestCommitResultKind.PermanentFailure)
+            {
                 firstPermanent ??= commitResult;
+
+                // Later validated records can depend on this record's chain
+                // position. Stop so producer isolation retries it before they
+                // can overtake it. Invalid records remain independent poison.
+                if (result.IsValid) break;
+            }
         }
 
         await WriteCommitResultAsync(

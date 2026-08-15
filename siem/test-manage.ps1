@@ -11,6 +11,14 @@ $operatorGuide = Join-Path $PSScriptRoot 'PtkSiemReceiver/README.md'
 $root = Join-Path ([IO.Path]::GetTempPath()) (
     'ptk-siem-manage-' + [guid]::NewGuid().ToString('N'))
 
+$platformServiceKind = if ($IsWindows) {
+    'windows'
+} elseif ($IsMacOS) {
+    'launchd'
+} else {
+    'systemd'
+}
+
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
@@ -78,7 +86,7 @@ try {
     Assert-True ($managerText -notmatch '\$serviceOwnedPaths\s*=\s*@\(\$programRoot') `
         'Install lets the service identity own and rewrite the privileged manager.'
     $release1 = New-TestRelease '9.8.1-test'
-    $parameters = Get-InstallParameters $release1 'manifest-safety' 'systemd'
+    $parameters = Get-InstallParameters $release1 'manifest-safety' $platformServiceKind
 
     $wrongChecksums = Join-Path $root 'wrong-SHA256SUMS'
     Set-Content -LiteralPath $wrongChecksums -Value (
@@ -113,7 +121,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $unsafeManifestParameters.InstallRoot)) `
         'Unsafe manifest refusal changed the install root.'
 
-    $unsafeServiceParameters = Get-InstallParameters $release1 'unsafe-service' 'systemd'
+    $unsafeServiceParameters = Get-InstallParameters $release1 'unsafe-service' $platformServiceKind
     $unsafeServiceParameters.ServiceDefinitionPath = Join-Path `
         (Split-Path -Parent $unsafeServiceParameters.ConfigurationPath) `
         'receiver.service'
@@ -128,7 +136,7 @@ try {
     Assert-True (-not (Test-Path -LiteralPath $unsafeServiceParameters.InstallRoot)) `
         'Unsafe service-definition refusal changed the install root.'
 
-    $overlapParameters = Get-InstallParameters $release1 'overlap' 'systemd'
+    $overlapParameters = Get-InstallParameters $release1 'overlap' $platformServiceKind
     $overlapParameters.DataDirectory = Join-Path $overlapParameters.InstallRoot 'data'
     $overlapRejected = $false
     $overlapFailure = 'Install returned success.'
@@ -195,7 +203,7 @@ try {
     Assert-True (Test-Path -LiteralPath (Join-Path $parameters.WitnessDirectory 'keep.witness')) `
         'Uninstall deleted witness evidence.'
 
-    $parameters2 = Get-InstallParameters $release1 'destructive-data' 'launchd'
+    $parameters2 = Get-InstallParameters $release1 'destructive-data' $platformServiceKind
     [void](& $manager @parameters2)
     Set-Content -LiteralPath (Join-Path $parameters2.DataDirectory 'remove.db') -Value 'evidence'
     $refusedData = $false
@@ -234,7 +242,7 @@ try {
         'Confirmed RemoveData left the database ownership marker.'
     [void](& $manager -Action Uninstall -ManifestPath $parameters2.ManifestPath)
 
-    $parameters3 = Get-InstallParameters $release1 'upgrade' 'windows'
+    $parameters3 = Get-InstallParameters $release1 'upgrade' $platformServiceKind
     [void](& $manager @parameters3)
     $release2 = New-TestRelease '9.8.2-test'
     $upgrade = & $manager -Action Upgrade `

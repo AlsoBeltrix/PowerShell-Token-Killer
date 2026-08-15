@@ -130,12 +130,15 @@ try {
     $overlapParameters = Get-InstallParameters $release1 'overlap' 'systemd'
     $overlapParameters.DataDirectory = Join-Path $overlapParameters.InstallRoot 'data'
     $overlapRejected = $false
+    $overlapFailure = 'Install returned success.'
     try {
         & $manager @overlapParameters
     } catch {
+        $overlapFailure = $_.Exception.Message
         $overlapRejected = $_.Exception.Message -match 'overlaps deployment'
     }
-    Assert-True $overlapRejected 'Install allowed a destructive data/program overlap.'
+    Assert-True $overlapRejected `
+        "Install allowed a destructive data/program overlap. Data='$($overlapParameters.DataDirectory)' Program='$($overlapParameters.InstallRoot)' Failure='$overlapFailure'"
     Assert-True (-not (Test-Path -LiteralPath $overlapParameters.InstallRoot)) `
         'Overlapping-path refusal changed the install root.'
 

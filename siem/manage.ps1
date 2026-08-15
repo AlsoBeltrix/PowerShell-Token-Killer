@@ -159,19 +159,30 @@ function Set-PrivateFile {
 
 function Test-SameOrDescendant {
     param([string]$Candidate, [string]$Root)
-    $candidatePath = [IO.Path]::GetFullPath($Candidate)
+    $currentPath = [IO.Path]::GetFullPath($Candidate).TrimEnd(
+        [IO.Path]::DirectorySeparatorChar,
+        [IO.Path]::AltDirectorySeparatorChar)
     $rootPath = [IO.Path]::GetFullPath($Root)
+    if ([IO.Path]::GetPathRoot($rootPath) -cne $rootPath) {
+        $rootPath = $rootPath.TrimEnd(
+            [IO.Path]::DirectorySeparatorChar,
+            [IO.Path]::AltDirectorySeparatorChar)
+    }
     $comparison = if ($IsWindows) {
         [StringComparison]::OrdinalIgnoreCase
     } else {
         [StringComparison]::Ordinal
     }
-    if ($candidatePath.Equals($rootPath, $comparison)) { return $true }
-    if (-not $rootPath.EndsWith([IO.Path]::DirectorySeparatorChar) -and
-        -not $rootPath.EndsWith([IO.Path]::AltDirectorySeparatorChar)) {
-        $rootPath += [IO.Path]::DirectorySeparatorChar
+    while (-not [string]::IsNullOrWhiteSpace($currentPath)) {
+        if ($currentPath.Equals($rootPath, $comparison)) { return $true }
+        $parentPath = [IO.Path]::GetDirectoryName($currentPath)
+        if ([string]::IsNullOrWhiteSpace($parentPath) -or
+            $parentPath.Equals($currentPath, $comparison)) {
+            break
+        }
+        $currentPath = $parentPath
     }
-    return $candidatePath.StartsWith($rootPath, $comparison)
+    return $false
 }
 
 function Test-PathsOverlap {

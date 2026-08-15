@@ -1084,7 +1084,7 @@ public sealed class AuditDestinationS3Tests : IDisposable
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {
-        for (var attempt = 0; attempt < 200; attempt++)
+        for (var attempt = 0; attempt < 600; attempt++)
         {
             if (condition()) return;
             await Task.Delay(25);

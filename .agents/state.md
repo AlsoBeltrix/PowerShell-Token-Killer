@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+**MINI-SIEM PROSPECTIVE-DESTINATION DEADLOCK FIXED AND LIVE-PROVED (2026-08-15, `e0aea02`).** A current-source isolated capture exposed a real S3/S4 defect: when a receiver first saw sequence 2 after a live prospective destination add, it quarantined that valid gap opener but continued the same OTLP batch, allowing sequence 3 to overtake it. Producer isolation could then never replay sequence 2 and remained stuck at `export.evidence_refused`. `e0aea02` stops a JSON ingest batch after a permanent refusal of a validated record, while still allowing independent invalid poison records to be quarantined without stopping later records. The regression failed before the fix and passed after it; focused gap/JSON ingest passed 19/19 and the full SIEM suite passed 357/357. Exact-commit `osx-arm64` live proof delivered one fully attributable activity with both `call.accepted` and `call.completed`, command/response evidence, zero pending/refused records, and healthy producer delivery. The receiver intentionally retains one visible prospective-prefix gap and its opening quarantine attempt instead of deadlocking. Host evidence is in `.agents/machines.md`. A separate observed defect remains: completed `ptk_invoke` activities still report `effective_cwd_unavailable_reason=not_dispatched` even though `requested_cwd` is present; do not claim effective execution-directory capture is working until repaired.
+
 **S5 FINAL CLOSURE VERIFIED (2026-08-15, `ebfbd4b`).** Exact-head CI run
 `31865095280` passed all six Linux, macOS, and Windows product/SIEM jobs. Rebuilt
 `osx-arm64` `0.3.0-s5` packages passed release-bound source verification as

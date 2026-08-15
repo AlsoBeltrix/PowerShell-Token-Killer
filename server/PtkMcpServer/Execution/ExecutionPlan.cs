@@ -165,12 +165,11 @@ internal sealed record ExecutionPlan
             }
         }
         else if (executionScript is null ||
-                  workingDirectory is not null ||
                  preExecutionValidation != PreExecutionValidation.None)
         {
             throw new ArgumentException(
-                "Only typed external execution may carry validation or cwd facts.",
-                nameof(workingDirectory));
+                "Direct PowerShell execution requires the original script and no validation.",
+                nameof(preExecutionValidation));
         }
         if (permittedFallbacks.IsDefault)
             throw new ArgumentException("Fallbacks must be initialized.", nameof(permittedFallbacks));

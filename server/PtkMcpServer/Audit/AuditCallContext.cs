@@ -534,6 +534,12 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
         ArgumentNullException.ThrowIfNull(result);
         EnsureActive();
         _userExecutionStarted |= result.UserExecutionStarted;
+        if (result.UserExecutionStarted)
+        {
+            _executionContext = AuditExecutionContextCapture.Capture(
+                _executionContext.RequestedCwd,
+                result.EffectiveWorkingDirectory);
+        }
         if (result.OutputShaping is { } shaping)
             RecordOutputShaping(shaping);
 
@@ -587,6 +593,36 @@ internal sealed class AuditCallContext : IInvocationAuthorizer
 
         CaptureTerminalEvidence(result, response);
 
+        CompleteCall(
+            result.Disposition == InvokeDisposition.NotStarted
+                ? "not_started"
+                : result.Success ? "completed" : "failed",
+            response,
+            result.Disposition == InvokeDisposition.OutcomeUnknown ? "unknown" : "not_applicable");
+    }
+
+    /// <summary>
+    /// Completes an invoke whose execution lifecycle occurred in a contained
+    /// worker. The supervisor owns only terminal facts, so it must not invent
+    /// the worker-local plan/authorization events required by the execution
+    /// event schema. Request-level completion still records the actual worker
+    /// cwd, retained output, disposition, and execution-start state.
+    /// </summary>
+    internal void CompleteInvokeFromSupervisor(InvokeResult result, string response)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        EnsureActive();
+        _userExecutionStarted |= result.UserExecutionStarted;
+        if (result.UserExecutionStarted)
+        {
+            _executionContext = AuditExecutionContextCapture.Capture(
+                _executionContext.RequestedCwd,
+                result.EffectiveWorkingDirectory);
+        }
+        if (result.OutputShaping is { } shaping)
+            RecordOutputShaping(shaping);
+
+        CaptureTerminalEvidence(result, response);
         CompleteCall(
             result.Disposition == InvokeDisposition.NotStarted
                 ? "not_started"

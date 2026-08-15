@@ -156,8 +156,10 @@ builder.Services.AddSingleton(sp =>
         return auditLine + Environment.NewLine + exportHealth.Snapshot().StatusLine();
     });
 });
-builder.Services.AddSingleton<ISessionOperations>(
-    sp => sp.GetRequiredService<WorkerSupervisor>());
+builder.Services.AddScoped<ISessionOperations>(sp =>
+    new AuditScopedSessionOperations(
+        sp.GetRequiredService<WorkerSupervisor>(),
+        sp.GetRequiredService<AuditCallContextAccessor>()));
 builder.Services.AddSingleton(sp => new SupervisorLifecycle(
     sp.GetRequiredService<WorkerSupervisor>()));
 builder.Services.AddSingleton<IHostedService>(

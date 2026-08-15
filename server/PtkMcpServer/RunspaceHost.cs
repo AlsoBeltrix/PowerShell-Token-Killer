@@ -77,6 +77,7 @@ public sealed record InvokeResult(
     internal OutputRecoverySummary? OutputRecovery { get; init; }
     internal bool PipelineHadErrors { get; init; }
     internal ExecutionFallbackReason? ProvenPreStartFallbackReason { get; init; }
+    internal string? EffectiveWorkingDirectory { get; init; }
 }
 
 internal sealed record ExecutionRouteSummary(
@@ -1536,6 +1537,7 @@ public sealed class RunspaceHost : IDisposable
                     dispatch.ExecutionScript,
                     dispatch.Plan.OriginalScript,
                     StringComparison.Ordinal)),
+            EffectiveWorkingDirectory = dispatch.WorkingDirectory,
         };
     }
 
@@ -3640,17 +3642,18 @@ public sealed class RunspaceHost : IDisposable
                 if (preflightDelay > TimeSpan.Zero)
                     Thread.Sleep(preflightDelay);
                 var effectiveRtkIdentity = EffectiveRtkIdentity();
+                var workingDirectory =
+                    TryCaptureCurrentFileSystemLocation(runspace);
                 var plan = ExecutionPlanner.CreateDirect(
                     script,
                     route,
                     compressAvailable: shapeOutput && primed.CompressCommand is not null,
                     ResolutionContext.Warm,
-                    effectiveRtkIdentity);
+                    effectiveRtkIdentity,
+                    workingDirectory);
                 if (checkDialect)
                 {
                     var commands = CaptureForegroundCommandFacts(runspace, script);
-                    var workingDirectory =
-                        TryCaptureCurrentFileSystemLocation(runspace);
                     // Ask RTK whether it can rewrite this script. The call runs
                     // here, in preflight, so the planner stays pure and the
                     // bounded child process is covered by the same deadline as

@@ -101,13 +101,17 @@ public sealed class WorkerOperationProtocolTests
                 2,
                 WorkerResultStatus.Refused,
                 "not started",
-                "operation_not_started"));
+                "operation_not_started",
+                "/repo/work",
+                UserExecutionStarted: true));
         Assert.Equal(
             new WorkerResult(
                 2,
                 WorkerResultStatus.Refused,
                 "not started",
-                "operation_not_started"),
+                "operation_not_started",
+                "/repo/work",
+                UserExecutionStarted: true),
             WorkerOperationProtocol.ParseResult(
                 resultEnvelope,
                 SessionId,

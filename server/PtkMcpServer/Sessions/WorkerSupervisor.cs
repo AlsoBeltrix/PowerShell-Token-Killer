@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using PtkMcpServer.Audit;
 using PtkMcpServer.Worker;
 
 namespace PtkMcpServer.Sessions;
@@ -48,7 +49,26 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         string route,
         int timeoutSeconds,
         string session,
-        OutputStore? outputStore)
+        OutputStore? outputStore) =>
+        await InvokeAsync(
+            script,
+            cancellationToken,
+            raw,
+            route,
+            timeoutSeconds,
+            session,
+            outputStore,
+            auditContext: null).ConfigureAwait(false);
+
+    internal async Task<ToolOutcome> InvokeAsync(
+        string script,
+        CancellationToken cancellationToken,
+        bool raw,
+        string route,
+        int timeoutSeconds,
+        string session,
+        OutputStore? outputStore,
+        AuditCallContextAccessor? auditContext)
     {
         try
         {
@@ -70,8 +90,12 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             //
             // A script that ran and threw is still a completed call: what it
             // concluded is its own business.
+            var response = FormatInvocation(invocation);
+            auditContext?.Current?.CompleteInvokeFromSupervisor(
+                ToAuditInvokeResult(invocation),
+                response);
             return new ToolOutcome(
-                FormatInvocation(invocation),
+                response,
                 invocation.Result.Status switch
                 {
                     WorkerResultStatus.Refused => ToolDisposition.NotStarted,
@@ -126,6 +150,37 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
         {
             return Failed("invoke", session, exception.DetailCode);
         }
+    }
+
+    private static InvokeResult ToAuditInvokeResult(
+        NamedSessionInvokeResult invocation)
+    {
+        var worker = invocation.Result;
+        var disposition = worker.Status switch
+        {
+            WorkerResultStatus.Completed => InvokeDisposition.Completed,
+            WorkerResultStatus.Refused => InvokeDisposition.NotStarted,
+            WorkerResultStatus.Canceled => InvokeDisposition.Canceled,
+            WorkerResultStatus.TimedOut => InvokeDisposition.OutcomeUnknown,
+            WorkerResultStatus.Failed when string.Equals(
+                worker.DetailCode,
+                "execution_failed",
+                StringComparison.Ordinal) => InvokeDisposition.Failed,
+            _ => InvokeDisposition.OutcomeUnknown,
+        };
+        return new InvokeResult(
+            Success: worker.Status == WorkerResultStatus.Completed,
+            Output: string.Empty,
+            Errors: [],
+            Warnings: [],
+            TimedOut: worker.Status == WorkerResultStatus.TimedOut,
+            Disposition: disposition,
+            UserExecutionStarted: worker.UserExecutionStarted)
+        {
+            AuditDetailCode = worker.DetailCode,
+            OutputRecovery = invocation.OutputRecovery,
+            EffectiveWorkingDirectory = worker.EffectiveWorkingDirectory,
+        };
     }
 
     async Task<ToolOutcome> ISessionOperations.StateAsync(

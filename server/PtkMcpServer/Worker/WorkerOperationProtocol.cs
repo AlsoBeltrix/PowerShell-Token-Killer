@@ -71,7 +71,9 @@ internal sealed record WorkerInvokeExecutionResult(
     WorkerResultStatus Status,
     string Text,
     string? DetailCode = null,
-    WorkerArtifactPayload? Artifact = null) : WorkerExecutionResult;
+    WorkerArtifactPayload? Artifact = null,
+    string? EffectiveWorkingDirectory = null,
+    bool UserExecutionStarted = false) : WorkerExecutionResult;
 
 internal sealed record WorkerStateExecutionResult(
     bool Available,
@@ -82,7 +84,9 @@ internal sealed record WorkerResult(
     long RequestId,
     WorkerResultStatus Status,
     string Text,
-    string? DetailCode);
+    string? DetailCode,
+    string? EffectiveWorkingDirectory = null,
+    bool UserExecutionStarted = false);
 
 internal sealed record WorkerStateSnapshot(
     long RequestId,
@@ -383,6 +387,13 @@ internal static class WorkerOperationProtocol
                     "text",
                     MaximumLogicalTextBytes),
                 detailCode = result.DetailCode,
+                effectiveWorkingDirectory = result.EffectiveWorkingDirectory is null
+                    ? null
+                    : LogicalText(
+                        result.EffectiveWorkingDirectory,
+                        "effectiveWorkingDirectory",
+                        MaximumLogicalTextBytes),
+                userExecutionStarted = result.UserExecutionStarted,
             }));
     }
 
@@ -396,7 +407,13 @@ internal static class WorkerOperationProtocol
             WorkerMessageKind.Result,
             expectedSessionId,
             expectedIncarnation);
-        var fields = ClosedObject(envelope.Payload, "status", "text", "detailCode");
+        var fields = ClosedObject(
+            envelope.Payload,
+            "status",
+            "text",
+            "detailCode",
+            "effectiveWorkingDirectory",
+            "userExecutionStarted");
         var status = ParseResultStatus(Required(fields, "status"));
         var text = LogicalText(
             StringField(Required(fields, "text"), "text"),
@@ -406,8 +423,28 @@ internal static class WorkerOperationProtocol
         var detailCode = detailValue.ValueKind == JsonValueKind.Null
             ? null
             : Code(detailValue, "detailCode");
+        var effectiveWorkingDirectoryValue = Required(
+            fields,
+            "effectiveWorkingDirectory");
+        var effectiveWorkingDirectory = effectiveWorkingDirectoryValue.ValueKind == JsonValueKind.Null
+            ? null
+            : LogicalText(
+                StringField(
+                    effectiveWorkingDirectoryValue,
+                    "effectiveWorkingDirectory"),
+                "effectiveWorkingDirectory",
+                MaximumLogicalTextBytes);
+        var userExecutionStarted = BooleanField(
+            Required(fields, "userExecutionStarted"),
+            "userExecutionStarted");
         ValidateResult(status, text, detailCode);
-        return new WorkerResult(envelope.RequestId!.Value, status, text, detailCode);
+        return new WorkerResult(
+            envelope.RequestId!.Value,
+            status,
+            text,
+            detailCode,
+            effectiveWorkingDirectory,
+            userExecutionStarted);
     }
 
     internal static WorkerEnvelope CreateStateSnapshotEnvelope(

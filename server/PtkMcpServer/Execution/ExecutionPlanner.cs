@@ -45,7 +45,8 @@ internal static class ExecutionPlanner
                 domain: null,
                 noFallbacks,
                 fallbackReason: null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                workingDirectory);
         }
 
         var domain = ClassifyDomain(script, commands);
@@ -61,7 +62,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkExecutableUnavailable
                     : null,
-                outputShapingRtkIdentity: null);
+                outputShapingRtkIdentity: null,
+                workingDirectory);
         }
 
         // RTK owns the routing decision; the caller obtained its answer from
@@ -93,7 +95,8 @@ internal static class ExecutionPlanner
                 requestedRoute == RequestedExecutionRoute.Rtk
                     ? ExecutionFallbackReason.RtkIneligibleShape
                     : null,
-                effectiveRtkIdentity);
+                effectiveRtkIdentity,
+                workingDirectory);
         }
 
         // The rewrite executes in the warm runspace like any other script, so
@@ -123,7 +126,8 @@ internal static class ExecutionPlanner
         string? route,
         bool compressAvailable,
         ResolutionContext resolutionContext,
-        RtkExecutableIdentity? outputShapingRtkIdentity = null) =>
+        RtkExecutableIdentity? outputShapingRtkIdentity = null,
+        string? workingDirectory = null) =>
         Direct(
             script,
             compressAvailable,
@@ -132,7 +136,8 @@ internal static class ExecutionPlanner
             domain: null,
             ImmutableArray<ExecutionPath>.Empty,
             fallbackReason: null,
-            outputShapingRtkIdentity);
+            outputShapingRtkIdentity,
+            workingDirectory);
 
     private static ExecutionPlan Direct(
         string script,
@@ -142,7 +147,8 @@ internal static class ExecutionPlanner
         ExecutionDomain? domain,
         ImmutableArray<ExecutionPath> fallbacks,
         ExecutionFallbackReason? fallbackReason,
-        RtkExecutableIdentity? outputShapingRtkIdentity) =>
+        RtkExecutableIdentity? outputShapingRtkIdentity,
+        string? workingDirectory) =>
         new(
             script,
             script,
@@ -157,6 +163,7 @@ internal static class ExecutionPlanner
             fallbacks,
             fallbackReason,
             rtkExecutableIdentity: null,
+            workingDirectory: workingDirectory,
             outputShapingRtkIdentity:
                 resolutionContext == ResolutionContext.Cold || !compressAvailable
                 ? null

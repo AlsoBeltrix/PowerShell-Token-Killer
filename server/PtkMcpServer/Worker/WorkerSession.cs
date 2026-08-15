@@ -65,7 +65,9 @@ internal sealed class WorkerSession : IWorkerSession
                         status,
                         text,
                         detailCode,
-                        artifact);
+                        artifact,
+                        result.EffectiveWorkingDirectory,
+                        result.UserExecutionStarted);
                 }
             case WorkerStateQueryRequest state:
                 {

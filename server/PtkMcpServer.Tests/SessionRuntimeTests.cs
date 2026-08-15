@@ -5,6 +5,47 @@ namespace PtkMcpServer.Tests;
 
 public sealed class SessionRuntimeTests
 {
+    [Fact]
+    public async Task Worker_result_exposes_the_effective_dispatch_directory()
+    {
+        var expected = Path.Combine(
+            Path.GetTempPath(),
+            "ptk-worker-cwd-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(expected);
+        var host = new RunspaceHost(callTimeout: TimeSpan.FromSeconds(60));
+        using var runtime = new SessionRuntime(host, new RawUsageCounter());
+        try
+        {
+            var escaped = expected.Replace("'", "''", StringComparison.Ordinal);
+            _ = await runtime.InvokeWorkerAsync(
+                $"Set-Location -LiteralPath '{escaped}'",
+                CancellationToken.None,
+                raw: false,
+                route: "pwsh",
+                timeoutSeconds: 30,
+                deadlineUtc: DateTimeOffset.UtcNow.AddSeconds(30));
+
+            var result = await runtime.InvokeWorkerAsync(
+                "Get-Location",
+                CancellationToken.None,
+                raw: false,
+                route: "pwsh",
+                timeoutSeconds: 30,
+                deadlineUtc: DateTimeOffset.UtcNow.AddSeconds(30));
+            Assert.Contains(expected, result.Text, StringComparison.Ordinal);
+            Assert.Equal(
+                Path.GetFullPath(expected),
+                result.EffectiveWorkingDirectory);
+            Assert.True(result.UserExecutionStarted);
+        }
+        finally
+        {
+            host.Dispose();
+            if (Directory.Exists(expected))
+                Directory.Delete(expected, recursive: true);
+        }
+    }
+
     /// <summary>
     /// Finding opr-10: the timeout predicate accepted any parsed double
     /// greater than zero, so values that cannot become a legal timeout

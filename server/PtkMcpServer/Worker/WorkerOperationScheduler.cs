@@ -439,7 +439,9 @@ internal sealed class WorkerOperationScheduler
                     request.RequestId,
                     result.Status,
                     result.Text,
-                    result.DetailCode))).ConfigureAwait(false);
+                    result.DetailCode,
+                    result.EffectiveWorkingDirectory,
+                    result.UserExecutionStarted))).ConfigureAwait(false);
     }
 
     private Task WriteFrameAsync(WorkerEnvelope envelope) =>

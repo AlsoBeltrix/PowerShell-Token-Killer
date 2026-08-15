@@ -6,7 +6,9 @@ namespace PtkMcpServer.Sessions;
 internal sealed record SessionWorkerInvokeResult(
     string Text,
     InvokeDisposition Disposition,
-    bool TimedOut);
+    bool TimedOut,
+    bool UserExecutionStarted = false,
+    string? EffectiveWorkingDirectory = null);
 
 internal sealed record SessionWorkerStateResult(
     string Text,
@@ -303,7 +305,9 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
         return new SessionWorkerInvokeResult(
             response,
             result.Disposition,
-            result.TimedOut);
+            result.TimedOut,
+            result.UserExecutionStarted,
+            result.EffectiveWorkingDirectory);
     }
 
     private static string NormalizeRoute(string? route) =>

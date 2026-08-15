@@ -54,6 +54,7 @@ function Get-InstallParameters {
         ServiceKind = $ServiceKind
         ServiceName = $Name
         ServiceIdentity = if ($IsWindows) { 'LocalSystem' } else { [Environment]::UserName }
+        ApplyServiceIdentityOwnership = $IsWindows
         DataDirectory = (Join-Path $case 'data')
         WitnessDirectory = (Join-Path $case 'witness')
         IngestBindAddress = '127.0.0.1'

@@ -162,8 +162,9 @@ public sealed class AuditProgramStartupTests : IDisposable
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             var journalText = string.Join(
                 "\n",
-                Directory.GetFiles(auditRoot, "*.jsonl", SearchOption.AllDirectories)
-                    .Select(File.ReadAllText));
+                await Task.WhenAll(
+                    Directory.GetFiles(auditRoot, "*.jsonl", SearchOption.AllDirectories)
+                        .Select(ReadAllTextAfterReleaseAsync)));
             Assert.Contains("\"attrib-probe\"", journalText, StringComparison.Ordinal);
             Assert.Contains(
                 "\"binding_kind\":\"dynamic\"",
@@ -333,8 +334,9 @@ public sealed class AuditProgramStartupTests : IDisposable
             await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
             var journalText = string.Join(
                 "\n",
-                Directory.GetFiles(auditRoot, "*.jsonl", SearchOption.AllDirectories)
-                    .Select(File.ReadAllText));
+                await Task.WhenAll(
+                    Directory.GetFiles(auditRoot, "*.jsonl", SearchOption.AllDirectories)
+                        .Select(ReadAllTextAfterReleaseAsync)));
             Assert.Contains(
                 "\"audit.quarantine\"",
                 journalText,
@@ -396,6 +398,23 @@ public sealed class AuditProgramStartupTests : IDisposable
             $"test-{label}-{Guid.NewGuid():N}");
         _roots.Add(root);
         return SecureAuditStorage.PrepareRoot(root);
+    }
+
+    private static async Task<string> ReadAllTextAfterReleaseAsync(string path)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            try
+            {
+                return await File.ReadAllTextAsync(path);
+            }
+            catch (IOException exception)
+                when ((exception.HResult & 0xffff) is 32 or 33 && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(25);
+            }
+        }
     }
 
     private static async Task SendAsync(Process process, string json)

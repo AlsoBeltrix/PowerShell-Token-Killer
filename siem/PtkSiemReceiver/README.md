@@ -2,8 +2,8 @@
 
 > **Operator-readiness status:** published `0.3.0-rc.1` predates full evidence
 > export and activity investigation. Current source correlates each PTK call into
-> an attributable activity with exact retained evidence drill-down. Deployment,
-> packaging, and real external-SIEM acceptance slices remain open.
+> an attributable activity with exact retained evidence drill-down and includes
+> explicit separate deployment. Real external-SIEM product acceptance remains open.
 
 PtkSiemReceiver is PTK's standalone OTLP/HTTP audit destination for sites that
 do not already have a SIEM. It accepts PTK audit records at `/v1/logs`, stores
@@ -15,6 +15,228 @@ not another SIEM destination. PTK executes and journals locally even while
 this receiver is unavailable; a background pump retries delivery at least
 once and advances `<audit-root>/export-cursor.json` only after the explicitly
 configured destination accepts a batch.
+
+## What gets installed, and what does not
+
+PTK never downloads, installs, starts, or selects this receiver. The PTK package
+contains only `scripts/ptk-audit-destination.ps1`, which configures destinations
+through PTK's live protected destination API. The receiver is a separate release
+archive and contains `manage.ps1` for its own deployment lifecycle.
+
+`manage.ps1 -Action Install` verifies all three identities before copying files:
+
+- the receiver archive name identifies the operator-selected version and RID;
+- the archive SHA-256 exactly matches its one `SHA256SUMS` entry;
+- the extracted package `VERSION` and native executable match that selection.
+
+Install writes one deployment manifest. Its `owned_files` list contains only
+program, generated/copied TLS, configuration, and service-definition files.
+SQLite, custody-witness, and optional anchor paths are recorded as data, never as
+manifest-owned files. `Uninstall` therefore preserves all evidence. The separately
+named `RemoveData` action is irreversible and requires both a switch and the exact
+confirmation text `REMOVE PTK SIEM DATA`. Install requires dedicated empty data
+paths and writes a deployment-ID sidecar beside each path, outside the
+receiver-owned contents; RemoveData preflights every marker and refuses all
+deletion if any path is missing, overlapping, or belongs to another
+deployment. Keep the installer/operator-owned manifest outside the receiver-owned
+configuration directory so a compromised receiver cannot expand uninstall scope.
+
+## Mini-SIEM-only workflow
+
+Download the receiver archive and the release's `SHA256SUMS`, extract the archive
+to a staging directory, and run its packaged manager. This example is deliberately
+local and unanchored; omitting `AnchorDirectory` is reported as `anchored = false`.
+Running under a second account on the producer host does not turn it into an
+anchored deployment.
+
+```powershell
+$version = 'RELEASE_VERSION'
+$rid = 'linux-x64' # linux-arm64, osx-arm64, win-x64, or win-arm64 also supported
+$archive = "/downloads/ptk-siem-receiver-$version-$rid.tar.gz"
+$checksums = '/downloads/SHA256SUMS'
+$package = '/staging/ptk-siem-receiver'
+$installRoot = '/opt/ptk-siem'
+$configRoot = '/etc/ptk-siem'
+$deploymentRoot = '/var/lib/ptk-siem-deployment' # installer/operator-owned, not receiver-owned
+$manifest = "$deploymentRoot/deployment.json"
+
+$installParameters = @{
+    Action = 'Install'
+    PackageDir = $package
+    ArchivePath = $archive
+    ChecksumFile = $checksums
+    ExpectedVersion = $version
+    ExpectedRid = $rid
+    InstallRoot = $installRoot
+    ConfigurationPath = "$configRoot/receiver.json"
+    ManifestPath = $manifest
+    ServiceDefinitionPath = "$deploymentRoot/ptk-siem.service"
+    ServiceKind = 'systemd' # launchd or windows on those hosts
+    ServiceName = 'ptk-siem-receiver'
+    ServiceIdentity = 'ptk-siem'
+    ApplyServiceIdentityOwnership = $true # run this install from an administrator
+    DataDirectory = '/var/lib/ptk-siem'
+    WitnessDirectory = '/var/lib/ptk-siem-witness'
+    IngestBindAddress = '127.0.0.1'
+    IngestPort = 19418
+    OperatorBindAddress = '127.0.0.1'
+    OperatorPort = 19419
+    GenerateCredentials = $true
+    GenerateSelfSignedTls = $true
+    TlsDnsName = '127.0.0.1'
+    RetentionMaxAgeDays = 30
+}
+$deployment = & "$package/manage.ps1" @installParameters
+```
+
+The generated TLS certificate is trusted only by its exact SHA-256 pin. No user
+or machine trust store is changed. For a site certificate, replace
+`GenerateSelfSignedTls` with `TlsCertificatePath`, `TlsPrivateKeyPath`, and one or
+more `ClientCaBundlePath` values; keep `TlsDnsName` set to the certificate identity
+used in the endpoint. A non-loopback operator bind also requires
+`UseIngestTlsForOperator`.
+
+The install result prints the foreground command and the exact OS-native service
+installation command. The manager does not start, supervise, or restart a process.
+For foreground use:
+
+```powershell
+& "$installRoot/manage.ps1" -Action Run -ManifestPath $manifest
+```
+
+After the receiver is running, explicitly select it as PTK's first destination:
+
+```powershell
+$connection = & "$installRoot/manage.ps1" `
+    -Action ConnectionInfo -ManifestPath $manifest
+$destinationTool = "$HOME/.ptk/current/scripts/ptk-audit-destination.ps1"
+$addParameters = @{
+    Action = 'Add'
+    OperatorLabel = 'site mini-SIEM'
+    Kind = 'otlp_http'
+    Endpoint = $connection.ingest_endpoint
+    ReceiverConfigurationPath = $connection.receiver_configuration_path
+    ServerCertificateSha256 = $connection.server_certificate_sha256
+}
+$added = & $destinationTool @addParameters
+```
+
+`ReceiverConfigurationPath` is a same-host convenience that reads the protected
+configuration without printing its tokens. For a receiver on another host, move
+the ingest credential through the site's secret-management channel and pass it as
+`IngestToken` or `IngestTokenFile`; pass the operator credential similarly for
+Doctor. Do not copy the whole receiver configuration to a producer.
+
+The Add operation first probes TLS and authentication without ingesting an event;
+it publishes the destination only if the probe succeeds. It reports
+`ptk_restart_required = false`. PTK immediately begins independent delivery for
+the new prospective destination.
+
+Run the end-to-end doctor after Add. It refuses unless `DestinationId` is present
+in the selected PTK audit root, enabled, and matches the supplied ingest endpoint.
+It contacts only that PTK destination and the explicitly supplied receiver
+operator endpoint. It then makes one named `PTK-SIEM-DOCTOR:<uuid>` no-op PTK call,
+waits for command and response evidence acknowledgement, and queries the activity
+back by marker.
+
+```powershell
+$doctorParameters = @{
+    Action = 'Doctor'
+    DestinationId = $added.destination.destination_id
+    Endpoint = $connection.ingest_endpoint
+    ReceiverOperatorUri = $connection.receiver_operator_uri
+    ReceiverConfigurationPath = $connection.receiver_configuration_path
+    PtkServerPath = "$HOME/.ptk/current/bin/PtkMcpServer"
+}
+& $destinationTool @doctorParameters
+```
+
+Status and dashboard commands read only this deployment manifest:
+
+```powershell
+& "$installRoot/manage.ps1" -Action Status -ManifestPath $manifest
+& "$installRoot/manage.ps1" -Action OpenDashboard -ManifestPath $manifest
+& $destinationTool -Action List
+```
+
+## External-SIEM-only workflow
+
+Do not download or install the mini-SIEM. Configure the external product's
+documented OTLP/HTTP or Splunk HEC endpoint directly from the PTK package:
+
+```powershell
+$externalParameters = @{
+    Action = 'Add'
+    OperatorLabel = 'central SIEM'
+    Kind = 'otlp_http' # use splunk_hec for HEC
+    Endpoint = 'https://siem.example.test/v1/logs'
+    IngestToken = $env:SIEM_INGEST_TOKEN
+    # Optional for a private exact leaf certificate; does not change trust stores.
+    ServerCertificateSha256 = $env:SIEM_SERVER_CERTIFICATE_SHA256
+}
+& "$HOME/.ptk/current/scripts/ptk-audit-destination.ps1" @externalParameters
+```
+
+This installs no receiver binary, service, data root, receiver token, or local
+dashboard. Product-specific query-back acceptance is the separate external-SIEM
+integration slice; the generic Add operation proves endpoint TLS/auth reachability
+and configures delivery, but does not pretend that an OTLP protocol fake is a real
+SIEM product.
+
+## Explicit multiple-destination workflow
+
+Every Add after the first must opt into sensitive evidence duplication. Omitting
+the switch refuses before the new endpoint is probed. Each accepted destination
+receives the full stream and has its own cursor, backlog, acknowledgement, error,
+gap, disable, removal, and backfill state.
+
+```powershell
+$secondDestinationParameters = @{
+    Action = 'Add'
+    OperatorLabel = 'second explicit destination'
+    Kind = 'otlp_http'
+    Endpoint = 'https://second-siem.example.test/v1/logs'
+    IngestToken = $env:SECOND_SIEM_TOKEN
+    ConfirmSensitiveDuplication = $true
+}
+& "$HOME/.ptk/current/scripts/ptk-audit-destination.ps1" @secondDestinationParameters
+& "$HOME/.ptk/current/scripts/ptk-audit-destination.ps1" -Action List
+```
+
+## Upgrade and removal
+
+Stop the OS-native service, download/extract the new receiver archive and
+`SHA256SUMS`, then run Upgrade. It checksum/version/RID-verifies the new program,
+atomically swaps the manifest-owned program root, and preserves configuration,
+service definition, database, witness, and anchor. Restart the native service
+afterward; PTK itself does not require a restart.
+
+```powershell
+$upgradeParameters = @{
+    Action = 'Upgrade'
+    ManifestPath = $manifest
+    PackageDir = '/staging/new-receiver'
+    ArchivePath = '/downloads/ptk-siem-receiver-NEW_VERSION-linux-x64.tar.gz'
+    ChecksumFile = '/downloads/SHA256SUMS'
+    ExpectedVersion = 'NEW_VERSION'
+    ExpectedRid = 'linux-x64'
+}
+& "$installRoot/manage.ps1" @upgradeParameters
+```
+
+Remove the OS-native service registration using the printed service instructions,
+then uninstall program/configuration files. Evidence remains:
+
+```powershell
+& "$installRoot/manage.ps1" -Action Uninstall -ManifestPath $manifest
+```
+
+If and only if evidence destruction is intended, run this before Uninstall:
+
+```powershell
+& "$installRoot/manage.ps1" -Action RemoveData -ManifestPath $manifest `
+    -ConfirmRemoveData -Confirmation 'REMOVE PTK SIEM DATA'
+```
 
 ## Deployment boundary
 

@@ -658,7 +658,7 @@ function New-PtkLayout {
         -ManifestPath (Join-Path $src.FullName 'PwshTokenCompressor.psd1') `
         -PayloadVersion $PayloadVersion
     $scripts = New-Item -ItemType Directory -Path (Join-Path $Destination 'scripts') -Force
-    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'install.ps1',
+    foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'ptk-audit-destination.ps1', 'install.ps1',
         'ptk_install_transaction.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }

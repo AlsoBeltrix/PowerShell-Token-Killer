@@ -529,6 +529,7 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                     endpoint_summary = status.EndpointSummary,
                     adapter = status.Adapter,
                     credential_reference = status.CredentialReference,
+                    server_certificate_sha256 = status.ServerCertificateSha256,
                     configuration_revision = status.ConfigurationRevision,
                     activated_utc = status.ActivatedUtc,
                     enabled = status.Enabled,
@@ -615,6 +616,7 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
         var label = ReadString(root, "operator_label") ?? string.Empty;
         var endpoint = AuditExportSettings.ParseEndpoint(ReadString(root, "endpoint"));
         var credential = ReadString(root, "credential") ?? string.Empty;
+        var serverCertificateSha256 = ReadString(root, "server_certificate_sha256");
         if (kind == AuditDestinationKind.None)
         {
             failure = "invalid_kind";
@@ -625,7 +627,12 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
             failure = "invalid_endpoint";
             return false;
         }
-        draft = new AuditDestinationDraft(kind, label, endpoint, credential);
+        draft = new AuditDestinationDraft(
+            kind,
+            label,
+            endpoint,
+            credential,
+            serverCertificateSha256);
         failure = string.Empty;
         return true;
     }
@@ -739,6 +746,7 @@ internal sealed class AuditWebUiService : IHostedService, IAsyncDisposable
                         endpoint_summary = destination.RedactedEndpoint,
                         adapter = destination.Adapter,
                         credential_reference = destination.CredentialReference,
+                        server_certificate_sha256 = destination.ServerCertificateSha256,
                         configuration_revision = destination.ConfigurationRevision,
                         activated_utc = destination.ActivatedUtc,
                         enabled = destination.Enabled,
@@ -1159,6 +1167,7 @@ input,select,button{font:inherit;padding:.45rem}button{width:max-content}.action
 <label>Type <select name="kind"><option value="otlp_http">OTLP/HTTP</option><option value="splunk_hec">Splunk HEC</option></select></label>
 <label>Endpoint <input name="endpoint" type="url" required placeholder="https://siem.example/v1/logs"></label>
 <label>Credential <input name="credential" type="password" autocomplete="new-password"></label>
+<label>Optional server certificate SHA-256 pin <input name="server_certificate_sha256" maxlength="95" autocomplete="off"></label>
 <label><input name="duplicate" type="checkbox"> I confirm this additional destination duplicates sensitive PTK evidence.</label>
 <button>Add and enable</button><span id="result" class="muted"></span>
 </form></section>
@@ -1174,7 +1183,7 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 async function op(id,action){const r=await api(`/api/destinations/${id}/${action}`,{method:'POST',body:'{}'});const x=await r.json();if(!r.ok)alert(x.error);await refresh()}
 async function abandon(id){const actor=prompt('Operator name recording this custody decision:');if(!actor)return;const reason=prompt('Reason for abandoning undelivered obligations:');if(!reason)return;if(!confirm('This releases local retention for undelivered sensitive evidence. Continue?'))return;const r=await api(`/api/destinations/${id}/abandon`,{method:'POST',body:JSON.stringify({actor,reason,remove:false})});const x=await r.json();if(!r.ok)alert(x.error);await refresh()}
 async function backfill(id){const actor=prompt('Operator starting this bounded backfill:');if(!actor)return;const from_utc=prompt('Start UTC (inclusive), for example 2026-08-01T00:00:00Z:');if(!from_utc)return;const to_utc=prompt('End UTC (exclusive):');if(!to_utc)return;if(!confirm('Send all PTK evidence in this explicit range to this destination?'))return;const r=await api(`/api/destinations/${id}/backfill`,{method:'POST',body:JSON.stringify({actor,from_utc,to_utc,confirm_backfill:true})});const x=await r.json();if(!r.ok)alert(x.error);await refresh()}
-document.getElementById('add').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);const body={operator_label:f.get('label'),kind:f.get('kind'),endpoint:f.get('endpoint'),credential:f.get('credential'),confirm_sensitive_duplication:f.get('duplicate')==='on'};const r=await api('/api/destinations',{method:'POST',body:JSON.stringify(body)});const x=await r.json();document.getElementById('result').textContent=r.ok?'Saved':x.error;if(r.ok){e.target.reset();await refresh()}});refresh();setInterval(refresh,5000);
+document.getElementById('add').addEventListener('submit',async e=>{e.preventDefault();const f=new FormData(e.target);const body={operator_label:f.get('label'),kind:f.get('kind'),endpoint:f.get('endpoint'),credential:f.get('credential'),server_certificate_sha256:f.get('server_certificate_sha256'),confirm_sensitive_duplication:f.get('duplicate')==='on'};const r=await api('/api/destinations',{method:'POST',body:JSON.stringify(body)});const x=await r.json();document.getElementById('result').textContent=r.ok?'Saved':x.error;if(r.ok){e.target.reset();await refresh()}});refresh();setInterval(refresh,5000);
 </script></body></html>
 """;
 

@@ -142,8 +142,12 @@ internal static class ReceiverApplication
                     }
                 }
 
-                var builder = WebApplication.CreateSlimBuilder(args ?? []);
-                builder.WebHost.ConfigureKestrel(kestrel =>
+        var builder = WebApplication.CreateSlimBuilder(args ?? []);
+        builder.Host.UseWindowsService(options =>
+        {
+            options.ServiceName = "PTK mini-SIEM receiver";
+        });
+        builder.WebHost.ConfigureKestrel(kestrel =>
                 {
                     kestrel.AddServerHeader = false;
                     // rbc-10: never leave the transport unbounded. The cap sits
@@ -262,9 +266,10 @@ internal static class ReceiverApplication
                 _ = application.Services.GetRequiredService<ReceiverTrustStore>();
                 _ = application.Services.GetRequiredService<IIngestCommitter>();
                 _ = application.Services.GetRequiredService<IngestAdmissionGate>();
-                _ = application.Services.GetRequiredService<Web.OperatorTlsMaterial>();
-                application.MapPost("/v1/logs", HandleIngestAsync);
-                Web.OperatorEndpoints.Map(application);
+        _ = application.Services.GetRequiredService<Web.OperatorTlsMaterial>();
+        application.MapPost("/v1/logs", HandleIngestAsync);
+        application.MapMethods("/v1/logs", ["OPTIONS"], HandleIngestPreflightAsync);
+        Web.OperatorEndpoints.Map(application);
                 return application;
             }
             catch
@@ -418,6 +423,28 @@ internal static class ReceiverApplication
         {
             admissionGate.Exit();
         }
+    }
+
+    private static async Task HandleIngestPreflightAsync(
+        HttpContext context,
+        SiemReceiverOptions options)
+    {
+        if (context.Features.Get<Web.IOperatorSurfaceFeature>() is not null)
+        {
+            context.Response.StatusCode = 404;
+            return;
+        }
+
+        var certificate = context.Connection.ClientCertificate;
+        if (certificate is null && !HasValidIngestToken(context.Request, options.IngestToken))
+        {
+            await OtlpHttpResponse.WriteUnauthorizedAsync(
+                context.Response,
+                context.RequestAborted);
+            return;
+        }
+
+        context.Response.StatusCode = StatusCodes.Status204NoContent;
     }
 
     private static async Task HandleAdmittedIngestAsync(

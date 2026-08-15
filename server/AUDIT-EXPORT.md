@@ -5,8 +5,8 @@
 Current source adds truthful per-call attribution, execution context, and
 full-fidelity command/response/output evidence to the exported stream. The
 standalone receiver indexes and exposes that evidence through authenticated
-operator APIs, but its dashboard does not yet provide the planned correlated
-activity drill-down.
+operator APIs and an attributable activity drill-down. It is separately deployed;
+PTK never installs or selects it.
 
 The local audit journal is mandatory admission/replay/delivery
 infrastructure, not a SIEM destination or investigation dashboard. PTK
@@ -98,13 +98,23 @@ POST /api/destinations/<destination-id>/abandon
 POST /api/destinations/<destination-id>/backfill
 ```
 
-Add and update bodies contain `operator_label`, `kind`, `endpoint`, and
-`credential`. Adding a second destination also requires
+Add and update bodies contain `operator_label`, `kind`, `endpoint`, `credential`,
+and optional `server_certificate_sha256`. The exact leaf-certificate pin is
+destination-local trust used by both the preflight probe and delivery; it does not
+change a user or machine trust store. Adding a second destination also requires
 `confirm_sensitive_duplication: true`; PTK rejects the request before probing
 credentials when that confirmation is absent. PTK validates an activated
 endpoint with a non-ingesting `OPTIONS` request. A 401 or 403 is a credential
 refusal; another HTTP response proves reachability but cannot prove a bearer
 token when that endpoint does not authenticate `OPTIONS`.
+
+Packaged operators do not need to write those JSON bodies. PTK ships
+`scripts/ptk-audit-destination.ps1` for list/add/update/enable/disable/remove and
+mini-SIEM query-back doctor workflows. A successful live destination change reports
+`ptk_restart_required = false`. The mini-SIEM release archive separately ships
+`manage.ps1` for checksum/version/RID-verified deployment, foreground execution,
+native service definitions, status, dashboard open, upgrade, manifest-safe
+uninstall, and separately confirmed evidence deletion.
 
 `GET /api/status` returns every destination ID, label, adapter, redacted
 endpoint, opaque credential reference, configuration revision, activation and

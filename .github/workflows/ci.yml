@@ -108,6 +108,10 @@ jobs:
       - name: SIEM receiver tests
         run: dotnet test siem/PtkSiem.slnx
 
+      - name: Mini-SIEM deployment lifecycle tests
+        shell: pwsh
+        run: ./siem/test-manage.ps1
+
       - name: Build and verify the native SIEM package
         shell: pwsh
         run: |

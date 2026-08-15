@@ -127,6 +127,10 @@ jobs:
       # server). Published BEFORE the signing steps so they cover its
       # binaries, archived as its own artifact because it is a separately
       # installed product.
+      - name: Test mini-SIEM deployment lifecycle
+        shell: pwsh
+        run: ./siem/test-manage.ps1
+
       - name: Publish the SIEM receiver
         shell: pwsh
         run: |
@@ -396,7 +400,26 @@ jobs:
           }
           $siemHash = (Get-FileHash $siemFile -Algorithm SHA256).Hash.ToLowerInvariant()
           "$siemHash  $(Split-Path $siemFile -Leaf)" | Set-Content "$siemFile.sha256"
+          "siem_file=$siemFile" >> $env:GITHUB_OUTPUT
           Write-Host "$siemHash  $(Split-Path $siemFile -Leaf)"
+
+      - name: Prove packaged SIEM operator workflows
+        shell: pwsh
+        run: |
+          $server = if ('${{ matrix.rid }}'.StartsWith('win-')) {
+            'out/ptk/bin/PtkMcpServer.exe'
+          } else {
+            'out/ptk/bin/PtkMcpServer'
+          }
+          ./siem/operator-workflow-proof.ps1 `
+            -PtkServerPath $server `
+            -DestinationToolPath out/ptk/scripts/ptk-audit-destination.ps1 `
+            -PackageDir out/ptk-siem `
+            -ArchivePath '${{ steps.archive.outputs.siem_file }}' `
+            -ChecksumFile '${{ steps.archive.outputs.siem_file }}.sha256' `
+            -Version '${{ steps.version.outputs.version }}' `
+            -Rid '${{ matrix.rid }}' `
+            -RtkPath (Get-Command rtk -ErrorAction Stop).Source
 
       - uses: actions/upload-artifact@v4
         with:

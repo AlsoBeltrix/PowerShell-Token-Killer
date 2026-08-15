@@ -71,6 +71,81 @@ public sealed class AuditDestinationS3Tests : IDisposable
     }
 
     [Fact]
+    public void Destination_certificate_pin_is_normalized_persisted_and_https_only()
+    {
+        var root = NewRoot("destination-certificate-pin");
+        var registry = AuditDestinationRegistry.Open(
+            root,
+            AuditExportSettings.Disabled,
+            out var openFailure);
+        Assert.Null(openFailure);
+
+        var colonPin = string.Join(':', Enumerable.Repeat("ab", 32));
+        var pinned = Draft("pinned", "https://mini.example/v1/logs", "secret") with
+        {
+            ServerCertificateSha256 = colonPin,
+        };
+        Assert.True(registry.TryAdd(
+            pinned,
+            confirmedSensitiveDuplication: false,
+            DateTimeOffset.UtcNow,
+            out var created,
+            out var addFailure), addFailure);
+        Assert.Equal(string.Concat(Enumerable.Repeat("AB", 32)),
+            created!.ServerCertificateSha256);
+
+        var reopened = AuditDestinationRegistry.Open(
+            root,
+            AuditExportSettings.Disabled,
+            out var reopenFailure);
+        Assert.Null(reopenFailure);
+        Assert.Equal(created.ServerCertificateSha256,
+            Assert.Single(reopened.Snapshot().Destinations).ServerCertificateSha256);
+
+        var beforeInvalid = reopened.Snapshot();
+        Assert.False(reopened.TryAdd(
+            Draft("bad pin", "https://other.example/v1/logs", "secret") with
+            {
+                ServerCertificateSha256 = "not-a-pin",
+            },
+            confirmedSensitiveDuplication: true,
+            DateTimeOffset.UtcNow,
+            out _,
+            out var invalidFailure));
+        Assert.Equal("invalid_server_certificate_sha256", invalidFailure);
+        Assert.Equal(beforeInvalid, reopened.Snapshot());
+
+        Assert.False(reopened.TryAdd(
+            Draft("plaintext pin", "http://127.0.0.1:19418/v1/logs", "secret") with
+            {
+                ServerCertificateSha256 = string.Concat(Enumerable.Repeat("AB", 32)),
+            },
+            confirmedSensitiveDuplication: true,
+            DateTimeOffset.UtcNow,
+            out _,
+            out var plaintextFailure));
+        Assert.Equal("certificate_pin_requires_https", plaintextFailure);
+
+        var registryPath = Path.Combine(root, AuditDestinationRegistry.FileName);
+        var legacyBytes = File.ReadAllText(registryPath)
+            .Replace("\"version\":2", "\"version\":1", StringComparison.Ordinal);
+        legacyBytes = System.Text.RegularExpressions.Regex.Replace(
+            legacyBytes,
+            ",\"server_certificate_sha256\":\"[0-9A-F]+\"",
+            string.Empty,
+            System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        File.WriteAllText(registryPath, legacyBytes, new UTF8Encoding(false));
+
+        var legacyReopened = AuditDestinationRegistry.Open(
+            root,
+            AuditExportSettings.Disabled,
+            out var legacyFailure);
+        Assert.Null(legacyFailure);
+        Assert.Null(Assert.Single(
+            legacyReopened.Snapshot().Destinations).ServerCertificateSha256);
+    }
+
+    [Fact]
     public async Task Registry_serializes_concurrent_changes_and_failed_publish_preserves_prior_set()
     {
         var root = NewRoot("destination-registry-concurrency");

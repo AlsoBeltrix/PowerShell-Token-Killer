@@ -1,0 +1,257 @@
+#!/usr/bin/env pwsh
+#Requires -Version 7
+
+[CmdletBinding()]
+param()
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$manager = Join-Path $PSScriptRoot 'manage.ps1'
+$operatorGuide = Join-Path $PSScriptRoot 'PtkSiemReceiver/README.md'
+$root = Join-Path ([IO.Path]::GetTempPath()) (
+    'ptk-siem-manage-' + [guid]::NewGuid().ToString('N'))
+
+function Assert-True([bool]$Condition, [string]$Message) {
+    if (-not $Condition) { throw $Message }
+}
+
+function New-TestRelease {
+    param([string]$Version)
+    $case = Join-Path $root $Version
+    $package = Join-Path $case 'package'
+    [void](New-Item -ItemType Directory -Path $package -Force)
+    Set-Content -LiteralPath (Join-Path $package 'PtkSiemReceiver') `
+        -Value "receiver-$Version" -NoNewline
+    Set-Content -LiteralPath (Join-Path $package 'VERSION') -Value $Version -NoNewline
+    Set-Content -LiteralPath (Join-Path $package 'manage.ps1') -Value 'packaged manager' -NoNewline
+    $archive = Join-Path $case "ptk-siem-receiver-$Version-linux-x64.tar.gz"
+    Set-Content -LiteralPath $archive -Value "archive-$Version" -NoNewline
+    $checksum = Join-Path $case 'SHA256SUMS'
+    $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath $checksum -Value "$hash  $([IO.Path]::GetFileName($archive))"
+    return [pscustomobject]@{
+        Package = $package
+        Archive = $archive
+        Checksums = $checksum
+        Version = $Version
+    }
+}
+
+function Get-InstallParameters {
+    param([object]$Release, [string]$Name, [string]$ServiceKind)
+    $case = Join-Path $root $Name
+    return @{
+        Action = 'Install'
+        PackageDir = $Release.Package
+        ArchivePath = $Release.Archive
+        ChecksumFile = $Release.Checksums
+        ExpectedVersion = $Release.Version
+        ExpectedRid = 'linux-x64'
+        InstallRoot = (Join-Path $case 'program')
+        ConfigurationPath = (Join-Path $case 'config/receiver.json')
+        ManifestPath = (Join-Path $case 'deployment/deployment.json')
+        ServiceDefinitionPath = (Join-Path $case "service/$Name.definition")
+        ServiceKind = $ServiceKind
+        ServiceName = $Name
+        ServiceIdentity = if ($IsWindows) { 'LocalSystem' } else { [Environment]::UserName }
+        DataDirectory = (Join-Path $case 'data')
+        WitnessDirectory = (Join-Path $case 'witness')
+        IngestBindAddress = '127.0.0.1'
+        IngestPort = 19418
+        OperatorPort = 19419
+        GenerateCredentials = $true
+        GenerateSelfSignedTls = $true
+        TlsDnsName = '127.0.0.1'
+        AllowUnboundedRetention = $true
+    }
+}
+
+try {
+    [void](New-Item -ItemType Directory -Path $root)
+    $guideText = Get-Content -LiteralPath $operatorGuide -Raw
+    Assert-True ($guideText -notmatch '(?m)&[^\r\n]+@\{') `
+        'Operator guide contains an anonymous hashtable where PowerShell splatting is required.'
+    $managerText = Get-Content -LiteralPath $manager -Raw
+    Assert-True ($managerText -match 'Set-ServiceProgramAccess \$programRoot \$ServiceIdentity') `
+        'Install does not grant the service read/execute access to the program root.'
+    Assert-True ($managerText -notmatch '\$serviceOwnedPaths\s*=\s*@\(\$programRoot') `
+        'Install lets the service identity own and rewrite the privileged manager.'
+    $release1 = New-TestRelease '9.8.1-test'
+    $parameters = Get-InstallParameters $release1 'manifest-safety' 'systemd'
+
+    $wrongChecksums = Join-Path $root 'wrong-SHA256SUMS'
+    Set-Content -LiteralPath $wrongChecksums -Value (
+        ('0' * 64) + '  ' + [IO.Path]::GetFileName($release1.Archive))
+    $rejectedChecksum = $false
+    $wrongParameters = @{} + $parameters
+    $wrongParameters.ChecksumFile = $wrongChecksums
+    try {
+        & $manager @wrongParameters
+    } catch {
+        $rejectedChecksum = $_.Exception.Message -match 'checksum mismatch'
+    }
+    Assert-True $rejectedChecksum 'Install accepted an archive with the wrong checksum.'
+    Assert-True (-not (Test-Path -LiteralPath $parameters.InstallRoot)) `
+        'Checksum refusal changed the install root.'
+
+    $unsafeManifestParameters = @{} + $parameters
+    $unsafeManifestParameters.InstallRoot = Join-Path $root 'unsafe-manifest/program'
+    $unsafeManifestParameters.ConfigurationPath = Join-Path $root 'unsafe-manifest/config/receiver.json'
+    $unsafeManifestParameters.ManifestPath = Join-Path $root 'unsafe-manifest/config/deployment.json'
+    $unsafeManifestParameters.ServiceDefinitionPath = Join-Path $root 'unsafe-manifest/service/receiver.service'
+    $unsafeManifestParameters.DataDirectory = Join-Path $root 'unsafe-manifest/data'
+    $unsafeManifestParameters.WitnessDirectory = Join-Path $root 'unsafe-manifest/witness'
+    $unsafeManifestRejected = $false
+    try {
+        & $manager @unsafeManifestParameters
+    } catch {
+        $unsafeManifestRejected = $_.Exception.Message -match 'ManifestPath must be outside'
+    }
+    Assert-True $unsafeManifestRejected `
+        'Install allowed receiver-owned configuration to control the uninstall manifest.'
+    Assert-True (-not (Test-Path -LiteralPath $unsafeManifestParameters.InstallRoot)) `
+        'Unsafe manifest refusal changed the install root.'
+
+    $unsafeServiceParameters = Get-InstallParameters $release1 'unsafe-service' 'systemd'
+    $unsafeServiceParameters.ServiceDefinitionPath = Join-Path `
+        (Split-Path -Parent $unsafeServiceParameters.ConfigurationPath) `
+        'receiver.service'
+    $unsafeServiceRejected = $false
+    try {
+        & $manager @unsafeServiceParameters
+    } catch {
+        $unsafeServiceRejected = $_.Exception.Message -match 'ServiceDefinitionPath must be outside'
+    }
+    Assert-True $unsafeServiceRejected `
+        'Install allowed a receiver-writable privileged service definition.'
+    Assert-True (-not (Test-Path -LiteralPath $unsafeServiceParameters.InstallRoot)) `
+        'Unsafe service-definition refusal changed the install root.'
+
+    $overlapParameters = Get-InstallParameters $release1 'overlap' 'systemd'
+    $overlapParameters.DataDirectory = Join-Path $overlapParameters.InstallRoot 'data'
+    $overlapRejected = $false
+    try {
+        & $manager @overlapParameters
+    } catch {
+        $overlapRejected = $_.Exception.Message -match 'overlaps deployment'
+    }
+    Assert-True $overlapRejected 'Install allowed a destructive data/program overlap.'
+    Assert-True (-not (Test-Path -LiteralPath $overlapParameters.InstallRoot)) `
+        'Overlapping-path refusal changed the install root.'
+
+    $parameters.IngestBindAddress = '::1'
+    $parameters.OperatorBindAddress = '::1'
+    $parameters.TlsDnsName = '::1'
+
+    $installed = & $manager @parameters
+    Assert-True $installed.installed 'Install did not report success.'
+    Assert-True (-not $installed.anchored) 'A no-anchor install was reported as anchored.'
+    Assert-True (-not $installed.ptk_destination_selected) `
+        'Mini-SIEM deployment silently selected a PTK destination.'
+    $manifest = Get-Content -LiteralPath $parameters.ManifestPath -Raw |
+        ConvertFrom-Json -Depth 32
+    Assert-True (-not $manifest.anchored) 'Manifest default implied anchored deployment.'
+    Assert-True ($manifest.ingest_endpoint -ceq 'https://[::1]:19418/v1/logs') `
+        'Manifest did not format an IPv6 ingest endpoint safely.'
+    Assert-True ($manifest.operator_uri -ceq 'http://[::1]:19419/') `
+        'Manifest did not format an IPv6 operator endpoint safely.'
+    Assert-True ($manifest.owned_files -notcontains $parameters.DataDirectory) `
+        'Database directory was incorrectly manifest-owned.'
+    Assert-True ($manifest.owned_files -notcontains $parameters.WitnessDirectory) `
+        'Witness directory was incorrectly manifest-owned.'
+    $retentionProperties = @((Get-Content -LiteralPath $parameters.ConfigurationPath -Raw |
+        ConvertFrom-Json).storage.retention.PSObject.Properties)
+    Assert-True ($retentionProperties.Count -eq 0) `
+        'Explicit unbounded retention was not represented truthfully.'
+
+    Set-Content -LiteralPath (Join-Path $parameters.DataDirectory 'keep.db') -Value 'evidence'
+    Set-Content -LiteralPath (Join-Path $parameters.WitnessDirectory 'keep.witness') -Value 'evidence'
+    $outsideOwnedBoundary = Join-Path $root 'must-not-delete.txt'
+    Set-Content -LiteralPath $outsideOwnedBoundary -Value 'operator data'
+    $originalManifestBytes = Get-Content -LiteralPath $parameters.ManifestPath -Raw
+    $tamperedManifest = $originalManifestBytes | ConvertFrom-Json -Depth 32
+    $tamperedManifest.owned_files = @($tamperedManifest.owned_files) + $outsideOwnedBoundary
+    Set-Content -LiteralPath $parameters.ManifestPath `
+        -Value ($tamperedManifest | ConvertTo-Json -Depth 32)
+    $escapedOwnershipRejected = $false
+    try {
+        & $manager -Action Uninstall -ManifestPath $parameters.ManifestPath
+    } catch {
+        $escapedOwnershipRejected = $_.Exception.Message -match 'escapes its program/configuration boundary'
+    }
+    Assert-True $escapedOwnershipRejected `
+        'Uninstall trusted a manifest-owned file outside deployment boundaries.'
+    Assert-True (Test-Path -LiteralPath $outsideOwnedBoundary) `
+        'Refused uninstall deleted an out-of-bound operator file.'
+    Set-Content -LiteralPath $parameters.ManifestPath -Value $originalManifestBytes -NoNewline
+    $uninstalled = & $manager -Action Uninstall -ManifestPath $parameters.ManifestPath
+    Assert-True $uninstalled.data_preserved 'Uninstall did not report preserved data.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $parameters.DataDirectory 'keep.db')) `
+        'Uninstall deleted database evidence.'
+    Assert-True (Test-Path -LiteralPath (Join-Path $parameters.WitnessDirectory 'keep.witness')) `
+        'Uninstall deleted witness evidence.'
+
+    $parameters2 = Get-InstallParameters $release1 'destructive-data' 'launchd'
+    [void](& $manager @parameters2)
+    Set-Content -LiteralPath (Join-Path $parameters2.DataDirectory 'remove.db') -Value 'evidence'
+    $refusedData = $false
+    try {
+        & $manager -Action RemoveData -ManifestPath $parameters2.ManifestPath
+    } catch {
+        $refusedData = $_.Exception.Message -match 'requires -ConfirmRemoveData'
+    }
+    Assert-True $refusedData 'RemoveData did not require its separate confirmation.'
+    Assert-True (Test-Path -LiteralPath $parameters2.DataDirectory) `
+        'Refused RemoveData changed database evidence.'
+    $deployment2 = Get-Content -LiteralPath $parameters2.ManifestPath -Raw |
+        ConvertFrom-Json -Depth 32
+    $dataMarker = Join-Path (Split-Path -Parent $parameters2.DataDirectory) `
+        ".$([IO.Path]::GetFileName($parameters2.DataDirectory)).ptk-siem-data-owner"
+    Set-Content -LiteralPath $dataMarker -Value 'different-deployment' -NoNewline
+    $mismatchedMarkerRejected = $false
+    try {
+        & $manager -Action RemoveData -ManifestPath $parameters2.ManifestPath `
+            -ConfirmRemoveData -Confirmation 'REMOVE PTK SIEM DATA'
+    } catch {
+        $mismatchedMarkerRejected = $_.Exception.Message -match 'ownership marker'
+    }
+    Assert-True $mismatchedMarkerRejected `
+        'RemoveData trusted a path without its exact deployment ownership marker.'
+    Assert-True (Test-Path -LiteralPath $parameters2.DataDirectory) `
+        'Mismatched ownership marker changed database evidence.'
+    Set-Content -LiteralPath $dataMarker -Value $deployment2.deployment_id -NoNewline
+    $removed = & $manager -Action RemoveData -ManifestPath $parameters2.ManifestPath `
+        -ConfirmRemoveData -Confirmation 'REMOVE PTK SIEM DATA'
+    Assert-True ($removed.data_removed -and -not $removed.recoverable) `
+        'Confirmed RemoveData did not report destructive completion.'
+    Assert-True (-not (Test-Path -LiteralPath $parameters2.DataDirectory)) `
+        'Confirmed RemoveData left the database directory.'
+    Assert-True (-not (Test-Path -LiteralPath $dataMarker)) `
+        'Confirmed RemoveData left the database ownership marker.'
+    [void](& $manager -Action Uninstall -ManifestPath $parameters2.ManifestPath)
+
+    $parameters3 = Get-InstallParameters $release1 'upgrade' 'windows'
+    [void](& $manager @parameters3)
+    $release2 = New-TestRelease '9.8.2-test'
+    $upgrade = & $manager -Action Upgrade `
+        -ManifestPath $parameters3.ManifestPath `
+        -PackageDir $release2.Package `
+        -ArchivePath $release2.Archive `
+        -ChecksumFile $release2.Checksums `
+        -ExpectedVersion $release2.Version `
+        -ExpectedRid linux-x64
+    Assert-True ($upgrade.upgraded -and $upgrade.configuration_preserved -and
+        $upgrade.data_preserved) 'Upgrade did not preserve configuration/data.'
+    Assert-True ((Get-Content -LiteralPath (
+        Join-Path $parameters3.InstallRoot 'PtkSiemReceiver') -Raw) -ceq
+        'receiver-9.8.2-test') 'Upgrade did not activate the verified package.'
+    Assert-True (Test-Path -LiteralPath $parameters3.ConfigurationPath) `
+        'Upgrade removed receiver configuration.'
+    [void](& $manager -Action Uninstall -ManifestPath $parameters3.ManifestPath)
+
+    'mini-SIEM deployment lifecycle tests passed'
+} finally {
+    if (Test-Path -LiteralPath $root) {
+        Remove-Item -LiteralPath $root -Recurse -Force
+    }
+}

@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Google.Protobuf;
@@ -11,6 +12,34 @@ namespace PtkSiemReceiver.Tests;
 [Collection(SiemReceiverProcessCollection.Name)]
 public sealed class OtlpIngestIntegrationTests
 {
+    [Fact]
+    public async Task Options_preflight_proves_ingest_auth_without_creating_an_event()
+    {
+        const string ingestToken = "preflight-ingest-token-0123456789abcdef";
+        using var authority = new TestCertificateAuthority();
+        using var root = authority.Root;
+        using var server = authority.IssueServer();
+        var committer = new RecordingIngestCommitter();
+        await using var host = await SiemReceiverTestHost.StartAsync(
+            server,
+            [root],
+            committer,
+            ingestToken: ingestToken);
+        using var client = host.CreateClient();
+
+        using var accepted = new HttpRequestMessage(HttpMethod.Options, host.Endpoint);
+        accepted.Headers.Authorization = new AuthenticationHeaderValue("Bearer", ingestToken);
+        using var acceptedResponse = await client.SendAsync(accepted);
+        Assert.Equal(HttpStatusCode.NoContent, acceptedResponse.StatusCode);
+        Assert.Empty(committer.Records);
+
+        using var refused = new HttpRequestMessage(HttpMethod.Options, host.Endpoint);
+        refused.Headers.Authorization = new AuthenticationHeaderValue("Bearer", "wrong-token");
+        using var refusedResponse = await client.SendAsync(refused);
+        Assert.Equal(HttpStatusCode.Unauthorized, refusedResponse.StatusCode);
+        Assert.Empty(committer.Records);
+    }
+
     [Fact]
     public async Task Valid_mtls_request_returns_exact_nonrejecting_ack_after_committer_accepts()
     {

@@ -49,6 +49,8 @@ if ($LASTEXITCODE -ne 0) {
 
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'PtkSiemReceiver' 'README.md') `
     -Destination (Join-Path $destination 'README.md')
+Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'manage.ps1') `
+    -Destination (Join-Path $destination 'manage.ps1')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') `
     -Destination (Join-Path $destination 'LICENSE')
 
@@ -57,6 +59,9 @@ $thirdParty = New-Item -ItemType Directory `
 Copy-Item -LiteralPath (
     Join-Path $PSScriptRoot 'PtkSiemReceiver' 'Protos' 'LICENSE.OpenTelemetry-Apache-2.0.txt') `
     -Destination (Join-Path $thirdParty.FullName 'OpenTelemetry-Apache-2.0.txt')
+Copy-Item -LiteralPath (
+    Join-Path $PSScriptRoot 'PtkSiemReceiver' 'Protos' 'LICENSE.Microsoft.Extensions.Hosting.WindowsServices-MIT.txt') `
+    -Destination (Join-Path $thirdParty.FullName 'Microsoft.Extensions.Hosting.WindowsServices-MIT.txt')
 
 Set-Content -LiteralPath (Join-Path $destination 'VERSION') `
     -Value $payloadVersion -NoNewline

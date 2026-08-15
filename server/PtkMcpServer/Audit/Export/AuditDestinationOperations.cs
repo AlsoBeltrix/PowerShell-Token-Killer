@@ -35,10 +35,7 @@ internal sealed class AuditDestinationCredentialValidator :
 
     internal AuditDestinationCredentialValidator(HttpClient? client = null)
     {
-        _client = client ?? new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(10),
-        };
+        _client = client ?? AuditDestinationTls.CreateClient(TimeSpan.FromSeconds(10));
         _ownsClient = client is null;
     }
 
@@ -47,6 +44,7 @@ internal sealed class AuditDestinationCredentialValidator :
         CancellationToken cancellationToken)
     {
         using var request = new HttpRequestMessage(HttpMethod.Options, draft.Endpoint);
+        AuditDestinationTls.ApplyPin(request, draft.ServerCertificateSha256);
         if (!string.IsNullOrEmpty(draft.Credential))
         {
             request.Headers.Authorization = draft.Kind == AuditDestinationKind.SplunkHec
@@ -205,11 +203,12 @@ internal sealed class AuditDestinationOperations
                 if (definition is null) return new(false, "destination_not_found");
                 var validationFailure = await _validator
                     .ValidateAsync(
-                        new AuditDestinationDraft(
-                            definition.Kind,
-                            definition.OperatorLabel,
-                            definition.Endpoint,
-                            definition.Credential),
+                    new AuditDestinationDraft(
+                        definition.Kind,
+                        definition.OperatorLabel,
+                        definition.Endpoint,
+                        definition.Credential,
+                        definition.ServerCertificateSha256),
                         cancellationToken)
                     .ConfigureAwait(false);
                 if (validationFailure is not null)

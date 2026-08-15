@@ -43,10 +43,12 @@ $executableName = if ($Rid.StartsWith('win-', [StringComparison]::Ordinal)) {
 $requiredFiles = @(
     $executableName,
     'PtkSiemReceiver.dll',
+    'manage.ps1',
     'README.md',
     'LICENSE',
     'VERSION',
-    (Join-Path 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt')
+    (Join-Path 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt'),
+    (Join-Path 'THIRD-PARTY-LICENSES' 'Microsoft.Extensions.Hosting.WindowsServices-MIT.txt')
 )
 foreach ($relative in $requiredFiles) {
     $path = Join-Path $root $relative
@@ -63,11 +65,15 @@ if ($versionText -cne $payloadVersion) {
 if ($PSBoundParameters.ContainsKey('SourceRoot')) {
     $sourceRootPath = [IO.Path]::GetFullPath($SourceRoot)
     foreach ($pair in @(
-            @((Join-Path $root 'README.md'),
-              (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'README.md')),
-            @((Join-Path $root 'LICENSE'), (Join-Path $sourceRootPath 'LICENSE')),
-            @((Join-Path $root 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt'),
-              (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'Protos' 'LICENSE.OpenTelemetry-Apache-2.0.txt'))
+        @((Join-Path $root 'README.md'),
+            (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'README.md')),
+        @((Join-Path $root 'manage.ps1'),
+            (Join-Path $sourceRootPath 'siem' 'manage.ps1')),
+        @((Join-Path $root 'LICENSE'), (Join-Path $sourceRootPath 'LICENSE')),
+        @((Join-Path $root 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt'),
+            (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'Protos' 'LICENSE.OpenTelemetry-Apache-2.0.txt')),
+        @((Join-Path $root 'THIRD-PARTY-LICENSES' 'Microsoft.Extensions.Hosting.WindowsServices-MIT.txt'),
+            (Join-Path $sourceRootPath 'siem' 'PtkSiemReceiver' 'Protos' 'LICENSE.Microsoft.Extensions.Hosting.WindowsServices-MIT.txt'))
         )) {
         if (-not (Test-Path -LiteralPath $pair[1] -PathType Leaf)) {
             throw "SIEM source root is missing required file '$($pair[1])'."

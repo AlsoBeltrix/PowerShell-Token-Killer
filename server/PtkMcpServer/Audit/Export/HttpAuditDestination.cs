@@ -17,6 +17,7 @@ internal sealed class HttpAuditDestination : IAuditDestination
     private readonly AuditDestinationKind _kind;
     private readonly Uri _endpoint;
     private readonly string? _credential;
+    private readonly string? _serverCertificateSha256;
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
 
@@ -31,11 +32,9 @@ internal sealed class HttpAuditDestination : IAuditDestination
         _kind = settings.Kind;
         _endpoint = RequestUri(settings.Kind, settings.Endpoint!);
         _credential = settings.Credential;
+        _serverCertificateSha256 = settings.ServerCertificateSha256;
         _ownsClient = client is null;
-        _client = client ?? new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(30),
-        };
+        _client = client ?? AuditDestinationTls.CreateClient(TimeSpan.FromSeconds(30));
     }
 
     public string Describe() =>
@@ -49,6 +48,7 @@ internal sealed class HttpAuditDestination : IAuditDestination
         if (records.Count == 0) return AuditDeliveryResult.Delivered;
 
         using var request = new HttpRequestMessage(HttpMethod.Post, _endpoint);
+        AuditDestinationTls.ApplyPin(request, _serverCertificateSha256);
         var (body, mediaType) = _kind switch
         {
             AuditDestinationKind.SplunkHec => (FormatSplunkEvents(records), "application/json"),

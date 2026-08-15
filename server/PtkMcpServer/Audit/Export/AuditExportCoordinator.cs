@@ -13,6 +13,7 @@ internal sealed record AuditDestinationStatus(
     long ConfigurationRevision,
     DateTimeOffset ActivatedUtc,
     bool Enabled,
+    string? ServerCertificateSha256,
     AuditExportHealthSnapshot Delivery,
     AuditBackfillStatus? Backfill = null);
 
@@ -118,10 +119,11 @@ internal sealed class AuditExportCoordinator : IHostedService, IAsyncDisposable
                         destination.RedactedEndpoint,
                         destination.Adapter,
                         destination.CredentialReference,
-                        destination.ConfigurationRevision,
-                        destination.ActivatedUtc,
-                        destination.Enabled,
-                        health with { Enabled = destination.Enabled },
+                destination.ConfigurationRevision,
+                destination.ActivatedUtc,
+                destination.Enabled,
+                destination.ServerCertificateSha256,
+                health with { Enabled = destination.Enabled },
                         backfillStatus);
                 })
                 .ToArray();

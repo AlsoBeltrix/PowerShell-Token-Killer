@@ -222,8 +222,10 @@ Published `0.3.0-rc.1` predates full-fidelity evidence export. Current source
 exports typed exact command, caller-response, and captured output/error
 artifacts. The standalone receiver indexes their correlation metadata, tracks
 manifest completeness, and serves authorized exact reassembly. The dashboard
-still lacks the planned activity-level investigation view, so later readiness
-and external-SIEM acceptance work remains open.
+now includes authorized activity investigation and exact evidence reassembly.
+The receiver is separately installed with its packaged `manage.ps1`; PTK's
+packaged `scripts/ptk-audit-destination.ps1` explicitly selects it or an external
+SIEM without hand-written JSON. Real external-SIEM product acceptance remains open.
 
 Auditing is base-level and non-bypassable. Every server boot opens a
 mandatory, fail-closed local journal (default `~/.ptk/audit`, override

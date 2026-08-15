@@ -16,10 +16,11 @@ internal sealed record AuditDestinationDefinition(
     long ConfigurationRevision,
     DateTimeOffset ActivatedUtc,
     bool Enabled,
-    bool IncludeLegacyRecords = false)
+    bool IncludeLegacyRecords = false,
+    string? ServerCertificateSha256 = null)
 {
     internal AuditExportSettings ToExportSettings(Uri? alertWebhook = null) =>
-        new(Kind, Endpoint, Credential, alertWebhook);
+        new(Kind, Endpoint, Credential, alertWebhook, ServerCertificateSha256);
 
     internal string RedactedEndpoint =>
         $"{Endpoint.GetLeftPart(UriPartial.Authority)}/…";
@@ -42,7 +43,8 @@ internal sealed record AuditDestinationDraft(
     AuditDestinationKind Kind,
     string OperatorLabel,
     Uri Endpoint,
-    string Credential);
+    string Credential,
+    string? ServerCertificateSha256 = null);
 
 /// <summary>
 /// Protected, versioned destination-set authority. Configuration mutations are
@@ -54,7 +56,7 @@ internal sealed record AuditDestinationDraft(
 internal sealed class AuditDestinationRegistry
 {
     internal const string FileName = "destinations.json";
-    private const int CurrentVersion = 1;
+    private const int CurrentVersion = 2;
     private const int MaximumFileBytes = 256 * 1024;
     private const int MaximumDestinations = 16;
     private const int MaximumLabelLength = 128;
@@ -198,7 +200,8 @@ internal sealed class AuditDestinationRegistry
                 normalized.Credential,
                 revision,
                 activatedUtc.ToUniversalTime(),
-                Enabled: true);
+                Enabled: true,
+                ServerCertificateSha256: normalized.ServerCertificateSha256);
             var proposed = new AuditDestinationSetSnapshot(
                 revision,
                 [.. _snapshot.Destinations, created]);
@@ -258,6 +261,7 @@ internal sealed class AuditDestinationRegistry
                 Credential = string.IsNullOrEmpty(normalized.Credential)
                     ? prior.Credential
                     : normalized.Credential,
+                ServerCertificateSha256 = normalized.ServerCertificateSha256,
                 ConfigurationRevision = revision,
                 ActivatedUtc = activatedUtc.ToUniversalTime(),
             };
@@ -500,6 +504,7 @@ internal sealed class AuditDestinationRegistry
                 ActivatedUtc = destination.ActivatedUtc,
                 Enabled = destination.Enabled,
                 IncludeLegacyRecords = destination.IncludeLegacyRecords,
+                ServerCertificateSha256 = destination.ServerCertificateSha256,
             }).ToArray(),
         });
 
@@ -507,7 +512,7 @@ internal sealed class AuditDestinationRegistry
     {
         var file = JsonSerializer.Deserialize<DestinationSetFile>(bytes) ??
             throw new InvalidDataException("Destination set is empty.");
-        if (file.Version != CurrentVersion || file.Revision < 0 ||
+        if (file.Version is not (1 or CurrentVersion) || file.Revision < 0 ||
             file.Destinations is null || file.Destinations.Length > MaximumDestinations)
         {
             throw new InvalidDataException("Destination set version or bounds are invalid.");
@@ -549,7 +554,10 @@ internal sealed class AuditDestinationRegistry
                 entry.ConfigurationRevision,
                 entry.ActivatedUtc.ToUniversalTime(),
                 entry.Enabled,
-                entry.IncludeLegacyRecords));
+                entry.IncludeLegacyRecords,
+                file.Version >= 2
+                    ? NormalizeStoredPin(entry.ServerCertificateSha256)
+                    : null));
         }
         return new AuditDestinationSetSnapshot(file.Revision, definitions);
     }
@@ -584,7 +592,24 @@ internal sealed class AuditDestinationRegistry
             failure = "invalid_credential";
             return false;
         }
-        normalized = new AuditDestinationDraft(draft.Kind, label, endpoint, credential);
+        if (!AuditDestinationTls.TryNormalizePin(
+                draft.ServerCertificateSha256,
+                out var serverCertificateSha256))
+        {
+            failure = "invalid_server_certificate_sha256";
+            return false;
+        }
+        if (serverCertificateSha256 is not null && endpoint.Scheme != Uri.UriSchemeHttps)
+        {
+            failure = "certificate_pin_requires_https";
+            return false;
+        }
+        normalized = new AuditDestinationDraft(
+            draft.Kind,
+            label,
+            endpoint,
+            credential,
+            serverCertificateSha256);
         failure = string.Empty;
         return true;
     }
@@ -621,6 +646,13 @@ internal sealed class AuditDestinationRegistry
     private static string CredentialReference(Guid destinationId, long revision) =>
         $"credential:{destinationId:D}:r{revision}";
 
+    private static string? NormalizeStoredPin(string? value)
+    {
+        if (!AuditDestinationTls.TryNormalizePin(value, out var normalized))
+            throw new InvalidDataException("Destination certificate pin is invalid.");
+        return normalized;
+    }
+
     private static bool IsFatal(Exception exception) =>
         exception is OutOfMemoryException or StackOverflowException or AccessViolationException;
 
@@ -644,5 +676,6 @@ internal sealed class AuditDestinationRegistry
         [JsonPropertyName("activated_utc")] public DateTimeOffset ActivatedUtc { get; set; }
         [JsonPropertyName("enabled")] public bool Enabled { get; set; }
         [JsonPropertyName("include_legacy_records")] public bool IncludeLegacyRecords { get; set; }
+        [JsonPropertyName("server_certificate_sha256")] public string? ServerCertificateSha256 { get; set; }
     }
 }

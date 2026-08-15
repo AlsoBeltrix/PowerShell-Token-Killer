@@ -28,7 +28,10 @@ internal sealed record AuditExportSettings(
     string? Credential,
     // Optional operator alert webhook (R4, reporting surface (c)); same
     // https-or-loopback rule as the endpoint.
-    Uri? AlertWebhook = null)
+    Uri? AlertWebhook = null,
+    // Optional exact leaf-certificate SHA-256 pin. This is destination-local
+    // trust and never mutates an OS trust store.
+    string? ServerCertificateSha256 = null)
 {
     internal const string FileName = "export.json";
     internal const string KindEnvironmentVariable = "PTK_AUDIT_EXPORT_KIND";

@@ -21,6 +21,22 @@ public sealed class RuntimePackageBoundaryTests
     }
 
     [Fact]
+    public void Ptk_installer_never_installs_or_selects_the_separate_mini_siem()
+    {
+        var installer = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "scripts",
+            "install.ps1"));
+
+        Assert.DoesNotContain("PtkSiemReceiver", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("PTK_SIEM_CONFIG", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("destinations.json", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("ptk-siem-receiver-", installer, StringComparison.Ordinal);
+        Assert.DoesNotContain("New-Service", installer, StringComparison.Ordinal);
+        Assert.Contains("ptk-audit-destination.ps1", installer, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Dev_installer_blocks_every_packaged_runtime_process()
     {
         var installer = File.ReadAllText(Path.Combine(

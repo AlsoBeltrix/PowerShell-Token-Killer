@@ -93,6 +93,12 @@ public sealed class ActivityApiTests
                 "run-123",
                 activity.GetProperty("client_context").GetProperty("run_id").GetString());
             Assert.Equal("/work/repo", activity.GetProperty("context").GetProperty("effective_cwd").GetString());
+            Assert.Equal(
+                JsonValueKind.Null,
+                activity.GetProperty("context").GetProperty("effective_cwd_unavailable_reason").ValueKind);
+            Assert.Equal(
+                JsonValueKind.Null,
+                activity.GetProperty("context").GetProperty("repository_unavailable_reason").ValueKind);
             Assert.Equal("destination", activity.GetProperty("command").GetProperty("availability").GetString());
             Assert.Equal(
                 Encoding.UTF8.GetString(commandBytes),
@@ -473,15 +479,16 @@ public sealed class ActivityApiTests
             ["source"] = "client",
             ["strength"] = "client_asserted",
         };
+        var dispatched = eventType != "call.accepted";
         root["execution_context"] = new JsonObject
         {
             ["requested_cwd"] = "/work/repo",
             ["requested_cwd_unavailable_reason"] = null,
-            ["effective_cwd"] = "/work/repo",
-            ["effective_cwd_unavailable_reason"] = null,
-            ["repository_root"] = "/work/repo",
-            ["repository_relative_path"] = ".",
-            ["repository_unavailable_reason"] = null,
+            ["effective_cwd"] = dispatched ? "/work/repo" : null,
+            ["effective_cwd_unavailable_reason"] = dispatched ? null : "not_dispatched",
+            ["repository_root"] = dispatched ? "/work/repo" : null,
+            ["repository_relative_path"] = dispatched ? "." : null,
+            ["repository_unavailable_reason"] = dispatched ? null : "not_dispatched",
         };
         root["correlation"]!["call_id"] = callId.ToString("D");
         var request = root["request"]!.AsObject();

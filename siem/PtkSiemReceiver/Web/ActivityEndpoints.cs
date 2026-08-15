@@ -712,14 +712,7 @@ internal static class ActivityEndpoints
             new SessionFact(
                 FirstString(facts, "session", "name"),
                 FirstLong(facts, "session", "generation")),
-            new ExecutionContextFact(
-                FirstString(facts, "execution_context", "requested_cwd"),
-                FirstString(facts, "execution_context", "requested_cwd_unavailable_reason"),
-                FirstString(facts, "execution_context", "effective_cwd"),
-                FirstString(facts, "execution_context", "effective_cwd_unavailable_reason"),
-                FirstString(facts, "execution_context", "repository_root"),
-                FirstString(facts, "execution_context", "repository_relative_path"),
-                FirstString(facts, "execution_context", "repository_unavailable_reason")),
+            ExecutionContextFactFor(facts),
             new RequestFact(
                 FirstString(facts, "request", "tool"),
                 FirstString(facts, "request", "action"),
@@ -741,6 +734,30 @@ internal static class ActivityEndpoints
                 chainStatus),
             evidence,
             rawEvents);
+    }
+
+    private static ExecutionContextFact ExecutionContextFactFor(
+        IReadOnlyList<StoredActivityEvent> facts)
+    {
+        var requestedCwd = FirstString(facts, "execution_context", "requested_cwd");
+        var effectiveCwd = FirstString(facts, "execution_context", "effective_cwd");
+        var repositoryRoot = FirstString(facts, "execution_context", "repository_root");
+        return new ExecutionContextFact(
+            requestedCwd,
+            requestedCwd is null
+                ? FirstString(facts, "execution_context", "requested_cwd_unavailable_reason")
+                : null,
+            effectiveCwd,
+            effectiveCwd is null
+                ? FirstString(facts, "execution_context", "effective_cwd_unavailable_reason")
+                : null,
+            repositoryRoot,
+            repositoryRoot is null
+                ? null
+                : FirstString(facts, "execution_context", "repository_relative_path"),
+            repositoryRoot is null
+                ? FirstString(facts, "execution_context", "repository_unavailable_reason")
+                : null);
     }
 
     private static IEnumerable<StoredActivityEvent> FactOrder(

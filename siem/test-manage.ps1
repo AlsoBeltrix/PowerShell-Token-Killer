@@ -61,8 +61,11 @@ function Get-InstallParameters {
         ServiceDefinitionPath = (Join-Path $case "service/$Name.definition")
         ServiceKind = $ServiceKind
         ServiceName = $Name
-        ServiceIdentity = if ($IsWindows) { 'LocalSystem' } else { [Environment]::UserName }
-        ApplyServiceIdentityOwnership = $IsWindows
+        ServiceIdentity = if ($IsWindows) {
+            [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        } else {
+            [Environment]::UserName
+        }
         DataDirectory = (Join-Path $case 'data')
         WitnessDirectory = (Join-Path $case 'witness')
         IngestBindAddress = '127.0.0.1'
@@ -83,8 +86,35 @@ try {
     $managerText = Get-Content -LiteralPath $manager -Raw
     Assert-True ($managerText -match 'Set-ServiceProgramAccess \$programRoot \$ServiceIdentity') `
         'Install does not grant the service read/execute access to the program root.'
+    Assert-True ($managerText -match 'Resolve-WindowsAclIdentity \$ServiceIdentity') `
+        'Service-owned paths do not resolve Windows built-in identities for ACLs.'
+    Assert-True ($managerText -match 'Resolve-WindowsAclIdentity \$Identity') `
+        'Program access does not resolve Windows built-in identities for ACLs.'
     Assert-True ($managerText -notmatch '\$serviceOwnedPaths\s*=\s*@\(\$programRoot') `
         'Install lets the service identity own and rewrite the privileged manager.'
+    $tokens = $null
+    $parseErrors = $null
+    $managerAst = [Management.Automation.Language.Parser]::ParseFile(
+        $manager,
+        [ref]$tokens,
+        [ref]$parseErrors)
+    Assert-True ($parseErrors.Count -eq 0) 'Manager did not parse for ACL identity tests.'
+    $resolverAst = $managerAst.Find({
+            param($node)
+            $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq 'Resolve-WindowsAclIdentity'
+        }, $true)
+    Assert-True ($null -ne $resolverAst) 'Windows ACL identity resolver is missing.'
+    . ([scriptblock]::Create($resolverAst.Extent.Text))
+    Assert-True ((Resolve-WindowsAclIdentity 'LocalSystem') -ceq '*S-1-5-18') `
+        'LocalSystem ACL identity did not resolve to its stable SID.'
+    Assert-True ((Resolve-WindowsAclIdentity 'NT AUTHORITY\LocalService') -ceq '*S-1-5-19') `
+        'LocalService ACL identity did not resolve to its stable SID.'
+    Assert-True ((Resolve-WindowsAclIdentity 'NT AUTHORITY\NetworkService') -ceq '*S-1-5-20') `
+        'NetworkService ACL identity did not resolve to its stable SID.'
+    Assert-True ((Resolve-WindowsAclIdentity 'PTK\receiver') -ceq 'PTK\receiver') `
+        'Named service ACL identity was changed.'
+
     $release1 = New-TestRelease '9.8.1-test'
     $parameters = Get-InstallParameters $release1 'manifest-safety' $platformServiceKind
 

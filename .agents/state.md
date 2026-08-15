@@ -5,6 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
+**S5 FINAL CLOSURE VERIFIED (2026-08-15, `ebfbd4b`).** Exact-head CI run
+`31865095280` passed all six Linux, macOS, and Windows product/SIEM jobs. Rebuilt
+`osx-arm64` `0.3.0-s5` packages passed release-bound source verification as
+`0.3.0-s5+ebfbd4b` and the packaged external-only, explicit multi-destination
+failure/recovery, pinned-HTTPS rejection, and mini-SIEM Doctor query-back workflows.
+The final hashes and Windows repair evidence are in `.agents/machines.md`; they
+supersede the implementation-head package hashes recorded below. No release or tag
+was created. S6-S7 remain unapproved and Decision D remains open.
+
 **OPERATOR-READINESS S5 EXECUTED; S6-S7 NOT APPROVED (2026-08-14).** The signed five-RID
 `0.3.0-rc.1` prerelease predates S2-S5 and is not operator-ready.
 S0 is executed: `siem/operator-readiness-acceptance.ps1` verifies published

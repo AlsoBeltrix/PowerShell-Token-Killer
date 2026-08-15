@@ -526,6 +526,13 @@ and workflow conformance only; Decision D and S6 real-product acceptance remain
 open. Exact hashes, complete-suite counts, and mutation evidence are in
 `.agents/machines.md`.
 
+Closure re-verification (2026-08-15): final head `ebfbd4b` passed exact-head CI on
+all six Linux, macOS, and Windows product/SIEM jobs, release-bound verification of
+fresh `osx-arm64` `0.3.0-s5` PTK and receiver packages, and all three packaged S5
+operator workflows. This supersedes the implementation-head package identities in
+the execution paragraph above. Exact hashes and repair evidence are in
+`.agents/machines.md`. No release or tag was created; S6 remains unapproved.
+
 ### S6 — real external SIEM integration
 
 This slice is gated on Decision D settling both the product and an authorized,

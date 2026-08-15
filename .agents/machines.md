@@ -2212,6 +2212,32 @@ green product as a regression.
 - Mutation proofs failed under deliberate removal and passed restored for exact TLS leaf-pin validation, authenticated receiver `OPTIONS`, PTK-installer receiver exclusion, manifest-owned uninstall bounds, RemoveData deployment-ownership markers, receiver-writable service-definition refusal, destructive data/program overlap, IPv6 URI bracketing, operator-guide PowerShell splatting, and installer-owned manager/program boundary.
 - The external sink is explicitly adapter/workflow conformance, not real external-SIEM product acceptance. Decision D remains open; no S6 implementation, release, or tag was created.
 
+### Final S5 closure re-verification (2026-08-15)
+
+- Final source head `ebfbd4b15ba155783a818ad72ea6bb4f64f606c9` is pushed to
+  canonical `origin/master`. Exact-head GitHub Actions run `31865095280` passed all
+  six jobs: the Pester/server/registered-handshake product job and the
+  receiver/lifecycle/package SIEM job on Linux, macOS, and Windows.
+- Hosted Windows runs after `a8cf759` exposed and closed path-ancestry handling,
+  slow destination-recovery allowance, native service-kind fixture selection,
+  built-in service-account ACL identity resolution through stable SIDs, separation
+  of lifecycle and ACL proofs, and a bounded journal sharing-violation retry after
+  supervisor exit. The LocalSystem SID regression test failed under deliberate
+  `S-1-5-17` mutation and passed after restoring `S-1-5-18`.
+- Fresh final-head `osx-arm64` `0.3.0-s5` PTK package SHA-256 is
+  `36ff998b29287564c66ebb071cdbece507bcb316c8d5ddc5659066c111394667`;
+  receiver package SHA-256 is
+  `a2de730f3f07ac93964696f2200d49119805ead9fc4f24e7631b96cc175c9d4d`.
+  `siem/test-verify-package.ps1` verified the receiver as
+  `0.3.0-s5+ebfbd4b` against the final source root.
+- `siem/operator-workflow-proof.ps1` passed against those packaged bits:
+  external-only installed no mini-SIEM and delivered three posts; explicit two-
+  destination operation let the first advance while the second failed and then
+  recovered the second independently; pinned HTTPS rejected the wrong pin; and
+  mini-SIEM Doctor acknowledged command and response evidence then queried the
+  activity back. The external sink remains adapter/workflow proof only. Decision D
+  remains open; no S6 implementation, release, or tag was created.
+
 ## Operator-readiness S4 activity investigation proof (2026-08-14, Michael's Mac)
 
 - Implementation commit `a022fa3d15b0707f674a63ef4bf410aeff1a5c97` is pushed to canonical `origin/master`. It adds the separately deployed receiver's authenticated activity list/detail, command search/preview, agent/model/client/task/run/execution context with source strength and explicit absence, exact command/caller-response/captured-output links, raw correlated events, chain outcome, stable pagination, human health, alert/gap actions, and protected full quarantine detail. Producer destination policy and producer-local forensic visibility did not change.

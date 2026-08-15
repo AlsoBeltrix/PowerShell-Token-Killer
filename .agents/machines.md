@@ -2204,6 +2204,14 @@ green product as a regression.
   single-exporter type. Both were repaired and independently re-run before the
   final complete green run. `git diff --check` was clean.
 
+## Operator-readiness S5 explicit deployment and destination proof (2026-08-14, Michael's Mac)
+
+- Implementation commit `a8cf759546fabfa6cd8e744e47c18f5ceca112ee` is pushed to canonical `origin/master`. PTK's package contains `scripts/ptk-audit-destination.ps1` but no receiver binary, service, receiver configuration, data root, token, endpoint, or implicit destination. The receiver package contains `manage.ps1` and its WindowsServices MIT notice.
+- Current-tree verification passed: Pester 112 with 3 platform skips; server 1,351/1,351; SIEM 356/356; registered five-tool handshake; all five server and all three SIEM projects reported no vulnerable direct or transitive NuGet packages; `siem/test-manage.ps1`; PSScriptAnalyzer with zero errors; `actionlint`; and `git diff --check`.
+- The committed-head `osx-arm64` `0.3.0-s5` PTK package SHA-256 is `1082211c9d547a69d71216dd5e6b61c98f5e9b1cba05133e3f93183b961e534e`; receiver package SHA-256 is `5e7d9650060ace38056267619f2152a90936edf5a6da29b8fc5887f84f58f0f6`. `siem/verify-package.ps1` reported `0.3.0-s5+a8cf759`. Packaged external-only, explicit second-destination failure/recovery, pinned-HTTPS manager status/wrong-pin refusal, and mini-SIEM Doctor query-back all passed.
+- Mutation proofs failed under deliberate removal and passed restored for exact TLS leaf-pin validation, authenticated receiver `OPTIONS`, PTK-installer receiver exclusion, manifest-owned uninstall bounds, RemoveData deployment-ownership markers, receiver-writable service-definition refusal, destructive data/program overlap, IPv6 URI bracketing, operator-guide PowerShell splatting, and installer-owned manager/program boundary.
+- The external sink is explicitly adapter/workflow conformance, not real external-SIEM product acceptance. Decision D remains open; no S6 implementation, release, or tag was created.
+
 ## Operator-readiness S4 activity investigation proof (2026-08-14, Michael's Mac)
 
 - Implementation commit `a022fa3d15b0707f674a63ef4bf410aeff1a5c97` is pushed to canonical `origin/master`. It adds the separately deployed receiver's authenticated activity list/detail, command search/preview, agent/model/client/task/run/execution context with source strength and explicit absence, exact command/caller-response/captured-output links, raw correlated events, chain outcome, stable pagination, human health, alert/gap actions, and protected full quarantine detail. Producer destination policy and producer-local forensic visibility did not change.

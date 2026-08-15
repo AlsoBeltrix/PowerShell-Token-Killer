@@ -72,6 +72,14 @@ failures stop in symlink test setup before any product assertion (see
 `.agents/machines.md` §`ASHBIAMWEB1`), and are not a product failure.
 
 ```
+pwsh -NoProfile -File siem/test-manage.ps1
+```
+— passed at `a8cf759` (separate mini-SIEM checksum/deployment, ownership,
+upgrade/uninstall/data-removal lifecycle). Release packaging additionally runs
+`siem/operator-workflow-proof.ps1` against packaged PTK and receiver bits; it is
+adapter/workflow proof and does not replace Decision D real-SIEM acceptance.
+
+```
 dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
 ```
 — all five server projects reported no vulnerable packages, re-confirmed at

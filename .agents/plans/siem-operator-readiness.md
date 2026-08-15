@@ -2,8 +2,8 @@
 
 ## Status and authority
 
-**ACTIVE — owner-directed plan, 2026-08-14. S0-S4 were approved and executed;
-S5-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
+**ACTIVE — owner-directed plan, 2026-08-14. S0-S5 were approved and executed;
+S6-S7 are not approved.** This plan follows a published-artifact acceptance run that proved
 the receiver backend works but the installed product does not provide a usable
 operator workflow. Decision A is settled: every possibly relevant fact and
 evidence artifact PTK captures must be exposed by either supported destination
@@ -376,8 +376,8 @@ as incomplete, and includes evidence in retention, custody, online backup, and
 restore. Strict ingest validation rejects noncontiguous, internally inconsistent,
 or arithmetically impossible chunk sets before storage. Fixed-head suite and
 mutation evidence is in `.agents/machines.md`. Decision D remains open:
-producer-owned Splunk protocol
-conformance is not a real-Splunk acceptance claim, and S5-S7 remain unapproved.
+producer-owned Splunk protocol conformance is not a real-Splunk acceptance claim.
+S6-S7 remain unapproved; S5 execution does not change that external-product admission.
 
 ### S3 — explicit destination configuration and per-destination delivery status — EXECUTED 2026-08-14
 
@@ -469,7 +469,7 @@ where, what exactly was submitted, what exactly came back, and with what
 result?” from the dashboard and can descend to every retained raw event and
 evidence artifact. Genuinely unobserved or retention-purged facts say why.
 
-### S5 — explicit mini-SIEM deployment and destination connection
+### S5 — explicit mini-SIEM deployment and destination connection — EXECUTED 2026-08-14
 
 Decision C is settled; this slice implements separate deployment and explicit
 destination selection.
@@ -506,6 +506,25 @@ mini-SIEM separately and selects it; a separate workflow selects an external
 SIEM without installing the mini-SIEM. A third explicit workflow opts into
 both and proves independent delivery. None requires hand-written JSON,
 undocumented certificates, or forwarding code.
+
+Execution evidence: implementation commit `a8cf759` is pushed to canonical
+`origin/master`. PTK's installer packages only the destination CLI and is guarded
+against receiver/service/data/config selection. The separately packaged manager
+verifies version/RID/archive checksum and package identity; emits foreground and
+OS-native service workflows; keeps privileged manifest/service/program ownership
+outside receiver write authority; preserves evidence on uninstall; and requires
+sidecar ownership markers plus exact destructive confirmation for data removal.
+Destination changes remain live (`ptk_restart_required = false`), use protected S3
+operations, require explicit sensitive-duplication confirmation after the first,
+and apply exact leaf-certificate pins to preflight and delivery. Doctor refuses an
+unconfigured/disabled/mismatched destination before receiver contact, makes a named
+PTK no-op, waits for full evidence acknowledgement, and queries it back. The
+committed-head `osx-arm64` `0.3.0-s5` PTK and receiver packages independently
+verified and passed external-only, explicit multiple-destination failure/recovery,
+and pinned-HTTPS mini-SIEM query-back workflows. The external adapter is protocol
+and workflow conformance only; Decision D and S6 real-product acceptance remain
+open. Exact hashes, complete-suite counts, and mutation evidence are in
+`.agents/machines.md`.
 
 ### S6 — real external SIEM integration
 

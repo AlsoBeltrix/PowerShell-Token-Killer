@@ -5,15 +5,15 @@ short and update it when important repo facts change.
 
 ## Now
 
-**OPERATOR-READINESS S4 EXECUTED; S5-S7 NOT APPROVED (2026-08-14).** The signed five-RID
-`0.3.0-rc.1` prerelease predates S2-S4 and is not operator-ready.
+**OPERATOR-READINESS S5 EXECUTED; S6-S7 NOT APPROVED (2026-08-14).** The signed five-RID
+`0.3.0-rc.1` prerelease predates S2-S5 and is not operator-ready.
 S0 is executed: `siem/operator-readiness-acceptance.ps1` verifies published
 artifact identity in a fresh isolated home and names the release gate;
 `siem/test-verify-package.ps1` guards release-bound source identity. Authentic
 `0.3.0-rc.1` evidence passed eight artifact/provenance requirements and failed
 23 operator-readiness requirements. S3 is executed in current source: one protected versioned destination set,
 prospective per-record obligations, independent delivery cursors/status, explicit bounded backfill and abandonment,
-conservative retention, and a producer status-only UI. S4 is executed at `a022fa3`: the separately deployed mini-SIEM exposes one attributable activity per PTK call, exact command/response/output drill-down, stable filters/pagination, task/run and execution context, raw events, human health, alert/gap actions, and protected quarantine evidence. S5-S7 remain unapproved; Decision D remains
+conservative retention, and a producer status-only UI. S4 is executed at `a022fa3`: the separately deployed mini-SIEM exposes one attributable activity per PTK call, exact command/response/output drill-down, stable filters/pagination, task/run and execution context, raw events, human health, alert/gap actions, and protected quarantine evidence. S5 is executed at `a8cf759`: PTK remains installer-separated from the mini-SIEM; packaged operator commands explicitly deploy, select, validate, query back, upgrade, and remove it, or select an external SIEM without installing it. One destination is explicit; additional destinations require sensitive-duplication confirmation and keep independent delivery state. Pinned TLS covers preflight, delivery, manager status, and Doctor without trust-store mutation. The deterministic external sink proves adapter workflow only, not a real external-SIEM product. S6-S7 remain unapproved; Decision D remains
 open. Canonical plan: `.agents/plans/siem-operator-readiness.md`.
 Current admissions use `ptk.audit/6` and destination-bound `ptk.evidence/2`;
 historical v1-v5 core and `ptk.evidence/1` readers remain intact.
@@ -51,7 +51,7 @@ only remaining owner gate. The owner has no access to Splunk or another SIEM
 test instance; Decision D must settle both a product and an authorized,
 reproducible access path without assuming owner-provided infrastructure. This
 constraint does not choose a replacement or waive real-product validation. Only
-S0-S4 are implemented; S5-S7 are not approved.
+S0-S5 are implemented; S6-S7 are not approved.
 
 A live disposable published-artifact proof remains under
 `~/.ptk-siem-live-proof` on loopback ports 19418/19443 (plus TLS-validating
@@ -70,8 +70,8 @@ reported explicitly instead of guessed. Full verification and mutation evidence
 is in `.agents/machines.md`; operator contract is in `server/AUDIT-EXPORT.md` and
 the capability gap is in `docs/harness-support.md`.
 
-**Next item:** decide whether to approve S5, the separate mini-SIEM deployment
-and explicit destination-connection workflow. No S5 implementation is
+**Next item:** settle Decision D with an authorized, reproducible real external-SIEM
+product/access path before S6 implementation can be approved. No S6 implementation is
 authorized yet.
 
 **Historical S1-S8 backend evidence follows; it is not an operator-readiness

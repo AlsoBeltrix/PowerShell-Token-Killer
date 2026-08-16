@@ -5,6 +5,8 @@ short and update it when important repo facts change.
 
 ## Now
 
+**UNIX WORKER STARTUP WITH CASE-DISTINCT ENVIRONMENT NAMES REPAIRED AND VERIFIED (2026-08-15).** PTK inherited both upper- and lower-case proxy names from Claude-launched clients; Unix permits those as distinct variables, but `WorkerLaunchCommand` and `UnixWorkerProcessLauncher` copied them through case-insensitive dictionaries. The installed `0.3.0-rc.1` control started with one casing and failed with both, first as `worker_factory_failed` and then, after the first repair, as `worker_launch_failed`. Command construction now follows platform name semantics (case-insensitive on Windows, case-sensitive on Unix), and the Unix broker launch preserves both names. Platform-semantics and real production-broker guards are mutation-proven. A checkout registration handshake with duplicate-case HTTP/HTTPS proxy names passed; the full server suite passed 1,354/1,354; all five server projects reported no vulnerable direct or transitive packages; diff hygiene passed. During diagnosis, invoking the checkout handshake from inside a PTK worker terminated the other live PTK client servers; those existing MCP connections remain `Transport closed` and require reconnection, but no data or repository files were removed. The source repair is local and unpushed; installed `0.3.0-rc.1` has not been replaced.
+
 **MICROSOFT SENTINEL REAL-SIEM VALIDATION PLANNED; NO AZURE ACCESS OR RESOURCES AUTHORIZED
 (2026-08-15).** Direct use showed the mini-SIEM activity response collapses the immutable event
 stream, evidence artifacts, and investigation projection into recursive JSON/base64 and even

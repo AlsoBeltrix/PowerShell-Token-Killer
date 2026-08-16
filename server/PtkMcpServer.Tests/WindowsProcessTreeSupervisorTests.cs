@@ -859,13 +859,43 @@ public sealed class WindowsProcessTreeSupervisorTests
             AbsolutePath("work"),
             [
                 new KeyValuePair<string, string>("DUPLICATE", "first"),
-                new KeyValuePair<string, string>("duplicate", "second"),
+                new KeyValuePair<string, string>("DUPLICATE", "second"),
             ]));
         Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
             AbsolutePath("ptk-worker-test"),
             [],
             AbsolutePath("work"),
             new Dictionary<string, string> { ["INVALID=NAME"] = "value" }));
+    }
+
+    [Fact]
+    public void Launch_command_uses_platform_environment_name_semantics()
+    {
+        KeyValuePair<string, string>[] environment =
+        [
+            new("HTTP_PROXY", "uppercase"),
+            new("http_proxy", "lowercase"),
+        ];
+
+        if (OperatingSystem.IsWindows())
+        {
+            Assert.Throws<ArgumentException>(() => new WorkerLaunchCommand(
+                AbsolutePath("ptk-worker-test"),
+                [],
+                AbsolutePath("work"),
+                environment));
+            return;
+        }
+
+        var command = new WorkerLaunchCommand(
+            AbsolutePath("ptk-worker-test"),
+            [],
+            AbsolutePath("work"),
+            environment);
+
+        Assert.Equal(2, command.Environment.Count);
+        Assert.Equal("uppercase", command.Environment["HTTP_PROXY"]);
+        Assert.Equal("lowercase", command.Environment["http_proxy"]);
     }
 
     [Fact]

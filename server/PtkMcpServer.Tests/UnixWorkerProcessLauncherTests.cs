@@ -167,7 +167,13 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
         using var contained = await new UnixWorkerProcessLauncher(
             brokerPath,
             registry).LaunchAsync(
-                CreateServerCommand());
+                CreateServerCommand(
+                    new(
+                        "PTK_ENVIRONMENT_CASE_PROBE",
+                        "uppercase"),
+                    new(
+                        "ptk_environment_case_probe",
+                        "lowercase")));
         var standardOutput = DrainAsync(contained.StandardOutputReader);
         var standardError = DrainAsync(contained.StandardErrorReader);
         var reader = new WorkerProtocolReader(contained.EventReader);
@@ -510,7 +516,8 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
         return outputPath;
     }
 
-    private static WorkerLaunchCommand CreateServerCommand()
+    private static WorkerLaunchCommand CreateServerCommand(
+        params KeyValuePair<string, string>[] additionalEnvironment)
     {
         var serverAssembly = typeof(WorkerServer).Assembly.Location;
         var directory = Path.GetDirectoryName(serverAssembly) ??
@@ -520,7 +527,7 @@ public sealed class UnixWorkerProcessLauncherTests : IDisposable
             ResolveDotnetHost(),
             ["exec", serverAssembly, "--worker"],
             directory,
-            CaptureEnvironment());
+            CaptureEnvironment().Concat(additionalEnvironment));
     }
 
     private static WorkerLaunchCommand CreateFixtureCommand(

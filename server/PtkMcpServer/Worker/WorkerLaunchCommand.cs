@@ -42,7 +42,10 @@ internal sealed class WorkerLaunchCommand
         if (frozenArguments.Any(argument => argument.Contains('\0')))
             throw new ArgumentException("Worker arguments cannot contain null characters.", nameof(arguments));
 
-        var frozenEnvironment = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var frozenEnvironment = new Dictionary<string, string>(
+            OperatingSystem.IsWindows()
+                ? StringComparer.OrdinalIgnoreCase
+                : StringComparer.Ordinal);
         foreach (var pair in environment)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(pair.Key);

@@ -70,7 +70,7 @@ internal sealed class UnixWorkerProcessLauncher : IWorkerProcessLauncher
             arguments.AddRange(command.Arguments);
             var environment = new Dictionary<string, string>(
                 command.Environment,
-                StringComparer.OrdinalIgnoreCase)
+                StringComparer.Ordinal)
             {
                 [WorkerBootstrapEnvironment.RequestHandle] =
                     UnixWorkerBootstrap.RequestDescriptor.ToString(

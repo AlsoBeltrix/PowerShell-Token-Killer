@@ -3,6 +3,15 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha.local` Unix worker case-distinct environment repair (2026-08-15)
+
+- Host was macOS 26.6.1 build 25G76 arm64, .NET SDK 10.0.400, PowerShell 7.6.5 at `/opt/homebrew/Cellar/powershell/7.6.5/bin/pwsh`; local and `origin/master` base were `e77e829c45ec657b34cfced208ea8b972faa01fb` before the repair commit.
+- Installed `0.3.0-rc.1` startup with inherited `HTTP_PROXY`/`http_proxy` and `HTTPS_PROXY`/`https_proxy` exited 1 with `worker_factory_failed`; the same handshake with one casing exited 0. After changing only `WorkerLaunchCommand`, the duplicate-case checkout reached the later `worker_launch_failed` boundary, identifying the second case-insensitive copy in `UnixWorkerProcessLauncher`.
+- `Launch_command_uses_platform_environment_name_semantics` failed when command construction was restored to `OrdinalIgnoreCase` and passed with platform semantics restored. `Production_broker_runs_real_worker_entry_and_warm_runtime` failed under the old Unix launcher comparer with duplicate key `ptk_environment_case_probe`, then passed after restoring `Ordinal`.
+- Checkout registration handshake passed with distinct upper/lower HTTP and HTTPS proxy values: initialize, exactly five tools, two named workers, warm isolation, exactly-once dispatch, reset/close, output recovery, audit journaling, fail-closed audit refusal, and cleanup all passed.
+- `dotnet test server/PtkMcpServer.slnx --no-restore` passed 1,354/1,354 in 2m47s. `dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive` reported no vulnerable packages in all five projects; restore also emitted `NU1900` because the configured audit request to `127.0.0.1:9` was refused. `git diff --check` passed.
+- Diagnostic root `/tmp/ptk-worker-env-test.man9Cn` and its `results.trx` were removed after verification. A nested handshake used during diagnosis terminated other live PTK client servers; existing connections return `Transport closed` and need a fresh connection. No repository or retained PTK data was deleted.
+
 ## nagatha.local exact-head SIEM completion evidence (2026-08-15)
 
 - Producer repair b89ef46e42f8b8fe30a415f0d8ed55fd0e9ee5cb preserves worker completion cwd, execution-start state, and output recovery; receiver projection repair dfcda2677d1f2941fdc09881164d65b4b5b4e54a suppresses stale accepted-event absence reasons when terminal values exist. The projection regression fails with Expected: Null / Actual: String when reconciliation is removed and passes after restoration. Full server suite passed 1,353/1,353 with the system PowerShell module directory restored to the PTK-hosted test environment; full SIEM passed 357/357; Pester passed 112 with 3 platform skips. Server and SIEM vulnerable-package scans listed no vulnerable packages; git diff --check was clean.

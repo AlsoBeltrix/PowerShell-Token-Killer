@@ -54,11 +54,26 @@ Re-verify anything here before relying on it; all of it was measured on
 
 ## The architectural problem
 
-A package manager does exactly one of the seven things `install.ps1` does:
-place files. It will not run an interactive consent prompt, will not edit a
-user's harness configuration, and (Homebrew explicitly, AUR by convention,
-winget by sandbox) will not fetch a second binary from the network during
-install.
+Package managers can and do run setup logic — winget mostly wraps full
+MSI/EXE installers, Homebrew formulae execute arbitrary install and
+`post_install` code as the invoking user, AUR packages have root install
+hooks. (Owner correction 2026-08-31: an earlier draft of this section
+overstated the premise as "they only place files.") What no target channel
+can do acceptably is PTK's wiring step, for narrower reasons:
+
+- registration edits the invoking user's harness configuration behind
+  `install.ps1`'s deliberate per-agent consent prompt (see D5); winget runs
+  installers silently by default, so carrying that consent means either
+  silent config mutation or requiring `--interactive`;
+- AUR install hooks run as root, where editing a particular user's dotfiles
+  is wrong; Homebrew convention keeps formulae out of user dotfiles, which
+  is why brew packages print "now run `foo init`" caveats instead;
+- Scoop really is extract-plus-shim, and homebrew-core policy (a tap is
+  looser) forbids fetching extra binaries during install — the rtk step,
+  fact 6.
+
+A Windows-only escape — wrap the installer in a setup.exe and let winget
+run it — trades away consent or interactivity and covers no other channel.
 
 So package-manager distribution is not a packaging exercise. It requires
 separating the payload from the wiring:

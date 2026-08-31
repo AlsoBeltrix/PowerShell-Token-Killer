@@ -9,7 +9,7 @@ document's release-blocking rule, non-goals, and Slices 5–6 by reference.
 
 | Slice | Landed | Result |
 | --- | --- | --- |
-| 0 — clean session | `d2ca2f1` | autoload blocked; 3 guards, mutation-proved |
+| 0 — clean session | `d2ca2f1` | autoload blocked — **countermanded 2026-08-31** (owner; see `.agents/decisions.md`): autoloading is back on, `$PROFILE` exclusion stands |
 | 1 — delete post-success advice | `fa9b1ce` | `opr-58` closed; −444 lines |
 | 2 — RTK router delegation | `e6e718d` | 3 guards, mutation-proved; −2,000 lines |
 | 3 — delete shell inference | `87075a7` | 7 findings closed; −4,056 lines |

@@ -189,13 +189,9 @@ try {
     $compound = InvokeTool -Script 'git --no-pager log --oneline -3 && git status --short'
     Report 'routes a compound native command' ($compound -notmatch 'ERROR:') ($compound -split "`n")[0]
 
-    # 13 (plan Slice 7.5): a fresh session exposes the shipped `ls` alias and
-    # autoloads no user module. PSModuleAutoloadingPreference=None is what
-    # keeps two sessions on one machine from diverging by whatever was
-    # invoked first; a regression here is silent and only shows up as
-    # inconsistent behaviour much later.
-    # An alias, not a function shadowing it: an autoloaded user function does
-    # NOT override a built-in alias, so a bare "ls resolves" test would pass
+    # 13 (plan Slice 7.5): a fresh session exposes the shipped `ls` alias.
+    # An alias, not a function shadowing it: a user function does NOT
+    # override a built-in alias, so a bare "ls resolves" test would pass
     # in a session that had already drifted.
     $alias = InvokeTool -Script @'
 $c = Get-Command ls
@@ -218,10 +214,11 @@ $c = Get-Command ls
             ($alias -split "`n")[0]
     }
 
-    # Compared as a string: the preference is an enum the shaper renders as
-    # an object, so a naive -match on the raw response reads the type name.
+    # Module autoloading stays at the PowerShell default (owner reversal
+    # 2026-08-31 of the d2ca2f16 None default): the fresh session must not
+    # carry any preference override, so the variable renders empty.
     $autoload = InvokeTool -Script '"pref=[$PSModuleAutoloadingPreference]"'
-    Report 'autoloads no user module' ($autoload -match 'pref=\[None\]') ($autoload -split "`n")[0]
+    Report 'leaves module autoloading on' ($autoload -match 'pref=\[\]') ($autoload -split "`n")[0]
 }
 finally {
     try { $stdin.Close() } catch { }

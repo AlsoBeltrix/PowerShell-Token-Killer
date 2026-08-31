@@ -5,6 +5,20 @@ short and update it when important repo facts change.
 
 ## Now
 
+**MODULE AUTOLOADING IS BACK ON IN AGENT SESSIONS (owner go, 2026-08-31).** The
+`PSModuleAutoloadingPreference = None` session default from `d2ca2f16` (2026-08-03,
+rtk-router-delegation Slice 0) is removed; fresh sessions behave like stock PowerShell 7 for
+module loading, and the `$PROFILE` exclusion stays. The owner ruled the off-default cost more
+than it bought: undiscoverable, trivially flipped in-session by any call, and it taught agents
+to bypass the warm runspace (observed live: an agent reimplemented DNS/TCP checks in .NET
+rather than importing the modules). Canonical record:
+`.agents/decisions.md` §"agent sessions keep module autoloading on". Two replacement guards in
+`RunspaceHostTests` (`A_user_module_on_the_module_path_autoloads_on_first_use`,
+`An_autoloaded_module_stays_warm_across_calls`) are sabotage-proved fail-under-None/
+pass-restored; the explicit-import warm guard is retained; the release proof check flipped to
+`leaves module autoloading on` (count unchanged). Note the fix reaches users through the
+*installed* server — existing installs keep the old behavior until upgraded.
+
 **ENVIRONMENT-SCOPED SIEM DEFERRAL ON `ASHBIAMWEB1`; PRODUCT DIRECTION UNCHANGED (owner,
 2026-08-31, correcting `0468dd42`).** The owner deferred SIEM beyond local logging for
 this implementation, on this server, at this company, on this day — an operational,

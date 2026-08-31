@@ -102,7 +102,8 @@ scan-completion and payload-survival checks, r806-4) against an
 tools, warm named sessions, object compression, trusted-type rendering, a
 type needing the wider assembly set (#42), text preservation, `ptk_output`
 recovery, timeout recovery, reset/close, compound native routing, the fresh
-session's `ls` alias and `PSModuleAutoloadingPreference=None`, the positive
+session's `ls` alias and default module autoloading (owner reversal
+2026-08-31; see `.agents/decisions.md`), the positive
 audit-journaling gate (audit-restoration R6: the packaged bits must journal
 the proof's own calls — nonempty artifacts carrying real records under an
 isolated `$HOME`-rooted audit root; temp-dir roots are refused on macOS

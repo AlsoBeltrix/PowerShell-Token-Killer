@@ -34,6 +34,29 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-08-31): agent sessions keep module autoloading on
+
+**Status:** Active — ruled by the owner on 2026-08-31 ("leaving it on all the
+time"; "go"). Countermands the `PSModuleAutoloadingPreference = None` session
+default landed at `d2ca2f16` (2026-08-03, Slice 0 of
+`.agents/plans/rtk-router-delegation.md`).
+
+Fresh PTK sessions leave module autoloading at the PowerShell default.
+Rationale: the off-default was undiscoverable (its "not recognized" failure
+never named the cause or the fix), advisory only (any call could flip it
+in-session, unaudited), and it taught agents to route around the warm
+runspace instead of loading modules into it — observed live 2026-08-31 when
+an agent reimplemented DNS/TCP reachability in .NET rather than importing
+`DnsClient`/`NetTCPIP`. The kept half of the 2026-08-03 change stays kept:
+the machine owner's `$PROFILE` never runs in the agent session. Accepted
+cost, eyes open: lazy autoload means sessions on a machine with personal
+modules can again diverge by what ran first; the audit journal records every
+submitted script either way. Guards:
+`RunspaceHostTests.A_user_module_on_the_module_path_autoloads_on_first_use`
+and `An_autoloaded_module_stays_warm_across_calls` (sabotage-proved
+2026-08-31), plus the release proof check `leaves module autoloading on`.
+Do not restore a None default without a new owner decision.
+
 ### ACTIVE (2026-08-13, amended): SIEM destinations are explicit and operator-chosen
 
 **Status:** Active — Decision C ruled by the owner on 2026-08-13 and amended

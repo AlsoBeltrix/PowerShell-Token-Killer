@@ -461,20 +461,15 @@ public sealed class RunspaceHost : IDisposable
                     externalModulePath,
                     "PTK PowerShell module discovery path."));
             }
-            // This is the agent's session, not the machine owner's shell.
-            // CreateDefault already skips $PROFILE, but PSModulePath above must
-            // keep the user module directory so AD/Exchange stay discoverable
-            // (36146a1) — and that lets any reference to a name a module there
-            // exports autoload the whole module, bringing every other command
-            // it defines into the session with it (one observed user module
-            // carried 44). Autoload is lazy, so two sessions on one machine
-            // diverge by whatever was invoked first and neither is reproducible.
-            // Discovery is retained; implicit loading is not. Explicit
-            // Import-Module is unaffected and stays warm for the session.
-            iss.Variables.Add(new SessionStateVariableEntry(
-                "PSModuleAutoloadingPreference",
-                PSModuleAutoLoadingPreference.None,
-                "PTK: the agent session loads only explicitly imported modules."));
+            // Module autoloading stays at the PowerShell default (on). A None
+            // default shipped here from d2ca2f16 until the owner reversed it
+            // (2026-08-31, .agents/decisions.md): it was undiscoverable, any
+            // call could flip it back, and the "command not recognized" it
+            // produced taught agents to bypass the warm runspace instead of
+            // loading modules into it. CreateDefault still skips $PROFILE —
+            // the machine owner's shell customization stays out of the
+            // agent's session; do not re-add a None entry without an owner
+            // decision.
             if (OperatingSystem.IsWindows())
             {
                 // A hosted runspace resolves Windows execution policy like pwsh does,

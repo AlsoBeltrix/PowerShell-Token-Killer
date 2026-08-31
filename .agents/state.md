@@ -5,6 +5,21 @@ short and update it when important repo facts change.
 
 ## Now
 
+**ISSUE #30 WARM ON-PREM REMOTING ACCEPTANCE EXECUTED AND PASSED (owner go, 2026-08-31).**
+The operator-gated acceptance ran against an owner-approved production-but-empty on-prem
+Exchange 2019 endpoint (host detail in `.agents/machines.md` §`ASHBIAMWEB1`) through installed
+PTK `0.3.0-rc.1`, Kerberos as the operator's own account, and a three-command read-only
+allowlist (`Get-ExchangeServer`, `Get-MailboxDatabase`, `Get-ServerComponentState`). Ruling:
+**#28 recommendation A holds** — the existing five-tool surface carried the whole workflow
+(warm `PSSession` across calls, allowlist-only `Import-PSSession` proxies usable across calls,
+first-class remote errors with no retry, worker reset reporting `warm_state_lost` with no
+replay and an unaffected sibling session, and zero local or server-side sessions left after
+cleanup). No new MCP schema is needed. Step 7 (induced disconnect) was not separately
+authorized and did not run. One finding: `.agents/review/findings/i30-1.md` — verbose and
+information records vanish from both shaped output and the recovery artifact on the installed
+build (warnings/errors first-class; progress-drop is by design); reconcile against current
+source before treating as a live defect. Redacted result posted to issue #30.
+
 **MODULE AUTOLOADING IS BACK ON IN AGENT SESSIONS (owner go, 2026-08-31).** The
 `PSModuleAutoloadingPreference = None` session default from `d2ca2f16` (2026-08-03,
 rtk-router-delegation Slice 0) is removed; fresh sessions behave like stock PowerShell 7 for

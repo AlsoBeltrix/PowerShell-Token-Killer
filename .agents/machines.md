@@ -1949,6 +1949,24 @@ was used._
 
 ## `ASHBIAMWEB1` — Codex Windows workspace
 
+### Issue #30 remoting acceptance evidence — 2026-08-31
+
+- Owner-approved endpoint: `ashbmbxtest1` (`Microsoft.Exchange` WSMan endpoint
+  over HTTP/Kerberos, port 80) — production Exchange 2019 (15.2 build 1748.10),
+  Mailbox role, Standard edition, owner states no mailboxes; one mailbox
+  database and 34 server components (32 active) observed. Operator's own
+  domain account; no credential material handled.
+- Installed PTK `0.3.0-rc.1`, PowerShell 7.6.3, Windows 10.0.20348. Timings:
+  cold `New-PSSession` 4,295 ms; `Import-PSSession` of the three-command
+  allowlist 520 ms; first proxy call 433 ms; repeated proxy call 221 ms;
+  endpoint idle timeout 900,000 ms (observed, not induced).
+- After `ptk_reset` of the remote-bearing session, server-side enumeration of
+  the endpoint found zero sessions (the endpoint had already torn down the
+  broken shell); local session count zero; both named ptk sessions closed.
+- Stream-treatment evidence for `.agents/review/findings/i30-1.md` was
+  captured in the same run (synthetic streams; `ptk_output` artifact 55
+  bytes, complete, carrying output+warning only).
+
 ### Environment log pipeline and SIEM deferral — 2026-08-31
 
 - Owner direction for this implementation on this server at this company on

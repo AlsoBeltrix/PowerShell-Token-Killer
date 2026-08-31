@@ -551,6 +551,13 @@ public sealed class AuditDestinationS3Tests : IDisposable
         var primaryCursor = new AuditExportCursorStore(
             root,
             AuditExportCursorStore.DestinationFileName(primary.DestinationId));
+        // The fake destination records acceptance before the coordinator
+        // persists the cursor advance, so the durable offset is the only
+        // condition that proves delivery completed (windows-latest caught
+        // the gap: run 33431130367 read 305 of 649).
+        await WaitUntilAsync(() =>
+            primaryCursor.Read().For(bootId)?.ByteOffset ==
+            new FileInfo(segmentPath).Length);
         Assert.Equal(
             new FileInfo(segmentPath).Length,
             primaryCursor.Read().For(bootId)!.ByteOffset);
@@ -563,6 +570,9 @@ public sealed class AuditDestinationS3Tests : IDisposable
         await WaitUntilAsync(() => coordinator.Statuses()
             .Single(item => item.DestinationId == secondary.DestinationId)
             .Delivery.PendingEventRecords == 0);
+        await WaitUntilAsync(() =>
+            secondaryCursor.Read().For(bootId)?.ByteOffset ==
+            new FileInfo(segmentPath).Length);
         Assert.Equal(
             new FileInfo(segmentPath).Length,
             secondaryCursor.Read().For(bootId)!.ByteOffset);

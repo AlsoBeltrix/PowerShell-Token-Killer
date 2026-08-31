@@ -2,6 +2,11 @@
 
 ## Status and authority
 
+**DEFERRED — owner, 2026-08-31: Microsoft Sentinel will not be used in this environment;
+the direction is Cribl Edge sweeping logs to Splunk (see `.agents/state.md`). The S0
+recommendation is withdrawn — do not re-ask it. This plan is retained for reference in
+case a Sentinel target returns.**
+
 **DRAFT — planning authorized 2026-08-15; no Azure account inspection, resource creation,
 product implementation, release, tag, or push is approved.** This plan supersedes S5R-S7 of
 `.agents/plans/siem-operator-readiness.md` for future work. That plan remains the execution record

@@ -5,6 +5,24 @@ short and update it when important repo facts change.
 
 ## Now
 
+**SENTINEL DEFERRED; DIRECTION IS CRIBL EDGE → SPLUNK (owner, 2026-08-31).** The owner
+declined S0 (read-only Azure feasibility discovery) and ruled Microsoft Sentinel will not
+be used in this environment. Decision D remains open but re-aimed: the environment will
+apparently use Cribl Edge to sweep logs to Splunk — owner-reported and labeled an
+assumption until the org's Cribl Edge intake capability is confirmed. PTK-side assessment
+on record: if the Edge node can expose a local Splunk HEC/HTTP source, the existing
+`splunk_hec` destination over loopback is the whole integration (config via
+`scripts/ptk-audit-destination.ps1`, zero product change; PTK's cursor advances on Cribl's
+200, so Edge→Splunk durability becomes Cribl's persistent-queue responsibility). If Edge
+can only sweep files or the Windows Event Log, PTK needs a new thin sink adapter — a
+plan-gated feature, not started. The local journal is not a sweepable log: the live
+segment is opened `FileShare.None` (load-bearing for segment classification), the root is
+owner-only and holds exact sensitive command/output bytes, and retention is keyed to PTK's
+own delivery cursors with no external-shipper acknowledgment. `.agents/plans/siem-sentinel-validation.md`
+is marked deferred; do not re-ask S0. **Next item:** owner learns what the org's Cribl
+Edge node can collect from this host; that answer selects config-only vs. a planned sink
+adapter. No product work, Azure activity, or Cribl/Splunk configuration is authorized.
+
 **WINDOWS SERVER HANDOFF (2026-08-15, as of initial handoff `7a0c9d8`).** The Unix case-distinct environment repair is complete (`3805869` code, `724132d` installation proof). The owner ended Mac development and will continue on Windows Server. The owner reported PTK uninstalled on the Mac, but a handoff-time read-only check still found the installed payload and user-level registrations; machine-specific evidence is in `.agents/machines.md`. No further Mac cleanup or product change was attempted. The repair, installation proof, and handoff were published to every configured remote; all local tags were synchronized, and no local branch tip remains unpublished.
 
 **UNIX WORKER STARTUP WITH CASE-DISTINCT ENVIRONMENT NAMES REPAIRED, INSTALLED, AND VERIFIED (2026-08-15, `3805869`).** PTK inherited both upper- and lower-case proxy names from Claude-launched clients; Unix permits those as distinct variables, but `WorkerLaunchCommand` and `UnixWorkerProcessLauncher` copied them through case-insensitive dictionaries. The installed `0.3.0-rc.1` control started with one casing and failed with both, first as `worker_factory_failed` and then, after the first repair, as `worker_launch_failed`. Command construction now follows platform name semantics (case-insensitive on Windows, case-sensitive on Unix), and the Unix broker launch preserves both names. Platform-semantics and real production-broker guards are mutation-proven. Checkout and installed-package registration handshakes with duplicate-case HTTP/HTTPS proxy names passed; the full server suite passed 1,354/1,354; all five server projects reported no vulnerable direct or transitive packages; diff hygiene passed. Source install `0.2.0-dev.g3805869` was activated at `/Users/michael/.ptk/bin/PtkMcpServer` and registered user-wide for Claude, Codex, Grok, agy, and Kimi. A fresh Claude health check under duplicate-case proxies reported `Connected`; Codex reported the installed stdio registration enabled. During diagnosis, invoking the checkout handshake from inside a PTK worker terminated the other live PTK client servers; those already-open MCP connections remained `Transport closed` and required reconnection, but fresh sessions connected and no data or repository files were removed. Publication and current Mac-install status are superseded by the Windows Server handoff entry above.

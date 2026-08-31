@@ -1949,6 +1949,20 @@ was used._
 
 ## `ASHBIAMWEB1` — Codex Windows workspace
 
+### Environment log pipeline and SIEM deferral — 2026-08-31
+
+- Owner direction for this implementation on this server at this company on
+  this day: SIEM beyond local logging is deferred. Environment-scoped and
+  operational only — no product-direction change; Decision D and the Sentinel
+  validation plan are untouched.
+- The company sweeps logs to Splunk via Cribl Edge (owner-reported; the org
+  Edge node's intake capability — local HEC/HTTP source vs. file sweep vs.
+  Windows Event Log — is unconfirmed). If PTK export is ever wanted here and
+  Edge exposes a local HEC source, the existing `splunk_hec` destination over
+  loopback is config-only (`scripts/ptk-audit-destination.ps1`); file or Event
+  Log intake would need a new plan-gated sink adapter. No PTK, Azure, or
+  Cribl/Splunk configuration was performed.
+
 ### RTK router delegation verification host — 2026-08-03
 
 - `rtk 0.44.2` at `C:\Users\mcoelho\.local\bin\rtk.exe`, on `PATH`. RTK source

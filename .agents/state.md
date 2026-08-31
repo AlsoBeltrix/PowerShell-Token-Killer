@@ -5,23 +5,17 @@ short and update it when important repo facts change.
 
 ## Now
 
-**SENTINEL DEFERRED; DIRECTION IS CRIBL EDGE → SPLUNK (owner, 2026-08-31).** The owner
-declined S0 (read-only Azure feasibility discovery) and ruled Microsoft Sentinel will not
-be used in this environment. Decision D remains open but re-aimed: the environment will
-apparently use Cribl Edge to sweep logs to Splunk — owner-reported and labeled an
-assumption until the org's Cribl Edge intake capability is confirmed. PTK-side assessment
-on record: if the Edge node can expose a local Splunk HEC/HTTP source, the existing
-`splunk_hec` destination over loopback is the whole integration (config via
-`scripts/ptk-audit-destination.ps1`, zero product change; PTK's cursor advances on Cribl's
-200, so Edge→Splunk durability becomes Cribl's persistent-queue responsibility). If Edge
-can only sweep files or the Windows Event Log, PTK needs a new thin sink adapter — a
-plan-gated feature, not started. The local journal is not a sweepable log: the live
-segment is opened `FileShare.None` (load-bearing for segment classification), the root is
-owner-only and holds exact sensitive command/output bytes, and retention is keyed to PTK's
-own delivery cursors with no external-shipper acknowledgment. `.agents/plans/siem-sentinel-validation.md`
-is marked deferred; do not re-ask S0. **Next item:** owner learns what the org's Cribl
-Edge node can collect from this host; that answer selects config-only vs. a planned sink
-adapter. No product work, Azure activity, or Cribl/Splunk configuration is authorized.
+**ENVIRONMENT-SCOPED SIEM DEFERRAL ON `ASHBIAMWEB1`; PRODUCT DIRECTION UNCHANGED (owner,
+2026-08-31, correcting `0468dd42`).** The owner deferred SIEM beyond local logging for
+this implementation, on this server, at this company, on this day — an operational,
+environment-scoped deferral only. This host's logs are swept to Splunk by Cribl Edge
+(owner-reported); environment detail lives in `.agents/machines.md` §`ASHBIAMWEB1`. This
+is NOT a product-direction change: Decision D, `.agents/plans/siem-sentinel-validation.md`,
+and its S0 recommendation stand unchanged — S0 was declined "not now" this session, not
+withdrawn. Commit `0468dd42` over-recorded this as a permanent environment ruling, marked
+the Sentinel plan deferred, and withdrew S0; that recording was wrong and is reverted
+here. **Next item:** unchanged — Decision D via the S0 gate remains the queued owner
+decision, at the owner's timing.
 
 **WINDOWS SERVER HANDOFF (2026-08-15, as of initial handoff `7a0c9d8`).** The Unix case-distinct environment repair is complete (`3805869` code, `724132d` installation proof). The owner ended Mac development and will continue on Windows Server. The owner reported PTK uninstalled on the Mac, but a handoff-time read-only check still found the installed payload and user-level registrations; machine-specific evidence is in `.agents/machines.md`. No further Mac cleanup or product change was attempted. The repair, installation proof, and handoff were published to every configured remote; all local tags were synchronized, and no local branch tip remains unpublished.
 

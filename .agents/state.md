@@ -5,6 +5,16 @@ short and update it when important repo facts change.
 
 ## Now
 
+**FIXED: source-install version fallback was hardcoded to `0.2.0-dev` (known-broken,
+2026-09-01).** `Get-PtkVersion` in `scripts/install.ps1` (no `-Version`, no `-FromRelease`)
+stamped the literal `"0.2.0-dev.g$sha"` regardless of actual repo state, so a from-source
+install of current HEAD (61 commits past the published `v0.3.0-rc.1` tag) reported an
+apparently-older version than the latest release and read as installing stale code. Fixed to
+derive the base from `git describe --tags --abbrev=0` (falls back to `0.0.0` with no reachable
+tag, e.g. a shallow clone). Guard: `server/test-version-fallback.ps1` (wired into
+`.github/workflows/ci.yml`), red before fix / green after; also confirmed live —
+`-LayoutOnly` on this checkout now stamps `0.3.0-dev.ge987d6c` instead of `0.2.0-dev...`.
+
 **ISSUE #30 WARM ON-PREM REMOTING ACCEPTANCE EXECUTED AND PASSED (owner go, 2026-08-31).**
 The operator-gated acceptance ran against an owner-approved production-but-empty on-prem
 Exchange 2019 endpoint (host detail in `.agents/machines.md` §`ASHBIAMWEB1`) through installed

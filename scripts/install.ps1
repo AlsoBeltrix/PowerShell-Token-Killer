@@ -63,8 +63,9 @@ param(
 
     # Version stamped into the publish (-p:Version) and the VERSION file.
     # Release CI passes the tag version; source installs default to
-    # 0.2.0-dev.g<shortsha>. With -FromRelease, selects which release to
-    # install instead (default: latest).
+    # <nearest-tag>-dev.g<shortsha> (e.g. 0.3.0-dev.gabc1234). With
+    # -FromRelease, selects which release to install instead (default:
+    # latest).
     [Parameter(ParameterSetName = 'Install')]
     [Parameter(ParameterSetName = 'LayoutOnly')]
     [string]$Version,
@@ -166,7 +167,20 @@ function Get-PtkVersion {
     $git = Get-Command git -ErrorAction SilentlyContinue
     $sha = if ($git) { & $git -C $repoRoot rev-parse --short HEAD 2>$null } else { $null }
     if (-not $sha -or $LASTEXITCODE -ne 0) { $sha = 'unknown' }
-    "0.2.0-dev.g$sha"
+    # Base tracks the nearest reachable tag rather than a fixed literal,
+    # which otherwise goes stale the moment a release ships: a source
+    # install kept reporting 0.2.0-dev after tags had already reached
+    # 0.3.0. No reachable tag (e.g. a shallow clone without tags) falls
+    # back to 0.0.0 rather than failing the install.
+    $base = '0.0.0'
+    if ($git) {
+        $nearestTag = & $git -C $repoRoot describe --tags --abbrev=0 2>$null
+        if ($LASTEXITCODE -eq 0 -and $nearestTag) {
+            $numeric = (($nearestTag -replace '^[vV]', '') -split '-', 2)[0]
+            if ($numeric -match '^\d+(\.\d+){1,3}$') { $base = $numeric }
+        }
+    }
+    "$base-dev.g$sha"
 }
 
 function Assert-PtkRuntimeNotRunning {

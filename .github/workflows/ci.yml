@@ -71,6 +71,10 @@ jobs:
         shell: pwsh
         run: ./server/test-release-selection.ps1
 
+      - name: Version fallback tests
+        shell: pwsh
+        run: ./server/test-version-fallback.ps1
+
       - name: Release signing documentation tests
         shell: pwsh
         run: ./server/test-release-signing-docs.ps1

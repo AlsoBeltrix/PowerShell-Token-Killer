@@ -7,6 +7,7 @@ param()
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $installerPath = Join-Path $repoRoot 'scripts' 'install.ps1'
+$readmePath = Join-Path $repoRoot 'README.md'
 $tokens = $null
 $parseErrors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile(
@@ -174,6 +175,17 @@ if ($installer.Contains(
 }
 if (-not $installer.Contains('/releases?per_page=100', [StringComparison]::Ordinal)) {
     throw 'Unversioned install does not enumerate published releases.'
+}
+
+$readme = [IO.File]::ReadAllText($readmePath)
+if ($readme.Contains('/releases/latest/download', [StringComparison]::Ordinal)) {
+    throw 'README bootstrap still uses GitHub latest-stable selection.'
+}
+if (-not $readme.Contains('/releases?per_page=100', [StringComparison]::Ordinal)) {
+    throw 'README bootstrap does not enumerate published releases.'
+}
+if (-not $readme.Contains('-FromRelease -Version $version', [StringComparison]::Ordinal)) {
+    throw 'README bootstrap does not pin installer payload selection to its bundle release.'
 }
 
 'RELEASE SELECTION TEST PASSED'

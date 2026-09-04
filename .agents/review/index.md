@@ -1,5 +1,12 @@
 # Review status
 
+## rr-4 prerelease bootstrap selection (2026-09-04)
+
+Release-readiness audit found the public bootstrap used GitHub's stable-only
+latest-download route even though PTK selects the newest published release
+including prereleases. The red/green selection repair is recorded in
+`.agents/review/findings/rr-4.md`.
+
 ## rr-3 packaged install release gate (2026-09-04)
 
 Release-readiness audit found the five-RID workflow never invoked its existing

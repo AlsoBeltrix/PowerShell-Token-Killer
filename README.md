@@ -274,7 +274,33 @@ code-signed:
 $stage = Join-Path ([IO.Path]::GetTempPath()) ('ptk-install-' + [guid]::NewGuid())
 try {
   New-Item -ItemType Directory -Path $stage | Out-Null
-  $release = 'https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/latest/download'
+  $repository = 'AlsoBeltrix/PowerShell-Token-Killer'
+  $headers = @{ Accept = 'application/vnd.github+json' }
+  $releases = @(Invoke-RestMethod `
+    -Uri "https://api.github.com/repos/$repository/releases?per_page=100" `
+    -Headers $headers)
+  $published = @($releases | ForEach-Object {
+    if ($_.draft -isnot [bool]) { throw 'GitHub returned an invalid draft flag.' }
+    if (-not $_.draft -and $null -ne $_.published_at) {
+      [DateTimeOffset]$publishedAt = [DateTimeOffset]::MinValue
+      if (-not [DateTimeOffset]::TryParse([string]$_.published_at, [ref]$publishedAt)) {
+        throw 'GitHub returned an invalid publication timestamp.'
+      }
+      if ([string]::IsNullOrWhiteSpace([string]$_.tag_name)) {
+        throw 'GitHub returned a published release without a tag.'
+      }
+      [pscustomobject]@{ Tag = [string]$_.tag_name; PublishedAt = $publishedAt }
+    }
+  } | Sort-Object PublishedAt -Descending)
+  if ($published.Count -eq 0) { throw 'No published PTK release exists.' }
+  if ($published.Count -gt 1 -and
+      $published[0].PublishedAt -eq $published[1].PublishedAt) {
+    throw 'Latest PTK release is ambiguous.'
+  }
+  $tag = $published[0].Tag
+  $version = $tag -replace '^[vV]', ''
+  $releaseTag = [Uri]::EscapeDataString($tag)
+  $release = "https://github.com/$repository/releases/download/$releaseTag"
   $bundle = Join-Path $stage 'ptk-installer.zip'
   $sums = Join-Path $stage 'SHA256SUMS'
   Invoke-WebRequest -Uri "$release/ptk-installer.zip" -OutFile $bundle
@@ -288,7 +314,7 @@ try {
   $actual = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
   if ($actual -cne $expected[0]) { throw 'ptk-installer.zip checksum verification failed.' }
   Expand-Archive -LiteralPath $bundle -DestinationPath $stage
-  & (Join-Path $stage 'install.ps1') -FromRelease
+  & (Join-Path $stage 'install.ps1') -FromRelease -Version $version
 }
 finally {
   Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
@@ -303,7 +329,7 @@ download from `releases/download/v<VERSION>/ptk-installer.zip` and pass
 
 One installer, `scripts/install.ps1`, runs on every platform. It needs
 PowerShell 7, which is also what ptk runs. `-FromRelease` takes the latest
-published release
+published release, including a prerelease
 (`-Version 0.2.1` pins one); without it, the installer builds this checkout,
 which additionally needs the .NET SDK. Everything after the payload is
 obtained is identical either way.

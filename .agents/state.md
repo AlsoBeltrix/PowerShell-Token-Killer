@@ -32,6 +32,9 @@ requirement activation audit is current in `.agents/plans/release-readiness.md`.
 The release workflow now runs the packaged transaction/activation proof on
 every RID after signing and before archive creation (`rr-3`).
 
+The no-version public bootstrap now selects and pins the newest published
+stable or prerelease rather than GitHub's stable-only latest alias (`rr-4`).
+
 Local product head `8d4d9e9` now has a complete clean macOS verification
 battery: Pester, server, SIEM, registration handshake, mini-SIEM lifecycle,
 four-build identity, release/signing helpers, and both vulnerability scans.
@@ -123,6 +126,9 @@ four-build identity, release/signing helpers, and both vulnerability scans.
   failed before the step was added; helper proof, actionlint, ShellCheck, and
   `git diff --check` passed after repair. A fresh local `osx-arm64` package
   passed both complete handshakes around activation into a disposable home.
+- Prerelease bootstrap selection after `add2c2e`, 2026-09-04: the static guard
+  failed on GitHub's stable-only latest alias before repair; release-selection
+  test, README PowerShell parse, and `git diff --check` passed after repair.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

@@ -59,6 +59,11 @@ before and after the package's own transaction module activates into a
 disposable home (`rr-3`). This strengthens item 6 but does not replace the
 final candidate's public installer, upgrade/refusal, or uninstall evidence.
 
+The public bootstrap now follows the installer's published-release selection
+contract instead of GitHub's stable-only `/releases/latest/download` alias. It
+selects the newest published stable or prerelease, fetches the bundle and
+manifest from that exact tag, and pins the installer payload version (`rr-4`).
+
 ## Purpose
 
 Provide a cold-agent checklist for deciding whether PTK is ready for a global

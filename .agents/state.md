@@ -24,6 +24,11 @@ invoking the otherwise-bricked Codex CLI, while preserving valid registrations
 and their policies (`mhi-13`). Codex redirect enforcement remains unshipped:
 the current TUI exposes shell and MCP work through the same outer `exec` tool.
 
+The policy-independent public operations baseline is committed at `c55169f`:
+privacy, known limitations, contribution and community templates, release
+notes, and immutable-version withdrawal recovery. The requirement-by-
+requirement activation audit is current in `.agents/plans/release-readiness.md`.
+
 ## Next
 
 - Finish the release-readiness activation audit and freeze the candidate
@@ -32,6 +37,9 @@ the current TUI exposes shell and MCP work through the same outer `exec` tool.
 - Obtain the one required owner ruling for `i30-1` without coupling unrelated
   Sentinel or package-manager feature decisions to the release candidate.
   Outward release actions remain separately gated.
+- Settle the security-reporting channel, support expectations, and next version
+  as separate owner decisions. `v0.3.0-rc.1` cannot be reused because both a
+  published prerelease and a stale draft already use that tag.
 
 ## Open / Parked
 
@@ -94,6 +102,10 @@ the current TUI exposes shell and MCP work through the same outer `exec` tool.
   duplicate refusal, all eleven release artifact hashes, exact upload set,
   existing-tag immutability, and fail-closed release queries; ShellCheck,
   actionlint, README PowerShell parse, and `git diff --check` passed.
+- Public-operations slice `c55169f`, 2026-09-04: issue-form YAML parsed, all
+  added relative Markdown links resolved, actionlint passed, and
+  `git diff --check` passed. Live community profile was 42% before these local
+  files reach canonical GitHub; private vulnerability reporting was disabled.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

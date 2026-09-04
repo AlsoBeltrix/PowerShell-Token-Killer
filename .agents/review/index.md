@@ -1,5 +1,13 @@
 # Review status
 
+## rbc-5 closure — removed background-job surface (2026-09-04)
+
+Closed `rbc-5` as inapplicable to the current five-tool product. The later
+approved production-reliability salvage plan removed `ptk_job` and
+`ptk_invoke(background=true)` and explicitly rejected the R7 guardian cutover;
+current source contains no `JobManager` or background invocation parameter.
+No product or test file changed. Canonical CI at `b2253a9` is green.
+
 ## SIEM operator-readiness S0 release gate (2026-08-13)
 
 The executable published-artifact gate in

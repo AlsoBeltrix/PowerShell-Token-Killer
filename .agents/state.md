@@ -16,10 +16,12 @@ proof are not yet established.
 
 ## Next
 
-- Reconcile the stale `rbc-5` record against the superseding production plan
-  and current five-tool surface; do not recreate removed background-job work.
-- Continue the release-readiness activation audit, then execute each authorized
-  local blocker. Outward release actions remain separately gated.
+- Complete the release-readiness activation audit, beginning with unique
+  per-build identity and the current exact-candidate artifact gates, then
+  execute each authorized local blocker.
+- Obtain the one required owner ruling for `i30-1` without coupling unrelated
+  Sentinel or package-manager feature decisions to the release candidate.
+  Outward release actions remain separately gated.
 
 ## Open / Parked
 
@@ -63,9 +65,6 @@ proof are not yet established.
   shared-host entries conflict with later owner direction, and a mini-SIEM
   evidence paragraph describes superseded producer behavior. Do not implement
   those stale directions until the hold is released.
-- **rbc-5 remains open:** resilience R7 must land creation-time worker
-  containment plus the Windows hard-supervisor-death background-descendant
-  guard and proof. `.agents/review/findings/rbc-5.md` owns the finding.
 
 ## Verification
 
@@ -89,7 +88,6 @@ proof are not yet established.
 - `.agents/plans/rtk-router-delegation.md` (Slices 0-6 executed; Slice 7
   completed through the release-packaging plan)
 - `.agents/plans/production-reliability-salvage.md`
-- `.agents/review/findings/rbc-5.md`
 - `.agents/review/index.md`
 - `.agents/machines.md`
 - `.agents/decisions.md` (under owner hold for the named stale entries)

@@ -1,7 +1,7 @@
 # rbc-5: Background jobs lack Job Object containment on Windows
 
 **Severity**: MAJOR
-**Status**: Open (disposition decided 2026-07-19: close via resilience R7)
+**Status**: Closed as inapplicable to the current product (2026-09-04)
 **Source**: read-only codebase review 2026-07-17, head `f6a2caa`
 **Files**: `server/PtkMcpServer/JobManager.cs:1820, 1962`
 
@@ -52,24 +52,21 @@ supervisor leaves no orphaned background job tree on Windows
 (verified via a Job-Object close callback or a post-crash process
 scan).
 
-## Disposition (owner, 2026-07-19)
+## Disposition
 
-Owner ruling: close rbc-5 through resilience R7's already-planned
-creation-time worker containment, adding a Windows guard that a
-background descendant dies on hard supervisor termination
-(hard-supervisor-death background-descendant guard). A separate
-creation-time contained launcher for the current in-process runtime
-was offered and not chosen.
+The 2026-07-19 ruling targeted the then-proposed resilience R7 surface. The
+later approved production-reliability salvage plan superseded that topology:
+its `ptk_job` section removes both cold `ptk_job` and
+`ptk_invoke(background=true)`, and its do-not-port list explicitly excludes
+the R7 guardian cutover and guardian-owned job registry. Current source has no
+`JobManager`, background invocation parameter, or public job tool. There is
+therefore no current background-job execution path to contain.
 
-The saved spawn-then-assign post-start attach WIP (preserved
-uncommitted on `fix/rbc-6-unix-sigkill-escalation` at `2b3ce1a`)
-remains rejected: it has an admitted escape race and conflicts with
-the approved creation-time containment contract. Do not continue or
-commit it.
-
-The finding stays Open until R7 lands with its guard proof; closure is
-gated on R7's own external fixed-SHA review and green suite, not on
-this record.
+Close this finding as inapplicable; do not recreate the removed surface merely
+to satisfy its historical guard. If a later owner-approved job plan adds
+background execution, that plan must establish a fresh creation-time Windows
+containment contract and guard. The saved spawn-then-assign WIP remains
+rejected because its admitted escape race is still unsound.
 
 ## Reviewer comments
 

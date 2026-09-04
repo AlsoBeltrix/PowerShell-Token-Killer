@@ -38,7 +38,7 @@ invent either.
 | Readiness item | Status | Current evidence / remaining gate |
 | --- | --- | --- |
 | 1. Freeze candidate contract | **OPEN** | The stream-retention contract is implemented locally. Version, security-reporting channel, and support expectations remain unset. |
-| 2. Reconcile product backlog | **COMPLETE locally** | Live canonical GitHub query found only issue #30. Its remoting acceptance passed and `i30-1` is fixed with red/green plus packaged proof; canonical push, CI, and issue closure remain outward actions. |
+| 2. Reconcile product backlog | **COMPLETE technically** | Live canonical GitHub query found only issue #30. Its remoting acceptance passed; `i30-1` is fixed on `origin/master` with red/green, packaged proof, and exact-head six-job CI run `33924847924`. Administrative issue closure remains a separate outward action. |
 | 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
 | 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, and factual privacy posture are settled or implemented. Security reporting, support, version, and final publication remain owner gates. |
 | 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
@@ -50,8 +50,8 @@ Live GitHub has both a published prerelease and a stale draft named
 `v0.3.0-rc.1`. Release immutability forbids repairing or reusing that version.
 The next candidate must use a new version; the standing recommendation is
 `0.3.0-rc.2`, subject to the owner's version ruling. Canonical `origin/master`
-was still `b2253a9` during this audit; local release work and any later candidate
-must be pushed only under the repository's separate push gate.
+is `72ccd90`; exact-head CI run `33924847924` passed all six jobs. Any later
+candidate change must follow the repository's push policy and be revalidated.
 
 The exact-RID workflow now also requires packaged activation proof after
 platform signing: `server/test-staged-install.ps1` runs complete handshakes
@@ -100,8 +100,9 @@ contract is:
   weakening exact-once dispatch, timeout recovery, or backward decoding; and
 - prove the defect red before repair, then cover direct host capture, response
   shaping, immutable recovery, worker transport, and packaged direct-product
-  behavior before marking `i30-1` fixed locally. Close GitHub issue #30 only
-  after the repair reaches canonical CI under its separate outward gate.
+  behavior before marking `i30-1` fixed locally. The repair reached canonical
+  CI in successful exact-head run `33924847924`; close GitHub issue #30 only
+  under its separate outward gate.
 
 ## Activation gate
 

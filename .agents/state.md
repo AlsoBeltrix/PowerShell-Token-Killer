@@ -5,17 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Canonical CI is green at `b2253a9`; local release-readiness work is ahead.**
-Run `33910227193` passed all six Ubuntu, macOS, and Windows product/SIEM jobs.
+**Canonical `master` is `72ccd90`; exact-head CI is green.** Run
+`33924847924` passed all six Ubuntu, macOS, and Windows product/SIEM jobs.
 The 2026-09-04 unique-build-identity slice now gives every PTK and SIEM build a
 fresh exact identity across package provenance, binaries, MCP initialize,
 runtime diagnostics, audit records, receiver logs, and receiver health. Its
 same-commit rebuild/dirty-source guard and full local macOS battery pass. The
 release workflow also now refuses pre-existing release tags instead of
 clobbering assets (`rr-1`). The live GitHub backlog contains only #30; remoting
-acceptance passed, and `i30-1` is now fixed locally by rendering and retaining
-`Write-Host`/information and verbose records while continuing to drop progress.
-The external issue remains open until the repair reaches canonical GitHub.
+acceptance passed, and `i30-1` is fixed on canonical `master` by rendering and
+retaining `Write-Host`/information and verbose records while continuing to drop
+progress.
+The external issue remains open only because closing it is a separate outward
+mutation.
 
 The public no-clone path now ships one checksum-verified installer bundle with
 its two required modules (`rr-2`).
@@ -50,8 +52,8 @@ and uninstall proof.
 - Settle the remaining release policy, freeze the candidate contract/version,
   and build the current-head five-RID draft under its separate outward-action
   gate.
-- Push and close canonical GitHub #30 only under their separate outward-action
-  gates. Unrelated Sentinel and package-manager feature decisions remain
+- Close canonical GitHub #30 only under its separate outward-action gate.
+  Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.
 - Settle the security-reporting channel, support expectations, and next version
   as separate owner decisions. `v0.3.0-rc.1` cannot be reused because both a
@@ -76,9 +78,9 @@ and uninstall proof.
 
 ## Blockers
 
-- **Canonical GitHub #30 closure:** `i30-1` is fixed and fully proved locally,
-  but `origin/master` does not yet contain the repair and the live issue remains
-  open. Push and issue mutation remain separate outward-action gates.
+- **Canonical GitHub #30 closure:** `i30-1` is fixed on `origin/master` and exact-
+  head CI run `33924847924` passed all six jobs. The live issue remains open;
+  issue mutation is a separate outward-action gate.
 - **Sentinel Decision D:** `.agents/plans/siem-sentinel-validation.md` is
   planning-only. S0 read-only Azure feasibility discovery needs a separate
   owner go; no Azure inspection or mutation is authorized.
@@ -103,6 +105,9 @@ and uninstall proof.
 
 - Automated verification entry point and current exact-head results:
   `.agents/repo-guidance.md` (Verification).
+- Canonical CI run `33924847924`, exact head `72ccd90`, 2026-09-04: all six
+  Ubuntu, macOS, and Windows product/SIEM jobs passed, including the server
+  stream-retention tests and stdio handshakes.
 - Clean local product head `0c9328a`, 2026-09-04: Pester passed 113 with 3
   platform skips; server passed 1,360/1,360 with the two known analyzer
   warnings; SIEM passed 357/357 without warnings; registration handshake,
@@ -167,7 +172,7 @@ and uninstall proof.
 
 - `.agents/plans/siem-sentinel-validation.md` (DRAFT; Decision D blocks S0)
 - `.agents/plans/package-manager-distribution.md` (DRAFT; D1 blocks all slices)
-- `.agents/review/findings/i30-1.md` (FIXED locally; canonical issue open)
+- `.agents/review/findings/i30-1.md` (FIXED on canonical; issue open)
 - `.agents/plans/github-release-packaging.md` (COMPLETE 2026-08-12)
 - `.agents/plans/rtk-router-delegation.md` (Slices 0-6 executed; Slice 7
   completed through the release-packaging plan)

@@ -3,9 +3,10 @@
 ## i30-1 stream retention repair (2026-09-04)
 
 The confirmed release blocker that silently dropped `Write-Host`, information,
-and verbose records is fixed locally. Both retained streams are response-visible
-and recoverable; progress remains intentionally transient. Red/green, worker
-transport, full-suite, and packaged proof are recorded in
+and verbose records is fixed on canonical `master`. Both retained streams are
+response-visible and recoverable; progress remains intentionally transient.
+Red/green, worker transport, full-suite, packaged proof, and successful exact-
+head canonical CI run `33924847924` are recorded in
 `.agents/review/findings/i30-1.md`.
 
 ## rr-4 prerelease bootstrap selection (2026-09-04)

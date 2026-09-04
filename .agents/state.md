@@ -14,8 +14,10 @@ for a future public launch. Scope: `.agents/decisions.md`.
 
 Candidate attempt `33928685705` failed after Windows signing: both Windows
 jobs rejected the disposable install fixture's owner (`rr-5`). Mac and Linux
-passed; no draft was created. The test-only ownership setup repair is local,
-with native rerun pending. Attempt-one downloaded Mac proof and independent
+passed; no draft was created. Test-only repair `eb3f999` is pushed and native
+rerun `33930714689` is in progress from that exact source. Local Pester, server,
+SIEM, transaction, and staged-install checks all passed after the repair.
+Attempt-one downloaded Mac proof and independent
 green six-job CI `33929388848` do not replace the rebuilt candidate's evidence.
 Details: `.agents/release-candidate-0.3.0-rc.2.md` and
 `.agents/review/findings/rr-5.md`.

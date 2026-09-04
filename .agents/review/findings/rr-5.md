@@ -41,6 +41,7 @@ Local checks after the fix: PowerShell parse passed; the staged-install proof
 passed both complete handshakes against the downloaded attempt-one Mac layout
 in a disposable home; `server/test-install-transaction.ps1` passed; release
 assembly/installer-bundle guards passed; Pester passed 113 with 3 platform skips;
-SIEM passed 357/357; `git diff --check` passed. The unchanged C# server suite is
-also running and its result will be recorded separately. Native Windows
+SIEM passed 357/357; server passed 1,360/1,360 with the two known analyzer
+warnings; `git diff --check` passed. Fix commit `eb3f999` reached canonical
+`master`. Native rerun `33930714689` is testing that exact commit. Native Windows
 verification is still required.

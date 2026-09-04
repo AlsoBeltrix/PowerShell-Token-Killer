@@ -59,7 +59,7 @@ without violating release immutability. Finding: `.agents/review/findings/rr-5.m
 | 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
 | 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, factual privacy posture, and version `0.3.0-rc.2` are settled or implemented. Security reporting, support, and final publication remain owner gates. |
 | 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
-| 6. Validate exact candidate | **IN PROGRESS** | Authorized run `33928685705` builds exact clean source `c8b084f`. Candidate-specific results and remaining download/native evidence live in `.agents/release-candidate-0.3.0-rc.2.md`; earlier provisional runs remain supporting evidence only. |
+| 6. Validate exact candidate | **IN PROGRESS** | Current authorized run `33930714689` builds exact clean source `eb3f999` after the first run exposed the `rr-5` Windows test fixture. Candidate-specific results and remaining download/native evidence live in `.agents/release-candidate-0.3.0-rc.2.md`; earlier attempts remain supporting evidence only. |
 | 7. Prepare public operations | **PARTIAL** | `c55169f` adds privacy, limitations, contribution/community templates, release notes, and withdrawal recovery. Security reporting and support boundary await owner policy. |
 | 8. Final owner gate | **NOT STARTED** | Requires one exact candidate recommendation after items 1–7 close; tag and publish remain separately authorized actions. |
 

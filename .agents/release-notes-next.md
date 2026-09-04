@@ -10,8 +10,8 @@ after every pending field below is proved.
 - Version: `0.3.0-rc.2`, ruled by the owner on 2026-09-04.
 - Supersedes: `0.3.0-rc.1` (`0c8ed87635ef37db548d086ada78a2020c4b390f`).
 - Product delta summarized through: `0c9328a`.
-- Candidate source: `c8b084fbb79c9d73965dbfc632163919c29e50dd`.
-- Candidate workflow: `33928685705`; results and asset proof are tracked in
+- Candidate source: `eb3f99903f76543ab58d00e0e11d20d975c16d7c`.
+- Candidate workflow: `33930714689`; results and asset proof are tracked in
   `.agents/release-candidate-0.3.0-rc.2.md`. Publication remains unauthorized.
 
 ## What changed

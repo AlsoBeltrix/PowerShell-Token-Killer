@@ -5,17 +5,32 @@
 - Owner authority: 2026-09-04 build/test go, recorded in `.agents/decisions.md`.
   Do not publish, create an explicit tag, close issues, replace the owner's
   installed payload, or stop existing PTK sessions.
-- Candidate source: `c8b084fbb79c9d73965dbfc632163919c29e50dd`.
-- Product tree: unchanged from verified product commit `0c9328a`; the diff
-  from six-job green CI commit `72ccd90` contains only `.agents/` records.
-- Release workflow: [33928685705](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33928685705),
-  dispatched 2026-09-04 at 23:13:43 UTC with version `0.3.0-rc.2`.
-  GitHub rejected a raw-SHA dispatch ref without creating a run; dispatching
-  `master` succeeded and the run API confirmed the exact source SHA above.
+- Current candidate source: `eb3f99903f76543ab58d00e0e11d20d975c16d7c`.
+- Shipped product code is unchanged from verified product commit `0c9328a`;
+  attempt two adds only the `rr-5` staged-install test-fixture correction and
+  `.agents/` records.
+- Current release workflow: [33930714689](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33930714689),
+  dispatched 2026-09-04 at 23:46:08 UTC with version `0.3.0-rc.2`.
+  The run API confirmed the exact source SHA above.
 - Before dispatch, no canonical tag or release record used `v0.3.0-rc.2`.
   Existing `v0.3.0-rc.1` records were left untouched.
 
 ## Evidence status
+
+The second run is in progress on all five native RIDs. No candidate-grade pass
+is claimed yet. After the fixture correction, local verification passed:
+Pester 113/3 platform skips, server 1,360/1,360 (two known analyzer warnings),
+SIEM 357/357, transaction helper, staged-install handshakes, release-assembly
+guards, PowerShell parse, and `git diff --check`. Windows native green proof is
+still required. Attempt-two download/proof root:
+`/Users/michael/ptk-rc2-final-verification.TJev9J`.
+
+## Attempt-one failure
+
+Original source: `c8b084fbb79c9d73965dbfc632163919c29e50dd`; original run:
+[33928685705](https://github.com/AlsoBeltrix/PowerShell-Token-Killer/actions/runs/33928685705),
+dispatched 2026-09-04 at 23:13:43 UTC. GitHub rejected a raw-SHA dispatch ref
+without creating a run; dispatching `master` then resolved to that exact SHA.
 
 Run `33928685705` completed with failure: both Linux jobs and macOS succeeded;
 both Windows jobs built and signed both products, then failed the packaged
@@ -28,12 +43,13 @@ Independent six-job CI run `33929388848` passed at `36b1558`, whose product and
 test tree is identical to attempt one's source (only `.agents/` records differ).
 That does not excuse the distinct native candidate fixture failure.
 
-## Downloaded macOS ARM64 proof
+## Attempt-one downloaded macOS ARM64 proof (supporting evidence only)
 
 Downloaded the completed macOS job's uploaded `ptk-osx-arm64` workflow artifact
 while Windows continued building. These are downloaded uploaded bytes, not the
-runner's staging directory. Final draft downloads must still match these exact
-archive hashes before this proof can be attributed to those draft assets.
+runner's staging directory. The rebuilt candidate receives new identities and
+requires its own downloaded-package proof; these results cannot be attributed
+to the rebuilt draft assets.
 
 | Product | Archive SHA-256 | Build identity |
 | --- | --- | --- |
@@ -41,12 +57,13 @@ archive hashes before this proof can be attributed to those draft assets.
 | SIEM receiver | `a530e625e8d0f7d06118c6a18a203f79718332f8ded905ddcdfad7d1fb56a54f` | `012d4069086146c08deb0285653121a2` |
 
 Both archives matched their uploaded SHA-256 files and carried clean
-`0.3.0-rc.2`, `osx-arm64` provenance for the exact source above. On macOS
+`0.3.0-rc.2`, `osx-arm64` provenance for attempt one's source. On macOS
 26.6.2 ARM64:
 
 - Every one of the 34 Mach-O files passed `codesign --verify --strict
   --check-notarization` and reported Developer ID Application authority.
-  The native workflow also recorded Apple's `Accepted` notarization result.
+  The native workflow also recorded Apple's `Accepted` notarization result,
+  submission `beb73fd3-7a95-41a6-b62e-c97a20b46052`.
 - Packaged transaction proof passed both complete handshakes.
 - A separate disposable `.ptk` was activated through the downloaded package's
   transaction module, with staged and installed handshakes. The installed

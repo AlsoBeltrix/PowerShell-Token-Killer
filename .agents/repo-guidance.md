@@ -42,7 +42,7 @@ approval.
 ## Verification
 
 Confirmed automated verification commands (re-run 2026-09-04 at clean
-unique-build-identity commit `4c636fe`,
+local release-readiness head `8d4d9e9`
 on macOS arm64). Counts are volatile — treat them as of that commit and
 re-verify rather than trusting them at a later head. Host-conditional results
 are noted per command; per-host records live in `.agents/machines.md`, never
@@ -51,24 +51,24 @@ as a "this clone" claim here, since this file is shared by every clone.
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 112 passed, 3 platform-skipped (PowerShell module/setup suite; requires
-Pester 5 or later), as of `c215515`.
+— 113 passed, 3 platform-skipped (PowerShell module/setup suite; requires
+Pester 5 or later), as of `8d4d9e9`.
 
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
 — 1,354/1,354 passed (C# MCP supervisor, named workers, containment, output,
 and retained administration suite), with two analyzer warnings, as of
-`c215515`. Prefer a plain shell:
+`8d4d9e9`. Prefer a plain shell:
 from a ptk session the four `StateToolTests` module probes can fail together
 on a truncated `PSModulePath` (see `.agents/machines.md`) — not universal,
-the `c215515` run above was clean from a plain shell.
+the `8d4d9e9` run above was clean from a plain shell.
 
 ```
 dotnet test siem/PtkSiem.slnx
 ```
 — 357/357 passed with no warnings (standalone retained SIEM receiver suite)
-on a host whose identity may create symlinks, re-confirmed at `c215515`. On a
+on a host whose identity may create symlinks, re-confirmed at `8d4d9e9`. On a
 Windows host without `SeCreateSymbolicLinkPrivilege`, the symlink-specific
 cases stop in test setup before any product assertion (see the head-stamped
 historical counts in `.agents/machines.md` §`ASHBIAMWEB1`); that setup result
@@ -77,7 +77,7 @@ is not a product failure.
 ```
 pwsh -NoProfile -File siem/test-manage.ps1
 ```
-— passed at `c215515` (separate mini-SIEM checksum/deployment, ownership,
+— passed at `8d4d9e9` (separate mini-SIEM checksum/deployment, ownership,
 upgrade/uninstall/data-removal lifecycle). Release packaging additionally runs
 `siem/operator-workflow-proof.ps1` against packaged PTK and receiver bits; it is
 adapter/workflow proof and does not replace Decision D real-SIEM acceptance.
@@ -86,7 +86,7 @@ adapter/workflow proof and does not replace Decision D real-SIEM acceptance.
 dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
 ```
 — all five server projects reported no vulnerable packages, re-confirmed at
-`c215515`. All three SIEM projects also reported no vulnerable packages when
+`8d4d9e9`. All three SIEM projects also reported no vulnerable packages when
 the equivalent command was run against `siem/PtkSiem.slnx`. Treat any listed
 package as a failed production dependency check even if the command itself
 returns zero.
@@ -95,7 +95,7 @@ returns zero.
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
 ```
 — passed the stdout-clean direct-checkout launch and complete five-tool,
-multi-session stdio handshake in the 2026-09-04 identity slice. Run manually
+multi-session stdio handshake at `8d4d9e9`. Run manually
 when server-facing setup or code changes.
 
 ```text
@@ -104,7 +104,17 @@ pwsh -NoProfile -File server/test-build-identity.ps1
 
 — builds PTK and the SIEM receiver twice from one checkout, requires four
 distinct exact identities, validates manifest/binary agreement, and probes
-dirty-source detection. Passed at clean commit `4c636fe`.
+dirty-source detection. Passed at clean commit `8d4d9e9`.
+
+```
+pwsh -NoProfile -File server/test-staged-install.ps1 -LayoutRoot <package-root>
+```
+
+— imports the transaction module from an already-built package, runs the full
+five-tool handshake before and after activation into a disposable home,
+preserves user-owned content, verifies registration cutover, and removes its
+rollback snapshot. Passed locally on a fresh `osx-arm64` package at `8d4d9e9`;
+the release workflow now requires it on every RID after signing.
 
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]

@@ -32,6 +32,10 @@ requirement activation audit is current in `.agents/plans/release-readiness.md`.
 The release workflow now runs the packaged transaction/activation proof on
 every RID after signing and before archive creation (`rr-3`).
 
+Local product head `8d4d9e9` now has a complete clean macOS verification
+battery: Pester, server, SIEM, registration handshake, mini-SIEM lifecycle,
+four-build identity, release/signing helpers, and both vulnerability scans.
+
 ## Next
 
 - Finish the release-readiness activation audit and freeze the candidate
@@ -91,6 +95,12 @@ every RID after signing and before archive creation (`rr-3`).
 
 - Automated verification entry point and current exact-head results:
   `.agents/repo-guidance.md` (Verification).
+- Clean local product head `8d4d9e9`, 2026-09-04: Pester passed 113 with 3
+  platform skips; server passed 1,354/1,354 with the two known analyzer
+  warnings; SIEM passed 357/357 without warnings; registration handshake,
+  mini-SIEM lifecycle, four-build identity, release selection, signing docs,
+  notarization recovery, Developer ID selection, and both transitive
+  dependency vulnerability scans passed.
 - Unique-build-identity commit `4c636fe`, 2026-09-04: repeated PTK and SIEM builds
   received four distinct identities; dirty-source detection passed; packaged
   initialize, cold `ptk_state`, audit producer identity, layout validation,

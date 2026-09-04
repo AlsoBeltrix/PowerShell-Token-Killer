@@ -81,6 +81,26 @@ public release without treating release work as the current product priority.
 Until activation, current product defects and the live GitHub issue backlog take
 precedence.
 
+## `i30-1` stream-capture repair
+
+The owner's 2026-09-04 direction to continue through release readiness clears
+the local repair gate for the confirmed silent-loss defect. The release-safe
+contract is:
+
+- capture `Write-Host`/information and verbose records for every completed or
+  interrupted PowerShell invocation while continuing to drop progress records;
+- render captured records in labeled `[information]` and `[verbose]` response
+  sections and retain the same labeled bytes in the immutable `ptk_output`
+  artifact;
+- keep capture bounded by the existing passive/artifact limits and never call
+  user-defined formatting, getters, or `ToString()` merely to retain a stream
+  record; an unsafe information payload receives an explicit omission marker;
+- carry both streams through the worker/supervisor artifact protocol without
+  weakening exact-once dispatch, timeout recovery, or backward decoding; and
+- prove the defect red before repair, then cover direct host capture, response
+  shaping, immutable recovery, worker transport, and packaged direct-product
+  behavior before closing `i30-1` and GitHub issue #30 locally.
+
 ## Activation gate
 
 This plan activates only after an explicit owner instruction and all of the

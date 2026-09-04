@@ -112,6 +112,8 @@ CI runs remain supporting evidence only.
 7. Populate release notes from `docs/release-notes-template.md` with the exact
    commit, workflow, build identities, hashes, matrix results, limitations, and
    withdrawal procedure. Remove every placeholder before the final owner gate.
+   The factual content draft is `.agents/release-notes-next.md`; retain only
+   claims proved for the final candidate.
    The unauthenticated public bootstrap URL can only receive its final live smoke
    after publication; run it immediately after separately authorized publication
    and withdraw under `docs/release-recovery.md` if it fails.

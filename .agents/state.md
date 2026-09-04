@@ -34,6 +34,8 @@ notes, and immutable-version withdrawal recovery. The requirement-by-
 requirement activation audit is current in `.agents/plans/release-readiness.md`.
 That plan now also defines the exact uploaded/downloaded candidate evidence set
 for the five-RID final gate.
+The factual next-release content draft is `.agents/release-notes-next.md`; it is
+not publishable until the owner policies and exact candidate evidence land.
 
 The release workflow now runs the packaged transaction/activation proof on
 every RID after signing and before archive creation (`rr-3`).
@@ -180,6 +182,7 @@ and uninstall proof.
 - `.agents/plans/rtk-router-delegation.md` (Slices 0-6 executed; Slice 7
   completed through the release-packaging plan)
 - `.agents/plans/production-reliability-salvage.md`
+- `.agents/release-notes-next.md` (working draft; not publishable)
 - `.agents/review/index.md`
 - `.agents/machines.md`
 - `.agents/decisions.md` (under owner hold for the named stale entries)

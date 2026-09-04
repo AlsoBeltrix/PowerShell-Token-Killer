@@ -5,20 +5,21 @@ short and update it when important repo facts change.
 
 ## Now
 
-**The version-fallback CI exit repair is complete on local `master`.** The
-tagless fallback returned the right version while leaking Git's handled native
-exit code; the commit containing this record clears that stale status and adds
-a guard that failed against the prior implementation with exit code 128. The
-focused test, full local verification battery, and every later CI step are
-green. Canonical `origin/master` remains at `c215515`, whose run `33523417398`
-is red, until an independently authorized push triggers exact-head CI.
+**Canonical CI is green at `b2253a9`.** Run `33910227193` passed all six
+Ubuntu, macOS, and Windows product/SIEM jobs, including the repaired
+version-fallback step and the final Windows handshake. The owner explicitly
+reactivated global release-readiness work on 2026-09-04. Its activation-gate
+audit is in progress: the live GitHub backlog contains only #30, whose remoting
+acceptance passed but whose `i30-1` stream-retention contract still needs an
+owner ruling; unique per-build identity and current exact-candidate artifact
+proof are not yet established.
 
 ## Next
 
-- On a separate owner go, push local `master` to canonical `origin`, then watch
-  exact-head CI through completion. Push is not authorized by this record.
-- After green canonical CI, return to the owner-gated items recorded under
-  `## Blockers`; this state record authorizes none of them.
+- Reconcile the stale `rbc-5` record against the superseding production plan
+  and current five-tool surface; do not recreate removed background-job work.
+- Continue the release-readiness activation audit, then execute each authorized
+  local blocker. Outward release actions remain separately gated.
 
 ## Open / Parked
 

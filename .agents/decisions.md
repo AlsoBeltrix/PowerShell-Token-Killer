@@ -216,14 +216,15 @@ code**.
 This supersedes the Slice 7.0-era reading under which an untrusted
 exception's text was omitted wholesale.
 
-### ACTIVE (2026-07-31): Release readiness is parked; every build gets a new identity
+### SUPERSEDED (2026-09-04): Release readiness work reactivated; every build still gets a new identity
 
-**Status:** Active — directed by the owner on 2026-07-31.
+**Status:** Superseded in part by the owner's 2026-09-04 direction to make the
+product release-ready. The unique per-build identity requirement remains active.
 
-The global public release remains a future product target, not current work.
-Do not ask for or settle release licensing, hook defaults, signing, publication,
-or similar release decisions until the owner explicitly reactivates release
-readiness. Current work returns to product defects and the GitHub issue backlog.
+Global release readiness is current work again. The activation evidence and
+ordered readiness gates remain canonical in `.agents/plans/release-readiness.md`;
+the owner's direction does not waive them or authorize separately gated pushes,
+tags, publication, package-index submission, or announcement.
 
 Every build must report a new user-visible build identity. Rebuilding the same
 commit must not produce the same reported version, because operators must be

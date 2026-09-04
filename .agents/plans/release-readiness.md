@@ -13,6 +13,11 @@ and RID. Package manifests, binary informational versions, MCP initialize,
 carry the matching identity. The guard builds both products twice from one
 commit, proves four distinct identities, and probes dirty-source detection.
 
+Readiness item 5's immutable-asset requirement is repaired in the 2026-09-04
+release-immutability slice. Draft assembly now refuses every pre-existing tag
+record (draft or published), fails closed when the paginated release query
+fails, and has no clobber path. See `.agents/review/findings/rr-1.md`.
+
 ## Purpose
 
 Provide a cold-agent checklist for deciding whether PTK is ready for a global

@@ -1,5 +1,12 @@
 # Review status
 
+## rr-1 release asset immutability (2026-09-04)
+
+Release-readiness audit found the draft workflow could fall through from a
+failed `gh release create` to `gh release upload --clobber`, including against
+an already published tag. The fail-closed repair and red/green stubbed proof are
+recorded in `.agents/review/findings/rr-1.md`.
+
 ## rbc-5 closure — removed background-job surface (2026-09-04)
 
 Closed `rbc-5` as inapplicable to the current five-tool product. The later

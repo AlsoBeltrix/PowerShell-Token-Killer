@@ -11,8 +11,10 @@ The 2026-09-04 unique-build-identity slice now gives every PTK and SIEM build a
 fresh exact identity across package provenance, binaries, MCP initialize,
 runtime diagnostics, audit records, receiver logs, and receiver health. Its
 same-commit rebuild/dirty-source guard and full local macOS battery pass. The
-live GitHub backlog contains only #30; remoting acceptance passed, but
-`i30-1` still needs the one owner stream-retention ruling.
+release workflow also now refuses pre-existing release tags instead of
+clobbering assets (`rr-1`). The live GitHub backlog contains only #30; remoting
+acceptance passed, but `i30-1` still needs the one owner stream-retention
+ruling.
 ## Next
 
 - Finish the release-readiness activation audit and freeze the candidate

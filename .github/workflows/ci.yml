@@ -93,6 +93,11 @@ jobs:
         shell: bash
         run: bash scripts/test-select-developer-id-identity.sh
 
+      - name: Draft release immutability tests
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash scripts/test-assemble-draft-release.sh
+
       - name: Server tests
         run: dotnet test server/PtkMcpServer.slnx
 

@@ -482,10 +482,9 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             tag="v${{ steps.version.outputs.version }}"
           fi
-          gh release create "$tag" \
-            --draft \
-            --target "$GITHUB_SHA" \
-            --title "ptk ${{ steps.version.outputs.version }}" \
-            --notes "Draft build for ${{ steps.version.outputs.version }}. Every asset was built and smoke-tested on its own native runner. Verify downloads against SHA256SUMS." \
-            staged/* \
-            || gh release upload "$tag" staged/* --clobber
+          bash scripts/assemble-draft-release.sh \
+            "$GITHUB_REPOSITORY" \
+            "$tag" \
+            "${{ steps.version.outputs.version }}" \
+            "$GITHUB_SHA" \
+            staged

@@ -12,9 +12,13 @@ roots; do not replace the live installation or stop its running sessions.
 Security/support decisions are deferred for this pass, not adopted or waived
 for a future public launch. Scope: `.agents/decisions.md`.
 
-Candidate run `33928685705` is building all five native RIDs from exact source
-`c8b084fbb79c9d73965dbfc632163919c29e50dd`. Current candidate evidence and
-remaining checks: `.agents/release-candidate-0.3.0-rc.2.md`.
+Candidate run `33928685705` uses exact source
+`c8b084fbb79c9d73965dbfc632163919c29e50dd`. Both Linux jobs and macOS passed;
+Windows signing remains in progress as of 2026-09-04 23:24 UTC. Downloaded Mac
+workflow archives passed all 34 signature/online-ticket checks, packaged
+activation, 32-check installed-product/uninstall proof, and SIEM workflows.
+Final draft-asset byte agreement and remaining platform evidence are pending:
+`.agents/release-candidate-0.3.0-rc.2.md`.
 
 **Canonical `master` contains verified product commit `0c9328a`; its exact
 product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six

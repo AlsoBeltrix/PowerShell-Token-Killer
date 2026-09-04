@@ -50,7 +50,7 @@ invent either.
 | 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
 | 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, factual privacy posture, and version `0.3.0-rc.2` are settled or implemented. Security reporting, support, and final publication remain owner gates. |
 | 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
-| 6. Validate exact candidate | **NOT YET POSSIBLE** | Requires the frozen clean commit, canonical push, owner-authorized five-RID workflow run, downloaded signing/notarization/hash checks, and exact-version install/lifecycle evidence. Prior local/hosted runs are supporting evidence, not the final candidate proof. |
+| 6. Validate exact candidate | **IN PROGRESS** | Authorized run `33928685705` builds exact clean source `c8b084f`. Candidate-specific results and remaining download/native evidence live in `.agents/release-candidate-0.3.0-rc.2.md`; earlier provisional runs remain supporting evidence only. |
 | 7. Prepare public operations | **PARTIAL** | `c55169f` adds privacy, limitations, contribution/community templates, release notes, and withdrawal recovery. Security reporting and support boundary await owner policy. |
 | 8. Final owner gate | **NOT STARTED** | Requires one exact candidate recommendation after items 1–7 close; tag and publish remain separately authorized actions. |
 
@@ -115,9 +115,14 @@ CI runs remain supporting evidence only.
    `siem/operator-workflow-proof.ps1` against those downloaded bytes.
 6. On Windows, require `Get-AuthenticodeSignature` status `Valid` for every
    packaged EXE/DLL and a completed Defender scan with no quarantine. On macOS,
-   require strict `codesign` verification and Developer ID authority for every
-   Mach-O, the workflow's accepted notarization submission, and Gatekeeper
-   acceptance of the downloaded primary executables. Linux has no publisher
+   require `codesign --verify --strict --check-notarization` and Developer ID
+   authority for every downloaded Mach-O, plus the workflow's accepted
+   notarization submission. The installed macOS `codesign(1)` manual defines
+   `--check-notarization` as a forced online ticket check. This is the applicable
+   verification for these bare CLI payloads: `spctl -t exec` declining an item
+   as "not an app" is not a signature/notarization failure, as already recorded
+   in `README.md`. Never ignore a failed signature or online ticket check.
+   Linux has no publisher
    signature claim; its integrity claim is the verified SHA-256 manifest.
 7. Populate release notes from `docs/release-notes-template.md` with the exact
    commit, workflow, build identities, hashes, matrix results, limitations, and

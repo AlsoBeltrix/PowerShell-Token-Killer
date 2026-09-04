@@ -17,10 +17,51 @@
 
 ## Evidence status
 
-The native `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`, and `osx-arm64`
-jobs started and reached layout building. This is progress, not a passing
-candidate result. Draft assembly and downloaded-artifact verification remain
-pending. The candidate is not release-ready and publication is not authorized.
+As of 2026-09-04 23:24 UTC, both Linux jobs and the macOS ARM64 job succeeded;
+both Windows jobs are signing. Draft assembly and final release-asset download
+verification remain pending. The candidate is not release-ready and publication
+is not authorized.
+
+## Downloaded macOS ARM64 proof
+
+Downloaded the completed macOS job's uploaded `ptk-osx-arm64` workflow artifact
+while Windows continued building. These are downloaded uploaded bytes, not the
+runner's staging directory. Final draft downloads must still match these exact
+archive hashes before this proof can be attributed to those draft assets.
+
+| Product | Archive SHA-256 | Build identity |
+| --- | --- | --- |
+| PTK | `6d77a91c45dd48591d73e3087d5d8b5b426490be68ec60ab2a09157368021837` | `42763dd4555545948148e77ab4ad44a4` |
+| SIEM receiver | `a530e625e8d0f7d06118c6a18a203f79718332f8ded905ddcdfad7d1fb56a54f` | `012d4069086146c08deb0285653121a2` |
+
+Both archives matched their uploaded SHA-256 files and carried clean
+`0.3.0-rc.2`, `osx-arm64` provenance for the exact source above. On macOS
+26.6.2 ARM64:
+
+- Every one of the 34 Mach-O files passed `codesign --verify --strict
+  --check-notarization` and reported Developer ID Application authority.
+  The native workflow also recorded Apple's `Accepted` notarization result.
+- Packaged transaction proof passed both complete handshakes.
+- A separate disposable `.ptk` was activated through the downloaded package's
+  transaction module, with staged and installed handshakes. The installed
+  direct-product proof passed all **32 checks**, including stream recovery,
+  exact runtime/audit identity, the RTK refusal gate, and actual uninstall.
+- The downloaded SIEM package verifier passed. All three packaged operator
+  workflows passed: external-only, independent multiple destinations, and
+  explicit mini-SIEM with query-back doctor. This is not real external-SIEM
+  product acceptance.
+- No live PTK process was stopped or replaced. The original two supervisors
+  and their workers/brokers remained at the same PIDs after all local proofs.
+
+The temporary orchestration helper initially failed before starting runtime
+checks because this Mac exposes two `pwsh` command paths. Selecting the first
+application path repaired that helper; all runtime checks then passed. The
+shipped package and its tests were unchanged.
+
+Verification files currently live in
+`/Users/michael/ptk-rc2-verification.VIbwgF`; the disposable installed server
+was removed by its successful uninstall proof. Archive and extracted copies
+are retained temporarily for final draft byte comparison.
 
 ## Local isolation
 

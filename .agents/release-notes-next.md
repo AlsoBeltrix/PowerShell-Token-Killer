@@ -10,7 +10,9 @@ after every pending field below is proved.
 - Version: `0.3.0-rc.2`, ruled by the owner on 2026-09-04.
 - Supersedes: `0.3.0-rc.1` (`0c8ed87635ef37db548d086ada78a2020c4b390f`).
 - Product delta summarized through: `0c9328a`.
-- Exact final source commit, workflow run, publication time: pending.
+- Candidate source: `c8b084fbb79c9d73965dbfc632163919c29e50dd`.
+- Candidate workflow: `33928685705`; results and asset proof are tracked in
+  `.agents/release-candidate-0.3.0-rc.2.md`. Publication remains unauthorized.
 
 ## What changed
 
@@ -106,13 +108,13 @@ published SHA-256 integrity claim.
 
 ## Pending candidate evidence
 
-- adopted version, security-reporting channel, and support boundary;
+- security-reporting channel and support boundary before a public launch;
 - exact clean source commit and six canonical CI job results;
 - five native RID plus draft-assembly release workflow results;
 - exact draft metadata, twelve-asset inventory, eleven downloaded hashes, and
   all PTK/SIEM build identities;
 - Windows Authenticode and Defender results;
-- macOS Developer ID, notarization, and Gatekeeper results;
+- macOS Developer ID and online notarization-ticket results;
 - downloaded-artifact install, upgrade/repair, first invoke, restart, recovery,
   SIEM workflow, and uninstall results on every RID;
 - exact open limitations, reviewer/finding disposition, withdrawal procedure,

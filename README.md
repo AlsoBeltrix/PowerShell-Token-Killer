@@ -276,9 +276,9 @@ try {
   New-Item -ItemType Directory -Path $stage | Out-Null
   $repository = 'AlsoBeltrix/PowerShell-Token-Killer'
   $headers = @{ Accept = 'application/vnd.github+json' }
-  $releases = @(Invoke-RestMethod `
+  $releases = Invoke-RestMethod `
     -Uri "https://api.github.com/repos/$repository/releases?per_page=100" `
-    -Headers $headers)
+    -Headers $headers
   $published = @($releases | ForEach-Object {
     if ($_.draft -isnot [bool]) { throw 'GitHub returned an invalid draft flag.' }
     if (-not $_.draft -and $null -ne $_.published_at) {

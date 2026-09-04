@@ -188,4 +188,85 @@ if (-not $readme.Contains('-FromRelease -Version $version', [StringComparison]::
     throw 'README bootstrap does not pin installer payload selection to its bundle release.'
 }
 
+$bootstrapRoot = Join-Path ([IO.Path]::GetTempPath()) (
+    'ptk-bootstrap-selection-' + [guid]::NewGuid().ToString('N'))
+$bootstrapInput = Join-Path $bootstrapRoot 'input'
+$script:bootstrapBundle = Join-Path $bootstrapRoot 'ptk-installer.zip'
+$script:bootstrapSums = Join-Path $bootstrapRoot 'SHA256SUMS'
+$bootstrapMarker = Join-Path $bootstrapRoot 'invoked.json'
+$script:bootstrapDownloads = [Collections.Generic.List[string]]::new()
+try {
+    New-Item -ItemType Directory -Path $bootstrapInput -Force | Out-Null
+    Set-Content -LiteralPath (Join-Path $bootstrapInput 'install.ps1') -Value @'
+param([switch]$FromRelease, [string]$Version)
+@{
+    from_release = [bool]$FromRelease
+    version = $Version
+    installer_root = $PSScriptRoot
+} | ConvertTo-Json -Compress | Set-Content -LiteralPath $env:PTK_BOOTSTRAP_MARKER
+'@
+    Set-Content -LiteralPath (Join-Path $bootstrapInput 'ptk_install_transaction.psm1') `
+        -Value '# proof module'
+    Set-Content -LiteralPath (Join-Path $bootstrapInput 'ptk_build_provenance.psm1') `
+        -Value '# proof module'
+    Compress-Archive -Path (Join-Path $bootstrapInput '*') `
+        -DestinationPath $script:bootstrapBundle
+    $bootstrapHash = (Get-FileHash -LiteralPath $script:bootstrapBundle `
+        -Algorithm SHA256).Hash.ToLowerInvariant()
+    Set-Content -LiteralPath $script:bootstrapSums `
+        -Value "$bootstrapHash ptk-installer.zip"
+
+    $script:releaseResponse = @(
+        (New-Release -Tag 'v0.2.2' -Draft $false `
+            -PublishedAt '2026-08-08T04:39:49Z'),
+        (New-Release -Tag 'v0.3.0-rc.2' -Draft $false -Prerelease $true `
+            -PublishedAt '2026-09-04T22:00:00Z'),
+        (New-Release -Tag 'v9.0.0-draft' -Draft $true `
+            -PublishedAt '2026-09-05T00:00:00Z'))
+
+    function Invoke-WebRequest {
+        param(
+            [Parameter(Mandatory)][string]$Uri,
+            [Parameter(Mandatory)][string]$OutFile)
+        $script:bootstrapDownloads.Add($Uri)
+        if ($Uri.EndsWith('/ptk-installer.zip', [StringComparison]::Ordinal)) {
+            Copy-Item -LiteralPath $script:bootstrapBundle -Destination $OutFile
+            return
+        }
+        if ($Uri.EndsWith('/SHA256SUMS', [StringComparison]::Ordinal)) {
+            Copy-Item -LiteralPath $script:bootstrapSums -Destination $OutFile
+            return
+        }
+        throw "Unexpected bootstrap download URI: $Uri"
+    }
+
+    $match = [regex]::Match(
+        $readme,
+        '(?s)### Public install.*?\x60{3}powershell\r?\n(.*?)\r?\n\x60{3}')
+    if (-not $match.Success) { throw 'README public-install block was not found.' }
+    $env:PTK_BOOTSTRAP_MARKER = $bootstrapMarker
+    & ([scriptblock]::Create($match.Groups[1].Value))
+
+    $invocation = Get-Content -LiteralPath $bootstrapMarker -Raw | ConvertFrom-Json
+    Assert-Equal -Expected $true -Actual $invocation.from_release `
+        -Message 'README bootstrap did not invoke release mode.'
+    Assert-Equal -Expected '0.3.0-rc.2' -Actual $invocation.version `
+        -Message 'README bootstrap did not pin the newest published prerelease.'
+    Assert-Equal -Expected 2 -Actual $script:bootstrapDownloads.Count `
+        -Message 'README bootstrap performed an unexpected number of downloads.'
+    foreach ($name in 'ptk-installer.zip', 'SHA256SUMS') {
+        $expectedUri = "https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/download/v0.3.0-rc.2/$name"
+        if (-not $script:bootstrapDownloads.Contains($expectedUri)) {
+            throw "README bootstrap did not download the selected release's $name."
+        }
+    }
+    if (Test-Path -LiteralPath $invocation.installer_root) {
+        throw 'README bootstrap did not remove its extracted temporary directory.'
+    }
+}
+finally {
+    Remove-Item Env:PTK_BOOTSTRAP_MARKER -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $bootstrapRoot -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 'RELEASE SELECTION TEST PASSED'

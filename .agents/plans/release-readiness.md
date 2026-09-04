@@ -63,6 +63,9 @@ The public bootstrap now follows the installer's published-release selection
 contract instead of GitHub's stable-only `/releases/latest/download` alias. It
 selects the newest published stable or prerelease, fetches the bundle and
 manifest from that exact tag, and pins the installer payload version (`rr-4`).
+The follow-up executes the README block against GitHub's non-enumerated
+REST-array shape and a real checksum-verified fixture; that proof caught and
+removed a nested-array wrapper after `d40228c`.
 
 ## Purpose
 

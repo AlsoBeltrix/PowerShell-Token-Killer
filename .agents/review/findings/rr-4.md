@@ -1,7 +1,8 @@
 # rr-4: public bootstrap skipped the newest prerelease
 
 **Severity:** HIGH
-**Status:** FIXED in the release-selection slice after `add2c2e`
+**Status:** FIXED in the release-selection slice after `add2c2e`, with the
+README path executed end to end in the follow-up after `d40228c`
 **Scope:** `README.md`, `server/test-release-selection.ps1`
 
 ## Finding
@@ -32,3 +33,12 @@ paginated published-release selection endpoint, and requires the selected
 version to be pinned through the installer call. The test, PowerShell parser,
 and `git diff --check` passed after repair.
 
+The initial guard inspected README text but did not execute it. An executable
+bootstrap fixture then reproduced GitHub's non-enumerated REST-array shape and
+failed against `d40228c`: the README's `@(...)` wrapper nested that array, so
+the first selection predicate saw an array-valued `draft` property and refused
+the response. Removing only that wrapper preserves a direct object array for
+the pipeline. The executable proof now builds and checksum-validates a real
+installer bundle, selects the newer published prerelease while ignoring a
+newer draft, downloads both assets from its exact tag, pins `-Version`, runs
+the extracted installer, and proves temporary extraction cleanup.

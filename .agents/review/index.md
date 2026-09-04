@@ -5,7 +5,8 @@
 Release-readiness audit found the public bootstrap used GitHub's stable-only
 latest-download route even though PTK selects the newest published release
 including prereleases. The red/green selection repair is recorded in
-`.agents/review/findings/rr-4.md`.
+`.agents/review/findings/rr-4.md`. Its follow-up executable README proof caught
+and repaired a nested REST-array bug left behind by the static guard.
 
 ## rr-3 packaged install release gate (2026-09-04)
 

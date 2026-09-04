@@ -34,6 +34,9 @@ every RID after signing and before archive creation (`rr-3`).
 
 The no-version public bootstrap now selects and pins the newest published
 stable or prerelease rather than GitHub's stable-only latest alias (`rr-4`).
+An executable README fixture caught and repaired the initial static guard's
+nested REST-array gap after `d40228c`; the proof now covers selection,
+checksum, pinned installer invocation, and cleanup.
 
 Local product head `8d4d9e9` now has a complete clean macOS verification
 battery: Pester, server, SIEM, registration handshake, mini-SIEM lifecycle,
@@ -129,6 +132,10 @@ four-build identity, release/signing helpers, and both vulnerability scans.
 - Prerelease bootstrap selection after `add2c2e`, 2026-09-04: the static guard
   failed on GitHub's stable-only latest alias before repair; release-selection
   test, README PowerShell parse, and `git diff --check` passed after repair.
+- Executable README bootstrap follow-up after `d40228c`, 2026-09-04: the new
+  fixture failed first with `GitHub returned an invalid draft flag.` against
+  the nested REST-array wrapper; after its removal the release-selection test
+  and focused README public-install parse passed. `git diff --check` passed.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

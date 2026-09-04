@@ -3,6 +3,22 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha-2.local` unique build identity proof (2026-09-04)
+
+- Host: macOS 26.6.2 build 25G83 arm64, .NET SDK 10.0.400, PowerShell 7.6.5.
+- The release-readiness identity worktree built PTK twice and the SIEM receiver
+  twice from local head `1c8edaa`; all four packages received distinct 32-hex
+  build identities, each manifest matched its binary informational version,
+  and the explicit untracked-source probe recorded `source_dirty=true`.
+- A fresh `osx-arm64` layout passed `install.ps1 -LayoutOnly -Validate` and the
+  26-check direct product proof, including exact identity in MCP initialize,
+  cold `ptk_state`, and audit `producer.version`.
+- Pester passed 112 with 3 platform skips; server passed 1,354/1,354 with the
+  two pre-existing xUnit analyzer warnings; SIEM passed 357/357 with no
+  warnings. Mini-SIEM lifecycle, registration handshake, release/signing
+  helper tests, actionlint, and both vulnerable-package scans also passed.
+- All throwaway package, audit, and build-identity roots were removed.
+
 ## `nagatha-2.local` current-head macOS package proof (2026-09-04)
 
 - Host: macOS 26.6.2 build 25G83 arm64, .NET SDK 10.0.400, PowerShell 7.6.5.

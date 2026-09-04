@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
 using PtkMcpServer;
 using PtkMcpServer.Audit;
 using PtkMcpServer.Audit.Export;
@@ -40,8 +41,10 @@ var maxCallTimeout = DefaultSessionRuntimeFactory.ReadMaxCallTimeout();
 // execution gate; export (below, R3) is additive and never gates.
 using var auditStartup = AuditStartupConfiguration.LoadFromEnvironment();
 using var outputRequestProtector = new AuditOutputRequestProtector();
-var producerVersion =
-    typeof(RunspaceHost).Assembly.GetName().Version?.ToString() ?? "0.0.0";
+// Audit records are operational diagnostics too. Keep their producer identity
+// identical to ptk_state and the packaged BUILD-PROVENANCE.json, including the
+// per-build suffix that distinguishes two builds of the same commit.
+var producerVersion = PtkVersion.Value;
 var exportSettings = AuditExportSettings.Load(
     auditStartup.AuditOptions.RootDirectory,
     out var exportConfigurationFailure);
@@ -172,7 +175,15 @@ var mcpIn = Console.OpenStandardInput();
 var mcpOut = Console.OpenStandardOutput();
 PtkMcpServer.ChildStdinGuard.DetachChildStdin();
 builder.Services
-    .AddMcpServer(options => options.ScopeRequests = true)
+    .AddMcpServer(options =>
+    {
+        options.ScopeRequests = true;
+        options.ServerInfo = new Implementation
+        {
+            Name = "PtkMcpServer",
+            Version = PtkVersion.Value,
+        };
+    })
     .WithStreamServerTransport(mcpIn, mcpOut)
     .WithRequestFilters(filters =>
     {

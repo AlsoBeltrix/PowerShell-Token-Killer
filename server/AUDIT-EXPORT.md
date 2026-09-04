@@ -52,7 +52,10 @@ mandatory, fail-closed local journal before serving any tool call:
   `splunk_hec` and `otlp_http`, including a separately deployed
   `PtkSiemReceiver`. Plaintext HTTP is accepted only for loopback endpoints;
   credentials never reach the journal, logs, status JSON, HTML, or
-  `ptk_state`. Proven loss reports `EXPORT_GAPS`; suspicion reports
+`ptk_state`. Each audit record's `producer.version` is the same exact
+`<version>+<short-commit>.build.<build-identity>` reported by `ptk_state` and
+recorded in the package's `BUILD-PROVENANCE.json`. Proven loss reports
+`EXPORT_GAPS`; suspicion reports
   `unverified_boot_boundaries` — never conflated.
 - **The loopback producer UI** (default port 8317, `PTK_AUDIT_UI_PORT`,
   `PTK_AUDIT_UI_DISABLED=1` to disable) is configuration and delivery status

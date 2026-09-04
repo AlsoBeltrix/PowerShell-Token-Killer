@@ -1,9 +1,17 @@
 # Plan: Global release readiness
 
-**Status:** PARKED 2026-07-31 — retain for future activation. Do not execute
-this plan, ask its release decisions, create release artifacts, tag, publish,
-or push on its authority. The owner will explicitly activate it when the
-product is close enough to release.
+**Status:** ACTIVATION AUDIT IN PROGRESS — owner reactivated release-readiness
+work on 2026-09-04. Local repairs and verification are authorized; release
+workflow dispatch, tag, publish, push, and other outward actions retain their
+separate owner gates.
+
+Activation gate 2 and readiness item 3 are implemented in the 2026-09-04
+unique-build-identity slice. Every PTK and SIEM package build receives a fresh
+identity recorded with full source commit, clean/dirty state, UTC build time,
+and RID. Package manifests, binary informational versions, MCP initialize,
+`ptk_state`, audit producer records, SIEM startup logs, and SIEM health output
+carry the matching identity. The guard builds both products twice from one
+commit, proves four distinct identities, and probes dirty-source detection.
 
 ## Purpose
 
@@ -104,11 +112,11 @@ rollback procedure. Tagging, pushing release refs, publishing artifacts, package
 index submission, and public announcement each require explicit authority under
 the repository push/outward-action policy.
 
-## Non-goals while parked
+## Retained non-goals
 
-- no release date;
-- no claim that the product is nearly done;
-- no license, hook-default, signing, or publication decision;
-- no release workflow, installer, tag, asset, package submission, or launch;
-- no diversion from current product defects merely to make the repository look
+- no release date before exact-candidate validation;
+- no claim that the product is release-ready before the final evidence gate;
+- no tag, publication, package submission, or announcement without its
+  explicit outward-action authority;
+- no speculative product changes merely to make the repository look
   release-shaped.

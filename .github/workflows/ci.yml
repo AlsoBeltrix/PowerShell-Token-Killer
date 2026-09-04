@@ -75,6 +75,10 @@ jobs:
         shell: pwsh
         run: ./server/test-version-fallback.ps1
 
+      - name: Unique build identity tests
+        shell: pwsh
+        run: ./server/test-build-identity.ps1
+
       - name: Release signing documentation tests
         shell: pwsh
         run: ./server/test-release-signing-docs.ps1

@@ -186,6 +186,7 @@ internal static class ActivityEndpoints
 
         await OperatorEndpoints.WriteJsonAsync(context, 200, new
         {
+            build_identity = PtkSiemVersion.Value,
             status = healthy ? "healthy" : "attention_required",
             summary = healthy
                 ? "Ingest, evidence delivery, chain integrity, and custody are healthy."

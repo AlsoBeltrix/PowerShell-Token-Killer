@@ -287,6 +287,10 @@ try {
     if (-not $init.result.serverInfo.name) {
         throw "initialize failed: $($init | ConvertTo-Json -Depth 12 -Compress)"
     }
+    if ($init.result.serverInfo.version -notmatch (
+            '^[0-9A-Za-z.-]+\+(?:[0-9a-f]{7}|unknown)\.build\.[0-9a-f]{32}$')) {
+        throw "initialize response does not identify the exact build: '$($init.result.serverInfo.version)'"
+    }
     Write-Host "initialize ok: $($init.result.serverInfo.name) $($init.result.serverInfo.version)"
 
     Send-Rpc @{ jsonrpc = '2.0'; method = 'notifications/initialized' }
@@ -377,7 +381,7 @@ try {
     $coldState = (Read-RpcResponse -Id 3).result
     $coldStateText = $coldState.content[0].text
     if ($coldState.isError -or
-        $coldStateText -notmatch '(?m)^ptk supervisor: pid=\d+ sessions=1/8\r?$' -or
+        $coldStateText -notmatch '(?m)^ptk [0-9A-Za-z.-]+\+(?:[0-9a-f]{7}|unknown)\.build\.[0-9a-f]{32}: supervisor pid=\d+ sessions=1/8\r?$' -or
         $coldStateText -notmatch '(?m)^session=default state=cold worker_pid=none active=false ' -or
         $coldStateText -notmatch '(?m)^audit: healthy mode=local-only\r?$' -or
         $coldStateText -notmatch 'runspace: unavailable \(detail=session_cold\)') {

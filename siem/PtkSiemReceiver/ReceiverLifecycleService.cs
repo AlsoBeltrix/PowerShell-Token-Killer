@@ -25,9 +25,10 @@ internal sealed class ReceiverLifecycleService : BackgroundService
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation(
-            "PtkSiemReceiver started: ingest {IngestAddress}:{IngestPort}, " +
+            "PtkSiemReceiver {BuildIdentity} started: ingest {IngestAddress}:{IngestPort}, " +
             "operator {OperatorAddress}:{OperatorPort}, store {SqlitePath}. " +
             "Ingest is active; the operator endpoint is not yet active.",
+            PtkSiemVersion.Value,
             _options.IngestBindAddress,
             _options.IngestPort,
             _options.OperatorBindAddress,

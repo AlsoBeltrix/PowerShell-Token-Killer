@@ -8,22 +8,26 @@
     <!-- Release packaging overrides Version; keep ordinary local builds on
          the same product line rather than the SDK's unrelated 1.0.0. -->
     <Version Condition="'$(Version)' == ''">0.2.0</Version>
+    <PtkBuildIdentity Condition="'$(PtkBuildIdentity)' == ''">$([System.Guid]::NewGuid().ToString('N'))</PtkBuildIdentity>
     <Product>PowerShell Token Killer SIEM Receiver</Product>
     <Company>PowerShell-Token-Killer</Company>
     <Copyright>(c) 2026 PowerShell Token Killer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
   </PropertyGroup>
 
   <Target Name="PtkSiemStampSourceCommit" BeforeTargets="GetAssemblyAttributes">
-    <Exec Command="git rev-parse --short HEAD"
+    <Exec Condition="'$(PtkSourceCommit)' == ''"
+          Command="git rev-parse --short HEAD"
           ConsoleToMSBuild="true"
           StandardOutputImportance="low"
           ContinueOnError="true"
           IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="PtkSiemSourceCommit" />
+      <Output TaskParameter="ConsoleOutput" PropertyName="PtkDetectedSourceCommit" />
       <Output TaskParameter="ExitCode" PropertyName="PtkSiemSourceCommitExitCode" />
     </Exec>
-    <PropertyGroup Condition="'$(PtkSiemSourceCommitExitCode)' == '0' and '$(PtkSiemSourceCommit)' != ''">
-      <InformationalVersion>$(Version)+$(PtkSiemSourceCommit.Trim())</InformationalVersion>
+    <PropertyGroup>
+      <PtkSourceCommit Condition="'$(PtkSourceCommit)' == '' and '$(PtkSiemSourceCommitExitCode)' == '0' and '$(PtkDetectedSourceCommit)' != ''">$(PtkDetectedSourceCommit.Trim())</PtkSourceCommit>
+      <PtkSourceCommit Condition="'$(PtkSourceCommit)' == ''">unknown</PtkSourceCommit>
+      <InformationalVersion>$(Version)+$(PtkSourceCommit).build.$(PtkBuildIdentity)</InformationalVersion>
     </PropertyGroup>
   </Target>
 

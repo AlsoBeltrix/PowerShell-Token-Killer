@@ -15,7 +15,8 @@ Enter wires all); -Agent/-SkipAgent/-AllAgents pre-answer. Any failure
 during activation or registration restores the previous payload
 byte-identically.
 
-~/.ptk holds bin/, src/, scripts/, VERSION, LICENSE, README.md — replaced
+~/.ptk holds bin/, src/, scripts/, VERSION, BUILD-PROVENANCE.json, LICENSE,
+README.md — replaced
 wholesale on upgrade. Everything else there is user-owned and is never
 touched except by -Purge.
 
@@ -108,13 +109,16 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $ptkHome = Join-Path $HOME '.ptk'
 # Everything the installer owns and replaces wholesale on upgrade; anything
 # else under ~/.ptk is user-owned and never touched here.
-$payloadEntries = @('bin', 'src', 'scripts', 'VERSION', 'LICENSE', 'README.md')
+$payloadEntries = @(
+    'bin', 'src', 'scripts', 'VERSION', 'BUILD-PROVENANCE.json', 'LICENSE', 'README.md')
 # Records an rtk this installer placed, so uninstall removes only that copy
 # and never a user's own.
 $rtkMarkerName = '.ptk-installed-rtk'
 $arpKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ptk'
 $installTransactionModule = Join-Path $PSScriptRoot 'ptk_install_transaction.psm1'
 Import-Module $installTransactionModule -Force
+$buildProvenanceModule = Join-Path $PSScriptRoot 'ptk_build_provenance.psm1'
+Import-Module $buildProvenanceModule -Force
 
 function Get-PtkRid {
     $arch = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
@@ -223,6 +227,7 @@ function Assert-PtkPayloadIntact {
         (Join-Path $Root 'src' 'PwshTokenCompressor.psd1')
         (Join-Path $Root 'LICENSE')
         (Join-Path $Root 'VERSION')
+        (Join-Path $Root 'BUILD-PROVENANCE.json')
     )
     if ($TargetRid -notlike 'win-*') {
         $required += Join-Path $Root 'bin' 'PtkWorkerBroker'
@@ -486,6 +491,12 @@ function Get-PtkReleaseLayout {
             tar -xzf $archive -C $Destination
             if ($LASTEXITCODE -ne 0) { throw "tar failed to extract $asset" }
         }
+        $provenancePath = Join-Path $Destination 'BUILD-PROVENANCE.json'
+        if (-not (Test-Path -LiteralPath $provenancePath -PathType Leaf)) {
+            $legacy = New-PtkLegacyBuildProvenance `
+                -Product 'ptk' -ProductVersion $number -TargetRid $TargetRid
+            Write-PtkBuildProvenance -Provenance $legacy -Path $provenancePath
+        }
         return $number
     }
     finally {
@@ -659,10 +670,24 @@ function New-PtkLayout {
         [Parameter(Mandatory)][string]$TargetRid,
         [Parameter(Mandatory)][string]$PayloadVersion
     )
-    Write-Host "Publishing PtkMcpServer ($TargetRid, $PayloadVersion)..."
+    $provenance = New-PtkBuildProvenance `
+        -Product 'ptk' `
+        -ProductVersion $PayloadVersion `
+        -TargetRid $TargetRid `
+        -SourceRoot $repoRoot
+    $sourceRevision = if ($provenance.source_commit -ceq 'unknown') {
+        'unknown'
+    }
+    else {
+        $provenance.source_commit.Substring(0, 7)
+    }
+    Write-Host (
+        "Publishing PtkMcpServer ($TargetRid, $PayloadVersion, build $($provenance.build_identity))...")
     dotnet publish (Join-Path $repoRoot 'server' 'PtkMcpServer') `
         -c Release -r $TargetRid --self-contained `
         -p:Version=$PayloadVersion `
+        -p:PtkSourceCommit=$sourceRevision `
+        -p:PtkBuildIdentity=$($provenance.build_identity) `
         -o (Join-Path $Destination 'bin') -v q --nologo | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
 
@@ -675,7 +700,7 @@ function New-PtkLayout {
         -PayloadVersion $PayloadVersion
     $scripts = New-Item -ItemType Directory -Path (Join-Path $Destination 'scripts') -Force
     foreach ($f in 'ptk-hook.ps1', 'ptk_init.ps1', 'ptk-audit-destination.ps1', 'install.ps1',
-        'ptk_install_transaction.psm1') {
+        'ptk_install_transaction.psm1', 'ptk_build_provenance.psm1') {
         Copy-Item -LiteralPath (Join-Path $repoRoot 'scripts' $f) -Destination $scripts.FullName
     }
     # Apache-2.0 requires the licence to travel with the distribution, and a
@@ -684,6 +709,9 @@ function New-PtkLayout {
         Copy-Item -LiteralPath (Join-Path $repoRoot $f) -Destination $Destination
     }
     Set-Content -LiteralPath (Join-Path $Destination 'VERSION') -Value $PayloadVersion -NoNewline
+    Write-PtkBuildProvenance `
+        -Provenance $provenance `
+        -Path (Join-Path $Destination 'BUILD-PROVENANCE.json')
 }
 
 function Remove-PtkPayload {

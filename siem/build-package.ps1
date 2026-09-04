@@ -29,6 +29,18 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $destination = [IO.Path]::GetFullPath($OutputDir)
 $payloadVersion = $Version -replace '^[vV]', ''
+Import-Module (Join-Path $repoRoot 'scripts' 'ptk_build_provenance.psm1') -Force
+$provenance = New-PtkBuildProvenance `
+    -Product 'ptk-siem-receiver' `
+    -ProductVersion $payloadVersion `
+    -TargetRid $Rid `
+    -SourceRoot $repoRoot
+$sourceRevision = if ($provenance.source_commit -ceq 'unknown') {
+    'unknown'
+}
+else {
+    $provenance.source_commit.Substring(0, 7)
+}
 
 if ((Test-Path -LiteralPath $destination) -and
     (Get-ChildItem -LiteralPath $destination -Force | Select-Object -First 1)) {
@@ -37,11 +49,14 @@ if ((Test-Path -LiteralPath $destination) -and
 
 New-Item -ItemType Directory -Path $destination -Force | Out-Null
 
-Write-Information "Publishing PtkSiemReceiver ($Rid, $payloadVersion)..." `
+Write-Information (
+    "Publishing PtkSiemReceiver ($Rid, $payloadVersion, build $($provenance.build_identity))...") `
     -InformationAction Continue
 dotnet publish (Join-Path $PSScriptRoot 'PtkSiemReceiver' 'PtkSiemReceiver.csproj') `
     -c Release -r $Rid --self-contained true `
     "-p:Version=$payloadVersion" `
+    "-p:PtkSourceCommit=$sourceRevision" `
+    "-p:PtkBuildIdentity=$($provenance.build_identity)" `
     -o $destination -v q --nologo | Out-Host
 if ($LASTEXITCODE -ne 0) {
     throw "PtkSiemReceiver publish failed with exit code $LASTEXITCODE."
@@ -65,6 +80,10 @@ Copy-Item -LiteralPath (
 
 Set-Content -LiteralPath (Join-Path $destination 'VERSION') `
     -Value $payloadVersion -NoNewline
+Write-PtkBuildProvenance `
+    -Provenance $provenance `
+    -Path (Join-Path $destination 'BUILD-PROVENANCE.json')
 
-Write-Information "SIEM package layout ready: $destination ($Rid, $payloadVersion)" `
+Write-Information (
+    "SIEM package layout ready: $destination ($Rid, $payloadVersion, build $($provenance.build_identity))") `
     -InformationAction Continue

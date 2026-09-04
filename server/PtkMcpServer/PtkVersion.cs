@@ -12,13 +12,14 @@ namespace PtkMcpServer;
 /// hard to act on.
 ///
 /// Reads <c>AssemblyInformationalVersionAttribute</c>, which the build stamps
-/// as <c>&lt;version&gt;+&lt;short-sha&gt;</c>, so the value ties a running
-/// process back to its exact source.
+/// as <c>&lt;version&gt;+&lt;short-sha&gt;.build.&lt;build-identity&gt;</c>, so the value ties
+/// a running process back to one exact build of its source.
 /// </summary>
 internal static class PtkVersion
 {
     /// <summary>
-    /// Version string for display, e.g. <c>0.2.0+a1b2c3d</c>. Falls back to the
+    /// Exact build identity for display, e.g.
+    /// <c>0.2.0+a1b2c3d.build.0123456789abcdef0123456789abcdef</c>. Falls back to the
     /// assembly version, then to <c>unknown</c> — never throws and never
     /// returns empty, because a diagnostic surface that can fail is worse than
     /// one that says it does not know.

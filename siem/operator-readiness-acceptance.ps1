@@ -158,6 +158,32 @@ function Get-Utf8Sha256 {
     return [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData($bytes)).ToLowerInvariant()
 }
 
+function Test-BuildProvenance {
+    param(
+        [Parameter(Mandatory)][psobject]$Record,
+        [Parameter(Mandatory)][string]$Product,
+        [Parameter(Mandatory)][string]$ProductVersion,
+        [Parameter(Mandatory)][string]$TargetRid,
+        [Parameter(Mandatory)][string]$SourceCommit
+    )
+
+    $builtAt = [datetimeoffset]::MinValue
+    return $Record.schema_version -eq 1 -and
+        $Record.product -ceq $Product -and
+        $Record.product_version -ceq $ProductVersion -and
+        $Record.target_rid -ceq $TargetRid -and
+        $Record.build_identity -cmatch '^[0-9a-f]{32}$' -and
+        ([string]$Record.source_commit).StartsWith(
+            $SourceCommit, [StringComparison]::Ordinal) -and
+        $Record.source_dirty -eq $false -and
+        [datetimeoffset]::TryParse(
+            [string]$Record.build_time_utc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal,
+            [ref]$builtAt) -and
+        $builtAt.Offset -eq [timespan]::Zero
+}
+
 $results = [Collections.Generic.List[object]]::new()
 function Add-Result {
     param(
@@ -194,7 +220,7 @@ function Test-Requirement {
 
 $normalizedVersion = $Version.TrimStart('v', 'V')
 $normalizedSourceCommit = $SourceCommit.ToLowerInvariant()
-$expectedProductVersion = "$normalizedVersion+$($normalizedSourceCommit.Substring(0, 7))"
+$expectedStampedCommit = $normalizedSourceCommit.Substring(0, 7)
 $workRoot = Join-Path ([IO.Path]::GetTempPath()) "ptk-siem-operator-acceptance-$([Guid]::NewGuid().ToString('N'))"
 
 try {
@@ -206,6 +232,14 @@ try {
 
     $ptkRoot = Find-PackageRoot -ExtractedRoot $ptkExtractRoot -RequiredRelativePath 'bin/PtkMcpServer.dll'
     $siemRoot = Find-PackageRoot -ExtractedRoot $siemExtractRoot -RequiredRelativePath 'PtkSiemReceiver.dll'
+    $ptkProvenance = Get-Content -LiteralPath (
+        Join-Path $ptkRoot 'BUILD-PROVENANCE.json') -Raw | ConvertFrom-Json
+    $siemProvenance = Get-Content -LiteralPath (
+        Join-Path $siemRoot 'BUILD-PROVENANCE.json') -Raw | ConvertFrom-Json
+    $expectedPtkProductVersion = (
+        "$normalizedVersion+$expectedStampedCommit.build.$($ptkProvenance.build_identity)")
+    $expectedSiemProductVersion = (
+        "$normalizedVersion+$expectedStampedCommit.build.$($siemProvenance.build_identity)")
     $observation = Get-Content -LiteralPath $ObservationFile -Raw | ConvertFrom-Json -Depth 100
 
     $actualPtkHash = (Get-FileHash -LiteralPath $PtkArchive -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -219,18 +253,38 @@ try {
         $siemRoot.StartsWith($workRoot, [StringComparison]::Ordinal)
     } 'Product package roots were not extracted beneath the fresh acceptance root.' $workRoot
 
+    Test-Requirement 'artifact.ptk_build_provenance' {
+        Test-BuildProvenance `
+            -Record $ptkProvenance `
+            -Product 'ptk' `
+            -ProductVersion $normalizedVersion `
+            -TargetRid $Rid `
+            -SourceCommit $normalizedSourceCommit
+    } 'PTK build provenance is absent, dirty, malformed, or source-mismatched.' `
+        $expectedPtkProductVersion
+    Test-Requirement 'artifact.siem_build_provenance' {
+        Test-BuildProvenance `
+            -Record $siemProvenance `
+            -Product 'ptk-siem-receiver' `
+            -ProductVersion $normalizedVersion `
+            -TargetRid $Rid `
+            -SourceCommit $normalizedSourceCommit
+    } 'Mini-SIEM build provenance is absent, dirty, malformed, or source-mismatched.' `
+        $expectedSiemProductVersion
+
     $ptkVersion = [IO.File]::ReadAllText((Join-Path $ptkRoot 'VERSION')).Trim()
     $ptkProductVersion = [Diagnostics.FileVersionInfo]::GetVersionInfo(
         (Join-Path $ptkRoot 'bin/PtkMcpServer.dll')).ProductVersion
     Test-Requirement 'artifact.ptk_release_identity' {
-        $ptkVersion -ceq $normalizedVersion -and $ptkProductVersion -ceq $expectedProductVersion
-    } "PTK package is not $expectedProductVersion." "$ptkVersion / $ptkProductVersion"
+        $ptkVersion -ceq $normalizedVersion -and
+        $ptkProductVersion -ceq $expectedPtkProductVersion
+    } "PTK package is not $expectedPtkProductVersion." "$ptkVersion / $ptkProductVersion"
 
     & (Join-Path $PSScriptRoot 'verify-package.ps1') `
         -PackageDir $siemRoot -Rid $Rid -Version $normalizedVersion `
         -SourceCommit $normalizedSourceCommit
     Test-Requirement 'artifact.siem_release_identity' { $true } `
-        'Mini-SIEM package verification failed.' $expectedProductVersion
+        'Mini-SIEM package verification failed.' $expectedSiemProductVersion
 
     $bundledReceiver = @(Get-ChildItem -LiteralPath $ptkRoot -Recurse -File -Filter 'PtkSiemReceiver*')
     Test-Requirement 'destination.mini_siem_separately_deployed' { $bundledReceiver.Count -eq 0 } `

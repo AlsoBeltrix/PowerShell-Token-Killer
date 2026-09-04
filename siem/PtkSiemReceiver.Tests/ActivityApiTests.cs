@@ -365,6 +365,9 @@ public sealed class ActivityApiTests
         {
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
             using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(
+                PtkSiemVersion.Value,
+                payload.RootElement.GetProperty("build_identity").GetString());
             Assert.Equal("waiting_for_first_event", payload.RootElement
                 .GetProperty("ingest").GetProperty("status").GetString());
             Assert.Equal("complete", payload.RootElement

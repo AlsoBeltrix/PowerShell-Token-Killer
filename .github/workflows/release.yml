@@ -284,7 +284,8 @@ jobs:
             'out/ptk/bin/PtkMcpServer'
           }
           pwsh -NoProfile -File server/direct-product-proof.ps1 `
-            -ServerPath (Resolve-Path $exe)
+            -ServerPath (Resolve-Path $exe) `
+            -RequireCleanSource
 
       # The startup gate is a product contract: no RTK means a clear refusal,
       # never a half-working server. Proven against the packaged bits.
@@ -337,7 +338,8 @@ jobs:
             -Rid ${{ matrix.rid }} `
             -Version ${{ steps.version.outputs.version }} `
             -SourceCommit $sourceCommit `
-            -SourceRoot $PWD
+            -SourceRoot $PWD `
+            -RequireCleanSource
 
       # Notarization is Apple's malware-scan-and-ticket service; Gatekeeper
       # consults it online when a user runs a browser-downloaded copy. Bare

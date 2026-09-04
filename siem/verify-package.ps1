@@ -21,7 +21,9 @@ param(
     [string]$SourceCommit,
 
     [ValidateNotNullOrEmpty()]
-    [string]$SourceRoot
+    [string]$SourceRoot,
+
+    [switch]$RequireCleanSource
 )
 
 Set-StrictMode -Version Latest
@@ -47,6 +49,7 @@ $requiredFiles = @(
     'README.md',
     'LICENSE',
     'VERSION',
+    'BUILD-PROVENANCE.json',
     (Join-Path 'THIRD-PARTY-LICENSES' 'OpenTelemetry-Apache-2.0.txt'),
     (Join-Path 'THIRD-PARTY-LICENSES' 'Microsoft.Extensions.Hosting.WindowsServices-MIT.txt')
 )
@@ -60,6 +63,31 @@ foreach ($relative in $requiredFiles) {
 $versionText = [IO.File]::ReadAllText((Join-Path $root 'VERSION'))
 if ($versionText -cne $payloadVersion) {
     throw "SIEM VERSION mismatch: expected '$payloadVersion', found '$versionText'."
+}
+
+$provenance = Get-Content -LiteralPath (
+    Join-Path $root 'BUILD-PROVENANCE.json') -Raw | ConvertFrom-Json
+if ($provenance.schema_version -ne 1 -or
+    $provenance.product -cne 'ptk-siem-receiver' -or
+    $provenance.product_version -cne $payloadVersion -or
+    $provenance.target_rid -cne $Rid -or
+    $provenance.build_identity -cnotmatch '^[0-9a-f]{32}$' -or
+    -not ([string]$provenance.source_commit).StartsWith(
+        $SourceCommit.ToLowerInvariant(), [StringComparison]::Ordinal) -or
+    $provenance.source_dirty -isnot [bool]) {
+    throw 'SIEM BUILD-PROVENANCE.json does not match the requested package.'
+}
+if ($RequireCleanSource -and $provenance.source_dirty -ne $false) {
+    throw 'SIEM BUILD-PROVENANCE.json reports a dirty source tree.'
+}
+$builtAt = [datetimeoffset]::MinValue
+if (-not [datetimeoffset]::TryParse(
+        [string]$provenance.build_time_utc,
+        [Globalization.CultureInfo]::InvariantCulture,
+        [Globalization.DateTimeStyles]::AssumeUniversal,
+        [ref]$builtAt) -or
+    $builtAt.Offset -ne [timespan]::Zero) {
+    throw "SIEM build_time_utc is not a UTC timestamp: '$($provenance.build_time_utc)'."
 }
 
 if ($PSBoundParameters.ContainsKey('SourceRoot')) {
@@ -98,7 +126,8 @@ if ($assemblyVersion -ne $expectedAssemblyVersion) {
     throw "SIEM assembly version mismatch: expected '$expectedAssemblyVersion', found '$assemblyVersion'."
 }
 
-$expectedProductVersion = "$payloadVersion+$expectedSourceCommit"
+$expectedProductVersion = (
+    "$payloadVersion+$expectedSourceCommit.build.$($provenance.build_identity)")
 $versionInfo = [Diagnostics.FileVersionInfo]::GetVersionInfo($assemblyPath)
 if ($versionInfo.ProductVersion -cne $expectedProductVersion) {
     throw "SIEM informational version mismatch: expected '$expectedProductVersion', found '$($versionInfo.ProductVersion)'."

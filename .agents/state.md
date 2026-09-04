@@ -5,20 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Canonical CI is green at `b2253a9`.** Run `33910227193` passed all six
-Ubuntu, macOS, and Windows product/SIEM jobs, including the repaired
-version-fallback step and the final Windows handshake. The owner explicitly
-reactivated global release-readiness work on 2026-09-04. Its activation-gate
-audit is in progress: the live GitHub backlog contains only #30, whose remoting
-acceptance passed but whose `i30-1` stream-retention contract still needs an
-owner ruling; unique per-build identity and current exact-candidate artifact
-proof are not yet established.
-
+**Canonical CI is green at `b2253a9`; local release-readiness work is ahead.**
+Run `33910227193` passed all six Ubuntu, macOS, and Windows product/SIEM jobs.
+The 2026-09-04 unique-build-identity slice now gives every PTK and SIEM build a
+fresh exact identity across package provenance, binaries, MCP initialize,
+runtime diagnostics, audit records, receiver logs, and receiver health. Its
+same-commit rebuild/dirty-source guard and full local macOS battery pass. The
+live GitHub backlog contains only #30; remoting acceptance passed, but
+`i30-1` still needs the one owner stream-retention ruling.
 ## Next
 
-- Complete the release-readiness activation audit, beginning with unique
-  per-build identity and the current exact-candidate artifact gates, then
-  execute each authorized local blocker.
+- Finish the release-readiness activation audit and freeze the candidate
+  contract/version after the `i30-1` ruling; then build the current-head
+  five-RID draft under its separate outward-action gate.
 - Obtain the one required owner ruling for `i30-1` without coupling unrelated
   Sentinel or package-manager feature decisions to the release candidate.
   Outward release actions remain separately gated.
@@ -70,6 +69,13 @@ proof are not yet established.
 
 - Automated verification entry point and current exact-head results:
   `.agents/repo-guidance.md` (Verification).
+- Unique-build-identity worktree, 2026-09-04: repeated PTK and SIEM builds
+  received four distinct identities; dirty-source detection passed; packaged
+  initialize, cold `ptk_state`, audit producer identity, layout validation,
+  and 26-check direct product proof passed. Full Pester passed 112/3 skipped;
+  server passed 1,354/1,354 with two known analyzer warnings; SIEM passed
+  357/357 clean; lifecycle, registration handshake, actionlint, release helper,
+  signing-helper, and both dependency-vulnerability gates passed.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

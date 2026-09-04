@@ -197,7 +197,9 @@ internal sealed class WorkerSupervisor : ISessionOperations, ISessionLifetime
             var snapshot = _sessions.List().Single(item =>
                 string.Equals(item.Name, session, StringComparison.Ordinal));
             var sb = new StringBuilder();
-            sb.Append("ptk supervisor: pid=")
+            sb.Append("ptk ")
+                .Append(PtkVersion.Value)
+                .Append(": supervisor pid=")
                 .Append(Environment.ProcessId.ToString(CultureInfo.InvariantCulture))
                 .Append(" sessions=")
                 .Append(_sessions.List().Length.ToString(CultureInfo.InvariantCulture))

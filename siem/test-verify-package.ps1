@@ -69,13 +69,41 @@ try {
     & $verifier @common -SourceCommit $wrongCommit
 }
 catch {
-    if ($_.Exception.Message -notmatch 'informational version mismatch') {
+    if ($_.Exception.Message -notmatch 'BUILD-PROVENANCE|informational version mismatch') {
         throw "Wrong source commit failed for an unexpected reason: $($_.Exception.Message)"
     }
     $wrongCommitRejected = $true
 }
 if (-not $wrongCommitRejected) {
     throw 'verify-package.ps1 accepted a package whose release-bound source commit did not match.'
+}
+
+# The manifest and binary must carry one identity. A valid-looking replacement
+# UUID in only the manifest must not let a repackaged binary pass.
+$provenancePath = Join-Path $PackageDir 'BUILD-PROVENANCE.json'
+$originalProvenance = Get-Content -LiteralPath $provenancePath -Raw
+$tamperedProvenance = $originalProvenance | ConvertFrom-Json
+$tamperedProvenance.build_identity = [guid]::NewGuid().ToString('N')
+$tamperedIdentityRejected = $false
+try {
+    $tamperedProvenance | ConvertTo-Json -Depth 4 |
+        Set-Content -LiteralPath $provenancePath -Encoding utf8NoBOM
+    try {
+        & $verifier @common -SourceCommit $normalizedCommit
+    }
+    catch {
+        if ($_.Exception.Message -notmatch 'informational version mismatch') {
+            throw "Tampered identity failed for an unexpected reason: $($_.Exception.Message)"
+        }
+        $tamperedIdentityRejected = $true
+    }
+}
+finally {
+    Set-Content -LiteralPath $provenancePath -Value $originalProvenance `
+        -Encoding utf8NoBOM -NoNewline
+}
+if (-not $tamperedIdentityRejected) {
+    throw 'verify-package.ps1 accepted a manifest identity that did not match the binary.'
 }
 
 $repoRoot = Split-Path -Parent $PSScriptRoot

@@ -14,10 +14,10 @@ coverage/
 # .NET
 bin/
 obj/
+out/
+dist/
 *.user
 *.local.json
-.tokensave\
-.serena\
 .serena/
 .tokensave/
 .codex/config.toml

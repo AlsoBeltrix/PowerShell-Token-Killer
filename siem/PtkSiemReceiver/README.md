@@ -29,6 +29,13 @@ archive and contains `manage.ps1` for its own deployment lifecycle.
 - the archive SHA-256 exactly matches its one `SHA256SUMS` entry;
 - the extracted package `VERSION` and native executable match that selection.
 
+Release packages also include `BUILD-PROVENANCE.json`. It records a fresh
+per-build identity, full source commit, clean/dirty source state, UTC build
+time, and target RID. The receiver's startup log and authenticated
+`GET /api/health` response expose the matching
+`<version>+<short-commit>.build.<build-identity>` value, so rebuilds of one
+commit remain distinguishable after deployment.
+
 Install writes one deployment manifest. Its `owned_files` list contains only
 program, generated/copied TLS, configuration, and service-definition files.
 SQLite, custody-witness, and optional anchor paths are recorded as data, never as

@@ -280,6 +280,14 @@ which is also what ptk runs. `-FromRelease` takes the latest published release
 which additionally needs the .NET SDK. Everything after the payload is
 obtained is identical either way.
 
+Every newly built package has an exact identity independent of its product
+version and source commit. `BUILD-PROVENANCE.json` records the product version,
+full source commit, clean/dirty source state, UTC build time, target RID, and a
+fresh 32-hex build identity. `ptk_state` and audit records report the matching
+`<version>+<short-commit>.build.<build-identity>` value, so two rebuilds of the
+same commit cannot be mistaken for each other. The manifest remains installed
+at `~/.ptk/BUILD-PROVENANCE.json` for offline diagnostics.
+
 The installer:
 
 - selects a smoke-tested `win-x64`, `win-arm64`, `linux-x64`, `linux-arm64`,

@@ -8,6 +8,7 @@
     <!-- Overridden by release CI via -p:Version from the tag; this is the
          value a plain local build reports. -->
     <Version Condition="'$(Version)' == ''">0.2.0</Version>
+    <PtkBuildIdentity Condition="'$(PtkBuildIdentity)' == ''">$([System.Guid]::NewGuid().ToString('N'))</PtkBuildIdentity>
     <Product>PowerShell Token Killer</Product>
     <Company>PowerShell-Token-Killer</Company>
     <Copyright>(c) 2026 PowerShell Token Killer contributors. Licensed under the Apache License, Version 2.0.</Copyright>
@@ -38,21 +39,23 @@
       CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <!-- The source commit rides in the informational version, so an installed
-       binary can be traced to its exact source. Not a provenance system and
-       not per-rebuild uniqueness: a build outside a git checkout simply omits
-       the suffix rather than failing. -->
+  <!-- Source and per-build identity ride in the informational version. Package
+       builders pass both explicitly; ordinary local builds discover source and
+       allocate a fresh identity here. -->
   <Target Name="PtkStampSourceCommit" BeforeTargets="GetAssemblyAttributes">
-    <Exec Command="git rev-parse --short HEAD"
+    <Exec Condition="'$(PtkSourceCommit)' == ''"
+          Command="git rev-parse --short HEAD"
           ConsoleToMSBuild="true"
           StandardOutputImportance="low"
           ContinueOnError="true"
           IgnoreExitCode="true">
-      <Output TaskParameter="ConsoleOutput" PropertyName="PtkSourceCommit" />
+      <Output TaskParameter="ConsoleOutput" PropertyName="PtkDetectedSourceCommit" />
       <Output TaskParameter="ExitCode" PropertyName="PtkSourceCommitExitCode" />
     </Exec>
-    <PropertyGroup Condition="'$(PtkSourceCommitExitCode)' == '0' and '$(PtkSourceCommit)' != ''">
-      <InformationalVersion>$(Version)+$(PtkSourceCommit.Trim())</InformationalVersion>
+    <PropertyGroup>
+      <PtkSourceCommit Condition="'$(PtkSourceCommit)' == '' and '$(PtkSourceCommitExitCode)' == '0' and '$(PtkDetectedSourceCommit)' != ''">$(PtkDetectedSourceCommit.Trim())</PtkSourceCommit>
+      <PtkSourceCommit Condition="'$(PtkSourceCommit)' == ''">unknown</PtkSourceCommit>
+      <InformationalVersion>$(Version)+$(PtkSourceCommit).build.$(PtkBuildIdentity)</InformationalVersion>
     </PropertyGroup>
   </Target>
 

@@ -26,7 +26,9 @@ param(
     # explicitly rather than inferring one: a proof script must never be able
     # to delete the operator's real ~/.ptk by default. Pass the same throwaway
     # home the candidate was installed into.
-    [string]$UninstallHome
+    [string]$UninstallHome,
+
+    [switch]$RequireCleanSource
 )
 
 $ErrorActionPreference = 'Stop'
@@ -43,6 +45,51 @@ function Report {
         Write-Host ("  FAIL {0}{1}" -f $Name, $(if ($Detail) { " -- $Detail" } else { '' }))
         $script:failures += $Name
     }
+}
+
+# Exact-candidate identity is part of the installed product contract. The
+# manifest must agree with runtime diagnostics and audit producer records; a
+# version plus commit alone cannot distinguish two rebuilds.
+$script:expectedProductIdentity = $null
+$serverResolved = [IO.Path]::GetFullPath((Resolve-Path $ServerPath).Path)
+$packageRoot = Split-Path -Parent (Split-Path -Parent $serverResolved)
+$provenancePath = Join-Path $packageRoot 'BUILD-PROVENANCE.json'
+try {
+    $provenance = Get-Content -LiteralPath $provenancePath -Raw |
+        ConvertFrom-Json -ErrorAction Stop
+    $builtAt = [datetimeoffset]::MinValue
+    $provenanceValid =
+        $provenance.schema_version -eq 1 -and
+        $provenance.product -ceq 'ptk' -and
+        $provenance.product_version -is [string] -and
+        -not [string]::IsNullOrWhiteSpace($provenance.product_version) -and
+        $provenance.build_identity -cmatch '^[0-9a-f]{32}$' -and
+        $provenance.source_commit -cmatch '^(?:[0-9a-f]{40}|unknown)$' -and
+        $provenance.source_dirty -is [bool] -and
+        (-not $RequireCleanSource -or $provenance.source_dirty -eq $false) -and
+        $provenance.target_rid -ceq (
+            [Runtime.InteropServices.RuntimeInformation]::RuntimeIdentifier) -and
+        [datetimeoffset]::TryParse(
+            [string]$provenance.build_time_utc,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [Globalization.DateTimeStyles]::AssumeUniversal,
+            [ref]$builtAt) -and
+        $builtAt.Offset -eq [timespan]::Zero
+    if ($provenanceValid) {
+        $sourceRevision = if ($provenance.source_commit -ceq 'unknown') {
+            'unknown'
+        }
+        else {
+            $provenance.source_commit.Substring(0, 7)
+        }
+        $script:expectedProductIdentity =
+            "$($provenance.product_version)+$sourceRevision.build.$($provenance.build_identity)"
+    }
+    Report 'carries valid exact-build provenance' $provenanceValid (
+        "path=$provenancePath")
+}
+catch {
+    Report 'carries valid exact-build provenance' $false $_.Exception.Message
 }
 
 # --- MCP stdio client ------------------------------------------------------
@@ -106,12 +153,25 @@ try {
         clientInfo      = @{ name = 'ptk-direct-proof'; version = '1' }
     }
     Report 'server initializes' ($null -ne $init.result)
+    Report 'initialize reports exact packaged build identity' (
+        $init.result.serverInfo.version -ceq $script:expectedProductIdentity) `
+        $init.result.serverInfo.version
     Send -Method 'notifications/initialized' -Notify | Out-Null
 
     # 3. exactly the five supported tools
     $tools = (Send -Method 'tools/list').result.tools.name | Sort-Object
     $expected = @('ptk_invoke', 'ptk_output', 'ptk_reset', 'ptk_session', 'ptk_state')
     Report 'exposes exactly the five tools' (-not (Compare-Object $tools $expected)) ($tools -join ',')
+
+    $state = Send -Method 'tools/call' -Params @{
+        name = 'ptk_state'; arguments = @{ session = 'default'; listAvailable = $false }
+    }
+    $stateText = ($state.result.content | Where-Object { $_.type -eq 'text' } |
+        ForEach-Object { $_.text }) -join "`n"
+    Report 'runtime reports exact packaged build identity' (
+        $null -ne $script:expectedProductIdentity -and
+        $stateText -match [regex]::Escape("ptk $($script:expectedProductIdentity):")) `
+        $stateText
 
     # 4. named session retains warm state across invocations
     # Assert the open actually succeeded: silently discarding this result let a
@@ -248,15 +308,30 @@ finally {
     $sawAccepted = $false
     $sawTerminal = $false
     $sawProofSession = $false
+    $sawExactBuildIdentity = $false
+    $observedProducerVersions = [Collections.Generic.HashSet[string]]::new(
+        [StringComparer]::Ordinal)
     foreach ($artifact in $auditArtifacts) {
         $text = Get-Content -LiteralPath $artifact.FullName -Raw
         if ($text -match '"event_type":"call\.accepted"') { $sawAccepted = $true }
         if ($text -match '"event_type":"call\.(completed|failed)"') { $sawTerminal = $true }
         if ($text -match '"name":"proof"') { $sawProofSession = $true }
+        foreach ($match in [regex]::Matches(
+                $text, '"producer":\{.*?"version":"([^"]+)"')) {
+            $decodedVersion = ('"' + $match.Groups[1].Value + '"') |
+                ConvertFrom-Json
+            [void]$observedProducerVersions.Add($decodedVersion)
+            if ($null -ne $script:expectedProductIdentity -and
+                $decodedVersion -ceq $script:expectedProductIdentity) {
+                $sawExactBuildIdentity = $true
+            }
+        }
     }
     Report 'journal carries call admissions and terminal outcomes' `
         ($sawAccepted -and $sawTerminal) "accepted=$sawAccepted terminal=$sawTerminal"
     Report 'journal attributes calls to the proof''s named session' $sawProofSession
+    Report 'journal identifies the exact packaged build' $sawExactBuildIdentity (
+        'observed=' + ($observedProducerVersions -join ','))
     if (Test-Path -LiteralPath $script:auditRoot) {
         try {
             Remove-Item -LiteralPath $script:auditRoot -Recurse -Force -ErrorAction Stop

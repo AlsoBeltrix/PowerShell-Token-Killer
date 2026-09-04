@@ -41,7 +41,8 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-09-04 at `c215515`,
+Confirmed automated verification commands (re-run 2026-09-04 for the
+unique-build-identity release-readiness worktree,
 on macOS arm64). Counts are volatile — treat them as of that commit and
 re-verify rather than trusting them at a later head. Host-conditional results
 are noted per command; per-host records live in `.agents/machines.md`, never
@@ -94,14 +95,24 @@ returns zero.
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
 ```
 — passed the stdout-clean direct-checkout launch and complete five-tool,
-multi-session stdio handshake at `c215515`. Run manually when server-facing
-setup or code changes.
+multi-session stdio handshake in the 2026-09-04 identity slice. Run manually
+when server-facing setup or code changes.
+
+```text
+pwsh -NoProfile -File server/test-build-identity.ps1
+```
+
+— builds PTK and the SIEM receiver twice from one checkout, requires four
+distinct exact identities, validates manifest/binary agreement, and probes
+dirty-source detection. Passed on the 2026-09-04 identity slice.
 
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
 ```
-— release gate against an **installed** candidate, not a checkout: the five
-tools, warm named sessions, object compression, trusted-type rendering, a
+— release gate against an **installed** candidate, not a checkout: exact
+`BUILD-PROVENANCE.json` agreement with MCP initialize, cold `ptk_state`, and
+audit `producer.version`; the five tools, warm named sessions, object
+compression, trusted-type rendering, a
 type needing the wider assembly set (#42), text preservation, `ptk_output`
 recovery, timeout recovery, reset/close, compound native routing, the fresh
 session's `ls` alias and default module autoloading (owner reversal

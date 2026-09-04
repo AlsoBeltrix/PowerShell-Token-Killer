@@ -69,7 +69,7 @@ Check with `claude mcp list`; remove with `claude mcp remove ptk`.
 | --- | --- | --- |
 | `ptk_invoke` | `script`; optional `raw`, `route`, `timeoutSeconds`, `session` | Execute the original command once in the selected warm session. Same-session queue wait and execution share one timeout budget. The legacy `raw` flag is deprecated compatibility telemetry and does not change routing or shaping. |
 | `ptk_output` | `action` (`read`/`search`/`status`/`list`); `handle` required except for `list`; optional `offset`, `maxBytes`, `pattern`; optional `session` for `list` only | Discover, read, search, or inspect immutable same-invocation artifacts. It accepts no script, starts no worker, and never reruns a command. |
-| `ptk_state` | optional `listAvailable`, `session` | Report supervisor health and selected-session state, worker PID, engine, cwd, modules, and drift. It never starts a cold session and never queues behind a busy selected session. |
+| `ptk_state` | optional `listAvailable`, `session` | Report the exact packaged build identity, supervisor health and selected-session state, worker PID, engine, cwd, modules, and drift. It never starts a cold session and never queues behind a busy selected session. |
 | `ptk_reset` | optional `session` | Replace one idle session worker with a fresh contained worker and factory runspace. It refuses while that session is busy or old containment is unconfirmed. |
 | `ptk_session` | `action` (`list`/`open`/`close`); optional `name` | List the connection-local registry, open one named session, or close one idle named session. `default` is lazy and cannot be closed; at most eight sessions may be open. |
 

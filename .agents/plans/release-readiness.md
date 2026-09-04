@@ -50,8 +50,30 @@ Live GitHub has both a published prerelease and a stale draft named
 `v0.3.0-rc.1`. Release immutability forbids repairing or reusing that version.
 The next candidate must use a new version; the standing recommendation is
 `0.3.0-rc.2`, subject to the owner's version ruling. Canonical `origin/master`
-is `72ccd90`; exact-head CI run `33924847924` passed all six jobs. Any later
-candidate change must follow the repository's push policy and be revalidated.
+contains product commit `0c9328a`; exact-product-tree CI run `33924847924`
+passed all six jobs at `72ccd90` before docs-only record updates. Any later
+candidate product change must follow the repository's push policy and be
+revalidated.
+
+### Outstanding owner rulings (recommendations, not adopted)
+
+1. **Version.** Use `0.3.0-rc.2`. Both a published prerelease and a stale draft
+   already use `v0.3.0-rc.1`, so immutable-version policy rules out reuse. A
+   different choice must be another unused SemVer version.
+2. **Security reporting.** Enable GitHub private vulnerability reporting and
+   name it as the confidential channel in `SECURITY.md`; keep public issues for
+   non-sensitive bugs only. The live setting is disabled, and the current
+   credential has push/triage but not admin permission, so an owner/admin must
+   enable it. If rejected, the owner must name another privately monitored
+   channel before `SECURITY.md` can truthfully ship.
+3. **Support.** Promise best-effort support through GitHub issues with no
+   response or resolution SLA, and route vulnerabilities to the private
+   security channel. A stronger SLA requires the owner to specify coverage and
+   resourcing before `SUPPORT.md` can promise it.
+
+Canonical GitHub's community-profile API reports 71% after the public-operations
+baseline reached `master`; `SECURITY.md`, `SUPPORT.md`, and the disabled private
+reporting setting are the policy-dependent remaining public-operations gaps.
 
 The exact-RID workflow now also requires packaged activation proof after
 platform signing: `server/test-staged-install.ps1` runs complete handshakes

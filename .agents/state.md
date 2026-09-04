@@ -5,8 +5,9 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Canonical `master` is `72ccd90`; exact-head CI is green.** Run
-`33924847924` passed all six Ubuntu, macOS, and Windows product/SIEM jobs.
+**Canonical `master` contains verified product commit `0c9328a`; its exact
+product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six
+Ubuntu, macOS, and Windows product/SIEM jobs before docs-only record updates.
 The 2026-09-04 unique-build-identity slice now gives every PTK and SIEM build a
 fresh exact identity across package provenance, binaries, MCP initialize,
 runtime diagnostics, audit records, receiver logs, and receiver health. Its

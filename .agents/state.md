@@ -19,6 +19,11 @@ ruling.
 The public no-clone path now ships one checksum-verified installer bundle with
 its two required modules (`rr-2`).
 
+The Codex init leg now repairs an orphaned PTK tool-policy table before
+invoking the otherwise-bricked Codex CLI, while preserving valid registrations
+and their policies (`mhi-13`). Codex redirect enforcement remains unshipped:
+the current TUI exposes shell and MCP work through the same outer `exec` tool.
+
 ## Next
 
 - Finish the release-readiness activation audit and freeze the candidate

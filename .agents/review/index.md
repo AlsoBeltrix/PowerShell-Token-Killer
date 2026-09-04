@@ -1,5 +1,14 @@
 # Review status
 
+## mhi-13 Codex install orphan repair (2026-09-04)
+
+Owner's live `invalid transport` report exposed the install-side half of the
+old mhi-12 failure: a pre-existing orphaned PTK tool-policy table bricks every
+Codex CLI command before registration can be restored. The init leg now
+repairs that exact orphan first and preserves valid base-plus-policy configs.
+Red/green and temporary-revert proof is recorded in
+`.agents/review/findings/mhi-13.md`.
+
 ## rr-2 public installer bootstrap (2026-09-04)
 
 Release-readiness audit found the documented no-clone install depended on a

@@ -1259,19 +1259,81 @@ Describe 'redirect hook and installer' {
 if (($args -join ' ') -eq 'mcp get ptk') { exit 0 }
 exit 1
 '@
+            $toml = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-codexcfg-{0}.toml" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $toml -Value @'
+[mcp_servers.ptk]
+command = "/custom/PtkMcpServer"
+
+[mcp_servers.ptk.tools.ptk_output]
+approval_mode = "approve"
+'@
             $emptyHome = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-nohome-{0}" -f ([guid]::NewGuid()))
             $oldPath = $env:PATH
             try {
                 $env:PATH = $fakeBin + [System.IO.Path]::PathSeparator + $env:PATH
-                $out = pwsh -NoProfile -File $script:initScript -Agent codex -NudgePath $script:nudgeFile -PtkHome $emptyHome 2>&1 | Out-String
+                $out = pwsh -NoProfile -File $script:initScript -Agent codex -CodexConfigPath $toml -NudgePath $script:nudgeFile -PtkHome $emptyHome 2>&1 | Out-String
+                $resultingConfig = Get-Content -LiteralPath $toml -Raw
             }
             finally {
                 $env:PATH = $oldPath
                 Remove-Item -LiteralPath $fakeBin -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $toml -Force -ErrorAction SilentlyContinue
             }
 
             $LASTEXITCODE | Should -Be 0
             $out | Should -Match 'already registered - left as is'
+            $resultingConfig | Should -Match '\[mcp_servers\.ptk\]'
+            $resultingConfig | Should -Match '\[mcp_servers\.ptk\.tools\.ptk_output\]'
+        }
+
+        It 'codex leg install repairs orphaned tool-approval subtables before invoking the CLI' {
+            $fakeBin = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-fakecodex-{0}" -f ([guid]::NewGuid()))
+            New-Item -ItemType Directory -Path $fakeBin -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $fakeBin 'codex.ps1') -Value @'
+$raw = Get-Content -LiteralPath $env:PTK_TEST_CODEX_CONFIG -Raw
+if ($raw -match '(?m)^\s*\[mcp_servers\.ptk\.') { exit 86 }
+if (($args -join ' ') -eq 'mcp get ptk') { exit 1 }
+if (($args -join ' ') -like 'mcp add ptk *') { exit 0 }
+exit 1
+'@
+            $toml = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-codexcfg-{0}.toml" -f ([guid]::NewGuid()))
+            Set-Content -LiteralPath $toml -Value @'
+model = "keep-me"
+
+[mcp_servers.other]
+command = "/bin/echo"
+
+[mcp_servers.ptk.tools.ptk_output]
+approval_mode = "approve"
+
+[hooks.state]
+'@
+            $dryOut = pwsh -NoProfile -File $script:initScript -Agent codex -DryRun -CodexConfigPath $toml -NudgePath $script:nudgeFile -PtkHome $script:fakeHome 2>&1 | Out-String
+            $LASTEXITCODE | Should -Be 0
+            $dryOut | Should -Match ([regex]::Escape('would repair orphaned [mcp_servers.ptk.*] tables'))
+            Get-Content -LiteralPath $toml -Raw | Should -Match 'mcp_servers\.ptk\.tools'
+
+            $oldPath = $env:PATH
+            $oldConfig = $env:PTK_TEST_CODEX_CONFIG
+            try {
+                $env:PATH = $fakeBin + [System.IO.Path]::PathSeparator + $env:PATH
+                $env:PTK_TEST_CODEX_CONFIG = $toml
+                $out = pwsh -NoProfile -File $script:initScript -Agent codex -CodexConfigPath $toml -NudgePath $script:nudgeFile -PtkHome $script:fakeHome 2>&1 | Out-String
+                $resultingConfig = Get-Content -LiteralPath $toml -Raw
+            }
+            finally {
+                $env:PATH = $oldPath
+                $env:PTK_TEST_CODEX_CONFIG = $oldConfig
+                Remove-Item -LiteralPath $fakeBin -Recurse -Force -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $toml -Force -ErrorAction SilentlyContinue
+            }
+
+            $LASTEXITCODE | Should -Be 0
+            $out | Should -Match ([regex]::Escape('repaired orphaned [mcp_servers.ptk.*] tables'))
+            $resultingConfig | Should -Not -Match 'mcp_servers\.ptk'
+            $resultingConfig | Should -Match '\[mcp_servers\.other\]'
+            $resultingConfig | Should -Match 'model = "keep-me"'
+            $resultingConfig | Should -Match '\[hooks\.state\]'
         }
 
         It 'codex leg uninstall sweeps orphaned tool-approval subtables (mhi-12)' {

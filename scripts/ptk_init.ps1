@@ -535,12 +535,15 @@ function Invoke-PtkClaudeLeg {
 # leg touches ~/.codex/config.toml directly - they act only on ptk.-scoped
 # subtables (never the base table), the exact orphans left by removing our
 # registration. The sweep runs after the CLI remove (and when the CLI is
-# absent), healing both fresh uninstalls and machines an earlier uninstall
-# already bricked.
+# absent), and before install invokes the CLI, healing both fresh uninstalls
+# and machines an earlier removal already bricked. A valid base table plus
+# tool policy is preserved.
 function Test-PtkCodexOrphanTable {
     param([Parameter(Mandatory)][string]$Path)
-    (Test-Path -LiteralPath $Path -PathType Leaf) -and
-        ((Get-Content -LiteralPath $Path -Raw) -match '(?m)^\s*\[mcp_servers\.ptk\.')
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return $false }
+    $raw = Get-Content -LiteralPath $Path -Raw
+    ($raw -match '(?m)^\s*\[mcp_servers\.ptk\.') -and
+        ($raw -notmatch '(?m)^\s*\[mcp_servers\.ptk\]\s*(?:#.*)?$')
 }
 
 function Remove-PtkCodexOrphanTable {
@@ -562,11 +565,13 @@ function Remove-PtkCodexOrphanTable {
 
 # codex leg: registration (idempotent - an existing entry is left as-is so
 # user customizations like env blocks survive) + nudge in ~/.codex/AGENTS.md.
-# No hook: codex hooks are trust-gated and unresolved (plan: Evidence table).
+# No hook: this Codex TUI exposes shell and MCP dispatch through the same
+# outer exec tool, so no selective shell redirect contract is live-verified.
 # The nudge is written even when registration fails - its wording is
 # conditional ("when available"), safe on machines where ptk never arrives.
 function Invoke-PtkCodexLeg {
     $nudgeTarget = $NudgePath ? $NudgePath : (Join-Path $HOME '.codex' 'AGENTS.md')
+    $codexConfig = $CodexConfigPath ? $CodexConfigPath : (Join-Path $HOME '.codex' 'config.toml')
     $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
     $cli = Get-Command codex -ErrorAction SilentlyContinue
     $nudgePresent = (Test-Path -LiteralPath $nudgeTarget) -and
@@ -586,7 +591,6 @@ function Invoke-PtkCodexLeg {
     }
 
     if ($Uninstall) {
-        $codexConfig = $CodexConfigPath ? $CodexConfigPath : (Join-Path $HOME '.codex' 'config.toml')
         if ($DryRun) {
             Write-Host 'DRY RUN - would run: codex mcp remove ptk'
             if (Test-PtkCodexOrphanTable -Path $codexConfig) {
@@ -626,10 +630,18 @@ function Invoke-PtkCodexLeg {
         return $true
     }
 
+    if (-not $DryRun -and (Remove-PtkCodexOrphanTable -Path $codexConfig)) {
+        Write-Host (('[codex] repaired orphaned [mcp_servers.ptk.*] tables in {0} ' +
+            'before invoking codex.') -f $codexConfig)
+    }
+
     $ok = $true
     if ($DryRun) {
         Write-Host ("DRY RUN - would ensure registration (skipped when codex mcp get ptk " +
             "already answers): codex mcp add ptk -- `"{0}`"" -f $binary)
+        if (Test-PtkCodexOrphanTable -Path $codexConfig) {
+            Write-Host ('DRY RUN - would repair orphaned [mcp_servers.ptk.*] tables in {0} before invoking codex' -f $codexConfig)
+        }
     }
     elseif (-not $cli) {
         Write-Warning (('[codex] codex CLI not found on PATH - register manually: ' +

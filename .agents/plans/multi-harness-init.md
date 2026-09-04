@@ -4,6 +4,14 @@
 status list). **Slice 0 EXECUTED the same day — all probes green; results
 in `docs/harness-support.md` (the durable table) and summarized here:**
 
+**Follow-up repair 2026-09-04:** owner reported a fresh Codex TUI could not
+start because an orphaned `[mcp_servers.ptk.tools.*]` table made
+`mcp_servers.ptk` an invalid transport, then explicitly requested the
+installer fix. The approved idempotent Codex-leg contract now heals that exact
+PTK-owned orphan before invoking the otherwise-bricked CLI, while preserving a
+valid base registration and its tool policy. Finding and mutation proof:
+`.agents/review/findings/mhi-13.md`.
+
 - (a) Claude hooked check **PASSED end to end**: both matchers (Bash,
   PowerShell) denied live in-session with the guidance; a fresh headless
   session quoted the deny verbatim, re-issued via `ptk_invoke`

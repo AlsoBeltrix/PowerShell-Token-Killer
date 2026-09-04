@@ -519,6 +519,11 @@ pwsh -NoProfile -File server/test-handshake.ps1
 - [MCP server setup, configuration, and operations](server/README.md)
 - [Audit, export, and SIEM receiver contract](server/AUDIT-EXPORT.md)
 - [Harness capability matrix](docs/harness-support.md)
+- [Known limitations](docs/known-limitations.md)
+- [Privacy](PRIVACY.md)
+- [Contributing](CONTRIBUTING.md)
+- [Release recovery and withdrawal](docs/release-recovery.md)
+- [Release-notes template](docs/release-notes-template.md)
 - [Current implementation state](.agents/state.md)
 
 ## Credits

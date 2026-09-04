@@ -26,6 +26,13 @@ Draft assembly recalculates all eleven artifact hashes, requires one exact
 manifest entry per artifact, and excludes unvalidated extra files from the
 GitHub release command.
 
+Readiness item 7's policy-independent public operations baseline now includes
+factual privacy and known-limitations documentation, contribution guidance,
+bug/feature/PR templates, and an immutable-version release
+recovery/withdrawal procedure plus release-notes template. Security reporting
+channel and support expectations remain owner decisions; this slice does not
+invent either.
+
 ## Purpose
 
 Provide a cold-agent checklist for deciding whether PTK is ready for a global

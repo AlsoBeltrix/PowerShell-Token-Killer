@@ -1,0 +1,83 @@
+name: Bug report
+description: Report reproducible incorrect PTK behavior
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include credentials, customer data, private command text, or
+        unredacted audit/output artifacts. Replace sensitive values while
+        preserving the shape needed to reproduce the problem.
+  - type: input
+    id: version
+    attributes:
+      label: PTK version and build identity
+      description: Copy the version/build line from ptk_state or BUILD-PROVENANCE.json.
+      placeholder: 0.3.0+abcdef0.build.0123456789abcdef0123456789abcdef
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - win-x64
+        - win-arm64
+        - linux-x64
+        - linux-arm64
+        - osx-arm64
+        - Other / unsupported
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Agent client and version
+      placeholder: Codex CLI 0.x, Claude Code 2.x, or another MCP client
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation source
+      options:
+        - GitHub release installer
+        - Source checkout
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include setup, exact tool arguments with sensitive values replaced, and repeatability.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include exit state, machine-readable detail codes, and redacted diagnostics.
+    validations:
+      required: true
+  - type: textarea
+    id: state
+    attributes:
+      label: Redacted ptk_state and supporting evidence
+      description: Remove paths, identities, commands, output, tokens, and customer data not needed for the report.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I searched existing issues for this behavior.
+          required: true
+        - label: I removed credentials, tokens, customer data, and other sensitive content.
+          required: true
+

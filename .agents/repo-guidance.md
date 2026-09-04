@@ -41,8 +41,8 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-09-04 for the
-unique-build-identity release-readiness worktree,
+Confirmed automated verification commands (re-run 2026-09-04 at clean
+unique-build-identity commit `4c636fe`,
 on macOS arm64). Counts are volatile — treat them as of that commit and
 re-verify rather than trusting them at a later head. Host-conditional results
 are noted per command; per-host records live in `.agents/machines.md`, never
@@ -104,7 +104,7 @@ pwsh -NoProfile -File server/test-build-identity.ps1
 
 — builds PTK and the SIEM receiver twice from one checkout, requires four
 distinct exact identities, validates manifest/binary agreement, and probes
-dirty-source detection. Passed on the 2026-09-04 identity slice.
+dirty-source detection. Passed at clean commit `4c636fe`.
 
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]

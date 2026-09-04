@@ -6,13 +6,16 @@ entries during a `drift` pass.
 ## `nagatha-2.local` unique build identity proof (2026-09-04)
 
 - Host: macOS 26.6.2 build 25G83 arm64, .NET SDK 10.0.400, PowerShell 7.6.5.
-- The release-readiness identity worktree built PTK twice and the SIEM receiver
-  twice from local head `1c8edaa`; all four packages received distinct 32-hex
-  build identities, each manifest matched its binary informational version,
-  and the explicit untracked-source probe recorded `source_dirty=true`.
+- Exact clean commit `4c636fe` built PTK twice and the SIEM receiver twice; all
+  four packages received distinct 32-hex build identities, each manifest
+  matched its binary informational version and recorded `source_dirty=false`,
+  while the explicit untracked-source probe recorded `source_dirty=true`.
 - A fresh `osx-arm64` layout passed `install.ps1 -LayoutOnly -Validate` and the
-  26-check direct product proof, including exact identity in MCP initialize,
-  cold `ptk_state`, and audit `producer.version`.
+  26-check direct product proof with `-RequireCleanSource`, including exact
+  identity in MCP initialize, cold `ptk_state`, and audit `producer.version`.
+- A separately built SIEM package passed both its mutation guard and the exact
+  verifier with `-RequireCleanSource`; its identity was
+  `9.8.7-build-identity-test+4c636fe.build.b1cf492baea74ae4aa845289eb0250eb`.
 - Pester passed 112 with 3 platform skips; server passed 1,354/1,354 with the
   two pre-existing xUnit analyzer warnings; SIEM passed 357/357 with no
   warnings. Mini-SIEM lifecycle, registration handshake, release/signing

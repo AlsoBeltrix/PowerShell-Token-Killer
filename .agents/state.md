@@ -69,10 +69,12 @@ live GitHub backlog contains only #30; remoting acceptance passed, but
 
 - Automated verification entry point and current exact-head results:
   `.agents/repo-guidance.md` (Verification).
-- Unique-build-identity worktree, 2026-09-04: repeated PTK and SIEM builds
+- Unique-build-identity commit `4c636fe`, 2026-09-04: repeated PTK and SIEM builds
   received four distinct identities; dirty-source detection passed; packaged
   initialize, cold `ptk_state`, audit producer identity, layout validation,
-  and 26-check direct product proof passed. Full Pester passed 112/3 skipped;
+  and 26-check direct product proof passed. Post-commit PTK and SIEM
+  `-RequireCleanSource` package gates passed with `source_dirty=false`. Full
+  Pester passed 112/3 skipped;
   server passed 1,354/1,354 with two known analyzer warnings; SIEM passed
   357/357 clean; lifecycle, registration handshake, actionlint, release helper,
   signing-helper, and both dependency-vulnerability gates passed.

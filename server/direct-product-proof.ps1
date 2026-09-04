@@ -210,6 +210,38 @@ try {
     $text = InvokeTool -Script "'plain-sentinel-text'"
     Report 'preserves plain text' ($text -match 'plain-sentinel-text')
 
+    # i30-1: user-visible information (including Write-Host) and verbose
+    # records survive both the response and immutable recovery artifact;
+    # transient progress records remain intentionally excluded.
+    $streams = InvokeTool -Script (
+        "Write-Host 'proof-host-visible'; " +
+        "Write-Information 'proof-information-visible' -InformationAction Continue; " +
+        "Write-Verbose 'proof-verbose-visible' -Verbose; " +
+        "Write-Progress -Activity 'proof-progress-transient' -PercentComplete 50")
+    Report 'renders information stream' `
+        ($streams -match '(?s)\[information\].*proof-host-visible.*proof-information-visible')
+    Report 'renders verbose stream' `
+        ($streams -match '(?s)\[verbose\].*proof-verbose-visible')
+    Report 'drops transient progress records' `
+        ($streams -notmatch 'proof-progress-transient')
+    $streamHandle = if ($streams -match 'handle=(ptko_[A-Za-z0-9_\-]+)') {
+        $Matches[1]
+    } else { $null }
+    $streamRecovery = ''
+    if ($streamHandle) {
+        $streamRead = Send -Method 'tools/call' -Params @{
+            name = 'ptk_output'
+            arguments = @{ handle = $streamHandle; action = 'read'; maxBytes = 4096 }
+        }
+        $streamRecovery = ($streamRead.result.content |
+            Where-Object { $_.type -eq 'text' } |
+            ForEach-Object { $_.text }) -join "`n"
+    }
+    Report 'recovers information and verbose streams' `
+        ($streamRecovery -match '(?s)\[information\].*proof-host-visible.*proof-information-visible' -and
+         $streamRecovery -match '(?s)\[verbose\].*proof-verbose-visible' -and
+         $streamRecovery -notmatch 'proof-progress-transient')
+
     # 7. bounded large output is recoverable through ptk_output
     $big = InvokeTool -Script '1..500 | ForEach-Object { "line-$_" }'
     $handle = if ($big -match 'handle=(ptko_[A-Za-z0-9_\-]+)') { $Matches[1] } else { $null }

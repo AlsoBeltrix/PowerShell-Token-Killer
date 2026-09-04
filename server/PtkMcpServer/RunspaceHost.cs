@@ -71,6 +71,8 @@ public sealed record InvokeResult(
     bool WarmStateLost = false,
     bool Recovering = false)
 {
+    public string[] Information { get; init; } = [];
+    public string[] Verbose { get; init; } = [];
     internal ExecutionRouteSummary? Routing { get; init; }
     internal string? AuditDetailCode { get; init; }
     internal OutputShapingSummary? OutputShaping { get; init; }
@@ -1542,7 +1544,11 @@ public sealed class RunspaceHost : IDisposable
         string[] Output,
         string[] StandardError,
         string[] Errors,
-        string[] Warnings);
+        string[] Warnings)
+    {
+        internal string[] Information { get; init; } = [];
+        internal string[] Verbose { get; init; } = [];
+    }
 
     internal sealed record PassiveOutputSnapshot(
         PSObject[] Output,
@@ -1608,6 +1614,8 @@ public sealed class RunspaceHost : IDisposable
         private readonly List<string> _standardError = [];
         private readonly List<string> _errors = [];
         private readonly List<string> _warnings = [];
+        private readonly List<string> _information = [];
+        private readonly List<string> _verbose = [];
         private long _remainingProjectionBytes;
         private long _remainingPrefixBytes;
         private long _totalOutputCount;
@@ -1636,6 +1644,8 @@ public sealed class RunspaceHost : IDisposable
         private PSDataCollection<PSObject>? _outputSource;
         private PSDataCollection<ErrorRecord>? _errorSource;
         private PSDataCollection<WarningRecord>? _warningSource;
+        private PSDataCollection<InformationRecord>? _informationSource;
+        private PSDataCollection<VerboseRecord>? _verboseSource;
 
         internal BoundedPassiveOutputCapture(
             long maximumBytes,
@@ -1693,14 +1703,20 @@ public sealed class RunspaceHost : IDisposable
         internal void Attach(
             PSDataCollection<PSObject> output,
             PSDataCollection<ErrorRecord> errors,
-            PSDataCollection<WarningRecord> warnings)
+            PSDataCollection<WarningRecord> warnings,
+            PSDataCollection<InformationRecord> information,
+            PSDataCollection<VerboseRecord> verbose)
         {
             _outputSource = output;
             _errorSource = errors;
             _warningSource = warnings;
+            _informationSource = information;
+            _verboseSource = verbose;
             output.DataAdded += (_, _) => DrainOutput(required: false);
             errors.DataAdded += (_, _) => DrainErrors(required: false);
             warnings.DataAdded += (_, _) => DrainWarnings(required: false);
+            information.DataAdded += (_, _) => DrainInformation(required: false);
+            verbose.DataAdded += (_, _) => DrainVerbose(required: false);
         }
 
         private Collection<T>? TryReadAll<T>(PSDataCollection<T>? source)
@@ -1811,6 +1827,70 @@ public sealed class RunspaceHost : IDisposable
                 }
             }
             catch { MarkCaptureFailed(); }
+        }
+
+        private void DrainInformation(bool required)
+        {
+            var batch = TryReadAll(_informationSource);
+            if (batch is null)
+            {
+                if (required) MarkCaptureFailed();
+                return;
+            }
+
+            try
+            {
+                lock (_gate)
+                {
+                    foreach (var information in batch)
+                    {
+                        var safe = TryFreezeInformationRecord(information, out var text);
+                        if (!safe) _activeMemberOmitted = true;
+                        AppendPrefixBounded(_information, text);
+                    }
+                }
+            }
+            catch { MarkCaptureFailed(); }
+        }
+
+        private void DrainVerbose(bool required)
+        {
+            var batch = TryReadAll(_verboseSource);
+            if (batch is null)
+            {
+                if (required) MarkCaptureFailed();
+                return;
+            }
+
+            try
+            {
+                lock (_gate)
+                {
+                    foreach (var verbose in batch)
+                        AppendPrefixBounded(_verbose, verbose.Message ?? string.Empty);
+                }
+            }
+            catch { MarkCaptureFailed(); }
+        }
+
+        internal static bool TryFreezeInformationRecord(
+            InformationRecord information,
+            out string text)
+        {
+            var value = information.MessageData is PSObject wrapped
+                ? wrapped.BaseObject
+                : information.MessageData;
+            if (value is HostInformationMessage host)
+            {
+                text = host.Message ?? string.Empty;
+                return true;
+            }
+            if (TryPassiveScalar(value, out _, out text))
+                return true;
+
+            var typeName = value?.GetType().FullName ?? "null";
+            text = $"[information payload not rendered: active member not evaluated; type={typeName}]";
+            return false;
         }
 
         internal static bool TryFreezeErrorRecord(ErrorRecord error, out string text)
@@ -2685,6 +2765,8 @@ public sealed class RunspaceHost : IDisposable
             DrainOutput(required: true);
             DrainErrors(required: true);
             DrainWarnings(required: true);
+            DrainInformation(required: true);
+            DrainVerbose(required: true);
         }
 
         internal PassiveOutputSnapshot CompleteAndSnapshot()
@@ -2723,7 +2805,11 @@ public sealed class RunspaceHost : IDisposable
                         [.. _output],
                         FilterRtkNag(_standardError),
                         [.. _errors],
-                        [.. _warnings]),
+                        [.. _warnings])
+                    {
+                        Information = [.. _information],
+                        Verbose = [.. _verbose],
+                    },
                     Interlocked.Read(ref _totalOutputCount),
                     _captureBoundExceeded,
                     _activeMemberOmitted,
@@ -3414,7 +3500,11 @@ public sealed class RunspaceHost : IDisposable
                 : [.. prefix.Errors, terminatingError],
             prefix.Warnings,
             ExitCode: null,
-            provenance);
+            provenance)
+        {
+            Information = prefix.Information,
+            Verbose = prefix.Verbose,
+        };
     }
 
     private static string BoundEmergencyOutput(string text)
@@ -3462,7 +3552,11 @@ public sealed class RunspaceHost : IDisposable
             errors,
             streams.Warnings,
             exitCode == 0 ? null : exitCode,
-            provenance);
+            provenance)
+        {
+            Information = streams.Information,
+            Verbose = streams.Verbose,
+        };
     }
 
     private static (string Output, OutputShapingSummary? Shaping)
@@ -3911,7 +4005,12 @@ public sealed class RunspaceHost : IDisposable
             var passiveCapture = new BoundedPassiveOutputCapture(
                 outputCapture?.MaximumArtifactBytes ?? 8 * 1024 * 1024,
                 BoundedPassiveOutputCapture.CreateExtendedTypeMemberProbe(runspace));
-            passiveCapture.Attach(captured, ps.Streams.Error, ps.Streams.Warning);
+            passiveCapture.Attach(
+                captured,
+                ps.Streams.Error,
+                ps.Streams.Warning,
+                ps.Streams.Information,
+                ps.Streams.Verbose);
             var noInput = new PSDataCollection<object>();
             noInput.Complete();
             var invokeTask = InvokeAsyncWithoutAmbientAudit(ps, noInput, captured);
@@ -3948,6 +4047,9 @@ public sealed class RunspaceHost : IDisposable
                         Disposition: InvokeDisposition.Canceled,
                         UserExecutionStarted: true)
                     {
+                        Warnings = canceledPrefix.Warnings,
+                        Information = canceledPrefix.Information,
+                        Verbose = canceledPrefix.Verbose,
                         OutputRecovery = incomplete is null
                             ? null
                             : incomplete with { Advertise = true },
@@ -3969,13 +4071,15 @@ public sealed class RunspaceHost : IDisposable
                     Success: false,
                     Output: string.Empty,
                     Errors: [$"Call canceled by the caller, but the pipeline did not stop within {StopGrace.TotalSeconds:0}s; the runspace was recycled and all warm state was lost."],
-                    Warnings: [],
+            Warnings: wedgedCanceledPrefix.Warnings,
                     TimedOut: false,
                     Disposition: InvokeDisposition.OutcomeUnknown,
                     UserExecutionStarted: true,
                     WarmStateLost: true)
-                {
-                    OutputRecovery = canceledIncomplete is null
+        {
+            Information = wedgedCanceledPrefix.Information,
+            Verbose = wedgedCanceledPrefix.Verbose,
+            OutputRecovery = canceledIncomplete is null
                         ? null
                         : canceledIncomplete with { Advertise = true },
                 }, dispatch);
@@ -3996,11 +4100,14 @@ public sealed class RunspaceHost : IDisposable
                         OutputSealWait(callDeadline));
                 // Teach the recovery paths at the moment of failure — the one
                 // place a model reliably reads documentation (design P4).
-                var timedOut = ExecutionTimeoutResult(
-                    budget,
-                    userExecutionStarted: true) with
-                {
-                    OutputRecovery = timedOutIncomplete is null
+        var timedOut = ExecutionTimeoutResult(
+            budget,
+            userExecutionStarted: true) with
+        {
+            Warnings = timedOutPrefix.Warnings,
+            Information = timedOutPrefix.Information,
+            Verbose = timedOutPrefix.Verbose,
+            OutputRecovery = timedOutIncomplete is null
                         ? null
                         : timedOutIncomplete with { Advertise = true },
                 };
@@ -4058,6 +4165,8 @@ public sealed class RunspaceHost : IDisposable
                     Stderr: wedgedStderr,
                     WarmStateLost: true)
                 {
+                    Information = wedgedPrefix.Information,
+                    Verbose = wedgedPrefix.Verbose,
                     PipelineHadErrors = ps.HadErrors,
                     OutputRecovery = incomplete is null
                         ? null
@@ -4347,6 +4456,8 @@ public sealed class RunspaceHost : IDisposable
                 Stderr: stderr,
                 WarmStateLost: warmStateLost)
             {
+                Information = passive.Prefix.Information,
+                Verbose = passive.Prefix.Verbose,
                 OutputShaping = outputShaping,
                 OutputRecovery = recovery,
                 PipelineHadErrors = ps.HadErrors,

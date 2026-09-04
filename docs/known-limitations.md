@@ -49,6 +49,9 @@ defect is not converted into an accepted limitation merely by appearing here.
 - Terminal control sequences are removed from direct text output. Log-shaped
   text can be deduplicated by RTK. Use the immutable recovery artifact when the
   response reports one and exact retained text is required.
+- `Write-Host`/information and verbose records are rendered and retained under
+  labeled stream sections. Progress records are transient UI state and are
+  intentionally not captured or recoverable.
 
 ## Clients and integrations
 
@@ -65,4 +68,3 @@ defect is not converted into an accepted limitation merely by appearing here.
   Consult the operator-readiness status in
   [`server/AUDIT-EXPORT.md`](../server/AUDIT-EXPORT.md) before relying on those
   components for an external-SIEM investigation workflow.
-

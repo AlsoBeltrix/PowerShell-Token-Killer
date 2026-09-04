@@ -10,6 +10,38 @@ public sealed class SupervisorWorkerArtifactCaptureTests : IDisposable
     private readonly List<string> _roots = [];
 
     [Fact]
+    public void Worker_artifact_codec_round_trips_information_and_verbose()
+    {
+        var encoded = WorkerOutputArtifactCodec.Encode(
+            Content("output") with
+            {
+                Information = ["host-visible", "information-visible"],
+                Verbose = ["verbose-visible"],
+            },
+            maximumBytes: 1024);
+
+        var decoded = WorkerOutputArtifactCodec.Decode(encoded, maximumBytes: 1024);
+
+        Assert.Equal(["host-visible", "information-visible"], decoded.Information);
+        Assert.Equal(["verbose-visible"], decoded.Verbose);
+    }
+
+    [Fact]
+    public void Worker_artifact_codec_decodes_legacy_stream_shape()
+    {
+        var legacy = System.Text.Encoding.UTF8.GetBytes(
+            "{\"schemaVersion\":1,\"standardOutput\":\"output\"," +
+            "\"standardError\":[],\"errors\":[],\"warnings\":[]," +
+            "\"exitCode\":null,\"provenance\":\"direct_text\"," +
+            "\"complete\":true,\"incompleteReason\":null}");
+
+        var decoded = WorkerOutputArtifactCodec.Decode(legacy, maximumBytes: 1024);
+
+        Assert.Empty(decoded.Information);
+        Assert.Empty(decoded.Verbose);
+    }
+
+    [Fact]
     public async Task Complete_sink_publishes_one_immutable_handle()
     {
         using var store = CreateStore();

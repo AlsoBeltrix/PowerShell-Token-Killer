@@ -190,6 +190,12 @@ Output is shaped by provenance:
 - Plain text has terminal control sequences removed and is bounded by a
   labeled head/tail window.
 
+PowerShell stream records follow the output in labeled sections. Errors and
+warnings use `[errors]` and `[warnings]`; `Write-Host`/information records use
+`[information]`; verbose records use `[verbose]`. The immutable `ptk_output`
+artifact retains the same captured streams. Progress records are transient UI
+state and are intentionally not captured.
+
 When PTK owns a capture, the result may include a `ptk_output` handle for the
 immutable artifact. Handles remain readable across reset and session close
 until ordinary TTL or quota eviction, but never outlive the supervisor.

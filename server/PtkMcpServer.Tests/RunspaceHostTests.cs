@@ -119,6 +119,32 @@ public sealed class RunspaceHostTests : IDisposable
         public override string Message => "PTK_OVERRIDE_ONLY_38";
     }
 
+    [Fact]
+    public void Information_freeze_never_invokes_untrusted_ToString()
+    {
+        var payload = new PtkHostileInformationPayload();
+        var record = new InformationRecord(payload, "ptk-test");
+
+        var safe = RunspaceHost.BoundedPassiveOutputCapture
+            .TryFreezeInformationRecord(record, out var text);
+
+        Assert.False(safe);
+        Assert.Equal(0, payload.ToStringReads);
+        Assert.Contains(nameof(PtkHostileInformationPayload), text, StringComparison.Ordinal);
+        Assert.DoesNotContain("PTK_HOSTILE_INFORMATION", text, StringComparison.Ordinal);
+    }
+
+    private sealed class PtkHostileInformationPayload
+    {
+        internal int ToStringReads { get; private set; }
+
+        public override string ToString()
+        {
+            ToStringReads++;
+            return "PTK_HOSTILE_INFORMATION";
+        }
+    }
+
     /// <summary>
     /// GitHub #41: a nested [pscustomobject]'s base object is the hollow
     /// PSCustomObject placeholder whose ToString() is empty, so the trusted
@@ -1270,6 +1296,20 @@ public sealed class RunspaceHostTests : IDisposable
 
         Assert.True(result.Success);
         Assert.Contains(result.Warnings, w => w.Contains("careful"));
+    }
+
+    [Fact]
+    public async Task Information_and_verbose_streams_are_captured()
+    {
+        var result = await _host.InvokeAsync(
+            "Write-Host 'host-visible'; " +
+            "Write-Information 'information-visible' -InformationAction Continue; " +
+            "Write-Verbose 'verbose-visible' -Verbose");
+
+        Assert.True(result.Success);
+        Assert.Contains(result.Information, value => value.Contains("host-visible"));
+        Assert.Contains(result.Information, value => value.Contains("information-visible"));
+        Assert.Contains(result.Verbose, value => value.Contains("verbose-visible"));
     }
 
     [Fact]

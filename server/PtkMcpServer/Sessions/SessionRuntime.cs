@@ -271,6 +271,18 @@ public sealed class SessionRuntime : ISessionLifetime, IDisposable
             sb.AppendLine("[warnings]");
             foreach (var warning in result.Warnings) sb.AppendLine(warning);
         }
+        if (result.Information.Length > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("[information]");
+            foreach (var information in result.Information) sb.AppendLine(information);
+        }
+        if (result.Verbose.Length > 0)
+        {
+            sb.AppendLine();
+            sb.AppendLine("[verbose]");
+            foreach (var verbose in result.Verbose) sb.AppendLine(verbose);
+        }
 
         if (workerOutputCapture is null &&
             result.OutputRecovery is { Advertise: true } recovery)

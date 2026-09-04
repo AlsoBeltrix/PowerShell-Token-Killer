@@ -122,8 +122,9 @@ pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bi
 — release gate against an **installed** candidate, not a checkout: exact
 `BUILD-PROVENANCE.json` agreement with MCP initialize, cold `ptk_state`, and
 audit `producer.version`; the five tools, warm named sessions, object
-compression, trusted-type rendering, a
-type needing the wider assembly set (#42), text preservation, `ptk_output`
+compression, `Write-Host`/information and verbose response plus recovery
+retention with progress excluded, trusted-type rendering, a type needing the
+wider assembly set (#42), text preservation, `ptk_output`
 recovery, timeout recovery, reset/close, compound native routing, the fresh
 session's `ls` alias and default module autoloading (owner reversal
 2026-08-31; see `.agents/decisions.md`), the positive

@@ -1,5 +1,13 @@
 # Review status
 
+## i30-1 stream retention repair (2026-09-04)
+
+The confirmed release blocker that silently dropped `Write-Host`, information,
+and verbose records is fixed locally. Both retained streams are response-visible
+and recoverable; progress remains intentionally transient. Red/green, worker
+transport, full-suite, and packaged proof are recorded in
+`.agents/review/findings/i30-1.md`.
+
 ## rr-4 prerelease bootstrap selection (2026-09-04)
 
 Release-readiness audit found the public bootstrap used GitHub's stable-only

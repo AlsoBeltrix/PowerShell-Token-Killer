@@ -37,8 +37,8 @@ invent either.
 
 | Readiness item | Status | Current evidence / remaining gate |
 | --- | --- | --- |
-| 1. Freeze candidate contract | **OPEN** | `i30-1` still needs the owner stream-retention ruling. Version, security-reporting channel, and support expectations are also unset. |
-| 2. Reconcile product backlog | **OPEN on one ruling** | Live canonical GitHub query found only issue #30. Its remoting acceptance passed; `i30-1` remains a confirmed HIGH release blocker. |
+| 1. Freeze candidate contract | **OPEN** | The stream-retention contract is implemented locally. Version, security-reporting channel, and support expectations remain unset. |
+| 2. Reconcile product backlog | **COMPLETE locally** | Live canonical GitHub query found only issue #30. Its remoting acceptance passed and `i30-1` is fixed with red/green plus packaged proof; canonical push, CI, and issue closure remain outward actions. |
 | 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
 | 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, and factual privacy posture are settled or implemented. Security reporting, support, version, and final publication remain owner gates. |
 | 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
@@ -99,7 +99,8 @@ contract is:
   weakening exact-once dispatch, timeout recovery, or backward decoding; and
 - prove the defect red before repair, then cover direct host capture, response
   shaping, immutable recovery, worker transport, and packaged direct-product
-  behavior before closing `i30-1` and GitHub issue #30 locally.
+  behavior before marking `i30-1` fixed locally. Close GitHub issue #30 only
+  after the repair reaches canonical CI under its separate outward gate.
 
 ## Activation gate
 

@@ -95,7 +95,11 @@ the audit root, the loopback web UI's settings page (default port 8317), or
 surface, including `PtkAuditAdmin` and the standalone SIEM receiver.
 
 `ptk_invoke` returns command output, then labeled sections when present, in
-this order: `[exit] N`, `[stderr]`, `[errors]`, and `[warnings]`. Empty
+this order: `[exit] N`, `[stderr]`, `[errors]`, `[warnings]`, `[information]`,
+and `[verbose]`. `Write-Host` is an information record and is therefore
+visible under `[information]`; both added streams are also retained in the
+same-invocation `ptk_output` artifact. Progress records are transient UI state
+and are intentionally not captured. Empty
 output returns `(no output)`. `[stderr]` is neutral, not a failure signal:
 native tools routinely write progress and diagnostics to stderr while
 succeeding (an exit-0 test run, for example), so native stderr is reported

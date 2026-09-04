@@ -13,8 +13,9 @@ runtime diagnostics, audit records, receiver logs, and receiver health. Its
 same-commit rebuild/dirty-source guard and full local macOS battery pass. The
 release workflow also now refuses pre-existing release tags instead of
 clobbering assets (`rr-1`). The live GitHub backlog contains only #30; remoting
-acceptance passed, but `i30-1` still needs the one owner stream-retention
-ruling.
+acceptance passed, and `i30-1` is now fixed locally by rendering and retaining
+`Write-Host`/information and verbose records while continuing to drop progress.
+The external issue remains open until the repair reaches canonical GitHub.
 
 The public no-clone path now ships one checksum-verified installer bundle with
 its two required modules (`rr-2`).
@@ -46,12 +47,12 @@ and uninstall proof.
 
 ## Next
 
-- Finish the release-readiness activation audit and freeze the candidate
-  contract/version after the `i30-1` ruling; then build the current-head
-  five-RID draft under its separate outward-action gate.
-- Obtain the one required owner ruling for `i30-1` without coupling unrelated
-  Sentinel or package-manager feature decisions to the release candidate.
-  Outward release actions remain separately gated.
+- Finish the stream-retention slice's clean-source package proof, then freeze
+  the candidate contract/version and build the current-head five-RID draft
+  under its separate outward-action gate.
+- Push and close canonical GitHub #30 only under their separate outward-action
+  gates. Unrelated Sentinel and package-manager feature decisions remain
+  outside the release candidate.
 - Settle the security-reporting channel, support expectations, and next version
   as separate owner decisions. `v0.3.0-rc.1` cannot be reused because both a
   published prerelease and a stale draft already use that tag.
@@ -75,10 +76,9 @@ and uninstall proof.
 
 ## Blockers
 
-- **GitHub #30 stream-capture contract:** remoting acceptance passed, but
-  `.agents/review/findings/i30-1.md` confirms current source drops verbose,
-  information, and `Write-Host` records from both response and recovery
-  artifact. The owner must choose the contract before repair.
+- **Canonical GitHub #30 closure:** `i30-1` is fixed and fully proved locally,
+  but `origin/master` does not yet contain the repair and the live issue remains
+  open. Push and issue mutation remain separate outward-action gates.
 - **Sentinel Decision D:** `.agents/plans/siem-sentinel-validation.md` is
   planning-only. S0 read-only Azure feasibility discovery needs a separate
   owner go; no Azure inspection or mutation is authorized.
@@ -144,6 +144,12 @@ and uninstall proof.
   fixture failed first with `GitHub returned an invalid draft flag.` against
   the nested REST-array wrapper; after its removal the release-selection test
   and focused README public-install parse passed. `git diff --check` passed.
+- Stream-retention slice after `999a2e9`, 2026-09-04: the new direct-host and
+  response/recovery tests failed before capture fields existed. Six new tests
+  plus the extended timeout case passed; full server passed 1,360/1,360 with
+  two known analyzer warnings; registration handshake passed; a fresh dirty
+  `osx-arm64` package passed the updated 30-check direct product proof. A clean
+  committed package rerun remains before this evidence becomes candidate-grade.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,
@@ -161,7 +167,7 @@ and uninstall proof.
 
 - `.agents/plans/siem-sentinel-validation.md` (DRAFT; Decision D blocks S0)
 - `.agents/plans/package-manager-distribution.md` (DRAFT; D1 blocks all slices)
-- `.agents/review/findings/i30-1.md` (CONFIRMED; owner ruling needed)
+- `.agents/review/findings/i30-1.md` (FIXED locally; canonical issue open)
 - `.agents/plans/github-release-packaging.md` (COMPLETE 2026-08-12)
 - `.agents/plans/rtk-router-delegation.md` (Slices 0-6 executed; Slice 7
   completed through the release-packaging plan)

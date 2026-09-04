@@ -83,6 +83,39 @@ public sealed class InvokeToolTests : IDisposable
     }
 
     [Fact]
+    public async Task Information_and_verbose_are_visible_and_recoverable()
+    {
+        using var store = CreateOutputStore();
+        var response = await _runtime.InvokeAsync(
+            "Write-Host 'host-visible'; " +
+            "Write-Information 'information-visible' -InformationAction Continue; " +
+            "Write-Verbose 'verbose-visible' -Verbose; " +
+            "Write-Progress -Activity 'progress-transient' -PercentComplete 50",
+            CancellationToken.None,
+            route: "pwsh",
+            outputStore: store);
+
+        Assert.Contains("[information]", response, StringComparison.Ordinal);
+        Assert.Contains("host-visible", response, StringComparison.Ordinal);
+        Assert.Contains("information-visible", response, StringComparison.Ordinal);
+        Assert.Contains("[verbose]", response, StringComparison.Ordinal);
+        Assert.Contains("verbose-visible", response, StringComparison.Ordinal);
+        Assert.DoesNotContain("progress-transient", response, StringComparison.Ordinal);
+
+        var handle = AssertSingleRecoveryHandle(response);
+        var recovered = OutputTool.Output(
+            store,
+            handle,
+            maxBytes: OutputStore.MaximumReadBytes);
+        Assert.Contains("[information]", recovered, StringComparison.Ordinal);
+        Assert.Contains("host-visible", recovered, StringComparison.Ordinal);
+        Assert.Contains("information-visible", recovered, StringComparison.Ordinal);
+        Assert.Contains("[verbose]", recovered, StringComparison.Ordinal);
+        Assert.Contains("verbose-visible", recovered, StringComparison.Ordinal);
+        Assert.DoesNotContain("progress-transient", recovered, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task State_persists_across_tool_calls()
     {
         await _runtime.InvokeAsync("$warm = 41", CancellationToken.None);

@@ -87,6 +87,59 @@ public sealed class WorkerSessionIntegrationTests
     }
 
     [Fact]
+    public async Task Completed_invocation_transports_information_and_verbose_artifact()
+    {
+        using var host = new RunspaceHost(
+            callTimeout: TimeSpan.FromSeconds(30),
+            maxCallTimeout: TimeSpan.FromMinutes(5));
+        var session = new WorkerSession(new SessionRuntime(
+            host,
+            new RawUsageCounter()));
+        var artifactId = Guid.NewGuid();
+        const int maximumArtifactBytes = 64 * 1024;
+        try
+        {
+            var request = new WorkerInvokeRequest(
+                RequestId: 2,
+                TimeoutSeconds: 10,
+                Timeout: TimeSpan.FromSeconds(10),
+                Script: "Write-Host 'host-visible'; " +
+                    "Write-Information 'information-visible' -InformationAction Continue; " +
+                    "Write-Verbose 'verbose-visible' -Verbose",
+                Raw: false,
+                Route: WorkerInvokeRoute.Pwsh,
+                Artifact: new WorkerArtifactRequest(
+                    artifactId,
+                    maximumArtifactBytes));
+
+            var result = Assert.IsType<WorkerInvokeExecutionResult>(
+                await session.ExecuteAsync(
+                    request,
+                    DateTimeOffset.UtcNow.AddSeconds(10),
+                    CancellationToken.None));
+
+            Assert.Equal(WorkerResultStatus.Completed, result.Status);
+            Assert.Contains("[information]", result.Text, StringComparison.Ordinal);
+            Assert.Contains("host-visible", result.Text, StringComparison.Ordinal);
+            Assert.Contains("information-visible", result.Text, StringComparison.Ordinal);
+            Assert.Contains("[verbose]", result.Text, StringComparison.Ordinal);
+            Assert.Contains("verbose-visible", result.Text, StringComparison.Ordinal);
+
+            var artifact = Assert.IsType<WorkerArtifactPayload>(result.Artifact);
+            Assert.Equal(artifactId, artifact.ArtifactId);
+            var content = WorkerOutputArtifactCodec.Decode(
+                artifact.Bytes.Span,
+                maximumArtifactBytes);
+            Assert.Equal(["host-visible", "information-visible"], content.Information);
+            Assert.Equal(["verbose-visible"], content.Verbose);
+        }
+        finally
+        {
+            await session.ShutdownAsync();
+        }
+    }
+
+    [Fact]
     public async Task Timeout_returns_one_supervisor_owned_incomplete_artifact()
     {
         var host = new RunspaceHost(
@@ -103,7 +156,9 @@ public sealed class WorkerSessionIntegrationTests
                 RequestId: 2,
                 TimeoutSeconds: 1,
                 Timeout: TimeSpan.FromSeconds(1),
-                Script: "'timeout-prefix'; Start-Sleep -Seconds 60",
+                Script: "Write-Information 'timeout-information' -InformationAction Continue; " +
+                    "Write-Verbose 'timeout-verbose' -Verbose; " +
+                    "'timeout-prefix'; Start-Sleep -Seconds 60",
                 Raw: false,
                 Route: WorkerInvokeRoute.Pwsh,
                 Artifact: new WorkerArtifactRequest(
@@ -133,6 +188,8 @@ public sealed class WorkerSessionIntegrationTests
                 "timeout-prefix",
                 content.StandardOutput,
                 StringComparison.Ordinal);
+            Assert.Equal(["timeout-information"], content.Information);
+            Assert.Equal(["timeout-verbose"], content.Verbose);
         }
         finally
         {

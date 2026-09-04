@@ -46,7 +46,11 @@ internal sealed record OutputArtifactContent(
     int? ExitCode,
     OutputProvenance Provenance,
     bool Complete = true,
-    string? IncompleteReason = null);
+    string? IncompleteReason = null)
+{
+    internal string[] Information { get; init; } = [];
+    internal string[] Verbose { get; init; } = [];
+}
 
 internal sealed record OutputStoreOptions(
     string RootDirectory,
@@ -1977,6 +1981,8 @@ public sealed class OutputStore : IDisposable
         WriteLines(writer, segments, "stderr", "[stderr]", content.StandardError);
         WriteLines(writer, segments, "errors", "[errors]", content.Errors);
         WriteLines(writer, segments, "warnings", "[warnings]", content.Warnings);
+        WriteLines(writer, segments, "information", "[information]", content.Information);
+        WriteLines(writer, segments, "verbose", "[verbose]", content.Verbose);
 
         return new RenderResult(writer.BytesWritten, writer.Truncated, [.. segments]);
     }

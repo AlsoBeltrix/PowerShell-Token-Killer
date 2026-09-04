@@ -441,6 +441,8 @@ internal sealed class WorkerForegroundOutputCapture : IForegroundOutputCapture
             StandardError = [.. content.StandardError],
             Errors = [.. content.Errors],
             Warnings = [.. content.Warnings],
+            Information = [.. content.Information],
+            Verbose = [.. content.Verbose],
         };
 
     private void ThrowIfDisposed() =>
@@ -451,7 +453,8 @@ internal sealed class WorkerForegroundOutputCapture : IForegroundOutputCapture
 
 internal static class WorkerOutputArtifactCodec
 {
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
+    private const int LegacySchemaVersion = 1;
     private static readonly UTF8Encoding StrictUtf8 = new(
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
@@ -476,6 +479,8 @@ internal static class WorkerOutputArtifactCodec
             WriteStrings(writer, "standardError", content.StandardError);
             WriteStrings(writer, "errors", content.Errors);
             WriteStrings(writer, "warnings", content.Warnings);
+            WriteStrings(writer, "information", content.Information);
+            WriteStrings(writer, "verbose", content.Verbose);
             if (content.ExitCode is { } exitCode)
                 writer.WriteNumber("exitCode", exitCode);
             else
@@ -519,19 +524,41 @@ internal static class WorkerOutputArtifactCodec
                     CommentHandling = JsonCommentHandling.Disallow,
                     MaxDepth = 8,
                 });
-            var fields = ClosedObject(
-                document.RootElement,
-                "schemaVersion",
-                "standardOutput",
-                "standardError",
-                "errors",
-                "warnings",
-                "exitCode",
-                "provenance",
-                "complete",
-                "incompleteReason");
-            if (Required(fields, "schemaVersion").GetInt32() != SchemaVersion)
-                throw Invalid("Recoverable output version is unsupported.");
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("schemaVersion", out var schemaElement) ||
+                schemaElement.ValueKind != JsonValueKind.Number ||
+                !schemaElement.TryGetInt32(out var schemaVersion))
+            {
+                throw Invalid("Recoverable output version is invalid.");
+            }
+            var fields = schemaVersion switch
+            {
+                LegacySchemaVersion => ClosedObject(
+                    document.RootElement,
+                    "schemaVersion",
+                    "standardOutput",
+                    "standardError",
+                    "errors",
+                    "warnings",
+                    "exitCode",
+                    "provenance",
+                    "complete",
+                    "incompleteReason"),
+                SchemaVersion => ClosedObject(
+                    document.RootElement,
+                    "schemaVersion",
+                    "standardOutput",
+                    "standardError",
+                    "errors",
+                    "warnings",
+                    "information",
+                    "verbose",
+                    "exitCode",
+                    "provenance",
+                    "complete",
+                    "incompleteReason"),
+                _ => throw Invalid("Recoverable output version is unsupported."),
+            };
 
             var complete = Required(fields, "complete").GetBoolean();
             var reasonElement = Required(fields, "incompleteReason");
@@ -564,7 +591,15 @@ internal static class WorkerOutputArtifactCodec
                 exitCode,
                 ParseProvenance(RequiredString(fields, "provenance")),
                 complete,
-                reason);
+                reason)
+            {
+                Information = schemaVersion == SchemaVersion
+                    ? RequiredStrings(fields, "information")
+                    : [],
+                Verbose = schemaVersion == SchemaVersion
+                    ? RequiredStrings(fields, "verbose")
+                    : [],
+            };
         }
         catch (WorkerProtocolException)
         {

@@ -1,5 +1,11 @@
 # Review status
 
+## rr-5 packaged-install Windows fixture (2026-09-04)
+
+Candidate run `33928685705` exposed a wrong-owner disposable fixture on both
+Windows RIDs. The test-only setup repair preserves production's ownership
+refusal; native rerun remains required. Evidence: `.agents/review/findings/rr-5.md`.
+
 ## i30-1 stream retention repair (2026-09-04)
 
 The confirmed release blocker that silently dropped `Write-Host`, information,

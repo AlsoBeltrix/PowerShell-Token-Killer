@@ -17,10 +17,16 @@
 
 ## Evidence status
 
-As of 2026-09-04 23:24 UTC, both Linux jobs and the macOS ARM64 job succeeded;
-both Windows jobs are signing. Draft assembly and final release-asset download
-verification remain pending. The candidate is not release-ready and publication
-is not authorized.
+Run `33928685705` completed with failure: both Linux jobs and macOS succeeded;
+both Windows jobs built and signed both products, then failed the packaged
+install fixture's ownership precondition. Draft assembly was skipped and no
+`v0.3.0-rc.2` release record exists. Finding `rr-5` records the test-only repair;
+a clean rebuilt candidate is required. The original source/run and Mac proof
+below are attempt-one evidence, not evidence for a future rebuilt identity.
+
+Independent six-job CI run `33929388848` passed at `36b1558`, whose product and
+test tree is identical to attempt one's source (only `.agents/` records differ).
+That does not excuse the distinct native candidate fixture failure.
 
 ## Downloaded macOS ARM64 proof
 

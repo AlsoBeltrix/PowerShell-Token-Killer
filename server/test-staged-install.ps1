@@ -48,6 +48,18 @@ function Invoke-LayoutHandshake {
 
 New-Item -ItemType Directory -Path $testRoot, $payload -Force | Out-Null
 try {
+    # Hosted Windows runners can create this directory with a group owner.
+    # Give only this disposable fixture to the current test user, matching
+    # test-install-transaction.ps1. Keep production's ownership refusal intact.
+    if ($IsWindows) {
+        $payloadDirectory = [IO.DirectoryInfo]::new($payload)
+        $payloadSecurity = [IO.FileSystemAclExtensions]::GetAccessControl(
+            $payloadDirectory)
+        $payloadSecurity.SetOwner(
+            [Security.Principal.WindowsIdentity]::GetCurrent().User)
+        [IO.FileSystemAclExtensions]::SetAccessControl(
+            $payloadDirectory, $payloadSecurity)
+    }
     Copy-Item -LiteralPath $layout -Destination $staging -Recurse -Force
     foreach ($entry in 'bin', 'src', 'scripts') {
         New-Item -ItemType Directory -Path (Join-Path $payload $entry) -Force |

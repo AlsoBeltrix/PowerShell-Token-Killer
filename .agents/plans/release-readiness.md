@@ -43,6 +43,15 @@ invent either.
 
 ## Activation audit — 2026-09-04
 
+Candidate execution exposed `rr-5`: both Windows jobs in `33928685705` built
+and signed successfully but refused the disposable install fixture's owner.
+The known-broken repair scope is test setup only: assign that new Windows
+fixture directory to the current test SID, preserving its DACL and every
+production ownership check. Prove non-Windows regression locally, then rerun
+the complete native candidate workflow for Windows red/green evidence. No
+draft/tag exists for this failed attempt, so the approved version can be rebuilt
+without violating release immutability. Finding: `.agents/review/findings/rr-5.md`.
+
 | Readiness item | Status | Current evidence / remaining gate |
 | --- | --- | --- |
 | 1. Freeze candidate contract | **OPEN** | The stream-retention contract and version `0.3.0-rc.2` are settled. Security-reporting channel and support expectations remain unset. |

@@ -33,6 +33,26 @@ recovery/withdrawal procedure plus release-notes template. Security reporting
 channel and support expectations remain owner decisions; this slice does not
 invent either.
 
+## Activation audit — 2026-09-04
+
+| Readiness item | Status | Current evidence / remaining gate |
+| --- | --- | --- |
+| 1. Freeze candidate contract | **OPEN** | `i30-1` still needs the owner stream-retention ruling. Version, security-reporting channel, and support expectations are also unset. |
+| 2. Reconcile product backlog | **OPEN on one ruling** | Live canonical GitHub query found only issue #30. Its remoting acceptance passed; `i30-1` remains a confirmed HIGH release blocker. |
+| 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
+| 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, and factual privacy posture are settled or implemented. Security reporting, support, version, and final publication remain owner gates. |
+| 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
+| 6. Validate exact candidate | **NOT YET POSSIBLE** | Requires the frozen clean commit, canonical push, owner-authorized five-RID workflow run, downloaded signing/notarization/hash checks, and exact-version install/lifecycle evidence. Prior local/hosted runs are supporting evidence, not the final candidate proof. |
+| 7. Prepare public operations | **PARTIAL** | `c55169f` adds privacy, limitations, contribution/community templates, release notes, and withdrawal recovery. Security reporting and support boundary await owner policy. |
+| 8. Final owner gate | **NOT STARTED** | Requires one exact candidate recommendation after items 1–7 close; tag and publish remain separately authorized actions. |
+
+Live GitHub has both a published prerelease and a stale draft named
+`v0.3.0-rc.1`. Release immutability forbids repairing or reusing that version.
+The next candidate must use a new version; the standing recommendation is
+`0.3.0-rc.2`, subject to the owner's version ruling. Canonical `origin/master`
+was still `b2253a9` during this audit; local release work and any later candidate
+must be pushed only under the repository's separate push gate.
+
 ## Purpose
 
 Provide a cold-agent checklist for deciding whether PTK is ready for a global

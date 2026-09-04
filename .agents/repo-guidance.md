@@ -41,7 +41,7 @@ approval.
 
 ## Verification
 
-Confirmed automated verification commands (re-run 2026-08-05 at `78b2dbb`,
+Confirmed automated verification commands (re-run 2026-09-04 at `c215515`,
 on macOS arm64). Counts are volatile — treat them as of that commit and
 re-verify rather than trusting them at a later head. Host-conditional results
 are noted per command; per-host records live in `.agents/machines.md`, never
@@ -50,31 +50,33 @@ as a "this clone" claim here, since this file is shared by every clone.
 ```
 pwsh -NoProfile -Command "Invoke-Pester -Path tests/PwshTokenCompressor.Tests.ps1 -Output Minimal"
 ```
-— 107 passed, 1 platform-skipped (PowerShell module/setup suite; requires
-Pester 5 or later), as of `78b2dbb`.
+— 112 passed, 3 platform-skipped (PowerShell module/setup suite; requires
+Pester 5 or later), as of `c215515`.
 
 ```
 dotnet test server/PtkMcpServer.slnx
 ```
-— 1,151/1,151 passed (C# MCP supervisor, named workers, containment, output,
-and retained administration suite), as of `78b2dbb`. Prefer a plain shell:
+— 1,354/1,354 passed (C# MCP supervisor, named workers, containment, output,
+and retained administration suite), with two analyzer warnings, as of
+`c215515`. Prefer a plain shell:
 from a ptk session the four `StateToolTests` module probes can fail together
 on a truncated `PSModulePath` (see `.agents/machines.md`) — not universal,
-the `78b2dbb` run above was clean from a ptk session.
+the `c215515` run above was clean from a plain shell.
 
 ```
 dotnet test siem/PtkSiem.slnx
 ```
-— 247/247 passed (standalone retained SIEM receiver suite) in CI and on hosts
-whose identity may create symlinks, re-confirmed 247/247 at `78b2dbb`. On a
-Windows host without `SeCreateSymbolicLinkPrivilege` it is 226/247: the 21
-failures stop in symlink test setup before any product assertion (see
-`.agents/machines.md` §`ASHBIAMWEB1`), and are not a product failure.
+— 357/357 passed with no warnings (standalone retained SIEM receiver suite)
+on a host whose identity may create symlinks, re-confirmed at `c215515`. On a
+Windows host without `SeCreateSymbolicLinkPrivilege`, the symlink-specific
+cases stop in test setup before any product assertion (see the head-stamped
+historical counts in `.agents/machines.md` §`ASHBIAMWEB1`); that setup result
+is not a product failure.
 
 ```
 pwsh -NoProfile -File siem/test-manage.ps1
 ```
-— passed at `a8cf759` (separate mini-SIEM checksum/deployment, ownership,
+— passed at `c215515` (separate mini-SIEM checksum/deployment, ownership,
 upgrade/uninstall/data-removal lifecycle). Release packaging additionally runs
 `siem/operator-workflow-proof.ps1` against packaged PTK and receiver bits; it is
 adapter/workflow proof and does not replace Decision D real-SIEM acceptance.
@@ -83,22 +85,22 @@ adapter/workflow proof and does not replace Decision D real-SIEM acceptance.
 dotnet list server/PtkMcpServer.slnx package --vulnerable --include-transitive
 ```
 — all five server projects reported no vulnerable packages, re-confirmed at
-`78b2dbb`. Treat any listed package as a failed production dependency check
-even if the command itself returns zero.
+`c215515`. All three SIEM projects also reported no vulnerable packages when
+the equivalent command was run against `siem/PtkSiem.slnx`. Treat any listed
+package as a failed production dependency check even if the command itself
+returns zero.
 
 ```
 pwsh -NoProfile -File server/test-handshake.ps1 -UseRegistrationCommand -TimeoutSec 90
 ```
 — passed the stdout-clean direct-checkout launch and complete five-tool,
-multi-session stdio handshake. Run manually when server-facing setup or code
-changes.
+multi-session stdio handshake at `c215515`. Run manually when server-facing
+setup or code changes.
 
 ```
 pwsh -NoProfile -File server/direct-product-proof.ps1 -ServerPath <installed>/bin/PtkMcpServer[.exe]
 ```
-— 24/24 on Windows (22 elsewhere; the extra two are the Defender
-scan-completion and payload-survival checks, r806-4) against an
-**installed** candidate, not a checkout: the five
+— release gate against an **installed** candidate, not a checkout: the five
 tools, warm named sessions, object compression, trusted-type rendering, a
 type needing the wider assembly set (#42), text preservation, `ptk_output`
 recovery, timeout recovery, reset/close, compound native routing, the fresh

@@ -18,7 +18,7 @@ entries during a `drift` pass.
 ## nagatha.local exact-head SIEM completion evidence (2026-08-15)
 
 - Producer repair b89ef46e42f8b8fe30a415f0d8ed55fd0e9ee5cb preserves worker completion cwd, execution-start state, and output recovery; receiver projection repair dfcda2677d1f2941fdc09881164d65b4b5b4e54a suppresses stale accepted-event absence reasons when terminal values exist. The projection regression fails with Expected: Null / Actual: String when reconciliation is removed and passes after restoration. Full server suite passed 1,353/1,353 with the system PowerShell module directory restored to the PTK-hosted test environment; full SIEM passed 357/357; Pester passed 112 with 3 platform skips. Server and SIEM vulnerable-package scans listed no vulnerable packages; git diff --check was clean.
-- Protected proof root is ~/.ptk-siem-capture-evidence-fixed (0700). Exact-head 0.3.0-s5+dfcda26 producer DLL SHA-256 is 789c8ee595709f253764820b429d475c186127a10f206bd4aabc1ea2179370ac; receiver DLL SHA-256 is 1370879d21fe40eff81491262e3e4cc9a04ef104390c7c2c05cd7e75fdb60007. Receiver PID 56074 serves ingest https://127.0.0.1:51581/v1/logs and operator UI http://127.0.0.1:51582/; producer PID 56115 serves status UI http://127.0.0.1:52444/. Both are intentionally left running in PTK session siem-proof for owner inspection.
+- Protected proof root is ~/.ptk-siem-capture-evidence-fixed (0700). Exact-head 0.3.0-s5+dfcda26 producer DLL SHA-256 is 789c8ee595709f253764820b429d475c186127a10f206bd4aabc1ea2179370ac; receiver DLL SHA-256 is 1370879d21fe40eff81491262e3e4cc9a04ef104390c7c2c05cd7e75fdb60007. Receiver PID 56074 served during the proof ingest https://127.0.0.1:51581/v1/logs and operator UI http://127.0.0.1:51582/; producer PID 56115 served during the proof status UI http://127.0.0.1:52444/. Neither proof listener was running when rechecked on 2026-09-04; the protected proof root remains.
 - Completed activity 01a005e1-d491-7717-82a0-a5aec0cc6d07 reports client capture-evidence-proof, agent codex, model openai / gpt-5, run capture-dfcda26-final, and requested/effective/repository cwd /Users/michael/Dev/Powershell-Token-Killer with repository-relative . and all unavailable reasons null. Destination evidence is complete and retrievable: submitted command 9c505ebe-0cf8-4cd4-96df-7b960af45165, 125 bytes, SHA-256 ed1cebaf16b1ac846e335803d86cdb28b149d3a69bc503d57d765d0f7670b2d8; caller response artifact 2d300b78-7e18-4572-97c0-3ba72a929e61, 33,358 bytes, SHA-256 9b35f35637e25302c1f859abb06e56f20ed42a4c0dc2db072f617f4abcb6886f; captured-output artifact 1d81b851-8f31-4713-860c-da16d9bc781e, 166,000 bytes/2,000 synthetic non-sensitive lines, SHA-256 5abbfff9d9e66705129dae9f493df1a7a3bafc428253efca60253bdc7a57a706. Producer delivery is healthy with zero pending event/evidence, refused, or missing records. Receiver reports evidence complete; overall attention_required is the retained prospective-prefix gap/quarantine, not missing activity evidence.
 - Token-free report ~/.ptk-siem-capture-evidence-fixed/captured-activity-final.json is 0600, 500,022 bytes, SHA-256 495eb93b914fca6991f8756ce4b61ecb55eb3323518f4194f417d6e9ee11fd7f. It contains the correlated activity, exact raw core/evidence events, exact command/response/captured-output text, per-artifact byte/digest verification, delivery status, and no receiver ingest/operator or producer UI token. Reusable local generator is ~/.ptk-siem-capture-evidence-fixed/capture-report.ps1; it reads protected credentials without printing or copying them into the report.
 
@@ -231,8 +231,9 @@ _Manual two-host-equivalent acceptance at exact source head
   has no clickable/detail rows, and cannot show the command because exact
   script bytes remain only in the producer evidence store. The UI therefore
   cannot answer which model did what; model identity is not supplied by MCP.
-- Published receiver and TLS-validating forwarder remain running for owner
-  inspection at `http://127.0.0.1:19443/`. Durable proof summary is
+- Published receiver and TLS-validating forwarder no longer listen as of the
+  2026-09-04 drift sweep; the protected proof root remains. Durable proof
+  summary is
   `~/.ptk-siem-live-proof/LIVE-PROOF.json`; the installed PTK process/config was
   not changed or restarted. This is a disposable non-anchored evaluation, not
   production deployment.
@@ -354,23 +355,9 @@ succeeds.
 
 ## `nagatha.local` — Michael's Mac
 
-_Installed payload re-verified 2026-08-05 with the repo at `78b2dbb`;
-read-only inventory, no installation or registration change._
-
-- The live server runs from `~/.ptk/bin/PtkMcpServer`; installed version is
-  `0.2.0-dev.g33806a0`, 123,944 bytes, SHA-256
-  `633dfbef35d950ca2411421ce25269de1cbe652014a8d1dc67cd7b1a18cd8ed7`,
-  with five supervisor processes live from that exact path.
-- That installation serves the five-tool named-session surface — this session
-  drove `ptk_invoke`, `ptk_session`, and `ptk_output` against it. The host is
-  no longer on the pre-candidate job API.
-- The installed payload is still behind the repo head; it is a separate
-  artifact from the checkout under test and is not evidence for any checkout
-  commit.
-- The 2026-07-28 `0.2.0-dev.g6db333c` rollback-baseline inventory (installed
-  file/version hashes, the 564-file managed-path digest, and the codex
-  `config.toml` PTK-section hash) described a payload that is no longer
-  installed. Pruned 2026-08-05 as superseded.
+_The superseded 2026-08-05 installed-payload snapshot was pruned during the
+2026-09-04 drift sweep. The newer 2026-08-15 installation record above owns
+the current machine fact._
 - On 2026-07-11 at plan base `2a83723`, disposable Darwin fork/pipe probes
   proved the audited-session Unix topology at the mid-creation, armed/gated,
   and released-with-descendant barriers. The broker observed supervisor
@@ -1711,8 +1698,7 @@ deployment._
   its exit was zero.
 - No candidate process survived either successful run. The 83 MiB remote
   checkout and local transfer directory were removed after hashing; they are
-  disposable and not recoverable. Nothing was installed, registered, deployed,
-  or pushed.
+  disposable and not recoverable. Nothing was installed, registered, or deployed.
 - A separate direct-worker-kill diagnostic exposed the next Slice 10 blocker.
   In two macOS reduced runs, the escape topology was valid (the worker and
   grandchild shared the old group and only the child had escaped), but directly
@@ -1793,7 +1779,7 @@ checkout/archive validation, not installation or deployment._
 - The three remote validation roots and the local transfer root were
   prefix-checked and removed after hashing. No candidate server, worker,
   broker, fixture, or test process survived. Nothing was installed, registered,
-  deployed, or pushed. The five already-recorded transitive
+  deployed. The five already-recorded transitive
   `System.Security.Cryptography.Xml` 10.0.6 advisories were the only dependency
   warnings.
 
@@ -1802,7 +1788,7 @@ checkout/archive validation, not installation or deployment._
 _Validated and locally integrated exact documentation commit
 `2c96e842618d73ac59fa37d5492a5ae92a0d163d` on `nagatha.local`; this was
 checkout verification and a local fast-forward, not installation, registration,
-deployment, or push._
+deployment._
 
 - Pester passed 141 tests with two platform skips; the complete server suite
   passed 1,212/1,212 in 2m25s; the standalone retained SIEM receiver passed
@@ -1826,7 +1812,7 @@ deployment, or push._
 _Validated exact code commit
 `b6fcbcdd9a81bdd5ce9e9ba8dde087a2adc02ff3`, tree
 `b76e88a94f00eb9af5ffdf91eb4ed6ece06493c2`, on `nagatha.local`; no
-installation, registration, deployment, or push occurred._
+installation, registration, or deployment occurred._
 
 - Before the fix, every server project resolved
   `System.Security.Cryptography.Xml` 10.0.6 through
@@ -1860,7 +1846,7 @@ installation, registration, deployment, or push occurred._
 _Validated exact code/test commit
 `e2beda3c35b6bc4d1a6b1d0191e43ed9957a19f0`, tree
 `42dd0feb73366ae81d438ecea4eedef9e84a4431`, on `nagatha.local`; no UTM,
-installation, registration, deployment, or push was used._
+installation, registration, or deployment was used._
 
 - A disposable macOS `-LayoutOnly -Rid linux-arm64` probe completed but
   `/usr/bin/file` identified its bundled `PtkWorkerBroker` as
@@ -1882,8 +1868,8 @@ installation, registration, deployment, or push was used._
 _Validated exact committed head
 `37b7d94dacdfd7fb03b52ce95d4409031e6e6699`, tree
 `45f7c8a5a9bdbcc907cc3aea2bb47e0bea346301`, from one immutable archive on
-real Linux x86_64 hosts; no VM, emulation, installation, registration,
-deployment, or push was used._
+real Linux x86_64 hosts; no VM, emulation, installation, registration, or
+deployment was used._
 
 - The archive was 1,232,753 bytes with SHA-256
   `c3e55114792d53f8edb478351a0b24a93a3890cb94b8e81c55c0be844147fc92`;
@@ -1923,8 +1909,8 @@ deployment, or push was used._
 _Validated exact committed head
 `920944ef3a4491edbf1d2c6a3915a5e39106a8fb`, tree
 `aa33b61c70baf2ec2cc6a60e75a606eb5327615c`, in a disposable same-host
-package; no installation, registration, client restart, deployment, or push
-was used._
+package; no installation, registration, client restart, or deployment was
+used._
 
 - The 1,234,720-byte source archive SHA-256 was
   `b1ffa86f328dfbbb7185a5b2805660947f4c009dfa1b5aa4867c1acb1b9a4ee6`.
@@ -1985,12 +1971,6 @@ was used._
 
 - `rtk 0.44.2` at `C:\Users\mcoelho\.local\bin\rtk.exe`, on `PATH`. RTK source
   checkout for contract reading is at `D:\source\rtk` (branch `develop`).
-- Installed PTK remains `0.2.0-dev.g12e1ff5` (`~/.ptk/VERSION`, re-confirmed
-  2026-08-03) — the plan's work is committed but not installed here.
-- `codex-cli 0.146.0`. Its auth token is revoked: review dispatches complete
-  and return valid verdicts while logging repeated
-  `Failed to refresh token ... refresh token was revoked` to stderr. Run
-  `codex login` before the next dispatch.
 - SIEM suite is 226/247 on this host: the 21 failures are the recorded
   symlink-privilege cases, since the ordinary token cannot create Windows
   symlinks.
@@ -2030,7 +2010,7 @@ SIEM 247/247 where symlink creation is permitted.
   SIEM gate.
 - No installed payload byte, registration, or client configuration was
   replaced. Only the installed PTK root ACL changed; repository code containing
-  the durable repair remains uninstalled and unpushed.
+  the durable repair remains uninstalled.
 
 ### Exact-head Windows x64 production acceptance — 2026-07-28
 
@@ -2123,7 +2103,7 @@ SIEM 247/247 where symlink creation is permitted.
   symlink setup under the ordinary token lacking symlink privilege, before
   product assertions. Repository-temp helpers, redacted status/prompt files,
   Graph helpers, and Outlook processes were removed. Nothing was installed,
-  registered, pushed, or changed outside the authorized account-scoped reads.
+  registered, or changed outside the authorized account-scoped reads.
 
 ### Installed activation — 2026-07-29
 
@@ -2154,13 +2134,13 @@ SIEM 247/247 where symlink creation is permitted.
   the new installed path, proving activation is usable from new connections;
   they were left running. A fresh Claude/Codex session remains required to prove
   stale removed-tool references are gone in the intended harness. The installer
-  stage and temporary installed-runtime probe were removed. Nothing was pushed.
+  stage and temporary installed-runtime probe were removed.
 
 ## Cross-host self-contained Linux package acceptance (2026-07-28)
 
 _Built one immutable package on `magneto`, then validated those exact package
 bytes on `gabrielle` and `altiera`, both of which had PowerShell 7.6.3 but no
-.NET SDK. No installation, registration, deployment, or push was used._
+.NET SDK. No installation, registration, or deployment was used._
 
 - Exact committed head was
   `d243c82d135b390b69fd93b25d01135f4d791a58`, tree
@@ -2264,7 +2244,7 @@ green product as a regression.
 
 ## Operator-readiness S5 explicit deployment and destination proof (2026-08-14, Michael's Mac)
 
-- Implementation commit `a8cf759546fabfa6cd8e744e47c18f5ceca112ee` is pushed to canonical `origin/master`. PTK's package contains `scripts/ptk-audit-destination.ps1` but no receiver binary, service, receiver configuration, data root, token, endpoint, or implicit destination. The receiver package contains `manage.ps1` and its WindowsServices MIT notice.
+- Implementation commit: `a8cf759546fabfa6cd8e744e47c18f5ceca112ee`. PTK's package contains `scripts/ptk-audit-destination.ps1` but no receiver binary, service, receiver configuration, data root, token, endpoint, or implicit destination. The receiver package contains `manage.ps1` and its WindowsServices MIT notice.
 - Current-tree verification passed: Pester 112 with 3 platform skips; server 1,351/1,351; SIEM 356/356; registered five-tool handshake; all five server and all three SIEM projects reported no vulnerable direct or transitive NuGet packages; `siem/test-manage.ps1`; PSScriptAnalyzer with zero errors; `actionlint`; and `git diff --check`.
 - The committed-head `osx-arm64` `0.3.0-s5` PTK package SHA-256 is `1082211c9d547a69d71216dd5e6b61c98f5e9b1cba05133e3f93183b961e534e`; receiver package SHA-256 is `5e7d9650060ace38056267619f2152a90936edf5a6da29b8fc5887f84f58f0f6`. `siem/verify-package.ps1` reported `0.3.0-s5+a8cf759`. Packaged external-only, explicit second-destination failure/recovery, pinned-HTTPS manager status/wrong-pin refusal, and mini-SIEM Doctor query-back all passed.
 - Mutation proofs failed under deliberate removal and passed restored for exact TLS leaf-pin validation, authenticated receiver `OPTIONS`, PTK-installer receiver exclusion, manifest-owned uninstall bounds, RemoveData deployment-ownership markers, receiver-writable service-definition refusal, destructive data/program overlap, IPv6 URI bracketing, operator-guide PowerShell splatting, and installer-owned manager/program boundary.
@@ -2272,8 +2252,7 @@ green product as a regression.
 
 ### Final S5 closure re-verification (2026-08-15)
 
-- Final source head `ebfbd4b15ba155783a818ad72ea6bb4f64f606c9` is pushed to
-  canonical `origin/master`. Exact-head GitHub Actions run `31865095280` passed all
+- Final source head: `ebfbd4b15ba155783a818ad72ea6bb4f64f606c9`. Exact-head GitHub Actions run `31865095280` passed all
   six jobs: the Pester/server/registered-handshake product job and the
   receiver/lifecycle/package SIEM job on Linux, macOS, and Windows.
 - Hosted Windows runs after `a8cf759` exposed and closed path-ancestry handling,
@@ -2298,7 +2277,7 @@ green product as a regression.
 
 ## Operator-readiness S4 activity investigation proof (2026-08-14, Michael's Mac)
 
-- Implementation commit `a022fa3d15b0707f674a63ef4bf410aeff1a5c97` is pushed to canonical `origin/master`. It adds the separately deployed receiver's authenticated activity list/detail, command search/preview, agent/model/client/task/run/execution context with source strength and explicit absence, exact command/caller-response/captured-output links, raw correlated events, chain outcome, stable pagination, human health, alert/gap actions, and protected full quarantine detail. Producer destination policy and producer-local forensic visibility did not change.
+- Implementation commit: `a022fa3d15b0707f674a63ef4bf410aeff1a5c97`. It adds the separately deployed receiver's authenticated activity list/detail, command search/preview, agent/model/client/task/run/execution context with source strength and explicit absence, exact command/caller-response/captured-output links, raw correlated events, chain outcome, stable pagination, human health, alert/gap actions, and protected full quarantine detail. Producer destination policy and producer-local forensic visibility did not change.
 - Focused S4 coverage passed 5/5: correlation and exact evidence, command search, filters/cursor, explicit missing attribution, accepted-to-late-terminal update, dashboard/health/surface separation, and bounded-list versus protected full quarantine evidence. Mutation proof removed `ActivityEndpoints.Map`; all 5 focused tests failed against `404`/missing APIs, then passed 5/5 after restoration.
 - Complete verification passed: receiver 351/351; server 1,346/1,346 (two pre-existing xUnit analyzer warnings); Pester 112 passed and 3 platform-skipped; registered five-tool handshake passed, including audit journaling and fail-closed refusal; `-warnaserror` SIEM build had zero warnings; all five server and all three SIEM projects reported no vulnerable direct or transitive NuGet packages; `git diff --check` was clean.
 - Published-layout proof used commit identity rather than checkout identity: `siem/build-package.ps1` built `0.3.0-s4` `osx-arm64`, `siem/verify-package.ps1` verified full source commit `a022fa3d15b0707f674a63ef4bf410aeff1a5c97`, and the packaged executable launched in a fresh protected user-home root with copied local proof PKI and fresh random tokens/ports. It served the `PTK mini-SIEM` activity UI, authenticated `/api/activities` returned an empty fresh store, and authenticated `/api/health` reported `waiting_for_first_event`. The exact temporary proof root was then removed.

@@ -180,6 +180,8 @@ function Get-PtkVersion {
             if ($numeric -match '^\d+(\.\d+){1,3}$') { $base = $numeric }
         }
     }
+    # Missing Git metadata is a handled fallback, not a failed installer result.
+    $global:LASTEXITCODE = 0
     "$base-dev.g$sha"
 }
 

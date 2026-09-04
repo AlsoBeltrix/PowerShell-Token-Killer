@@ -85,6 +85,9 @@ try {
 
         $repoRoot = $tempRepoNoTags
         $result = Get-PtkVersion
+        if ($LASTEXITCODE -ne 0) {
+            throw "A handled tagless fallback left native exit code [$LASTEXITCODE]."
+        }
         Assert-Match `
             -Pattern '^0\.0\.0-dev\.g[0-9a-f]+$' `
             -Actual $result `

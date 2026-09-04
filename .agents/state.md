@@ -5,19 +5,19 @@ short and update it when important repo facts change.
 
 ## Now
 
-**Exact-head CI is red at `c215515`.** Canonical run `33523417398`
-failed the `Version fallback tests` step in all three product test jobs after
-the script printed `VERSION FALLBACK TEST PASSED`; the three SIEM jobs
-passed. The same script passed locally both as a file and dot-sourced, so the
-runner exit-status boundary is not reproduced here. The source-install version
-repair remains landed, but its CI guard is not green. Repo guidance authorizes
-repair of this known-broken behavior.
+**The version-fallback CI exit repair is complete on local `master`.** The
+tagless fallback returned the right version while leaking Git's handled native
+exit code; the commit containing this record clears that stale status and adds
+a guard that failed against the prior implementation with exit code 128. The
+focused test, full local verification battery, and every later CI step are
+green. Canonical `origin/master` remains at `c215515`, whose run `33523417398`
+is red, until an independently authorized push triggers exact-head CI.
 
 ## Next
 
-- Repair the exact-head version-fallback CI exit behavior, prove the guard fails
-  before the repair and passes after it, then run the verification entry point.
-- After that repair, return to the owner-gated items recorded under
+- On a separate owner go, push local `master` to canonical `origin`, then watch
+  exact-head CI through completion. Push is not authorized by this record.
+- After green canonical CI, return to the owner-gated items recorded under
   `## Blockers`; this state record authorizes none of them.
 
 ## Open / Parked
@@ -70,6 +70,11 @@ repair of this known-broken behavior.
 
 - Automated verification entry point and current exact-head results:
   `.agents/repo-guidance.md` (Verification).
+- Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
+  Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
+  no warnings); mini-SIEM lifecycle, registration handshake, release selection,
+  signing documentation, notarization recovery, and Developer ID selection
+  checks passed; all server and SIEM projects reported no vulnerable packages.
 - Review-loop evidence lives in `.agents/review/index.md`; host-specific
   evidence lives in `.agents/machines.md`. Do not duplicate volatile counts
   here.

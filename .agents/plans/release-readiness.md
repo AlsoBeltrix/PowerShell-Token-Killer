@@ -1,9 +1,17 @@
 # Plan: Global release readiness
 
-**Status:** ACTIVATION AUDIT IN PROGRESS — owner reactivated release-readiness
-work on 2026-09-04. Local repairs and verification are authorized; release
-workflow dispatch, tag, publish, push, and other outward actions retain their
-separate owner gates.
+**Status:** UNPUBLISHED CANDIDATE BUILD AUTHORIZED — on 2026-09-04 the owner
+approved building and testing `0.3.0-rc.2` without publication. The canonical
+five-RID workflow and its unpublished draft are in scope. Leave live PTK
+sessions and installed payloads untouched. Commits follow
+`.agents/push-policy.md`; public publication, explicit tag creation, issue
+closure, and other outward actions retain their separate owner gates.
+
+The owner is the only current user. Security-reporting and support-policy
+rulings remain prerequisites for the future public launch, not for this
+authorized build-and-test pass. This is a sequencing change, not adoption of
+either policy or cancellation of the public-product target. The scope ruling
+is canonical in `.agents/decisions.md` (2026-09-04).
 
 Activation gate 2 and readiness item 3 are implemented in the 2026-09-04
 unique-build-identity slice. Every PTK and SIEM package build receives a fresh
@@ -72,7 +80,12 @@ Canonical GitHub's community-profile API reports 71% after the public-operations
 baseline reached `master`; `SECURITY.md`, `SUPPORT.md`, and the disabled private
 reporting setting are the policy-dependent remaining public-operations gaps.
 
-### Final candidate proof procedure (after the owner rulings)
+### Final candidate proof procedure
+
+The 2026-09-04 build-and-test go authorizes steps 2–6 before settling public
+security/support policy. Freeze a clean canonical source commit with the
+already-proved product tree; keep the release unpublished. Public policy and
+final release notes in steps 1 and 7 remain publication prerequisites.
 
 This is the one candidate-grade evidence path; earlier provisional packages and
 CI runs remain supporting evidence only.

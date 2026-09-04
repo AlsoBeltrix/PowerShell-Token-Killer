@@ -34,6 +34,21 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-09-04): build and verify `0.3.0-rc.2` without publication
+
+The owner stated that they are the only current user, then approved building
+and testing `0.3.0-rc.2` without publishing it ("go ahead"). This authorizes
+the canonical five-RID release workflow and its unpublished draft as the
+existing candidate-build mechanism. Security-reporting and support-policy
+decisions do not block this build-and-test work; neither policy is adopted.
+
+Leave the owner's running PTK sessions and installed payloads untouched. Use
+the workflow's separate native runners and disposable local verification
+roots. Installation into the owner's live home, public publication, explicit
+tag creation, issue closure, and announcements are not authorized by this go.
+The longer-term public-product target remains unchanged; being the only
+current user is not a decision to cancel it.
+
 ### ACTIVE (2026-09-04): next release candidate version is `0.3.0-rc.2`
 
 **Status:** Active — the owner accepted the standing release-readiness

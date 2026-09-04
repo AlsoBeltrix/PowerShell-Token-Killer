@@ -5,6 +5,13 @@ short and update it when important repo facts change.
 
 ## Now
 
+**Unpublished candidate build/test is authorized (2026-09-04).** The owner is
+the only current user and approved building and testing `0.3.0-rc.2` without
+publishing. Use the canonical five-RID workflow and disposable verification
+roots; do not replace the live installation or stop its running sessions.
+Security/support decisions are deferred for this pass, not adopted or waived
+for a future public launch. Scope: `.agents/decisions.md`.
+
 **Canonical `master` contains verified product commit `0c9328a`; its exact
 product tree is green in CI.** Run `33924847924` at `72ccd90` passed all six
 Ubuntu, macOS, and Windows product/SIEM jobs before docs-only record updates.
@@ -54,15 +61,15 @@ and uninstall proof.
 
 ## Next
 
-- Candidate version `0.3.0-rc.2` is settled. Settle the remaining release policy,
-  freeze the rest of the candidate contract,
-  and build the current-head five-RID draft under its separate outward-action
-  gate.
+- Build and verify the authorized `0.3.0-rc.2` five-RID unpublished candidate
+  from a clean canonical commit. Record the run, exact source SHA, downloaded
+  hashes/provenance, native test results, and any remaining evidence gaps.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.
-- Settle the security-reporting channel and support expectations as separate
-  owner decisions. `v0.3.0-rc.1` cannot be reused because both a published
+- Before a future public launch, settle security reporting and support as
+  separate owner decisions; they do not block this build/test pass.
+  `v0.3.0-rc.1` cannot be reused because both a published
   prerelease and a stale draft already use that tag.
 
 ## Open / Parked

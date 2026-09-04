@@ -67,9 +67,10 @@ The follow-up executes the README block against GitHub's non-enumerated
 REST-array shape and a real checksum-verified fixture; that proof caught and
 removed a nested-array wrapper after `d40228c`.
 
-Clean local head `a93e735` has now passed the complete macOS battery plus a
-fresh provisional `osx-arm64` layout, packaged activation, isolated public
-source install, 28-check installed-product proof, and uninstall. This closes
+Clean local product head `0c9328a` has now passed the complete macOS battery
+plus a fresh provisional `osx-arm64` layout, packaged activation, isolated
+public source install, 32-check installed-product proof, and uninstall,
+including the repaired information/verbose stream contract. This closes
 the remaining local evidence gap but remains supporting evidence for item 6:
 the final versioned candidate still requires its canonical five-RID run and
 downloaded-artifact verification.

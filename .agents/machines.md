@@ -25,21 +25,21 @@ entries during a `drift` pass.
 ## `nagatha-2.local` release-readiness re-verification (2026-09-04)
 
 - Host: macOS 26.6.2 build 25G83 arm64, .NET SDK 10.0.400, PowerShell 7.6.5.
-- Exact clean local head `a93e735`: Pester 113 passed with 3 platform skips;
-  server 1,354/1,354 with two known analyzer warnings; SIEM 357/357 clean.
+- Exact clean local product head `0c9328a`: Pester 113 passed with 3 platform
+  skips; server 1,360/1,360 with two known analyzer warnings; SIEM 357/357
+  clean.
   Registration handshake, mini-SIEM lifecycle, four-build identity, release
   selection/assembly/signing/notarization helpers, actionlint, ShellCheck, and
   both transitive vulnerable-package scans passed.
 - A fresh `osx-arm64` layout at provisional version
-  `0.0.0-release-audit+a93e735` passed layout validation, packaged staged
-  activation, and 26-check direct product proof with clean-source enforcement.
+  `0.0.0-stream-clean+0c9328a` passed layout validation, packaged staged
+  activation, and the 30-check direct product proof with clean-source
+  enforcement, including information/verbose response and recovery retention.
 - A separate isolated public source install under
-  `/Users/michael/.ptk-release-audit.*` passed both package and installed
-  handshakes, followed by the 28-check direct product proof including opt-in
-  uninstall. The first deliberate `/tmp/ptk-release-audit.*` home attempt was
-  refused because macOS `/tmp` traverses a symlink, as required by protected
-  storage policy; it was not treated as product evidence. Both explicit
-  throwaway roots were removed after proof.
+  `/Users/michael/.ptk-stream-clean.*` passed both package and installed
+  handshakes, followed by the 32-check direct product proof including opt-in
+  uninstall. Progress stayed excluded. Both explicit throwaway roots were
+  removed after proof.
 
 ## `nagatha-2.local` current-head macOS package proof (2026-09-04)
 

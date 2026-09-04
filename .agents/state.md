@@ -39,17 +39,17 @@ An executable README fixture caught and repaired the initial static guard's
 nested REST-array gap after `d40228c`; the proof now covers selection,
 checksum, pinned installer invocation, and cleanup.
 
-Local product head `a93e735` now has a complete clean macOS verification
+Local product head `0c9328a` now has a complete clean macOS verification
 battery: Pester, server, SIEM, registration handshake, mini-SIEM lifecycle,
 four-build identity, release/signing helpers, both vulnerability scans, and a
-fresh `osx-arm64` package's staged activation plus 28-check installed-product
+fresh `osx-arm64` package's staged activation plus 32-check installed-product
 and uninstall proof.
 
 ## Next
 
-- Finish the stream-retention slice's clean-source package proof, then freeze
-  the candidate contract/version and build the current-head five-RID draft
-  under its separate outward-action gate.
+- Settle the remaining release policy, freeze the candidate contract/version,
+  and build the current-head five-RID draft under its separate outward-action
+  gate.
 - Push and close canonical GitHub #30 only under their separate outward-action
   gates. Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.
@@ -103,18 +103,17 @@ and uninstall proof.
 
 - Automated verification entry point and current exact-head results:
   `.agents/repo-guidance.md` (Verification).
-- Clean local product head `a93e735`, 2026-09-04: Pester passed 113 with 3
-  platform skips; server passed 1,354/1,354 with the two known analyzer
+- Clean local product head `0c9328a`, 2026-09-04: Pester passed 113 with 3
+  platform skips; server passed 1,360/1,360 with the two known analyzer
   warnings; SIEM passed 357/357 without warnings; registration handshake,
   mini-SIEM lifecycle, four-build identity, release selection, signing docs,
   notarization recovery, Developer ID selection, and both transitive
   dependency vulnerability scans passed. Actionlint and release ShellCheck
-  passed. A fresh provisional `0.0.0-release-audit` `osx-arm64` layout passed
-  validation, packaged activation, the 26-check direct proof, isolated public
-  source install, and the 28-check installed-product/uninstall proof. The
-  initial `/tmp`-rooted source-install attempt correctly refused linked path
-  components; the required real-home-rooted rerun passed. Both explicit
-  throwaway roots were removed.
+  passed. A fresh provisional `0.0.0-stream-clean` `osx-arm64` layout passed
+  validation, packaged activation, the 30-check direct proof, isolated public
+  source install, and the 32-check installed-product/uninstall proof, including
+  information/verbose response visibility and immutable recovery while progress
+  stayed excluded. Both explicit throwaway roots were removed.
 - Unique-build-identity commit `4c636fe`, 2026-09-04: repeated PTK and SIEM builds
   received four distinct identities; dirty-source detection passed; packaged
   initialize, cold `ptk_state`, audit producer identity, layout validation,
@@ -144,12 +143,13 @@ and uninstall proof.
   fixture failed first with `GitHub returned an invalid draft flag.` against
   the nested REST-array wrapper; after its removal the release-selection test
   and focused README public-install parse passed. `git diff --check` passed.
-- Stream-retention slice after `999a2e9`, 2026-09-04: the new direct-host and
+- Stream-retention commit `0c9328a`, 2026-09-04: the new direct-host and
   response/recovery tests failed before capture fields existed. Six new tests
   plus the extended timeout case passed; full server passed 1,360/1,360 with
-  two known analyzer warnings; registration handshake passed; a fresh dirty
-  `osx-arm64` package passed the updated 30-check direct product proof. A clean
-  committed package rerun remains before this evidence becomes candidate-grade.
+  two known analyzer warnings; registration handshake passed; a fresh clean
+  `osx-arm64` package passed staged activation plus the updated 30-check direct
+  product proof, and a separate clean isolated source install passed all 32
+  checks including uninstall. Both throwaway roots were removed.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

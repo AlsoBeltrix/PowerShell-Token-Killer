@@ -75,6 +75,10 @@ proof are not yet established.
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,
   signing documentation, notarization recovery, and Developer ID selection
   checks passed; all server and SIEM projects reported no vulnerable packages.
+- Local head `696de29`, `nagatha-2.local`, 2026-09-04: provisional osx-arm64
+  layout validation and the full packaged direct-product proof passed from an
+  isolated home, including uninstall. This is current local package evidence,
+  not the still-required final-version five-RID candidate run.
 - Review-loop evidence lives in `.agents/review/index.md`; host-specific
   evidence lives in `.agents/machines.md`. Do not duplicate volatile counts
   here.

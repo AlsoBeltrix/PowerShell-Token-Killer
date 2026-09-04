@@ -3,6 +3,22 @@
 Machine-specific, nonportable facts only. Date each verification; prune stale
 entries during a `drift` pass.
 
+## `nagatha-2.local` current-head macOS package proof (2026-09-04)
+
+- Host: macOS 26.6.2 build 25G83 arm64, .NET SDK 10.0.400, PowerShell 7.6.5.
+- Local head `696de29` built an `osx-arm64` layout with provisional version
+  `0.0.0-release-audit` through `scripts/install.ps1 -LayoutOnly`; the
+  layout-validation handshake passed.
+- `server/direct-product-proof.ps1` then passed against a second layout under
+  an isolated `/Users/michael/.ptk-release-audit.*` home with `-UninstallHome`.
+  This covered the packaged five-tool contract, warm sessions, compression,
+  immutable output recovery, timeout recovery, reset/close, audit journaling,
+  startup refusal, and uninstall removal. The throwaway home was removed after
+  the proof.
+- A first diagnostic placement under `/tmp` was invalid by design because
+  macOS resolves it through symlinked `/var`; protected audit-root admission
+  rejected that environment. It is not product-failure evidence.
+
 ## `nagatha.local` Unix worker case-distinct environment repair (2026-08-15)
 
 - Host was macOS 26.6.1 build 25G76 arm64, .NET SDK 10.0.400, PowerShell 7.6.5 at `/opt/homebrew/Cellar/powershell/7.6.5/bin/pwsh`; local and `origin/master` base were `e77e829c45ec657b34cfced208ea8b972faa01fb` before the repair commit.

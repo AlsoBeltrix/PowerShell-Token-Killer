@@ -1,5 +1,13 @@
 # Review status
 
+## rr-2 public installer bootstrap (2026-09-04)
+
+Release-readiness audit found the documented no-clone install depended on a
+repository checkout and could not run from the installer script alone because
+two imported modules were absent. The checksum-verified installer-bundle
+repair and red/green release-assembly proof are recorded in
+`.agents/review/findings/rr-2.md`.
+
 ## rr-1 release asset immutability (2026-09-04)
 
 Release-readiness audit found the draft workflow could fall through from a

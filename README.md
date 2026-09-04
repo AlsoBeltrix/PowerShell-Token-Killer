@@ -271,11 +271,39 @@ described below; Linux assets use checksum integrity and are not publisher
 code-signed:
 
 ```powershell
-pwsh -File scripts/install.ps1 -FromRelease
+$stage = Join-Path ([IO.Path]::GetTempPath()) ('ptk-install-' + [guid]::NewGuid())
+try {
+  New-Item -ItemType Directory -Path $stage | Out-Null
+  $release = 'https://github.com/AlsoBeltrix/PowerShell-Token-Killer/releases/latest/download'
+  $bundle = Join-Path $stage 'ptk-installer.zip'
+  $sums = Join-Path $stage 'SHA256SUMS'
+  Invoke-WebRequest -Uri "$release/ptk-installer.zip" -OutFile $bundle
+  Invoke-WebRequest -Uri "$release/SHA256SUMS" -OutFile $sums
+  $expected = @(Get-Content -LiteralPath $sums | ForEach-Object {
+    if ($_ -match '^([0-9a-fA-F]{64})\s+ptk-installer\.zip$') {
+      $Matches[1].ToLowerInvariant()
+    }
+  })
+  if ($expected.Count -ne 1) { throw 'SHA256SUMS has no unique ptk-installer.zip entry.' }
+  $actual = (Get-FileHash -LiteralPath $bundle -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($actual -cne $expected[0]) { throw 'ptk-installer.zip checksum verification failed.' }
+  Expand-Archive -LiteralPath $bundle -DestinationPath $stage
+  & (Join-Path $stage 'install.ps1') -FromRelease
+}
+finally {
+  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
+}
 ```
 
-One installer, `scripts/install.ps1`, on every platform. It needs PowerShell 7,
-which is also what ptk runs. `-FromRelease` takes the latest published release
+The release-scoped `ptk-installer.zip` contains `scripts/install.ps1` and the
+two modules it imports. The bootstrap verifies it against the same
+release's `SHA256SUMS` before executing it. For a prerelease or pinned version,
+download from `releases/download/v<VERSION>/ptk-installer.zip` and pass
+`-FromRelease -Version <VERSION>`.
+
+One installer, `scripts/install.ps1`, runs on every platform. It needs
+PowerShell 7, which is also what ptk runs. `-FromRelease` takes the latest
+published release
 (`-Version 0.2.1` pins one); without it, the installer builds this checkout,
 which additionally needs the .NET SDK. Everything after the payload is
 obtained is identical either way.

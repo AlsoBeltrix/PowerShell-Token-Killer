@@ -470,6 +470,18 @@ jobs:
           fi
           echo "version=${version#v}" >> "$GITHUB_OUTPUT"
 
+      # Public bootstrap stays one installer entry point while carrying the
+      # sibling modules it imports. The bundle itself is release-scoped and
+      # checksum-listed alongside the native payloads.
+      - name: Assemble standalone installer bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-installer-bundle.sh \
+            "$GITHUB_WORKSPACE" \
+            staged/ptk-installer.zip \
+            staged/SHA256SUMS
+
       # Draft only. Publishing this release is an owner action and is
       # deliberately not automated.
       - name: Assemble draft release

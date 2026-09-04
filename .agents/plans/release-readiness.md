@@ -18,6 +18,14 @@ release-immutability slice. Draft assembly now refuses every pre-existing tag
 record (draft or published), fails closed when the paginated release query
 fails, and has no clobber path. See `.agents/review/findings/rr-1.md`.
 
+Readiness item 5's public bootstrap gap is repaired by attaching one
+checksum-listed `ptk-installer.zip` containing the existing cross-platform
+installer and its two required modules. The README no longer claims a
+single-file checkout command is a no-clone public install.
+Draft assembly recalculates all eleven artifact hashes, requires one exact
+manifest entry per artifact, and excludes unvalidated extra files from the
+GitHub release command.
+
 ## Purpose
 
 Provide a cold-agent checklist for deciding whether PTK is ready for a global

@@ -15,6 +15,10 @@ release workflow also now refuses pre-existing release tags instead of
 clobbering assets (`rr-1`). The live GitHub backlog contains only #30; remoting
 acceptance passed, but `i30-1` still needs the one owner stream-retention
 ruling.
+
+The public no-clone path now ships one checksum-verified installer bundle with
+its two required modules (`rr-2`).
+
 ## Next
 
 - Finish the release-readiness activation audit and freeze the candidate
@@ -80,6 +84,11 @@ ruling.
   server passed 1,354/1,354 with two known analyzer warnings; SIEM passed
   357/357 clean; lifecycle, registration handshake, actionlint, release helper,
   signing-helper, and both dependency-vulnerability gates passed.
+- Installer-bundle release-readiness slice after `fa3d476`, 2026-09-04:
+  red/green helper proof passed for exact bundle contents, portable SHA-256,
+  duplicate refusal, all eleven release artifact hashes, exact upload set,
+  existing-tag immutability, and fail-closed release queries; ShellCheck,
+  actionlint, README PowerShell parse, and `git diff --check` passed.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

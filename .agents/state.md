@@ -32,6 +32,8 @@ The policy-independent public operations baseline is committed at `c55169f`:
 privacy, known limitations, contribution and community templates, release
 notes, and immutable-version withdrawal recovery. The requirement-by-
 requirement activation audit is current in `.agents/plans/release-readiness.md`.
+That plan now also defines the exact uploaded/downloaded candidate evidence set
+for the five-RID final gate.
 
 The release workflow now runs the packaged transaction/activation proof on
 every RID after signing and before archive creation (`rr-3`).

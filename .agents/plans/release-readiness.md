@@ -75,6 +75,47 @@ Canonical GitHub's community-profile API reports 71% after the public-operations
 baseline reached `master`; `SECURITY.md`, `SUPPORT.md`, and the disabled private
 reporting setting are the policy-dependent remaining public-operations gaps.
 
+### Final candidate proof procedure (after the owner rulings)
+
+This is the one candidate-grade evidence path; earlier provisional packages and
+CI runs remain supporting evidence only.
+
+1. Land the settled `SECURITY.md`, `SUPPORT.md`, exact release notes, and version
+   choice. Require a clean canonical commit and successful six-job canonical CI
+   for its exact product tree. Confirm no tag or release record, including a
+   draft, already uses `v<version>`.
+2. Under the separate workflow-dispatch gate, run canonical `release.yml` at
+   that exact commit with `version=<version>`. Record the run ID and source SHA.
+   Require the five native RID jobs and draft-assembly job to succeed; no skipped
+   RID or replacement artifact is acceptable.
+3. Inspect the draft through the canonical GitHub API. Require `draft=true`, the
+   exact tag/title/version and target source SHA, and exactly twelve assets: ten
+   native archives, `ptk-installer.zip`, and `SHA256SUMS`. The manifest must have
+   exactly eleven unique entries, one for every archive and the installer, with
+   no path-bearing or extra name.
+4. Download the draft assets into a new throwaway directory with authenticated
+   `gh release download`. Recompute every manifest hash from those downloaded
+   bytes and compare every available GitHub asset digest. Never validate the
+   workflow staging directory as a substitute for the uploaded/downloaded copy.
+5. On matching native hardware for each RID, extract the downloaded PTK and SIEM
+   archives. Require both `BUILD-PROVENANCE.json` files to name the exact version,
+   source SHA, clean source, correct product/RID, valid UTC build time, and unique
+   32-hex build identity. Run `server/test-staged-install.ps1`, the complete
+   `server/direct-product-proof.ps1` including opt-in uninstall, and
+   `siem/operator-workflow-proof.ps1` against those downloaded bytes.
+6. On Windows, require `Get-AuthenticodeSignature` status `Valid` for every
+   packaged EXE/DLL and a completed Defender scan with no quarantine. On macOS,
+   require strict `codesign` verification and Developer ID authority for every
+   Mach-O, the workflow's accepted notarization submission, and Gatekeeper
+   acceptance of the downloaded primary executables. Linux has no publisher
+   signature claim; its integrity claim is the verified SHA-256 manifest.
+7. Populate release notes from `docs/release-notes-template.md` with the exact
+   commit, workflow, build identities, hashes, matrix results, limitations, and
+   withdrawal procedure. Remove every placeholder before the final owner gate.
+   The unauthenticated public bootstrap URL can only receive its final live smoke
+   after publication; run it immediately after separately authorized publication
+   and withdraw under `docs/release-recovery.md` if it fails.
+
 The exact-RID workflow now also requires packaged activation proof after
 platform signing: `server/test-staged-install.ps1` runs complete handshakes
 before and after the package's own transaction module activates into a

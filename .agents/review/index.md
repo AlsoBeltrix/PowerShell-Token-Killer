@@ -1,5 +1,11 @@
 # Review status
 
+## rr-3 packaged install release gate (2026-09-04)
+
+Release-readiness audit found the five-RID workflow never invoked its existing
+packaged transaction/activation proof. The red/green workflow guard and fresh
+local package execution are recorded in `.agents/review/findings/rr-3.md`.
+
 ## mhi-13 Codex install orphan repair (2026-09-04)
 
 Owner's live `invalid transport` report exposed the install-side half of the

@@ -29,6 +29,9 @@ privacy, known limitations, contribution and community templates, release
 notes, and immutable-version withdrawal recovery. The requirement-by-
 requirement activation audit is current in `.agents/plans/release-readiness.md`.
 
+The release workflow now runs the packaged transaction/activation proof on
+every RID after signing and before archive creation (`rr-3`).
+
 ## Next
 
 - Finish the release-readiness activation audit and freeze the candidate
@@ -106,6 +109,10 @@ requirement activation audit is current in `.agents/plans/release-readiness.md`.
   added relative Markdown links resolved, actionlint passed, and
   `git diff --check` passed. Live community profile was 42% before these local
   files reach canonical GitHub; private vulnerability reporting was disabled.
+- Packaged-install release gate after `6003273`, 2026-09-04: workflow guard
+  failed before the step was added; helper proof, actionlint, ShellCheck, and
+  `git diff --check` passed after repair. A fresh local `osx-arm64` package
+  passed both complete handshakes around activation into a disposable home.
 - Version-fallback repair worktree, 2026-09-04: focused exit-state guard passed;
   Pester 112 passed/3 skipped; server and SIEM solutions passed (SIEM 357/357,
   no warnings); mini-SIEM lifecycle, registration handshake, release selection,

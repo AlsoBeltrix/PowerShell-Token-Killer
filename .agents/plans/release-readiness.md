@@ -53,6 +53,12 @@ The next candidate must use a new version; the standing recommendation is
 was still `b2253a9` during this audit; local release work and any later candidate
 must be pushed only under the repository's separate push gate.
 
+The exact-RID workflow now also requires packaged activation proof after
+platform signing: `server/test-staged-install.ps1` runs complete handshakes
+before and after the package's own transaction module activates into a
+disposable home (`rr-3`). This strengthens item 6 but does not replace the
+final candidate's public installer, upgrade/refusal, or uninstall evidence.
+
 ## Purpose
 
 Provide a cold-agent checklist for deciding whether PTK is ready for a global

@@ -42,6 +42,11 @@ if ! grep -Fq 'build-installer-bundle.sh' "$workflow"; then
   echo 'release workflow does not use the tested installer-bundle builder' >&2
   exit 1
 fi
+if ! grep -Fq 'server/test-staged-install.ps1' "$workflow"; then
+  echo 'release workflow does not exercise the packaged install transaction' >&2
+  exit 1
+fi
+
 [[ -f "$helper" ]] || { echo 'draft-release assembler is missing' >&2; exit 1; }
 
 work=$(mktemp -d)

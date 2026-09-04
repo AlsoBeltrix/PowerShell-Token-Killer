@@ -254,6 +254,16 @@ jobs:
           # an otherwise fully successful first signing run.
           codesign -dvv out/ptk/bin/PtkMcpServer 2>&1 | grep "Authority=Developer ID Application"
 
+      # Exercise the packaged transaction module and the exact signed server
+      # both before and after activation into a disposable home. This does not
+      # touch the runner's live ~/.ptk or harness registrations.
+      - name: Prove the packaged install transaction
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File server/test-staged-install.ps1 `
+            -LayoutRoot out/ptk `
+            -TimeoutSec 90
+
       - name: Smoke-test the packaged server
         shell: pwsh
         run: |

@@ -37,10 +37,10 @@ invent either.
 
 | Readiness item | Status | Current evidence / remaining gate |
 | --- | --- | --- |
-| 1. Freeze candidate contract | **OPEN** | The stream-retention contract is implemented locally. Version, security-reporting channel, and support expectations remain unset. |
+| 1. Freeze candidate contract | **OPEN** | The stream-retention contract and version `0.3.0-rc.2` are settled. Security-reporting channel and support expectations remain unset. |
 | 2. Reconcile product backlog | **COMPLETE technically** | Live canonical GitHub query found only issue #30. Its remoting acceptance passed; `i30-1` is fixed on `origin/master` with red/green, packaged proof, and exact-head six-job CI run `33924847924`. Administrative issue closure remains a separate outward action. |
 | 3. Build identity and provenance | **COMPLETE locally** | `4c636fe` plus `ec3034b`: four-build uniqueness/dirty detection and clean PTK/SIEM package provenance passed. |
-| 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, and factual privacy posture are settled or implemented. Security reporting, support, version, and final publication remain owner gates. |
+| 4. Settle release policy | **PARTIAL** | Apache-2.0, five RIDs, fetch-on-install, signing, immutable assets, factual privacy posture, and version `0.3.0-rc.2` are settled or implemented. Security reporting, support, and final publication remain owner gates. |
 | 5. Build distribution path | **COMPLETE locally** | Transactional installer/package path plus `fa3d476` immutable release assembly and `be05b29` checksum-verified standalone bootstrap. |
 | 6. Validate exact candidate | **NOT YET POSSIBLE** | Requires the frozen clean commit, canonical push, owner-authorized five-RID workflow run, downloaded signing/notarization/hash checks, and exact-version install/lifecycle evidence. Prior local/hosted runs are supporting evidence, not the final candidate proof. |
 | 7. Prepare public operations | **PARTIAL** | `c55169f` adds privacy, limitations, contribution/community templates, release notes, and withdrawal recovery. Security reporting and support boundary await owner policy. |
@@ -48,25 +48,22 @@ invent either.
 
 Live GitHub has both a published prerelease and a stale draft named
 `v0.3.0-rc.1`. Release immutability forbids repairing or reusing that version.
-The next candidate must use a new version; the standing recommendation is
-`0.3.0-rc.2`, subject to the owner's version ruling. Canonical `origin/master`
+The owner ruled on 2026-09-04 that the next candidate is `0.3.0-rc.2` with tag
+`v0.3.0-rc.2`. Canonical `origin/master`
 contains product commit `0c9328a`; exact-product-tree CI run `33924847924`
 passed all six jobs at `72ccd90` before docs-only record updates. Any later
 candidate product change must follow the repository's push policy and be
 revalidated.
 
-### Outstanding owner rulings (recommendations, not adopted)
+### Remaining owner rulings (recommendations, not adopted)
 
-1. **Version.** Use `0.3.0-rc.2`. Both a published prerelease and a stale draft
-   already use `v0.3.0-rc.1`, so immutable-version policy rules out reuse. A
-   different choice must be another unused SemVer version.
-2. **Security reporting.** Enable GitHub private vulnerability reporting and
+1. **Security reporting.** Enable GitHub private vulnerability reporting and
    name it as the confidential channel in `SECURITY.md`; keep public issues for
    non-sensitive bugs only. The live setting is disabled, and the current
    credential has push/triage but not admin permission, so an owner/admin must
    enable it. If rejected, the owner must name another privately monitored
    channel before `SECURITY.md` can truthfully ship.
-3. **Support.** Promise best-effort support through GitHub issues with no
+2. **Support.** Promise best-effort support through GitHub issues with no
    response or resolution SLA, and route vulnerabilities to the private
    security channel. A stronger SLA requires the owner to specify coverage and
    resourcing before `SUPPORT.md` can promise it.
@@ -80,8 +77,8 @@ reporting setting are the policy-dependent remaining public-operations gaps.
 This is the one candidate-grade evidence path; earlier provisional packages and
 CI runs remain supporting evidence only.
 
-1. Land the settled `SECURITY.md`, `SUPPORT.md`, exact release notes, and version
-   choice. Require a clean canonical commit and successful six-job canonical CI
+1. Land the settled `SECURITY.md`, `SUPPORT.md`, and exact `0.3.0-rc.2` release
+   notes. Require a clean canonical commit and successful six-job canonical CI
    for its exact product tree. Confirm no tag or release record, including a
    draft, already uses `v<version>`.
 2. Under the separate workflow-dispatch gate, run canonical `release.yml` at

@@ -54,15 +54,16 @@ and uninstall proof.
 
 ## Next
 
-- Settle the remaining release policy, freeze the candidate contract/version,
+- Candidate version `0.3.0-rc.2` is settled. Settle the remaining release policy,
+  freeze the rest of the candidate contract,
   and build the current-head five-RID draft under its separate outward-action
   gate.
 - Close canonical GitHub #30 only under its separate outward-action gate.
   Unrelated Sentinel and package-manager feature decisions remain
   outside the release candidate.
-- Settle the security-reporting channel, support expectations, and next version
-  as separate owner decisions. `v0.3.0-rc.1` cannot be reused because both a
-  published prerelease and a stale draft already use that tag.
+- Settle the security-reporting channel and support expectations as separate
+  owner decisions. `v0.3.0-rc.1` cannot be reused because both a published
+  prerelease and a stale draft already use that tag.
 
 ## Open / Parked
 

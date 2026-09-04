@@ -34,6 +34,19 @@ live rule now owned elsewhere - archive it per the rule above: move it verbatim 
 
 ## Decisions
 
+### ACTIVE (2026-09-04): next release candidate version is `0.3.0-rc.2`
+
+**Status:** Active — the owner accepted the standing release-readiness
+recommendation on 2026-09-04.
+
+The next PTK candidate uses product version `0.3.0-rc.2` and release tag
+`v0.3.0-rc.2`. Both a published prerelease and a stale draft already use
+`v0.3.0-rc.1`; immutable-version policy forbids repairing or reusing it.
+
+This ruling freezes the version only. It does not authorize workflow dispatch,
+issue closure, tag creation, draft publication, announcement, or another
+outward action.
+
 ### ACTIVE (2026-08-31): agent sessions keep module autoloading on
 
 **Status:** Active — ruled by the owner on 2026-08-31 ("leaving it on all the

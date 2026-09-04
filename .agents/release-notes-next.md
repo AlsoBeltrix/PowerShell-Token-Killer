@@ -1,13 +1,13 @@
 # Next PTK prerelease — working release notes
 
-**Status:** NOT PUBLISHABLE. This is the factual content draft for the release
-after `v0.3.0-rc.1`; owner policy rulings and exact candidate evidence remain
+**Status:** NOT PUBLISHABLE. This is the factual content draft for
+`v0.3.0-rc.2`; security/support rulings and exact candidate evidence remain
 unset. Populate the public release from `docs/release-notes-template.md` only
 after every pending field below is proved.
 
 ## Candidate identity
 
-- Version: pending owner ruling; standing recommendation `0.3.0-rc.2`.
+- Version: `0.3.0-rc.2`, ruled by the owner on 2026-09-04.
 - Supersedes: `0.3.0-rc.1` (`0c8ed87635ef37db548d086ada78a2020c4b390f`).
 - Product delta summarized through: `0c9328a`.
 - Exact final source commit, workflow run, publication time: pending.
@@ -73,7 +73,7 @@ after every pending field below is proved.
 
 ## Install and upgrade
 
-- This release is intended to remain a prerelease; exact version is pending.
+- This release is prerelease `0.3.0-rc.2`.
 - New users follow the checksum-verified public bootstrap in `README.md`.
   Existing users use the same transactional installer. PTK processes must be
   stopped before upgrade; activation failure restores the prior installer-owned

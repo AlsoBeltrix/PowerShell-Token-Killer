@@ -46,8 +46,12 @@ its two required modules (`rr-2`).
 
 The Codex init leg now repairs an orphaned PTK tool-policy table before
 invoking the otherwise-bricked Codex CLI, while preserving valid registrations
-and their policies (`mhi-13`). Codex redirect enforcement remains unshipped:
-the current TUI exposes shell and MCP work through the same outer `exec` tool.
+and their policies (`mhi-13`). Codex redirect enforcement now has an
+owner-approved installer repair (`mhi-14`): the user-level hook matches unified
+`exec_command` as `Bash`, preserves Headroom and other hooks, and leaves trust
+to Codex's next-session review. The full PowerShell suite passes 116 tests with
+3 platform skips; owner install plus fresh-session live deny/reissue remains
+pending.
 
 The policy-independent public operations baseline is committed at `c55169f`:
 privacy, known limitations, contribution and community templates, release

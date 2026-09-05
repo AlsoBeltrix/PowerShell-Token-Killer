@@ -831,6 +831,7 @@ function Get-PtkRegistrationPaths {
         (Join-Path $HOME '.claude' 'settings.json')
         (Join-Path $HOME '.claude' 'CLAUDE.md')
         (Join-Path $HOME '.codex' 'config.toml')
+        (Join-Path $HOME '.codex' 'hooks.json')
         (Join-Path $HOME '.codex' 'AGENTS.md')
         (Join-Path $HOME '.grok' 'config.toml')
         (Join-Path $HOME '.gemini' 'config' 'mcp_config.json')

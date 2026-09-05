@@ -48,6 +48,15 @@ repairs that exact orphan first and preserves valid base-plus-policy configs.
 Red/green and temporary-revert proof is recorded in
 `.agents/review/findings/mhi-13.md`.
 
+## mhi-14 Codex redirect hook installation (2026-09-04)
+
+Owner's live probe exposed that the Codex leg shipped no redirect hook. Current
+official Codex documentation establishes unified `exec_command` as hook matcher
+`Bash` with `tool_input.command`. The owner-approved repair merges a PTK-owned
+user hook without disturbing Headroom or other handlers and removes only PTK on
+uninstall. Red/green guard proof and the remaining next-session live check are
+recorded in `.agents/review/findings/mhi-14.md`.
+
 ## rr-2 public installer bootstrap (2026-09-04)
 
 Release-readiness audit found the documented no-clone install depended on a

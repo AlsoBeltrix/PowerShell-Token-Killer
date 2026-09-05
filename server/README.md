@@ -201,19 +201,19 @@ Long-running work:
   warm-session state must use a dedicated PTK session and a sufficient
   foreground timeout; it cannot also outlive that worker.
 
-## Claude Code Hook
+## Agent Harness Hooks
 
-`scripts/ptk_init.ps1` installs a Claude Code `PreToolUse` hook that redirects
-ordinary Bash and PowerShell tool calls toward the `ptk_invoke` MCP tool using
+`scripts/ptk_init.ps1` installs supported-harness `PreToolUse` hooks that redirect
+ordinary shell tool calls toward the `ptk_invoke` MCP tool using
 a deny-with-guidance response. The guidance names the tool without a harness
 prefix — the same tool carries a different id per harness
 ([docs/harness-support.md](../docs/harness-support.md)).
 
-The script is the multi-harness init surface (`-Agent claude|codex|grok|agy|all`,
-defaulting to the agents detected on the machine). All four legs are
+The script is a multi-harness init surface (`-Agent claude|codex|grok|agy|kimi|all`,
+defaulting to the agents detected on the machine). All five legs are
 implemented: claude (hook + guidance block), codex (idempotent `codex mcp
-add` + `~/.codex/AGENTS.md` block; no hook — trust-gated), grok
-(`grok mcp add -s user` behind a config-presence short-circuit; its
+add` + user-level `~/.codex/hooks.json` `PreToolUse`/`Bash` hook +
+`~/.codex/AGENTS.md` block; Codex reviews the hook for trust next session), grok
 guidance home is `~/.claude/CLAUDE.md`, which grok session-loads), and agy
 (a user-level plugin directory carrying registration + rules; no hook —
 enforcement is deferred until a live install run demonstrates agy's

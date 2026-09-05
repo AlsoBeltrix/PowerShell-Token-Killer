@@ -25,8 +25,9 @@ registered, or the installed payload exists).
 
 codex leg: idempotent registration (`codex mcp get ptk` answers -> the
 existing entry is left as-is; otherwise `codex mcp add ptk -- <installed
-binary>`) and the guidance block in ~/.codex/AGENTS.md. No hook: codex
-hooks are trust-gated (plan: Evidence).
+binary>`), a user-level `PreToolUse`/`Bash` redirect hook merged into
+~/.codex/hooks.json, and the guidance block in ~/.codex/AGENTS.md. Codex
+reviews non-managed hooks for trust in the next session.
 
 claude leg: registers the server user-scope (claude mcp add, remove-then-add
 so re-installs never collide), checks the installed payload (~/.ptk) and
@@ -94,6 +95,7 @@ param(
     [string]$NudgePath,
     # Per-leg config targets (test seams).
     [string]$CodexConfigPath,
+    [string]$CodexHooksPath,
     [string]$GrokConfigPath,
     [string]$AgyPluginRoot,
     [string]$AgyConfigPath,
@@ -563,19 +565,119 @@ function Remove-PtkCodexOrphanTable {
     return $true
 }
 
+# Codex hooks use the same JSON event/group/handler shape as Claude settings,
+# but live in a dedicated user-level hooks.json and canonically match unified
+# exec_command as Bash. Preserve every foreign entry and even foreign handlers
+# sharing a group; the command path marker is the only PTK ownership signal.
+function Get-PtkCodexHookEntries {
+    param([Parameter(Mandatory)][string]$Path)
+
+    $settings = Read-PtkSettings -Path $Path
+    if ($settings.ContainsKey('hooks') -and
+        $settings['hooks'].ContainsKey('PreToolUse')) {
+        return @($settings['hooks']['PreToolUse'])
+    }
+    @()
+}
+
+function Update-PtkCodexHook {
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [switch]$Remove
+    )
+
+    $settings = Read-PtkSettings -Path $Path
+    $preToolUse = @()
+    if ($settings.ContainsKey('hooks') -and
+        $settings['hooks'].ContainsKey('PreToolUse')) {
+        $preToolUse = @($settings['hooks']['PreToolUse'])
+    }
+
+    $ownedCount = 0
+    $retainedEntries = [System.Collections.Generic.List[object]]::new()
+    foreach ($entry in $preToolUse) {
+        if ($entry -isnot [System.Collections.IDictionary] -or
+            -not $entry.Contains('hooks')) {
+            $retainedEntries.Add($entry)
+            continue
+        }
+
+        $retainedHooks = [System.Collections.Generic.List[object]]::new()
+        foreach ($handler in @($entry['hooks'])) {
+            $owned = ($handler -is [System.Collections.IDictionary]) -and
+                ([string]$handler['command'] -like "*$hookMarker*")
+            if ($owned) {
+                $ownedCount++
+            }
+            else {
+                $retainedHooks.Add($handler)
+            }
+        }
+        if ($retainedHooks.Count -gt 0) {
+            $entry['hooks'] = @($retainedHooks)
+            $retainedEntries.Add($entry)
+        }
+    }
+
+    if ($Remove -and $ownedCount -eq 0) {
+        Write-Host "[codex] no ptk hook entry in $Path - nothing to remove."
+        return
+    }
+
+    $preToolUse = @($retainedEntries)
+    if (-not $Remove) {
+        $preToolUse += @{
+            matcher = 'Bash'
+            hooks = @(@{ type = 'command'; command = $hookCommand })
+        }
+    }
+
+    if (-not $settings.ContainsKey('hooks') -and $preToolUse.Count -gt 0) {
+        $settings['hooks'] = @{}
+    }
+    if ($preToolUse.Count -gt 0) {
+        $settings['hooks']['PreToolUse'] = $preToolUse
+    }
+    elseif ($settings.ContainsKey('hooks')) {
+        $settings['hooks'].Remove('PreToolUse')
+        if ($settings['hooks'].Count -eq 0) {
+            $settings.Remove('hooks')
+        }
+    }
+
+    $json = $settings | ConvertTo-Json -Depth 32
+    if ($DryRun) {
+        Write-Host "DRY RUN - would write ${Path}:"
+        Write-Host $json
+        return
+    }
+
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) {
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    }
+    Set-Content -LiteralPath $Path -Value $json -NoNewline
+    Write-Host ("[codex] ptk hook {0} in {1} (review/trust it in the next Codex session)" -f
+        ($Remove ? 'removed' : 'installed'), $Path)
+}
+
 # codex leg: registration (idempotent - an existing entry is left as-is so
-# user customizations like env blocks survive) + nudge in ~/.codex/AGENTS.md.
-# No hook: this Codex TUI exposes shell and MCP dispatch through the same
-# outer exec tool, so no selective shell redirect contract is live-verified.
+# user customizations like env blocks survive) + a user-level PreToolUse hook
+# in ~/.codex/hooks.json + nudge in ~/.codex/AGENTS.md. Codex exposes unified
+# exec_command to hooks as Bash and supplies its command in tool_input.command.
 # The nudge is written even when registration fails - its wording is
 # conditional ("when available"), safe on machines where ptk never arrives.
 function Invoke-PtkCodexLeg {
     $nudgeTarget = $NudgePath ? $NudgePath : (Join-Path $HOME '.codex' 'AGENTS.md')
     $codexConfig = $CodexConfigPath ? $CodexConfigPath : (Join-Path $HOME '.codex' 'config.toml')
+    $codexHooks = $CodexHooksPath ? $CodexHooksPath :
+        ($CodexConfigPath ? "${CodexConfigPath}.hooks.json" : (Join-Path $HOME '.codex' 'hooks.json'))
     $binary = Join-Path $PtkHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')
     $cli = Get-Command codex -ErrorAction SilentlyContinue
     $nudgePresent = (Test-Path -LiteralPath $nudgeTarget) -and
         ((Get-Content -LiteralPath $nudgeTarget -Raw) -like "*$nudgeBegin*")
+    $hookEntries = @(Get-PtkCodexHookEntries -Path $codexHooks)
+    $hookPresent = @($hookEntries | Where-Object { Test-PtkEntry $_ }).Count -gt 0
 
     if ($Show) {
         Write-Host ("[codex] cli: {0}" -f ($cli ? $cli.Source : 'NOT FOUND'))
@@ -585,6 +687,8 @@ function Invoke-PtkCodexLeg {
             $registration = ($LASTEXITCODE -eq 0) ? 'REGISTERED' : 'not registered'
         }
         Write-Host "[codex] registration: $registration"
+        Write-Host ("[codex] redirect hook: {0} in {1}" -f
+            ($hookPresent ? 'INSTALLED' : 'not installed'), $codexHooks)
         Write-Host ("[codex] nudge block: {0} in {1}" -f
             ($nudgePresent ? 'INSTALLED' : 'not installed'), $nudgeTarget)
         return $true
@@ -626,6 +730,7 @@ function Invoke-PtkCodexLeg {
                     '(codex mcp remove leaves them; orphaned they make the config unloadable).') -f $codexConfig)
             }
         }
+        Update-PtkCodexHook -Path $codexHooks -Remove
         Uninstall-PtkNudgeBlock -Path $nudgeTarget
         return $true
     }
@@ -636,7 +741,9 @@ function Invoke-PtkCodexLeg {
     }
 
     $ok = $true
+    $registrationReady = $false
     if ($DryRun) {
+        $registrationReady = $true
         Write-Host ("DRY RUN - would ensure registration (skipped when codex mcp get ptk " +
             "already answers): codex mcp add ptk -- `"{0}`"" -f $binary)
         if (Test-PtkCodexOrphanTable -Path $codexConfig) {
@@ -656,6 +763,7 @@ function Invoke-PtkCodexLeg {
         codex mcp get ptk *> $null
         if ($LASTEXITCODE -eq 0) {
             Write-Host '[codex] already registered - left as is (codex mcp get ptk answers).'
+            $registrationReady = $true
         }
         elseif (-not (Test-Path -LiteralPath $binary)) {
             # Registering a missing exe writes a broken config.toml entry.
@@ -672,7 +780,21 @@ function Invoke-PtkCodexLeg {
             }
             else {
                 Write-Host '[codex] registered (user-level ~/.codex/config.toml).'
+                $registrationReady = $true
             }
+        }
+    }
+
+    if ($registrationReady) {
+        if (Test-Path -LiteralPath $installedHook -PathType Leaf) {
+            Update-PtkCodexHook -Path $codexHooks
+        }
+        elseif (-not $DryRun -and (Test-Path -LiteralPath $binary -PathType Leaf)) {
+            Write-Warning (('[codex] installed hook payload missing at {0}; ' +
+                're-run scripts/install.ps1.') -f $installedHook)
+        }
+        else {
+            Write-Warning '[codex] no installed PTK hook payload; leaving redirect hook uninstalled.'
         }
     }
 

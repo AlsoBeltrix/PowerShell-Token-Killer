@@ -2258,7 +2258,112 @@ Describe 'Compress-PtcOutput' {
             $prose = 1..6 | ForEach-Object { "paragraph $_ of plain prose without timestamps" }
             $result = $prose | Compress-PtcOutput
 
-            $result | Should -BeExactly ($prose -join [Environment]::NewLine)
-        }
+        $result | Should -BeExactly ($prose -join [Environment]::NewLine)
     }
+}
+
+Describe 'Codex redirect hook installer' {
+    BeforeAll {
+        $script:codexHookInit = Join-Path $PSScriptRoot '..' 'scripts' 'ptk_init.ps1'
+        $script:codexHookRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("ptk-codex-hook-{0}" -f ([guid]::NewGuid()))
+        $script:codexHookBin = Join-Path $script:codexHookRoot 'shim'
+        $script:codexHookHome = Join-Path $script:codexHookRoot 'home'
+        New-Item -ItemType Directory -Path $script:codexHookBin -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:codexHookHome 'bin') -Force | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:codexHookHome 'scripts') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $script:codexHookHome 'bin' ($IsWindows ? 'PtkMcpServer.exe' : 'PtkMcpServer')) -Value 'stub'
+        Set-Content -LiteralPath (Join-Path $script:codexHookHome 'scripts' 'ptk-hook.ps1') -Value '# installed hook'
+        Set-Content -LiteralPath (Join-Path $script:codexHookBin 'codex.ps1') -Value @'
+if (($args -join ' ') -eq 'mcp get ptk') { exit 0 }
+if (($args -join ' ') -eq 'mcp remove ptk') { exit 0 }
+exit 1
+'@
+        $script:codexHookSavedPath = $env:PATH
+        $env:PATH = $script:codexHookBin + [System.IO.Path]::PathSeparator + $env:PATH
+    }
+
+    AfterAll {
+        $env:PATH = $script:codexHookSavedPath
+        Remove-Item -LiteralPath $script:codexHookRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    BeforeEach {
+        $script:codexHookConfig = Join-Path $script:codexHookRoot ("config-{0}.toml" -f ([guid]::NewGuid()))
+        $script:codexHooks = Join-Path $script:codexHookRoot ("hooks-{0}.json" -f ([guid]::NewGuid()))
+        $script:codexNudge = Join-Path $script:codexHookRoot ("AGENTS-{0}.md" -f ([guid]::NewGuid()))
+        Set-Content -LiteralPath $script:codexHookConfig -Value ''
+        Set-Content -LiteralPath $script:codexHooks -Value (@{
+                description = 'keep me'
+                hooks = @{
+                    PreToolUse = @(
+                        @{ matcher = 'Bash'; hooks = @(@{ type = 'command'; command = 'headroom init hook ensure' }) }
+                        @{
+                            matcher = 'Bash|PowerShell'
+                            hooks = @(
+                                @{ type = 'command'; command = 'audit shared handler' }
+                                @{ type = 'command'; command = 'pwsh -NoProfile -File "/stale/ptk-hook.ps1"' }
+                            )
+                        }
+                    )
+                    SessionStart = @(
+                        @{ matcher = 'startup|resume'; hooks = @(@{ type = 'command'; command = 'headroom init hook ensure' }) }
+                    )
+                }
+            } | ConvertTo-Json -Depth 8)
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:codexHookConfig, $script:codexHooks, $script:codexNudge -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'merges one Bash hook idempotently and preserves foreign hooks' {
+        1..2 | ForEach-Object {
+            pwsh -NoProfile -File $script:codexHookInit -Agent codex `
+                -CodexConfigPath $script:codexHookConfig `
+                -CodexHooksPath $script:codexHooks `
+                -NudgePath $script:codexNudge `
+                -PtkHome $script:codexHookHome | Out-Null
+            $LASTEXITCODE | Should -Be 0
+        }
+
+        $config = Get-Content -LiteralPath $script:codexHooks -Raw | ConvertFrom-Json
+        $config.description | Should -BeExactly 'keep me'
+        @($config.hooks.SessionStart).Count | Should -Be 1
+        @($config.hooks.PreToolUse).Count | Should -Be 3
+        @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -eq 'headroom init hook ensure' }).Count | Should -Be 1
+        @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -eq 'audit shared handler' }).Count | Should -Be 1
+        $ptk = @($config.hooks.PreToolUse | Where-Object { $_.hooks[0].command -like '*ptk-hook.ps1*' })
+        $ptk.Count | Should -Be 1
+        $ptk[0].matcher | Should -BeExactly 'Bash'
+        $ptk[0].hooks[0].command | Should -Match ([regex]::Escape($script:codexHookHome))
+    }
+
+    It 'uninstalls only the PTK hook' {
+        pwsh -NoProfile -File $script:codexHookInit -Agent codex `
+            -CodexConfigPath $script:codexHookConfig `
+            -CodexHooksPath $script:codexHooks `
+            -NudgePath $script:codexNudge `
+            -PtkHome $script:codexHookHome | Out-Null
+        $LASTEXITCODE | Should -Be 0
+
+        pwsh -NoProfile -File $script:codexHookInit -Agent codex -Uninstall `
+            -CodexConfigPath $script:codexHookConfig `
+            -CodexHooksPath $script:codexHooks `
+            -NudgePath $script:codexNudge `
+            -PtkHome $script:codexHookHome | Out-Null
+        $LASTEXITCODE | Should -Be 0
+
+        $config = Get-Content -LiteralPath $script:codexHooks -Raw | ConvertFrom-Json
+        $config.description | Should -BeExactly 'keep me'
+        @($config.hooks.SessionStart).Count | Should -Be 1
+        @($config.hooks.PreToolUse).Count | Should -Be 2
+        @($config.hooks.PreToolUse.hooks.command) | Should -Contain 'headroom init hook ensure'
+        @($config.hooks.PreToolUse.hooks.command) | Should -Contain 'audit shared handler'
+    }
+
+    It 'includes Codex hooks in installer transaction rollback state' {
+        $installer = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..' 'scripts' 'install.ps1') -Raw
+        $installer | Should -Match "\(Join-Path \`$HOME '\.codex' 'hooks\.json'\)"
+    }
+}
 }

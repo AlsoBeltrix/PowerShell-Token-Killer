@@ -1,7 +1,7 @@
 #Requires -Version 7
 <#
 .SYNOPSIS
-Claude Code PreToolUse hook: redirects Bash/PowerShell tool calls to the
+PreToolUse hook for supported agent harnesses: redirects shell tool calls to the
 ptk_invoke MCP tool, where output is token-compressed and the warm runspace
 persists state across calls (unified-shell-routing plan). The guidance names
 the tool WITHOUT a harness prefix: the same tool carries a different id per

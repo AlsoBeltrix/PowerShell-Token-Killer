@@ -30,10 +30,12 @@ orphaned PTK subtables and reports the repair. A valid custom PTK registration
 and its per-tool policy remain byte-for-byte present. Dry-run reports the
 pending repair without writing.
 
-The Codex redirect hook remains intentionally unshipped. Current TUI
-transcript evidence shows both shell and MCP dispatch behind the same outer
-`exec` tool, so matching it would also deny `ptk_invoke`; no selective redirect
-contract is live-verified.
+The original repair record incorrectly concluded that the unified TUI shell
+surface could not be selectively hooked. Current official Codex documentation
+establishes that unified `exec_command` is canonically exposed to hooks as
+`Bash`, while MCP calls retain MCP tool names, and that the command arrives as
+`tool_input.command`. The owner-approved mhi-14 follow-up therefore adds the
+Codex redirect hook; this orphan-table repair remains otherwise unchanged.
 
 ## Guard proof
 

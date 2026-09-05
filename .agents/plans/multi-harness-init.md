@@ -12,6 +12,20 @@ PTK-owned orphan before invoking the otherwise-bricked CLI, while preserving a
 valid base registration and its tool policy. Finding and mutation proof:
 `.agents/review/findings/mhi-13.md`.
 
+**Follow-up amendment 2026-09-04 (owner-approved “go”):** ship Codex redirect
+enforcement at user scope. Current official Codex hooks documentation establishes
+that `~/.codex/hooks.json` is a supported source, `PreToolUse` matcher `Bash`
+covers unified `exec_command` (including nested code-mode calls), and the command
+arrives as `tool_input.command`. The Codex leg must merge one PTK-owned `Bash`
+entry without disturbing Headroom or other hooks, replace stale/duplicate PTK
+entries idempotently, remove only its own entry on uninstall, and install it only
+when registration can answer and the installed hook payload exists. The next
+Codex session owns the documented non-managed-hook review/trust prompt; the
+installer reports that explicitly and never writes trust state. Live diagnosis
+also cleared Headroom as the suspected remover: its session hook only ensures a
+profile process is running, and its Codex config/hook writers preserve unrelated
+MCP tables and foreign hooks.
+
 - (a) Claude hooked check **PASSED end to end**: both matchers (Bash,
   PowerShell) denied live in-session with the guidance; a fresh headless
   session quoted the deny verbatim, re-issued via `ptk_invoke`
@@ -166,7 +180,7 @@ verifies them).
 | Harness | MCP registration | Hook (enforcement) | Nudge home |
 | --- | --- | --- | --- |
 | Claude Code | `claude mcp add --scope user` (in use today) | PreToolUse deny-with-guidance — mechanism verified, ptk's own live deny-and-reissue check STILL PENDING (the standing gate) | `~/.claude/CLAUDE.md` |
-| codex | `codex mcp add ptk -- <exe>` → `~/.codex/config.toml [mcp_servers.ptk]`; loads in `codex exec` (self-report + this machine's live config) | repo-level `.codex/hooks.json` pre_tool_use verified firing elsewhere (2026-06-29), but hooks are TRUST-GATED (`--dangerously-bypass-hook-trust` exists; persistence mechanism unknown) and repo-level writes violate user-level-only → **no hook in v1; probe later** | `~/.codex/AGENTS.md` (self-report, confident) |
+| codex | `codex mcp add ptk -- <exe>` → `~/.codex/config.toml [mcp_servers.ptk]`; loads in `codex exec` (self-report + machine's live config) | **SUPERSEDED 2026-09-04:** official docs now establish user-level `~/.codex/hooks.json`, matcher `Bash` for unified `exec_command`, and the normal trust-review flow; the approved follow-up ships that hook | `~/.codex/AGENTS.md` (self-report, confident) |
 | grok | `grok mcp add -s user ptk <exe>` → `~/.grok/config.toml` (CLI-verified surface) | Self-report: all unsure. Third-party ledger: global `~/.grok/hooks/*.json` + auto-scan of `~/.claude/settings.json` — meaning ptk's GLOBAL CLAUDE HOOK may already fire in grok. Probe. | SELF-REPORT, slice-0 probe target: grok claimed it session-loads `~/.claude/Claude.md` (note the casing it reported — fine on Windows, not on case-sensitive systems). If the probe confirms it, the Claude user nudge covers grok; if not, the grok leg needs its own nudge home. MCP tools named `{server}__{tool}` (self-report) |
 | agy (Antigravity) | DOCUMENTED (agy's bundled docs on this machine, `antigravity-cli/builtin/skills/agy-customizations/docs/`): global `~/.gemini/config/mcp_config.json`, `mcpServers` map, stdio entries `command`/`args`/`env`; file VERIFIED present (2026-07-08, empty). Plugins can carry their own `mcp_config.json`. NOTE: agy's sandbox blocks it from reading its own config — probes run from outside or by the owner | DOCUMENTED and the conflict RESOLVED on paper: hooks live in `hooks.json` in a customization root (`~/.gemini/config/` globally, `.agents/` per-repo — the ledger's settings.json claim was wrong/stale) or inside a plugin. PreToolUse with `matcher: run_command`, stdin camelCase JSON (`toolCall.name`, `args.CommandLine`), stdout `{"decision":"deny","reason":"..."}` — full deny-with-guidance, plus `ask`/`force_ask`. Live firing still to prove (slice 0) | DOCUMENTED: directory-based `GEMINI.md`/`AGENTS.md` rules, walked up from cwd; plugins carry `rules/*.md`. No global `~/.gemini/GEMINI.md` exists yet on this machine |
 | gemini CLI / cursor | absent on this machine | cursor: `.cursor` `BeforeTool` hooks.json per rtk's constants | dormant legs |
